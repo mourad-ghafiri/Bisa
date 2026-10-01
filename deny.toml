@@ -1,0 +1,54 @@
+# cargo-deny: "no copyleft, no licence nobody has read" as a build failure, not
+# a promise (docs/contributing/release.md §Licence). `just licence-gate` runs it
+# on both workspaces when cargo-deny is installed, and `scripts/licences/
+# check-licences.mjs` judges the same graphs against this very list on a machine
+# without it; CI always runs both. This list is **the** allow list: the desktop
+# shell's `deny.toml` is a copy a test holds equal, and the third-party notices
+# are rendered from the same rules.
+#
+# Every id here is permissive for a work distributed under MIT, with three that
+# deserve a word:
+# - MPL-2.0 — file-level copyleft. Two unmodified crates from crates.io carry it
+#   (attohttpc, option-ext); the notices point at their source, as §3.2 asks.
+# - CDLA-Permissive-2.0 — the data licence of the Mozilla CA list webpki-roots
+#   embeds; attribution only.
+# - BSL-1.0 — ryu's alternative to Apache-2.0, and two Windows-only crates
+#   (clipboard-win, error-code); attribution only.
+
+[licenses]
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+    "BSL-1.0",
+]
+confidence-threshold = 0.8
+# One list serves two workspaces, and each carries an id the other does not
+# (0BSD is the shell's, CDLA-Permissive-2.0 the node's): an allowance one graph
+# never meets is no fault of that graph.
+unused-allowed-license = "allow"
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[advisories]
+yanked = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

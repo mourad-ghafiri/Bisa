@@ -1,0 +1,7 @@
+# Built-in team: Discovery — takes a raw goal to a shape the owner adopts.
+
+[team]
+name = "Discovery"
+purpose = "Assigned to a goal that is still a single sentence. Produces a sharpened statement, a read on how the outcome should be judged, and the smallest shape of the work — for the Workflow Agent to draw and the owner to adopt, together with a read on which specialists the work will actually need. It does not build anything."
+tags = ["discovery", "product"]
+agents = ["product-manager", "business-analyst", "researcher", "facilitator", "critic", "general-advisor"]

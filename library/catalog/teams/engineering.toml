@@ -1,0 +1,7 @@
+# Built-in team: Engineering — committed work items to reviewed, verified change.
+
+[team]
+name = "Engineering"
+purpose = "Takes committed work items to verified, reviewed change on a branch: the design decision, the implementation — on the web or on a phone —, the review of the diff, the rewrite that makes it read as a person's, and the security read that goes with it. It executes a plan; it does not decide what is worth doing."
+tags = ["engineering", "delivery"]
+agents = ["architect", "developer", "mobile-developer", "code-reviewer", "code-humanizer", "qa-engineer", "security-engineer"]

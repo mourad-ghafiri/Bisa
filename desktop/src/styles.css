@@ -1,0 +1,332 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   The stylesheet is now four things, in this order, and the order is the
+   cascade:
+
+     theme/tokens.css      the role contract, the type scale, the spacing and
+                           motion tokens — what a theme must answer
+     theme/themes/*.css    the answers, one file per family (light and dark)
+     theme/material.css    the glass families' frost — the panes' backdrop
+     theme/accents.css     an overlay that replaces only the accent roles
+     theme/density.css     an overlay that replaces only the row heights
+     theme/fonts.css       the bundled faces and the two font dials
+
+   Tailwind puts `@theme` into its own cascade layer, and everything imported
+   below is unlayered, so a theme always outranks the fallback values in the
+   contract regardless of where it sits in the import list. Between the
+   overlays, source order decides — which is why accents and density come
+   last.
+
+   What is left in this file is the part that is not a token: element
+   defaults, the focus ring, and the couple of shared classes that describe a
+   behaviour rather than a colour.
+--------------------------------------------------------------------------- */
+
+@import "./theme/tokens.css";
+/* The default family first — it owns bare `:root` — then the alternatives. */
+@import "./theme/themes/glass.css";
+@import "./theme/themes/harbor.css";
+@import "./theme/themes/orchard.css";
+@import "./theme/themes/dune.css";
+@import "./theme/themes/suede.css";
+/* The glass families' frost: the panes blur their backdrop through the material roles. */
+@import "./theme/material.css";
+@import "./theme/accents.css";
+@import "./theme/density.css";
+@import "./theme/fonts.css";
+@import "./theme/motion.css";
+/* The designer canvas: xyflow's `--xy-*` variables answered from the roles. */
+@import "./theme/flow.css";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
+/* A find over a rendering: every match, and the one the bar is on
+   (`ui/find/useDomFind.ts`), drawn by the highlight registry so the
+   rendering's DOM is never rewritten. */
+::highlight(bisa-find) {
+  background-color: color-mix(in oklch, var(--color-accent-soft) 80%, transparent);
+  color: var(--color-text);
+}
+::highlight(bisa-find-current) {
+  background-color: var(--color-warn-soft);
+  color: var(--color-text);
+}
+
+/* Timestamps, counters and ids line up column-wise. */
+.tnum,
+time,
+code {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin scrollbars that fit every theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--color-text-dim) 40%, transparent) transparent;
+}
+
+/* Focus: one visible ring everywhere, never removed without a replacement. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/*
+ * A field you type in is always focus-visible, so the keyboard ring above
+ * would sit two pixels outside its own accent border — a thick double frame
+ * around every input. A field says "focused" with its border turning accent
+ * (the kit's `CONTROL`) and nothing more: no ring, no halo, nothing painted
+ * outside or inside its box. Buttons, rows and links keep the ring.
+ */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[contenteditable="true"]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/*
+ * A field drawn inside a bordered box with a glyph beside it — the omnibox,
+ * a search box — is one control to the eye: the box says "focused" by its
+ * border turning accent, and the bare input inside it says nothing at all.
+ */
+.control-group:focus-within {
+  border-color: var(--color-accent);
+}
+.control-group input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/*
+ * Radix moves focus programmatically when a menu or dialog opens, and the
+ * browser then paints a focus ring on a surface the pointer just summoned.
+ * `:focus-visible` already suppresses that for mouse users; this suppresses
+ * the ring on the container itself, which is focused only so Escape and the
+ * arrow keys have somewhere to land.
+ */
+[data-radix-popper-content-wrapper] :focus:not(:focus-visible),
+[role="dialog"]:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* A row whose actions appear on hover — the sidebar and every dense list. */
+.row-actions {
+  opacity: 0;
+}
+.group:hover .row-actions,
+.group:focus-within .row-actions,
+.group[data-selected] .row-actions {
+  opacity: 1;
+}
+
+/*
+ * Drag and drop over a tree (ide/03). One bar per tree slides between the
+ * rows on the gap a drop would take — a cap at its left marks the depth —
+ * rather than a bar remounting inside each row; the rows beside the gap
+ * part by a hair (`--drop-shift`, set by the tree); a row a drop would nest
+ * into wears an inset ring that eases in; the cursor and the ghost say when
+ * a drop is refused. Colours are the theme's, durations the motion tokens'.
+ */
+.tree-drop-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  transition:
+    transform var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease);
+}
+.tree-drop-bar::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+.tree-drop-bar[data-show="true"] {
+  opacity: 1;
+}
+.tree-row-shift {
+  transform: translateY(var(--drop-shift, 0px));
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+.tree-nest {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease);
+}
+.tree-nest[data-drop-inside="true"] {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+[data-drop-cue="refused"] {
+  cursor: not-allowed;
+}
+[data-drop-cue="move"],
+[data-drop-cue="nest"],
+[data-drop-cue="stay"] {
+  cursor: grabbing;
+}
+.drag-ghost[data-cue="refused"] {
+  opacity: 0.5;
+  border-color: var(--color-border);
+}
+
+/*
+ * The Board's card in flight (ide/16): the ghost is the card itself, a hair
+ * larger with a deeper shadow and the accent's hairline; the card left on
+ * the board is its placeholder — the footprint, dashed and faded, eased by
+ * `.anim`; the card a drop just put somewhere wears the accent's wash for a
+ * beat and fades through `.anim`. Reduced motion collapses the tokens.
+ */
+.board-card-lift {
+  transform: scale(1.02);
+  box-shadow:
+    0 12px 28px -8px rgb(0 0 0 / 0.35),
+    0 0 0 1px var(--color-accent);
+  cursor: grabbing;
+}
+.board-card-placeholder {
+  opacity: 0.35;
+  border-style: dashed;
+}
+.board-card-landed {
+  background-color: var(--color-accent-soft);
+}
+
+/* The composer sits over the timeline with a fade, not a hard border. */
+.composer-veil {
+  background: linear-gradient(to top, var(--color-bg) 55%, transparent);
+}
+
+/* Rendered markdown (messages, notes). */
+.prose-i > * + * {
+  margin-top: 0.6em;
+}
+/* A redacted secret an agent quoted back: a chip naming its kind, the
+   placeholder itself in the tooltip (`ui/placeholderChips.mjs`). */
+.placeholder-chip {
+  display: inline-block;
+  padding: 0 0.4em;
+  border-radius: 999px;
+  border: 1px dashed var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.5;
+  vertical-align: baseline;
+  cursor: help;
+}
+/* A path or a URL in text is a door (ide/17): dotted under a path, the
+   accent under a URL, so the two are told apart before the click. */
+.link-path,
+.link-url {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-path {
+  color: var(--color-text);
+  text-decoration-style: dotted;
+}
+.link-url {
+  color: var(--color-accent-ink);
+}
+.prose-i h1,
+.prose-i h2,
+.prose-i h3 {
+  font-weight: 600;
+  line-height: 1.3;
+}
+.prose-i h1 {
+  font-size: var(--text-lg);
+}
+.prose-i h2 {
+  font-size: var(--text-base);
+}
+.prose-i h3 {
+  font-size: var(--text-sm);
+}
+.prose-i ul,
+.prose-i ol {
+  padding-left: 1.25rem;
+}
+.prose-i ul {
+  list-style: disc;
+}
+.prose-i ol {
+  list-style: decimal;
+}
+.prose-i code {
+  background: var(--color-surface-2);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+  font-size: 0.95em;
+}
+.prose-i pre {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-control);
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+.prose-i pre code {
+  background: none;
+  padding: 0;
+}
+.prose-i a {
+  color: var(--color-accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-i blockquote {
+  border-left: 2px solid var(--color-border);
+  padding-left: 0.75rem;
+  color: var(--color-text-dim);
+}
+.prose-i hr {
+  border-color: var(--color-border);
+}
+.prose-i table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.prose-i th,
+.prose-i td {
+  border: 1px solid var(--color-border);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}

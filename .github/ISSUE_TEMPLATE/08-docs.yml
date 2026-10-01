@@ -1,0 +1,36 @@
+name: "Documentation"
+description: "Something in the documentation is wrong, missing or unclear."
+title: "[Docs]: "
+labels: ["kind: docs", "status: needs-triage"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: "Page"
+      description: "The page's path or link."
+      placeholder: "docs/guide/goals.md"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "What is wrong or missing"
+      description: "Quote the passage if it is wrong."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "What it should say"
+      description: "Your proposal, if you have one."
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true

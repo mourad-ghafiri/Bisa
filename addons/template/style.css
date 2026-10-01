@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; color: var(--ink); background: transparent; }
+main { box-sizing: border-box; height: 100%; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+p { margin: 0; }
+#note { color: var(--dim); font-size: 11px; }

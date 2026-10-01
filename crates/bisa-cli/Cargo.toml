@@ -1,0 +1,87 @@
+[package]
+name = "bisa-cli"
+description = "The bisa multicall binary: CLI / node daemon / MCP personalities"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+# Two binaries, one of them the tests': `cargo run -p bisa-cli` is `bisa`.
+default-run = "bisa"
+# The scripted agent under `tests/` is a binary, not a test of its own: with
+# auto-discovery on, cargo would also read the file as an integration-test
+# target and warn. The one integration binary is named below instead.
+autotests = false
+
+[[bin]]
+name = "bisa"
+path = "src/main.rs"
+
+# A harness that does what a script says — what the journeys under
+# `tests/it/e2e/` give the daemon to launch, so no real harness is ever
+# spawned by a test. Built as a binary of this package so
+# `CARGO_BIN_EXE_scripted-agent` names it; never shipped — the distribution
+# builds `--bin bisa`.
+[[bin]]
+name = "scripted-agent"
+path = "tests/scripted_agent.rs"
+test = false
+doc = false
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+
+[dependencies]
+bisa-core = { workspace = true }
+# The catalog: every line the CLI prints to a person, in the environment's language.
+bisa-i18n = { workspace = true }
+bisa-store = { workspace = true }
+bisa-harness = { workspace = true }
+bisa-adapters = { workspace = true, features = ["a2a"] }
+bisa-engine = { workspace = true }
+bisa-mcp-probe = { workspace = true }
+bisa-mobile-development = { workspace = true }
+bisa-http = { workspace = true }
+bisa-vcs = { workspace = true }
+bisa-net = { workspace = true, features = ["iroh"] }
+bisa-collab = { workspace = true }
+bisa-guest = { workspace = true }
+futures = { workspace = true }
+bisa-node = { workspace = true, features = ["a2a"] }
+bisa-mcp = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+# The one subscriber every personality installs: stderr under `RUST_LOG`,
+# the file under the workspace's `logs/`.
+bisa-log = { workspace = true }
+tracing = { workspace = true }
+dirs = { workspace = true }
+ulid = { workspace = true }
+nostr = { workspace = true }
+hex = { workspace = true }
+
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+# The hook's reader of a chunked answer, under any body and any cut.
+proptest = { workspace = true }
+# The connector tests' loopback stub.
+axum = { workspace = true }
+# The journeys ask their daemon to stop the way a supervisor does.
+rustix = { workspace = true }
+# The collaboration journey's relay: in-process, on loopback, never a public one.
+nostr-relay-builder = { workspace = true }
+
+[lints]
+workspace = true

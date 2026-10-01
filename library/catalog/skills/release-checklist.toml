@@ -1,0 +1,72 @@
+# Built-in skill: Release Checklist — cut it, prove it, and know who is holding it.
+
+[skill]
+name = "Release Checklist"
+description = "Use when shipping a version: what to verify before the cut, and who owns it after."
+tags = ["delivery", "ops"]
+content = """
+# Release Checklist
+
+Use this when cutting a release. Every step exists because skipping it has produced an outage.
+Work it in order; a release with no named owner afterward is not released, it is abandoned.
+
+## Before the cut
+
+1. Confirm what is going out. Diff the release branch against the last tag and read the commit
+   list. Anything you cannot explain is either undocumented or should not be there.
+2. Confirm the full suite passed on the exact commit you are tagging, not on an earlier one and
+   not locally. Note the run.
+3. Confirm no unmerged work is expected in this release. Ask; do not assume.
+4. Freeze the branch. Every commit after the cut is either a new release or a hotfix, never a
+   quiet addition to this one.
+
+## The changelog
+
+5. Write it for the person deciding whether to upgrade, grouped: **breaking**, **added**,
+   **fixed**, **internal**. Breaking goes first, always.
+6. Every breaking change names what breaks and the exact migration step. "Renamed the config key
+   `publish_mode` to `publish`; update your config before upgrading."
+7. Link each entry to its PR or issue. Cite the version numbers involved.
+8. If it changed nothing a user can see, say so plainly rather than padding the list.
+
+## Migration and rollback
+
+9. Write the migration steps in order, with the command for each. Run them once on a copy of
+   production-shaped data — not on an empty database.
+10. Write the rollback **before** you deploy, and know whether it is possible. A migration that
+    drops a column or rewrites data in place cannot be rolled back by redeploying the old binary.
+    Prefer expand-then-contract: add the new shape, deploy code reading both, backfill, remove the
+    old shape in a later release.
+11. Know how long a rollback takes and who can run it. A rollback nobody has rehearsed is a plan
+    on paper.
+12. Take the backup, and confirm the backup restores. An unverified backup is not a backup.
+
+## The smoke check
+
+13. Write it in advance as a short list of user-visible actions, not a health endpoint. Sign in,
+    create the thing, read it back, trigger the main job, check the number that matters.
+14. Run it against production after deploy, by hand, yourself. Green dashboards after a deploy of
+    a broken build are the normal case for the first few minutes.
+15. Watch error rate and latency for a defined window before declaring done. Say the window.
+
+## After
+
+16. Name the person on the hook, by name, and for how long. "Whoever is on-call" is not an owner.
+17. Say where they watch and what threshold triggers a rollback, decided now rather than at 2am
+    with an audience.
+18. Announce it: version, what changed, what to do about breaking changes, where to report
+    problems.
+
+## Failure modes
+
+- Tagging a commit other than the one that was tested.
+- A rollback plan of "redeploy the previous version" for a release containing a migration.
+- A smoke check that only proves the process started.
+- Declaring done at deploy time instead of after the watch window.
+
+## Done when
+
+The tag is on a commit that passed CI, the changelog names every breaking change with its
+migration, the rollback is written and possible, the smoke check ran against production, and a
+named person owns it for a stated window.
+"""

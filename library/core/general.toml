@@ -1,0 +1,7 @@
+# Built-in channel: general — the room for anything without a home yet.
+
+[channel]
+name = "general"
+topic = "Everything that does not have a home yet. Post here when you are not sure who needs to see it, and move the thread once you know."
+tags = []
+agents = []

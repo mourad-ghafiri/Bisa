@@ -1,0 +1,179 @@
+# Built-in workflow: Event plan — plan, cost, approve, then three tracks in
+# parallel, a readiness check, and a go decision.
+
+[workflow]
+name = "Event plan"
+description = "A plan and a budget check a person approves, then venue, communications and promotion in parallel, a readiness checklist once all three land, and a go decision before the date."
+tags = ["planning", "management", "marketing"]
+
+[[workflow.inputs]]
+name = "event"
+label = "The event, in one line"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "date"
+label = "When it happens"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "budget"
+label = "The budget, in your currency"
+kind = "number"
+required = true
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["plan"]
+
+[[workflow.steps]]
+id = "plan"
+name = "Plan the event"
+kind = "agent"
+assignee = { agent = "project-manager" }
+retries = 1
+instructions = """
+Plan {inputs.event} for {inputs.date}.
+
+The workstreams, the critical path, the owners, what has to be true by when.
+Your result carries the plan as markdown.
+"""
+then = ["cost"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["plan"]
+
+[workflow.steps.output_schema.properties.plan]
+type = "string"
+description = "The plan as markdown: the workstreams, the critical path, the owners, what has to be true by when."
+
+[[workflow.steps]]
+id = "cost"
+name = "Cost it"
+kind = "agent"
+assignee = { agent = "finance-analyst" }
+retries = 1
+instructions = """
+Cost this plan against a budget of {inputs.budget}:
+
+{steps.plan.output.plan}
+
+Line items, the total, what is at risk of overrunning. Your result gives the
+total, the line items as markdown, and whether it fits the budget.
+"""
+then = ["approve"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["total", "fits"]
+
+[workflow.steps.output_schema.properties.total]
+type = "number"
+description = "The total cost, in the budget's currency."
+
+[workflow.steps.output_schema.properties.lines]
+type = "string"
+description = "The line items as markdown, with what is at risk of overrunning."
+
+[workflow.steps.output_schema.properties.fits]
+type = "boolean"
+description = "Whether the total fits the budget."
+
+[[workflow.steps]]
+id = "approve"
+name = "Approve the plan"
+kind = "approval"
+prompt = "{inputs.event} on {inputs.date}: the plan costs {steps.cost.output.total} against a budget of {inputs.budget}. Approve the plan and the spend?"
+then = ["venue", "comms", "promo"]
+
+[[workflow.steps]]
+id = "venue"
+name = "Book the venue"
+kind = "human"
+prompt = "Book the venue for {inputs.event} on {inputs.date} and record the confirmation here."
+then = ["ready"]
+
+[[workflow.steps]]
+id = "comms"
+name = "Write the communications"
+kind = "agent"
+assignee = { agent = "communications-lead" }
+instructions = """
+Write the communications for {inputs.event} on {inputs.date}: the invitation,
+the reminder, the day-of message, the thank-you. Plan: {steps.plan.output.plan}
+Your result carries the four pieces as markdown.
+"""
+then = ["ready"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["pieces"]
+
+[workflow.steps.output_schema.properties.pieces]
+type = "string"
+description = "The invitation, the reminder, the day-of message and the thank-you, as markdown."
+
+[[workflow.steps]]
+id = "promo"
+name = "Plan the promotion"
+kind = "agent"
+assignee = { agent = "marketing-manager" }
+instructions = """
+Plan the promotion for {inputs.event} on {inputs.date}: channels, dates, the
+one message. Plan: {steps.plan.output.plan}
+Your result carries the promotion plan as markdown.
+"""
+then = ["ready"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["promotion"]
+
+[workflow.steps.output_schema.properties.promotion]
+type = "string"
+description = "The promotion plan as markdown: channels, dates, the one message."
+
+[[workflow.steps]]
+id = "ready"
+name = "Readiness check"
+kind = "agent"
+assignee = { agent = "project-manager" }
+join = "all"
+retries = 1
+instructions = """
+Every track has landed for {inputs.event}: venue ({steps.venue.answer}),
+communications, promotion. Walk the plan and write the readiness checklist —
+what is done, what is open, what would stop the event. Your result carries
+the checklist as markdown and whether the event is ready.
+"""
+then = ["go"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["checklist", "ready"]
+
+[workflow.steps.output_schema.properties.checklist]
+type = "string"
+description = "The readiness checklist as markdown: what is done, what is open, what would stop the event."
+
+[workflow.steps.output_schema.properties.ready]
+type = "boolean"
+description = "Whether the event can go ahead as planned."
+
+[[workflow.steps]]
+id = "go"
+name = "Go?"
+kind = "approval"
+prompt = "Readiness for {inputs.event}: {steps.ready.output.checklist}. Go ahead on {inputs.date}?"
+then = ["done"]
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

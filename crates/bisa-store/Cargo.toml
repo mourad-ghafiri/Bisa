@@ -1,0 +1,37 @@
+[package]
+name = "bisa-store"
+description = "Workspace storage: event log (truth), fs artifacts, SQLite index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bisa-core = { workspace = true }
+bisa-harness = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+rusqlite = { workspace = true }
+ulid = { workspace = true }
+nostr = { workspace = true }
+tokio = { workspace = true }
+secp256k1 = { workspace = true }
+keyring = { workspace = true }
+tracing = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+toml = { workspace = true }
+cron = { workspace = true }
+jsonschema = { workspace = true }
+ignore = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

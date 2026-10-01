@@ -1,0 +1,126 @@
+/* ---------------------------------------------------------------------------
+   Glass — the default family.
+
+   Cool neutrals at hue 235, and the one family whose surfaces are not solid:
+   `bg`, `surface`, `surface-2` and `border` carry alpha, and `material.css`
+   frosts every pane through `--material-blur` and `--material-saturate`, so
+   the sidebar, the chrome, a dialog and a menu are sheets of frosted glass
+   over whatever is behind the window (the desktop shell makes the window
+   itself transparent for this family, and only this one). The words stay
+   solid: text, the accent and the status colours never carry alpha, because
+   a word that changes with the wallpaper is a word that sometimes cannot
+   be read.
+
+   The accent is a clear blue at hue 240 — light through glass — 38° from
+   `warn` (90 is 150° away; the near one is `danger` at 22, 142° away). Every
+   bar of the contrast promise is measured over the composite: `surface`
+   laid over `bg`, and `bg` laid over both white and black, because what is
+   behind a transparent window is unknowable. That arithmetic is why the
+   dark side is nearly opaque — a white wallpaper behind a 0.2-lightness
+   pane leaves three parts in a hundred before secondary text drops under
+   4.5:1 — and why the light side can afford a seventh of itself to the
+   view behind. `surface-2`, the hover and the pressed state, sits a full
+   step under the page on either ground, which is deeper than the opaque
+   families need because the page itself moves with the wallpaper.
+
+   The edges are the material: `shadow-raised` is a one-pixel inner light
+   line and a whisper of shadow; `shadow-floating` the same line over a
+   soft, deep drop — a sheet of glass lifted off another. Radii 12 and 16,
+   softer than the opaque families, because a hard corner on glass reads
+   as a cut. Code and terminals stay solid on purpose: their palettes are
+   the roles hexed, alpha dropped, and a blurred desktop is not a surface
+   to read code over.
+
+   Glass also answers when nobody has chosen: bare `:root` is Glass light,
+   and the `prefers-color-scheme` block is Glass dark for a machine that is
+   dark and a person who picked *System* — the desktop shell opens the
+   window transparent with the OS's effect behind it from the first frame
+   (`tauri.conf.json` `windowEffects`), so the frost is there before any
+   script runs. `themes.test.mjs` holds the ownership of `:root` to this
+   file and every value here to the contrast promise over both grounds.
+--------------------------------------------------------------------------- */
+
+:root,
+:root[data-theme="glass"] {
+  color-scheme: light;
+  --color-bg: oklch(0.965 0.006 235 / 0.86);
+  --color-surface: oklch(0.995 0.003 235 / 0.72);
+  --color-surface-2: oklch(0.865 0.012 235 / 0.92);
+  --color-border: oklch(0.55 0.02 235 / 0.28);
+  --color-text: oklch(0.22 0.015 235);
+  --color-text-dim: oklch(0.42 0.02 235);
+  --color-accent: oklch(0.52 0.17 240);
+  --color-accent-ink: oklch(0.46 0.16 240);
+  --color-accent-soft: oklch(0.94 0.035 240);
+  --color-accent-contrast: oklch(1 0 0);
+  --color-warn: oklch(0.56 0.13 90);
+  --color-warn-soft: oklch(0.95 0.045 90);
+  --color-danger: oklch(0.49 0.2 22);
+  --color-danger-soft: oklch(0.955 0.045 22);
+  --color-ok: oklch(0.53 0.13 155);
+  --color-ok-soft: oklch(0.95 0.04 155);
+  --color-overlay: oklch(0.2 0.02 235 / 0.35);
+  --radius-control: 12px;
+  --radius-card: 16px;
+  --shadow-raised: inset 0 1px 0 0 oklch(1 0 0 / 0.55), 0 1px 2px 0 oklch(0.2 0.02 235 / 0.06);
+  --shadow-floating: inset 0 1px 0 0 oklch(1 0 0 / 0.6), 0 12px 32px -8px oklch(0.2 0.02 235 / 0.28), 0 2px 6px -2px oklch(0.2 0.02 235 / 0.1);
+  --material-blur: 18px;
+  --material-saturate: 1.35;
+}
+
+/* System, on a machine that is dark: Glass dark, before any script has run. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --color-bg: oklch(0.2 0.012 235 / 0.97);
+    --color-surface: oklch(0.25 0.014 235 / 0.7);
+    --color-surface-2: oklch(0.29 0.016 235 / 0.8);
+    --color-border: oklch(0.9 0.01 235 / 0.12);
+    --color-text: oklch(0.93 0.008 235);
+    --color-text-dim: oklch(0.75 0.014 235);
+    --color-accent: oklch(0.75 0.13 240);
+    --color-accent-ink: oklch(0.8 0.11 240);
+    --color-accent-soft: oklch(0.33 0.07 240);
+    --color-accent-contrast: oklch(0.2 0.012 235);
+    --color-warn: oklch(0.8 0.12 90);
+    --color-warn-soft: oklch(0.32 0.05 90);
+    --color-danger: oklch(0.7 0.17 22);
+    --color-danger-soft: oklch(0.31 0.07 22);
+    --color-ok: oklch(0.74 0.13 155);
+    --color-ok-soft: oklch(0.3 0.05 155);
+    --color-overlay: oklch(0 0 0 / 0.5);
+    --radius-control: 12px;
+    --radius-card: 16px;
+    --shadow-raised: inset 0 1px 0 0 oklch(1 0 0 / 0.08), 0 1px 2px 0 oklch(0 0 0 / 0.25);
+    --shadow-floating: inset 0 1px 0 0 oklch(1 0 0 / 0.1), 0 12px 32px -8px oklch(0 0 0 / 0.6), 0 2px 6px -2px oklch(0 0 0 / 0.3);
+    --material-blur: 18px;
+    --material-saturate: 1.2;
+  }
+}
+
+:root[data-theme="glass-dark"] {
+  color-scheme: dark;
+  --color-bg: oklch(0.2 0.012 235 / 0.97);
+  --color-surface: oklch(0.25 0.014 235 / 0.7);
+  --color-surface-2: oklch(0.29 0.016 235 / 0.8);
+  --color-border: oklch(0.9 0.01 235 / 0.12);
+  --color-text: oklch(0.93 0.008 235);
+  --color-text-dim: oklch(0.75 0.014 235);
+  --color-accent: oklch(0.75 0.13 240);
+  --color-accent-ink: oklch(0.8 0.11 240);
+  --color-accent-soft: oklch(0.33 0.07 240);
+  --color-accent-contrast: oklch(0.2 0.012 235);
+  --color-warn: oklch(0.8 0.12 90);
+  --color-warn-soft: oklch(0.32 0.05 90);
+  --color-danger: oklch(0.7 0.17 22);
+  --color-danger-soft: oklch(0.31 0.07 22);
+  --color-ok: oklch(0.74 0.13 155);
+  --color-ok-soft: oklch(0.3 0.05 155);
+  --color-overlay: oklch(0 0 0 / 0.5);
+  --radius-control: 12px;
+  --radius-card: 16px;
+  --shadow-raised: inset 0 1px 0 0 oklch(1 0 0 / 0.08), 0 1px 2px 0 oklch(0 0 0 / 0.25);
+  --shadow-floating: inset 0 1px 0 0 oklch(1 0 0 / 0.1), 0 12px 32px -8px oklch(0 0 0 / 0.6), 0 2px 6px -2px oklch(0 0 0 / 0.3);
+  --material-blur: 18px;
+  --material-saturate: 1.2;
+}

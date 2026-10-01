@@ -1,0 +1,78 @@
+<!--{"path": "/download/", "title": "Download Bisa for macOS — or build it from source", "description": "Download Bisa for macOS — a signed, notarized disk image for Apple Silicon and Intel with its SHA-256 — verify it, and start your first goal. Or build it from source."}-->
+<section class="page-head">
+  <div class="wrap">
+    <p class="step-label">Your move</p>
+    <h1>Download Bisa</h1>
+    <p class="lede">Available for macOS {{macos}} or later — one application for Apple Silicon and Intel Macs, signed with a Developer ID and notarized by Apple, so macOS opens it without a word. Linux and Windows are coming soon. Free and open source.</p>
+    <div class="actions">
+      <a class="button primary" href="{{link:latest}}">Download for macOS</a>
+      <a class="button secondary" href="#build">Build from source</a>
+    </div>
+    <nav class="toc" aria-label="On this page">
+      <a href="#need">What you need</a><a href="#verify">Verify the download</a><a href="#first-launch">First launch</a><a href="#first-goal">Your first goal</a><a href="#cli">The command line</a><a href="#build">Build from source</a><a href="#other">Linux and Windows</a><a href="#update">Updating</a><a href="#remove">Removing it</a>
+    </nav>
+  </div>
+</section>
+
+<div class="wrap prose">
+  <section id="need" aria-labelledby="need-h">
+    <h2 id="need-h">What you need</h2>
+    <ul class="ticks">
+      <li>A Mac on macOS {{macos}} or later.</li>
+      <li>At least one coding harness, installed and signed in — {{harness:claude_code}}, {{harness:codex}}, {{harness:opencode}}, {{harness:copilot}}, {{harness:grok}} or any ACP agent (<a href="/harnesses/">which does what</a>).</li>
+      <li><code>git</code> on your PATH, for projects.</li>
+    </ul>
+  </section>
+
+  <section id="verify" aria-labelledby="verify-h">
+    <h2 id="verify-h">Verify the download</h2>
+    <p>Each release on the <a href="{{link:releases}}">Releases page</a> is two files: the disk image and its SHA-256. The checksum proves the bytes are the ones published; the image is signed with a Developer ID and carries Apple's notarization ticket inside. <a href="{{link:guide-start}}">The getting-started guide</a> shows how to check both.</p>
+    <p>Open the image and drag <strong>Bisa</strong> to <strong>Applications</strong>.</p>
+  </section>
+
+  <section id="first-launch" aria-labelledby="launch-h">
+    <h2 id="launch-h">First launch</h2>
+    <p>The app carries its own node: nothing else needs to be running. The first launch makes <code>~/.bisa</code> and your identity, then checks five things, each with a fix:</p>
+    <ol class="numbered">
+      <li><code>git</code> is on your PATH.</li>
+      <li>At least one harness is installed.</li>
+      <li>The General Agent runs on an installed harness, with a model.</li>
+      <li>The Workflow Agent does too.</li>
+      <li>The Decision-Making Agent is switched on and able to answer — one click chooses who judges.</li>
+    </ol>
+    <p>It installs nothing for you: where something is missing, it shows the official line to copy.</p>
+  </section>
+
+  <section id="first-goal" aria-labelledby="goal-h">
+    <h2 id="goal-h">Your first goal</h2>
+    <p>Press <strong>New goal</strong> and say what you want in one sentence. Choose how it runs — <em>auto</em> (the default) designs, adopts and runs it; <em>guided</em> brings you the proposal to adopt; <em>manual</em> opens the designer. What needs you lands in the Inbox.</p>
+    <p>Or talk first: the General Agent and the Workflow Agent are in the <code>general</code> channel from the start.</p>
+  </section>
+
+  <section id="cli" aria-labelledby="cli-h">
+    <h2 id="cli-h">The command line</h2>
+    <p>The app's node is also a command line, inside the application: what the window does, it can do too, and while the app is open it talks to the same node. <a href="{{link:guide-start}}">The getting-started guide</a> says how to reach it, and <a href="{{link:cli}}">the command line reference</a> lists everything it does.</p>
+  </section>
+
+  <section id="build" aria-labelledby="build-h">
+    <h2 id="build-h">Build from source</h2>
+    <p>You need Rust (stable), Node.js 20 or later with npm, and the Tauri CLI. Take the source from <a href="{{link:repo}}">the repository</a>: on a Mac, one script builds the application the first time and opens it every time after — <a href="{{doc:contributing/setup.md}}">the setup guide</a> walks through it.</p>
+    <p>It builds both halves for Apple Silicon and Intel in one bundle and signs it <em>ad hoc</em>: it opens on this Mac and on no other. A copy to give to someone is the signed release above.</p>
+  </section>
+
+  <section id="other" aria-labelledby="other-h">
+    <h2 id="other-h">Linux and Windows — coming soon</h2>
+    <p>Signed releases for Linux and Windows are coming soon. Today, the source builds the same two halves — the node and the desktop shell — into an AppImage and a <code>.deb</code>, or an installer, unsigned, as <a href="{{doc:contributing/setup.md}}">the setup guide</a> says. The menu bar icon, system notifications and the network read-out are macOS-only.</p>
+  </section>
+
+  <section id="update" aria-labelledby="update-h">
+    <h2 id="update-h">Updating</h2>
+    <p>Download the next release and replace the app. There is no automatic update, and a new release may not read a workspace an older one wrote — there is no migration. Before the first launch of the new one, rename your workspace folder, <code>~/.bisa</code>, so the old one is kept aside.</p>
+    <p>The <a href="{{link:changelog}}">changelog</a> says what changed in each release.</p>
+  </section>
+
+  <section id="remove" aria-labelledby="remove-h">
+    <h2 id="remove-h">Removing it</h2>
+    <p>Move Bisa from Applications to the Trash. What it kept is yours, in three folders: <code>~/.bisa</code> (your workspace), and the window's state and fallback log under <code>~/Library/Application Support/dev.bisa.bisa</code> and <code>~/Library/Logs/dev.bisa.bisa</code>.</p>
+  </section>
+</div>

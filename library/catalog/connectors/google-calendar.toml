@@ -1,0 +1,96 @@
+# Built-in connector: Google Calendar — events in a calendar over the Calendar REST API.
+
+[connector]
+name = "Google Calendar"
+description = "List a calendar's events and create new ones. Connect with your own Google OAuth client."
+tags = ["planning", "ops"]
+base_url = "https://www.googleapis.com"
+hosts = ["www.googleapis.com"]
+check = "calendar_list"
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url = "https://oauth2.googleapis.com/token"
+scopes = ["https://www.googleapis.com/auth/calendar"]
+pkce = true
+extra = { access_type = "offline", prompt = "consent" }
+
+[[connector.operations]]
+id = "calendar_list"
+name = "Calendars"
+description = "The account's calendars — the one call that proves it works."
+method = "get"
+path = "/calendar/v3/users/me/calendarList"
+query = { maxResults = "1" }
+
+[[connector.operations]]
+id = "list_events"
+name = "List events"
+description = "Events in a calendar between two moments, in start order."
+method = "get"
+path = "/calendar/v3/calendars/{params.calendar}/events"
+query = { timeMin = "{params.from}", timeMax = "{params.to}", maxResults = "{params.max}", singleEvents = "true", orderBy = "startTime" }
+
+[[connector.operations.params]]
+name = "calendar"
+label = "Calendar id"
+required = true
+doc = "primary for the account's own calendar, else the calendar's id."
+
+[[connector.operations.params]]
+name = "from"
+label = "From"
+doc = "An RFC 3339 moment, 2026-09-07T00:00:00Z; empty for no lower bound."
+
+[[connector.operations.params]]
+name = "to"
+label = "To"
+doc = "An RFC 3339 moment; empty for no upper bound."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many events to return; Google answers 250 unless told otherwise."
+
+[connector.operations.output]
+select = "items"
+
+[[connector.operations]]
+id = "create_event"
+name = "Create event"
+description = "Put an event on a calendar."
+method = "post"
+path = "/calendar/v3/calendars/{params.calendar}/events"
+body = { kind = "json", value = { summary = "{params.summary}", description = "{params.description}", start = { dateTime = "{params.start}" }, end = { dateTime = "{params.end}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "calendar"
+label = "Calendar id"
+required = true
+doc = "primary for the account's own calendar, else the calendar's id."
+
+[[connector.operations.params]]
+name = "summary"
+label = "Title"
+required = true
+doc = "The title as it shows on the calendar."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "Free text under the title; empty for none."
+
+[[connector.operations.params]]
+name = "start"
+label = "Starts"
+required = true
+doc = "An RFC 3339 moment with its offset, 2026-09-07T09:00:00+02:00."
+
+[[connector.operations.params]]
+name = "end"
+label = "Ends"
+required = true
+doc = "An RFC 3339 moment with its offset."

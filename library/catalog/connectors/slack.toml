@@ -1,0 +1,85 @@
+# Built-in connector: Slack — post into channels and read them, as a bot, over the Slack Web API.
+
+[connector]
+name = "Slack"
+description = "Post messages and read channels as a Slack app's bot. Paste the bot token (xoxb-…) from your app's OAuth page; the app needs chat:write, channels:read and channels:history."
+tags = ["ops", "management"]
+base_url = "https://slack.com"
+hosts = ["slack.com"]
+check = "auth_test"
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "auth_test"
+name = "Who am I"
+description = "The bot's own identity and workspace — the one call that proves the token works."
+method = "post"
+path = "/api/auth.test"
+
+[[connector.operations]]
+id = "post_message"
+name = "Post message"
+description = "Post a message into a channel the bot is in."
+method = "post"
+path = "/api/chat.postMessage"
+body = { kind = "json", value = { channel = "{params.channel}", text = "{params.text}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "channel"
+label = "Channel"
+required = true
+doc = "A channel id (C0123…) or a #name."
+
+[[connector.operations.params]]
+name = "text"
+label = "Text"
+required = true
+doc = "The message, in Slack's mrkdwn."
+
+[[connector.operations]]
+id = "list_channels"
+name = "List channels"
+description = "The channels the bot can see."
+method = "get"
+path = "/api/conversations.list"
+query = { limit = "{params.max}", types = "{params.types}", exclude_archived = "true" }
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many to return; Slack answers 100 unless told otherwise, at most 1000."
+
+[[connector.operations.params]]
+name = "types"
+label = "Types"
+doc = "public_channel, private_channel, or both comma-separated; empty for public."
+
+[connector.operations.output]
+select = "channels"
+
+[[connector.operations]]
+id = "channel_history"
+name = "Channel history"
+description = "The latest messages in a channel, newest first."
+method = "get"
+path = "/api/conversations.history"
+query = { channel = "{params.channel}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "channel"
+label = "Channel id"
+required = true
+doc = "A channel id (C0123...); this call does not take a #name."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many to return; Slack answers 100 unless told otherwise, at most 1000."
+
+[connector.operations.output]
+select = "messages"

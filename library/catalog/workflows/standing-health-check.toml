@@ -1,0 +1,123 @@
+# Built-in workflow: Standing health check — a check on a cadence. When it
+# starts failing, the run checks again, diagnoses, and either opens an
+# incident or posts a note.
+#
+# Two ways in: by hand, and a check start that runs the command every
+# `interval` seconds once the workflow is turned On, or while a goal that runs
+# it is open. It begins a run the first time the check fails after passing —
+# once per outage, not once per failing result.
+
+[workflow]
+name = "Standing health check"
+description = "A health check on a cadence: when it starts failing, or when someone runs it, the check runs again, a failure is diagnosed, and a severe one becomes an incident-response goal while a mild one is posted as a note."
+tags = ["ops", "quality"]
+
+[[workflow.inputs]]
+name = "command"
+label = "The health check"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "interval"
+label = "Seconds between checks while it is on"
+kind = "number"
+default = 300
+
+[[workflow.inputs]]
+name = "channel"
+label = "Where a mild finding is posted"
+kind = "text"
+default = "general"
+
+[[workflow.inputs]]
+name = "project"
+label = "The project an incident's cause is fixed in"
+kind = "project"
+required = true
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["probe"]
+
+[[workflow.steps]]
+id = "failing"
+name = "The check starts failing"
+kind = "start"
+on = { event = "check", command = "sh -c {inputs.command}", every = { input = "interval" }, fire_on = "starts_failing" }
+then = ["probe"]
+
+[[workflow.steps]]
+id = "probe"
+name = "Run the check"
+kind = "check"
+check = { check = "command", command = "sh -c {inputs.command}" }
+on_fail = { on_fail = "then", step = "diagnose" }
+then = ["healthy"]
+
+[[workflow.steps]]
+id = "healthy"
+name = "Healthy"
+kind = "end"
+
+[[workflow.steps]]
+id = "diagnose"
+name = "Diagnose"
+kind = "agent"
+assignee = { agent = "sre" }
+max_visits = 1
+retries = 1
+instructions = """
+The health check `{inputs.command}` failed.
+
+Establish what is failing and whether data is at risk; do not fix anything
+yet. Your result gives the finding and whether it is severe.
+"""
+then = ["severity"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["finding", "severe"]
+
+[workflow.steps.output_schema.properties.finding]
+type = "string"
+description = "What is failing and whether data is at risk, in a sentence or two a responder can act on."
+
+[workflow.steps.output_schema.properties.severe]
+type = "boolean"
+description = "True when the failure warrants an incident; false when a note where the team reads is enough."
+
+[[workflow.steps]]
+id = "severity"
+name = "Severe?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "diagnose", path = "severe", value = true }, branch = "incident" }]
+otherwise = "note"
+then = [{ to = "incident", branch = "incident" }, { to = "note", branch = "note" }]
+
+[[workflow.steps]]
+id = "incident"
+name = "Open an incident"
+kind = "spawn"
+statement_template = "Health check failed: {steps.diagnose.output.finding}"
+workflow = "incident-response"
+inputs = { symptom = "Health check failed: {steps.diagnose.output.finding}", channel = "{inputs.channel}", project = "{inputs.project}" }
+wait = false
+then = ["done"]
+
+[[workflow.steps]]
+id = "note"
+name = "Post the finding"
+kind = "notify"
+scope = "{inputs.channel}"
+template = "Health check `{inputs.command}` failed: {steps.diagnose.output.finding}"
+then = ["done"]
+
+[[workflow.steps]]
+id = "done"
+name = "Handled"
+kind = "end"
+join = "any"

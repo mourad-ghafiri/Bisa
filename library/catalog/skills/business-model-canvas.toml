@@ -1,0 +1,69 @@
+# Built-in skill: Business Model Canvas — nine blocks, filled with evidence.
+
+[skill]
+name = "Business Model Canvas"
+description = "Use when mapping how a business actually creates and captures value, and which assumption could sink it."
+tags = ["business", "discovery"]
+content = """
+# Business Model Canvas
+
+Use this when you need the whole business on one page — a new venture, a new line, or an existing
+one nobody can describe consistently. Fill it with what you know, and mark what you only hope.
+
+## The nine blocks
+
+Fill them in this order. The order matters: value and customer first, money last, because a
+revenue model designed before you know the customer is fiction.
+
+1. **Customer segments** — who specifically, named tightly enough that you could go find ten of
+   them today. "Small businesses" is not a segment.
+2. **Value proposition** — the job they are trying to do and why your version is worth switching
+   for. State the alternative they use now, including doing nothing, which is the real competitor.
+3. **Channels** — how they discover, evaluate, buy, and get support. Note which channel you have
+   actually used versus which one you assume works.
+4. **Customer relationships** — self-serve, sales-led, community, managed. This drives cost more
+   than anything else in the canvas.
+5. **Revenue streams** — what they pay for, how much, how often, and who signs. Distinguish the
+   user from the buyer when they differ.
+6. **Key resources** — what you must own: people, data, IP, capital, a licence, a brand.
+7. **Key activities** — what you must be good at, not everything you do.
+8. **Key partners** — who does what you will not, and what happens when they raise prices, change
+   terms, or compete with you.
+9. **Cost structure** — fixed against variable, and what scales with customers versus with usage.
+   Say which two or three lines dominate.
+
+## Evidence, not aspiration
+
+Mark every entry:
+
+- **Known** — you have evidence. Cite it: interviews and how many, a signed contract, a live
+  metric, an invoice, a competitor's public pricing.
+- **Assumed** — plausible, unverified. Most of a new canvas is this, honestly marked.
+- **Hoped** — you need this to be true and have no reason to think it is. Say the word.
+
+An entry that could describe three other companies is not filled in yet. "High-quality product",
+"great customer service", "word of mouth" are placeholders. Replace them with the specific fact.
+
+## The riskiest assumption
+
+Name **one** assumption in this canvas such that, if it is false, the business does not work. Not a
+list — the one. It is usually in customer segments, value proposition, or the price in revenue
+streams; rarely in key activities.
+
+Then write the cheapest test that could refute it in under two weeks, and what result would make
+you stop. If you cannot design a test, you have named it too vaguely.
+
+## Failure modes
+
+- **The plausible canvas.** Every block filled, nothing marked, nothing testable. It reads as
+  progress and answers nothing.
+- **Revenue before customer.** Pricing designed for a segment you have not met.
+- **No alternative named.** If you have not written down what they do today instead, you do not
+  know whether they will switch.
+- **Cost structure by category, not by size.** Nine lines, no sense of which one is 70%.
+
+## Done when
+
+All nine blocks are filled with specifics, every entry is marked known, assumed or hoped, and one
+riskiest assumption carries a test that could be run in two weeks with a stated stop condition.
+"""

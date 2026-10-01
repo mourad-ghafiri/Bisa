@@ -1,0 +1,24 @@
+{
+  "id": "unit-converter",
+  "name": "Unit converter",
+  "description": "Length, mass and temperature, either way — swap the pair in one click; the last pair remembered.",
+  "version": "0.1.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "tool"
+  ],
+  "window": {
+    "width": 240,
+    "height": 210,
+    "min_width": 220,
+    "min_height": 190,
+    "max_width": 360,
+    "max_height": 300
+  },
+  "permissions": [
+    "storage"
+  ]
+}

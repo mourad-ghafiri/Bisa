@@ -1,0 +1,110 @@
+# Built-in skill: Google Play Publishing — a Flutter app to internal testing and production on
+# Google Play, step by step.
+
+[skill]
+name = "Google Play Publishing"
+description = "Use when shipping or updating an Android app on Google Play: account, application id and signing key, app bundle, testing tracks, listing, review, rollout."
+tags = ["delivery", "mobile"]
+content = """
+# Google Play Publishing
+
+Use this when an Android build of a Flutter app goes to Google Play for the first time or as an
+update. Work it in order: a release without a rollout percentage is a release nobody can pause. The
+person owns the Google Play Console account, the upload key and the final press; you prepare,
+verify and say exactly what to press. A submission leaves the machine for good — the guard asks the
+person before a Gradle publish or a `fastlane` upload, and a submission is never made unasked.
+
+## The account
+
+1. The person has a Google Play Console developer account (play.google.com/console, a one-time
+   fee) with the identity verification done; a new personal account also needs a closed test with
+   twelve testers for fourteen days before production opens. Ask, do not assume.
+2. Ask mobile_development_status for the Android SDK and Java; a missing one is the person's to install
+   (Android Studio › SDK Manager). `flutter doctor` must say the Android licences are accepted
+   (`flutter doctor --android-licenses` is the person's to run).
+
+## The application id and the signing key
+
+3. The application id in `android/app/build.gradle` (or `.kts`) — `applicationId "com.example.shop"`
+   — is a reverse domain the person owns and cannot change after the first upload.
+4. The upload key: `keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048
+   -validity 10000 -alias upload`, run by the person, kept outside the repository, with its
+   passwords in `android/key.properties` — which `.gitignore` lists. Read the Gradle wiring from
+   Flutter's own deployment page: `key.properties` loaded in `build.gradle`, a `release` signing
+   config using it. Never commit a keystore or its password; never read the password to quote it.
+5. Play App Signing is on for every new app: Google holds the app signing key and the upload key
+   is what the person keeps. Lost upload key: a key reset in the Console, not a new app.
+
+## The version and the build
+
+6. Set the version in `pubspec.yaml` as `version: 1.2.0+7` — the name before the `+`, the
+   version code after it. Every upload needs a higher version code than the last on any track.
+7. Read the release notes off the commits since the last tag; write them for the person who
+   updates, in every language the listing has.
+8. Build the bundle: `flutter build appbundle --release` writes
+   `build/app/outputs/bundle/release/app-release.aab`. An APK (`flutter build apk
+   --split-per-abi`) is for a device in hand, never for the store.
+9. Check it: install a release APK on the emulator or a phone (`flutter install --release
+   -d <id>`), launch, sign in, run the main flow, and mobile_development_screenshot it. A release build with
+   obfuscation (`--obfuscate --split-debug-info=build/symbols`) needs the symbols uploaded with
+   the bundle for readable crash reports.
+
+## The Play Console: the app and its policy answers
+
+10. Create the app once: Play Console › Create app, the name, the default language, app or game,
+    free or paid (paid cannot become free later).
+11. Work the *Set up your app* list: the privacy policy URL, app access (a demo account when the
+    app signs in), ads, content rating questionnaire, the target audience, news app, COVID app,
+    the *Data safety* form — every kind of data the app or its SDKs collect — and the government
+    app question. Production stays locked until every item is done.
+12. The store listing: the short and full description, an icon (512×512), a feature graphic
+    (1024×500), phone screenshots (at least two, 16:9 or 9:16) and tablet ones when the app runs
+    there. Take the screenshots on an emulator with mobile_development_screenshot; the person approves the
+    words.
+
+## Testing tracks
+
+13. Testing › Internal testing: create a release, upload the `.aab` (the person presses, or a
+    `fastlane supply`/Gradle publish the guard asks about), paste the notes, add testers by email
+    or a list, roll out. It is available in minutes with no review.
+14. Install from the internal testing link on a phone and run the smoke check. A build nobody
+    installed is not tested.
+15. Closed testing (an alpha group; the fourteen-day requirement for a new personal account)
+    and open testing (anyone, listed on the store) are the person's call; each release there
+    passes a review.
+
+## Production and the rollout
+
+16. Production › Create release: promote the tested build from a testing track rather than
+    uploading again — the same bundle, the same version code. Notes in every language.
+17. *Start rollout to production* is the person's press. The first release passes a review of
+    hours to days; say so.
+18. Roll out to a percentage — 10 % on a first release or a risky update — and watch the crash
+    rate and the ANR rate in *Android vitals* for a day before raising it. A staged rollout can be
+    halted; a full one cannot be recalled, only followed by a fix.
+19. A rejection or a policy notice is read in full before anything is changed: it names the
+    policy and the screen. Fix, raise the version code, upload to internal testing, promote,
+    submit again.
+
+## An update
+
+20. Same steps from 6: version code up, notes, bundle, internal testing, promote to production,
+    staged rollout, watch, raise. The application id and the signing key do not change.
+21. A hotfix is a new version code with the rollout halted on the previous one as soon as the
+    crash rate moves.
+
+## Failure modes
+
+- A version code that did not go up: the upload is refused.
+- A keystore or a password in the repository: rotate through a key reset, then clean the history.
+- Data the app collects that the Data safety form does not declare: removed from the store after
+  a warning.
+- A full rollout of an update nobody installed from a testing track.
+- Submitting without the person's press.
+
+## Done when
+
+The bundle is on internal testing and installed on a phone, the policy forms and the listing are
+complete, the release is promoted to production by the person at a rollout percentage, and the
+vitals to watch and the halt condition are written down.
+"""

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged into the app's Info.plist by tauri-build, for `tauri dev` and the
+	     bundle alike. A process that asks for the microphone without this string
+	     is terminated by macOS; `permissions.rs` checks for it before it asks. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Bisa uses the microphone for voice mode, only while you have turned it on in Settings › Capabilities › System.</string>
+</dict>
+</plist>

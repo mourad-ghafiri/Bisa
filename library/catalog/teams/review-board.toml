@@ -1,0 +1,7 @@
+# Built-in team: Review Board — an adversarial verdict, never a fix.
+
+[team]
+name = "Review Board"
+purpose = "The adversarial panel to assign when a decision is expensive or hard to reverse. It attacks the plan, the claim or the result and returns a verdict with the evidence behind it. It never repairs what it finds — that goes back as new work."
+tags = ["review", "quality"]
+agents = ["critic", "red-team", "evaluator", "qa-engineer"]

@@ -1,0 +1,33 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "description": "Current conditions for a city you type, from Open-Meteo, refreshed every fifteen minutes.",
+  "version": "0.1.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "weather",
+    "outside"
+  ],
+  "window": {
+    "width": 240,
+    "height": 150,
+    "min_width": 200,
+    "min_height": 130,
+    "max_width": 400,
+    "max_height": 260
+  },
+  "permissions": [
+    {
+      "network": {
+        "hosts": [
+          "api.open-meteo.com",
+          "geocoding-api.open-meteo.com"
+        ]
+      }
+    },
+    "storage"
+  ]
+}

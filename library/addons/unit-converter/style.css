@@ -1,0 +1,15 @@
+:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.12); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.14); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; font: 12px system-ui, sans-serif; color: var(--ink); background: transparent; }
+.conv { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
+.pair { display: flex; gap: 6px; align-items: center; }
+input, select { font: inherit; color: var(--ink); background: var(--key); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; min-width: 0; }
+input { flex: 1; }
+select { flex: 1; }
+.between { display: flex; justify-content: center; }
+.swap { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--dim); font: inherit; font-size: 14px; line-height: 1; padding: 2px 10px; cursor: pointer; }
+.swap:hover { color: var(--accent); border-color: var(--line); background: var(--key); }
+.result { flex: 1; font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

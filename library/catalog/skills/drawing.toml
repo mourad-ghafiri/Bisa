@@ -1,0 +1,100 @@
+# Built-in skill: Drawing — the platform's canvas, and how to draw on it so a person can read the
+# picture. Every catalog agent carries it as guidance. Who may draw is the workspace's word
+# (`draw.agents`, *everyone* by default); with it at *assigned*, carrying this skill is what lets an
+# agent through.
+
+[skill]
+name = "Drawing"
+description = "Use when a picture says it better than prose — an architecture, a flow, a board: draw it on the platform's canvas with the drawing tools, never as an image."
+tags = ["engineering", "design"]
+content = """
+# Drawing
+
+The platform has a canvas of its own — the Draw panel beside whatever the person is on — and it
+hands you tools that draw on it while the person watches. A drawing is a record of the workspace:
+it travels to every member, it lists under what it is about (the workspace, a goal, a project, a
+workflow, a channel, this node), and the person commits it from the panel like a note. Use the
+canvas for every picture: a system's parts and how they talk, a flow, a board of cards, a timeline,
+a mind map, a sketch of a screen. Never an image file: the canvas is vector only, and an image
+element is refused by name.
+
+Who may draw is the workspace's word (`draw.agents`: everyone — the default — agents with this
+skill, or nobody). A refusal is a sentence naming why; say it to the person and stop rather than
+working around it.
+
+## The tools
+
+| Tool | What it does |
+|---|---|
+| `drawing_list` | the drawings of a scope — `scope` one of workspace · goal · project · workflow · channel · node, with the record's `id` for the four that name one; every drawing when you name none — each with its id, title and how many elements it holds |
+| `drawing_create` | a new drawing with a `title`, attached to a scope; in a conversation about a goal, a project or a workflow it attaches there when you name none; answers the id |
+| `drawing_read` | one drawing as words: its title, its hash, and one line per element — the id, the type, the text, where it is and how big; an arrow with the ids it runs between; a frame with its name. **Read before you draw**: the ids are what your arrows bind to and what `drawing_erase` takes |
+| `drawing_draw` | add elements written as a **skeleton** (below); `replace: true` clears the drawing first and draws yours alone. Answers the drawing's new hash and element count |
+| `drawing_mermaid` | draw a flowchart written in Mermaid (`flowchart LR` … ) — the platform lays it out and draws real shapes and arrows; other diagram kinds are refused. `replace` as above |
+| `drawing_erase` | remove elements by id; a label goes with its box, an arrow that ended on a removed box is left loose at that end |
+| `drawing_snapshot` | a PNG of the drawing as it renders; answers the file's path — read that file to see what you drew, and fix what overlaps |
+
+In a **conversation about a drawing** the drawing is chosen for you: leave `drawing` out of every
+call. Elsewhere name it — `drawing_list` finds it, `drawing_create` makes it.
+
+## The skeleton
+
+`drawing_draw` takes a list of elements the way a person would describe them; the canvas fills in
+the rest (sizes to fit a label, the arrow's points, the binding). Every element has a `type`, an
+`x` and a `y`; give each an `id` you choose (`svc-api`, `db-main`) — it is kept, so an arrow can
+bind to it in the same call and `drawing_erase` can name it later.
+
+```json
+[
+  {"id": "title", "type": "text", "x": 40, "y": 20, "text": "Orders — how a purchase flows", "fontSize": 28},
+  {"id": "client", "type": "rectangle", "x": 40, "y": 100, "width": 180, "height": 80,
+   "label": {"text": "Web client"}, "backgroundColor": "#e7f5ff", "fillStyle": "solid"},
+  {"id": "api", "type": "rectangle", "x": 300, "y": 100, "width": 180, "height": 80,
+   "label": {"text": "Orders API"}, "backgroundColor": "#fff3bf", "fillStyle": "solid"},
+  {"id": "db", "type": "ellipse", "x": 560, "y": 90, "width": 200, "height": 100,
+   "label": {"text": "orders (Postgres)"}, "backgroundColor": "#d3f9d8", "fillStyle": "solid"},
+  {"id": "client-api", "type": "arrow", "x": 220, "y": 140, "start": {"id": "client"}, "end": {"id": "api"},
+   "label": {"text": "POST /orders"}},
+  {"id": "api-db", "type": "arrow", "x": 480, "y": 140, "start": {"id": "api"}, "end": {"id": "db"}},
+  {"id": "note", "type": "rectangle", "x": 300, "y": 240, "width": 220, "height": 120,
+   "label": {"text": "Idempotency key on every POST"}, "backgroundColor": "#ffec99", "fillStyle": "solid",
+   "strokeWidth": 1, "roughness": 0}
+]
+```
+
+- **Shapes**: `rectangle`, `ellipse`, `diamond` — with `width`, `height`, a `label: {text}` inside,
+  `backgroundColor` and `fillStyle: "solid"` for a filled box, `strokeColor`, `strokeWidth`,
+  `strokeStyle: "dashed"`. A **sticky note** is a filled rectangle in a warm colour with a label.
+- **Text**: `text` with `text` and `fontSize` (20 body, 28 title).
+- **Connections**: `arrow` and `line` with `start: {"id": …}` and `end: {"id": …}` to bind to your
+  shapes, `label: {text}` on the arrow, `endArrowhead: "arrow" | "triangle" | "bar" | null`.
+- **Frames**: `frame` with `name` and `children: ["id", …]` to group a region — a swimlane, a
+  system boundary.
+- **Colours**: the open-color palette reads well on the canvas — blue `#e7f5ff`, yellow `#fff3bf`,
+  green `#d3f9d8`, red `#ffe3e3`, violet `#f3f0ff`, grey `#f1f3f5`; strokes `#1e1e1e` by default.
+
+## Composing a picture a person can read
+
+1. `drawing_read` first, even a drawing you made: know what is there and its ids.
+2. Lay out on a 20 px grid; boxes at least 160×80; at least 40 px between boxes; a flow runs left to
+   right or top to bottom; one title text at the top.
+3. At most sixty elements in one `drawing_draw` call; a large picture is drawn in parts, reading in
+   between. A picture that would need hundreds of boxes wants a second drawing, not a denser one.
+4. A flowchart is quickest as Mermaid through `drawing_mermaid`; anything with meaning in its
+   placement — an architecture, a board, a journey — is a skeleton you lay out yourself.
+5. To redo a picture whole, `drawing_draw` with `replace: true`; to change a part, `drawing_erase`
+   the ids and draw the new ones.
+6. `drawing_snapshot` at the end and look: overlapping labels, an arrow through a box, a lonely
+   element — fix them before you tell the person it is done.
+
+## What you must not do
+
+- Do not make an image, an SVG file or a PNG and try to add it: the canvas draws no image.
+- Do not describe a picture in prose when the person asked for a drawing: draw it, then say what it
+  shows in one sentence.
+- Do not draw over a person's drawing without reading it; `replace: true` erases their work too —
+  use it only when they asked for the picture anew.
+- When a drawing tool refuses you, answers that the canvas is not available (no desktop is open to
+  draw), or names a platform fault, say so to the person once and stop — never ask twice whether to
+  retry, never work around it.
+"""

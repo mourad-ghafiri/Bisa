@@ -1,0 +1,54 @@
+/* ---------------------------------------------------------------------------
+   The material: how a glass family frosts.
+
+   A theme's colours are values; its material is a behaviour, and this is the
+   one file that renders it. Keyed on the glass ids — and on a root with no
+   `data-theme` at all, which is the default family, Glass, following the OS
+   — and nothing else, so an opaque family never matches a rule here.
+   `themes.test.mjs` holds the selectors to the glass families and the bare
+   root, and the properties to a backdrop and an edge, never a colour of the
+   file's own (the colours are the theme's).
+
+   What frosts is a **pane**: an element marked `data-pane` — the shell's
+   sidebar, top chrome, status bar, right panel, Details pane and terminal
+   panel, the notes overlay, and the kit's Dialog, Menu, Popover, Tooltip
+   and the Omnibox's dialog — plus the page's own ground. A pane blurs what is behind it
+   through `--material-blur` and lifts the colour through
+   `--material-saturate`, both the theme's. Only panes frost: every
+   `bg-surface` in the app is a translucent colour on a glass family, but a
+   blur on each of them would stack a dozen deep in a list and cost a frame
+   for nothing. A dialog over the right panel stacks two, which is the most
+   there is.
+
+   Frost is not opacity. A `surface` is read over the page's ground, `bg`,
+   and the contrast promise is measured over that pair; a pane that floats
+   over the app's own content has no ground under it. One a person only
+   glances at — a menu, a tooltip — is glass all the same. One they read and
+   write on for minutes — the notes overlay — lays its own ground: `surface`
+   over `bg`, nearly opaque on a glass family and unchanged on an opaque
+   one, from the theme's two roles and no number of its own
+   (`themes.test.mjs` holds the floor).
+
+   The window behind the page is the desktop shell's (`set_window_appearance`
+   in `src-tauri/src/main.rs`): transparent, with the OS's own under-window
+   effect behind it for a glass family. Where there is no such effect — a
+   browser, a compositor that is off — the page's ground is the theme's
+   `bg` over nothing, and the panes frost each other; still glass, only
+   with less behind it.
+--------------------------------------------------------------------------- */
+
+:root:not([data-theme]) [data-pane],
+:root[data-theme="glass"] [data-pane],
+:root[data-theme="glass-dark"] [data-pane] {
+  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+  backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+}
+
+/* The page's own ground frosts the window's backdrop; `bg` is translucent
+   on a glass family, so `body`'s colour alone would show the desktop raw. */
+:root:not([data-theme]) body,
+:root[data-theme="glass"] body,
+:root[data-theme="glass-dark"] body {
+  -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+  backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
+}

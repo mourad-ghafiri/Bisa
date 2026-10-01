@@ -1,0 +1,139 @@
+{
+  "id": "bisa-pets.midnight-shipping.bracket",
+  "displayName": "Bracket",
+  "description": "Grows on what you delete. A shelf fungus that took root on a branch nobody merged and has been composting it ever since. Turns deleted code into something green, then offers you a flower for the parts you were right to cut. Has never once asked what the branch was for.",
+  "spritesheetPath": "spritesheet.webp",
+  "frame": {
+    "width": 192,
+    "height": 208
+  },
+  "fps": 8,
+  "defaultAnimation": "idle",
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 6,
+      "frameDurationsMs": [
+        2670,
+        1104,
+        1104,
+        1388,
+        1388,
+        3026
+      ]
+    },
+    "running-right": {
+      "row": 1,
+      "frames": 8,
+      "frameDurationsMs": [
+        149,
+        149,
+        149,
+        176,
+        149,
+        149,
+        149,
+        257
+      ]
+    },
+    "running-left": {
+      "row": 2,
+      "frames": 8,
+      "frameDurationsMs": [
+        149,
+        149,
+        149,
+        176,
+        149,
+        149,
+        149,
+        257
+      ]
+    },
+    "waving": {
+      "row": 3,
+      "frames": 4,
+      "frameDurationsMs": [
+        340,
+        232,
+        232,
+        495
+      ]
+    },
+    "jumping": {
+      "row": 4,
+      "frames": 5,
+      "frameDurationsMs": [
+        343,
+        171,
+        429,
+        186,
+        543
+      ]
+    },
+    "failed": {
+      "row": 5,
+      "frames": 8,
+      "frameDurationsMs": [
+        211,
+        195,
+        244,
+        292,
+        357,
+        422,
+        520,
+        1007
+      ]
+    },
+    "waiting": {
+      "row": 6,
+      "frames": 6,
+      "frameDurationsMs": [
+        748,
+        605,
+        605,
+        748,
+        605,
+        1246
+      ]
+    },
+    "running": {
+      "row": 7,
+      "frames": 6,
+      "frameDurationsMs": [
+        249,
+        216,
+        216,
+        249,
+        216,
+        366
+      ]
+    },
+    "review": {
+      "row": 8,
+      "frames": 6,
+      "frameDurationsMs": [
+        443,
+        340,
+        340,
+        408,
+        374,
+        1055
+      ]
+    }
+  },
+  "x-bisa-pets": {
+    "pack": "midnight-shipping",
+    "slug": "bracket",
+    "tagline": "Grows on what you delete.",
+    "archetype": "shroom",
+    "personality": "night-gardener",
+    "mood": "happy",
+    "render": {
+      "fitScale": 1.16,
+      "riseCap": 9.85,
+      "inkWidth": 3.4,
+      "eyeRadius": 9.18
+    }
+  }
+}

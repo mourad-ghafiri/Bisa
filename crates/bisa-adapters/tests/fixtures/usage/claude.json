@@ -1,0 +1,18 @@
+{
+  "five_hour": { "utilization": 23.5, "resets_at": "2026-09-07T12:00:00Z" },
+  "seven_day": { "utilization": 41.2, "resets_at": "2026-09-11T05:00:00Z" },
+  "seven_day_oauth_apps": { "utilization": 0.0, "resets_at": "2026-09-11T05:00:00Z" },
+  "seven_day_opus": { "utilization": 12.0, "resets_at": "2026-09-11T05:00:00Z" },
+  "seven_day_sonnet": null,
+  "cinder_cove": null,
+  "limits": [
+    {
+      "kind": "weekly_scoped",
+      "group": "weekly",
+      "percent": 8.5,
+      "resets_at": "2026-09-11T05:00:00Z",
+      "scope": { "model": { "display_name": "Fable" } }
+    }
+  ],
+  "extra_usage": { "is_enabled": true, "monthly_limit": 50, "used_credits": 1.5, "utilization": 3.0 }
+}

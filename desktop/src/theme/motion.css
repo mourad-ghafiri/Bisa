@@ -1,0 +1,215 @@
+/* ---------------------------------------------------------------------------
+   Motion, in CSS.
+
+   Radix flips `data-state` between `open` and `closed` and waits for the
+   animation to end before unmounting, so enter and exit are both expressible
+   here — no JavaScript, no mount flags, and nothing to forget when a new
+   overlay is added. The three classes below cover every overlay the kit has:
+   a backdrop, a panel that arrives in the middle of the screen, and a surface
+   that arrives attached to the thing you clicked.
+
+   Every duration comes from `--motion-*` in `tokens.css`, which is also where
+   `prefers-reduced-motion` collapses them. That is why none of these blocks
+   mentions the preference: honouring it is a property of the token, not of
+   each animation, so the next component to be written inherits it whether or
+   not its author thought about it.
+
+   Popovers and menus animate *from the side they are anchored to*, so the
+   movement tells you where the surface came from rather than just announcing
+   that something appeared.
+--------------------------------------------------------------------------- */
+
+@keyframes i-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes i-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes i-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+
+@keyframes i-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+
+@keyframes i-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translate(var(--i-pop-x, 0), var(--i-pop-y, 0));
+  }
+}
+
+@keyframes i-pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96) translate(var(--i-pop-x, 0), var(--i-pop-y, 0));
+  }
+}
+
+.motion-overlay[data-state="open"] {
+  animation: i-fade-in var(--motion-fast) var(--motion-ease);
+}
+.motion-overlay[data-state="closed"] {
+  animation: i-fade-out var(--motion-fast) var(--motion-ease);
+}
+
+.motion-panel[data-state="open"] {
+  animation: i-panel-in var(--motion-base) var(--motion-ease);
+}
+.motion-panel[data-state="closed"] {
+  animation: i-panel-out var(--motion-fast) var(--motion-ease);
+}
+
+.motion-pop[data-state="open"] {
+  animation: i-pop-in var(--motion-fast) var(--motion-ease);
+}
+.motion-pop[data-state="closed"] {
+  animation: i-pop-out var(--motion-fast) var(--motion-ease);
+}
+
+/* `data-side` is the side of the trigger the surface ended up on. */
+.motion-pop[data-side="top"] {
+  --i-pop-y: 4px;
+}
+.motion-pop[data-side="bottom"] {
+  --i-pop-y: -4px;
+}
+.motion-pop[data-side="left"] {
+  --i-pop-x: 4px;
+}
+.motion-pop[data-side="right"] {
+  --i-pop-x: -4px;
+}
+
+/*
+ * The one shared transition for state that changes without anything entering
+ * or leaving: hover fills, borders taking the accent, a chevron rotating.
+ * Colour and transform only — never `all`, which animates layout properties
+ * nobody asked to animate and makes a resize look like a drag.
+ */
+.anim {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
+}
+
+/* A skeleton's pulse is the one animation that repeats, so it is the one that
+   has to stop dead under reduced motion rather than merely getting shorter. */
+@keyframes i-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.motion-pulse {
+  animation: i-pulse 1.6s var(--motion-ease) infinite;
+}
+/* A session mark's motions (`ui/sessionMotion.mjs`): the three that repeat
+   while a state holds, and the two that play once on arrival. Slow and small
+   on purpose — a rail of running agents should read as alive, not busy. */
+@keyframes i-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes i-breathe {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+}
+@keyframes i-nudge {
+  0%,
+  86%,
+  100% {
+    transform: translateY(0);
+  }
+  90% {
+    transform: translateY(-1.5px);
+  }
+  96% {
+    transform: translateY(0.5px);
+  }
+}
+@keyframes i-pop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes i-shake {
+  20%,
+  60% {
+    transform: translateX(-1.5px);
+  }
+  40%,
+  80% {
+    transform: translateX(1.5px);
+  }
+}
+.motion-spin {
+  animation: i-spin 1.6s linear infinite;
+}
+.motion-breathe {
+  animation: i-breathe 2.4s var(--motion-ease) infinite;
+}
+.motion-nudge {
+  animation: i-nudge 3s var(--motion-ease) infinite;
+}
+.motion-pop {
+  animation: i-pop var(--motion-slow) var(--motion-ease) 1;
+}
+.motion-shake {
+  animation: i-shake 320ms var(--motion-ease) 1;
+}
+/* A drag ghost lifting off its row: a touch smaller and paler at first, then
+   a hair larger than life, where it stays until the drop. */
+@keyframes i-lift {
+  from {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+.motion-lift {
+  animation: i-lift var(--motion-fast) var(--motion-ease) 1 both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-pulse {
+    animation: none;
+    opacity: 0.6;
+  }
+  .motion-spin,
+  .motion-breathe,
+  .motion-nudge,
+  .motion-pop,
+  .motion-shake,
+  .motion-lift {
+    animation: none;
+  }
+}

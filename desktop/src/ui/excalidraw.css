@@ -1,0 +1,10 @@
+/*
+ * The canvas's one override (19 — Drawings): Excalidraw's library sidebar
+ * carries a door to its public library site, and this app never opens an
+ * outside page from a canvas — the shape libraries are the platform's own,
+ * handed in as `initialData.libraryItems`. Hidden here rather than left to
+ * the shell's navigation allowlist, so nothing dead is drawn.
+ */
+.excalidraw .library-menu-browse-button {
+  display: none;
+}

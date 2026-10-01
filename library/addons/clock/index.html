@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Clock</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="clock" data-style="analog" aria-label="Clock">
+    <div class="face analog">
+      <svg class="dial" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="rim" cx="50" cy="50" r="48"></circle><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
+        <g id="ticks"></g>
+        <g id="numerals"></g>
+        <text id="dialDate" class="dial-date" x="50" y="70" text-anchor="middle"></text>
+        <line id="hour" class="hand hour" x1="50" y1="54" x2="50" y2="27"></line>
+        <line id="minute" class="hand minute" x1="50" y1="55" x2="50" y2="15"></line>
+        <line id="second" class="hand second" x1="50" y1="60" x2="50" y2="11"></line>
+        <circle class="pin" cx="50" cy="50" r="2.2"></circle><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
+      </svg>
+    </div>
+    <div class="face digital">
+      <span class="readout"><span id="time" class="time">--:--</span><span id="meridiem" class="meridiem"></span></span>
+      <span id="date" class="date"></span>
+    </div>
+    <p id="reading" class="sr-only" aria-live="polite"></p>
+    <button id="gear" class="gear" type="button" aria-label="Clock settings" title="Clock settings" aria-expanded="false" aria-controls="settings">⚙</button>
+    <form id="settings" class="settings" hidden>
+      <fieldset class="segment" aria-label="Style">
+        <label><input type="radio" name="style" value="analog"><span>Analog</span></label>
+        <label><input type="radio" name="style" value="digital"><span>Digital</span></label>
+      </fieldset>
+      <label class="check"><input type="checkbox" name="h24"> 24-hour</label>
+      <label class="check"><input type="checkbox" name="seconds"> Seconds</label>
+      <label class="check"><input type="checkbox" name="date"> Date</label>
+    </form>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

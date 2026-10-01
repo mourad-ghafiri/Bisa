@@ -1,0 +1,26 @@
+:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.12); --card: rgba(255, 255, 255, 0.92); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.14); --card: rgba(28, 25, 23, 0.92); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; font: 12px system-ui, sans-serif; color: var(--ink); background: transparent; }
+.pomo { position: relative; box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 8px; }
+.top { display: flex; align-items: center; gap: 8px; color: var(--dim); }
+.phase { font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+.count { flex: 1; font-size: 10px; }
+.gear { border: 0; background: transparent; color: var(--dim); font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 4px; cursor: pointer; opacity: 0; transition: opacity 150ms; }
+.pomo:hover .gear, .gear:focus-visible, .gear[aria-expanded="true"] { opacity: 1; }
+.dial { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.ring { position: absolute; inset: 0; margin: auto; height: 100%; max-width: 100%; aspect-ratio: 1; transform: rotate(-90deg); }
+.track { fill: none; stroke: var(--line); stroke-width: 4; }
+.arc { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 289.03 289.03; stroke-dashoffset: 0; transition: stroke-dashoffset 400ms linear; }
+.pomo[data-phase="rest"] .arc { stroke: var(--dim); }
+.time { position: relative; text-align: center; font-size: clamp(18px, 12vmin, 40px); font-weight: 600; font-variant-numeric: tabular-nums; }
+.row { display: flex; gap: 6px; justify-content: center; }
+button { border: 1px solid var(--line); border-radius: 6px; background: var(--key); color: var(--ink); font: inherit; padding: 4px 10px; cursor: pointer; }
+#toggle { color: var(--accent); font-weight: 600; min-width: 4.5em; }
+.quiet { color: var(--dim); }
+.lengths { position: absolute; right: 8px; top: 24px; z-index: 1; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); color: var(--dim); font-size: 11px; }
+.lengths label { display: flex; gap: 4px; align-items: center; justify-content: space-between; }
+.lengths input { width: 3.5em; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: var(--key); color: var(--ink); padding: 1px 4px; }
+@media (prefers-reduced-motion: reduce) { .gear, .arc { transition: none; } }

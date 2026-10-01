@@ -1,0 +1,68 @@
+# Built-in connector: X — post and search on X over its v2 API, as the connected user.
+
+[connector]
+name = "X"
+description = "Post as the connected user and search recent posts. Connect with your own X app (OAuth 2.0 with PKCE); the app needs tweet.read, tweet.write, users.read and offline.access."
+tags = ["marketing", "content"]
+base_url = "https://api.twitter.com"
+hosts = ["api.twitter.com"]
+check = "me"
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://twitter.com/i/oauth2/authorize"
+token_url = "https://api.twitter.com/2/oauth2/token"
+scopes = ["tweet.read", "tweet.write", "users.read", "offline.access"]
+pkce = true
+extra = { token_auth = "basic" }
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The connected user — the one call that proves the account works."
+method = "get"
+path = "/2/users/me"
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "post"
+name = "Post"
+description = "Publish a post as the connected user."
+method = "post"
+path = "/2/tweets"
+body = { kind = "json", value = { text = "{params.text}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "text"
+label = "Text"
+required = true
+doc = "At most 280 characters."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "search_recent"
+name = "Search recent"
+description = "Posts from the last seven days matching a query."
+method = "get"
+path = "/2/tweets/search/recent"
+query = { query = "{params.query}", max_results = "{params.max}", "tweet.fields" = "created_at,author_id,public_metrics" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Query"
+required = true
+doc = "An X search query: from:handle, #tag, \"a phrase\" -is:retweet."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "Between 10 and 100."
+
+[connector.operations.output]
+select = "data"

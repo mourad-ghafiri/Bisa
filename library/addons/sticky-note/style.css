@@ -1,0 +1,49 @@
+/* Six papers, each with a dark twin; the ink and the lines follow the paper. */
+:root { --ink: #3f2d0a; --dim: #8a6d1f; --accent: #b45309; --paper: rgba(253, 230, 138, 0.94); --line: rgba(120, 85, 10, 0.25); --key: rgba(120, 85, 10, 0.08); }
+:root[data-scheme="dark"] { --ink: #fef3c7; --dim: #d6b25c; --accent: #fbbf24; --paper: rgba(120, 85, 10, 0.82); --line: rgba(253, 230, 138, 0.25); --key: rgba(253, 230, 138, 0.1); }
+.note[data-color="rose"] { --ink: #4c1d2b; --dim: #9f3f5c; --paper: rgba(251, 207, 232, 0.94); --line: rgba(159, 63, 92, 0.25); --key: rgba(159, 63, 92, 0.08); }
+:root[data-scheme="dark"] .note[data-color="rose"] { --ink: #fce7f3; --dim: #f0abcf; --paper: rgba(131, 24, 67, 0.82); --line: rgba(251, 207, 232, 0.25); --key: rgba(251, 207, 232, 0.1); }
+.note[data-color="mint"] { --ink: #14382a; --dim: #2f7a5b; --paper: rgba(187, 247, 208, 0.94); --line: rgba(47, 122, 91, 0.25); --key: rgba(47, 122, 91, 0.08); }
+:root[data-scheme="dark"] .note[data-color="mint"] { --ink: #dcfce7; --dim: #86efac; --paper: rgba(20, 83, 45, 0.82); --line: rgba(187, 247, 208, 0.25); --key: rgba(187, 247, 208, 0.1); }
+.note[data-color="sky"] { --ink: #0f2f45; --dim: #2b6f95; --paper: rgba(186, 230, 253, 0.94); --line: rgba(43, 111, 149, 0.25); --key: rgba(43, 111, 149, 0.08); }
+:root[data-scheme="dark"] .note[data-color="sky"] { --ink: #e0f2fe; --dim: #7dd3fc; --paper: rgba(12, 74, 110, 0.82); --line: rgba(186, 230, 253, 0.25); --key: rgba(186, 230, 253, 0.1); }
+.note[data-color="lilac"] { --ink: #33204d; --dim: #6d4d9c; --paper: rgba(221, 214, 254, 0.94); --line: rgba(109, 77, 156, 0.25); --key: rgba(109, 77, 156, 0.08); }
+:root[data-scheme="dark"] .note[data-color="lilac"] { --ink: #ede9fe; --dim: #c4b5fd; --paper: rgba(76, 29, 149, 0.82); --line: rgba(221, 214, 254, 0.25); --key: rgba(221, 214, 254, 0.1); }
+.note[data-color="stone"] { --ink: #1c1917; --dim: #78716c; --paper: rgba(231, 229, 228, 0.94); --line: rgba(120, 113, 108, 0.25); --key: rgba(120, 113, 108, 0.08); }
+:root[data-scheme="dark"] .note[data-color="stone"] { --ink: #f5f5f4; --dim: #a8a29e; --paper: rgba(41, 37, 36, 0.86); --line: rgba(231, 229, 228, 0.25); --key: rgba(231, 229, 228, 0.1); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; font: 13px/1.4 system-ui, sans-serif; color: var(--ink); background: transparent; }
+.note { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; background: var(--paper); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); color: var(--ink); transition: background 200ms; }
+.strip { display: flex; align-items: center; gap: 6px; padding: 6px 8px 0 10px; min-height: 18px; }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.dot { width: 9px; height: 9px; padding: 0; border-radius: 50%; border: 1.5px solid var(--dim); background: transparent; cursor: pointer; }
+.dot[aria-selected="true"] { background: var(--dim); }
+.count { color: var(--dim); font-size: 10px; white-space: nowrap; }
+.add { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--dim); font: inherit; font-size: 14px; line-height: 1; padding: 0 5px; cursor: pointer; }
+.add:hover { border-color: var(--line); background: var(--key); }
+.tools { display: flex; align-items: center; gap: 2px; padding: 2px 8px 0; opacity: 0; transition: opacity 150ms; }
+.note:hover .tools, .note:focus-within .tools { opacity: 1; }
+.tools button { border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--dim); font: inherit; font-size: 11px; min-width: 20px; height: 20px; padding: 0 4px; cursor: pointer; }
+.tools button:hover { border-color: var(--line); background: var(--key); color: var(--ink); }
+.tools .gap { flex: 1; }
+.colors { display: flex; gap: 3px; }
+.swatch { width: 12px; height: 12px; padding: 0; border-radius: 50%; border: 1.5px solid rgba(0, 0, 0, 0.2); cursor: pointer; }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--dim); }
+.swatch[data-color="yellow"] { background: #fde68a; }
+.swatch[data-color="rose"] { background: #fbcfe8; }
+.swatch[data-color="mint"] { background: #bbf7d0; }
+.swatch[data-color="sky"] { background: #bae6fd; }
+.swatch[data-color="lilac"] { background: #ddd6fe; }
+.swatch[data-color="stone"] { background: #d6d3d1; }
+.page { flex: 1; min-height: 0; overflow: auto; padding: 4px 10px 4px; outline: none; word-break: break-word; }
+.page:empty::before { content: attr(data-placeholder); color: var(--dim); pointer-events: none; }
+.page ul, .page ol { margin: 2px 0; padding-left: 1.4em; }
+.page p, .page div { margin: 0; }
+.foot { display: flex; align-items: center; gap: 6px; padding: 2px 8px 6px; font-size: 11px; color: var(--dim); }
+.status { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot button { border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-size: 11px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+.foot .quiet { color: var(--dim); }
+.foot button.armed { color: var(--accent); border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .note, .tools { transition: none; } }

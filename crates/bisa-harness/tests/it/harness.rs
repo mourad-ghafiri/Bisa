@@ -1,0 +1,277 @@
+//! Integration tests: mock session event flow, capability gating, catalog
+//! loading, and subprocess plumbing.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use bisa_core::{HarnessCaps, ToolTier};
+use bisa_harness::mock::MockAdapter;
+use bisa_harness::proc::{Line, ProcHandle, ProcSpec};
+use bisa_harness::{
+    HarnessAdapter, HarnessCatalog, HarnessError, HarnessTier, LifecycleEvent, Outcome,
+    SessionEvent, SessionSpec,
+};
+use futures::StreamExt;
+
+fn spec(prompt: &str) -> SessionSpec {
+    SessionSpec {
+        work_item: None,
+        cwd: std::env::temp_dir(),
+        prompt: prompt.into(),
+        model: None,
+        effort: None,
+        mcp_servers: vec![],
+        env: BTreeMap::new(),
+        env_remove: Vec::new(),
+        tier_ceiling: ToolTier::Write,
+        output_schema: None,
+        skills: vec![],
+    }
+}
+
+#[tokio::test]
+async fn mock_session_streams_events_to_terminal_end() {
+    let adapter = MockAdapter::default();
+    let session = adapter.launch(spec("do the thing")).await.unwrap();
+    let mut events = session.subscribe();
+    session.prompt("do the thing".into()).await.unwrap();
+
+    let mut saw_started = false;
+    let mut saw_text = false;
+    let mut terminal: Option<Outcome> = None;
+    while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_secs(5), events.next()).await {
+        match ev {
+            SessionEvent::Lifecycle(LifecycleEvent::Started) => saw_started = true,
+            SessionEvent::Progress(bisa_harness::ProgressEvent::TextDelta { text }) => {
+                assert!(text.contains("do the thing"));
+                saw_text = true;
+            }
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome,
+                is_terminal,
+            }) => {
+                assert!(is_terminal);
+                terminal = Some(outcome);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert!(saw_started && saw_text);
+    assert!(matches!(terminal, Some(Outcome::Completed)));
+    assert_eq!(session.phase(), bisa_harness::Phase::Ended);
+    assert!(
+        session.snapshot().revision > 1,
+        "snapshot revision advanced"
+    );
+}
+
+#[tokio::test]
+async fn steer_without_capability_is_not_supported() {
+    let adapter = MockAdapter {
+        caps: HarnessCaps::empty(),
+        available: true,
+        ..Default::default()
+    };
+    let session = adapter.launch(spec("x")).await.unwrap();
+    match session.steer("go left".into()).await {
+        Err(HarnessError::NotSupported("steer")) => {}
+        other => panic!("expected NotSupported(steer), got {other:?}"),
+    }
+    match session.resume_token() {
+        None => {}
+        Some(t) => panic!("no RESUME cap but token {t:?}"),
+    }
+}
+
+#[tokio::test]
+async fn unavailable_adapter_asks_for_fallback() {
+    let adapter = MockAdapter {
+        available: false,
+        ..Default::default()
+    };
+    let err = adapter.launch(spec("x")).await.err().expect("must fail");
+    assert!(err.is_unavailable());
+}
+
+#[tokio::test]
+async fn catalog_loads_custom_descriptors_and_strips_reserved_env() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("my-agent.json"),
+        serde_json::json!({
+            "id": "my-agent",
+            "label": "My Agent",
+            "command": "my-agent-bin",
+            "args": ["acp"],
+            "env": {"BISA_PRIVATE_KEY": "steal", "MY_MODE": "acp"},
+            "install_hint": "https://example.invalid"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // Reserved id: must be reported as an error, not loaded.
+    std::fs::write(
+        dir.path().join("evil.json"),
+        serde_json::json!({"id": "claude-code", "label": "E", "command": "e"}).to_string(),
+    )
+    .unwrap();
+    // Garbage file: must not abort discovery.
+    std::fs::write(dir.path().join("broken.json"), "{not json").unwrap();
+
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::new(MockAdapter::default()));
+    let errors = catalog.load_custom_dir(dir.path());
+    assert_eq!(errors.len(), 2, "reserved id + broken file: {errors:?}");
+
+    let specs = catalog.custom_specs();
+    assert_eq!(specs.len(), 1);
+    assert_eq!(specs[0].id, "my-agent");
+    assert!(
+        !specs[0].env.contains_key("BISA_PRIVATE_KEY"),
+        "reserved env stripped"
+    );
+    assert_eq!(specs[0].env.get("MY_MODE"), Some(&"acp".to_string()));
+
+    let listings = catalog.list().await;
+    let builtin = listings
+        .iter()
+        .find(|l| l.id == "mock")
+        .expect("builtin listed");
+    assert_eq!(builtin.tier, HarnessTier::Builtin);
+    assert!(builtin.probe.available);
+    assert!(listings.iter().any(|l| l.id == "custom:my-agent"));
+    assert!(listings.iter().any(|l| l.tier == HarnessTier::Preset));
+
+    // A custom descriptor's command *is* its interactive form, args and all.
+    let custom = listings
+        .iter()
+        .find(|l| l.id == "custom:my-agent")
+        .expect("custom listed");
+    let launch = custom.launch.as_ref().expect("a custom row can be run");
+    assert_eq!(launch.program, "my-agent-bin");
+    assert_eq!(launch.args, vec!["acp".to_string()]);
+
+    // Missing custom dir is silently empty, not an error.
+    let mut empty = HarnessCatalog::new();
+    assert!(empty
+        .load_custom_dir(&dir.path().join("does-not-exist"))
+        .is_empty());
+}
+
+/// A harness with no interactive form says so, rather than offering the command
+/// it uses to speak a protocol.
+///
+/// This is the default on the trait, and the default is the point: an adapter
+/// author who does nothing gets `None`, which shows a person no menu entry.
+/// Getting it wrong in the other direction — offering `goose acp` as something
+/// to sit in front of — hands somebody a terminal full of JSON-RPC frames.
+#[test]
+fn a_harness_with_no_interactive_form_offers_none() {
+    let mock = MockAdapter::default();
+    assert!(
+        mock.interactive().is_none(),
+        "the trait default must be None, so silence is safe"
+    );
+}
+
+/// `list` and `list_with_timeout` differ only in how they probe **adapters**.
+///
+/// They used to carry a verbatim copy of the preset and custom loops each,
+/// which is how a listing comes to disagree with itself depending on which
+/// caller asked — the CLI reads one, the node reads the other.
+#[tokio::test]
+async fn both_listings_agree_about_everything_that_is_not_an_adapter() {
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::new(MockAdapter::default()));
+
+    let slow = catalog.list().await;
+    let fast = catalog
+        .list_with_timeout(std::time::Duration::from_secs(3))
+        .await;
+
+    let rows = |ls: &[bisa_harness::HarnessListing]| -> Vec<String> {
+        ls.iter()
+            .filter(|l| l.tier != HarnessTier::Builtin)
+            .map(|l| {
+                format!(
+                    "{}|{}|{:?}|{:?}|{:?}",
+                    l.id, l.label, l.tier, l.launch, l.install_hint
+                )
+            })
+            .collect()
+    };
+    assert_eq!(rows(&slow), rows(&fast));
+    assert!(!rows(&slow).is_empty(), "there is something to compare");
+}
+
+/// **A preset may never shadow a compiled-in adapter.**
+///
+/// Tier 2 is defined as *a harness we can detect but ship no first-class
+/// adapter for*. `preset:omp` and `preset:opencode` broke that: both had
+/// adapters, so `harness list` showed omp three times and two of the three
+/// could not run — a preset has no adapter object, so `get()` answers `None`
+/// for it. The rule is cheap to state and was expensive to notice.
+#[test]
+fn a_preset_never_shadows_an_adapter() {
+    use bisa_harness::catalog::{BUILTIN_IDS, PRESET_HARNESSES};
+    for preset in PRESET_HARNESSES {
+        assert!(
+            !BUILTIN_IDS.contains(&preset.command),
+            "{} duplicates the compiled-in adapter {:?}; tier 2 is for harnesses \
+             with no adapter",
+            preset.id,
+            preset.command
+        );
+    }
+}
+
+#[tokio::test]
+async fn proc_roundtrips_ndjson_lines() {
+    // `cat` echoes stdin to stdout: whatever JSON we write comes back framed.
+    let mut proc = ProcHandle::spawn(ProcSpec::new("cat")).expect("spawn cat");
+    proc.send_json(&serde_json::json!({"type": "prompt", "n": 1}))
+        .await
+        .unwrap();
+    match proc
+        .recv_timeout(Duration::from_secs(5))
+        .await
+        .expect("no timeout")
+    {
+        Some(Line::Json(v)) => assert_eq!(v["type"], "prompt"),
+        other => panic!("expected json line, got {other:?}"),
+    }
+
+    proc.send_line("plain text line").await.unwrap();
+    match proc
+        .recv_timeout(Duration::from_secs(5))
+        .await
+        .expect("no timeout")
+    {
+        Some(Line::Text(t)) => assert_eq!(t, "plain text line"),
+        other => panic!("expected text line, got {other:?}"),
+    }
+    assert!(proc.idle_for() < Duration::from_secs(5));
+
+    // EOF ends the process; stream closes.
+    proc.close_stdin().await.unwrap();
+    match proc
+        .recv_timeout(Duration::from_secs(5))
+        .await
+        .expect("no timeout")
+    {
+        None => {}
+        Some(l) => panic!("expected closed stream, got {l:?}"),
+    }
+    let status = proc.wait().await.unwrap();
+    assert!(status.success());
+}
+
+#[tokio::test]
+async fn proc_spawn_missing_binary_is_unavailable() {
+    let err = ProcHandle::spawn(ProcSpec::new("definitely-not-a-real-binary-xyz"))
+        .err()
+        .expect("must fail");
+    assert!(err.is_unavailable(), "{err:?}");
+}

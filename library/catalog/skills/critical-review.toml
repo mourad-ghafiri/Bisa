@@ -1,0 +1,59 @@
+# Built-in skill: Critical Review — test the reasoning, not the author.
+
+[skill]
+name = "Critical Review"
+description = "Use when a plan, argument or analysis needs its assumptions and inferences tested before it is acted on."
+tags = ["review", "thinking"]
+content = """
+# Critical Review
+
+Use this when someone hands you a plan, a proposal or an analysis and the cost of it being wrong
+is real. You are testing the reasoning. The author is not the subject.
+
+## Procedure
+
+1. Restate the claim and its support in your own words, in three sentences. If you cannot, stop
+   and ask — you are about to critique something you have not understood.
+2. List the load-bearing assumptions. For each, mark it stated or unstated. Unstated assumptions
+   are where reviews earn their keep: the author never noticed them, so never checked them.
+3. For each assumption ask what breaks if it is false, and whether anyone has checked it. An
+   assumption that costs an hour to verify and would invalidate the whole plan is the first thing
+   to raise.
+4. Test the inference separately from the evidence. Evidence can be sound while the conclusion
+   does not follow. Look for: correlation read as cause; a sample that does not represent the
+   population; a conclusion narrower or broader than the data supports; a definition that shifts
+   between the premise and the conclusion.
+5. Hunt the missing case. What input, user, scale, timezone, permission level or failure mode is
+   absent from the analysis? Absence is the most common defect and the hardest to see, because
+   nothing on the page points at it.
+6. Ask what evidence would refute this. If nothing could, it is not an analysis.
+7. Separate your findings into blocking and non-blocking, and say for each what would resolve it.
+8. Say what is right. A review that lists only problems gets discounted as reflexive, and the
+   author cannot tell which parts survived.
+
+## How to write a finding
+
+- Quote or cite the exact passage. "Section 3, second paragraph", not "the part about caching".
+- Name the defect: unstated assumption, non-sequitur, missing case, unsupported number, scope
+  creep, definition shift.
+- Say what would change your assessment: the check to run, the data to add, the case to cover.
+- Address the text: "this step assumes the queue is ordered" — never "you assumed".
+
+## Failure modes
+
+- **Style as substance.** Critiquing structure, wording and formatting while the central inference
+  goes untested. Comfortable, and useless.
+- **Unfalsifiable objections.** "This might not scale." Say at what load, by what mechanism, and
+  how you would find out, or drop it.
+- **Symmetry of severity.** Twelve findings, all listed flat, so the one that invalidates the plan
+  sits between two nitpicks. Rank them.
+- **Reviewing the plan you would have written.** A different valid approach is not a defect.
+  Preferences go in a note; only defects block.
+- **Volume as rigour.** Thirty comments buries the three that matter.
+
+## Done when
+
+Every load-bearing assumption is listed and marked stated or unstated, the inference has been
+tested apart from the evidence, missing cases are named, findings are ranked with a resolution
+each, and what holds up is stated as clearly as what does not.
+"""

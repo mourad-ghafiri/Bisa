@@ -1,0 +1,12 @@
+# Paths the terminology lint does not scan.
+#
+# Every entry needs a reason. "It is noisy" is not a reason — if a path is
+# noisy it is because it has not been migrated yet, and that is what the lint
+# is for.
+#
+# See docs/contributing/terminology.md
+
+# Study material — third-party clones, never shipped, already gitignored.
+lab/*
+# THIRD-PARTY-NOTICES.md is generated (`just gen-notices`) and reproduces other projects' licence texts verbatim: their words, not our vocabulary.
+THIRD-PARTY-NOTICES.md

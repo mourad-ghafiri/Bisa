@@ -1,0 +1,68 @@
+# Built-in skill: Unit Economics — compute CAC, LTV, margin and payback without fudging the inputs.
+
+[skill]
+name = "Unit Economics"
+description = "Use when someone claims a business works at scale: compute CAC, LTV, margin, payback and check them."
+tags = ["business", "data"]
+content = """
+# Unit Economics
+
+Use this when a business, a channel or a pricing change has to be judged on whether one customer
+pays for itself. Every number below has a standard way to be fudged; each is named.
+
+## Define the unit first
+
+Say what a unit is — one customer, one account, one seat, one order — and hold it constant across
+every metric. Mixing units (CAC per account, LTV per seat) is the most common way a healthy-looking
+ratio turns out to be meaningless.
+
+## The five numbers
+
+**CAC — customer acquisition cost.** All sales and marketing spend in a period, divided by new
+customers acquired in that period. All spend means salaries, commissions, tools, agencies and
+content — not just ad spend. *Fudge:* counting only paid media, or excluding the sales team.
+*Fudge:* dividing by all new customers including organic ones, which flatters paid CAC. Report
+blended CAC and paid CAC separately, and lag the numerator against the sales cycle.
+
+**Gross margin.** Revenue minus cost of goods sold, over revenue. COGS includes hosting, third-party
+API costs, payment fees, and the support and onboarding staff needed to serve customers. *Fudge:*
+calling infrastructure and support "operating expense" to move them below the line. If it scales
+with customers, it is COGS.
+
+**LTV — lifetime value.** Gross-margin-per-period times expected lifetime, discounted. Expected
+lifetime is `1 / churn rate` in the same period unit. *Fudge:* using revenue instead of gross
+margin — the single most common error, and it inflates LTV by whatever your COGS is. *Fudge:*
+deriving lifetime from an early cohort's low churn, giving a 5-year LTV for an 8-month-old product.
+Cap the horizon at something you have observed, typically 24 or 36 months.
+
+**Payback period.** CAC divided by gross margin per month. The months until one customer has repaid
+their acquisition cost. This is the number that determines whether growth consumes or generates
+cash, and it is more honest than LTV/CAC because it needs no lifetime guess.
+
+**Runway.** Cash on hand divided by net monthly burn. *Fudge:* using an average burn from before
+the hires you just made. Use next month's planned burn, and state the assumption about revenue.
+
+## Sanity checks
+
+- **LTV/CAC** above 3 is the usual bar. Above 5 usually means you are underspending on growth or
+  overstating lifetime — check which before celebrating.
+- **Payback** under 12 months is generally financeable; over 18 means growth needs outside capital.
+- Recompute LTV with the observed horizon instead of the modelled one. If the conclusion flips, the
+  model is doing the work, not the business.
+- Segment before you conclude. A blended CAC hides a channel that loses money on every customer.
+- Check the cohort chart, not just the average. Averages over cohorts of very different ages are
+  dominated by whichever cohort is largest.
+- Halve retention and double CAC. If the business only works in the good case, say so plainly.
+
+## Failure modes
+
+- Revenue LTV compared against a fully loaded CAC. Two different bases, one meaningless ratio.
+- A ratio quoted with no date range, no segment, and no cohort.
+- Payback ignored because LTV/CAC looks good. You can be profitable per customer and still run out
+  of cash.
+
+## Done when
+
+The unit is defined, each of the five numbers states its formula and its date range, LTV uses gross
+margin over an observed horizon, and the conclusion survives halved retention and doubled CAC.
+"""

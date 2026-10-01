@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Unit converter</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="conv" aria-label="Unit converter">
+    <select id="kind" aria-label="What to convert"></select>
+    <div class="pair">
+      <input id="from" type="number" step="any" aria-label="Value" value="1">
+      <select id="fromUnit" aria-label="From"></select>
+    </div>
+    <div class="between">
+      <button id="swap" class="swap" type="button" aria-label="Swap the units" title="Swap">⇅</button>
+    </div>
+    <div class="pair">
+      <output id="to" class="result" aria-live="polite">—</output>
+      <select id="toUnit" aria-label="To"></select>
+    </div>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

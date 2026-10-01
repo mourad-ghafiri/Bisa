@@ -1,0 +1,67 @@
+# Built-in skill: Code Review Checklist — what to check, and what deserves to block.
+
+[skill]
+name = "Code Review Checklist"
+description = "Use when reviewing a diff: what to check in order, and which findings block a merge."
+tags = ["code", "review"]
+content = """
+# Code Review Checklist
+
+Use this when reviewing a change. Work the passes in order — correctness first, style last — and
+be explicit about which comments block the merge.
+
+## Pass 1 — Correctness
+
+1. Read the description, then the diff, then decide whether they describe the same change. A diff
+   doing more than it says is the single most common defect that reaches production.
+2. Trace the happy path once, by hand, with a real input. Do not skim the logic and approve the
+   shape.
+3. Check the boundaries: empty, one, many; zero, negative, overflow; first and last iteration;
+   null or absent versus present-but-empty; concurrent callers touching the same state.
+4. Check the error paths. Every `?`, `catch`, early return: does the caller learn enough to act?
+   Is partial state left behind on failure? Is a failure being swallowed into a default?
+5. Check resource lifetimes: what is opened is closed, what is locked is released on every exit
+   including the panic path, what is spawned is awaited or deliberately detached.
+
+## Pass 2 — Blast radius
+
+6. List what else calls this. A changed signature, a changed default, a changed error type or a
+   changed serialized shape reaches further than the diff shows.
+7. Ask what happens to data written by the old version and read by the new one, and to a request
+   in flight across the deploy.
+8. Ask what happens if this is deployed and immediately reverted.
+
+## Pass 3 — Tests
+
+9. Is there a test that fails without this change? If not, the change is unverified regardless of
+   how many tests exist.
+10. Do the tests assert behaviour or implementation? A test that mirrors the code line for line
+    passes for the wrong reason and blocks every future refactor.
+11. Are the error paths tested, or only the happy one?
+
+## Pass 4 — Readability
+
+12. Can you say what each function does from its name and signature alone?
+13. Is anything surprising unexplained? Comment the non-obvious *why*, never the *what*.
+14. Is there duplication that will drift, or an abstraction invented for a single caller?
+
+## Blocking versus note
+
+- **Block** on: wrong behaviour, data loss or corruption, a security or secrets issue, a missing
+  test for the change's core claim, an unhandled error path with real consequences, a breaking
+  change with no migration.
+- **Note** on: naming, structure, a cleaner approach, a follow-up, a nit. Prefix them so the author
+  can tell instantly — "nit:", "optional:", "follow-up:".
+- Never block on a preference. If you cannot name the failure your comment prevents, it is a note.
+
+## How to write it
+
+Cite `file:line`. Say what is wrong, and what input or sequence demonstrates it. Propose a
+direction, not the exact patch. Address the code, not the author. Say what is good — the author
+otherwise cannot tell which parts you actually read.
+
+## Done when
+
+All four passes are done, every blocking comment names a concrete failure, notes are marked as
+notes, and you can state in one sentence what this change does and what it risks.
+"""

@@ -1,0 +1,8 @@
+{
+  "anthropic": {
+    "type": "oauth",
+    "refresh": "fake-anthropic-oauth-refresh-token",
+    "access": "fake-anthropic-oauth-access-token",
+    "expires": 1788000000000
+  }
+}

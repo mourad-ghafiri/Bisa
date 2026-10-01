@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tic-tac-toe</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="game" aria-label="Tic-tac-toe">
+    <p id="status" class="status" aria-live="polite">Your move</p>
+    <div id="board" class="board" role="grid" aria-label="Board"></div>
+    <div class="controls">
+      <fieldset id="mode" class="segment" aria-label="Who plays">
+        <label><input type="radio" name="mode" value="machine" checked><span>You vs machine</span></label>
+        <label><input type="radio" name="mode" value="human"><span>Two players</span></label>
+      </fieldset>
+      <fieldset id="level" class="segment" aria-label="How well the machine plays">
+        <label><input type="radio" name="level" value="easy"><span>Easy</span></label>
+        <label><input type="radio" name="level" value="unbeatable" checked><span>Unbeatable</span></label>
+      </fieldset>
+    </div>
+    <div class="foot">
+      <span id="tally" class="tally"></span>
+      <button id="again" type="button">New game</button>
+    </div>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b41fa06dfd9875fc8b1a878bb955e511328397ac41427d0d85366694c8ce956f # shrinks to wf = Workflow { id: WorkflowId(00000000090000000000000001), name: "Test", description: "", inputs: [], steps: [Step { id: StepId("s0"), name: "S0", kind: End { outcome: Done }, then: [], join: All, on_fail: Skip, retries: 0, max_visits: 3 }], origin: Workspace, author: PrincipalId(abababab…), tags: Tags([]), revision: 1, created_at: 0 }

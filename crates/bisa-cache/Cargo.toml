@@ -1,0 +1,18 @@
+[package]
+name = "bisa-cache"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "A small reusable in-process cache toolkit: a TTL cell and a keyed TTL cache, hit/miss stats, and a clearable process-wide registry"
+
+# Deliberately tiny and dependency-light: one concurrency crate, nothing that
+# does I/O. This is a leaf every I/O-doing crate may share.
+[dependencies]
+dashmap = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[lints]
+workspace = true

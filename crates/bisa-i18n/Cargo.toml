@@ -1,0 +1,29 @@
+[package]
+name = "bisa-i18n"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "The catalog and its rendering: every message the platform says to a person, in Fluent (`locales/<lang>/*.ftl`), a locale negotiated once, and a `Text` rendered into one language at the edge that talks to the person — the node's error body, the CLI, the docs generators"
+
+# One Bisa dependency — `bisa-core`, for `Text`, the sentence as data. The
+# Fluent crates do no I/O: the catalogs are `include_str!` at compile time,
+# so a node or a CLI carries its languages and reads nothing at run time.
+[dependencies]
+bisa-core = { workspace = true }
+fluent-bundle = { workspace = true }
+unic-langid = { workspace = true }
+fluent-langneg = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# The catalog guard parses every `.ftl` as the runtime does.
+fluent-syntax = { workspace = true }

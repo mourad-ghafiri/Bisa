@@ -1,0 +1,41 @@
+:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --face: rgba(255, 255, 255, 0.72); --rim: rgba(28, 25, 23, 0.28); --card: rgba(255, 255, 255, 0.94); --key: rgba(28, 25, 23, 0.06); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --face: rgba(28, 25, 23, 0.72); --rim: rgba(245, 245, 244, 0.28); --card: rgba(28, 25, 23, 0.94); --key: rgba(245, 245, 244, 0.08); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; background: transparent; font: 12px system-ui, sans-serif; color: var(--ink); }
+.clock { position: relative; box-sizing: border-box; height: 100%; display: flex; align-items: center; justify-content: center; }
+/* One face at a time, by the attribute the script sets — never `hidden` on an SVG. */
+.clock[data-style="analog"] .digital { display: none; }
+.clock[data-style="digital"] .analog { display: none; }
+.face { display: flex; align-items: center; justify-content: center; }
+.analog { width: 100%; height: 100%; }
+.dial { width: min(100vw, 100vh); height: min(100vw, 100vh); display: block; }
+.rim { fill: var(--face); stroke: var(--rim); stroke-width: 1; }
+.tick { stroke: var(--dim); stroke-width: 0.6; }
+.tick.big { stroke: var(--ink); stroke-width: 1.4; }
+.numeral { fill: var(--ink); font: 600 7.5px system-ui, sans-serif; }
+.dial-date { fill: var(--dim); font: 500 5px system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; }
+.hand { stroke-linecap: round; transform-origin: 50px 50px; }
+.hour { stroke: var(--ink); stroke-width: 3.2; }
+.minute { stroke: var(--ink); stroke-width: 2.2; }
+.second { stroke: var(--accent); stroke-width: 0.9; }
+.pin { fill: var(--accent); stroke: var(--face); stroke-width: 0.8; }
+.digital { flex-direction: column; gap: 2px; padding: 10px 16px; border-radius: 14px; background: var(--face); border: 1px solid var(--rim); max-width: 100%; box-sizing: border-box; }
+.readout { display: flex; align-items: baseline; gap: 4px; }
+.time { font-size: clamp(18px, 22vmin, 72px); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; line-height: 1; }
+.meridiem { font-size: clamp(9px, 6vmin, 18px); color: var(--dim); font-weight: 600; letter-spacing: 0.04em; }
+.date { font-size: clamp(10px, 6vmin, 16px); color: var(--dim); white-space: nowrap; }
+.gear { position: absolute; right: 4px; top: 4px; z-index: 2; border: 0; border-radius: 6px; background: transparent; color: var(--dim); font-size: 14px; line-height: 1; padding: 3px 5px; cursor: pointer; opacity: 0; transition: opacity 150ms; }
+.clock:hover .gear, .gear:focus-visible, .gear[aria-expanded="true"] { opacity: 1; }
+.gear[aria-expanded="true"] { background: var(--key); color: var(--ink); }
+.settings { position: absolute; right: 4px; top: 26px; z-index: 3; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px; background: var(--card); border: 1px solid var(--rim); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); color: var(--ink); }
+.segment { display: flex; gap: 2px; margin: 0; padding: 2px; border: 1px solid var(--rim); border-radius: 8px; background: var(--key); }
+.segment label { flex: 1; position: relative; text-align: center; border-radius: 6px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+.segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.segment input:checked + span { color: var(--accent); font-weight: 600; }
+.segment label:has(input:checked) { background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.segment label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.check { display: flex; gap: 6px; align-items: center; white-space: nowrap; padding: 0 2px; cursor: pointer; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { .gear { transition: none; } }

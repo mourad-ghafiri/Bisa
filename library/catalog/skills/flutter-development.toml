@@ -1,0 +1,89 @@
+# Built-in skill: Flutter Development — the app on a device this machine can reach, and the
+# mobile tools that list, boot and capture them. Who may use the mobile tools is the workspace's
+# word (`mobile_development.agents`, *everyone* by default); with it at *assigned*, carrying this skill is what
+# lets an agent through.
+
+[skill]
+name = "Flutter Development"
+description = "Use when building or testing a Flutter app: simulators, emulators and phones through the mobile tools, `flutter run` in a terminal, the screen read back."
+tags = ["engineering", "mobile"]
+content = """
+# Flutter Development
+
+The machine you run on develops Flutter apps for iOS and Android, and the platform hands you tools
+for its devices. The app itself runs where a person can watch it: `flutter run -d <device id>` in a
+terminal, in the checkout, on an id the tools listed. The person sees the same device mirrored
+beside the code in the Project IDE, marks a spot on its screen and sends you the capture with a
+note; you read the screen back with a screenshot. Nothing here needs a window open: a screenshot
+works in a goal that runs unattended too.
+
+Who may use the tools is the workspace's word (`mobile_development.agents`: everyone — the default — agents
+with this skill, or nobody), and which platforms this machine develops for is its own
+(`mobile_development.platforms`: both, iOS only, Android only). A refusal is a sentence naming why; say it to
+the person and stop rather than working around it.
+
+## The tools
+
+| Tool | What it does |
+|---|---|
+| `mobile_development_status` | what is installed: Flutter (version, channel, path), Xcode and the iOS runtimes, CocoaPods, the Android SDK with `adb`, the emulator and its images, Java, and Flutter's own doctor lines; `fresh: true` examines the machine again |
+| `mobile_development_devices` | the simulators, emulators and phones here, of the platforms that are on: id, name, platform, kind, state — the id is what `flutter run -d` takes |
+| `mobile_development_boot` | boot a simulator, or start an emulator's image, by id; answers once it is up, with the run line |
+| `mobile_development_screenshot` | a PNG of a device's screen as it is now, saved on this machine; answers the file's path — read the file to see the app |
+
+## The loop
+
+1. `mobile_development_status` once, when you start: which platforms are on, whether Flutter and the SDKs are
+   there. A missing tool is the person's to install (Settings › Capabilities › Mobile Development
+   says how); say what is missing and stop rather than working around it.
+2. `mobile_development_devices`. Pick a device that is `booted` or `running`; when none is, `mobile_development_boot` a
+   simulator or an emulator. A phone is plugged in and unlocked by the person — ask.
+3. Run the app: `flutter run -d <id>` in the checkout, in a terminal you keep open. Flutter's own
+   `-d chrome` is refused by the guard — the machine's browser is never yours; a web build runs as
+   `flutter run -d web-server --web-port <port>` and is read through the browser tools instead.
+4. Edit, then hot reload: `r` on the run terminal reloads the app with your change, `R` restarts
+   it, `q` stops it. A change to a platform folder, a plugin or `pubspec.yaml` needs a restart, and
+   a new plugin `flutter pub get` first.
+5. `mobile_development_screenshot` the device and read the file: a layout, a colour, a state, an empty screen
+   where a widget should be. What you cannot see on the screen, you have not finished.
+6. Check with the project's own checks: `flutter analyze`, `flutter test`, and the integration
+   tests in their own folder beside `test/`, run with `flutter test` on that folder and `-d <id>`,
+   when the project has them. A project's own end-to-end suite on a real device is the person's
+   to run.
+7. Stop the run (`q`) when you are done, unless the person wants to keep looking.
+
+## Both platforms
+
+- iOS: the `ios/` folder, `Info.plist` for permissions and the display name, `Runner.xcodeproj` for
+  the bundle identifier, signing and capabilities; `pod install` after a plugin changes (`cd ios`);
+  an iOS build needs Xcode and runs on macOS only.
+- Android: the `android/` folder, `AndroidManifest.xml` for permissions and deep links, the
+  application id and the version in `android/app/build.gradle` (or `.kts`), `key.properties` for
+  the signing key — never committed.
+- A capability added to one side is added to the other, and each side's change is run on that
+  side's device before it is done. `flutter build ipa` and `flutter build appbundle` are the
+  release builds; the store submission itself is a step the person approves (see the App Store
+  and Google Play skills).
+
+## What a capture from the person means
+
+A capture is a device's screen the person marked in the IDE: the device by name, the PNG's path,
+the rectangle they drew in device pixels (none for the whole screen), and a note. Open the file,
+find the spot, change what they asked, hot reload, and answer with a screenshot of the same spot.
+
+## What you must not do
+
+- Do not run `flutter run -d chrome`, `open -a Safari` or any browser of the machine: the guard
+  refuses them and names the browser tools.
+- Do not erase or delete every simulator (`xcrun simctl erase all`, `delete all`): the guard asks
+  the person, and the answer is theirs.
+- Do not submit a build to a store (`altool`, `notarytool`, `fastlane deliver`, a Gradle
+  publish): the guard asks first, and a submission never happens unasked.
+- When a mobile tool refuses you, or answers that the mobile tools are not available, say so to
+  the person and stop.
+
+## Done when
+
+The change runs on a device of each platform that is on, `flutter analyze` and `flutter test`
+are green, the screenshot shows what the work item asked for, and the run is stopped.
+"""

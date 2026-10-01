@@ -1,0 +1,121 @@
+# Built-in connector: Notion — search, pages and databases over the Notion API, as an internal integration.
+
+[connector]
+name = "Notion"
+description = "Search a workspace, read and create pages, query a database. Paste an internal integration secret (ntn_…) and share the pages with the integration."
+tags = ["writing", "planning"]
+base_url = "https://api.notion.com"
+hosts = ["api.notion.com"]
+check = "me"
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The integration's own bot user — the one call that proves the secret works."
+method = "get"
+path = "/v1/users/me"
+headers = { "Notion-Version" = "2022-06-28" }
+
+[[connector.operations]]
+id = "search"
+name = "Search"
+description = "Pages and databases shared with the integration that match a query."
+method = "post"
+path = "/v1/search"
+headers = { "Notion-Version" = "2022-06-28" }
+body = { kind = "json", value = { query = "{params.query}", page_size = "{params.max}" } }
+
+[[connector.operations.params]]
+name = "query"
+label = "Query"
+doc = "Words in the title; empty for everything shared."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+required = true
+doc = "Up to 100."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "get_page"
+name = "Get page"
+description = "One page's properties by id."
+method = "get"
+path = "/v1/pages/{params.id}"
+headers = { "Notion-Version" = "2022-06-28" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Page id"
+required = true
+doc = "The 32 hex characters at the end of the page URL."
+
+[[connector.operations]]
+id = "create_page"
+name = "Create page"
+description = "Create a page under a page or in a database, with its properties and body blocks."
+method = "post"
+path = "/v1/pages"
+headers = { "Notion-Version" = "2022-06-28" }
+body = { kind = "json", value = { parent = "{params.parent}", properties = "{params.properties}", children = "{params.children}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "parent"
+label = "Parent"
+kind = "json"
+required = true
+doc = "Where the page goes: {\"page_id\": \"…\"} or {\"database_id\": \"…\"}."
+
+[[connector.operations.params]]
+name = "properties"
+label = "Properties"
+kind = "json"
+required = true
+doc = "The page's properties in Notion's shape; under a page parent, {\"title\": {\"title\": [{\"text\": {\"content\": \"…\"}}]}}."
+
+[[connector.operations.params]]
+name = "children"
+label = "Blocks"
+kind = "json"
+required = true
+doc = "A JSON array of block objects for the page's body; [] for an empty page."
+
+[[connector.operations]]
+id = "query_database"
+name = "Query database"
+description = "Rows of a database matching a filter."
+method = "post"
+path = "/v1/databases/{params.database}/query"
+headers = { "Notion-Version" = "2022-06-28" }
+body = { kind = "json", value = { filter = "{params.filter}", page_size = "{params.max}" } }
+
+[[connector.operations.params]]
+name = "database"
+label = "Database id"
+required = true
+doc = "The 32 hex characters in the database URL, before any ?v=."
+
+[[connector.operations.params]]
+name = "filter"
+label = "Filter"
+kind = "json"
+required = true
+doc = "A Notion filter object: {\"property\": \"Status\", \"select\": {\"equals\": \"Done\"}}"
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+required = true
+doc = "Up to 100."
+
+[connector.operations.output]
+select = "results"

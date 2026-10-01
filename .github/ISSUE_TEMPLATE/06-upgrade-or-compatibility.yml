@@ -1,0 +1,80 @@
+name: "Upgrade or compatibility"
+description: "An upgrade broke your workspace, a workflow, a script or an integration."
+title: "[Compatibility]: "
+labels: ["kind: compatibility", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Inside 0.x, an upgrade must keep everything an earlier release left behind (docs/reference/compatibility.md). If yours did not, this is a high-priority bug. Keep your backup and do not delete anything.
+  - type: input
+    id: from
+    attributes:
+      label: "Upgraded from"
+      description: "The release you had before."
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: to
+    attributes:
+      label: "Upgraded to"
+      description: "The release you have now."
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - "macOS \u2014 Apple Silicon"
+        - "macOS \u2014 Intel"
+        - "Linux (built from source)"
+        - "Windows (built from source)"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: What broke
+      multiple: true
+      options:
+        - "The workspace will not open, or something in it is missing"
+        - "A workflow or connector definition"
+        - "A script using the CLI"
+        - "An integration using the HTTP API or its events"
+        - "An MCP tool an agent uses"
+        - "A setting"
+        - "A keyboard shortcut"
+        - "An addon"
+        - "Collaboration with another person's node"
+        - "Something else"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: "What happens"
+      description: "The exact error, and what you did when it appeared."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Logs"
+      description: "Relevant lines from `bisa logs`, with anything that is yours alone removed."
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I removed keys, tokens, personal paths, e-mail addresses and anything else that is mine alone from what I pasted."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true

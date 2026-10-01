@@ -1,0 +1,198 @@
+# Built-in workflow: Hiring loop — a role written down, a rubric fixed before
+# anyone is seen, interviews people run, a scored decision, a legal read, an
+# offer a person approves.
+
+[workflow]
+name = "Hiring loop"
+description = "A role specification and a scoring rubric a person approves before anyone is interviewed, interviews people run and record, an evaluation against the rubric, and an offer a person approves after a legal read."
+tags = ["management", "business", "planning"]
+
+[[workflow.inputs]]
+name = "role"
+label = "The role, in one line"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "manager"
+label = "Who owns the decision"
+kind = "assignee"
+required = true
+
+[[workflow.inputs]]
+name = "rounds"
+label = "How many interviews per candidate"
+kind = "number"
+default = 3
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["spec"]
+
+[[workflow.steps]]
+id = "spec"
+name = "Write the role"
+kind = "agent"
+assignee = { agent = "business-analyst" }
+retries = 1
+instructions = """
+Turn this into a role specification: {inputs.role}
+
+The outcomes the person is accountable for, the must-haves, the nice-to-haves,
+and what would make someone wrong for it. Your result carries the
+specification as markdown.
+"""
+then = ["rubric"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["spec"]
+
+[workflow.steps.output_schema.properties.spec]
+type = "string"
+description = "The role specification as markdown: the outcomes, the must-haves, the nice-to-haves, what would make someone wrong for it."
+
+[[workflow.steps]]
+id = "rubric"
+name = "Fix the rubric"
+kind = "agent"
+assignee = { agent = "evaluator" }
+retries = 1
+instructions = """
+Write the scoring rubric for the role below before any candidate is seen,
+following the scoring-rubric skill: criteria, weights, what a 1 and a 5 look
+like, the tie-break.
+
+{steps.spec.output.spec}
+
+Your result carries the rubric as markdown.
+"""
+then = ["approve"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["rubric"]
+
+[workflow.steps.output_schema.properties.rubric]
+type = "string"
+description = "The scoring rubric as markdown: criteria, weights, what a 1 and a 5 look like, the tie-break."
+
+[[workflow.steps]]
+id = "approve"
+name = "Approve the spec and rubric"
+kind = "approval"
+prompt = "Interviews for {inputs.role} start against this specification and rubric. Approve them as written?"
+then = ["interviews"]
+
+[[workflow.steps]]
+id = "interviews"
+name = "Run the interviews"
+kind = "human"
+assignee = { input = "manager" }
+prompt = "Run {inputs.rounds} interviews per candidate against the rubric and record each candidate's notes and scores here, one candidate per paragraph. Answer when the loop is complete."
+then = ["evaluate"]
+
+[[workflow.steps]]
+id = "evaluate"
+name = "Evaluate against the rubric"
+kind = "agent"
+assignee = { agent = "evaluator" }
+retries = 1
+instructions = """
+Score every candidate in the interview notes against the rubric, with evidence
+per score, and name the recommendation and the runner-up.
+
+Rubric: {steps.rubric.output.rubric}
+Interview notes: {steps.interviews.answer}
+
+Your result names the pick and the runner-up, and carries the scoring table
+as markdown.
+"""
+then = ["decide"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["pick", "runner"]
+
+[workflow.steps.output_schema.properties.pick]
+type = "string"
+description = "The recommended candidate, by name."
+
+[workflow.steps.output_schema.properties.runner]
+type = "string"
+description = "The runner-up, by name."
+
+[workflow.steps.output_schema.properties.table]
+type = "string"
+description = "Every candidate's scores against the rubric, with the evidence per score, as a markdown table."
+
+[[workflow.steps]]
+id = "decide"
+name = "Hire?"
+kind = "human"
+assignee = { input = "manager" }
+prompt = "Recommendation: {steps.evaluate.output.pick}. Runner-up: {steps.evaluate.output.runner}. Make an offer?"
+options = [{ id = "offer", label = "Make the offer" }, { id = "more", label = "Interview more candidates" }, { id = "stop", label = "Close the search" }]
+then = ["route"]
+
+[[workflow.steps]]
+id = "route"
+name = "Route the decision"
+kind = "decide"
+rules = [
+  { when = { condition = "answered", step = "decide", option = "offer" }, branch = "offer" },
+  { when = { condition = "answered", step = "decide", option = "more" }, branch = "more" },
+]
+otherwise = "stop"
+then = [{ to = "legal", branch = "offer" }, { to = "interviews", branch = "more" }, { to = "closed", branch = "stop" }]
+
+[[workflow.steps]]
+id = "legal"
+name = "Legal read of the offer"
+kind = "agent"
+assignee = { agent = "legal-advisor" }
+retries = 1
+instructions = """
+Issue-spot the offer for the role below: entity, contract form, notice,
+intellectual property assignment, data. Name when to get counsel. Not legal
+advice.
+
+{steps.spec.output.spec}
+
+Your result lists the flags and says whether counsel is needed.
+"""
+then = ["offer"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["flags"]
+
+[workflow.steps.output_schema.properties.flags]
+type = "array"
+items = { type = "string" }
+description = "Each issue spotted in the offer, one sentence each."
+
+[workflow.steps.output_schema.properties.counsel]
+type = "boolean"
+description = "Whether the offer needs a lawyer before it is sent."
+
+[[workflow.steps]]
+id = "offer"
+name = "Approve the offer"
+kind = "approval"
+prompt = "Offer to {steps.evaluate.output.pick}. Legal flags: {steps.legal.output.flags}. Send it?"
+then = ["hired"]
+
+[[workflow.steps]]
+id = "hired"
+name = "Hired"
+kind = "end"
+
+[[workflow.steps]]
+id = "closed"
+name = "Search closed"
+kind = "end"
+finish = "failed"

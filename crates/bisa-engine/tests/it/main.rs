@@ -1,0 +1,57 @@
+//! The crate's integration tests, as one binary: one module per file,
+//! so the suite links once and `cargo check --tests` compiles it once.
+//! Run one module with `just test-module engine <module>`.
+
+mod activity;
+mod addons;
+mod artifacts;
+mod ask;
+mod assign;
+mod boundaries;
+mod browser;
+mod changes;
+mod collab;
+mod common;
+mod connectors;
+mod content;
+mod conversation;
+mod conversations;
+mod core_agent;
+mod decisions;
+mod docs;
+mod documents;
+mod drawings;
+mod engine;
+mod events;
+mod folder_git;
+mod gateways;
+mod gitsetup;
+mod guided;
+mod harness_usage;
+mod ide_files;
+mod ide_graph;
+mod ide_review;
+mod ide_search;
+mod intake_scope;
+mod interactive;
+mod lock;
+mod logging;
+mod lsp;
+mod mcp_health;
+mod mobile_development;
+mod models;
+mod network;
+mod notes;
+mod placement;
+mod presence;
+mod projects;
+mod readiness;
+mod recovery;
+mod retire;
+mod security;
+mod sessions;
+mod settings;
+mod waits;
+mod workflow;
+mod workflow_agent;
+mod workspace_runs;

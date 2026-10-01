@@ -1,0 +1,7 @@
+# Built-in team: Strategy & Finance — is it worth building, and at what price.
+
+[team]
+name = "Strategy & Finance"
+purpose = "Answers whether the thing is worth building and what it should cost. Produces the business model, the numbers underneath it, and the assumption that would sink it if it turned out to be wrong — and the legal exposure that comes with the shape it takes."
+tags = ["business", "planning"]
+agents = ["business-strategist", "finance-analyst", "business-analyst", "data-analyst", "legal-advisor"]

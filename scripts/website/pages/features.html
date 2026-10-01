@@ -1,0 +1,200 @@
+<!--{"path": "/features/", "title": "Features — goals, workflows, agents and the Project IDE · Bisa", "description": "Everything Bisa, a decentralized agentic IDE, does: the Inbox, agents and teams, a Project IDE with workstreams and pull requests, workflows and goals."}-->
+<section class="page-head">
+  <div class="wrap">
+    <p class="step-label">Everything, by area</p>
+    <h1>Features</h1>
+    <p class="lede">Bisa carries work from a stated want to a running outcome: you set the goal, agents do the work on the harnesses you already have, and you decide what matters. Here is all of it — and, at the end, what is not there yet.</p>
+    <nav class="toc" aria-label="On this page">
+      <a href="#inbox">Inbox and Pulse</a><a href="#agents-and-teams">Agents and teams</a><a href="#project-ide">Project IDE</a><a href="#workflows">Workflows</a><a href="#events">Events</a><a href="#goals">Goals</a><a href="#channels-and-direct-messages">Channels and direct messages</a><a href="#settings">Settings</a><a href="#collaboration">Collaboration</a><a href="#connectors">Connectors</a><a href="#notes">Notes</a><a href="#drawings">Drawings</a><a href="#security">Security</a><a href="#decision-making">Decision-making</a><a href="#addons">Addons</a><a href="#surfaces">Command line and APIs</a><a href="#not-yet">Not there yet</a>
+    </nav>
+  </div>
+</section>
+
+<div class="wrap prose">
+  <section id="inbox" aria-labelledby="inbox-h">
+    <h2 id="inbox-h">Inbox and Pulse</h2>
+    <p>The Inbox is the one place anything waits for you. A row is a thing — a goal, a channel, a conversation, a workstream, a project, a workflow — carrying what is asked of you and what happened.</p>
+    <ul class="ticks">
+      <li>A gate to approve or decline, a question with the answers the agent thinks it has, a held step to release. <em>I'm not sure</em> sends the agent back with a narrower question.</li>
+      <li>A harness waiting at its prompt in a terminal is a row too.</li>
+      <li>Keyboard first: <kbd>j</kbd> <kbd>k</kbd> to move, <kbd>Enter</kbd> to open, <kbd>a</kbd> to reach the answer, <kbd>e</kbd> to mark read.</li>
+      <li>The Pulse is the live feed of what happens across the workspace, paged back as far as it goes.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:the-desktop}}">The desktop guide</a></p>
+  </section>
+
+  <section id="agents-and-teams" aria-labelledby="agents-h">
+    <h2 id="agents-h">Agents and teams</h2>
+    <p>An agent is a definition — a prompt, a harness, a model plan with failover, an effort, skills and MCP servers — with an attested keypair of its own, so its work is signed as itself. Bisa ships no harness: it drives the ones on your machine (<a href="/harnesses/">every harness, and what Bisa does with each</a>).</p>
+    <ul class="ticks">
+      <li><strong>Three core agents.</strong> The General Agent triages and staffs; the Workflow Agent designs and repairs; the Decision-Making Agent judges, off until you choose who answers for it.</li>
+      <li><strong>The catalog</strong>: {{count:agents}} agents named after jobs you recognise, {{count:skills}} skills, {{count:teams}} teams, {{count:channels}} channels and {{count:templates}} templates — installed on demand, transitively and never destructively.</li>
+      <li><strong>Model plans</strong>: fallback, weighted, round-robin, least-busy or auto-route, with live health on each model.</li>
+      <li><strong>Effort</strong>: six levels from <code>minimal</code> to <code>max</code>, decided by the step, the model, the plan or the workspace, and fitted to what each harness and model take.</li>
+      <li><strong>Skills</strong> delivered the way each harness reads them; <strong>MCP servers</strong> of your own over stdio or HTTP, probed for health.</li>
+      <li><strong>Teams</strong> of agents and people, one level deep; an agent's private memory, encrypted to you.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:agents-and-teams}}">The agents and teams guide</a></p>
+  </section>
+
+  <section id="project-ide" aria-labelledby="ide-h">
+    <h2 id="ide-h">The Project IDE</h2>
+    <p>A full development environment where agents work beside you. A project is a real folder — created, cloned, imported or adopted — and Bisa never writes into a folder it did not create. Every piece of work gets a workstream: a branch and a checkout of its own.</p>
+    <h3>Editing and finding</h3>
+    <ul class="ticks">
+      <li>The Monaco editor; saves are compare-and-swap, never last-write-wins — a file changed under you opens a three-way merge.</li>
+      <li>Search across the checkout and replace with a preview; quick open; language servers for diagnostics, hover and definitions.</li>
+      <li>PDFs, pictures, video, spreadsheets, documents and slides rendered; annotate any rendered page for an agent.</li>
+    </ul>
+    <h3>Terminals and harnesses</h3>
+    <ul class="ticks">
+      <li>Many shells, one tab each, drawn on the GPU; scrollback that survives a restart.</li>
+      <li>Every installed harness in a tab, resumed with its own flag; a harness's state on the roster as it works.</li>
+      <li>Claude Code and GitHub Copilot CLI ask the guard before each tool runs.</li>
+    </ul>
+    <h3>Git and pull requests</h3>
+    <ul class="ticks">
+      <li>A streaming commit graph; staging by hunk or by line; stashes; interactive rebase without a terminal.</li>
+      <li>Conflicts resolved block by block — keep mine, keep theirs, keep both — or handed to an agent.</li>
+      <li>A recovery ref before anything moves your tree; <em>Restore</em> is the undo. Agents cannot reach those operations.</li>
+      <li>Pull requests on GitHub, GitLab and Bitbucket Cloud in seven steps — Commit · Push · Open pull request · Checks · Review · Merge · Clean up — with an agent's review and <em>Fix with</em> for a comment or a failed check.</li>
+    </ul>
+    <h3>Agents in the IDE</h3>
+    <ul class="ticks">
+      <li>Agent mode: a conversation about a checkout in <em>manual</em>, <em>auto</em> or <em>plan</em>.</li>
+      <li>Context only as chips you can see and remove; every edit attributed to its turn, kept or undone by hunk, file or turn; any message restored to before it.</li>
+      <li>The Board: workstreams as cards in Backlog · Todo · Doing · Done · Archived.</li>
+      <li>The embedded browser: folders of the checkout served on this machine, 21 browser tools for agents on the app's own tabs, the wand to point at what you mean.</li>
+      <li>Mobile Development: a Flutter checkout's simulators and emulators, the device mirrored beside the code — off until you switch it on.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:the-ide}}">The IDE guide</a></p>
+  </section>
+
+  <section id="workflows" aria-labelledby="workflows-h">
+    <h2 id="workflows-h">Workflows</h2>
+    <p>A workflow is a small graph of steps in four families — events, gateways, loops and tasks — designed by hand, taken from one of {{count:templates}} templates, or proposed by the Workflow Agent and adopted by you. It runs on a goal, or on its own in the workspace, as many at once as you start.</p>
+    <ul class="ticks">
+      <li><strong>The designer</strong>: a palette, a canvas, and Properties · Agent · Runs beside it. Every save is a new revision; when somebody else saved first, you keep yours on top of theirs or take theirs.</li>
+      <li><strong>The Workflow Agent in the designer</strong>: ask it to change the graph and watch the canvas follow.</li>
+      <li><strong>Conditions are a closed, typed set</strong> nesting at most eight deep — no expression language to script around.</li>
+      <li><strong>Budgets</strong> of tokens, cost and wall time per run; a spent budget pauses a goal's or a workflow's listening until you look.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:workflows}}">The workflows guide</a></p>
+  </section>
+
+  <section id="events" aria-labelledby="events-h">
+    <h2 id="events-h">Events and gateways</h2>
+    <p>What starts a workflow is part of it: a <code>start</code> step for each way in. Turn a workflow <em>On</em>, or let a goal listen, and every occurrence is written down as a durable signal that begins a run.</p>
+    {{starts}}
+    <ul class="ticks">
+      <li><strong>An event never acts.</strong> It is written down, and a run begins from what was written — one signal, one run, even across a crash.</li>
+      <li><strong>Boundary events</strong> on a running step: a timeout, a reminder, a message, a signal — each diverting the step or acting beside it.</li>
+      <li><strong>Public hooks</strong> are off until you turn them on, and a call proves itself with its secret or a GitHub-compatible signature.</li>
+      <li><strong>Templates install Off</strong>; four of them also begin on an event — a schedule, a hook, a failing check, a failed run.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:events}}">The events guide</a></p>
+  </section>
+
+  <section id="goals" aria-labelledby="goals-h">
+    <h2 id="goals-h">Goals</h2>
+    <p>A goal is the durable thing you come back to: a stated want, the workflow that makes it real, the run that carries it, and a signed journal of everything that happened. Its status — <em>draft</em>, <em>running</em>, <em>waiting</em>, <em>done</em>, <em>failed</em>, <em>closed</em> — is wherever its run has got to, and it always says who holds it: you, agents, the world, or the design.</p>
+    <ul class="ticks">
+      <li><strong>Three modes.</strong> <em>auto</em> (the default): the Workflow Agent designs and the platform adopts, starts and repairs, asking you after three failed repairs or where only a person can act. <em>guided</em>: the Workflow Agent proposes and you adopt, ask for changes, edit the steps or decline. <em>manual</em>: your own canvas.</li>
+      <li><strong>One live run at a time</strong>, others queued behind it; <em>Stop</em>, <em>Restart</em>, <em>Close</em> with a word on why — or the goal that replaces it.</li>
+      <li><strong>A goal can listen</strong>: <q>every Monday, post the digest</q> — its workflow's starts are heard until you stop it.</li>
+      <li><strong>Documents as context</strong>, projects attached and detached without a byte moving on disk, and a retirement that says what it would touch before it touches it.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:goals}}">The goals guide</a></p>
+  </section>
+
+  <section id="channels-and-direct-messages" aria-labelledby="channels-h">
+    <h2 id="channels-h">Channels, direct messages and conversations</h2>
+    <ul class="ticks">
+      <li>Standing channels with rosters; direct messages with people and agents, encrypted pairwise to the people in them.</li>
+      <li>A message that names nobody reaches the General Agent, which answers or hands it on.</li>
+      <li>Conversations about any goal, workflow, project, workstream, note or drawing; replies stream with the agent's thinking folded above.</li>
+      <li>Artifacts render live — pages, charts, sheets, decks, PDFs, documents — and save where you choose.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:channels}}">The channels guide</a> · <a class="arrow" href="{{guide:artifacts}}">Artifacts</a></p>
+  </section>
+
+  <section id="settings" aria-labelledby="settings-h">
+    <h2 id="settings-h">Settings and the desktop</h2>
+    <ul class="ticks">
+      <li>One registry at three scopes — this machine, the workspace, a project — nearest winning, every control showing where its value comes from.</li>
+      <li>Five theme families, each light and dark: Glass, Harbor, Orchard, Dune and Suede; a keymap with default, VS Code and vim presets.</li>
+      <li>The menu bar icon, system notifications by category, and every screen back as you left it.</li>
+      <li>{{count:pets}} pets, one keeping you company in the footer.</li>
+    </ul>
+  </section>
+
+  <section id="collaboration" aria-labelledby="collab-h">
+    <h2 id="collab-h">Collaboration and people</h2>
+    <p>Invite people from other machines into your workspace, as humans, at a role you choose — over ordinary Nostr relays, optional and off by default.</p>
+    <ul class="ticks">
+      <li>An invitation is a link, a code or a QR: single-use, expiring, its secret kept only as a hash.</li>
+      <li>Guest, member or admin; you decide who may decide which gates. People bring no agents.</li>
+      <li>Every fact that leaves your node is sealed for one recipient (NIP-44) and gift-wrapped (NIP-59): a relay sees ciphertext and a recipient key. <a href="/security/#encryption">Exactly what is encrypted, and to whom</a>.</li>
+      <li>Every message from outside is read by the classifier before anyone hears it.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:collaboration}}">The collaboration guide</a></p>
+  </section>
+
+  <section id="connectors" aria-labelledby="connectors-h">
+    <h2 id="connectors-h">Connectors</h2>
+    <p>{{count:connectors}} connectors ship in the catalog, each a file you can read; your own is a TOML definition, not a change to the platform.</p>
+    {{connectors}}
+    <ul class="ticks">
+      <li>Accounts with an API key, a bearer token, basic auth, OAuth 2 with PKCE or a signed JWT — secrets in the keystore, never in a record or a prompt.</li>
+      <li>A writing step has an approval before it, or you mark it to run unattended; every write is keyed, or stopped.</li>
+      <li>A host that fails five times rests for thirty seconds before it is called again.</li>
+    </ul>
+    <p><a class="arrow" href="{{guide:connectors}}">The connectors guide</a></p>
+  </section>
+
+  <section id="notes" aria-labelledby="notes-h">
+    <h2 id="notes-h">Notes</h2>
+    <p>A markdown scratchpad beside the workspace, a project, a goal, a workflow, a channel or this node: write, split or read, find and replace, and ask an agent beside the note — it adds to the note only when asked. Your notes are a git repository of their own, and they never travel to other members.</p>
+  </section>
+
+  <section id="drawings" aria-labelledby="drawings-h">
+    <h2 id="drawings-h">Drawings</h2>
+    <p>An Excalidraw canvas over the app, with ten templates and the platform's shape libraries. A drawing travels to every member of the workspace, and agents draw into it while you watch — a Mermaid flowchart becomes real shapes. Drawings are a git repository of their own too.</p>
+  </section>
+
+  <section id="security" aria-labelledby="security-h">
+    <h2 id="security-h">Security</h2>
+    <p>The Redactor, the Tool &amp; Commands Guard and the Classifier are on from the first run; a publish gate stands before anything leaves your machine; nothing is deleted while something points at it. They are best effort — never a sandbox. <a href="/security/">What is covered, and what is not</a>.</p>
+  </section>
+
+  <section id="decision-making" aria-labelledby="dma-h">
+    <h2 id="dma-h">Decision-making</h2>
+    <p>The Decision-Making Agent answers typed questions — <em>is it so</em>, <em>which one</em>, <em>how much</em> — with a probability, at {{count:decision-points}} decision points, each keeping its own rule for when the agent is off, unsure or silent. Answered by Jev or any calibrated RLCD model, or by a harness or an agent marked uncalibrated; off until you choose who judges. A judgement never signs a gate.</p>
+    <p><a class="arrow" href="{{guide:decisions}}">The decision-making guide</a></p>
+  </section>
+
+  <section id="addons" aria-labelledby="addons-h">
+    <h2 id="addons-h">Addons</h2>
+    <p>Small windows over the app, each a folder of HTML, CSS and JavaScript: {{addons}}. Three walls and one bridge of seventeen methods, each needing a permission you granted; an addon reaches the network only through the platform, and only the hosts its manifest declares.</p>
+    <p><a class="arrow" href="{{guide:addons}}">The addons guide</a></p>
+  </section>
+
+  <section id="surfaces" aria-labelledby="surfaces-h">
+    <h2 id="surfaces-h">Command line and APIs</h2>
+    <p>One binary is the command line (<code>bisa</code>), the daemon (<code>bisa node</code>, an HTTP API with one event stream on a socket of your own) and the MCP server every harness session is handed (<code>bisa mcp</code>). Agents can be exposed and used over A2A. The desktop is a Tauri app that drives the same node.</p>
+    <p><a class="arrow" href="{{link:cli}}">The command line reference</a></p>
+  </section>
+
+  <section id="not-yet" aria-labelledby="not-yet-h">
+    <h2 id="not-yet-h">Not there yet</h2>
+    <p>Said plainly, so nothing surprises you:</p>
+    <ul class="ticks muted">
+      <li>Releases are for macOS; Linux and Windows are coming soon, and build from source today — unsigned, without the menu bar icon or system notifications.</li>
+      <li>English is the only interface language.</li>
+      <li>Language servers give diagnostics, hover and definitions — no completion or rename.</li>
+      <li>The guard vetoes what Claude Code, GitHub Copilot CLI and ACP agents ask; Codex, OpenCode, pi, Oh My Pi and a custom harness are observed, not vetoed.</li>
+      <li>There is no automatic update, and a release may not read an older workspace.</li>
+    </ul>
+    <p><a class="arrow" href="{{link:feature-status}}">Every gap, on the status page</a></p>
+  </section>
+</div>

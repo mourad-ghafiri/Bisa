@@ -1,0 +1,7 @@
+# Built-in channel: business — the model, the money and the metrics.
+
+[channel]
+name = "business"
+topic = "The model, pricing, budget, the metrics that say whether any of it is working, and the legal exposure the shape of it carries. Figures posted here are worth marking as measured or assumed."
+tags = ["business", "data"]
+agents = ["business-strategist", "finance-analyst", "data-analyst", "legal-advisor"]

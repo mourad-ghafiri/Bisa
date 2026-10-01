@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Stopwatch</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="watch" aria-label="Stopwatch">
+    <output id="time" class="time" aria-live="off">0:00.0</output>
+    <div class="row">
+      <button id="toggle" type="button">Start</button>
+      <button id="lap" type="button" class="quiet">Lap</button>
+      <button id="reset" type="button" class="quiet">Reset</button>
+    </div>
+    <ol id="laps" class="laps" aria-label="Laps"></ol>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

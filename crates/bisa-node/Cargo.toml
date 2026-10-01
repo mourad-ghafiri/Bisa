@@ -1,0 +1,65 @@
+[package]
+name = "bisa-node"
+description = "Daemon: axum control plane, event streaming"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[features]
+a2a = []
+
+[dependencies]
+bisa-core = { workspace = true }
+# The catalog: a setting's words, an error body's sentence, in the request's language.
+bisa-i18n = { workspace = true }
+bisa-cache = { workspace = true }
+bisa-engine = { workspace = true }
+bisa-mcp-probe = { workspace = true }
+async-trait = { workspace = true }
+bisa-store = { workspace = true }
+bisa-harness = { workspace = true }
+bisa-vcs = { workspace = true }
+bisa-collab = { workspace = true }
+bisa-guest = { workspace = true }
+nostr = { workspace = true }
+# Webhook authentication: HMAC-SHA256 (`X-Hub-Signature-256`, GitHub-shaped)
+# and the hex form of a keystore secret. `hmac` is already in the workspace
+# lock via nostr's key derivation, so this adds no new download.
+hmac = "0.12"
+sha2 = { workspace = true }
+hex = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
+futures = { workspace = true }
+axum = { workspace = true }
+tracing = { workspace = true }
+bisa-log = { workspace = true }
+ulid = { workspace = true }
+# Delete a project folder to the OS Trash rather than hard-removing it.
+trash = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+bisa-codehost = { workspace = true }
+bisa-mobile-development = { workspace = true }
+# The SSH routes' tests script a `FakeSsh` and hand it to the engine.
+bisa-ssh = { workspace = true }
+# The scripted provider that stands in for the Decision-Making Agent in the route tests.
+bisa-decision = { workspace = true }
+bisa-harness = { workspace = true, features = ["mock"] }
+tempfile = { workspace = true }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+
+[lints]
+workspace = true

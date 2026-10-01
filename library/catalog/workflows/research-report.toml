@@ -1,0 +1,150 @@
+# Built-in workflow: Research report — survey, critique, revise once, write,
+# sign off.
+
+[workflow]
+name = "Research report"
+description = "Survey a question, have the survey critiqued and revised once, write the report for its audience, and have a person sign it off or send it back."
+tags = ["research", "discovery", "writing"]
+
+[[workflow.inputs]]
+name = "question"
+label = "The question to answer"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "audience"
+label = "Who reads the report"
+kind = "text"
+default = "the team"
+
+[[workflow.inputs]]
+name = "depth"
+label = "How deep"
+kind = "choice"
+options = ["brief", "thorough"]
+default = "brief"
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["survey"]
+
+[[workflow.steps]]
+id = "survey"
+name = "Survey the landscape"
+kind = "agent"
+assignee = { agent = "researcher" }
+max_visits = 2
+retries = 1
+instructions = """
+Answer, at {inputs.depth} depth: {inputs.question}
+
+Cite what you rely on; separate what is known from what is inferred. Your
+result carries the findings as markdown, the sources you relied on, and the
+questions still open.
+"""
+then = ["critique"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["findings", "sources", "open"]
+
+[workflow.steps.output_schema.properties.findings]
+type = "string"
+description = "The findings as markdown, what is known kept apart from what is inferred."
+
+[workflow.steps.output_schema.properties.sources]
+type = "array"
+items = { type = "string" }
+description = "The sources relied on, one per entry, as they would be cited."
+
+[workflow.steps.output_schema.properties.open]
+type = "array"
+items = { type = "string" }
+description = "The questions the survey could not settle, one per entry."
+
+[[workflow.steps]]
+id = "critique"
+name = "Critique the survey"
+kind = "agent"
+assignee = { agent = "critic" }
+retries = 1
+instructions = """
+Test the inferences in this survey of "{inputs.question}":
+
+{steps.survey.output.findings}
+
+Name the weakest claim and what would falsify it. Verdict: "sound" when the
+report can be written from it, "revise" when the survey must go again with
+your notes. Your result gives the verdict and the notes the next pass needs.
+"""
+then = ["sound"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["verdict", "notes"]
+
+[workflow.steps.output_schema.properties.verdict]
+type = "string"
+enum = ["sound", "revise"]
+description = "\"sound\" when the report can be written from the survey; \"revise\" when the survey must go again."
+
+[workflow.steps.output_schema.properties.notes]
+type = "string"
+description = "The weakest claim, what would falsify it, and what the next pass must change or the writer must keep in view."
+
+[[workflow.steps]]
+id = "sound"
+name = "Sound enough?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "critique", path = "verdict", value = "sound" }, branch = "write" }]
+otherwise = "revise"
+then = [{ to = "draft", branch = "write" }, { to = "survey", branch = "revise" }]
+
+[[workflow.steps]]
+id = "draft"
+name = "Write the report"
+kind = "agent"
+assignee = { agent = "technical-writer" }
+instructions = """
+Write the report answering "{inputs.question}" for {inputs.audience}.
+
+Findings: {steps.survey.output.findings}
+Critic's notes: {steps.critique.output.notes}
+
+Lead with the answer; keep the evidence behind it; end with what is still
+open. Your result carries the report as markdown.
+"""
+then = ["signoff"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["report"]
+
+[workflow.steps.output_schema.properties.report]
+type = "string"
+description = "The report as markdown: the answer first, the evidence behind it, what is still open at the end."
+
+[[workflow.steps]]
+id = "signoff"
+name = "Sign off"
+kind = "human"
+prompt = "The report on \"{inputs.question}\" is written. Accept it, or send it back for one more pass?"
+options = [{ id = "accept", label = "Accept", recommended = true }, { id = "again", label = "One more pass" }]
+then = ["route"]
+
+[[workflow.steps]]
+id = "route"
+name = "Route the answer"
+kind = "decide"
+rules = [{ when = { condition = "answered", step = "signoff", option = "again" }, branch = "again" }]
+otherwise = "accept"
+then = [{ to = "draft", branch = "again" }, { to = "done", branch = "accept" }]
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

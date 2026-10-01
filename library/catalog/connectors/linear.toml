@@ -1,0 +1,75 @@
+# Built-in connector: Linear — issues over Linear's GraphQL API.
+#
+# Linear reads a personal API key from the Authorization header, and it accepts
+# the `Bearer` form the platform sends, so the scheme is bearer: paste the key
+# as the token. GraphQL's own braces are doubled: a definition's `{…}` is a
+# placeholder.
+
+[connector]
+name = "Linear"
+description = "List and create issues over Linear's GraphQL API. Paste a personal API key from Settings › API as the token."
+tags = ["engineering", "product"]
+base_url = "https://api.linear.app"
+hosts = ["api.linear.app"]
+check = "viewer"
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "viewer"
+name = "Viewer"
+description = "The signed-in user — the one call that proves the key works."
+method = "post"
+path = "/graphql"
+body = { kind = "json", value = { query = "query {{ viewer {{ id name email }} }}" } }
+
+[connector.operations.output]
+select = "data.viewer"
+
+[[connector.operations]]
+id = "issues"
+name = "Issues"
+description = "The most recent issues, with their identifiers, titles and states."
+method = "post"
+path = "/graphql"
+body = { kind = "json", value = { query = "query($first: Int) {{ issues(first: $first, orderBy: updatedAt) {{ nodes {{ id identifier title state {{ name }} assignee {{ name }} url }} }} }}", variables = { first = "{params.first}" } } }
+
+[[connector.operations.params]]
+name = "first"
+label = "At most"
+kind = "number"
+required = true
+doc = "How many issues, newest first; up to 250."
+
+[connector.operations.output]
+select = "data.issues.nodes"
+
+[[connector.operations]]
+id = "create_issue"
+name = "Create issue"
+description = "Create an issue in a team."
+method = "post"
+path = "/graphql"
+body = { kind = "json", value = { query = "mutation($teamId: String!, $title: String!, $description: String) {{ issueCreate(input: {{ teamId: $teamId, title: $title, description: $description }}) {{ success issue {{ id identifier url }} }} }}", variables = { teamId = "{params.team}", title = "{params.title}", description = "{params.description}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "team"
+label = "Team id"
+required = true
+doc = "The team's id (a UUID), from the team's settings."
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "The issue title, one line."
+
+[[connector.operations.params]]
+name = "description"
+label = "Description"
+doc = "Markdown."
+
+[connector.operations.output]
+select = "data.issueCreate"

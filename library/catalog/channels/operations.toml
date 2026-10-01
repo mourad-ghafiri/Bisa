@@ -1,0 +1,7 @@
+# Built-in channel: operations — incidents, deploys and running systems.
+
+[channel]
+name = "operations"
+topic = "Incidents, deploys, health checks, and the state of anything currently running. The room to open when something is broken now rather than wrong by design."
+tags = ["ops"]
+agents = ["sre", "devops-engineer", "release-manager", "security-engineer"]

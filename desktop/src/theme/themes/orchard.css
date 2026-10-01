@@ -1,0 +1,67 @@
+/* ---------------------------------------------------------------------------
+   Orchard.
+
+   Green-tinted neutrals at hue 150 — the grey of leaves in shade, not a green.
+   The calmest of the opaque families, for people who find cool greys clinical
+   and warm ones muddy. The accent is blossom, hue 350: a pink that reads as a
+   summons against green-grey without shouting, and sits 35° from `danger`
+   (hue 25) so a rejected item and a waiting one never blur.
+
+   Same construction as Harbor: text never on pure white, never on black,
+   secondary text above 4.5:1, `surface-2` a full step off `bg`; opaque, with
+   Tailwind's own shadows and nothing to frost.
+--------------------------------------------------------------------------- */
+
+:root[data-theme="orchard"] {
+  color-scheme: light;
+  --color-bg: oklch(0.975 0.008 150);
+  --color-surface: oklch(0.995 0.004 150);
+  --color-surface-2: oklch(0.945 0.012 150);
+  --color-border: oklch(0.87 0.016 150);
+  --color-text: oklch(0.22 0.018 150);
+  --color-text-dim: oklch(0.48 0.022 150);
+  --color-accent: oklch(0.54 0.18 350);
+  --color-accent-ink: oklch(0.5 0.17 350);
+  --color-accent-soft: oklch(0.955 0.04 350);
+  --color-accent-contrast: oklch(1 0 0);
+  --color-warn: oklch(0.58 0.13 90);
+  --color-warn-soft: oklch(0.95 0.045 90);
+  --color-danger: oklch(0.5 0.2 25);
+  --color-danger-soft: oklch(0.955 0.045 25);
+  --color-ok: oklch(0.55 0.13 155);
+  --color-ok-soft: oklch(0.95 0.04 155);
+  --color-overlay: oklch(0.22 0.02 150 / 0.4);
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --shadow-raised: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-floating: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --material-blur: 0px;
+  --material-saturate: 1;
+}
+
+:root[data-theme="orchard-dark"] {
+  color-scheme: dark;
+  --color-bg: oklch(0.2 0.014 150);
+  --color-surface: oklch(0.235 0.016 150);
+  --color-surface-2: oklch(0.275 0.018 150);
+  --color-border: oklch(0.335 0.02 150);
+  --color-text: oklch(0.92 0.01 150);
+  --color-text-dim: oklch(0.72 0.014 150);
+  --color-accent: oklch(0.76 0.14 350);
+  --color-accent-ink: oklch(0.8 0.12 350);
+  --color-accent-soft: oklch(0.33 0.07 350);
+  --color-accent-contrast: oklch(0.2 0.014 150);
+  --color-warn: oklch(0.8 0.12 90);
+  --color-warn-soft: oklch(0.32 0.05 90);
+  --color-danger: oklch(0.7 0.17 25);
+  --color-danger-soft: oklch(0.31 0.07 25);
+  --color-ok: oklch(0.74 0.13 155);
+  --color-ok-soft: oklch(0.3 0.05 155);
+  --color-overlay: oklch(0 0 0 / 0.55);
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --shadow-raised: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-floating: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --material-blur: 0px;
+  --material-saturate: 1;
+}

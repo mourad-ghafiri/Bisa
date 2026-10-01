@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Weather</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="weather" aria-label="Weather">
+    <form id="where" class="where">
+      <input id="city" type="text" placeholder="City" aria-label="City" autocomplete="off">
+      <button type="submit">Go</button>
+      <button id="back" type="button" class="quiet" hidden aria-label="Keep the place">Back</button>
+    </form>
+    <div id="now" class="now" hidden>
+      <div class="head">
+        <button id="change" class="place" type="button" title="Change the place"><span id="placeName"></span><span class="chev" aria-hidden="true">▾</span></button>
+      </div>
+      <div class="main"><span id="icon" class="icon" aria-hidden="true"></span><span id="temp" class="temp"></span></div>
+      <p id="desc" class="desc"></p>
+      <p id="meta" class="meta"></p>
+    </div>
+    <p id="note" class="note" aria-live="polite"></p>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

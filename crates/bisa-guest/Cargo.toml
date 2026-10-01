@@ -1,0 +1,29 @@
+[package]
+name = "bisa-guest"
+description = "The guest side of collaboration: a hosted member's replica of a workspace it joined, fed pairwise by the host — no engine, no harness, no node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bisa-core = { workspace = true }
+bisa-collab = { workspace = true }
+bisa-security = { workspace = true }
+nostr = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+nostr-relay-builder = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,31 @@
+[package]
+name = "bisa-mobile-development"
+description = "The mobile toolchain and the devices on this machine: Flutter, Xcode and the Android SDK probed, simulators and emulators listed, booted and captured — argv-only, time-boxed, behind a port every test fakes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+# A leaf like bisa-ssh: synchronous, workspace-dep-free. It knows the
+# mobile programs (`flutter`, `xcrun simctl`, `adb`, `emulator`) and nothing
+# about the workspace; the engine drives it from spawn_blocking. It never
+# runs `flutter run` — the app runs in a terminal the person watches.
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+shlex = { workspace = true }
+which = { workspace = true }
+dirs = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

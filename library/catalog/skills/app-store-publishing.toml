@@ -1,0 +1,110 @@
+# Built-in skill: App Store Publishing — a Flutter app to TestFlight and the App Store, step by step.
+
+[skill]
+name = "App Store Publishing"
+description = "Use when shipping or updating an iOS app on the App Store: account, identifiers, signing, build, TestFlight, listing, review and release, in order."
+tags = ["delivery", "mobile"]
+content = """
+# App Store Publishing
+
+Use this when an iOS build of a Flutter app goes to the App Store for the first time or as an
+update. Work it in order: every step exists because skipping it has produced a rejected build or
+a release nobody could roll back. The person owns the Apple account, the certificates and the
+final press of *Submit*; you prepare, verify and say exactly what to press. A submission leaves
+the machine for good — the guard asks the person before `altool`, `notarytool` or a `fastlane`
+upload, and a submission is never made unasked.
+
+## The account and the agreements
+
+1. The person has an Apple Developer Program membership (developer.apple.com/programs, paid,
+   yearly) and has accepted the latest agreements in App Store Connect › Agreements. A build
+   uploads to nothing until both are true; ask, do not assume.
+2. The person's Mac has Xcode and is signed in to it (Xcode › Settings › Accounts) with the same
+   Apple ID. Ask mobile_development_status for Xcode and CocoaPods; a missing one is theirs to install.
+
+## Identifiers and signing
+
+3. The bundle identifier in `ios/Runner.xcodeproj` (`PRODUCT_BUNDLE_IDENTIFIER`) is a reverse
+   domain the person owns — `com.example.shop` — and is the same in every configuration. It cannot
+   change after the first upload without becoming a different app.
+4. Register the identifier once at developer.apple.com › Identifiers, with the capabilities the
+   app declares (push, sign in with Apple, associated domains). A capability in `Runner`'s
+   Signing & Capabilities that the identifier lacks fails at archive.
+5. Signing is Xcode's *Automatically manage signing* with the person's team, unless the project
+   already carries profiles — never generate or download a certificate yourself, and never commit
+   one: a `.p12`, a `.mobileprovision` and an App Store Connect API key stay out of the repository.
+6. Create the app record once in App Store Connect › Apps › + with the bundle identifier, the name
+   (unique on the store) and the primary language. Say to the person what to type.
+
+## The version and the build
+
+7. Set the version in `pubspec.yaml` as `version: 1.2.0+7` — the marketing version before the `+`,
+   the build number after it. Every upload needs a build number higher than the last for that
+   version; a rejected build's number is spent.
+8. Read the release notes off the commits since the last tag and write them for the person who
+   updates, grouped: new, improved, fixed.
+9. Build: `flutter build ipa --release` (add `--export-options-plist` when the project carries
+   one). It writes `build/ios/ipa/<App>.ipa` and the archive under `build/ios/archive/`. A build
+   that fails on signing goes back to step 5, not forward.
+10. Check the archive in Xcode (Window › Organizer) or with `xcrun altool --validate-app` — the
+    guard asks the person for the latter. Missing icons, a missing privacy manifest
+    (`PrivacyInfo.xcprivacy`) and a permission string missing from `Info.plist` fail here, not in
+    review, and are cheaper here.
+
+## Upload and TestFlight
+
+11. Upload with the Transporter app, Xcode's Organizer, or `xcrun altool --upload-app` with an
+    App Store Connect API key the person supplies at run time — never a key you read from a file.
+    The guard asks before the upload; wait for the answer.
+12. Processing takes minutes to an hour. Then App Store Connect › TestFlight: add the build to an
+    internal group first (up to 100 testers on the team, no review), and to an external group
+    only after the person decides — external testing passes a review of its own.
+13. Fill *Test Information* and, when the app signs in, a demo account; export compliance is
+    answered once per build (HTTPS alone is exempt encryption).
+14. Install on a phone from TestFlight and run the smoke check: launch, sign in, the main flow,
+    the thing that was fixed. A build nobody installed is not tested.
+
+## The listing
+
+15. App Store Connect › the app › the version: screenshots for the required sizes (6.9-inch and
+    6.5-inch iPhone; iPad when the app runs there), the description, keywords, support and
+    privacy policy URLs, the category, the age rating questionnaire, and *App Privacy* — every
+    kind of data the app or its SDKs collect, declared. Take the screenshots on a simulator of the
+    right size with mobile_development_screenshot; the person approves the words.
+16. Choose the build under *Build*, and write *What's New* from step 8.
+17. Sign-in apps: provide a demo account in *App Review Information*; the reviewer will use it.
+    Apps with sign in with a third party offer Sign in with Apple too, or the review says no.
+
+## Review and release
+
+18. *Add for Review* › *Submit to App Review* is the person's press. Say what will happen: a
+    review of one to three days, then *Ready for Sale* or a rejection with a message in
+    App Store Connect › Resolution Center.
+19. Release: *Manually release this version* keeps the press with the person after approval;
+    *Automatically* releases on approval. Phased release rolls out over seven days and can be
+    paused. Prefer manual on a first release and phased on an update with a risky change.
+20. A rejection is read in full before anything is changed: most name one guideline and one
+    screen. Fix, bump the build number, upload again, reply in the Resolution Center.
+
+## An update
+
+21. Same steps from 7: bump the version or the build number, notes, build, upload, TestFlight, a
+    new version in the listing with *What's New*, submit, release. The bundle identifier, the
+    team and the app record do not change.
+22. A hotfix is a new build number on the same version with a phased release paused as soon as
+    the crash rate moves.
+
+## Failure modes
+
+- A build number that did not go up: the upload is refused.
+- A permission used without its `Info.plist` string, or data collected without its App Privacy
+  answer: rejected in review, days later.
+- A certificate or a key committed to the repository: revoke it, then rotate.
+- Screenshots of another app, or of a build that is not this one.
+- Submitting without the person's press.
+
+## Done when
+
+The build is in TestFlight and installed on a phone, the listing is complete with the privacy
+answers, the version is submitted by the person, and the release mode is chosen and written down.
+"""

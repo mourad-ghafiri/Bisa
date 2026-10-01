@@ -1,0 +1,107 @@
+/* ---------------------------------------------------------------------------
+   The designer canvas: xyflow's variables answered from the role contract.
+
+   `@xyflow/react/dist/style.css` paints itself from `--xy-*` custom
+   properties with `-default` fallbacks. Nothing in the app names a colour, so
+   every one of them is redirected here to a role from `tokens.css`; a theme
+   that answers the contract has therefore already themed the canvas. The
+   variable names are checked against the installed stylesheet by
+   `flowTheme.test.mjs`, because a misspelt one falls back to xyflow's own
+   greys silently.
+--------------------------------------------------------------------------- */
+
+.bisa-flow {
+  --xy-background-color: var(--color-bg);
+  --xy-background-pattern-color: color-mix(in oklch, var(--color-border) 70%, transparent);
+  --xy-edge-stroke: var(--color-text-dim);
+  --xy-edge-stroke-selected: var(--color-accent);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-label-background-color: var(--color-surface);
+  --xy-edge-label-color: var(--color-text-dim);
+  --xy-connectionline-stroke: var(--color-accent);
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-handle-background-color: var(--color-surface);
+  --xy-handle-border-color: var(--color-text-dim);
+  --xy-minimap-background-color: var(--color-surface);
+  --xy-minimap-mask-background-color: color-mix(in oklch, var(--color-bg) 60%, transparent);
+  --xy-minimap-mask-stroke-color: var(--color-border);
+  --xy-minimap-mask-stroke-width: 1;
+  --xy-minimap-node-background-color: var(--color-surface-2);
+  --xy-minimap-node-stroke-color: var(--color-border);
+  --xy-controls-button-background-color: var(--color-surface);
+  --xy-controls-button-background-color-hover: var(--color-surface-2);
+  --xy-controls-button-color: var(--color-text-dim);
+  --xy-controls-button-color-hover: var(--color-text);
+  --xy-controls-button-border-color: var(--color-border);
+  --xy-controls-box-shadow: none;
+  --xy-attribution-background-color: transparent;
+  --xy-node-color: var(--color-text);
+  --xy-node-border: 1px solid var(--color-border);
+  --xy-node-background-color: var(--color-surface);
+  --xy-node-boxshadow-hover: none;
+  --xy-node-boxshadow-selected: 0 0 0 2px var(--color-accent);
+  --xy-selection-background-color: color-mix(in oklch, var(--color-accent) 12%, transparent);
+  --xy-selection-border: 1px dashed var(--color-accent);
+  --xy-resize-background-color: var(--color-accent);
+}
+
+/* Edge tones: a taken flow reads as the accent, a skipped one recedes. */
+.bisa-flow .react-flow__edge.tone-taken .react-flow__edge-path {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+.bisa-flow .react-flow__edge.tone-skipped .react-flow__edge-path {
+  stroke: color-mix(in oklch, var(--color-text-dim) 45%, transparent);
+  stroke-dasharray: 4 4;
+}
+/* An on_fail flow is dashed and wears the danger role; a loop is dotted and
+   recedes — both leave from a side handle and are routed around. Arrowheads
+   take the stroke's colour. */
+.bisa-flow .react-flow__edge.kind-on_fail .react-flow__edge-path {
+  stroke-dasharray: 4 3;
+  stroke: var(--color-danger);
+}
+.bisa-flow .react-flow__edge.kind-loop .react-flow__edge-path {
+  stroke-dasharray: 1.5 4;
+}
+/* A divert's path — a boundary event's, leaving from its chip — is dashed in
+   the warning role: a detour the run takes only when the boundary fires. */
+.bisa-flow .react-flow__edge.kind-boundary .react-flow__edge-path {
+  stroke-dasharray: 5 3;
+  stroke: var(--color-warn);
+}
+.bisa-flow .react-flow__edge.kind-boundary .react-flow__arrowhead polyline {
+  fill: var(--color-warn);
+  stroke: var(--color-warn);
+}
+/* Taken — the boundary fired and the run went this way — it reads as any taken flow. */
+.bisa-flow .react-flow__edge.kind-boundary.tone-taken .react-flow__edge-path {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+.bisa-flow .react-flow__arrowhead polyline {
+  fill: var(--color-text-dim);
+  stroke: var(--color-text-dim);
+}
+.bisa-flow .react-flow__edge.kind-on_fail .react-flow__arrowhead polyline {
+  fill: var(--color-danger);
+  stroke: var(--color-danger);
+}
+.bisa-flow .react-flow__edge.tone-taken .react-flow__arrowhead polyline {
+  fill: var(--color-accent);
+  stroke: var(--color-accent);
+}
+/* The step node is a kit surface, not xyflow's default box. */
+.bisa-flow .react-flow__node {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: var(--radius-card);
+}
+.bisa-flow .react-flow__node.selected > * {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+.bisa-flow .react-flow__handle {
+  width: 8px;
+  height: 8px;
+}

@@ -1,0 +1,29 @@
+[package]
+name = "bisa-log"
+description = "The platform's diagnostic log: one tracing subscriber, a JSON-lines file layer under the workspace's logs/ folder, the level and rotation words the settings speak"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+# A leaf on purpose: the node, the CLI and the desktop shell — a separate
+# cargo workspace — all install it, so it depends on nothing of ours and is
+# kept out of the dependency-unification crate (`.config/hakari.toml`), which
+# would otherwise drag the whole workspace's dependency table into the shell.
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

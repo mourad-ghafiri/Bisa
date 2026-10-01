@@ -1,0 +1,7 @@
+# Built-in channel: engineering — design, implementation and review.
+
+[channel]
+name = "engineering"
+topic = "Design decisions, implementation questions, review of a diff, and what broke in the build. Incidents in production belong in operations."
+tags = ["engineering"]
+agents = ["architect", "developer", "mobile-developer", "code-reviewer", "code-humanizer", "qa-engineer", "security-engineer"]

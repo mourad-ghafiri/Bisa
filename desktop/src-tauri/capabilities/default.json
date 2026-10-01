@@ -1,0 +1,28 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main window. Plugin commands are permission-gated — unlike this crate's own #[tauri::command]s — so each line here is a capability the UI would silently lose without it. They are named one command at a time rather than by the plugins' `default` sets: `dialog:default` would also grant the save and message dialogs, and `opener:default` would grant opening arbitrary mailto/tel URLs; `allow-open-url` is scoped here to http and https, for links a terminal prints. The app needs a folder picker, a save dialog for exported diagrams, Reveal in Finder, the Dock badge count for what needs the person (the same number the menu bar icon and the Inbox wear), the invitation links it was opened with (`deep-link:default`), and nothing else. A close the shell held is put away by the shell's own `hide_window` command (`tray/`), so no `core:window:allow-hide`; the menu bar icon itself is the shell's, so no `core:tray` line; a close never destroys the window, so no `destroy`.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "opener:allow-reveal-item-in-dir",
+    "core:window:allow-set-badge-count",
+    "deep-link:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://**"
+        },
+        {
+          "url": "http://**"
+        }
+      ]
+    }
+  ]
+}

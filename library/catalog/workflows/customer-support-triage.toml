@@ -1,0 +1,169 @@
+# Built-in workflow: Customer support triage — a ticket arrives; it is
+# classified and routed.
+#
+# Two ways in: by hand, and a hook the helpdesk posts each ticket to as
+# { "ticket": "…", "customer": "…" }. The hook is local to this machine unless
+# its start says it is public and the machine allows public hooks; it is heard
+# once the workflow is turned On. Tickets are independent, so up to four are
+# triaged at once and the rest wait their turn.
+
+[workflow]
+name = "Customer support triage"
+description = "A ticket posted to its hook, or given by hand, is classified as a bug, a question, a billing matter or a churn risk, and each goes where it belongs — a bug-fix goal, a written answer, a person in finance, or sales."
+tags = ["sales", "business", "ops"]
+
+[[workflow.inputs]]
+name = "ticket"
+label = "The ticket, as it arrived"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "customer"
+label = "Who sent it"
+kind = "text"
+default = "a customer"
+
+[[workflow.inputs]]
+name = "channel"
+label = "Where replies are drafted"
+kind = "text"
+default = "general"
+
+[[workflow.inputs]]
+name = "project"
+label = "The project a defect is fixed in"
+kind = "project"
+required = true
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["classify"]
+
+[[workflow.steps]]
+id = "ticket"
+name = "A ticket arrives"
+kind = "start"
+on = { event = "hook" }
+inputs = { ticket = "{event.payload.ticket}", customer = "{event.payload.customer}" }
+guard = { overlap = { parallel = 4 } }
+then = ["classify"]
+
+[[workflow.steps]]
+id = "classify"
+name = "Classify the ticket"
+kind = "agent"
+assignee = { agent = "general-advisor" }
+max_visits = 1
+retries = 1
+instructions = """
+Classify this ticket from {inputs.customer}:
+
+{inputs.ticket}
+
+One of: "bug" (something is broken), "question" (they need an answer),
+"billing" (money), "churn" (they are leaving or threatening to). Your result
+carries the class, a one-line summary, and — when the class is question — a
+draft answer.
+"""
+then = ["route"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["class", "summary", "reply"]
+
+[workflow.steps.output_schema.properties.class]
+type = "string"
+enum = ["bug", "question", "billing", "churn"]
+description = "bug when something is broken, question when they need an answer, billing when it is about money, churn when they are leaving or threatening to."
+
+[workflow.steps.output_schema.properties.summary]
+type = "string"
+description = "The ticket in one line: who, what, and what they want."
+
+[workflow.steps.output_schema.properties.reply]
+type = "string"
+description = "A draft answer when the class is question; an empty string otherwise."
+
+[[workflow.steps]]
+id = "route"
+name = "Route it"
+kind = "decide"
+rules = [
+  { when = { condition = "output_equals", step = "classify", path = "class", value = "bug" }, branch = "bug" },
+  { when = { condition = "output_equals", step = "classify", path = "class", value = "question" }, branch = "question" },
+  { when = { condition = "output_equals", step = "classify", path = "class", value = "billing" }, branch = "billing" },
+]
+otherwise = "churn"
+then = [
+  { to = "bug", branch = "bug" },
+  { to = "reply", branch = "question" },
+  { to = "finance", branch = "billing" },
+  { to = "sales", branch = "churn" },
+]
+
+[[workflow.steps]]
+id = "bug"
+name = "Open a bug-fix goal"
+kind = "spawn"
+statement_template = "Fix the defect {inputs.customer} reported: {steps.classify.output.summary}"
+workflow = "bug-fix"
+inputs = { report = "{steps.classify.output.summary}", project = "{inputs.project}" }
+wait = false
+then = ["done"]
+
+[[workflow.steps]]
+id = "reply"
+name = "Post the draft answer"
+kind = "notify"
+scope = "{inputs.channel}"
+template = "Draft reply to {inputs.customer} — {steps.classify.output.summary}:\n\n{steps.classify.output.reply}"
+then = ["done"]
+
+[[workflow.steps]]
+id = "finance"
+name = "A person handles the billing matter"
+kind = "human"
+prompt = "Billing ticket from {inputs.customer}: {steps.classify.output.summary}. Resolve it and record what was done."
+then = ["done"]
+
+[[workflow.steps]]
+id = "sales"
+name = "Sales reaches out"
+kind = "agent"
+assignee = { agent = "sales-lead" }
+retries = 1
+instructions = """
+{inputs.customer} may be leaving: {steps.classify.output.summary}
+
+Ticket: {inputs.ticket}
+
+Write the outreach: what we heard, what we can do, the one question to ask.
+Your result carries the outreach as markdown.
+"""
+then = ["escalate"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["outreach"]
+
+[workflow.steps.output_schema.properties.outreach]
+type = "string"
+description = "The outreach as markdown: what we heard, what we can do, the one question to ask."
+
+[[workflow.steps]]
+id = "escalate"
+name = "A person decides the offer"
+kind = "human"
+join = "all"
+prompt = "Churn risk from {inputs.customer}. Proposed outreach: {steps.sales.output.outreach}. Send it, adjust it, or let it go?"
+then = ["done"]
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"
+join = "any"

@@ -1,0 +1,28 @@
+{
+  "id": "sticky-note",
+  "name": "Sticky note",
+  "description": "As many notes as you like on one pad — a dot per note, six papers, bold, italic, underline and lists — each remembered as you type.",
+  "version": "0.1.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "notes",
+    "tool"
+  ],
+  "window": {
+    "width": 220,
+    "height": 180,
+    "min_width": 160,
+    "min_height": 120,
+    "max_width": 480,
+    "max_height": 480,
+    "transparent": true,
+    "frame": "none"
+  },
+  "permissions": [
+    "storage",
+    "clipboard_write"
+  ]
+}

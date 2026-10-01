@@ -1,0 +1,7 @@
+# Built-in team: Go-to-Market — a delivered product to demand and revenue.
+
+[team]
+name = "Go-to-Market"
+purpose = "Takes something already delivered to demand and revenue: the positioning, the content that carries it, the channels it runs in, and the pipeline that comes out the other end. Every campaign is tied to a number it has to move."
+tags = ["marketing", "sales"]
+agents = ["marketing-manager", "content-strategist", "social-media-manager", "performance-marketer", "sales-lead"]

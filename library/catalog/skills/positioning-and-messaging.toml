@@ -1,0 +1,69 @@
+# Built-in skill: Positioning And Messaging — pick the frame, name the difference, prove it.
+
+[skill]
+name = "Positioning And Messaging"
+description = "Use when a product's audience, category and differentiator need stating in one testable sentence."
+tags = ["marketing", "product"]
+content = """
+# Positioning And Messaging
+
+Use this when nobody can say in one sentence what this is and who it is for — before a landing
+page, a launch, or a pitch. Positioning is a choice about the frame; messaging is how you say it.
+
+## Procedure
+
+1. **Name the audience narrowly.** Not a demographic — a situation. "Engineering leads at 20-100
+   person companies whose incident response lives in a Slack channel." You should be able to list
+   ten real people who match.
+2. **Name the alternative they use today**, including a spreadsheet, a colleague, and doing
+   nothing. Doing nothing is the most common competitor and the hardest to beat.
+3. **Choose the category you are competing in.** This is the positioning decision and it comes
+   before wording. The category sets the reference price, the feature expectations, the buyer, and
+   who you get compared to. Say it out loud: "a CI tool", "a project tracker", "a spreadsheet".
+   Choosing a category where you are the obvious best beats being fourth in a bigger one; inventing
+   a new category means paying to teach it, which is a budget decision, not a copywriting one.
+4. **Name the differentiator** — the one thing you do that the alternatives cannot, phrased as a
+   capability the audience already wants. One. A list of three means you have not chosen.
+5. **Attach the proof.** For each claim, what makes it credible to a sceptic: a benchmark with its
+   method, a named customer, an audit, a public repository, a guarantee, a screenshot of the thing
+   working. A claim with no proof is noise no matter how well written.
+6. **Write the statement** in one sentence, and cut every word that would still be true of a
+   competitor.
+7. **Derive the messaging from the statement**, not the reverse: the headline, the three
+   supporting points, and the objection handled for each.
+
+## The statement
+
+> For **<audience in their situation>** who **<the problem, in their words>**, **<product>** is a
+> **<category>** that **<the differentiator>**. Unlike **<the named alternative>**, it
+> **<the proof-backed contrast>**.
+
+Fill every slot. An empty slot is the part you have not decided yet — most often the category.
+Use the audience's vocabulary, not your internal names for things.
+
+## How to test it
+
+- **The competitor swap.** Put a rival's name in the statement. If it stays true, you have written
+  a category description, not a position. This is the fastest and harshest test; run it first.
+- **The stranger test.** Read it to five people in the audience. Ask them to say back who it is for
+  and what it does. If they cannot, the sentence has failed regardless of how it reads to you.
+- **The objection test.** Say the statement, then let them argue. The objection that keeps
+  recurring belongs in the messaging, answered.
+- **The market test.** Run the headline against the current one on a real page and compare
+  conversion at the same traffic source. Opinion loses to the click-through rate.
+- **The sales-call test.** Whatever the sales or support team says when asked "so what is this?"
+  is your real positioning. If it does not match the document, the document lost.
+
+## Failure modes
+
+- **The superlative.** "The leading platform for modern teams." Says nothing, provable by nobody.
+- **Feature list as position.** Features are evidence for a differentiator, not the differentiator.
+- **No category.** The reader must place you themselves, so they place you against whatever they
+  already know — usually the incumbent you compare worst against.
+- **Written for the founder.** Internal vocabulary, internal pride, no audience situation in sight.
+
+## Done when
+
+Every slot in the statement is filled, the competitor swap makes it false, each claim carries
+proof, and five people in the audience can repeat back who it is for and what it does.
+"""

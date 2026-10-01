@@ -1,0 +1,64 @@
+# Built-in connector: Facebook Pages — read and publish a page's posts over the Graph API.
+
+[connector]
+name = "Facebook Pages"
+description = "Read a page's posts and publish new ones. Paste a long-lived page access token from the Graph API Explorer or your app's tooling."
+tags = ["marketing"]
+base_url = "https://graph.facebook.com"
+hosts = ["graph.facebook.com"]
+check = "me"
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "What the token identifies — the one call that proves it works."
+method = "get"
+path = "/v19.0/me"
+query = { fields = "id,name" }
+
+[[connector.operations]]
+id = "page_posts"
+name = "Page posts"
+description = "A page's latest posts."
+method = "get"
+path = "/v19.0/{params.page}/posts"
+query = { limit = "{params.max}", fields = "id,message,created_time,permalink_url" }
+
+[[connector.operations.params]]
+name = "page"
+label = "Page id"
+required = true
+doc = "The numeric page id, from the page About section or the me/accounts list; not its name."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many posts to return; the Graph API answers 25 unless told otherwise."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "publish_post"
+name = "Publish post"
+description = "Publish a text post on a page."
+method = "post"
+path = "/v19.0/{params.page}/feed"
+body = { kind = "json", value = { message = "{params.message}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "page"
+label = "Page id"
+required = true
+doc = "The numeric page id, from the page About section or the me/accounts list; not its name."
+
+[[connector.operations.params]]
+name = "message"
+label = "Message"
+required = true
+doc = "The text of the post, plain."

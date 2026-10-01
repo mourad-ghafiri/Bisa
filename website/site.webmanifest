@@ -1,0 +1,26 @@
+{
+  "name": "Bisa",
+  "short_name": "Bisa",
+  "description": "A Decentralized Agentic IDE",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#eef3f9",
+  "theme_color": "#1a56a8",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "256x256"
+    },
+    {
+      "src": "/assets/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

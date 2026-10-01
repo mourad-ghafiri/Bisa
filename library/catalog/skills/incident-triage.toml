@@ -1,0 +1,63 @@
+# Built-in skill: Incident Triage — scope it, stop the bleeding, then find the cause.
+
+[skill]
+name = "Incident Triage"
+description = "Use when something is broken in production and you must decide what to do in the next ten minutes."
+tags = ["ops", "delivery"]
+content = """
+# Incident Triage
+
+Use this when something is broken now. The order below is the point: scope before cause, mitigate
+before diagnose. Debugging while the bleeding continues is the classic and expensive mistake.
+
+## First ten minutes
+
+1. **Write the symptom, precisely.** What is observed, by whom, since when, how often. "Checkout
+   returns 500 for about 30% of requests since 14:05 UTC" — not "checkout is broken".
+2. **Establish blast radius before anything else.** How many users, which regions, which tenants,
+   which endpoints. Is data being corrupted or lost right now, or is it only unavailable? Data
+   loss changes every subsequent decision.
+3. **Ask what changed.** Deploys, config flags, migrations, certificate expiry, a dependency's
+   incident, a traffic spike, a scheduled job. Check the deploy log first; most incidents are a
+   change, and the timestamps usually name it.
+4. **Mitigate.** Roll back, disable the flag, shed load, fail over, put up the maintenance page.
+   Mitigation is not the fix and does not need the cause. Do it before you understand why.
+5. **Start the timeline** in a shared place, appending as you go with UTC timestamps: what was
+   observed, what was tried, what it did. Written during, never reconstructed after — memory of an
+   incident is unreliable in a specific direction, toward the story that makes sense.
+
+## Symptom versus cause
+
+The symptom is what users see. The proximate cause is the component that failed. The root cause is
+why that failure was possible and undetected. Do not stop at the first cause that explains the
+symptom — "the disk filled" explains the outage but not why nothing alerted at 80%.
+
+Beware the plausible cause: the recent change that *could* have done it. Confirm the mechanism —
+the log line, the metric, the reproduction — before you act on it. A wrong diagnosis costs a second
+outage on top of the first.
+
+## Communicating
+
+- Post the first update within minutes of confirming impact, before you know the cause. Say what
+  is affected, what you are doing, and when you will next update. Then meet that time, even with
+  "no change yet".
+- State impact in the reader's terms: what they cannot do, not which service is unhealthy.
+- Never speculate publicly about cause or ETA. "Investigating" is honest; a guess that turns out
+  wrong costs more trust than the outage.
+- Say explicitly when data may have been lost or exposed, as soon as it is plausible — not once
+  confirmed.
+
+## Escalate to a human when
+
+- Data may be lost, corrupted, or exposed.
+- Money moves incorrectly, or the fix involves money, credentials, or customer data.
+- Mitigation would be destructive or irreversible: dropping a table, force-pushing, restoring a
+  backup over live data, rotating a key in use.
+- Two mitigations conflict, or the safe one has a real cost someone must accept.
+- Twenty minutes pass with no progress and no hypothesis. Stalling silently is itself an incident.
+
+## Done when
+
+Impact is scoped and mitigated, the timeline is written, stakeholders have a current update, and
+either the cause is confirmed with evidence or a named human owns the next step.
+"""

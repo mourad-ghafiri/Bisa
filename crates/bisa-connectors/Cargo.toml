@@ -1,0 +1,40 @@
+[package]
+name = "bisa-connectors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Outside platforms' HTTP APIs behind one declarative call shape: auth, hosts, retry, OAuth2"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+bisa-http = { workspace = true }
+bisa-netrules = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+url = { workspace = true }
+percent-encoding = { workspace = true }
+getrandom = { workspace = true }
+# The `jwt` scheme's signatures — ES256 and RS256 over PKCS#8 keys. Already
+# built for `rustls`; the one signing dependency.
+aws-lc-rs = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+# Every test runs against a stub HTTP server on the loopback interface —
+# canned answers, recorded requests, no network — and the retry timing tests
+# run under tokio's paused clock.
+axum = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

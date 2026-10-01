@@ -1,0 +1,23 @@
+[package]
+name = "bisa-security"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "The Redactor, the Tool & Commands Guard and the Auto Classifier's contract — pure rules over text, no I/O"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+sha2 = { workspace = true }
+globset = { workspace = true }
+shlex = { workspace = true }
+bisa-netrules = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[lints]
+workspace = true

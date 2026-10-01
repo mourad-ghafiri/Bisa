@@ -1,0 +1,139 @@
+{
+  "id": "bisa-pets.midnight-shipping.nocturn",
+  "displayName": "Nocturn",
+  "description": "Keeps watch while you keep going. An owl who has read every line of your logs and formed no opinion about any of them. Blinks roughly once a minute. Will still be awake when you finally are not.",
+  "spritesheetPath": "spritesheet.webp",
+  "frame": {
+    "width": 192,
+    "height": 208
+  },
+  "fps": 8,
+  "defaultAnimation": "idle",
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 6,
+      "frameDurationsMs": [
+        2280,
+        942,
+        942,
+        1186,
+        1186,
+        2584
+      ]
+    },
+    "running-right": {
+      "row": 1,
+      "frames": 8,
+      "frameDurationsMs": [
+        136,
+        136,
+        136,
+        160,
+        136,
+        136,
+        136,
+        234
+      ]
+    },
+    "running-left": {
+      "row": 2,
+      "frames": 8,
+      "frameDurationsMs": [
+        136,
+        136,
+        136,
+        160,
+        136,
+        136,
+        136,
+        234
+      ]
+    },
+    "waving": {
+      "row": 3,
+      "frames": 4,
+      "frameDurationsMs": [
+        300,
+        205,
+        205,
+        436
+      ]
+    },
+    "jumping": {
+      "row": 4,
+      "frames": 5,
+      "frameDurationsMs": [
+        309,
+        154,
+        386,
+        167,
+        489
+      ]
+    },
+    "failed": {
+      "row": 5,
+      "frames": 8,
+      "frameDurationsMs": [
+        184,
+        170,
+        212,
+        255,
+        312,
+        368,
+        453,
+        878
+      ]
+    },
+    "waiting": {
+      "row": 6,
+      "frames": 6,
+      "frameDurationsMs": [
+        638,
+        517,
+        517,
+        638,
+        517,
+        1064
+      ]
+    },
+    "running": {
+      "row": 7,
+      "frames": 6,
+      "frameDurationsMs": [
+        216,
+        187,
+        187,
+        216,
+        187,
+        317
+      ]
+    },
+    "review": {
+      "row": 8,
+      "frames": 6,
+      "frameDurationsMs": [
+        382,
+        294,
+        294,
+        352,
+        323,
+        910
+      ]
+    }
+  },
+  "x-bisa-pets": {
+    "pack": "midnight-shipping",
+    "slug": "nocturn",
+    "tagline": "Keeps watch while you keep going.",
+    "archetype": "owl",
+    "personality": "insomniac-sentinel",
+    "mood": "stoic",
+    "render": {
+      "fitScale": 1.1373,
+      "riseCap": 10.05,
+      "inkWidth": 3.4,
+      "eyeRadius": 14.52
+    }
+  }
+}

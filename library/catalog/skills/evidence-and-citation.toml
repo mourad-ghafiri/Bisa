@@ -1,0 +1,58 @@
+# Built-in skill: Evidence And Citation — every claim carries where it came from.
+
+[skill]
+name = "Evidence And Citation"
+description = "Use when reporting findings or verdicts that someone else will act on without re-checking them."
+tags = ["quality", "research"]
+content = """
+# Evidence And Citation
+
+Use this when you report a finding, a verdict, or a status that someone will act on. A claim
+without provenance is an opinion, and it will be read as fact.
+
+## Procedure
+
+1. Before you write the report, sort every claim you are about to make into three buckets:
+   verified, inferred, unchecked. Nothing escapes the sort.
+2. For each verified claim, attach the evidence in the form the reader can repeat:
+   - a command and its relevant output, with the exit status when that is the point;
+   - a file and line: `crates/bisa-node/src/hooks.rs:212`;
+   - a source: title, author or publisher, date, and the URL or document id.
+3. Quote the output, do not paraphrase it. "Tests pass" hides which tests; paste the summary line.
+   Trim long output to the decisive lines and say you trimmed it.
+4. For each inferred claim, write the inference: "X, therefore Y". The reader must be able to
+   reject your reasoning without rejecting your data.
+5. For each unchecked claim, say so and say why: no access, no fixture, out of scope, would take
+   an hour. Then either get it checked or leave it flagged. Never let it drift into the verified
+   list because it is probably true.
+6. State what you did not look at. A report silent on its own coverage reads as exhaustive.
+7. Re-read the report and delete every sentence you cannot source. What is left is the report.
+
+## Marking
+
+- **Verified** — you ran it or read it, in this session, in this state of the tree.
+- **Inferred** — follows from something verified, plus reasoning you have shown.
+- **Reported** — someone else claims it and you are relaying. Name them. A worker's report of its
+  own tests is Reported, not Verified, until you re-run them.
+- **Unchecked** — you could not confirm it. Say what would.
+
+## Failure modes
+
+- **Stale evidence.** Output from before the last edit. Note when you ran it, and re-run anything
+  the tree has moved past.
+- **Confirmation-shaped searching.** Running the check that would pass instead of the one that
+  might fail. Pick the input most likely to break the claim.
+- **The confident summary.** A precise body and an opening line that overstates it. The summary
+  inherits the weakest evidence in the body, not the strongest.
+- **Laundering.** An inference stated as an observation. "The cache is invalidated on write"
+  when what you saw was a function named `invalidate` being called. Say which one you have.
+- **Absence as proof.** `rg` finding nothing proves your pattern did not match, not that the thing
+  does not exist. Say which pattern you ran.
+- **Secrets in evidence.** If credential material appears in output you were reading, cite the
+  path and line and nothing more. Never paste it into the report.
+
+## Done when
+
+Every claim in the report is marked, every verified claim carries a command, a file and line, or a
+source the reader can open, and the report says what it did not cover.
+"""

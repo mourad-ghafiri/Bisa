@@ -1,0 +1,194 @@
+{
+  "about": "The one list of the website's screenshots. Drop <id>.webp, <id>.jpg or <id>.png beside this file and run `just website`: a present file is shown at its own size, a missing one is a labelled placeholder. See README.md beside this file.",
+  "shots": [
+    {
+      "id": "overview",
+      "title": "Bisa",
+      "alt": "The Bisa desktop application: the sidebar, a goal's run read downward, and the Inbox count",
+      "capture": "The whole window on the Inbox or a goal's page, the sidebar open.",
+      "readme": true
+    },
+    {
+      "id": "goals",
+      "title": "Goals",
+      "alt": "The Goals screen: each goal a card with its run strip, who it waits on and its verbs",
+      "capture": "The Goals list with a few goals in different states — running, waiting on you, done.",
+      "readme": true
+    },
+    {
+      "id": "inbox",
+      "title": "Inbox",
+      "alt": "The Inbox: rows that wait on you — a gate to approve, a question with its options, a held step",
+      "capture": "The Inbox on Needs you, one gate and one question visible, the detail pane open on the question.",
+      "readme": true
+    },
+    {
+      "id": "agents",
+      "title": "Agents",
+      "alt": "The Agents screen: the three core agents and the catalog agents installed, each with its harness and model",
+      "capture": "Agents, with the General Agent, the Workflow Agent and the Decision-Making Agent at the top and a few catalog agents below.",
+      "readme": false
+    },
+    {
+      "id": "teams",
+      "title": "Teams",
+      "alt": "The Teams screen: a team with its members and its purpose",
+      "capture": "Teams, one team open with its members.",
+      "readme": false
+    },
+    {
+      "id": "ide",
+      "title": "The Project IDE",
+      "alt": "The Project IDE: projects and workstreams down the side, a harness at work in a terminal tab, and the workstream's road from commit to merge beside it",
+      "capture": "A project open in the IDE: the rail of projects and workstreams, a harness in a terminal tab, the workstream panel.",
+      "readme": "ide"
+    },
+    {
+      "id": "ide-files",
+      "title": "Files and editor",
+      "alt": "The editor on a file of the checkout, the tree of its files beside it",
+      "capture": "A source file open in the editor with the Files pane beside it.",
+      "readme": false
+    },
+    {
+      "id": "ide-agent",
+      "title": "Agents in the IDE",
+      "alt": "A conversation about a checkout: several agents answering one message, the checkout's files beside them",
+      "capture": "A conversation about a checkout in Agent mode, agents answering, the Files pane beside it.",
+      "readme": false
+    },
+    {
+      "id": "ide-browser",
+      "title": "Embedded browser",
+      "alt": "The embedded browser beside the code, showing a folder of the checkout served on this machine",
+      "capture": "A served folder of the checkout open in the embedded browser, the Files pane beside it.",
+      "readme": "ide"
+    },
+    {
+      "id": "ide-annotate",
+      "title": "Annotate for agents",
+      "alt": "Pointing at an element of a served page and saying what should change; the note becomes a chip for the agent",
+      "capture": "The browser's annotation: an element picked on the page, its note typed, the bar to send it to an agent.",
+      "readme": false
+    },
+    {
+      "id": "ide-git-history",
+      "title": "Git history",
+      "alt": "The commit history of a checkout beside a harness at work in a terminal tab",
+      "capture": "Git › History open beside a harness's terminal tab.",
+      "readme": false
+    },
+    {
+      "id": "workflows",
+      "title": "Workflows",
+      "alt": "The Workflows library: each workflow a card with its graph and its runs",
+      "capture": "The Workflows library, Yours tab, a few cards.",
+      "readme": false
+    },
+    {
+      "id": "workflow-designer",
+      "title": "Workflow designer",
+      "alt": "The workflow designer on the Bug fix workflow: the palette of steps on the left, the graph on the canvas, the workflow's properties and its problems on the right",
+      "capture": "The designer on the catalog's Bug fix workflow: the palette, the whole graph, and the Properties pane with No problems.",
+      "readme": true
+    },
+    {
+      "id": "workflow-designer-agent",
+      "title": "The Workflow Agent in the designer",
+      "alt": "The workflow designer with the Workflow Agent in its Agent pane: asked in plain words for a workflow, it built and saved it, and the canvas shows its steps",
+      "capture": "The designer with the Agent pane open, the Workflow Agent having just built a workflow it was asked for in plain words.",
+      "readme": false
+    },
+    {
+      "id": "connectors",
+      "title": "Connectors",
+      "alt": "Settings › Connectors: the accounts of the platforms a workflow calls",
+      "capture": "Settings › Capabilities › Connectors with an account or two.",
+      "readme": false
+    },
+    {
+      "id": "goal-workflow",
+      "title": "A goal's workflow",
+      "alt": "A goal's Workflow tab: the proposed workflow on the canvas, the run's states on each step",
+      "capture": "The same goal's Workflow tab, its run's states on the steps.",
+      "readme": false
+    },
+    {
+      "id": "pulse",
+      "title": "Pulse",
+      "alt": "The Pulse: the workspace's live feed of steps, messages and agents at work",
+      "capture": "The Pulse on All, a few minutes of a busy workspace.",
+      "readme": false
+    },
+    {
+      "id": "channels",
+      "title": "Channels",
+      "alt": "A channel: people and agents talking, an agent's reply streaming with its thinking folded",
+      "capture": "A channel with a few messages and an agent's reply.",
+      "readme": false
+    },
+    {
+      "id": "direct-messages",
+      "title": "Direct messages",
+      "alt": "Direct messages: a direct channel with an agent",
+      "capture": "Direct messages, one open with an agent.",
+      "readme": false
+    },
+    {
+      "id": "notes",
+      "title": "Notes",
+      "alt": "Notes: a markdown note beside its conversation with an agent",
+      "capture": "The Notes panel on a note, split view, Ask an agent open.",
+      "readme": false
+    },
+    {
+      "id": "drawing",
+      "title": "Drawing",
+      "alt": "A drawing on the canvas, an agent's shapes landing while the person watches",
+      "capture": "The Draw panel on a system-architecture drawing.",
+      "readme": true
+    },
+    {
+      "id": "collaboration",
+      "title": "Collaboration and people",
+      "alt": "Settings › People: people invited by link at a role, the relays and their health",
+      "capture": "Settings › Workspace › People with an invitation and a member; Relays & sync beside it.",
+      "readme": false
+    },
+    {
+      "id": "security",
+      "title": "Security",
+      "alt": "Settings › Security: the Redactor, the Tool & Commands Guard's rules and the Classifier",
+      "capture": "Settings › Security › Guard with its rules, Try it filled.",
+      "readme": false
+    },
+    {
+      "id": "decision-making",
+      "title": "Decision-making",
+      "alt": "Settings › Decision Settings › Decision Making: who answers, the decision points, a question tried",
+      "capture": "Settings › Decision Settings › Decision Making with Try it answered.",
+      "readme": false
+    },
+    {
+      "id": "addons",
+      "title": "Addons",
+      "alt": "Addons floating over the app: a clock, the machine's load, the weather",
+      "capture": "Three or four addons open over a screen.",
+      "readme": true
+    },
+    {
+      "id": "pets",
+      "title": "Pets",
+      "alt": "Settings › Pet: the nine pets that ship with the app, one chosen, and the pet itself in the corner",
+      "capture": "Settings › Pet with the nine pets and one chosen; the pet visible in its corner.",
+      "readme": false
+    },
+    {
+      "id": "settings",
+      "title": "Settings",
+      "alt": "Settings: the groups down the left, one panel open",
+      "capture": "Settings on Appearance or Harnesses.",
+      "readme": false
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+/* ---------------------------------------------------------------------------
+   Density.
+
+   Two settings, not a slider, because the app has exactly two answers: rows
+   sized for reading a list, and rows sized for holding more of it on screen.
+   Comfortable is the default and lives in `tokens.css` — density only
+   overrides, so a token added there is automatically comfortable-by-default
+   rather than undefined in one of the two modes.
+
+   Only the three structural heights move. Padding and gaps stay on Tailwind's
+   4px scale: shaving those as well produces rows that are shorter *and*
+   tighter, which stops reading as dense and starts reading as broken.
+
+   The values are still expressed against `--type-rem`, so density and type
+   size compose — compact at a larger type size gives you a taller row than
+   compact at the default, which is right, because the text inside it is
+   taller too.
+--------------------------------------------------------------------------- */
+
+:root[data-density="compact"] {
+  --spacing-row: calc(var(--type-rem) * 2); /* 32px */
+  --spacing-row-lg: calc(var(--type-rem) * 2.375); /* 38px */
+  --spacing-chrome: calc(var(--type-rem) * 2.25); /* 36px */
+}

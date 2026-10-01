@@ -1,0 +1,10 @@
+{
+  // rust-analyzer keeps its own target directory, so the editor's background
+  // check and a check in the terminal never lock each other's Cargo.lock nor
+  // invalidate each other's cache (docs/contributing/testing-rules.md
+  // §Faster builds). `--tests` rather than every target: benches and
+  // examples are not what a red squiggle is about.
+  "rust-analyzer.cargo.targetDir": true,
+  "rust-analyzer.check.allTargets": false,
+  "rust-analyzer.check.extraArgs": ["--tests"]
+}

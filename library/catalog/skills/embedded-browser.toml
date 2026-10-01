@@ -1,0 +1,123 @@
+# Built-in skill: Embedded Browser — the platform's own browser, and how to browse in it the way a
+# person does. Every catalog agent carries it as guidance. Who may use the browser tools is the
+# workspace's word (`browser.agents`, *everyone* by default); with it at *assigned*, carrying this
+# skill is what lets an agent through.
+
+[skill]
+name = "Embedded Browser"
+description = "Use when a web page must be read, driven, tested or captured: the platform's embedded browser through the browser tools, never the machine's or a headless one."
+tags = ["engineering", "web"]
+content = """
+# Embedded Browser
+
+The platform has a browser of its own, and it hands you tools that drive it the way a person
+browses. Use them for every page — a page the project serves, a dev server, the web, a page a
+teammate posted as an artifact. The tab you open shows beside whatever the person is on — the
+Project IDE's checkout, a goal, a workflow, a channel, a direct message — where they can watch what
+you do, point at an element and send you what should change; in a goal in auto mode, where nobody is
+watching, the tab is kept **out of sight**: it renders and answers every tool, and nothing opens
+beside anyone. The machine's browser and a headless one are refused by the guard, and the refusal
+names these tools.
+
+Who may use the tools is the workspace's word (`browser.agents`: everyone — the default — agents
+with this skill, or nobody). A refusal is a sentence naming why; say it to the person and stop
+rather than working around it — never `open` a URL, never `curl` a page, never run a headless
+browser in its place.
+
+## The tools
+
+| Tool | What it does |
+|---|---|
+| `browser_open` | open an http(s) URL in a new tab, or navigate a tab you name; answers the tab's key, URL and title once it has loaded. `headless: true` keeps the tab out of sight, `headless: false` shows it; left out, the workspace decides |
+| `browser_tabs` | the open tabs: key, URL, title |
+| `browser_snapshot` | the page's outline as a person sees it — every heading, link, button, field, select, checkbox and menu item, one line each with a **ref** (`e12 button "Sign in"`, `e13 textbox "Email" value="…"`, `e14 link "Pricing" → /pricing`, `[disabled]`, `[checked]`); `target` outlines one element, `all` adds every element with text. Refs hold until the page loads again |
+| `browser_read` | a tab's URL, title and text — the page, or the element `target` names, as `text` or `html`; with a target, its role, name and attributes first; cut at 16 KiB |
+| `browser_find` | the matches of some words in the page, each with its surroundings and the selector holding it |
+| `browser_click` | click the element `target` names — a ref or a CSS selector; a click that moves the page waits for the new page and says `navigated` |
+| `browser_type` | type into a field a keystroke at a time, the way a person does — an autocomplete, a search box, an editor; `clear` empties it first, `submit` presses Enter after |
+| `browser_fill` | set a field's value in one go, with the input and change events |
+| `browser_press` | press a key — `Enter`, `Escape`, `Tab`, the arrows, `Backspace`, one character — on a target or the focused element, with `modifiers`; Enter in a form submits it |
+| `browser_select` | choose an option of a `<select>` by `value` or by `label` |
+| `browser_hover` | move the pointer over an element — a menu opens, a tooltip shows |
+| `browser_scroll` | scroll `to` `top`, `bottom` or an element, or `by_x`/`by_y` pixels; answers where the page stands and how tall it is |
+| `browser_wait` | wait `until` the load finishes, an element is in the page (`selector`), some words are (`text`), an element is gone (`gone`), or the page is quiet (`idle`) — 10 s by default, 30 s at most; a wait that runs out says so |
+| `browser_back` · `browser_forward` · `browser_reload` | the tab's own history, each answered once the page has loaded |
+| `browser_console` | what the page logged and the errors it raised since it loaded — the newest hundred lines; `clear` forgets them |
+| `browser_eval` | evaluate a JavaScript expression in the page and read its value as JSON — a store, a data attribute, a computed style; the workspace may refuse scripts (`browser.agents.scripts`), and the refusal says so |
+| `browser_screenshot` | a PNG of the tab as it renders, on any page, out of sight or not; answers the file's path — read the file to see the page |
+| `browser_close` | close a tab |
+| `browser_serve` | serve a folder of your checkout — the checkout itself when you name none — on a loopback port of this machine through the platform's own static server, and answer the URL to `browser_open`; a page on disk never opens by path |
+
+Every answer also lists the **dialogs** the page raised meanwhile — an `alert` dismissed, a
+`confirm` accepted, a `prompt` given its default — so nothing hangs and you know what the page said.
+Every element is named by a **ref** from the last snapshot (`e12`) or by a CSS selector; a ref is
+what a person sees, so prefer it, and snapshot again after the page moves.
+
+## Browsing like a person
+
+1. `browser_open` the page; keep the tab key it answers and navigate that tab rather than opening
+   another for every page. `browser_wait` when a page is still arriving.
+2. `browser_snapshot` before you act: read the outline, pick the ref of the thing a person would
+   click or type into. Never guess a selector twice — snapshot again.
+3. Act: `browser_click` the control, `browser_type` into the field (or `browser_fill` a value),
+   `browser_press` Enter, `browser_select` the option, `browser_hover` to open a menu,
+   `browser_scroll` to bring more of the page in.
+4. Let the page settle: an act that moves the page answers the new page; otherwise `browser_wait`
+   for the element or the words you expect, or for `idle`.
+5. Read what happened: `browser_snapshot` or `browser_read`, `browser_find` for a word in a long
+   page, `browser_screenshot` when the text is not enough — a layout, a chart, a state.
+
+## Testing a feature
+
+Get the page up: a page on disk — an `index.html` you wrote, a built site — is served by
+`browser_serve` (the folder that holds it, or the checkout itself), and its URL is what you
+`browser_open`; a page a dev server renders comes from the project's **run command** (the IDE's
+Terminal menu opens it; About › Settings sets it), and the port it opens is what you `browser_open`. Then drive the feature as a person would — the steps above — and after each act read
+`browser_console` for errors and warnings, `browser_read` or `browser_snapshot` for what the page
+shows, `browser_eval` for state the page does not show (where the workspace allows it), and
+`browser_screenshot` for what only the eye can judge. Edit the file and `browser_reload` or read the
+page again: a dev server reloads it, and the person sees the result in the same tab. A project's own
+end-to-end suite is the person's to run; asked, they decide.
+
+## Out of sight
+
+In a goal in auto mode your tabs are headless by policy (`browser.agents.headless`): nobody is
+watching, so nothing opens beside anyone, and every tool — the screenshot too — works as it does on
+a shown tab. Ask `headless: false` only when a person should watch the page, and say so; ask
+`headless: true` in a conversation when the person need not see what you look at. The person can
+show any headless tab from the footer's Browser count.
+
+## What you must not do
+
+- Do not `open`, `xdg-open` or `start` a URL, and do not run `chrome`, `chromium`, `firefox`,
+  `puppeteer`, a driver or anything `--headless`: the guard refuses them, and the refusal names the
+  browser tools.
+- Do not `curl` a page to read it: `browser_read` is the read.
+- Do not screenshot the screen: `browser_screenshot` is the tab alone, and it is all you need.
+- Do not paste a script into a page to click for you: `browser_click`, `browser_type` and
+  `browser_press` are the acts, and a person can see them; `browser_eval` reads.
+- When a browser tool refuses you, or answers that the embedded browser is not available, say so
+  to the person and stop.
+
+## When a tool answers with a problem instead of a result
+
+Every problem is a sentence that says what it is; each asks for one thing, and you decide once.
+
+- **the page did not answer** on a read — `browser_read`, `browser_find`, `browser_snapshot`,
+  `browser_console`, `browser_eval`, `browser_wait`, `browser_hover`, `browser_scroll`: the platform
+  already asked the page once more before saying so. `browser_snapshot` to see where the page stands,
+  or `browser_console` for an error it raised — not the same read a third time.
+- **the page did not answer** on an act — `browser_click`, `browser_type`, `browser_fill`,
+  `browser_press`, `browser_select`: never repeat the call; a second click is a different act.
+  `browser_snapshot` to see whether it landed, and act again only if it did not.
+- **the tab could not be reached**: the tab is gone. `browser_tabs` for what is open, then
+  `browser_open` — a new request, not a retry.
+- **did not answer this request in time**: the embedded browser was open a moment ago and missed one
+  request. Try the same call once; if it happens again, say so to the person and stop.
+- **not available**: no desktop is open to answer. Say so to the person and stop.
+- **a platform fault** — the sentence says so itself: report it to the person once, word for word,
+  and continue the rest of the task without the browser; no other call fixes it.
+- Whatever the answer, decide once — retry, another tool, or stop — and never ask the person
+  "should I retry?" twice for the same call. A refusal by the workspace's policy is final: say why
+  and stop, never work around it.
+"""

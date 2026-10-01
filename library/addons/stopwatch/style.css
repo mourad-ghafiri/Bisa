@@ -1,0 +1,19 @@
+:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.12); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.14); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; font: 12px system-ui, sans-serif; color: var(--ink); background: transparent; }
+.watch { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
+.time { display: block; text-align: center; font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.row { display: flex; gap: 6px; justify-content: center; }
+button { border: 1px solid var(--line); border-radius: 6px; background: var(--key); color: var(--ink); font: inherit; padding: 4px 10px; cursor: pointer; min-width: 4em; }
+#toggle { color: var(--accent); font-weight: 600; }
+.quiet { color: var(--dim); }
+button.armed { color: var(--accent); border-color: var(--accent); }
+.laps { margin: 0; padding: 0; list-style: none; color: var(--dim); font-variant-numeric: tabular-nums; overflow: auto; flex: 1; font-size: 11px; }
+.laps li { display: grid; grid-template-columns: 2em 1fr auto; gap: 6px; padding: 1px 2px; border-top: 1px solid var(--line); }
+.laps li:first-child { border-top: 0; }
+.laps .n { color: var(--dim); }
+.laps .split { color: var(--ink); }
+.laps .total { color: var(--dim); }

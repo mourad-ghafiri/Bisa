@@ -1,0 +1,29 @@
+[package]
+name = "bisa-decision"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "The Decision-Making Agent's providers behind one port: a System One model over HTTP (Jev, any RLCD model), a generative model asked for the same shape, and the deadline, retry and contract check every answer passes"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+bisa-core = { workspace = true }
+# The outbound HTTP port, its host rules and its un-printable `Secret`: a
+# decision endpoint is an outside platform's API like any other.
+bisa-connectors = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+# The retry timing tests run under tokio's paused clock.
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

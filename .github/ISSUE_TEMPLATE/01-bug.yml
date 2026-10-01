@@ -1,0 +1,118 @@
+name: "Bug"
+description: "Something does not work the way the documentation says it does."
+title: "[Bug]: "
+labels: ["kind: bug", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. A **security vulnerability** is never reported here — see SECURITY.md. Questions belong in Discussions.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Bisa? The area guides are in docs/contributing/areas/.
+      multiple: false
+      options:
+        - "Inbox"
+        - "Agents & teams"
+        - "Projects"
+        - "Project IDE (editor, search, git, terminals, pull requests, browser, Mobile Development, language servers, Board)"
+        - "Workflows & events"
+        - "Goals"
+        - "Pulse"
+        - "Channels, DMs & conversations"
+        - "Settings"
+        - "Collaboration"
+        - "Connectors"
+        - "Notes"
+        - "Drawing"
+        - "Pets"
+        - "Addons"
+        - "Decision-making"
+        - "Security features"
+        - "Harnesses"
+        - "CLI"
+        - "Node & HTTP API"
+        - "MCP tools"
+        - "Workspace & storage"
+        - "Core"
+        - "Desktop app"
+        - "Mobile app (planned)"
+        - "Website"
+        - "Translation"
+        - "Catalog"
+        - "Docs"
+        - "Build & release"
+        - "Not sure"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Bisa version
+      description: From About in the app, or `bisa --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - "macOS \u2014 Apple Silicon"
+        - "macOS \u2014 Intel"
+        - "Linux (built from source)"
+        - "Windows (built from source)"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: "What happened"
+      description: "What you saw. Quote error messages exactly."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to reproduce"
+      description: "From a fresh start, the smallest steps that show it."
+      placeholder: "1. \u2026\n2. \u2026\n3. \u2026"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "What you expected"
+      description: "And where the documentation says so, if it does."
+    validations:
+      required: true
+  - type: textarea
+    id: harness
+    attributes:
+      label: "Harness"
+      description: "If a coding harness was involved: which one and its version (for example Claude Code 2.x)."
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Logs"
+      description: "Relevant lines from `bisa logs` \u2014 read them first and remove anything that is yours alone."
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I removed keys, tokens, personal paths, e-mail addresses and anything else that is mine alone from what I pasted."
+          required: true
+        - label: "This is not a security vulnerability \u2014 those are reported privately, as SECURITY.md says."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true

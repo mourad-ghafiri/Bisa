@@ -1,0 +1,37 @@
+[package]
+name = "bisa-harness"
+description = "Harness abstraction: adapter/session traits, event model, subprocess plumbing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[features]
+# Exposes MockAdapter/MockSession for other crates' tests.
+mock = []
+
+[dependencies]
+bisa-core = { workspace = true }
+bisa-cache = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+which = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+# Self-dependency so integration tests see the `mock` module.
+bisa-harness = { path = ".", features = ["mock"] }
+
+[lints]
+workspace = true

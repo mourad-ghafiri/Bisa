@@ -1,0 +1,183 @@
+# Built-in workflow: Software feature — design, build, check, review, ship.
+#
+# A design note first, an implementation the project's own tests judge, a code
+# review that can send it back, and a person's approval before anything is
+# published. The loop between review and implementation is bounded.
+
+[workflow]
+name = "Software feature"
+description = "From a one-line feature to a reviewed change on a branch: a design note, an implementation checked by the project's tests, a code review that can send it back, and a human approval before it is published."
+tags = ["engineering", "code", "delivery"]
+
+[[workflow.inputs]]
+name = "feature"
+label = "The feature, in one line"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "project"
+label = "The project to work in"
+kind = "project"
+required = true
+
+[[workflow.inputs]]
+name = "tests"
+label = "The project's test command"
+kind = "text"
+default = "cargo test"
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["design"]
+
+[[workflow.steps]]
+id = "design"
+name = "Design note"
+kind = "agent"
+assignee = { agent = "architect" }
+project = { input = "project" }
+retries = 1
+instructions = """
+Write a short design note for: {inputs.feature}
+
+Name the boundaries the change touches, the one decision worth recording, and
+what the change forecloses. Keep it to what the developer needs to start; do
+not implement. Your result carries the note as markdown and the files the
+change will touch.
+"""
+then = ["implement"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["note"]
+
+[workflow.steps.output_schema.properties.note]
+type = "string"
+description = "The design note as markdown: the boundaries touched, the one decision recorded, what the change forecloses."
+
+[workflow.steps.output_schema.properties.files]
+type = "array"
+items = { type = "string" }
+description = "The paths the change is expected to touch, one per entry."
+
+[[workflow.steps]]
+id = "implement"
+name = "Implement"
+kind = "agent"
+assignee = { agent = "developer" }
+project = { input = "project" }
+max_visits = 3
+retries = 1
+instructions = """
+Implement {inputs.feature} in this workstream, following the design note:
+
+{steps.design.output.note}
+
+Match the surrounding code. Add or extend tests and run `{inputs.tests}` until
+green. Leave the tree in the state you want committed. Your result gives a
+summary of what changed, the files touched, and whether the tests ran green.
+"""
+then = ["tests"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["summary"]
+
+[workflow.steps.output_schema.properties.summary]
+type = "string"
+description = "What changed and why, in the words a reviewer reads first."
+
+[workflow.steps.output_schema.properties.files]
+type = "array"
+items = { type = "string" }
+description = "The paths changed, one per entry."
+
+[workflow.steps.output_schema.properties.tested]
+type = "boolean"
+description = "Whether the project's test command ran green before the tree was left as it is."
+
+[[workflow.steps]]
+id = "tests"
+name = "Tests pass"
+kind = "check"
+check = { check = "command", command = "{inputs.tests}" }
+on_fail = { on_fail = "then", step = "implement" }
+then = ["review"]
+
+[[workflow.steps]]
+id = "review"
+name = "Code review"
+kind = "agent"
+assignee = { agent = "code-reviewer" }
+project = { input = "project" }
+retries = 1
+instructions = """
+Review the change this workstream carries for: {inputs.feature}
+
+Summary from the developer: {steps.implement.output.summary}
+
+Worst finding first. Decide whether it can merge as it stands. Your result
+gives the verdict and the findings.
+"""
+then = ["verdict"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["verdict"]
+
+[workflow.steps.output_schema.properties.verdict]
+type = "string"
+enum = ["approve", "changes"]
+description = "\"approve\" when the change can merge as it stands; \"changes\" when it goes back to the developer."
+
+[workflow.steps.output_schema.properties.findings]
+type = "array"
+items = { type = "string" }
+description = "The findings, worst first, each one sentence naming the place and the problem."
+
+[[workflow.steps]]
+id = "verdict"
+name = "Mergeable?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "review", path = "verdict", value = "approve" }, branch = "approve" }]
+otherwise = "changes"
+then = [{ to = "ship", branch = "approve" }, { to = "implement", branch = "changes" }]
+
+[[workflow.steps]]
+id = "ship"
+name = "Ship it?"
+kind = "approval"
+prompt = "{inputs.feature} is implemented, tested and reviewed. Publish the branch and open the pull request?"
+then = ["publish"]
+
+[[workflow.steps]]
+id = "publish"
+name = "Open the pull request"
+kind = "agent"
+assignee = { agent = "release-manager" }
+project = { input = "project" }
+instructions = """
+Open the pull request for {inputs.feature}: a title, a body that carries the
+design note and the reviewer's findings, and the changelog line. The push and
+the pull request pass the publish gate. What changed:
+{steps.implement.output.summary}
+Your result gives the pull request's URL once it is open.
+"""
+then = ["done"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["url"]
+
+[workflow.steps.output_schema.properties.url]
+type = "string"
+description = "The URL of the pull request that was opened."
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

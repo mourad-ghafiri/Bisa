@@ -1,0 +1,102 @@
+/* ---------------------------------------------------------------------------
+   Accent overlays.
+
+   An accent choice replaces four roles and nothing else — `accent`,
+   `accent-ink`, `accent-soft` and `accent-contrast` — so it composes with any
+   theme without touching a neutral, a status colour or `danger`. Picking
+   violet must not make a rejected work item look different.
+
+   Amber is not a file. Amber is what every family already supplies as its own
+   accent (Harbor's gold, Orchard's blossom, Dune's indigo), so choosing it
+   means removing `data-accent` rather than layering a copy of the theme's own
+   values on top of it.
+
+   The rule the tokens file states applies to all four: whichever one is
+   mounted, this is the colour that means somebody is waiting on you. These
+   are picked for how loudly they read against a neutral, not for how pretty
+   they are next to each other — and `themes.test.mjs` holds each one to the
+   contrast promise against the default family's surfaces on both sides: the
+   fill carries white (light) or the dark ground (dark) at 4.5:1, the ink
+   reads on a card at 4.5:1.
+
+   Each accent needs a light set and a dark set, because a fill that reads on
+   white is invisible on near-black. Which set applies is decided the same way
+   the themes decide it — `prefers-color-scheme` when nothing is stamped, and
+   `data-scheme` when `shell/theme.ts` has resolved the mounted theme's side.
+   The attribute is the authority because a dark theme chosen on a light
+   machine is still dark; the media query is the fallback that paints
+   correctly before any script has run.
+--------------------------------------------------------------------------- */
+
+/* ---- violet ------------------------------------------------------------ */
+:root[data-accent="violet"] {
+  --color-accent: oklch(0.53 0.21 295);
+  --color-accent-ink: oklch(0.48 0.2 295);
+  --color-accent-soft: oklch(0.955 0.03 295);
+  --color-accent-contrast: oklch(1 0 0);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="violet"]:not([data-scheme="light"]) {
+    --color-accent: oklch(0.74 0.15 295);
+    --color-accent-ink: oklch(0.8 0.13 295);
+    --color-accent-soft: oklch(0.33 0.07 295);
+    --color-accent-contrast: oklch(0.2 0.02 295);
+  }
+}
+:root[data-accent="violet"][data-scheme="dark"] {
+  --color-accent: oklch(0.74 0.15 295);
+  --color-accent-ink: oklch(0.8 0.13 295);
+  --color-accent-soft: oklch(0.33 0.07 295);
+  --color-accent-contrast: oklch(0.2 0.02 295);
+}
+
+/* ---- teal -------------------------------------------------------------- */
+:root[data-accent="teal"] {
+  --color-accent: oklch(0.52 0.11 190);
+  --color-accent-ink: oklch(0.47 0.1 190);
+  --color-accent-soft: oklch(0.95 0.035 190);
+  --color-accent-contrast: oklch(1 0 0);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="teal"]:not([data-scheme="light"]) {
+    --color-accent: oklch(0.76 0.11 190);
+    --color-accent-ink: oklch(0.82 0.1 190);
+    --color-accent-soft: oklch(0.32 0.05 190);
+    --color-accent-contrast: oklch(0.2 0.02 190);
+  }
+}
+:root[data-accent="teal"][data-scheme="dark"] {
+  --color-accent: oklch(0.76 0.11 190);
+  --color-accent-ink: oklch(0.82 0.1 190);
+  --color-accent-soft: oklch(0.32 0.05 190);
+  --color-accent-contrast: oklch(0.2 0.02 190);
+}
+
+/* ---- rose --------------------------------------------------------------
+   Rose sits close to `danger` in hue, which is the one collision the palette
+   rules forbid inside a theme. It survives as an overlay because it is pulled
+   to 12 and kept lighter than danger at both ends, and because danger never
+   appears as a bare fill next to an accent fill — it arrives as `danger-soft`
+   behind `danger` text. If that ever stops being true, this accent is the one
+   to drop.
+*/
+:root[data-accent="rose"] {
+  --color-accent: oklch(0.53 0.19 12);
+  --color-accent-ink: oklch(0.5 0.18 10);
+  --color-accent-soft: oklch(0.955 0.035 12);
+  --color-accent-contrast: oklch(1 0 0);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="rose"]:not([data-scheme="light"]) {
+    --color-accent: oklch(0.74 0.15 12);
+    --color-accent-ink: oklch(0.8 0.12 12);
+    --color-accent-soft: oklch(0.33 0.08 12);
+    --color-accent-contrast: oklch(0.2 0.03 12);
+  }
+}
+:root[data-accent="rose"][data-scheme="dark"] {
+  --color-accent: oklch(0.74 0.15 12);
+  --color-accent-ink: oklch(0.8 0.12 12);
+  --color-accent-soft: oklch(0.33 0.08 12);
+  --color-accent-contrast: oklch(0.2 0.03 12);
+}

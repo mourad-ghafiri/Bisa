@@ -1,0 +1,23 @@
+[package]
+name = "bisa-vcs"
+description = "VCS PAL: typed, time-boxed `git` subprocess wrappers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+# Deliberately sync (no tokio) and workspace-dep-free: this crate knows about
+# `git` and nothing about goals (GitHub's API lives in bisa-codehost). The engine drives it from
+# spawn_blocking, exactly as it does bisa-iso.
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

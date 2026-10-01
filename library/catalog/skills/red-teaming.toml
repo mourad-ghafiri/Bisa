@@ -1,0 +1,56 @@
+# Built-in skill: Red Teaming — assume it already failed, then find the cheapest attack.
+
+[skill]
+name = "Red Teaming"
+description = "Use before committing to a plan or shipping a system: assume it failed, and find how."
+tags = ["security", "review"]
+content = """
+# Red Teaming
+
+Use this before you commit to a plan or ship something that matters. Two exercises: the pre-mortem
+finds how it fails on its own, the attack finds how someone makes it fail.
+
+## Exercise 1 — The pre-mortem
+
+1. Set the scene: it is six months from now and this failed completely. Not "had problems" —
+   failed. Write that sentence down and treat it as fact.
+2. Write the story of how. Narrative, not a list: what happened first, what nobody noticed, what
+   the team was doing while it went wrong. The narrative form is what surfaces causes a risk
+   register misses.
+3. Generate at least eight distinct failure stories. Force coverage across: the technical failure,
+   the adoption failure (built, nobody used it), the operational failure (worked, nobody could run
+   it), the people failure (the one person who understood it left), the timing failure (shipped
+   after it mattered), the success failure (it worked so well the load broke something else).
+4. For each story, mark the earliest moment it could have been detected. That moment is where a
+   check belongs.
+5. Rank by plausibility times cost, and name the two you will actually mitigate now. Listing
+   twenty risks and mitigating none is worse than picking two.
+
+## Exercise 2 — The attack
+
+6. Name the adversary and their budget: an idle curious user, a competitor, a scripted scanner, a
+   disgruntled insider with valid credentials. Different budgets find different holes.
+7. Take their objective, not yours: read data they should not, make the system spend money, get
+   the thing taken offline, make it say something embarrassing, get free service.
+8. Find the cheapest path to that objective. Attackers do not take the interesting route; they
+   take the shortest one — the forgotten admin endpoint, the reset flow, the retry with a
+   different id, the error message that confirms an account exists.
+9. Write abuse cases, not use cases. For each feature, write the sentence "an attacker uses this
+   to ___" and try to complete it. The features that complete easily are the findings.
+10. Include the insider and the mistake: a valid user doing the wrong thing, an operator running
+    the right command against the wrong environment.
+
+## Rules
+
+- Attack the system as built, not as designed. Read what the code does; the design document is
+  the story someone intended.
+- One concrete path beats ten theoretical concerns. "Anyone with a work item id can read another
+  goal's journal via GET /workstreams/{id}/diff" is a finding; "authorization may be weak" is not.
+- Rate each finding by what the attacker gains and what it costs them, not by how clever it is.
+- Do not stop at the first hole. The first is usually not the worst.
+
+## Done when
+
+Eight failure stories exist with a detection point each, two mitigations are chosen, at least one
+concrete attack path is written end to end, and every finding names what the attacker gains.
+"""

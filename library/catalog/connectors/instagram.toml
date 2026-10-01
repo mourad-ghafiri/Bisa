@@ -1,0 +1,90 @@
+# Built-in connector: Instagram — a professional account's media over the Instagram Graph API.
+
+[connector]
+name = "Instagram"
+description = "List a professional account's media and publish an image in two calls: create a container, then publish it. Paste a long-lived access token with the instagram_basic and instagram_content_publish permissions."
+tags = ["marketing", "content"]
+base_url = "https://graph.facebook.com"
+hosts = ["graph.facebook.com"]
+check = "me"
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "What the token identifies — the one call that proves it works."
+method = "get"
+path = "/v19.0/me"
+query = { fields = "id,name" }
+
+[[connector.operations]]
+id = "media"
+name = "Media"
+description = "The account's media, newest first."
+method = "get"
+path = "/v19.0/{params.user}/media"
+query = { fields = "id,caption,media_type,media_url,permalink,timestamp", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "user"
+label = "Instagram user id"
+required = true
+doc = "The professional account's id, not its handle."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many items to return; the Graph API answers 25 unless told otherwise."
+
+[connector.operations.output]
+select = "data"
+
+[[connector.operations]]
+id = "create_media"
+name = "Create media container"
+description = "Stage an image for publishing; answers the container id publish_media needs."
+method = "post"
+path = "/v19.0/{params.user}/media"
+body = { kind = "json", value = { image_url = "{params.image_url}", caption = "{params.caption}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "user"
+label = "Instagram user id"
+required = true
+doc = "The professional account id, not its handle."
+
+[[connector.operations.params]]
+name = "image_url"
+label = "Image URL"
+required = true
+doc = "A public https URL of a JPEG."
+
+[[connector.operations.params]]
+name = "caption"
+label = "Caption"
+doc = "The caption under the image; empty for none."
+
+[[connector.operations]]
+id = "publish_media"
+name = "Publish media"
+description = "Publish a staged container."
+method = "post"
+path = "/v19.0/{params.user}/media_publish"
+body = { kind = "json", value = { creation_id = "{params.creation_id}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "user"
+label = "Instagram user id"
+required = true
+doc = "The professional account id, not its handle."
+
+[[connector.operations.params]]
+name = "creation_id"
+label = "Container id"
+required = true
+doc = "The id create_media answered."

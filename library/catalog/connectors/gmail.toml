@@ -1,0 +1,75 @@
+# Built-in connector: Gmail — a person's mailbox over the Gmail REST API, read and send.
+
+[connector]
+name = "Gmail"
+description = "Read a mailbox and send mail through the Gmail API. Connect with your own Google OAuth client; the consent screen asks for read and send."
+tags = ["business", "ops"]
+base_url = "https://gmail.googleapis.com"
+hosts = ["gmail.googleapis.com"]
+check = "profile"
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url = "https://oauth2.googleapis.com/token"
+scopes = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"]
+pkce = true
+extra = { access_type = "offline", prompt = "consent" }
+
+[[connector.operations]]
+id = "profile"
+name = "Profile"
+description = "The mailbox's address and counts — the one call that proves the account works."
+method = "get"
+path = "/gmail/v1/users/me/profile"
+
+[[connector.operations]]
+id = "list_messages"
+name = "List messages"
+description = "Message ids matching a Gmail search, newest first; read each with get_message."
+method = "get"
+path = "/gmail/v1/users/me/messages"
+query = { q = "{params.q}", maxResults = "{params.max}" }
+
+[[connector.operations.params]]
+name = "q"
+label = "Search"
+doc = "A Gmail search, as typed in the search box: from:alice is:unread newer_than:7d."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many ids to return; Gmail's default is 100."
+
+[connector.operations.output]
+select = "messages"
+
+[[connector.operations]]
+id = "get_message"
+name = "Get message"
+description = "One message in full: headers, parts and the decoded body."
+method = "get"
+path = "/gmail/v1/users/me/messages/{params.id}"
+query = { format = "full" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Message id"
+required = true
+doc = "The id list_messages returned."
+
+[[connector.operations]]
+id = "send_message"
+name = "Send message"
+description = "Send a message the step has already composed as a base64url-encoded RFC 2822 message."
+method = "post"
+path = "/gmail/v1/users/me/messages/send"
+body = { kind = "json", value = { raw = "{params.raw}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "raw"
+label = "Raw message"
+required = true
+doc = "The whole message — From, To, Subject, a blank line, the body — base64url-encoded."

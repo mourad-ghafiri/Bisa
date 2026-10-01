@@ -1,0 +1,25 @@
+{
+  "id": "tic-tac-toe",
+  "name": "Tic-tac-toe",
+  "description": "You against the machine — easy or unbeatable — or two players at one board, with a tally per mode; a break that fits in a corner.",
+  "version": "0.1.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "game",
+    "break"
+  ],
+  "window": {
+    "width": 220,
+    "height": 270,
+    "min_width": 200,
+    "min_height": 250,
+    "max_width": 400,
+    "max_height": 480
+  },
+  "permissions": [
+    "storage"
+  ]
+}

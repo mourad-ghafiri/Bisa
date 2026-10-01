@@ -1,0 +1,27 @@
+{
+  "id": "disk",
+  "name": "Disk",
+  "description": "The volume the platform's data lives on: used against total, and what the workspace itself weighs.",
+  "version": "0.1.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "load",
+    "system"
+  ],
+  "window": {
+    "width": 160,
+    "height": 64,
+    "min_width": 120,
+    "min_height": 48,
+    "max_width": 320,
+    "max_height": 120,
+    "frame": "none",
+    "transparent": true
+  },
+  "permissions": [
+    "system_load"
+  ]
+}

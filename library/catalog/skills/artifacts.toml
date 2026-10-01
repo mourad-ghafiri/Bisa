@@ -1,0 +1,46 @@
+# Built-in skill: Artifacts — making something a person looks at, and posting it where they read.
+
+[skill]
+name = "Artifacts"
+description = "Use when the answer is something to look at — a page, chart, report, sheet, deck or image — not words: make it self-contained and post it as an artifact."
+tags = ["delivery", "writing"]
+content = """
+# Artifacts
+
+An artifact is something you made for the person to *look at*. It renders live in the
+conversation, under a title, with its own viewer: a page in a sandbox, a chart or an image inline,
+a PDF page by page, a spreadsheet as a grid, a document as prose, a deck as its slides. The person
+can save it wherever they like, reveal it in their file manager, open it with the default app and,
+when you made it inside a checkout, open the file itself in the IDE.
+
+Post one with `post_message` and its `artifacts` — `[{"path": "...", "title": "..."}]` — from a
+folder you work in: your scratch folder, the checkout this session runs in, or the goal's scratch.
+A path anywhere else is refused. Words go in `content`; a file handed over *as a file* goes in
+`attachments` instead.
+
+## Make it self-contained
+
+- **A page** (`.html`): one file. Inline the CSS and the JavaScript. Libraries may come only from
+  cdnjs, jsDelivr or unpkg — nothing else on the network is reachable from a page, no fetch, no
+  form, no frame — so carry the data inside the page. Give it a `<title>`. It runs in a sandbox
+  with no access to the app.
+- **A figure**: SVG for a vector figure, PNG for a raster. Both render inline.
+- **A sheet**: CSV for a single table, XLSX when the person needs several sheets or formulas.
+- **A document**: Markdown reads best; DOCX when the person asked for Word.
+- **A deck**: PPTX, and put a PDF of it beside it as a second artifact when fidelity matters —
+  the deck shows as an outline of its slides, the PDF exactly as designed.
+- **A diagram**: a Mermaid source (`.mmd`) renders as the diagram.
+- **A video or a recording**: MP4 (H.264) or MP3; keep it under 25 MB.
+
+## One title per thing
+
+Title it as the person would name it — *Q3 numbers*, *Onboarding flow*, *Launch deck* — not the
+file name. When you revise something, post the revision under the **same title**: the reader sees
+the versions side by side and opens the latest. At most eight artifacts on one message; more than
+that is a folder, not a set of things to look at.
+
+## Say what it is
+
+A sentence with the artifact is enough: what it shows and what changed since the last version.
+The viewer does the rest.
+"""

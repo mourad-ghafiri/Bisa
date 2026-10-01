@@ -1,0 +1,139 @@
+{
+  "id": "bisa-pets.midnight-shipping.lumen",
+  "displayName": "Lumen",
+  "description": "Ships by lamplight. A moth who mistook your terminal for the moon and decided to stay. Keeps a small lantern lit so you can find your way back to the stack trace. Has never once judged a 4am commit.",
+  "spritesheetPath": "spritesheet.webp",
+  "frame": {
+    "width": 192,
+    "height": 208
+  },
+  "fps": 8,
+  "defaultAnimation": "idle",
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 6,
+      "frameDurationsMs": [
+        1920,
+        794,
+        794,
+        998,
+        998,
+        2176
+      ]
+    },
+    "running-right": {
+      "row": 1,
+      "frames": 8,
+      "frameDurationsMs": [
+        124,
+        124,
+        124,
+        146,
+        124,
+        124,
+        124,
+        214
+      ]
+    },
+    "running-left": {
+      "row": 2,
+      "frames": 8,
+      "frameDurationsMs": [
+        124,
+        124,
+        124,
+        146,
+        124,
+        124,
+        124,
+        214
+      ]
+    },
+    "waving": {
+      "row": 3,
+      "frames": 4,
+      "frameDurationsMs": [
+        263,
+        179,
+        179,
+        383
+      ]
+    },
+    "jumping": {
+      "row": 4,
+      "frames": 5,
+      "frameDurationsMs": [
+        277,
+        138,
+        346,
+        150,
+        439
+      ]
+    },
+    "failed": {
+      "row": 5,
+      "frames": 8,
+      "frameDurationsMs": [
+        159,
+        147,
+        184,
+        220,
+        269,
+        318,
+        392,
+        759
+      ]
+    },
+    "waiting": {
+      "row": 6,
+      "frames": 6,
+      "frameDurationsMs": [
+        538,
+        435,
+        435,
+        538,
+        435,
+        896
+      ]
+    },
+    "running": {
+      "row": 7,
+      "frames": 6,
+      "frameDurationsMs": [
+        186,
+        161,
+        161,
+        186,
+        161,
+        272
+      ]
+    },
+    "review": {
+      "row": 8,
+      "frames": 6,
+      "frameDurationsMs": [
+        326,
+        250,
+        250,
+        300,
+        275,
+        776
+      ]
+    }
+  },
+  "x-bisa-pets": {
+    "pack": "midnight-shipping",
+    "slug": "lumen",
+    "tagline": "Ships by lamplight.",
+    "archetype": "moth",
+    "personality": "dreamy-drifter",
+    "mood": "dreamy",
+    "render": {
+      "fitScale": 0.8969,
+      "riseCap": 12.74,
+      "inkWidth": 3.4,
+      "eyeRadius": 9.42
+    }
+  }
+}

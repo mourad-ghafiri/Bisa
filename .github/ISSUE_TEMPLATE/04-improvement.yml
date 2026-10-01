@@ -1,0 +1,75 @@
+name: "Improvement"
+description: "Make something Bisa already does better."
+title: "[Improvement]: "
+labels: ["kind: improvement", "status: needs-triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Bisa? The area guides are in docs/contributing/areas/.
+      multiple: false
+      options:
+        - "Inbox"
+        - "Agents & teams"
+        - "Projects"
+        - "Project IDE (editor, search, git, terminals, pull requests, browser, Mobile Development, language servers, Board)"
+        - "Workflows & events"
+        - "Goals"
+        - "Pulse"
+        - "Channels, DMs & conversations"
+        - "Settings"
+        - "Collaboration"
+        - "Connectors"
+        - "Notes"
+        - "Drawing"
+        - "Pets"
+        - "Addons"
+        - "Decision-making"
+        - "Security features"
+        - "Harnesses"
+        - "CLI"
+        - "Node & HTTP API"
+        - "MCP tools"
+        - "Workspace & storage"
+        - "Core"
+        - "Desktop app"
+        - "Mobile app (planned)"
+        - "Website"
+        - "Translation"
+        - "Catalog"
+        - "Docs"
+        - "Build & release"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: "How it works today"
+      description: "What exists, and where (screen, verb, route, page)."
+    validations:
+      required: true
+  - type: textarea
+    id: better
+    attributes:
+      label: "What should change"
+      description: "The improvement, concretely."
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: "Why"
+      description: "Who it helps and how much."
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Bisa</title>
+    <script>
+      // The appearance cache, stamped before the first paint (ADR-0053).
+      // `shell/theme.ts` is the owner of these keys and their words; this is
+      // the same stamping done a frame earlier, so a dark theme never opens
+      // as a white flash. Anything unreadable is left absent — the default.
+      (function () {
+        try {
+          var root = document.documentElement;
+          var get = function (k) { return localStorage.getItem("bisa." + k); };
+          var stamp = function (attr, k, absent) {
+            var v = get(k);
+            if (v && v !== absent && /^[a-z-]+$/.test(v)) root.setAttribute(attr, v);
+          };
+          stamp("data-theme", "theme", "system");
+          stamp("data-accent", "accent", "amber");
+          stamp("data-density", "density", "comfortable");
+          stamp("data-font-ui", "font_ui", "system");
+          stamp("data-font-mono", "font_mono", "system");
+          var theme = get("theme");
+          var dark = theme ? /-dark$/.test(theme) : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          root.setAttribute("data-scheme", dark ? "dark" : "light");
+          var scale = Number(get("type_scale"));
+          if (scale >= 0.9 && scale <= 1.5) root.style.setProperty("--type-scale", String(scale));
+          // The language, as `i18n/localeStore.ts` mirrored it: the tag on
+          // <html lang>, and the writing direction of its script.
+          var locale = get("locale");
+          if (locale && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(locale)) {
+            root.setAttribute("lang", locale);
+            var rtl = /^(ar|he|fa|ur|ps|yi|dv|ckb|syr|ug)(-|$)/.test(locale);
+            root.setAttribute("dir", rtl ? "rtl" : "ltr");
+          }
+        } catch (e) {
+          // No storage: the stylesheet's defaults are the right answer.
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

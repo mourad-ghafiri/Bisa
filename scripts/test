@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# The test runner, narrowed: one crate, one module, one library, what changed,
+# or everything — with git isolated from this machine on every form.
+#
+#   scripts/test all                       the whole workspace, then the Tauri shell, then the desktop
+#   scripts/test rust                      the whole workspace, then the Tauri shell — the desktop left to its coverage run
+#   scripts/test crate <crate> [filter]    one crate's every test (unit + integration), an optional name filter
+#   scripts/test lib <crate> [filter]      one crate's unit tests (its binaries' where it has no library), an optional name filter (`run::` is one module)
+#   scripts/test module <crate> <module> [filter]
+#                                          one module of the crate's integration binary — tests/it/<module>.rs — an optional name filter
+#   scripts/test changed                   the crates and desktop models touched by uncommitted changes
+#   scripts/test desktop [dir]             the desktop's node tests, or those under src/<dir>/
+#   scripts/test desktop-coverage          the desktop's node tests with line coverage and its threshold
+#   scripts/test tauri                     the Tauri shell's own crate (spawns /bin/sh in tempdirs)
+#
+# <crate> is the short name: engine, node, store, … (bisa- is added).
+#
+# Suites behind a cargo feature are not built without it, and a filter that
+# matches none of them says "no tests to run" — which reads as a pass. Name
+# the feature: `FEATURES=a2a scripts/test module node a2a`,
+# `FEATURES=a2a scripts/test module adapters a2a`. The gated suites are listed
+# in docs/contributing/testing-rules.md.
+#
+# Why the environment: every fixture repository is a tempdir, but git would
+# still read this machine's global and system config — a `commit.gpgsign` or a
+# `core.hooksPath` there would reach the fixtures. Set per run, never written.
+#
+# Why nextest: when `target/tools/bin/cargo-nextest` exists (Justfile
+# `install-nextest`, inside the tree), every test of every binary runs in one
+# process pool and a hung test ends at its timeout (`.config/nextest.toml`).
+# Without it the same forms run under `cargo test`.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+
+NEXTEST="target/tools/bin/cargo-nextest"
+
+usage() {
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+}
+
+crate_name() {
+    case "$1" in
+        bisa-*) printf '%s' "$1" ;;
+        *) printf 'bisa-%s' "$1" ;;
+    esac
+}
+
+# run <cargo-test args…> [-- <filter>]: nextest when present, cargo test otherwise.
+# A positional test-name filter is the last argument after `--`.
+run() {
+    local args=() filter=""
+    while [ $# -gt 0 ]; do
+        if [ "$1" = "--" ]; then shift; filter="${1-}"; break; fi
+        args+=("$1"); shift
+    done
+    if [ -n "${FEATURES-}" ]; then args+=(--features "$FEATURES"); fi
+    if [ -x "$NEXTEST" ]; then
+        if [ -n "$filter" ]; then
+            "$NEXTEST" nextest run "${args[@]}" -E "test(/$filter/)"
+        else
+            "$NEXTEST" nextest run "${args[@]}"
+        fi
+    else
+        if [ -n "$filter" ]; then
+            cargo test "${args[@]}" -- "$filter"
+        else
+            cargo test "${args[@]}"
+        fi
+    fi
+}
+
+desktop_tests() {
+    local dir="${1-}"
+    if [ -n "$dir" ]; then
+        (cd desktop && node --test --import ./src/i18n/preload.mjs "src/$dir/*.test.mjs")
+    else
+        (cd desktop && npm test)
+    fi
+}
+
+# The crates a changed path belongs to, one per line. A crate's name is
+# everything up to the next slash — hyphens and digits included, never cut at
+# the first of either: `bisa-mobile-development`, `bisa-mcp-probe` and
+# `bisa-i18n` are crates by their whole names.
+crates_of_changes() {
+    { git diff --name-only HEAD; git ls-files --others --exclude-standard; } \
+        | sed -n 's#^crates/\(bisa-[a-z0-9-]*\)/.*#\1#p' | sort -u
+}
+
+rust_tests() {
+    run --workspace --no-fail-fast
+    (cd desktop/src-tauri && cargo test)
+}
+
+case "${1-}" in
+    all)
+        rust_tests
+        desktop_tests
+        ;;
+    rust)
+        # `just verify` runs the desktop once, through its coverage gate; this
+        # is the Rust half on its own so the suite is not run twice there.
+        rust_tests
+        ;;
+    crate)
+        [ $# -ge 2 ] || usage
+        run -p "$(crate_name "$2")" -- "${3-}"
+        ;;
+    lib)
+        # A crate's unit tests: its library's — or, for a crate that is
+        # binaries alone (the command line), its binaries'. `--lib` refuses a
+        # package that has no library.
+        [ $# -ge 2 ] || usage
+        name="$(crate_name "$2")"
+        if [ -f "crates/$name/src/lib.rs" ]; then unit=--lib; else unit=--bins; fi
+        run -p "$name" "$unit" -- "${3-}"
+        ;;
+    module)
+        # One crate's integration tests are one binary (`tests/it/main.rs`);
+        # a module is a name prefix inside it — `guided::` runs every test of
+        # `tests/it/guided.rs`, `guided::publish` the ones matching further.
+        [ $# -ge 3 ] || usage
+        run -p "$(crate_name "$2")" --test it -- "$3::${4-}"
+        ;;
+    changed)
+        crates="$(crates_of_changes)"
+        if [ -n "$crates" ]; then
+            args=()
+            for c in $crates; do args+=(-p "$c"); done
+            run "${args[@]}"
+        else
+            echo "no crate changed"
+        fi
+        if { git diff --name-only HEAD; git ls-files --others --exclude-standard; } | grep -q '^desktop/src/'; then
+            desktop_tests
+        fi
+        ;;
+    desktop)
+        desktop_tests "${2-}"
+        ;;
+    desktop-coverage)
+        (cd desktop && npm run test:coverage)
+        ;;
+    tauri)
+        (cd desktop/src-tauri && cargo test)
+        ;;
+    *)
+        usage
+        ;;
+esac

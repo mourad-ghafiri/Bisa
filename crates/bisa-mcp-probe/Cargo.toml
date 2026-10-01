@@ -1,0 +1,52 @@
+[package]
+name = "bisa-mcp-probe"
+description = "Dials an installed MCP server over its own transport — stdio, Streamable HTTP, the older HTTP+SSE — in either protocol era and reports what answered; never runs a tool"
+# The scripted peer under `tests/` is a binary, not a test of its own: with
+# auto-discovery on, cargo would also read the file as an integration-test
+# target and warn. The one integration binary is named below instead.
+autotests = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[features]
+# The canned probe a test injects where the engine expects a real one.
+fake = []
+
+[dependencies]
+bisa-core = { workspace = true }
+bisa-http = { workspace = true }
+rmcp = { workspace = true }
+reqwest = { workspace = true }
+futures = { workspace = true }
+bytes = "1"
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+
+# An MCP server that answers from a script — what the probe is tested
+# against, so no real server is ever spawned by a test. Built as a binary of
+# this package so `CARGO_BIN_EXE_scripted-mcp` names it.
+[[bin]]
+name = "scripted-mcp"
+path = "tests/scripted_mcp.rs"
+test = false
+doc = false
+
+[dev-dependencies]
+axum = { workspace = true }
+tokio-stream = { workspace = true }
+
+[lints]
+workspace = true

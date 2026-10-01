@@ -1,0 +1,186 @@
+# Built-in workflow: Bug fix — reproduce first, then fix, verify, review, ship.
+#
+# A defect nobody can reproduce is an opinion. The loop asks the reporter once
+# when the reproduction fails, and the fix is judged by the reproduction it
+# started from.
+
+[workflow]
+name = "Bug fix"
+description = "Reproduce a defect, fix it, prove the reproduction passes, review the change and ship it — with one round back to the reporter when it cannot be reproduced."
+tags = ["engineering", "code", "quality"]
+
+[[workflow.inputs]]
+name = "report"
+label = "The bug, as reported"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "project"
+label = "The project to work in"
+kind = "project"
+required = true
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["reproduce"]
+
+[[workflow.steps]]
+id = "reproduce"
+name = "Reproduce the defect"
+kind = "agent"
+assignee = { agent = "qa-engineer" }
+project = { input = "project" }
+max_visits = 2
+retries = 1
+instructions = """
+Reproduce this defect in the current checkout: {inputs.report}
+
+Write the smallest failing test or script that shows it, and the exact command
+that runs it. If you cannot reproduce it, say so plainly. Your result says
+whether it reproduced, the command that shows it, and your notes.
+"""
+then = ["reproduced"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["reproduced", "command", "notes"]
+
+[workflow.steps.output_schema.properties.reproduced]
+type = "boolean"
+description = "Whether the defect was reproduced in this checkout."
+
+[workflow.steps.output_schema.properties.command]
+type = "string"
+description = "The exact command that runs the failing test or script; empty when nothing reproduced."
+
+[workflow.steps.output_schema.properties.notes]
+type = "string"
+description = "What you saw, and — when it did not reproduce — what you tried and what it might take."
+
+[[workflow.steps]]
+id = "reproduced"
+name = "Reproduced?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "reproduce", path = "reproduced", value = true }, branch = "yes" }]
+otherwise = "no"
+then = [{ to = "fix", branch = "yes" }, { to = "ask", branch = "no" }]
+
+[[workflow.steps]]
+id = "ask"
+name = "Ask the reporter"
+kind = "human"
+prompt = "The defect could not be reproduced. Notes: {steps.reproduce.output.notes}. What does it take to see it?"
+then = ["reproduce"]
+
+[[workflow.steps]]
+id = "fix"
+name = "Fix it"
+kind = "agent"
+assignee = { agent = "developer" }
+project = { input = "project" }
+max_visits = 3
+retries = 1
+instructions = """
+Fix the defect: {inputs.report}
+
+The reproduction is `{steps.reproduce.output.command}`; make it pass without
+weakening it. Match the surrounding code and keep the change to the defect.
+Your result carries a summary of the fix and the files it touched.
+"""
+then = ["verify"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["summary"]
+
+[workflow.steps.output_schema.properties.summary]
+type = "string"
+description = "What was wrong and what the fix changes, in a few sentences a reviewer can read first."
+
+[workflow.steps.output_schema.properties.files]
+type = "array"
+items = { type = "string" }
+description = "The paths the fix touched, relative to the checkout."
+
+[[workflow.steps]]
+id = "verify"
+name = "Run the reproduction"
+kind = "check"
+check = { check = "command", command = "{steps.reproduce.output.command}" }
+on_fail = { on_fail = "then", step = "fix" }
+then = ["review"]
+
+[[workflow.steps]]
+id = "review"
+name = "Code review"
+kind = "agent"
+assignee = { agent = "code-reviewer" }
+project = { input = "project" }
+retries = 1
+instructions = """
+Review the fix for: {inputs.report}
+Summary: {steps.fix.output.summary}
+Worst finding first; decide whether it can merge. Your result carries the
+verdict and your findings.
+"""
+then = ["verdict"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["verdict"]
+
+[workflow.steps.output_schema.properties.verdict]
+type = "string"
+enum = ["approve", "changes"]
+description = "approve when the fix can merge as it is; changes when it has to go back to the developer."
+
+[workflow.steps.output_schema.properties.findings]
+type = "array"
+items = { type = "string" }
+description = "The findings, worst first, each naming the place and what is wrong."
+
+[[workflow.steps]]
+id = "verdict"
+name = "Mergeable?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "review", path = "verdict", value = "approve" }, branch = "approve" }]
+otherwise = "changes"
+then = [{ to = "ship", branch = "approve" }, { to = "fix", branch = "changes" }]
+
+[[workflow.steps]]
+id = "ship"
+name = "Ship it?"
+kind = "approval"
+prompt = "The fix is verified and reviewed. Publish the branch and open the pull request?"
+then = ["publish"]
+
+[[workflow.steps]]
+id = "publish"
+name = "Open the pull request"
+kind = "agent"
+assignee = { agent = "release-manager" }
+project = { input = "project" }
+instructions = """
+Open the pull request for the fix: {inputs.report}
+Body: the reproduction, the fix summary ({steps.fix.output.summary}) and the
+reviewer's verdict. The push and the pull request pass the publish gate.
+Your result carries the pull request's URL.
+"""
+then = ["done"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["url"]
+
+[workflow.steps.output_schema.properties.url]
+type = "string"
+description = "The URL of the pull request that was opened."
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

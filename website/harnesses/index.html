@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa</title>
+<meta name="description" content="Bisa drives the coding agents you already have — Claude Code, Codex CLI, OpenCode, Copilot CLI, Grok Build, pi and any ACP agent — and says what it does with each.">
+<link rel="canonical" href="https://bisa.dev/harnesses/">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef3f9">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141a21">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bisa">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa">
+<meta property="og:description" content="Bisa drives the coding agents you already have — Claude Code, Codex CLI, OpenCode, Copilot CLI, Grok Build, pi and any ACP agent — and says what it does with each.">
+<meta property="og:url" content="https://bisa.dev/harnesses/">
+<meta property="og:image" content="https://bisa.dev/assets/social-card.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bisa — A Decentralized Agentic IDE">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa">
+<meta name="twitter:description" content="Bisa drives the coding agents you already have — Claude Code, Codex CLI, OpenCode, Copilot CLI, Grok Build, pi and any ACP agent — and says what it does with each.">
+<meta name="twitter:image" content="https://bisa.dev/assets/social-card.png">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="manifest" href="../site.webmanifest">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../favicon.svg" width="30" height="30" alt=""><span>Bisa</span></a>
+    <nav class="nav" aria-label="Site">
+      <a href="../features/">Features</a>
+      <a href="../harnesses/" aria-current="page">Harnesses</a>
+      <a href="../security/">Security</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/tree/main/docs">Docs</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa">GitHub</a>
+    </nav>
+    <a class="button primary small" href="../download/">Download</a>
+    <details class="menu">
+      <summary aria-label="Menu"><span aria-hidden="true"></span></summary>
+      <nav aria-label="Site, on a small screen">
+        <a href="../features/">Features</a>
+        <a href="../harnesses/">Harnesses</a>
+        <a href="../security/">Security</a>
+        <a href="../download/">Download</a>
+        <a href="https://github.com/mourad-ghafiri/Bisa/tree/main/docs">Docs</a>
+        <a href="https://github.com/mourad-ghafiri/Bisa">GitHub</a>
+      </nav>
+    </details>
+  </div>
+  <div class="reading" aria-hidden="true"><span></span></div>
+</header>
+<main id="main">
+<section class="page-head">
+  <div class="wrap">
+    <p class="step-label">Bring your own</p>
+    <h1>Your harnesses, in one IDE</h1>
+    <p class="lede">Bisa ships no coding agent and no model client. It drives the harnesses on your machine — signed in as you, on your plans — gives each the platform's tools, and says honestly what it can and cannot do with each one. It installs nothing and signs in to nothing for you: where a harness is missing, it shows the official line to copy.</p>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="table-wrap">
+    <table class="reach">
+      <caption>What Bisa does with each harness</caption>
+      <thead>
+        <tr><th scope="col">Harness</th><th scope="col">Workflow steps and conversations</th><th scope="col">In a terminal tab</th><th scope="col">The guard</th><th scope="col">Account usage</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">Claude Code</th><td>driven, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>yes</td></tr>
+        <tr><th scope="row">Codex CLI</th><td>driven, with the platform's tools</td><td>reports its state, resumed with <code>resume --last</code></td><td>observed</td><td>yes</td></tr>
+        <tr><th scope="row">OpenCode</th><td>driven, with the platform's tools</td><td>read from its own event stream, resumed with <code>--continue</code></td><td>observed</td><td>with a Claude sign-in</td></tr>
+        <tr><th scope="row">GitHub Copilot CLI</th><td>driven over ACP, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">Grok Build</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--continue</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">pi</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">Oh My Pi</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>yes</td></tr>
+        <tr><th scope="row">Any ACP agent</th><td>driven, with the platform's tools</td><td>—</td><td>judged before it runs</td><td>—</td></tr>
+        <tr><th scope="row">An A2A agent</th><td>a remote agent, driven</td><td>—</td><td>observed</td><td>—</td></tr>
+        <tr><th scope="row">Your own JSON harness</th><td>driven, in conversation</td><td>its own resume, when you give one</td><td>observed</td><td>—</td></tr>
+        <tr><th scope="row">Goose · Cursor Agent</th><td>over ACP, as any ACP agent</td><td>detected and opened, resumed with their own flag</td><td>judged over ACP</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine"><em>Judged before it runs</em>: the harness asks before a tool runs, and the Tool &amp; Commands Guard answers. <em>Observed</em>: the harness runs under its own sandbox and approval prompt; what it did is reported and redacted, but not vetoed. <em>In conversation</em>: the harness takes no MCP server, so a workflow's <code>agent</code> step is placed on a harness that does.</p>
+</div>
+
+<div class="wrap prose">
+  <section id="claude-code" aria-labelledby="h-claude">
+    <h2 id="h-claude">Claude Code</h2>
+    <p>The deepest integration. A workflow step or a conversation runs a Claude Code session with the platform's MCP server; every read, write and command comes back to the guard before it runs, and a secret's placeholder is restored only at that moment. In a terminal tab its hooks report each turn, tool and question to the roster, and the guard answers its <code>PreToolUse</code>. Skills arrive where it reads them; the effort is its own <code>--effort</code>; the footer shows what its account has left.</p>
+  </section>
+  <section id="codex" aria-labelledby="h-codex">
+    <h2 id="h-codex">Codex CLI</h2>
+    <p>Driven with the platform's tools and an effort fitted to its levels. In a terminal its hooks report turns, tools and permissions; it asks nobody before a tool runs, so the guard observes it rather than vetoing. Its account's windows and plan come from the CLI itself.</p>
+  </section>
+  <section id="opencode" aria-labelledby="h-opencode">
+    <h2 id="h-opencode">OpenCode</h2>
+    <p>Driven with the platform's tools; in a terminal Bisa reads OpenCode's own event stream — turns, tools, permissions, questions, cost and sub-agents — and injects nothing. Observed by the guard.</p>
+  </section>
+  <section id="copilot" aria-labelledby="h-copilot">
+    <h2 id="h-copilot">GitHub Copilot CLI</h2>
+    <p>Driven over the Agent Client Protocol: the model and then the effort are set the protocol's way, and every tool is asked before it runs. Bisa never starts it with a word that allows tools unasked. In a terminal, hooks written for that one launch report its state and let the guard answer before each tool.</p>
+  </section>
+  <section id="grok" aria-labelledby="h-grok">
+    <h2 id="h-grok">Grok Build</h2>
+    <p>Driven over the Agent Client Protocol with the platform's tools, the model and the effort set as the session offers them, every tool asked before it runs. Its terminal takes no hook for one launch and Bisa writes nothing into your configuration, so a Grok tab is a plain terminal: unreported and unguarded.</p>
+  </section>
+  <section id="pi" aria-labelledby="h-pi">
+    <h2 id="h-pi">pi and Oh My Pi</h2>
+    <p>Driven in conversation, and reporting their turns and tools from a terminal through a generated extension. Neither takes an MCP server, so a workflow's agent step goes to a harness that does. Oh My Pi's account usage shows in the footer.</p>
+  </section>
+  <section id="acp" aria-labelledby="h-acp">
+    <h2 id="h-acp">Any ACP agent — Goose, Cursor Agent and more</h2>
+    <p>Anything that speaks the Agent Client Protocol is a harness: it is handed the platform's MCP server, asks before each tool, and is set to a model when its session offers one. Goose and Cursor Agent are also detected in a terminal and resumed with their own flags.</p>
+  </section>
+  <section id="a2a" aria-labelledby="h-a2a">
+    <h2 id="h-a2a">A2A agents, and your own</h2>
+    <p>A remote agent that speaks A2A can be an agent's harness, and Bisa's own agents can be exposed over A2A. A harness Bisa does not know is a descriptor of your own: a program and its arguments, speaking line-delimited JSON.</p>
+  </section>
+  <p><a class="arrow" href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/guide/agents-and-teams.md">Agents, harnesses and models, in the guide</a></p>
+</div>
+</main>
+<footer class="site-footer">
+  <div class="wrap footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../"><img src="../favicon.svg" width="30" height="30" alt=""><span>Bisa</span></a>
+      <p>A Decentralized Agentic IDE.</p>
+    </div>
+    <nav aria-label="Product">
+      <h2>Product</h2>
+      <a href="../features/">Features</a>
+      <a href="../harnesses/">Harnesses</a>
+      <a href="../security/">Security</a>
+      <a href="../download/">Download</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/CHANGELOG.md">Changelog</a>
+    </nav>
+    <nav aria-label="Documentation">
+      <h2>Documentation</h2>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/guide/getting-started.md">Getting started</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/tree/main/docs/guide">Guides</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/architecture/README.md">Architecture</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/reference/cli.md">Command line</a>
+    </nav>
+    <nav aria-label="Project">
+      <h2>Project</h2>
+      <a href="https://github.com/mourad-ghafiri/Bisa">Source on GitHub</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/releases">Releases</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/SECURITY.md">Report a vulnerability</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/LICENSE">Licence: MIT</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/THIRD-PARTY-NOTICES.md">Third-party notices</a>
+    </nav>
+  </div>
+  <div class="wrap footer-fine">
+    <p>This site sets no cookie, runs no analytics and loads nothing from anyone else.</p>
+    <p>Product names are trademarks of their owners; Bisa is not affiliated with them.</p>
+  </div>
+</footer>
+</body>
+</html>

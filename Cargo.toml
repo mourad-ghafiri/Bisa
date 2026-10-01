@@ -1,0 +1,237 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/bisa-core",
+    "crates/bisa-cache",
+    "crates/bisa-http",
+    "crates/bisa-netrules",
+    "crates/bisa-i18n",
+    "crates/bisa-log",
+    "crates/bisa-deps",
+    "crates/bisa-store",
+    "crates/bisa-iso",
+    "crates/bisa-vcs",
+    "crates/bisa-codehost",
+    "crates/bisa-connectors",
+    "crates/bisa-decision",
+    "crates/bisa-ssh",
+    "crates/bisa-mobile-development",
+    "crates/bisa-lsp",
+    "crates/bisa-security",
+    "crates/bisa-harness",
+    "crates/bisa-adapters",
+    "crates/bisa-mcp",
+    "crates/bisa-mcp-probe",
+    "crates/bisa-engine",
+    "crates/bisa-collab",
+    "crates/bisa-guest",
+    "crates/bisa-net",
+    "crates/bisa-node",
+    "crates/bisa-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+homepage = "https://bisa.dev"
+repository = "https://github.com/mourad-ghafiri/Bisa"
+rust-version = "1.85"
+
+[workspace.lints.clippy]
+# Dropping a `Result` with `let _ =` hides a failure; say why or handle it.
+let_underscore_must_use = "deny"
+
+[workspace.dependencies]
+# Internal crates
+bisa-core = { path = "crates/bisa-core" }
+bisa-cache = { path = "crates/bisa-cache" }
+bisa-http = { path = "crates/bisa-http" }
+bisa-netrules = { path = "crates/bisa-netrules" }
+bisa-i18n = { path = "crates/bisa-i18n" }
+bisa-log = { path = "crates/bisa-log" }
+bisa-store = { path = "crates/bisa-store" }
+bisa-iso = { path = "crates/bisa-iso" }
+bisa-vcs = { path = "crates/bisa-vcs" }
+bisa-codehost = { path = "crates/bisa-codehost" }
+bisa-connectors = { path = "crates/bisa-connectors" }
+bisa-decision = { path = "crates/bisa-decision" }
+bisa-ssh = { path = "crates/bisa-ssh" }
+bisa-mobile-development = { path = "crates/bisa-mobile-development" }
+bisa-lsp = { path = "crates/bisa-lsp" }
+bisa-security = { path = "crates/bisa-security" }
+bisa-harness = { path = "crates/bisa-harness" }
+bisa-adapters = { path = "crates/bisa-adapters" }
+bisa-mcp = { path = "crates/bisa-mcp" }
+bisa-mcp-probe = { path = "crates/bisa-mcp-probe" }
+bisa-engine = { path = "crates/bisa-engine" }
+bisa-collab = { path = "crates/bisa-collab" }
+bisa-guest = { path = "crates/bisa-guest" }
+bisa-net = { path = "crates/bisa-net" }
+bisa-node = { path = "crates/bisa-node" }
+
+# Translation — Project Fluent (projectfluent.org): the catalog format both
+# runtimes read, its parser (the guards walk the AST), language identifiers
+# and negotiation.
+fluent-bundle = "0.16"
+fluent-syntax = "0.12"
+unic-langid = { version = "0.9", features = ["macros"] }
+fluent-langneg = "0.13"
+
+# Serialization / schema
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+schemars = "1"
+toml = "0.8"
+
+# Errors / ids / bits
+thiserror = "2"
+anyhow = "1"
+ulid = { version = "3", features = ["serde"] }
+bitflags = { version = "2", features = ["serde"] }
+
+# Async runtime & concurrency
+# The features the crates use, named — `full` also pulled `io-std` and
+# `parking_lot`, which nothing here needs. A crate that needs another names it.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util", "signal", "fs"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-trait = "0.1"
+dashmap = "6"
+# The engine's instance lock: `flock` without `unsafe`. Already in the tree as a transitive dependency.
+rustix = { version = "1", features = ["fs", "process"] }
+# The IDE's filesystem watcher (ADR-0022): scoped to open roots, debounced in the engine.
+notify = "8"
+# Content search (ADR-0024): ripgrep as a library — no binary to install, `.gitignore` respected.
+grep-searcher = "0.1"
+grep-regex = "0.1"
+grep-matcher = "0.1"
+ignore = "0.4"
+# The OS trash, for the explorer's delete: reversible by default.
+trash = "5"
+regex = "1"
+# The guard's path rules (`~/.ssh/**`) and its reading of a shell command
+# into words; both were already in the tree through `ignore` and `cc`.
+globset = "0.4"
+shlex = "2"
+criterion = { version = "0.5", default-features = false }
+
+# Nostr
+nostr = { version = "0.45", features = ["nip44", "nip49", "nip59", "os-rng"] }
+secp256k1 = "0.30"
+nostr-sdk = { version = "0.45", features = ["local-relay"] }
+nostr-relay-builder = "0.44"  # test relay; own nostr 0.44 tree, interop is wire-level
+
+# P2P direct sync (feature-gated in bisa-net)
+iroh = "1"
+base64 = "0.22"
+
+# MCP — the platform's own server (`bisa-mcp`) and the client that probes an
+# installed one (`bisa-mcp-probe`); one feature set, unified by hakari.
+rmcp = { version = "3.4", features = ["server", "transport-io", "client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+
+# HTTP / node
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "catch-panic", "fs"] }
+# `http2` so the platform speaks HTTP/2 where a server offers it and the
+# `network.http1_only` setting means what it says; the system-proxy feature
+# stays off — the desktop shell reads the Mac's proxy and a person copies it.
+# reqwest 0.13 made `query` (and `form`) opt-in features; the code hosts build their URLs with `.query(…)`.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query", "stream", "http2"] }
+# The connectors crate's URL building — a path segment percent-encoded, a
+# query form-encoded — and the random bytes behind an OAuth state and PKCE
+# verifier. All three were already in the tree transitively.
+url = "2"
+percent-encoding = "2"
+getrandom = "0.3"
+# The connectors crate's `jwt` scheme signs with the crypto `rustls` already
+# brings in: ECDSA P-256 and RSA PKCS#1 over PKCS#8 keys, and key generation
+# for the tests. No second crypto tree.
+aws-lc-rs = "1"
+
+# Storage
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+# Validation
+jsonschema = "0.51"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Crypto / keys
+keyring = "4"
+sha2 = "0.10"
+hex = "0.4"
+
+# Observability: `tracing` at every site, one subscriber per process in
+# `bisa-log` — stderr under `RUST_LOG`, and a JSON-lines file under the
+# workspace's `logs/` (`json`), rolled by the hour or the day and pruned by
+# count (`tracing-appender`; its `time` and `crossbeam-channel` were already
+# in the lock).
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+# The log crate's crash reports and run markers: a UTC stamp in a file name
+# (`time`, already in the lock under `tracing-appender`) and `kill(pid, 0)` to
+# ask whether a marker's process is still alive (`libc`).
+time = { version = "0.3", features = ["formatting"] }
+libc = "0.2"
+
+# Misc
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+cron = "0.17"
+tempfile = "3"
+which = "7"
+dirs = "6"
+
+# Testing
+proptest = "1"
+
+# The edit-build-test loop. Our own crates keep line tables so a panic still
+# names its line; the dependency graph is built without debuginfo, which is
+# where most of a test binary's link time went. Nothing here changes what the
+# code does — only how much the linker carries and how fast it runs.
+#
+# Dependencies are optimised once and cached (`opt-level = 3`): they are not
+# what changes between two runs, and a test suite over tokio, hyper, sqlite
+# and the crypto crates runs several times faster on optimised code. Build
+# scripts and proc macros get the same treatment: even `cargo check` has to
+# build and *run* them (aws-lc-sys, secp256k1-sys, blake3 and the bundled
+# sqlite compile C there), so their speed is the check's speed.
+#
+# `lto = "off"` skips even the thin local pass; at `opt-level = 0` it would be
+# a no-op, but the optimised dependencies above would otherwise pay for it.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+incremental = true
+lto = "off"
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 3
+
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+# Symbols stay so a crash report's backtrace names its frames; only the
+# debug info goes (`bisa-log`'s panic hook captures one).
+strip = "debuginfo"
+
+# Tiny static artifact for distribution
+[profile.dist]
+inherits = "release"
+# The shipped `bisa` binary is the desktop's sidecar node — a CPU-bound
+# process (git, ripgrep, presence, JSON) that runs for weeks. Optimize it for
+# throughput, not size (ADR-0059): `opt-level = 3`, not `z`.
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+# Unwinding, never `abort`: one panicking request or task must cost that
+# request (the node's `CatchPanicLayer`) or that task (the engine's guards),
+# never a process that runs for weeks. The panic hook in `bisa-log`
+# writes it either way.

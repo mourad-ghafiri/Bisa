@@ -1,0 +1,80 @@
+# Built-in connector: Trello — boards, lists and cards over the Trello REST API.
+#
+# Trello authenticates a call with two query values: the app's API key, which
+# identifies the app and is public, and the member's token, which is the secret.
+# So the token is the api_key secret sent as `token`, and the key is an account
+# parameter every operation adds to its query.
+
+[connector]
+name = "Trello"
+description = "List your boards and their lists, and create cards. The account carries your Trello API key; paste the member token it was issued with as the secret."
+tags = ["planning", "management"]
+base_url = "https://api.trello.com"
+hosts = ["api.trello.com"]
+check = "me"
+
+[connector.auth]
+scheme = "api_key"
+place = { in = "query", name = "token" }
+
+[[connector.params]]
+name = "key"
+label = "API key"
+required = true
+doc = "Your Trello Power-Up's API key, from trello.com/power-ups/admin."
+
+[[connector.operations]]
+id = "me"
+name = "Me"
+description = "The signed-in member — the one call that proves the key and token work."
+method = "get"
+path = "/1/members/me"
+query = { key = "{account.key}", fields = "id,username,fullName" }
+
+[[connector.operations]]
+id = "boards"
+name = "Boards"
+description = "The member's open boards."
+method = "get"
+path = "/1/members/me/boards"
+query = { key = "{account.key}", filter = "open", fields = "id,name,url" }
+
+[[connector.operations]]
+id = "lists"
+name = "Lists"
+description = "The lists on a board."
+method = "get"
+path = "/1/boards/{params.board}/lists"
+query = { key = "{account.key}", fields = "id,name" }
+
+[[connector.operations.params]]
+name = "board"
+label = "Board id"
+required = true
+doc = "The board id, from the boards operation or the token after /b/ in its URL."
+
+[[connector.operations]]
+id = "create_card"
+name = "Create card"
+description = "Add a card to a list."
+method = "post"
+path = "/1/cards"
+query = { key = "{account.key}", idList = "{params.list}", name = "{params.name}", desc = "{params.desc}" }
+writes = true
+
+[[connector.operations.params]]
+name = "list"
+label = "List id"
+required = true
+doc = "The id of the list the card goes on, from the lists operation."
+
+[[connector.operations.params]]
+name = "name"
+label = "Name"
+required = true
+doc = "The card title."
+
+[[connector.operations.params]]
+name = "desc"
+label = "Description"
+doc = "Markdown."

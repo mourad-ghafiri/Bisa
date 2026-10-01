@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en" prefix="og: https://ogp.me/ns#">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security — secrets redacted, commands guarded, honest limits · Bisa</title>
+<meta name="description" content="How Bisa keeps your machine yours: local-first, keys you hold, messages sealed for each recipient, secrets redacted, commands judged — and where it stops.">
+<link rel="canonical" href="https://bisa.dev/security/">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef3f9">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141a21">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bisa">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="Security — secrets redacted, commands guarded, honest limits · Bisa">
+<meta property="og:description" content="How Bisa keeps your machine yours: local-first, keys you hold, messages sealed for each recipient, secrets redacted, commands judged — and where it stops.">
+<meta property="og:url" content="https://bisa.dev/security/">
+<meta property="og:image" content="https://bisa.dev/assets/social-card.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bisa — A Decentralized Agentic IDE">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Security — secrets redacted, commands guarded, honest limits · Bisa">
+<meta name="twitter:description" content="How Bisa keeps your machine yours: local-first, keys you hold, messages sealed for each recipient, secrets redacted, commands judged — and where it stops.">
+<meta name="twitter:image" content="https://bisa.dev/assets/social-card.png">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="icon" href="../favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="manifest" href="../site.webmanifest">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../favicon.svg" width="30" height="30" alt=""><span>Bisa</span></a>
+    <nav class="nav" aria-label="Site">
+      <a href="../features/">Features</a>
+      <a href="../harnesses/">Harnesses</a>
+      <a href="../security/" aria-current="page">Security</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/tree/main/docs">Docs</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa">GitHub</a>
+    </nav>
+    <a class="button primary small" href="../download/">Download</a>
+    <details class="menu">
+      <summary aria-label="Menu"><span aria-hidden="true"></span></summary>
+      <nav aria-label="Site, on a small screen">
+        <a href="../features/">Features</a>
+        <a href="../harnesses/">Harnesses</a>
+        <a href="../security/">Security</a>
+        <a href="../download/">Download</a>
+        <a href="https://github.com/mourad-ghafiri/Bisa/tree/main/docs">Docs</a>
+        <a href="https://github.com/mourad-ghafiri/Bisa">GitHub</a>
+      </nav>
+    </details>
+  </div>
+  <div class="reading" aria-hidden="true"><span></span></div>
+</header>
+<main id="main">
+<section class="page-head">
+  <div class="wrap">
+    <p class="step-label">Your machine stays yours</p>
+    <h1>Security</h1>
+    <p class="lede">Bisa runs on your machine, under your account, with keys you hold. Its protections are on from the first run and stay out of the way of the work. They are best effort, not a sandbox — and this page says exactly where they stop.</p>
+    <nav class="toc" aria-label="On this page">
+      <a href="#local">Local-first</a><a href="#outbound">What leaves your machine</a><a href="#identity">Keys and identity</a><a href="#encryption">Encryption</a><a href="#guards">The three guards</a><a href="#reach">Which harness is guarded</a><a href="#gates">Gates</a><a href="#recovery">Nothing unrecoverable</a><a href="#limits">Where it stops</a><a href="#report">Report a vulnerability</a>
+    </nav>
+  </div>
+</section>
+
+<div class="wrap prose">
+  <section id="local" aria-labelledby="local-h">
+    <h2 id="local-h">Local-first</h2>
+    <ul class="ticks">
+      <li>A workspace is a directory, <code>~/.bisa</code>. There is no account, no server to sign up for and nothing deployed; its index is a cache that can be deleted at any moment without loss.</li>
+      <li>Bisa contains no model client. Your harnesses talk to their own providers, signed in as you, as they would in a terminal.</li>
+      <li>Bisa never writes into a folder it did not create, installs nothing and signs in to nothing for you: where something is missing, it shows the official line to copy.</li>
+      <li>The diagnostic log stays on your machine.</li>
+    </ul>
+  </section>
+
+  <section id="outbound" aria-labelledby="outbound-h">
+    <h2 id="outbound-h">What leaves your machine, and what turns it off</h2>
+    <p>No Bisa server, no analytics. Bisa contacts only services you already use or switch on:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Contacted</th><th scope="col">When</th><th scope="col">Off</th></tr></thead>
+        <tbody>
+          <tr><td>Your harness's model provider</td><td>whenever the harness works — by the harness, not by Bisa; secrets the redactor recognises are placeholders by then</td><td>the harness's own settings</td></tr>
+          <tr><td>Your harness's usage source</td><td>when the footer or Settings asks what an account has left</td><td><code>harness.usage.reads</code></td></tr>
+          <tr><td>The public-IP echo and two public resolvers</td><td>when the desktop reads this machine's network for its footer word</td><td><code>network.public_ip_url</code> empty stops the echo</td></tr>
+          <tr><td>Nostr relays</td><td>only once you turn sync on</td><td><code>sync.enabled</code> — off by default</td></tr>
+          <tr><td>Your code host</td><td>when you push, open or read a pull request — each push through the publish gate</td><td>the project's publish policy</td></tr>
+          <tr><td>A connector's platform</td><td>when a workflow you started calls it, with an account you added</td><td><code>security.net.deny_hosts</code> refuses a host whatever a connector declares</td></tr>
+          <tr><td>Jev, or a calibrated model's endpoint</td><td>only when you choose it to judge</td><td><code>decisions.provider</code></td></tr>
+          <tr><td>An addon's declared hosts</td><td>through the platform's broker, only with the grant you gave</td><td>the addon's grants</td></tr>
+          <tr><td>Pages in the embedded browser</td><td>what you or an agent opens</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Inbound, a public hook answers only once <code>events.public_hooks</code> is on — and the node listens on this machine alone unless started to allow more.</p>
+  </section>
+
+  <section id="identity" aria-labelledby="identity-h">
+    <h2 id="identity-h">Keys and identity</h2>
+    <ul class="ticks">
+      <li>A Nostr keypair minted on first run is your identity — your <code>npub</code>. It lives in an owner-only file, or in the OS keyring if you choose it.</li>
+      <li>Every agent has its own keypair, attested by yours, so its work is signed as itself; your key signs only what you did.</li>
+      <li>The control plane takes a bearer token of 32 random bytes in an owner-only file. It is never exported into a terminal or handed to a harness.</li>
+    </ul>
+  </section>
+
+  <section id="encryption" aria-labelledby="encryption-h">
+    <h2 id="encryption-h">Encryption, end to end between nodes</h2>
+    <p>Collaboration is optional. When it is on, every fact that leaves your node is <strong>sealed for one recipient</strong> with NIP-44 and <strong>gift-wrapped</strong> with NIP-59, for each person who may read it — there is no shared key.</p>
+    <ul class="ticks">
+      <li>A relay sees a sealed envelope: ciphertext, a recipient key, when it arrived and its size. Never what the fact is, who wrote it or what it says.</li>
+      <li>Unwrapping checks that the author inside is the sender of the seal, and the inner signature is verified again before anything is admitted — by role.</li>
+      <li>Direct messages are encrypted pairwise to the people in them. An agent's private memory is encrypted to you, under a blinded tag.</li>
+      <li>In a hosted workspace the host's node is an end: it opens what it receives and seals it again for each member who may read it.</li>
+      <li>Removing someone stops what they receive from then on; what already reached them cannot be un-sent.</li>
+      <li>Notes, workstreams, keys, MCP configurations, connector accounts and hook secrets never travel at all.</li>
+    </ul>
+  </section>
+
+  <section id="guards" aria-labelledby="guards-h">
+    <h2 id="guards-h">The three guards</h2>
+    <h3>The Redactor</h3>
+    <p>A key, a token or a value the rules recognise never reaches an agent, a harness or a remote, and never sits raw in a journal, a message or a commit an agent wrote. It travels as a placeholder the agent can still use — <code>«secret:github_token:7f3a2c»</code> — restored only where a command is about to run on this machine. It recognises private keys and the token shapes of the common clouds, code hosts and model providers, credentials in URLs and secret-looking assignments, and the values of environment variables whose names say they are secrets.</p>
+    <h3>The Tool &amp; Commands Guard</h3>
+    <p>Every command, path and tool a guarded harness is about to run is judged first by ordered rules — <em>allow</em>, <em>deny</em>, <em>ask</em>, <em>classify</em> — the built-in refusals first, then the workspace's, then this machine's. Built in: recursive deletes, privilege escalation, a download piped into a shell, forced pushes, hard resets, history rewrites, and credential paths such as <code>~/.ssh</code>, <code>~/.aws</code> and <code>.env</code> files. A call above its step's ceiling is put to a person; an answer is remembered for the goal.</p>
+    <h3>The Classifier</h3>
+    <p>A model reads the <em>redacted</em> call and answers one line: <code>SAFE</code>, or <code>HARMFUL</code> and why. Anything else is no verdict, which goes to you. It never allows what the rules did not. It also reads what comes from outside — a public hook's body, a connector's item, a page an agent reads, a message from another node — and only a sure <em>safe</em> passes on its own.</p>
+  </section>
+
+  <section id="reach" aria-labelledby="reach-h">
+    <h2 id="reach-h">Which harness is guarded</h2>
+    <p>Only a harness that asks before a tool runs, and obeys a refusal, can be guarded. The honest table:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Harness</th><th scope="col">The guard's reach</th></tr></thead>
+        <tbody>
+          <tr><td>Claude Code, driven by Bisa or in a terminal</td><td>judged before it runs; placeholders restored</td></tr>
+          <tr><td>Any ACP agent — GitHub Copilot CLI and Grok Build among them — driven by Bisa</td><td>judged before it runs</td></tr>
+          <tr><td>GitHub Copilot CLI in a terminal</td><td>judged before it runs</td></tr>
+          <tr><td>Grok Build in a terminal</td><td>not seen — a plain terminal</td></tr>
+          <tr><td>Codex CLI, pi, Oh My Pi, OpenCode, a custom harness, an A2A agent</td><td>observed: under the harness's own sandbox and prompt, reported and redacted, not vetoed</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="gates" aria-labelledby="gates-h">
+    <h2 id="gates-h">Gates</h2>
+    <ul class="ticks">
+      <li><strong>Approval</strong> — a step that waits for a person's signed yes.</li>
+      <li><strong>Escalation</strong> — a question or a call above a step's ceiling, put to a person.</li>
+      <li><strong>Publish</strong> — a push or a pull request, where work leaves your machine: per project, <em>manual</em>, <em>gated</em> or <em>auto</em>.</li>
+      <li>You choose who may decide: only you, you and the admins, every member, or a list. An agent proposes; a person adopts. A judgement never signs a gate.</li>
+    </ul>
+  </section>
+
+  <section id="recovery" aria-labelledby="recovery-h">
+    <h2 id="recovery-h">Nothing unrecoverable</h2>
+    <ul class="ticks">
+      <li>Every git operation that moves your tree writes a recovery ref first; <em>Restore</em>, under Safety, is the undo. Agents have no path to those operations.</li>
+      <li>Saves are compare-and-swap: a file changed under you opens a three-way merge, never a lost edit.</li>
+      <li>Nothing is deleted while something points at it, and the refusal names what is holding it. A project's folder goes to the Trash only when you ask, and never one you adopted.</li>
+    </ul>
+  </section>
+
+  <section id="limits" aria-labelledby="limits-h">
+    <h2 id="limits-h">Where it stops</h2>
+    <ul class="ticks muted">
+      <li><strong>Best effort, not a sandbox.</strong> An observed harness runs under its own sandbox; a shell in a terminal can go anywhere your account can; Full Disk Access, which the app recommends for productivity, widens what anything running can reach.</li>
+      <li>Workstreams are separate checkouts, not containers.</li>
+      <li>The redactor does not reach a file an agent reads with its own tools, what you type into your own terminal, a harness's transcript on disk, or the bytes of an image.</li>
+      <li>A harness's own web tools, and MCP servers you install, are outside the content screen.</li>
+      <li>The A2A endpoint takes no token: on this machine, any local process can submit to it.</li>
+    </ul>
+    <p><a class="arrow" href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/architecture/11-security.md">The security architecture, in full</a></p>
+  </section>
+
+  <section id="report" aria-labelledby="report-h">
+    <h2 id="report-h">Report a vulnerability</h2>
+    <p>Please report privately, through GitHub's vulnerability reporting on the repository — never in a public issue. The <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/SECURITY.md">security policy</a> says what to include and what to expect. A release is a signed, notarized disk image with its SHA-256: <a href="../download/#verify">verify a download</a>.</p>
+  </section>
+</div>
+</main>
+<footer class="site-footer">
+  <div class="wrap footer-grid">
+    <div class="footer-brand">
+      <a class="brand" href="../"><img src="../favicon.svg" width="30" height="30" alt=""><span>Bisa</span></a>
+      <p>A Decentralized Agentic IDE.</p>
+    </div>
+    <nav aria-label="Product">
+      <h2>Product</h2>
+      <a href="../features/">Features</a>
+      <a href="../harnesses/">Harnesses</a>
+      <a href="../security/">Security</a>
+      <a href="../download/">Download</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/CHANGELOG.md">Changelog</a>
+    </nav>
+    <nav aria-label="Documentation">
+      <h2>Documentation</h2>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/guide/getting-started.md">Getting started</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/tree/main/docs/guide">Guides</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/architecture/README.md">Architecture</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/docs/reference/cli.md">Command line</a>
+    </nav>
+    <nav aria-label="Project">
+      <h2>Project</h2>
+      <a href="https://github.com/mourad-ghafiri/Bisa">Source on GitHub</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/releases">Releases</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/SECURITY.md">Report a vulnerability</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/LICENSE">Licence: MIT</a>
+      <a href="https://github.com/mourad-ghafiri/Bisa/blob/main/THIRD-PARTY-NOTICES.md">Third-party notices</a>
+    </nav>
+  </div>
+  <div class="wrap footer-fine">
+    <p>This site sets no cookie, runs no analytics and loads nothing from anyone else.</p>
+    <p>Product names are trademarks of their owners; Bisa is not affiliated with them.</p>
+  </div>
+</footer>
+</body>
+</html>

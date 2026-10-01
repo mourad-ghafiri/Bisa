@@ -1,0 +1,7 @@
+# Built-in team: Venture — every phase staffed at once.
+
+[team]
+name = "Venture"
+purpose = "Every phase staffed at once, from the business case to the first customer, so one goal can go end to end with the fewest handoffs and someone sequencing the ones that remain. This is the widest team here and therefore the most expensive one to assign — prefer a narrower team when the work belongs to a single phase."
+tags = ["business", "delivery"]
+agents = ["product-manager", "project-manager", "business-strategist", "architect", "developer", "qa-engineer", "devops-engineer", "marketing-manager", "sales-lead", "finance-analyst"]

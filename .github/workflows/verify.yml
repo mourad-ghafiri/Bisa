@@ -1,0 +1,179 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per ref. A superseded push does not keep a runner busy.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # Cheapest gate first: it needs no toolchain and no network, so a rename
+  # that reintroduces banned vocabulary fails in seconds rather than minutes.
+  # The lint's own fixture suite runs beside it: a lint that stops catching
+  # what it claims to would otherwise pass for ever.
+  terminology:
+    name: terminology
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/lint-terminology
+      - run: scripts/lint-terminology-test
+
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    needs: terminology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      # `--workspace` stops at the root workspace, and desktop/src-tauri
+      # declares its own — so the shell crate would otherwise be outside every
+      # gate. A crate nobody lints is a crate where the next warning is
+      # somebody's afternoon.
+      - run: cargo fmt --all --check
+        working-directory: desktop/src-tauri
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: desktop/src-tauri
+      - run: cargo test
+        working-directory: desktop/src-tauri
+
+  desktop:
+    name: desktop
+    runs-on: ubuntu-latest
+    needs: terminology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+        working-directory: desktop
+      # The same three the `lint` and `desktop-coverage` recipes run: the rules
+      # of hooks, the models under their 80 % line gate, the bundle.
+      - run: npm run lint
+        working-directory: desktop
+      - run: npm run test:coverage
+        working-directory: desktop
+      - run: npm run build
+        working-directory: desktop
+
+  # The generated wire types must match the Rust they are generated from.
+  # Stale types compile and lie, which is the worst combination.
+  types:
+    name: generated types
+    runs-on: ubuntu-latest
+    needs: terminology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo run -q -p bisa-node --bin api-schema > /tmp/api-schema.json
+      - run: diff -u desktop/api-schema.json /tmp/api-schema.json
+      # The TypeScript the schema compiles to is committed too (`just check-types`).
+      - run: npx --yes json-schema-to-typescript@15 /tmp/api-schema.json -o /tmp/types.gen.ts && diff -u desktop/src/types.gen.ts /tmp/types.gen.ts
+      # The generated reference pages and every Mermaid block: a stale page or
+      # a diagram that does not parse fails here, not in a reader's browser.
+      - run: cargo run -q -p bisa-node --bin api-docs > /tmp/http-api.md && diff -u docs/reference/http-api.md /tmp/http-api.md
+      - run: cargo run -q -p bisa-node --bin settings-docs > /tmp/settings-keys.md && diff -u docs/reference/settings-keys.md /tmp/settings-keys.md
+      - run: cargo run -q -p bisa-node --bin catalog-docs > /tmp/catalog.md && diff -u docs/reference/catalog.md /tmp/catalog.md
+      # The keymap generator loads the desktop's catalog, which needs the
+      # desktop's packages: installed first.
+      - run: npm ci
+        working-directory: desktop
+      - run: node scripts/gen-keymap-docs.mjs --check
+      - run: node scripts/check-mermaid.mjs docs
+
+  # No copyleft in either dependency tree, and the third-party notices current
+  # (docs/contributing/release.md §Licence). cargo-deny reads deny.toml on both
+  # workspaces; the Node gate judges the Rust graphs and the npm runtime
+  # closure against the same list; the notices are regenerated and diffed. The
+  # release tooling's own gate rides along: it needs node and nothing else.
+  licences:
+    name: licences
+    runs-on: ubuntu-latest
+    needs: terminology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+          manifest-path: desktop/src-tauri/Cargo.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+        working-directory: desktop
+      - run: node --test scripts/licences/licencesModel.test.mjs
+      - run: node scripts/licences/check-licences.mjs
+      # The release tooling (docs/contributing/release.md): the model's tests, every script parsed.
+      - run: node --test scripts/release/releaseModel.test.mjs
+      - run: bash -n scripts/macos/lib.sh scripts/bundle-macos.sh scripts/release-macos.sh scripts/publish-release.sh scripts/start-macos.sh
+      - run: node scripts/licences/gen-third-party-notices.mjs --stdout > /tmp/THIRD-PARTY-NOTICES.md && diff -q /tmp/THIRD-PARTY-NOTICES.md THIRD-PARTY-NOTICES.md
+
+  # The website (website/README.md): its rules and its rail, and the committed
+  # pages held to what scripts/website/ builds from the repository — node only.
+  website:
+    name: website
+    runs-on: ubuntu-latest
+    needs: terminology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/website/websiteModel.test.mjs scripts/website/railModel.test.mjs scripts/website/site.test.mjs
+
+  # One feature set per dependency across the workspace (`crates/bisa-deps`,
+  # generated by cargo-hakari): the generated manifest current, every member
+  # depending on it, the unification verified — the three checks the tool's
+  # own documentation names for CI (https://docs.rs/cargo-hakari).
+  hakari:
+    name: hakari
+    runs-on: ubuntu-latest
+    needs: terminology
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-hakari --locked
+      - run: cargo hakari generate --diff
+      - run: cargo hakari manage-deps --dry-run
+      - run: cargo hakari verify
+
+  # The performance budgets (ide/14) have benches; CI keeps them compiling and
+  # runs the layout bench on a small synthetic log so a regression that goes
+  # quadratic shows up as a wall-clock jump in the log.
+  benches:
+    name: benches
+    runs-on: ubuntu-latest
+    needs: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo bench --workspace --no-run
+      - run: GRAPH_BENCH_COMMITS=20000 cargo bench -p bisa-engine --bench graph -- --warm-up-time 1 --measurement-time 3

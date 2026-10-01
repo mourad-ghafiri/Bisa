@@ -1,0 +1,7 @@
+# Built-in team: Platform & Operations — make it runnable, keep it running.
+
+[team]
+name = "Platform & Operations"
+purpose = "Owns how work reaches production and what happens to it there: pipelines, environments, release cuts and incidents. It is the team to assign when the problem is the running system rather than the feature."
+tags = ["ops", "delivery"]
+agents = ["devops-engineer", "sre", "security-engineer", "release-manager"]

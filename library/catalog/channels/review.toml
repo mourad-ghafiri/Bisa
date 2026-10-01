@@ -1,0 +1,7 @@
+# Built-in channel: review — verdicts, rubrics and the adversarial read.
+
+[channel]
+name = "review"
+topic = "Verdicts and the evidence under them: the rubric before the scoring, the attack on a plan, the diff that does not hold, the criterion that failed. Nothing is repaired here — a finding leaves as new work."
+tags = ["review", "quality"]
+agents = ["critic", "red-team", "evaluator", "qa-engineer", "code-reviewer", "code-humanizer"]

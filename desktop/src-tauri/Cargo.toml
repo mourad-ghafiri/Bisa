@@ -1,0 +1,91 @@
+[package]
+name = "bisa-desktop"
+description = "Bisa desktop shell — Tauri 2 app running the bisa binary as a sidecar node"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+homepage = "https://bisa.dev"
+repository = "https://github.com/mourad-ghafiri/Bisa"
+
+# Standalone: do not join the repository's root Cargo workspace.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `unstable`: the child webview the IDE's browser tab is (`browser.rs`).
+# `image-png` decodes the PNG `copy_image` puts on the clipboard (`main.rs`)
+# and the menu bar's mark (`tray/glyph.rs`); the `image` and `png` crates
+# already resolve through the clipboard plugin. `tray-icon`: the menu bar
+# icon the app lives in (`tray/`).
+tauri = { version = "2", features = ["macos-private-api", "unstable", "image-png", "tray-icon"] }
+tauri-plugin-notification = "2"
+# The folder picker and "Reveal in Finder". Unlike this crate's own
+# `#[tauri::command]`s, a plugin command is permission-gated: without the
+# matching line in `capabilities/default.json` the call resolves to a denial
+# at runtime and the button silently does nothing.
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-opener = "2"
+# `bisa://join/…` — an invitation link opens the app on Settings › People
+# with the code filled in (14-collaboration). The scheme is registered in
+# `tauri.conf.json`; the webview reads the URL through the plugin's
+# commands, so `capabilities/default.json` grants `deep-link:default`.
+tauri-plugin-deep-link = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The diagnostic log: the same subscriber and file layer the node runs, by
+# path — a leaf crate with no other dependency of the workspace's (it is
+# excluded from the workspace's dependency-unification crate for exactly
+# this reason), so the shell builds it alone.
+bisa-log = { path = "../../crates/bisa-log" }
+tracing = "0.1"
+portable-pty = "0.9"
+# The port scanner (ADR-0054): the listening-socket table and the process
+# table, each read directly rather than by shelling out to `lsof`. Both MIT.
+listeners = "0.2"
+sysinfo = "0.32"
+# A loose file's hash (`loose.rs`): the node's own `content_hash` — sha256,
+# hex — so a hash from one side is a hash on the other.
+sha2 = "0.10"
+hex = "0.4"
+
+# The same edit-build-test profile as the root workspace: line tables for this
+# crate, no debuginfo for Tauri's dependency tree.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+incremental = true
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 0
+
+[profile.release]
+# Symbols stay so a crash report's backtrace names its frames.
+strip = "debuginfo"
+lto = "fat"
+codegen-units = 1
+
+# The two macOS grants Settings › Capabilities › System reads and asks for
+# (`permissions.rs`): `AVCaptureDevice` through the Objective-C runtime and a
+# completion block — and a tab's screenshot (`browser.rs`): `WKWebView`'s own
+# snapshot, encoded as PNG by AppKit, so no screen-recording grant is asked.
+# The versions the lock file already resolves for tauri; the features are
+# what wry leaves off.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSString", "NSURL", "NSUserDefaults", "NSValue", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSResponder", "NSView"] }
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKWebViewConfiguration", "WKUserContentController", "WKScriptMessage", "WKScriptMessageHandler", "WKSnapshotConfiguration", "block2", "objc2-app-kit"] }
+block2 = "0.6"
+
+[dev-dependencies]
+tempfile = "3"
+
+# The shell is its own workspace, so the root's lint table does not reach it:
+# the same rule, spelt here. Dropping a `Result` with `let _ =` hides a
+# failure; say why or handle it.
+[lints.clippy]
+let_underscore_must_use = "deny"

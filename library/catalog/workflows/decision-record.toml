@@ -1,0 +1,156 @@
+# Built-in workflow: Decision record — options, trade-offs, a critique, a
+# person's choice against a deadline, the record.
+#
+# The deadline is a timeout on the choice itself: when it passes unanswered,
+# the choice stops, the deferral is posted, and the record is written as
+# deferred. While the choice waits, a reminder is posted once a day, twice at
+# most.
+
+[workflow]
+name = "Decision record"
+description = "Divergent options, an architecture-decision draft with the trade-offs, a critique, a person's choice — reminded while it waits, deferred if the deadline passes first — and the record written up with what was decided."
+tags = ["thinking", "planning", "engineering"]
+
+[[workflow.inputs]]
+name = "decision"
+label = "What has to be decided"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "deadline"
+label = "Seconds until the decision is recorded as deferred"
+kind = "number"
+default = 259200
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["options"]
+
+[[workflow.steps]]
+id = "options"
+name = "Generate the options"
+kind = "agent"
+assignee = { agent = "facilitator" }
+retries = 1
+instructions = """
+Generate the genuinely different options for: {inputs.decision}
+
+Three to five, each in one paragraph, including the one that does nothing.
+Your result carries the options, each with a short id, a title and its
+paragraph.
+"""
+then = ["tradeoffs"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["options"]
+
+[workflow.steps.output_schema.properties.options]
+type = "array"
+items = { type = "object", required = ["id", "title"], properties = { id = { type = "string" }, title = { type = "string" }, summary = { type = "string" } } }
+description = "Three to five genuinely different options, the do-nothing one among them: a short id a later step can name, a title, and the paragraph that describes it."
+
+[[workflow.steps]]
+id = "tradeoffs"
+name = "Draft the record"
+kind = "agent"
+assignee = { agent = "architect" }
+retries = 1
+instructions = """
+Draft the decision record for: {inputs.decision}
+
+Options: {steps.options.output.options}
+
+Context, the options with their trade-offs, your recommendation and why, the
+consequences of each. Your result carries the draft as markdown and the id
+of the option you recommend.
+"""
+then = ["critique"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["draft", "recommended"]
+
+[workflow.steps.output_schema.properties.draft]
+type = "string"
+description = "The decision record as markdown: context, the options with their trade-offs, the recommendation and why, the consequences of each."
+
+[workflow.steps.output_schema.properties.recommended]
+type = "string"
+description = "The id of the recommended option, as the options step named it."
+
+[[workflow.steps]]
+id = "critique"
+name = "Critique the draft"
+kind = "agent"
+assignee = { agent = "critic" }
+retries = 1
+instructions = """
+Critique this decision record:
+
+{steps.tradeoffs.output.draft}
+
+What is asserted without evidence, which option is under-argued, what the
+recommendation assumes. Your result carries your notes as markdown.
+"""
+then = ["choose"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["notes"]
+
+[workflow.steps.output_schema.properties.notes]
+type = "string"
+description = "The critique as markdown: what is asserted without evidence, which option is under-argued, what the recommendation assumes."
+
+[[workflow.steps]]
+id = "choose"
+name = "Choose"
+kind = "human"
+prompt = "Decide: {inputs.decision}. The draft recommends {steps.tradeoffs.output.recommended}; the critic says: {steps.critique.output.notes}. Which option, or say what you want to do instead?"
+boundaries = [
+  { name = "deadline", on = { event = "after", secs = { input = "deadline" } }, act = "divert" },
+  { name = "reminder", on = { event = "every", secs = 86400, max = 2 }, act = "notify", template = "Still waiting on a decision: {inputs.decision}. Without one before the deadline, it is recorded as deferred." },
+]
+then = ["record", { to = "deferred", branch = "deadline" }]
+
+[[workflow.steps]]
+id = "deferred"
+name = "Deadline passed"
+kind = "notify"
+template = "The deadline for \"{inputs.decision}\" passed without a choice; the record is written as deferred."
+then = ["record"]
+
+[[workflow.steps]]
+id = "record"
+name = "Write the record"
+kind = "agent"
+assignee = { agent = "technical-writer" }
+instructions = """
+Finalise the decision record for: {inputs.decision}
+
+Draft: {steps.tradeoffs.output.draft}
+Critique: {steps.critique.output.notes}
+
+If a choice was made, record it as the decision with the reasoning; if the
+deadline passed without one, record the decision as deferred and name what it
+is waiting on. Your result carries the finished record as markdown.
+"""
+then = ["done"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["record"]
+
+[workflow.steps.output_schema.properties.record]
+type = "string"
+description = "The finished decision record as markdown, with the decision — or its deferral and what it waits on — and the reasoning."
+
+[[workflow.steps]]
+id = "done"
+name = "Recorded"
+kind = "end"

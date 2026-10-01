@@ -1,0 +1,9 @@
+# Workspace-wide cargo configuration (docs/contributing/testing-rules.md
+# §Faster builds).
+#
+# Two cores are left free: a Rust check and a Vite build often run side by
+# side here, and a check that takes every core starves the other and the
+# person reading the screen. `jobs = -2` is "all cores but two" — on a
+# twelve-core machine, ten — and costs a check a few percent at most.
+[build]
+jobs = -2

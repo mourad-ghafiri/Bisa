@@ -1,0 +1,12 @@
+{
+  "ordinaryUsageAllowed": true,
+  "rateLimits": {
+    "limitId": "codex",
+    "primary": { "usedPercent": 74, "windowDurationMins": 300, "resetsAt": 1788782400 },
+    "secondary": { "usedPercent": 16, "windowDurationMins": 10080, "resetsAt": 1789128000 },
+    "planType": "pro",
+    "credits": null
+  },
+  "rateLimitsByLimitId": null,
+  "accountId": "acct_redacted"
+}

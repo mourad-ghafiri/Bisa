@@ -1,0 +1,84 @@
+name: "Feedback"
+description: "Tell us what works, what does not, and what you would change."
+title: "[Feedback]: "
+labels: ["kind: feedback", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Questions and open-ended ideas are also welcome in Discussions.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Bisa? The area guides are in docs/contributing/areas/.
+      multiple: false
+      options:
+        - "Inbox"
+        - "Agents & teams"
+        - "Projects"
+        - "Project IDE (editor, search, git, terminals, pull requests, browser, Mobile Development, language servers, Board)"
+        - "Workflows & events"
+        - "Goals"
+        - "Pulse"
+        - "Channels, DMs & conversations"
+        - "Settings"
+        - "Collaboration"
+        - "Connectors"
+        - "Notes"
+        - "Drawing"
+        - "Pets"
+        - "Addons"
+        - "Decision-making"
+        - "Security features"
+        - "Harnesses"
+        - "CLI"
+        - "Node & HTTP API"
+        - "MCP tools"
+        - "Workspace & storage"
+        - "Core"
+        - "Desktop app"
+        - "Mobile app (planned)"
+        - "Website"
+        - "Translation"
+        - "Catalog"
+        - "Docs"
+        - "Build & release"
+        - "Not sure"
+    validations:
+      required: false
+  - type: textarea
+    id: used
+    attributes:
+      label: "What you used Bisa for"
+      description: "The work you did with it."
+    validations:
+      required: true
+  - type: textarea
+    id: good
+    attributes:
+      label: "What worked well"
+      description: "What you would keep exactly as it is."
+    validations:
+      required: false
+  - type: textarea
+    id: bad
+    attributes:
+      label: "What did not"
+      description: "Where it got in your way, confused you or let you down."
+    validations:
+      required: false
+  - type: textarea
+    id: change
+    attributes:
+      label: "What you would change first"
+      description: "If you could change one thing."
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I follow the Code of Conduct."
+          required: true

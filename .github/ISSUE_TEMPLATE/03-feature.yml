@@ -1,0 +1,97 @@
+name: "Feature"
+description: "Propose something Bisa does not do yet."
+title: "[Feature]: "
+labels: ["kind: feature", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A feature starts as a problem, not a solution. Large or cross-area features need a design agreed here before any code — see docs/contributing/how-to-contribute.md. Bisa stays generic: what it adds must serve everybody, not one scenario.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Bisa? The area guides are in docs/contributing/areas/.
+      multiple: false
+      options:
+        - "Inbox"
+        - "Agents & teams"
+        - "Projects"
+        - "Project IDE (editor, search, git, terminals, pull requests, browser, Mobile Development, language servers, Board)"
+        - "Workflows & events"
+        - "Goals"
+        - "Pulse"
+        - "Channels, DMs & conversations"
+        - "Settings"
+        - "Collaboration"
+        - "Connectors"
+        - "Notes"
+        - "Drawing"
+        - "Pets"
+        - "Addons"
+        - "Decision-making"
+        - "Security features"
+        - "Harnesses"
+        - "CLI"
+        - "Node & HTTP API"
+        - "MCP tools"
+        - "Workspace & storage"
+        - "Core"
+        - "Desktop app"
+        - "Mobile app (planned)"
+        - "Website"
+        - "Translation"
+        - "Catalog"
+        - "Docs"
+        - "Build & release"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "The problem"
+      description: "What you are trying to do, and why Bisa does not let you today."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "The proposal"
+      description: "What Bisa would do. Screens, verbs, settings \u2014 as concrete as you can."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives"
+      description: "Other ways you considered, including doing it outside Bisa."
+    validations:
+      required: false
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Compatibility
+      description: Inside 0.x nothing that worked may stop working (docs/reference/compatibility.md).
+      options:
+        - "It only adds — nothing existing changes"
+        - "It changes or removes something that exists"
+        - "Not sure"
+    validations:
+      required: true
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contributing
+      options:
+        - label: "I would like to build it, once it is accepted."
+          required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true

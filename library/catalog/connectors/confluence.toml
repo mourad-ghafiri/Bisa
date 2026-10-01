@@ -1,0 +1,89 @@
+# Built-in connector: Confluence — search, read and create pages on a Confluence Cloud site.
+
+[connector]
+name = "Confluence"
+description = "Search pages with CQL, read one, create one. The account names your Atlassian site; sign in with your email and an Atlassian API token."
+tags = ["writing", "engineering"]
+base_url = "https://{account.site}.atlassian.net/wiki"
+hosts = ["*.atlassian.net"]
+check = "current_user"
+
+[connector.auth]
+scheme = "basic"
+
+[[connector.params]]
+name = "site"
+label = "Site"
+required = true
+doc = "The first part of your Atlassian address: acme for acme.atlassian.net."
+
+[[connector.operations]]
+id = "current_user"
+name = "Current user"
+description = "The signed-in user — the one call that proves the account works."
+method = "get"
+path = "/rest/api/user/current"
+
+[[connector.operations]]
+id = "search"
+name = "Search"
+description = "Content matching a CQL query."
+method = "get"
+path = "/rest/api/content/search"
+query = { cql = "{params.cql}", limit = "{params.max}" }
+
+[[connector.operations.params]]
+name = "cql"
+label = "CQL"
+required = true
+doc = "type = page AND space = ENG AND title ~ \"runbook\""
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many results to return; Confluence answers 25 unless told otherwise."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
+id = "get_page"
+name = "Get page"
+description = "One page by id, with its storage-format body."
+method = "get"
+path = "/rest/api/content/{params.id}"
+query = { expand = "body.storage,version,space" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Page id"
+required = true
+doc = "The numeric id in the page URL: 123456789."
+
+[[connector.operations]]
+id = "create_page"
+name = "Create page"
+description = "Create a page in a space from storage-format HTML."
+method = "post"
+path = "/rest/api/content"
+body = { kind = "json", value = { type = "page", title = "{params.title}", space = { key = "{params.space}" }, body = { storage = { value = "{params.html}", representation = "storage" } } } }
+writes = true
+
+[[connector.operations.params]]
+name = "space"
+label = "Space key"
+required = true
+doc = "The short uppercase key in the space URL: ENG."
+
+[[connector.operations.params]]
+name = "title"
+label = "Title"
+required = true
+doc = "The page title; unique within its space."
+
+[[connector.operations.params]]
+name = "html"
+label = "Body"
+required = true
+doc = "The page body in Confluence storage format (XHTML)."

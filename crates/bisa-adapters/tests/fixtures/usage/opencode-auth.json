@@ -1,0 +1,16 @@
+{
+  "anthropic": {
+    "type": "oauth",
+    "refresh": "fake-anthropic-oauth-refresh-token",
+    "access": "fake-anthropic-oauth-access-token",
+    "expires": 1788800000000,
+    "accountId": "acct_fake"
+  },
+  "openai": {
+    "type": "oauth",
+    "refresh": "fake-openai-oauth-refresh-token",
+    "access": "fake-openai-oauth-access-token",
+    "expires": 1788800000000
+  },
+  "zai": { "type": "api", "key": "fake-api-key" }
+}

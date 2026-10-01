@@ -1,0 +1,171 @@
+# Built-in workflow: Mobile release — build on a device, check, review, a person's approval, then
+# the stores.
+#
+# A Flutter release from a stated version to a build a person has approved for the stores: the
+# Mobile Developer builds and runs it on the devices here, the project's tests judge it, a code
+# review can send it back, and nothing is submitted to the App Store or Google Play until a
+# person says so. The loop between review and the build is bounded.
+
+[workflow]
+name = "Mobile release"
+description = "From a version to a release on the stores: the Mobile Developer builds and runs the Flutter app on the devices here, the project's tests check it, a code review can send it back, and a person approves before anything is submitted to the App Store or Google Play."
+tags = ["engineering", "mobile", "delivery"]
+
+[[workflow.inputs]]
+name = "release"
+label = "The release, in one line — the version and what it carries"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "project"
+label = "The Flutter project"
+kind = "project"
+required = true
+
+[[workflow.inputs]]
+name = "tests"
+label = "The project's test command"
+kind = "text"
+default = "flutter test"
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["build"]
+
+[[workflow.steps]]
+id = "build"
+name = "Build and run on the devices"
+kind = "agent"
+assignee = { agent = "mobile-developer" }
+project = { input = "project" }
+max_visits = 3
+retries = 1
+instructions = """
+Prepare the release in this workstream: {inputs.release}
+
+Set the version and the build number in `pubspec.yaml`, write the release
+notes from the commits since the last tag, and run the app on a device of
+each platform this machine develops for — mobile_development_devices lists them,
+mobile_development_boot brings one up — reading the screen back with mobile_development_screenshot.
+Run `{inputs.tests}` until green and make the release builds (`flutter build
+ipa`, `flutter build appbundle`) for the platforms that are on. Leave the tree
+in the state you want committed; submit nothing to a store. Your result gives
+a summary of what the release carries, the files touched, whether the tests
+ran green, and the devices it ran on.
+"""
+then = ["tests"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["summary"]
+
+[workflow.steps.output_schema.properties.summary]
+type = "string"
+description = "What the release carries and how it was verified, in the words a reviewer reads first."
+
+[workflow.steps.output_schema.properties.files]
+type = "array"
+items = { type = "string" }
+description = "The paths changed, one per entry."
+
+[workflow.steps.output_schema.properties.tested]
+type = "boolean"
+description = "Whether the project's test command ran green before the tree was left as it is."
+
+[workflow.steps.output_schema.properties.devices]
+type = "array"
+items = { type = "string" }
+description = "The devices the app ran on, one per entry, by name."
+
+[[workflow.steps]]
+id = "tests"
+name = "Tests pass"
+kind = "check"
+check = { check = "command", command = "{inputs.tests}" }
+on_fail = { on_fail = "then", step = "build" }
+then = ["review"]
+
+[[workflow.steps]]
+id = "review"
+name = "Code review"
+kind = "agent"
+assignee = { agent = "code-reviewer" }
+project = { input = "project" }
+retries = 1
+instructions = """
+Review the change this workstream carries for the release: {inputs.release}
+
+Summary from the Mobile Developer: {steps.build.output.summary}
+
+Worst finding first: a permission declared on one platform and not the
+other, a version that did not go up, a key or a certificate in the tree, a
+screen that was never run. Decide whether it can ship as it stands. Your
+result gives the verdict and the findings.
+"""
+then = ["verdict"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["verdict"]
+
+[workflow.steps.output_schema.properties.verdict]
+type = "string"
+enum = ["approve", "changes"]
+description = "\"approve\" when the release can ship as it stands; \"changes\" when it goes back to the Mobile Developer."
+
+[workflow.steps.output_schema.properties.findings]
+type = "array"
+items = { type = "string" }
+description = "The findings, worst first, each one sentence naming the place and the problem."
+
+[[workflow.steps]]
+id = "verdict"
+name = "Shippable?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "review", path = "verdict", value = "approve" }, branch = "approve" }]
+otherwise = "changes"
+then = [{ to = "gate", branch = "approve" }, { to = "build", branch = "changes" }]
+
+[[workflow.steps]]
+id = "gate"
+name = "Submit to the stores?"
+kind = "approval"
+prompt = "{inputs.release} is built, run on the devices here, tested and reviewed. Submit it to the App Store and Google Play — TestFlight and internal testing first?"
+then = ["submit"]
+
+[[workflow.steps]]
+id = "submit"
+name = "Submit to the stores"
+kind = "agent"
+assignee = { agent = "mobile-developer" }
+project = { input = "project" }
+instructions = """
+Take the release to the stores, one verified step at a time, for the
+platforms this machine develops for: {inputs.release}
+
+What the release carries: {steps.build.output.summary}
+
+Work the App Store Publishing and Google Play Publishing skills in order —
+the listing, TestFlight and internal testing, the review, the rollout — and
+say exactly what the person presses where only they can. The upload itself
+is asked of the person by the guard; wait for the answer. Your result gives
+where each platform's build stands and what the person does next.
+"""
+then = ["done"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["standing"]
+
+[workflow.steps.output_schema.properties.standing]
+type = "string"
+description = "Where each platform's build stands — TestFlight, internal testing, in review, released — and what the person does next."
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

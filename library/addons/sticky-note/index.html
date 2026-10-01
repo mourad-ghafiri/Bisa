@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sticky note</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="note" data-color="yellow" aria-label="Sticky notes">
+    <nav class="strip" aria-label="Notes">
+      <div id="dots" class="dots" role="tablist"></div>
+      <span id="count" class="count"></span>
+      <button id="add" class="add" type="button" aria-label="New note" title="New note">+</button>
+    </nav>
+    <div class="tools" role="toolbar" aria-label="Formatting">
+      <button type="button" data-cmd="bold" aria-label="Bold" title="Bold (⌘B)"><b>B</b></button>
+      <button type="button" data-cmd="italic" aria-label="Italic" title="Italic (⌘I)"><i>I</i></button>
+      <button type="button" data-cmd="underline" aria-label="Underline" title="Underline (⌘U)"><u>U</u></button>
+      <button type="button" data-cmd="insertUnorderedList" aria-label="Bulleted list" title="Bulleted list">•</button>
+      <button type="button" data-cmd="insertOrderedList" aria-label="Numbered list" title="Numbered list">1.</button>
+      <button type="button" data-cmd="removeFormat" aria-label="Clear formatting" title="Clear formatting">⌀</button>
+      <span class="gap"></span>
+      <div id="colors" class="colors" role="radiogroup" aria-label="Paper"></div>
+    </div>
+    <div id="page" class="page" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Note" data-placeholder="Write here…" spellcheck="true"></div>
+    <div class="foot">
+      <span id="status" class="status" aria-live="polite"></span>
+      <button id="copy" type="button">Copy</button>
+      <button id="remove" type="button" class="quiet">Delete</button>
+    </div>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

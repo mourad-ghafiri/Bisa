@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Move a development workspace aside so the next run bootstraps a fresh one.
+#
+# THIS SCRIPT DELETES NOTHING. It renames the directory to
+# <name>.reset-<timestamp> and prints where it went. Reversible beats tidy: a
+# developer who wants the disk space back can remove the directory themselves,
+# having read its name.
+#
+# It is human-invoked only. Nothing in `just`, in CI, or in any test calls it,
+# and a test asserts that stays true.
+#
+#     scripts/reset-dev-workspace --data-dir /path/to/a/dev/workspace
+#
+# There is no default and no fallback to a real workspace: the path must be
+# given, must exist, must look like a workspace, and must be confirmed by
+# typing it back.
+set -euo pipefail
+
+die() { printf '%s\n' "$*" >&2; exit 1; }
+
+data_dir=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --data-dir) data_dir="${2:-}"; shift 2 ;;
+        -h|--help)  sed -n '2,20p' "$0" | sed 's|^# \{0,1\}||'; exit 0 ;;
+        *)          die "unknown argument: $1" ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------
+# Refusals. Each is a way this has gone wrong for somebody before.
+# ---------------------------------------------------------------------------
+
+[ -n "$data_dir" ] || die "refusing: --data-dir is required. There is no default."
+
+# Resolve without following the final symlink, and fail if it does not exist.
+[ -d "$data_dir" ] || die "refusing: $data_dir is not a directory."
+resolved="$(cd "$data_dir" && pwd -P)"
+
+case "$resolved" in
+    /)            die "refusing: the root directory." ;;
+    "$HOME")      die "refusing: your home directory." ;;
+    /Users|/home) die "refusing: a directory of home directories." ;;
+esac
+
+[ "$(dirname "$resolved")" != "/" ] \
+    || die "refusing: $resolved is a top-level directory."
+
+# It must look like a workspace, so a mistyped path does not move something else.
+if [ ! -e "$resolved/index.sqlite" ] && [ ! -d "$resolved/goals" ]; then
+    die "refusing: $resolved has no index.sqlite and no goals/ — it does not look
+like an Bisa workspace. Nothing was touched."
+fi
+
+# ---------------------------------------------------------------------------
+# Confirmation: type the path back. Not y/n — a habit-formed 'y' is not consent.
+# ---------------------------------------------------------------------------
+
+cat <<EOF
+
+  About to move aside:
+
+      $resolved
+
+  It will be renamed, not deleted. Everything stays on disk, including your
+  keys under identity/, and the next run will bootstrap a fresh workspace.
+
+EOF
+printf 'Type the path exactly to confirm: '
+read -r typed
+[ "$typed" = "$resolved" ] || die "
+Paths did not match. Nothing was touched."
+
+# ---------------------------------------------------------------------------
+# The move.
+# ---------------------------------------------------------------------------
+
+target="${resolved}.reset-$(date +%Y%m%d-%H%M%S)"
+[ ! -e "$target" ] || die "refusing: $target already exists."
+
+mv -- "$resolved" "$target"
+
+cat <<EOF
+
+  Moved to:
+
+      $target
+
+  The next run creates a fresh workspace at $resolved.
+  To go back:  mv -- "$target" "$resolved"
+
+EOF

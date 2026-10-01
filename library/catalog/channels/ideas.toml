@@ -1,0 +1,7 @@
+# Built-in channel: ideas — half-formed thoughts, before they are goals.
+
+[channel]
+name = "ideas"
+topic = "Half-formed thoughts, before any of them is worth a goal. The ones that survive the room become goals; nothing here is a commitment."
+tags = ["discovery", "thinking"]
+agents = ["facilitator", "critic", "researcher", "business-strategist", "general-advisor"]

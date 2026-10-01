@@ -1,0 +1,67 @@
+/* ---------------------------------------------------------------------------
+   Dune.
+
+   Warm neutrals at hue 70 — sand in the light, umber in the dark. The family
+   for people who lived in the old Warm theme, kept warmer and quieter. The
+   accent is twilight indigo, hue 265: the one cool colour on a warm page, so
+   it is unmistakably the thing that is asking for you, and it sits far from
+   both `danger` (22) and `warn` (90).
+
+   Same construction as Harbor: text never on pure white, never on black,
+   secondary text above 4.5:1, `surface-2` a full step off `bg`; opaque, with
+   Tailwind's own shadows and nothing to frost.
+--------------------------------------------------------------------------- */
+
+:root[data-theme="dune"] {
+  color-scheme: light;
+  --color-bg: oklch(0.975 0.01 70);
+  --color-surface: oklch(0.995 0.005 70);
+  --color-surface-2: oklch(0.945 0.014 70);
+  --color-border: oklch(0.87 0.018 70);
+  --color-text: oklch(0.22 0.015 60);
+  --color-text-dim: oklch(0.48 0.02 60);
+  --color-accent: oklch(0.52 0.19 265);
+  --color-accent-ink: oklch(0.48 0.18 265);
+  --color-accent-soft: oklch(0.95 0.035 265);
+  --color-accent-contrast: oklch(1 0 0);
+  --color-warn: oklch(0.58 0.13 90);
+  --color-warn-soft: oklch(0.95 0.045 90);
+  --color-danger: oklch(0.5 0.2 22);
+  --color-danger-soft: oklch(0.955 0.045 22);
+  --color-ok: oklch(0.55 0.13 155);
+  --color-ok-soft: oklch(0.95 0.04 155);
+  --color-overlay: oklch(0.22 0.02 60 / 0.4);
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --shadow-raised: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-floating: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --material-blur: 0px;
+  --material-saturate: 1;
+}
+
+:root[data-theme="dune-dark"] {
+  color-scheme: dark;
+  --color-bg: oklch(0.2 0.012 60);
+  --color-surface: oklch(0.235 0.014 60);
+  --color-surface-2: oklch(0.275 0.016 60);
+  --color-border: oklch(0.335 0.018 60);
+  --color-text: oklch(0.92 0.01 70);
+  --color-text-dim: oklch(0.72 0.014 70);
+  --color-accent: oklch(0.74 0.14 265);
+  --color-accent-ink: oklch(0.8 0.12 268);
+  --color-accent-soft: oklch(0.33 0.07 265);
+  --color-accent-contrast: oklch(0.2 0.012 60);
+  --color-warn: oklch(0.8 0.12 90);
+  --color-warn-soft: oklch(0.32 0.05 90);
+  --color-danger: oklch(0.7 0.17 22);
+  --color-danger-soft: oklch(0.31 0.07 22);
+  --color-ok: oklch(0.74 0.13 155);
+  --color-ok-soft: oklch(0.3 0.05 155);
+  --color-overlay: oklch(0 0 0 / 0.55);
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --shadow-raised: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-floating: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --material-blur: 0px;
+  --material-saturate: 1;
+}

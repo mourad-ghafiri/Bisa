@@ -1,0 +1,75 @@
+/* ---------------------------------------------------------------------------
+   Harbor.
+
+   Cool neutrals at hue 240 with a whisper of chroma: the grey of a harbour
+   morning, not a blue. Built for hours in front of it — the light side never
+   puts text on pure white (`bg` 0.975, `surface` 0.995), the dark side never
+   puts it on black (`bg` 0.20), and `text-dim` stays above 4.5:1 on either,
+   because secondary text is most of what a person reads all day.
+
+   Amber is the accent: gold against grey is the one colour in this window
+   that means somebody is waiting on you. `danger` sits at hue 22 and `warn` at
+   90, each more than 30° from it, so the three never blur.
+
+   A choice, never the default: bare `:root` and *System* are Glass's
+   (`glass.css`). `themes.test.mjs` holds every value here to the contrast
+   promise; `roles.test.mjs` to the role contract.
+
+   Opaque, like Orchard and Dune: the shadows are Tailwind's own, and the
+   material roles say there is nothing to frost (`0px`, `1`).
+--------------------------------------------------------------------------- */
+
+:root[data-theme="harbor"] {
+  color-scheme: light;
+  --color-bg: oklch(0.975 0.006 240);
+  --color-surface: oklch(0.995 0.003 240);
+  --color-surface-2: oklch(0.945 0.008 240);
+  --color-border: oklch(0.87 0.012 240);
+  --color-text: oklch(0.22 0.015 240);
+  --color-text-dim: oklch(0.48 0.02 240);
+  --color-accent: oklch(0.54 0.16 58);
+  --color-accent-ink: oklch(0.5 0.15 55);
+  --color-accent-soft: oklch(0.95 0.04 65);
+  --color-accent-contrast: oklch(1 0 0);
+  --color-warn: oklch(0.58 0.13 90);
+  --color-warn-soft: oklch(0.95 0.045 90);
+  --color-danger: oklch(0.5 0.2 22);
+  --color-danger-soft: oklch(0.955 0.045 22);
+  --color-ok: oklch(0.55 0.13 155);
+  --color-ok-soft: oklch(0.95 0.04 155);
+  --color-overlay: oklch(0.22 0.02 240 / 0.4);
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --shadow-raised: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-floating: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --material-blur: 0px;
+  --material-saturate: 1;
+}
+
+
+:root[data-theme="harbor-dark"] {
+  color-scheme: dark;
+  --color-bg: oklch(0.2 0.012 240);
+  --color-surface: oklch(0.235 0.014 240);
+  --color-surface-2: oklch(0.275 0.016 240);
+  --color-border: oklch(0.335 0.018 240);
+  --color-text: oklch(0.92 0.008 240);
+  --color-text-dim: oklch(0.72 0.012 240);
+  --color-accent: oklch(0.76 0.14 58);
+  --color-accent-ink: oklch(0.8 0.13 60);
+  --color-accent-soft: oklch(0.32 0.06 60);
+  --color-accent-contrast: oklch(0.2 0.012 240);
+  --color-warn: oklch(0.8 0.12 90);
+  --color-warn-soft: oklch(0.32 0.05 90);
+  --color-danger: oklch(0.7 0.17 22);
+  --color-danger-soft: oklch(0.31 0.07 22);
+  --color-ok: oklch(0.74 0.13 155);
+  --color-ok-soft: oklch(0.3 0.05 155);
+  --color-overlay: oklch(0 0 0 / 0.55);
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --shadow-raised: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-floating: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --material-blur: 0px;
+  --material-saturate: 1;
+}

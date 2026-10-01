@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""Fail the build on banned domain vocabulary.
+
+A rename of six thousand occurrences does not stay done. New code reintroduces
+the old word within weeks, and a reviewer reading for correctness does not
+reliably read for vocabulary. So the vocabulary is a build gate.
+
+See docs/contributing/terminology.md.
+
+WHAT IS CHECKED
+    File contents, line by line, and **path components** — a banned word in a
+    directory or file name is as wrong as one in a comment.
+
+WHAT IS NOT
+    This is not a rename tool and never will be. It refuses; a human chooses
+    the replacement, because "reword the sentence" is a judgement a regular
+    expression cannot make.
+
+A LONGER WORD IS A DIFFERENT WORD
+    Boundaries are identifier-aware, not `\b`: a match must begin a word and
+    end one. `IntentId`, `intent_id` and `KIND_INTENT` are caught;
+    `intentional` is not, because there the word continues rather than
+    ending. No exception list is maintained, because there is nothing to
+    maintain. See LEFT/RIGHT below.
+
+ESCAPE HATCH
+    A per-line pragma, which requires a reason:
+
+        // terminology-lint-ignore: circle - lucide-react icon, third-party API
+
+    A pragma with no reason fails. Today the only legitimate users are the
+    lucide icon identifiers in desktop/src/ui/icons.ts.
+
+USAGE
+    scripts/lint-terminology              # the whole tree
+    scripts/lint-terminology path ...     # only these paths
+    scripts/lint-terminology --summary    # counts per term, no line detail
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+# --------------------------------------------------------------------------
+# The vocabulary
+# --------------------------------------------------------------------------
+
+# Each entry is (label, pattern, what to use instead). Matching is
+# case-insensitive, so `Goal`, `GOAL` and `goal` are one rule rather than three.
+BANNED: list[tuple[str, str, str]] = [
+    # The old core-agent slug. Listed before the bare domain noun so a match
+    # reports the more specific rule.
+    ("bisa-agent", r"bisa-agent", "general-agent"),
+    # The domain noun.
+    ("intent", r"intents?", "goal / goals - reword where it is ordinary English"),
+    # The protocol acronym. Case-insensitive so `IepEventKind` is caught along
+    # with `KIND_IEP_CARRIER`.
+    ("IEP", r"iep", "GEP (Goal Engineering Protocol)"),
+    # The old name for a channel.
+    ("circle", r"circles?", "channel / channels"),
+    # A removed concept. Nothing replaces it.
+    ("initiative", r"initiatives?", "nothing - the concept is deleted"),
+    # The old noun for a checkout occupant of a project (ADR-0031).
+    ("worksite", r"worksites?", "workstream / workstreams"),
+    # The old noun for the service that hosts a repository's pull requests.
+    # `forget` and `forged` continue the word (a lowercase letter follows), so
+    # the boundary leaves them alone without an exception.
+    ("forge", r"forges?", "code host / code hosts (CodeHost, codehost, code_host)"),
+    # The old name of the platform's judge, the third core agent. One pattern
+    # for the hyphen of prose and ids, the underscore of fields and wire words,
+    # the hump of types and the space of a sentence. `decision-making` is a
+    # different word — the letters part ways after `mak` — so the new name, the
+    # new id and the switch pass without an exception. The label carries a
+    # hyphen and no underscore: the pragma's term is letters and hyphens.
+    (
+        "decision-maker",
+        r"decision[-_ ]?makers?",
+        "Decision-Making Agent (decision-making-agent, DecisionMakingAgent, "
+        "decision_making_agent); the switch on an agent or a workflow is "
+        "decision_making - reword where it is ordinary English about a person",
+    ),
+    # The feature that develops for phones is named in full — a mobile
+    # application, a client of this platform, is what `mobile` alone will mean.
+    # Five shapes of the old name, each ending where the new one continues:
+    # the crate, a settings key, a route, a tool, the event. `mobile-developer`,
+    # `mobile-release`, the tag `mobile`, `client: mobile`, `MobilePlatform` and
+    # `MobileDevice` name a phone, an app or a platform and pass by construction.
+    ("bisa-mobile", r"bisa[-_]mobile(?![-_]development)", "bisa-mobile-development / bisa_mobile_development"),
+    (
+        "mobile-key",
+        r"mobile\.(enabled|platforms|agents|flutter|android|toolchain)",
+        "mobile_development.<key> - the settings group is mobile_development",
+    ),
+    ("mobile-route", r"/mobile(?=[/\"'`?\s)]|$)", "/mobile-development/... - the node's routes"),
+    ("mobile-tool", r"mobile_(status|devices|boot|screenshot)", "mobile_development_<tool> - the MCP tools"),
+    ("mobile-event", r"mobile[._]changed", "mobile_development_changed / mobile_development.changed"),
+]
+
+# Identifier-aware boundaries, and the whole reason this lint works.
+#
+# `\b` is the obvious choice and it is wrong here, because `_` and letters are
+# both word characters. `\bintent\b` matches the prose "the intent of" and
+# misses `IntentId`, `intent_id`, `owner_intent` and `KIND_INTENT` — which is
+# to say it misses the code. The first version of this file shipped with `\b`
+# and reported 5,005 occurrences where the real number was nearer 8,000.
+#
+# So a banned word BEGINS where either
+#   - no letter precedes it (a `_`, `-`, digit, punctuation, or line start), or
+#   - a camel hump starts: a lowercase letter is followed by this uppercase one
+# and it ENDS where no *lowercase* letter follows (an uppercase hump, `_`, `-`,
+# or the end).
+#
+#   IntentId       intent + 'I'   -> a new camel word  -> MATCH
+#   intent_id      intent + '_'                        -> MATCH
+#   owner_intent   '_' + intent                        -> MATCH
+#   KIND_INTENT    '_' + intent + end                  -> MATCH
+#   LoaderCircle   'r' + 'C'      -> a camel hump      -> MATCH
+#   intentional    intent + 'i'   -> a different word  -> no match
+#
+# The last row is why no exception list exists: the rule distinguishes "a new
+# word begins here" from "this word continues".
+#
+# `(?-i: … )` is load-bearing. Under re.IGNORECASE a bare `(?![a-z])` reads as
+# "not followed by any letter", which quietly turns `IntentId` back into a
+# miss — the exact bug this boundary exists to fix. The flag is scoped off
+# inside the lookarounds so the character classes mean what they say.
+LEFT = r"(?-i:(?:(?<![A-Za-z])|(?<=[a-z])(?=[A-Z])))"
+RIGHT = r"(?-i:(?![a-z]))"
+
+PRAGMA = re.compile(
+    r"terminology-lint-ignore:\s*(?P<term>[A-Za-z-]+)\s*[-—:]\s*(?P<reason>\S.*)"
+)
+PRAGMA_BARE = re.compile(r"terminology-lint-ignore\b")
+
+# --------------------------------------------------------------------------
+# What is never scanned
+# --------------------------------------------------------------------------
+
+SKIP_SUFFIXES = frozenset(
+    """.png .jpg .jpeg .gif .webp .ico .icns .svg .woff .woff2 .ttf .otf
+       .mp3 .mp4 .wasm .pdf .zip .gz .lock""".split()
+)
+
+SKIP_NAMES = frozenset({"package-lock.json", "pnpm-lock.yaml", "Cargo.lock"})
+
+# The two files that define and verify the vocabulary are the two that must
+# contain it: the rules here, and the fixtures that prove the rules work. Every
+# other exclusion lives in .terminology-lintignore with a reason beside it.
+SELF = frozenset({"scripts/lint-terminology", "scripts/lint-terminology-test"})
+
+IGNORE_FILE = ".terminology-lintignore"
+
+
+@dataclass(frozen=True)
+class Finding:
+    path: str
+    line: int
+    col: int
+    label: str
+    text: str
+    suggestion: str
+    in_path: bool = False
+
+
+def repo_root() -> Path:
+    out = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if out.returncode != 0:
+        print("lint-terminology: not inside a git repository", file=sys.stderr)
+        raise SystemExit(2)
+    return Path(out.stdout.strip())
+
+
+def load_ignores(root: Path) -> list[str]:
+    """Glob patterns, one per line. A reason must follow on the same line."""
+    path = root / IGNORE_FILE
+    if not path.exists():
+        return []
+    patterns: list[str] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        patterns.append(line.split("#", 1)[0].strip())
+    return [p for p in patterns if p]
+
+
+def candidate_files(root: Path, only: list[str]) -> list[str]:
+    """Everything git would consider part of the working tree.
+
+    `--others --exclude-standard` matters: a file that is new and not yet
+    committed is exactly the file most likely to reintroduce a banned term,
+    and listing only `--cached` would wave it through until the moment it
+    stopped being new.
+    """
+    args = ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
+    if only:
+        args += ["--"] + only
+    out = subprocess.run(args, cwd=root, capture_output=True, text=True, check=True)
+    # `--cached` and `--others` can both name a path; keep the first sighting.
+    seen: dict[str, None] = {}
+    for p in out.stdout.split("\0"):
+        if p:
+            seen.setdefault(p, None)
+    return list(seen)
+
+
+def scannable(rel: str, ignores: list[str]) -> bool:
+    if rel in SELF:
+        return False
+    name = rel.rsplit("/", 1)[-1]
+    if name in SKIP_NAMES:
+        return False
+    dot = name.rfind(".")
+    if dot != -1 and name[dot:].lower() in SKIP_SUFFIXES:
+        return False
+    return not any(fnmatch.fnmatch(rel, pat) for pat in ignores)
+
+
+def compiled() -> list[tuple[str, re.Pattern[str], str]]:
+    return [
+        (label, re.compile(LEFT + pat + RIGHT, re.IGNORECASE), fix)
+        for label, pat, fix in BANNED
+    ]
+
+
+def check_path(rel: str, rules) -> list[Finding]:
+    """A banned word in a directory or file name."""
+    out: list[Finding] = []
+    for label, rx, fix in rules:
+        for m in rx.finditer(rel):
+            out.append(
+                Finding(rel, 0, m.start() + 1, label, rel, fix, in_path=True)
+            )
+            break  # one report per rule per path is enough
+    return out
+
+
+def check_contents(root: Path, rel: str, rules) -> list[Finding]:
+    try:
+        text = (root / rel).read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return []  # binary or unreadable: not our business
+
+    out: list[Finding] = []
+    for n, line in enumerate(text.splitlines(), start=1):
+        pragma = PRAGMA.search(line)
+        if pragma is None and PRAGMA_BARE.search(line):
+            out.append(
+                Finding(
+                    rel,
+                    n,
+                    1,
+                    "pragma",
+                    line.strip()[:120],
+                    "a pragma must name its term and give a reason: "
+                    "`terminology-lint-ignore: <term> - <why>`",
+                )
+            )
+            continue
+
+        excused = pragma.group("term").lower() if pragma else None
+
+        for label, rx, fix in rules:
+            if excused == label.lower():
+                continue
+            for m in rx.finditer(line):
+                out.append(
+                    Finding(rel, n, m.start() + 1, label, line.strip()[:120], fix)
+                )
+    return out
+
+
+def report(findings: list[Finding], summary_only: bool) -> None:
+    by_label: dict[str, int] = {}
+    for f in findings:
+        by_label[f.label] = by_label.get(f.label, 0) + 1
+
+    if not summary_only:
+        for f in findings:
+            where = f"{f.path}:{f.line}:{f.col}"
+            what = "in a path" if f.in_path else f.text
+            print(f"{where}: banned term '{f.label}' - {what}")
+        print()
+
+    print("banned terminology found:")
+    for label, _, fix in BANNED:
+        n = by_label.get(label, 0)
+        if n:
+            print(f"  {label:<18} {n:>6}   use: {fix}")
+    if by_label.get("pragma"):
+        print(f"  {'pragma':<18} {by_label['pragma']:>6}   a pragma needs a reason")
+    print(f"\n  {'total':<18} {len(findings):>6}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        prog="lint-terminology", description="Fail on banned domain vocabulary."
+    )
+    ap.add_argument("paths", nargs="*", help="limit the scan to these paths")
+    ap.add_argument(
+        "--summary", action="store_true", help="counts per term, without line detail"
+    )
+    args = ap.parse_args()
+
+    root = repo_root()
+    ignores = load_ignores(root)
+    rules = compiled()
+
+    findings: list[Finding] = []
+    scanned = 0
+    for rel in candidate_files(root, args.paths):
+        if not scannable(rel, ignores):
+            continue
+        scanned += 1
+        findings.extend(check_path(rel, rules))
+        findings.extend(check_contents(root, rel, rules))
+
+    if not findings:
+        print(f"lint-terminology: clean ({scanned} files)")
+        return 0
+
+    report(findings, args.summary)
+    print(
+        "\nThis is not a rename tool. Choose the replacement yourself, and reword "
+        "the sentence where the word was ordinary English.\n"
+        "A third-party identifier may be excused in place:\n"
+        "  // terminology-lint-ignore: <term> - <why it cannot change>",
+        file=sys.stderr,
+    )
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

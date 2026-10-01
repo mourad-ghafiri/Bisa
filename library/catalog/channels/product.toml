@@ -1,0 +1,7 @@
+# Built-in channel: product — scope, criteria and what the user is after.
+
+[channel]
+name = "product"
+topic = "Scope, acceptance criteria, priorities, and what a user is actually trying to do. Where a request gets argued down to what it really asks for."
+tags = ["product", "discovery"]
+agents = ["product-manager", "business-analyst", "ux-designer"]

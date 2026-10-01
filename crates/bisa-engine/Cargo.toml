@@ -1,0 +1,86 @@
+[package]
+name = "bisa-engine"
+description = "Orchestrator: scheduler, agent registry, gates, budgets, verification, credential broker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bisa-core = { workspace = true }
+bisa-cache = { workspace = true }
+bisa-log = { workspace = true }
+nostr = { workspace = true }
+bisa-store = { workspace = true }
+bisa-collab = { workspace = true }
+bisa-harness = { workspace = true }
+bisa-iso = { workspace = true }
+bisa-vcs = { workspace = true }
+bisa-codehost = { workspace = true }
+bisa-connectors = { workspace = true }
+bisa-decision = { workspace = true }
+bisa-ssh = { workspace = true }
+bisa-mobile-development = { workspace = true }
+dirs = { workspace = true }
+bisa-lsp = { workspace = true }
+bisa-mcp-probe = { workspace = true }
+bisa-security = { workspace = true }
+serde = { workspace = true }
+schemars = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+dashmap = { workspace = true }
+rustix = { workspace = true }
+notify = { workspace = true }
+grep-searcher = { workspace = true }
+grep-regex = { workspace = true }
+grep-matcher = { workspace = true }
+ignore = { workspace = true }
+trash = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+ulid = { workspace = true }
+url = { workspace = true }
+jsonschema = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+cron = { workspace = true }
+reqwest = { workspace = true }
+bisa-http = { workspace = true }
+# The workstream scripts are approved per machine by the digest of their text.
+sha2 = { workspace = true }
+hex = { workspace = true }
+# The code host's port to git's credential helpers is an async trait.
+async-trait = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+# The real MCP client, so a test drives the envelope it builds (`Scope::apply`)
+# against the real intake socket — bisa-mcp depends on bisa-core alone, so
+# this edge runs one way.
+bisa-mcp = { workspace = true }
+# The canned probe the MCP health tests hand the engine — nothing is ever dialed.
+bisa-mcp-probe = { workspace = true, features = ["fake"] }
+base64 = { workspace = true }
+# The logging tests layer the file slot on a thread-local subscriber.
+tracing-subscriber = { workspace = true }
+axum = { workspace = true }
+bisa-harness = { workspace = true, features = ["mock"] }
+tempfile = { workspace = true }
+async-trait = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "graph"
+harness = false
+
+[lints]
+workspace = true

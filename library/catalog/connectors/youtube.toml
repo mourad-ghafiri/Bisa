@@ -1,0 +1,90 @@
+# Built-in connector: YouTube — search, channels and videos over the YouTube Data API, read-only.
+
+[connector]
+name = "YouTube"
+description = "Search YouTube and read channel and video facts. Connect with your own Google OAuth client; read-only."
+tags = ["marketing", "content"]
+base_url = "https://www.googleapis.com"
+hosts = ["www.googleapis.com"]
+check = "my_channel"
+
+[connector.auth]
+scheme = "oauth2"
+authorization_url = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url = "https://oauth2.googleapis.com/token"
+scopes = ["https://www.googleapis.com/auth/youtube.readonly"]
+pkce = true
+extra = { access_type = "offline", prompt = "consent" }
+
+[[connector.operations]]
+id = "my_channel"
+name = "My channel"
+description = "The account's own channel with its statistics — the one call that proves it works."
+method = "get"
+path = "/youtube/v3/channels"
+query = { part = "snippet,statistics", mine = "true" }
+
+[connector.operations.output]
+select = "items"
+
+[[connector.operations]]
+id = "search"
+name = "Search"
+description = "Videos, channels or playlists matching a query."
+method = "get"
+path = "/youtube/v3/search"
+query = { q = "{params.q}", part = "snippet", maxResults = "{params.max}", type = "{params.type}" }
+
+[[connector.operations.params]]
+name = "q"
+label = "Query"
+required = true
+doc = "Words to search for: a topic, a title, a channel name."
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many results to return; YouTube answers 5 unless told otherwise, at most 50."
+
+[[connector.operations.params]]
+name = "type"
+label = "Type"
+doc = "video, channel or playlist; empty for all."
+
+[connector.operations.output]
+select = "items"
+
+[[connector.operations]]
+id = "channel"
+name = "Channel"
+description = "One channel by id, with its statistics."
+method = "get"
+path = "/youtube/v3/channels"
+query = { part = "snippet,statistics", id = "{params.id}" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Channel id"
+required = true
+doc = "The channel id, UC...; not its @handle."
+
+[connector.operations.output]
+select = "items"
+
+[[connector.operations]]
+id = "video"
+name = "Video"
+description = "One video by id, with its statistics."
+method = "get"
+path = "/youtube/v3/videos"
+query = { part = "snippet,statistics", id = "{params.id}" }
+
+[[connector.operations.params]]
+name = "id"
+label = "Video id"
+required = true
+doc = "The video id, the v= value in its URL."
+
+[connector.operations.output]
+select = "items"

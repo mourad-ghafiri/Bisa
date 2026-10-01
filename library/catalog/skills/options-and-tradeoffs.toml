@@ -1,0 +1,58 @@
+# Built-in skill: Options And Tradeoffs — lay out the real choices, then recommend one.
+
+[skill]
+name = "Options And Tradeoffs"
+description = "Use when a decision has more than one defensible answer and someone must choose between them."
+tags = ["thinking", "planning"]
+content = """
+# Options And Tradeoffs
+
+Use this when a decision is open and the right move is not obvious. The output is a landscape,
+three to five real options, and one recommendation you are willing to defend.
+
+## Procedure
+
+1. Write the decision as a question with a deadline and a decider. "Which queue do we use for
+   event delivery, decided by the owner before the M8 cut."
+2. Write the constraints that any answer must satisfy: budget, deadline, team size, existing
+   stack, compliance, things already promised. Constraints eliminate options for free.
+3. Survey the landscape before you enumerate: what do people actually do here, and why? Name the
+   approaches you are not going to propose, in one clause each, so the reader knows you saw them.
+4. Enumerate three to five options. Fewer than three usually means you stopped early; more than
+   five means some are variants and should be merged. Always include the option of doing nothing
+   or doing the crude version, and take it seriously.
+5. For each option write the same five lines: what it is, cost, risk, effort, reversibility.
+   Same order every time so the reader can scan down a column.
+6. Write each option's honest downside in the option's own section. An option whose downside is
+   only mentioned under a rival is a strawman.
+7. Recommend one. State why it wins under these constraints, and name what would change your mind.
+8. Say what is not yet known, and whether that unknown could flip the recommendation.
+
+## The five lines
+
+- **Cost** — money and ongoing spend, with the unit: "$40/mo at current volume", not "cheap".
+- **Risk** — what breaks and how you would find out. Include the risk you dislike admitting.
+- **Effort** — engineer-days to first working version, plus the maintenance tail.
+- **Reversibility** — how much it costs to undo in three months. A one-way door with a small
+  upside loses to a two-way door with a smaller one.
+- **Fit** — which constraint from step 2 this strains, if any.
+
+## Failure modes
+
+- **The strawman field.** One serious option and two obviously bad ones. This is a recommendation
+  wearing a costume; the reader can tell, and stops trusting the rest.
+- **Symmetric trade-offs.** Every option has three pros and three cons of equal weight. Real
+  options are lopsided. If yours are not, you have not dug far enough.
+- **No recommendation.** Handing back a matrix and calling it analysis pushes the work back onto
+  the decider. You did the reading; say what you would do.
+- **Reversibility ignored.** The most common way a good analysis produces a bad decision. Weight
+  it explicitly.
+- **Stale costs.** Numbers you remember rather than numbers you checked. Cite where each came
+  from, or mark it as an estimate.
+
+## Done when
+
+Constraints are written down, three to five options carry the same five lines, each option's worst
+property appears in its own section, one option is recommended, and the sentence "I would change
+my mind if ___" is filled in with something that could actually happen.
+"""

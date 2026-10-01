@@ -1,0 +1,50 @@
+{
+  "about": "The frames of readme-slideshow.webp, made by scripts/website/web-screenshots.mjs — never edited by hand.",
+  "frames": [
+    {
+      "label": "Goals",
+      "id": "overview",
+      "bytes": 113166
+    },
+    {
+      "label": "Projects",
+      "id": "ide",
+      "bytes": 152416
+    },
+    {
+      "label": "Agents",
+      "id": "agents",
+      "bytes": 177156
+    },
+    {
+      "label": "Teams",
+      "id": "teams",
+      "bytes": 158234
+    },
+    {
+      "label": "Workflows",
+      "id": "workflow-designer",
+      "bytes": 89356
+    },
+    {
+      "label": "Notes",
+      "id": "notes",
+      "bytes": 142186
+    },
+    {
+      "label": "Drawing",
+      "id": "drawing",
+      "bytes": 55754
+    },
+    {
+      "label": "Pets",
+      "id": "pets",
+      "bytes": 89734
+    },
+    {
+      "label": "Addons",
+      "id": "addons",
+      "bytes": 105432
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+# Both macOS architectures: the bundle is universal (scripts/macos/lib.sh
+# builds the node for each and joins them with lipo). rustup installs a
+# missing target on the first `cargo` call.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

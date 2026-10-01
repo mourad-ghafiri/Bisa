@@ -1,0 +1,11 @@
+{
+  "id": "acme.hello",
+  "name": "Hello",
+  "description": "A starter addon: greets you, remembers a colour, follows the theme.",
+  "version": "0.1.0",
+  "author": "You",
+  "license": "MIT",
+  "tags": ["example"],
+  "window": { "width": 220, "height": 120, "min_width": 160, "min_height": 90, "max_width": 400, "max_height": 240 },
+  "permissions": ["theme", "storage"]
+}

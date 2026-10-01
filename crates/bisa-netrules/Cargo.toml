@@ -1,0 +1,18 @@
+[package]
+name = "bisa-netrules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "The one grammar of a host pattern — `host[:port]` or `*.suffix` — the loopback names, and the headers a definition may never set; pure, shared by the domain, the connectors client and the security rules"
+
+# A leaf like `bisa-cache`: no Bisa dependency, so `bisa-connectors` stays
+# core-free and `bisa-security` I/O-free while all three agree on what a host
+# pattern is.
+[dependencies]
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[lints]
+workspace = true

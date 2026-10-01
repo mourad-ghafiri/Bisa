@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Pre-commit hook: refuse a commit that reintroduces banned vocabulary.
+#
+# NOT INSTALLED AUTOMATICALLY. Nothing in this repository writes to .git/hooks.
+# Install it yourself, once:
+#
+#     just install-hooks
+#
+# Uninstall by deleting .git/hooks/pre-commit.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+
+# Only what is staged, so the hook stays fast on a large tree.
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
+if [ ${#staged[@]} -eq 0 ]; then
+    exit 0
+fi
+
+if ! "$root/scripts/lint-terminology" "${staged[@]}"; then
+    echo
+    echo "Commit refused: banned vocabulary in staged changes."
+    echo "Fix them, or bypass deliberately with: git commit --no-verify"
+    exit 1
+fi

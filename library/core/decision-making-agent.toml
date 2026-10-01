@@ -1,0 +1,22 @@
+# The Decision-Making Agent: the third core agent, and the platform's judge.
+# The General Agent staffs and delegates, the Workflow Agent designs and
+# repairs, this one judges. It holds no record: no key, no prompt, no
+# conversation, no place in a room. It takes no work item and signs nothing. A
+# decision point asks it a typed question — is it so, which one, how much — and
+# gets numbers back. Its id is reserved, and no agent record may take it.
+#
+# It is here in every workspace and off until somebody switches it on
+# (`decisions.enabled`), selects it (an `auto_route` model plan, a `judge` step,
+# a classifier set to it), or switches it on for one agent or one workflow.
+#
+# What is below is what it is out of the box. Who answers is a setting
+# (`decisions.provider` and the keys beside it), never this file: the registry's
+# defaults say the same, and a test holds the two together.
+
+[agent]
+name = "Decision-Making Agent"
+description = "The platform's judge: asked a typed question about a state — is it so, which one, how much — it answers with a choice and how sure it is, so a decision point can act, or fall back to its own rule."
+provider = "harness"
+harness = "claude-code"
+model = "claude-sonnet-5-5[1m]"
+effort = "high"

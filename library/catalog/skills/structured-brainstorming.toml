@@ -1,0 +1,58 @@
+# Built-in skill: Structured Brainstorming — diverge under quota, then converge under a rule.
+
+[skill]
+name = "Structured Brainstorming"
+description = "Use when you need a wide field of ideas before choosing, and the first three ideas are the obvious ones."
+tags = ["thinking", "discovery"]
+content = """
+# Structured Brainstorming
+
+Use this when the problem is open and you would otherwise commit to the first plausible idea.
+Two phases, strictly separated: generate without judging, then judge without generating.
+
+## Phase 1 — Divergence
+
+1. Write the prompt as a "how might we" question narrow enough to answer and wide enough to have
+   many answers. "How might we cut notification latency below one second" — not "improve
+   notifications".
+2. Set a quota before you start: at least fifteen ideas. The quota is the whole mechanism. Ideas
+   one through five are the obvious ones; the useful ones live at eleven through fifteen.
+3. Generate with no critique. Do not evaluate, do not merge, do not order. Writing "probably too
+   expensive" next to an idea ends the phase early.
+4. When you stall, force a perspective shift and keep going:
+   - the constraint flip: what if it had to ship this week? what if budget were unlimited?
+   - the inversion: how would we make this problem worse? then negate each answer.
+   - the borrowed domain: how does an airline, a hospital, a compiler solve this shape?
+   - the actor swap: answer as the user, the attacker, the finance owner, the on-call engineer.
+   - the deletion: which part could we remove entirely and still meet the goal?
+5. Stop at the quota, not when it feels finished.
+
+## Phase 2 — Convergence
+
+6. Cluster the ideas by the mechanism they use, not by how good they sound. Name each cluster in
+   a short phrase. Clusters of one are often the interesting ones — do not discard them.
+7. Fix the convergence rule before you rank, and write it down: highest impact per unit of effort;
+   or reversible first; or whatever cheapest tests the riskiest assumption. Choosing the rule
+   after seeing the ideas is how you rationalise the idea you already liked.
+8. Apply the rule and take the top three to five. Say what the rule cost you — the idea you liked
+   that the rule rejected, named explicitly.
+9. For each survivor write the next concrete step and the assumption it depends on.
+
+## Failure modes
+
+- **Merged phases.** Critique during generation. Output collapses to the safe five and the
+  session feels productive while producing nothing new.
+- **Quota theatre.** Fifteen restatements of three ideas. Each idea must differ in mechanism, not
+  in wording.
+- **Anchoring.** The first idea sets the frame and everything after is a variant. The forced
+  perspective shifts exist to break this; use them before you feel stuck.
+- **No convergence.** A list of thirty ideas handed over as a result. The list is not the
+  deliverable; the shortlist and its rule are.
+- **Rule drift.** Announcing "cheapest first" and shipping the elaborate one. If the rule was
+  wrong, say the rule was wrong and change it in the open.
+
+## Done when
+
+The quota was met before any critique, ideas are clustered by mechanism, the convergence rule was
+written before ranking, and three to five survivors each carry a next step and an assumption.
+"""

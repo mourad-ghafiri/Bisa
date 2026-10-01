@@ -1,0 +1,7 @@
+# Built-in team: Launch — the crew for shipping day.
+
+[team]
+name = "Launch"
+purpose = "The cross-functional crew for shipping day: the release cut and its rollback, the documentation that has to be true on the day and read as a person wrote it, the announcement, and someone named to be on the hook afterwards."
+tags = ["delivery", "marketing"]
+agents = ["release-manager", "technical-writer", "document-humanizer", "communications-lead", "marketing-manager", "sre"]

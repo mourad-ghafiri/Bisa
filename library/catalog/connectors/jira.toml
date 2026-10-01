@@ -1,0 +1,124 @@
+# Built-in connector: Jira — search, read, create and move issues on a Jira Cloud site over REST API v3.
+
+[connector]
+name = "Jira"
+description = "Search issues with JQL, read one, create one, move it through a transition, comment on it. The account names your Atlassian site; sign in with your email and an Atlassian API token."
+tags = ["engineering", "management"]
+base_url = "https://{account.site}.atlassian.net"
+hosts = ["*.atlassian.net"]
+check = "myself"
+
+[connector.auth]
+scheme = "basic"
+
+[[connector.params]]
+name = "site"
+label = "Site"
+required = true
+doc = "The first part of your Atlassian address: acme for acme.atlassian.net."
+
+[[connector.operations]]
+id = "myself"
+name = "Myself"
+description = "The signed-in user — the one call that proves the account works."
+method = "get"
+path = "/rest/api/3/myself"
+
+[[connector.operations]]
+id = "search"
+name = "Search issues"
+description = "Issues matching a JQL query."
+method = "get"
+path = "/rest/api/3/search"
+query = { jql = "{params.jql}", maxResults = "{params.max}", fields = "{params.fields}" }
+
+[[connector.operations.params]]
+name = "jql"
+label = "JQL"
+required = true
+doc = "project = ACME AND status = \"In Progress\" ORDER BY updated DESC"
+
+[[connector.operations.params]]
+name = "max"
+label = "At most"
+kind = "number"
+doc = "How many issues to return; Jira answers 50 unless told otherwise."
+
+[[connector.operations.params]]
+name = "fields"
+label = "Fields"
+doc = "Comma-separated field names; empty for Jira's default set. summary,status,assignee is a good start."
+
+[connector.operations.output]
+select = "issues"
+
+[[connector.operations]]
+id = "get_issue"
+name = "Get issue"
+description = "One issue by key, with its fields."
+method = "get"
+path = "/rest/api/3/issue/{params.key}"
+
+[[connector.operations.params]]
+name = "key"
+label = "Issue key"
+required = true
+doc = "ACME-123"
+
+[[connector.operations]]
+id = "create_issue"
+name = "Create issue"
+description = "Create an issue from a fields object — project, issuetype, summary and whatever else the project requires."
+method = "post"
+path = "/rest/api/3/issue"
+body = { kind = "json", value = { fields = "{params.fields}" } }
+writes = true
+
+[[connector.operations.params]]
+name = "fields"
+label = "Fields"
+kind = "json"
+required = true
+doc = "A JSON object in Jira's shape: {\"project\": {\"key\": \"ACME\"}, \"issuetype\": {\"name\": \"Task\"}, \"summary\": \"…\", \"description\": {\"type\": \"doc\", \"version\": 1, \"content\": [...]}}"
+
+[[connector.operations]]
+id = "transition"
+name = "Transition issue"
+description = "Move an issue through a workflow transition by the transition's id."
+method = "post"
+path = "/rest/api/3/issue/{params.key}/transitions"
+body = { kind = "json", value = { transition = { id = "{params.transition}" } } }
+writes = true
+
+[[connector.operations.params]]
+name = "key"
+label = "Issue key"
+required = true
+doc = "ACME-123"
+
+[[connector.operations.params]]
+name = "transition"
+label = "Transition id"
+required = true
+doc = "The numeric id from the issue's transitions list."
+
+[[connector.operations]]
+id = "comment"
+name = "Comment"
+description = "Add a plain-text comment to an issue."
+method = "post"
+path = "/rest/api/3/issue/{params.key}/comment"
+body = { kind = "json", value = { body = { type = "doc", version = 1, content = [ { type = "paragraph", content = [ { type = "text", text = "{params.text}" } ] } ] } } }
+writes = true
+
+[[connector.operations.params]]
+name = "key"
+label = "Issue key"
+required = true
+doc = "ACME-123"
+
+[[connector.operations.params]]
+name = "text"
+label = "Text"
+required = true
+doc = "The comment, plain text."

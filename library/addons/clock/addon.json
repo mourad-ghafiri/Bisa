@@ -1,0 +1,26 @@
+{
+  "id": "clock",
+  "name": "Clock",
+  "description": "The time on one face — analog with a sweeping second hand, or digital — 12 or 24 hours, the date if you like; the settings behind a gear.",
+  "version": "0.1.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "time"
+  ],
+  "window": {
+    "width": 200,
+    "height": 200,
+    "min_width": 120,
+    "min_height": 120,
+    "max_width": 400,
+    "max_height": 400,
+    "frame": "none",
+    "transparent": true
+  },
+  "permissions": [
+    "storage"
+  ]
+}

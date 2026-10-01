@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="-110 -116 220 220" role="img">
+<title>Bisa — the menu bar mark</title>
+<desc>The split B and its rail from logo/logo.svg, alone and in one ink: the squircle, the glass and the colours stay with the app icon. The shell tints this at run time to the menu bar's ink and paints a status dot on it (desktop/src-tauri/src/tray/glyph.rs). Rasterised by `just tray-icon`.</desc>
+<g transform="rotate(90)" fill="#000">
+<rect x="-84" y="-95" width="38" height="190" rx="12"/>
+<path d="M-30 -95 H20 A34 34 0 0 1 54 -61 V-34 A34 34 0 0 1 20 0 H32 A40 40 0 0 1 72 40 V55 A40 40 0 0 1 32 95 H-30 Z M-2 -63 H8 A14 14 0 0 1 22 -49 V-30 A14 14 0 0 1 8 -16 H-2 Z M-2 16 H24 A16 16 0 0 1 40 32 V47 A16 16 0 0 1 24 63 H-2 Z" fill-rule="evenodd"/>
+</g>
+</svg>

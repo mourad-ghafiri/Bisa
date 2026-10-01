@@ -1,0 +1,51 @@
+name: "Translation"
+description: "Add a language, or correct or complete a translation."
+title: "[Translation]: "
+labels: ["kind: translation", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every sentence Bisa shows comes from the message catalogs under locales/. How to add a language is in docs/contributing/areas/translation.md.
+  - type: input
+    id: language
+    attributes:
+      label: "Language"
+      description: "The language and its code."
+      placeholder: "French (fr)"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - "A new language"
+        - "A wrong or awkward translation"
+        - "A missing translation"
+        - "English text that is unclear"
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: "Where"
+      description: "The screen, the command, or the message id if you know it."
+    validations:
+      required: false
+  - type: textarea
+    id: text
+    attributes:
+      label: "The text"
+      description: "What it says now, and what it should say."
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true

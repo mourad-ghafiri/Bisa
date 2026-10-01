@@ -1,0 +1,63 @@
+# Built-in skill: Threat Modeling — assets, boundaries, and what an attacker actually gains.
+
+[skill]
+name = "Threat Modeling"
+description = "Use when designing or auditing a system that holds data, takes input, or spends money."
+tags = ["security", "design"]
+content = """
+# Threat Modeling
+
+Use this when a system handles data someone would want, accepts input from outside, holds
+credentials, or can spend money. The output is a small set of findings that name a real gain.
+
+## Procedure
+
+1. **Draw the system as data in motion.** Every process, store and channel, and the direction data
+   flows between them. Do it from the code, not from the design document — the diagram everyone
+   agrees on is usually the one that is out of date.
+2. **List the assets.** What is worth stealing, corrupting, or denying: user data, credentials and
+   tokens, signing keys, money, compute, availability, and reputation. Rank them; not all are
+   equal, and the ranking decides what you spend effort on.
+3. **List every entry point.** Every place untrusted bytes arrive: HTTP handlers, CLI arguments,
+   environment, config files, webhooks, queue messages, uploaded files, database rows written by
+   another service, and anything a model was told by a document it read.
+4. **Draw the trust boundaries** — the lines where data crosses from less trusted to more trusted.
+   Every crossing needs authentication (who), authorization (may they), and validation (is this
+   well-formed). Missing authorization at a boundary is the most commonly shipped hole; a
+   permission checked at the UI and not at the API is not checked.
+5. **For each boundary, ask what an attacker gains** by crossing it. Walk the categories: spoof an
+   identity, tamper with data, deny an action they took, read what they should not, deny service to
+   others, gain privilege they should not have.
+6. **Trace the highest-ranked asset end to end.** Where does it live at rest, in transit, in logs,
+   in backups, in error messages, in a crash dump? Logs are where secrets leak most often.
+7. **Write each finding** as: entry point → what the attacker does → what they gain → what would
+   stop it. If you cannot fill in "what they gain", it is not a finding.
+
+## Secrets hygiene
+
+- Secrets enter at runtime — environment, a secret manager, an injected file. Never in the
+  repository, never in a fixture, never in a test, never in a comment "temporarily".
+- Never read a credential file to check it exists. Never print, log, or paste secret material into
+  a report, an issue, or an error. Cite `path:line` and stop.
+- Assume anything logged is readable by everyone with log access, and anything in a URL is in a
+  proxy log somewhere. Redact at the source, not at the sink.
+- A leaked secret is rotated, not deleted from history and forgotten. Removing the commit does not
+  un-leak it.
+
+## Finding versus scare
+
+A **finding** names the entry point, the concrete path, the gain, and the fix. "An unauthenticated
+`GET /workstreams/{id}/diff` returns any goal's working tree; an attacker with a guessed id reads
+private source; require the caller's ownership before serving."
+
+A **scare** names a technology and a worry. "We use SQLite, which might be vulnerable." It costs
+the reader time, produces no fix, and spends the credibility you need for the real findings.
+
+Rate by what the attacker gains and what it costs them — never by how sophisticated the attack is.
+The cheap boring hole is the one that gets used.
+
+## Done when
+
+Assets are ranked, every entry point and boundary is listed, each boundary has an authorization
+answer, and every finding names a concrete path, the gain, and the fix.
+"""

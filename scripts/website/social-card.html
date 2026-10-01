@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bisa — social card</title>
+<!--
+  The image a link to bisa.dev shows where it is shared: 1200 × 630, rendered
+  once by `just website-card` with this machine's Chrome into
+  website/assets/social-card.png. The colours are the site's — the Glass blue
+  and the logo's cyan — written as oklch(), like the stylesheet.
+-->
+<style>
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: oklch(0.22 0.015 235);
+    background:
+      radial-gradient(55% 60% at 8% 0%, oklch(0.81 0.117 208 / 0.45), transparent 70%),
+      radial-gradient(50% 55% at 95% 10%, oklch(0.6 0.143 255 / 0.35), transparent 70%),
+      radial-gradient(70% 60% at 60% 120%, oklch(0.86 0.05 251 / 0.8), transparent 70%),
+      oklch(0.962 0.01 245);
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    align-items: center;
+    padding: 0 80px;
+    box-sizing: border-box;
+  }
+  .brand { display: flex; align-items: center; gap: 18px; font-size: 40px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand img { width: 72px; height: 72px; }
+  h1 { margin: 34px 0 18px; font-size: 76px; line-height: 1.02; letter-spacing: -0.035em; font-weight: 760; }
+  h1 span {
+    background: linear-gradient(100deg, oklch(0.5 0.1 212), oklch(0.6 0.143 255) 55%, oklch(0.46 0.145 258));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  p { margin: 0; font-size: 28px; line-height: 1.35; color: oklch(0.42 0.02 235); max-width: 620px; }
+  .rail { justify-self: end; display: grid; gap: 14px; padding: 28px 30px; border-radius: 26px;
+    background: oklch(0.995 0.003 235 / 0.8); border: 1px solid oklch(0.55 0.02 235 / 0.25);
+    box-shadow: 0 24px 60px -20px oklch(0.2 0.02 235 / 0.35); font-size: 24px; font-weight: 600; }
+  .rail div { display: flex; align-items: center; gap: 14px; color: oklch(0.42 0.02 235); }
+  .rail i { width: 16px; height: 16px; border-radius: 50%; background: oklch(0.81 0.117 208); }
+  .rail .now { color: oklch(0.22 0.015 235); }
+  .rail .now i { background: oklch(0.995 0.003 235); border: 3px solid oklch(0.81 0.117 208); width: 12px; height: 12px; }
+  .rail .gate { color: oklch(0.46 0.16 240); }
+  .rail .gate i { background: oklch(0.52 0.17 240); }
+  .rail .later i { background: none; border: 2px solid oklch(0.55 0.02 235 / 0.4); width: 12px; height: 12px; }
+</style>
+</head>
+<body>
+  <div>
+    <div class="brand"><img src="../../logo/logo.svg" alt="">Bisa</div>
+    <h1>A <span>Decentralized</span><br>Agentic IDE</h1>
+    <p>Your coding agents, your goals, your machine. No server, no account — open source.</p>
+  </div>
+  <div class="rail">
+    <div><i></i>Inbox</div>
+    <div><i></i>Agents</div>
+    <div><i></i>Teams</div>
+    <div class="now"><i></i>Projects</div>
+    <div class="later"><i></i>Workflows</div>
+    <div class="later"><i></i>Goals</div>
+    <div class="gate"><i></i>Your move</div>
+  </div>
+</body>
+</html>

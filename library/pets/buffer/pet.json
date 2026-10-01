@@ -1,0 +1,139 @@
+{
+  "id": "bisa-pets.midnight-shipping.buffer",
+  "displayName": "Buffer",
+  "description": "Steady state. A midnight snail that treats your backlog like a queue: one item at a time, no skips, no panic. The cyan dots on its shell blink gently as it buffers the next task. Not fast, but never dropped.",
+  "spritesheetPath": "spritesheet.webp",
+  "frame": {
+    "width": 192,
+    "height": 208
+  },
+  "fps": 8,
+  "defaultAnimation": "idle",
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 6,
+      "frameDurationsMs": [
+        2775,
+        1147,
+        1147,
+        1443,
+        1443,
+        3145
+      ]
+    },
+    "running-right": {
+      "row": 1,
+      "frames": 8,
+      "frameDurationsMs": [
+        152,
+        152,
+        152,
+        180,
+        152,
+        152,
+        152,
+        263
+      ]
+    },
+    "running-left": {
+      "row": 2,
+      "frames": 8,
+      "frameDurationsMs": [
+        152,
+        152,
+        152,
+        180,
+        152,
+        152,
+        152,
+        263
+      ]
+    },
+    "waving": {
+      "row": 3,
+      "frames": 4,
+      "frameDurationsMs": [
+        351,
+        239,
+        239,
+        510
+      ]
+    },
+    "jumping": {
+      "row": 4,
+      "frames": 5,
+      "frameDurationsMs": [
+        352,
+        176,
+        440,
+        191,
+        558
+      ]
+    },
+    "failed": {
+      "row": 5,
+      "frames": 8,
+      "frameDurationsMs": [
+        218,
+        202,
+        252,
+        302,
+        370,
+        437,
+        538,
+        1042
+      ]
+    },
+    "waiting": {
+      "row": 6,
+      "frames": 6,
+      "frameDurationsMs": [
+        777,
+        629,
+        629,
+        777,
+        629,
+        1295
+      ]
+    },
+    "running": {
+      "row": 7,
+      "frames": 6,
+      "frameDurationsMs": [
+        258,
+        224,
+        224,
+        258,
+        224,
+        379
+      ]
+    },
+    "review": {
+      "row": 8,
+      "frames": 6,
+      "frameDurationsMs": [
+        459,
+        353,
+        353,
+        424,
+        388,
+        1094
+      ]
+    }
+  },
+  "x-bisa-pets": {
+    "pack": "midnight-shipping",
+    "slug": "buffer",
+    "tagline": "Steady state.",
+    "archetype": "snail",
+    "personality": "slow-buffer",
+    "mood": "sleepy",
+    "render": {
+      "fitScale": 1.1918,
+      "riseCap": 9.59,
+      "inkWidth": 3.4,
+      "eyeRadius": 9.53
+    }
+  }
+}

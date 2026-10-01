@@ -1,0 +1,74 @@
+# Built-in connector: Obsidian — a vault on this machine through the Local REST API plugin, read and search.
+#
+# The plugin serves https on 127.0.0.1:27124 with a certificate it signed itself,
+# which is why this is the one connector with insecure_tls. It takes the key as
+# `Authorization: Bearer <key>`, so the scheme is bearer. Writing a note needs a
+# raw Markdown body, which a definition cannot declare — a body is JSON here —
+# so this connector reads and searches; an agent step edits the vault's files.
+
+[connector]
+name = "Obsidian"
+description = "List, read and search the notes of an Obsidian vault on this machine through the Local REST API community plugin. Paste the plugin's API key; the plugin must be running."
+tags = ["writing", "research"]
+base_url = "https://127.0.0.1:27124"
+hosts = ["127.0.0.1:27124"]
+insecure_tls = true
+check = "status"
+
+[connector.auth]
+scheme = "bearer"
+
+[[connector.operations]]
+id = "status"
+name = "Status"
+description = "The plugin's version and whether the key is accepted — the one call that proves it works."
+method = "get"
+path = "/"
+
+[[connector.operations]]
+id = "list_vault"
+name = "List vault"
+description = "The files and folders at the vault's root, or under a folder."
+method = "get"
+path = "/vault/{params.folder}"
+
+[[connector.operations.params]]
+name = "folder"
+label = "Folder"
+doc = "A folder path inside the vault; empty for the root."
+
+[connector.operations.output]
+select = "files"
+
+[[connector.operations]]
+id = "read_note"
+name = "Read note"
+description = "One note's Markdown by its vault path."
+method = "get"
+path = "/vault/{params.path}"
+
+[[connector.operations.params]]
+name = "path"
+label = "Note path"
+required = true
+doc = "Projects/Launch.md — the path inside the vault."
+
+[[connector.operations]]
+id = "search"
+name = "Search"
+description = "Notes whose text matches a query, with the matching lines."
+method = "post"
+path = "/search/simple/"
+query = { query = "{params.query}", contextLength = "{params.context}" }
+
+[[connector.operations.params]]
+name = "query"
+label = "Query"
+required = true
+doc = "Words to find in the notes text; matched case-insensitively."
+
+[[connector.operations.params]]
+name = "context"
+label = "Context"
+kind = "number"
+doc = "How many characters of context around each match; the plugin's default is 100."

@@ -1,0 +1,115 @@
+name: "Performance"
+description: "Something is slow, heavy, or grows without bound."
+title: "[Performance]: "
+labels: ["kind: performance", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Numbers make a performance report actionable: how long, how big, how often, on which machine.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Bisa? The area guides are in docs/contributing/areas/.
+      multiple: false
+      options:
+        - "Inbox"
+        - "Agents & teams"
+        - "Projects"
+        - "Project IDE (editor, search, git, terminals, pull requests, browser, Mobile Development, language servers, Board)"
+        - "Workflows & events"
+        - "Goals"
+        - "Pulse"
+        - "Channels, DMs & conversations"
+        - "Settings"
+        - "Collaboration"
+        - "Connectors"
+        - "Notes"
+        - "Drawing"
+        - "Pets"
+        - "Addons"
+        - "Decision-making"
+        - "Security features"
+        - "Harnesses"
+        - "CLI"
+        - "Node & HTTP API"
+        - "MCP tools"
+        - "Workspace & storage"
+        - "Core"
+        - "Desktop app"
+        - "Mobile app (planned)"
+        - "Website"
+        - "Translation"
+        - "Catalog"
+        - "Docs"
+        - "Build & release"
+        - "Not sure"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Bisa version
+      description: From About in the app, or `bisa --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - "macOS \u2014 Apple Silicon"
+        - "macOS \u2014 Intel"
+        - "Linux (built from source)"
+        - "Windows (built from source)"
+    validations:
+      required: true
+  - type: input
+    id: machine
+    attributes:
+      label: "Machine"
+      description: "Model, processor, memory."
+      placeholder: "MacBook Pro M3, 36 GB"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: "What is slow"
+      description: "The action, and how long it takes or how much memory or disk it uses."
+    validations:
+      required: true
+  - type: textarea
+    id: size
+    attributes:
+      label: "How big"
+      description: "The size of what is involved \u2014 goals, runs, files in a project, commits, messages in a channel."
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to reproduce"
+      description: "How to see it."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "What you expected"
+      description: "A comparison point if you have one \u2014 an earlier release, a similar action."
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I removed keys, tokens, personal paths, e-mail addresses and anything else that is mine alone from what I pasted."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true

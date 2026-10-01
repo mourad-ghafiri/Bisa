@@ -1,0 +1,39 @@
+[package]
+name = "bisa-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Language servers, supervised and proxied: JSON-RPC over stdio, a preset catalog, root-relative URIs"
+# The scripted peer under `tests/` is a binary, not a test of its own: with
+# auto-discovery on, cargo would also read the file as an integration-test
+# target and warn. The one integration binary is named below instead.
+autotests = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+
+# A language server that answers from a script — what the supervisor is
+# tested against, so no real server is ever spawned by a test. Built as a
+# binary of this package so `CARGO_BIN_EXE_scripted-lsp` names it.
+[[bin]]
+name = "scripted-lsp"
+path = "tests/scripted_lsp.rs"
+test = false
+doc = false
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

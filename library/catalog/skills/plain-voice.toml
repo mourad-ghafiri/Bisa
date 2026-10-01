@@ -1,0 +1,61 @@
+# Built-in skill: Plain Voice — how a rewrite reads as a person's, and what it never touches.
+
+[skill]
+name = "Plain Voice"
+description = "Use when rewriting text or code comments so they read as written by a person: the tells to cut, the moves to make, and what is never yours to change."
+tags = ["writing", "quality"]
+content = """
+# Plain Voice
+
+Use this when the job is to make something that already exists read as a person wrote it — a
+document, a comment, a name, a message — without changing what it says or does. The work is
+subtraction first, then fit. Nothing here licenses a new claim.
+
+## The tells
+
+Machine-written prose has habits a reader notices before they can name them. Cut every one:
+
+1. Hedges and throat-clearing — *note that*, *it is important to*, *in order to*, *essentially*,
+   *simply*, *robust*, *seamless*, *leverage*. Say the thing.
+2. Restating the obvious — a comment that narrates the line under it, a sentence that repeats the
+   heading, a summary paragraph that repeats the section.
+3. Stacked adjectives and paired synonyms — *clear and concise*, *fast and efficient*. One word.
+4. Symmetry for its own sake — three bullets because three looks tidy, a list where one sentence
+   would do, a heading per paragraph.
+5. The reflexive intro and outro — *In this section we will…*, *In conclusion…*, *Hope this
+   helps*. A document starts with its subject and stops when it is done.
+6. The comment per line, the docstring that restates the signature, the `// increment i`.
+7. Uniform sentence length and a rhythm with no variation. People write short sentences beside long
+   ones.
+
+## The moves
+
+- Say the one thing. Each sentence carries one idea; each comment names one reason.
+- Name the why, never the what. Code says what it does; a comment earns its place by saying what
+  is not obvious — the trap, the constraint, the reason this is not the simpler way.
+- Keep the author's terms. The project's words for its things are its vocabulary; do not synonym
+  them away, and never introduce a word its terminology bans.
+- Cut before you add. A rewrite is usually shorter. If yours is longer, something was added that
+  was not there — find it and take it out.
+- Match the file you are in. Read the neighbours first — the paragraph above, the module beside —
+  and write in their register, their length, their comment density, their naming.
+- Vary the shape. A short sentence after a long one; a paragraph, then a list only when the items
+  really are parallel.
+
+## What is never yours to change
+
+- Facts: a claim, a number, a path, a flag, a default, a name, a version. If you cannot keep it
+  exactly, leave the sentence alone and say so.
+- Behaviour: what code does, its public names, its error types, its outputs, the order of its side
+  effects. A rewrite the tests cannot tell apart from the original is the whole job.
+- Structure a reader or a tool depends on: headings that are link anchors, tables a test reads,
+  the order of a checklist, a comment a lint keys on.
+- A comment that explains a real trap. Ugly and true beats absent.
+- The author's decisions. You may make a sentence clearer; you may not make it say something else.
+
+## Done when
+
+The text reads aloud without a stumble, every remaining comment answers *why*, nothing is longer
+than before without a reason, every fact and name is where it was, and you can list what you left
+alone and why.
+"""

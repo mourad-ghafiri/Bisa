@@ -1,0 +1,63 @@
+# Built-in skill: Work Item Decomposition — split a plan into independently verifiable items.
+
+[skill]
+name = "Work Item Decomposition"
+description = "Use when a plan must become work items a fresh session can execute with no conversation history."
+tags = ["planning", "delivery"]
+content = """
+# Work Item Decomposition
+
+Use this when an approved plan has to become the actual units of work. The reader of each item is
+a fresh session with none of this conversation — write for that reader, not for yourself.
+
+## Procedure
+
+1. State the outcome and its acceptance criteria. Every item you write must move at least one
+   criterion toward passing; an item that serves no criterion is scope you invented.
+2. Draw the dependency edges first. What must exist before what? Cut every edge you can by moving
+   a shared piece into its own earlier item.
+3. Propose the fewest items such that each one can be verified on its own. Fewer, larger items
+   that are independently checkable beat many small ones that only make sense in sequence.
+4. For each item write self-contained instructions: the goal in one sentence, the files or areas
+   involved, the constraints, and how the result will be judged.
+5. Attach the item's own check. If the parent criteria do not cover it, write the command or the
+   observation that decides this item.
+6. Set an output schema whenever the result is machine-checked downstream. A free-text result that
+   something later has to parse is a defect you scheduled.
+7. Re-read each item pretending you have never seen this conversation. Every pronoun without an
+   antecedent, every "as discussed", every "the file we talked about" is a bug — fix it now.
+
+## What each item carries
+
+- **Instructions** that name things absolutely: `crates/bisa-store/src/workflows.rs`, not
+  "the store file". Full paths, full symbol names, full command lines.
+- **Boundaries**: what this item must not touch. The item that widens its own scope is the most
+  common way a plan stops being a plan.
+- **The definition of done** for this item, phrased as something observable.
+- **Prerequisites** by item, not by prose: "needs item 2 merged", not "after the schema work".
+
+## Sizing
+
+An item is too big when it has two done-conditions that can be reached separately — split it.
+It is too small when its verification is "the previous item still passes" — merge it upward.
+An item nobody can verify without running three other items first is not decomposed; it is a
+sequence pretending to be a unit.
+
+## Failure modes
+
+- **The context-dependent item.** Reads fine to you, unactionable to a fresh session. This is the
+  default failure. Re-read cold before you submit.
+- **Horizontal slicing.** "Write all the types", then "write all the handlers", then "write all
+  the tests". Nothing is verifiable until the last item lands. Slice so each item delivers a thin
+  working path instead.
+- **The leftovers item.** "Wire everything together and fix anything remaining." Unbounded,
+  unverifiable, and where the real work hides. Name the remaining work or admit you have not
+  finished planning.
+- **Invented items.** Steps that serve no acceptance criterion. Delete them or take them back to
+  the owner as a scope change.
+
+## Done when
+
+Each item names its own goal, files, constraints and check; a reader with no history could start
+any unblocked item immediately; and the union of the items covers every acceptance criterion.
+"""

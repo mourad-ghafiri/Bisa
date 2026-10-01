@@ -1,0 +1,51 @@
+# Who reviews what (docs/contributing/review/README.md). The last matching
+# pattern wins. Today the owner owns every path; maintainers are added to the
+# areas they own (docs/contributing/maintainers.md).
+
+# Everything
+*                                   @mourad-ghafiri
+
+# The platform
+/crates/bisa-core/                  @mourad-ghafiri
+/crates/bisa-store/                 @mourad-ghafiri
+/crates/bisa-engine/                @mourad-ghafiri
+/crates/bisa-node/                  @mourad-ghafiri
+/crates/bisa-cli/                   @mourad-ghafiri
+/crates/bisa-mcp/                   @mourad-ghafiri
+/crates/bisa-mcp-probe/             @mourad-ghafiri
+/crates/bisa-harness/               @mourad-ghafiri
+/crates/bisa-adapters/              @mourad-ghafiri
+/crates/bisa-collab/                @mourad-ghafiri
+/crates/bisa-guest/                 @mourad-ghafiri
+/crates/bisa-net/                   @mourad-ghafiri
+/crates/bisa-connectors/            @mourad-ghafiri
+/crates/bisa-decision/              @mourad-ghafiri
+/crates/bisa-i18n/                  @mourad-ghafiri
+/crates/bisa-lsp/                   @mourad-ghafiri
+/crates/bisa-codehost/              @mourad-ghafiri
+/crates/bisa-mobile-development/    @mourad-ghafiri
+
+# The desktop
+/desktop/                           @mourad-ghafiri
+/addons/                            @mourad-ghafiri
+
+# Content
+/library/                           @mourad-ghafiri
+/locales/                           @mourad-ghafiri
+/docs/                              @mourad-ghafiri
+/website/                           @mourad-ghafiri
+
+# Security-critical: two approvals once the project has two maintainers
+/crates/bisa-security/              @mourad-ghafiri
+/crates/bisa-vcs/                   @mourad-ghafiri
+/crates/bisa-ssh/                   @mourad-ghafiri
+/crates/bisa-netrules/              @mourad-ghafiri
+/crates/bisa-node/src/auth.rs       @mourad-ghafiri
+/desktop/src-tauri/                 @mourad-ghafiri
+/deny.toml                          @mourad-ghafiri
+/desktop/src-tauri/deny.toml        @mourad-ghafiri
+/scripts/release/                   @mourad-ghafiri
+/scripts/macos/                     @mourad-ghafiri
+/scripts/licences/                  @mourad-ghafiri
+/.github/                           @mourad-ghafiri
+/SECURITY.md                        @mourad-ghafiri

@@ -1,0 +1,38 @@
+{
+  "generatedAt": 1788775200000,
+  "reports": [
+    {
+      "provider": "anthropic",
+      "metadata": { "email": "dev@example.com", "accountId": "redacted", "planType": "max" },
+      "limits": [
+        {
+          "label": "Session",
+          "scope": "account",
+          "window": { "label": "5h", "durationMs": 18000000, "resetsAt": 1788782400000 },
+          "amount": { "used": 23.5, "limit": 100, "remaining": 76.5, "unit": "percent" }
+        },
+        {
+          "label": "Weekly",
+          "scope": "account",
+          "window": { "label": "7d", "durationMs": 604800000, "resetsAt": 1789128000000 },
+          "amount": { "used": 41.2, "limit": 100, "remaining": 58.8, "unit": "percent" }
+        }
+      ]
+    },
+    {
+      "provider": "zai",
+      "metadata": { "planType": "coding-pro" },
+      "limits": [
+        {
+          "label": "Credits",
+          "scope": "plan",
+          "window": { "label": "month", "durationMs": 2592000000, "resetsAt": 1791367200 },
+          "amount": { "used": 500, "limit": 2000, "remaining": 1500, "unit": "credits" }
+        }
+      ]
+    }
+  ],
+  "accountsWithoutUsage": [ { "provider": "openai", "reason": "no usage endpoint" } ],
+  "disabledCredentials": [],
+  "capacity": null
+}

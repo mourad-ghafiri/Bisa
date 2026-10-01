@@ -1,0 +1,7 @@
+# Built-in team: Design — a committed outcome becomes flows and states.
+
+[team]
+name = "Design"
+purpose = "Turns a committed outcome into task flows, screen states and the words in them, so someone can build against it. Happy path, empty, error and loading — before pixels, and before code."
+tags = ["design", "product"]
+agents = ["ux-designer", "product-manager", "content-strategist", "document-humanizer"]

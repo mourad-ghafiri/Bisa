@@ -1,0 +1,24 @@
+[package]
+name = "bisa-iso"
+description = "Isolation PAL: two-phase probe, ordered fallback backends"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+# Deliberately sync (no tokio): start/stop wrap blocking primitives the engine
+# drives from spawn_blocking; diff delegates to bisa-vcs or walks trees.
+[dependencies]
+bisa-vcs = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+similar = "3"
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

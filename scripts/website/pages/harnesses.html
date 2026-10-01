@@ -1,0 +1,69 @@
+<!--{"path": "/harnesses/", "title": "Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa", "description": "Bisa drives the coding agents you already have — Claude Code, Codex CLI, OpenCode, Copilot CLI, Grok Build, pi and any ACP agent — and says what it does with each."}-->
+<section class="page-head">
+  <div class="wrap">
+    <p class="step-label">Bring your own</p>
+    <h1>Your harnesses, in one IDE</h1>
+    <p class="lede">Bisa ships no coding agent and no model client. It drives the harnesses on your machine — signed in as you, on your plans — gives each the platform's tools, and says honestly what it can and cannot do with each one. It installs nothing and signs in to nothing for you: where a harness is missing, it shows the official line to copy.</p>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="table-wrap">
+    <table class="reach">
+      <caption>What Bisa does with each harness</caption>
+      <thead>
+        <tr><th scope="col">Harness</th><th scope="col">Workflow steps and conversations</th><th scope="col">In a terminal tab</th><th scope="col">The guard</th><th scope="col">Account usage</th></tr>
+      </thead>
+      <tbody>
+        <tr><th scope="row">{{harness:claude_code}}</th><td>driven, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>yes</td></tr>
+        <tr><th scope="row">{{harness:codex}}</th><td>driven, with the platform's tools</td><td>reports its state, resumed with <code>resume --last</code></td><td>observed</td><td>yes</td></tr>
+        <tr><th scope="row">{{harness:opencode}}</th><td>driven, with the platform's tools</td><td>read from its own event stream, resumed with <code>--continue</code></td><td>observed</td><td>with a Claude sign-in</td></tr>
+        <tr><th scope="row">{{harness:copilot}}</th><td>driven over ACP, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">{{harness:grok}}</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--continue</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">{{harness:pi_rpc}}</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">{{harness:omp}}</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>yes</td></tr>
+        <tr><th scope="row">Any ACP agent</th><td>driven, with the platform's tools</td><td>—</td><td>judged before it runs</td><td>—</td></tr>
+        <tr><th scope="row">An A2A agent</th><td>a remote agent, driven</td><td>—</td><td>observed</td><td>—</td></tr>
+        <tr><th scope="row">Your own JSON harness</th><td>driven, in conversation</td><td>its own resume, when you give one</td><td>observed</td><td>—</td></tr>
+        <tr><th scope="row">{{preset:goose}} · {{preset:cursor-agent}}</th><td>over ACP, as any ACP agent</td><td>detected and opened, resumed with their own flag</td><td>judged over ACP</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="fine"><em>Judged before it runs</em>: the harness asks before a tool runs, and the Tool &amp; Commands Guard answers. <em>Observed</em>: the harness runs under its own sandbox and approval prompt; what it did is reported and redacted, but not vetoed. <em>In conversation</em>: the harness takes no MCP server, so a workflow's <code>agent</code> step is placed on a harness that does.</p>
+</div>
+
+<div class="wrap prose">
+  <section id="claude-code" aria-labelledby="h-claude">
+    <h2 id="h-claude">{{harness:claude_code}}</h2>
+    <p>The deepest integration. A workflow step or a conversation runs a {{harness:claude_code}} session with the platform's MCP server; every read, write and command comes back to the guard before it runs, and a secret's placeholder is restored only at that moment. In a terminal tab its hooks report each turn, tool and question to the roster, and the guard answers its <code>PreToolUse</code>. Skills arrive where it reads them; the effort is its own <code>--effort</code>; the footer shows what its account has left.</p>
+  </section>
+  <section id="codex" aria-labelledby="h-codex">
+    <h2 id="h-codex">{{harness:codex}}</h2>
+    <p>Driven with the platform's tools and an effort fitted to its levels. In a terminal its hooks report turns, tools and permissions; it asks nobody before a tool runs, so the guard observes it rather than vetoing. Its account's windows and plan come from the CLI itself.</p>
+  </section>
+  <section id="opencode" aria-labelledby="h-opencode">
+    <h2 id="h-opencode">{{harness:opencode}}</h2>
+    <p>Driven with the platform's tools; in a terminal Bisa reads OpenCode's own event stream — turns, tools, permissions, questions, cost and sub-agents — and injects nothing. Observed by the guard.</p>
+  </section>
+  <section id="copilot" aria-labelledby="h-copilot">
+    <h2 id="h-copilot">{{harness:copilot}}</h2>
+    <p>Driven over the Agent Client Protocol: the model and then the effort are set the protocol's way, and every tool is asked before it runs. Bisa never starts it with a word that allows tools unasked. In a terminal, hooks written for that one launch report its state and let the guard answer before each tool.</p>
+  </section>
+  <section id="grok" aria-labelledby="h-grok">
+    <h2 id="h-grok">{{harness:grok}}</h2>
+    <p>Driven over the Agent Client Protocol with the platform's tools, the model and the effort set as the session offers them, every tool asked before it runs. Its terminal takes no hook for one launch and Bisa writes nothing into your configuration, so a Grok tab is a plain terminal: unreported and unguarded.</p>
+  </section>
+  <section id="pi" aria-labelledby="h-pi">
+    <h2 id="h-pi">{{harness:pi_rpc}} and {{harness:omp}}</h2>
+    <p>Driven in conversation, and reporting their turns and tools from a terminal through a generated extension. Neither takes an MCP server, so a workflow's agent step goes to a harness that does. Oh My Pi's account usage shows in the footer.</p>
+  </section>
+  <section id="acp" aria-labelledby="h-acp">
+    <h2 id="h-acp">Any ACP agent — {{preset:goose}}, {{preset:cursor-agent}} and more</h2>
+    <p>Anything that speaks the Agent Client Protocol is a harness: it is handed the platform's MCP server, asks before each tool, and is set to a model when its session offers one. {{preset:goose}} and {{preset:cursor-agent}} are also detected in a terminal and resumed with their own flags.</p>
+  </section>
+  <section id="a2a" aria-labelledby="h-a2a">
+    <h2 id="h-a2a">A2A agents, and your own</h2>
+    <p>A remote agent that speaks A2A can be an agent's harness, and Bisa's own agents can be exposed over A2A. A harness Bisa does not know is a descriptor of your own: a program and its arguments, speaking line-delimited JSON.</p>
+  </section>
+  <p><a class="arrow" href="{{guide:agents-and-teams}}">Agents, harnesses and models, in the guide</a></p>
+</div>

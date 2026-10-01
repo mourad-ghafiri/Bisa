@@ -1,0 +1,21 @@
+:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --line: rgba(28, 25, 23, 0.15); --field: rgba(28, 25, 23, 0.06); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --line: rgba(245, 245, 244, 0.18); --field: rgba(245, 245, 244, 0.08); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; font: 12px/1.35 system-ui, sans-serif; color: var(--ink); background: transparent; }
+.weather { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
+.where { display: flex; gap: 6px; }
+.where input { flex: 1; min-width: 0; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); color: var(--ink); font: inherit; }
+.where button { border: 1px solid var(--line); background: var(--field); color: var(--ink); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+.where .quiet { color: var(--dim); }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
+.place { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-weight: 600; padding: 2px 6px; margin-left: -6px; cursor: pointer; }
+.place:hover { border-color: var(--line); background: var(--field); }
+.place span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chev { color: var(--dim); font-size: 10px; }
+.main { display: flex; align-items: center; gap: 8px; }
+.icon { font-size: 28px; line-height: 1; }
+.temp { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.desc, .meta, .note { margin: 0; color: var(--dim); }
+.note { font-size: 11px; margin-top: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

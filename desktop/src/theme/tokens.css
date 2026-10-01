@@ -1,0 +1,185 @@
+/* ---------------------------------------------------------------------------
+   The role contract.
+
+   A theme is not a stylesheet, it is a set of values for the roles named
+   here. Nothing in the app names a colour: components ask for `surface`,
+   `text-dim` or `danger-soft`, and whichever theme is mounted answers. That
+   is what makes a new theme a data change rather than a sweep through 40
+   files.
+
+   Calm and legible: a 14px base with a 12px floor, a 4px grid, one accent,
+   and status colour drawn from a single hue ramp so a board of eight states
+   reads as one system rather than a paint chart. People sit in front of this
+   window for hours; `theme/themes.test.mjs` holds every theme to a contrast
+   promise so that stays true whichever family they pick.
+
+   Colour rules every theme inherits:
+   - The accent means **your attention**. "Waiting on you" wears it, because
+     that is the app's primary call to action. An accent picked because it
+     looks nice, spent on a surface that is not asking for anything, breaks
+     the one promise this UI makes. If a theme wants a signature colour that
+     is not a summons, it does not get to be the accent.
+   - The neutrals carry the theme's character. They are 90% of the pixels, so
+     a warm neutral is what keeps this UI from reading violet, and the hue of
+     the neutral is the whole difference between Harbor, Orchard and Dune.
+   - `danger` sits far enough from the accent in hue that the two never blur;
+     `warn` is a condition you should know about, not one that blocks you, and
+     is used sparingly.
+   - A theme owns its **material** as well as its colours. Elevation is two
+     shadow roles — `shadow-raised` for a card or a row that lifts,
+     `shadow-floating` for a dialog, a menu, a tooltip — and Tailwind's
+     `shadow-sm` / `shadow-lg` / `shadow-xl` are mapped onto them below, so
+     the components never know which. A matte family answers `none` and a
+     soft wide float; a glass family adds an inner light edge. The two
+     `material-*` roles are the backdrop a glass family frosts through
+     (`theme/material.css`): an opaque family answers `0px` and `1`, and the
+     material file never matches it.
+   - `accent-ink` is the accent at text contrast. Use it for accent-coloured
+     *text*; `accent` alone is a fill/border/dot colour, and text placed on an
+     `accent` fill uses `accent-contrast`. `accent-contrast` also serves text
+     on a `danger` fill: the two are at the same lightness in every theme by
+     construction, so one role covers both and a theme cannot get one right
+     while getting the other wrong.
+
+   Six dials compose on the root element, and they are orthogonal on purpose:
+
+     data-theme      harbor | harbor-dark | orchard | orchard-dark | dune | dune-dark
+                     | glass | glass-dark | suede | suede-dark
+                     (absent = follow the system, in Harbor)
+     data-accent     violet | teal | rose   (absent = the family's own accent)
+     data-density    compact                (absent = comfortable)
+     data-font-ui    inter | atkinson       (absent = the system stack)
+     data-font-mono  jetbrains | plex       (absent = the system stack)
+     --type-scale    a number               (absent = 1)
+
+   `theme/themes/*.css` answer the first (and `theme/material.css` frosts
+   the panes of a glass family), `theme/accents.css` the second,
+   `theme/density.css` the third, `theme/fonts.css` the two font dials, and
+   the type scale is read straight from the variable by the scale below.
+   `shell/theme.ts` stamps all six.
+
+   The values in the `@theme` block below are a **fallback, not a theme**.
+   Tailwind needs a value at declaration time to generate a utility, and if
+   you are looking at a flat grey app then no theme file loaded — which is a
+   louder, more diagnosable failure than a half-painted screen.
+--------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---- Type scale ------------------------------------------------------
+     Every size is a multiple of `--type-rem`, a virtual rem that defaults to
+     the real one. One control moves the whole scale, and because the spacing
+     tokens below are expressed against the same unit, rows and chrome grow
+     with the text instead of trapping it. The comments are the sizes at
+     `--type-scale: 1`. Each step carries its own line height: dense rows
+     want a tight one, running text a generous one, and a size without a
+     leading is a size the browser guesses.
+  */
+  --text-3xs: calc(var(--type-rem) * 0.6875); /* 11px — a badge, a glyph label */
+  --text-3xs--line-height: 1.35;
+  --text-2xs: calc(var(--type-rem) * 0.75); /* 12px — meta, counts, secondary */
+  --text-2xs--line-height: 1.4;
+  --text-xs: calc(var(--type-rem) * 0.8125); /* 13px — dense rows */
+  --text-xs--line-height: 1.45;
+  --text-sm: calc(var(--type-rem) * 0.875); /* 14px — the body */
+  --text-sm--line-height: 1.5;
+  --text-base: calc(var(--type-rem) * 1); /* 16px — emphasis, running text */
+  --text-base--line-height: 1.5;
+  --text-lg: calc(var(--type-rem) * 1.125); /* 18px — section titles */
+  --text-lg--line-height: 1.35;
+  --text-xl: calc(var(--type-rem) * 1.375); /* 22px — screen titles */
+  --text-xl--line-height: 1.25;
+
+  /* ---- Spacing ---------------------------------------------------------
+     Tailwind's default 4px scale still covers padding and gaps. These are
+     the three heights the layout is built from, and they are what `density`
+     moves.
+  */
+  --spacing-row-sm: calc(var(--type-rem) * 1.75); /* 28px — a tree's or a graph's row, read as pixels by `useTokenPx` */
+  --spacing-row: calc(var(--type-rem) * 2.25); /* 36px — dense list rows, incl. every sidebar row */
+  --spacing-row-lg: calc(var(--type-rem) * 2.75); /* 44px — inbox rows */
+  --spacing-chrome: calc(var(--type-rem) * 2.5); /* 40px — the top chrome strip */
+
+  /* ---- The theme-owned roles ------------------------------------------
+     Everything between the two markers is what a theme file must supply, all
+     of it, every time. `roles.test.mjs` reads these markers and checks each
+     theme against them, because a role a theme forgot is not a visual bug —
+     it is a control that renders with no colour at all and cannot be seen or
+     found again.
+  */
+  /* @roles:start */
+  --color-bg: oklch(0.98 0 0);
+  --color-surface: oklch(1 0 0);
+  --color-surface-2: oklch(0.96 0 0);
+  --color-border: oklch(0.9 0 0);
+  --color-text: oklch(0.25 0 0);
+  --color-text-dim: oklch(0.55 0 0);
+  --color-accent: oklch(0.55 0 0);
+  --color-accent-ink: oklch(0.45 0 0);
+  --color-accent-soft: oklch(0.94 0 0);
+  --color-accent-contrast: oklch(1 0 0);
+  --color-warn: oklch(0.6 0 0);
+  --color-warn-soft: oklch(0.94 0 0);
+  --color-danger: oklch(0.5 0 0);
+  --color-danger-soft: oklch(0.94 0 0);
+  --color-ok: oklch(0.55 0 0);
+  --color-ok-soft: oklch(0.94 0 0);
+  --color-overlay: oklch(0 0 0 / 0.4);
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --shadow-raised: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-floating: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --material-blur: 0px;
+  --material-saturate: 1;
+  /* @roles:end */
+
+  /* ---- Elevation is the theme's -----------------------------------------
+     Tailwind's shadow utilities resolve to these, so `shadow-sm` on a card
+     and `shadow-lg` on a menu are whatever the mounted family says a raised
+     and a floating surface look like. Nothing in a component names a shadow
+     of its own; a family that wants no shadows answers `none`.
+  */
+  --shadow-sm: var(--shadow-raised);
+  --shadow-lg: var(--shadow-floating);
+  --shadow-xl: var(--shadow-floating);
+}
+
+:root {
+  /*
+   * The virtual rem. `--type-scale` is the only thing a size control writes,
+   * and it is a plain number so it composes with the webview's own zoom
+   * rather than fighting it: zoom moves the real rem, this moves ours, and
+   * the two multiply.
+   */
+  --type-scale: 1;
+  --type-rem: calc(1rem * var(--type-scale));
+
+  /*
+   * Motion durations live here so "make the app calmer" is one edit. Short,
+   * flat and skippable: this is a tool, and an animation that outlasts the
+   * decision behind it is in the way.
+   */
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 240ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
+ * Reduced motion is honoured by zeroing the tokens rather than by disabling
+ * each animation, so a component added next year is covered without anyone
+ * remembering to cover it. Durations go to 1ms rather than 0 because a
+ * zero-length CSS animation never fires `animationend`, and Radix waits on
+ * that event before unmounting an exit-animated element.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 1ms;
+    --motion-base: 1ms;
+    --motion-slow: 1ms;
+  }
+}

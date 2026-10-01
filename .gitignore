@@ -1,0 +1,27 @@
+# Study material (research clones — not part of the platform)
+/lab/
+
+# Rust
+/target/
+
+# The desktop application for this Mac (scripts/bundle-macos.sh)
+/dist/
+# The signed, notarized release: the disk image and its SHA-256 (scripts/release-macos.sh)
+/release/
+**/*.rs.bk
+
+# Desktop frontend
+desktop/node_modules/
+desktop/dist/
+# The canvas's fonts, copied from the package at dev and build (desktop/scripts/sync-excalidraw-assets.mjs)
+desktop/public/excalidraw/
+desktop/src-tauri/target/
+
+# Local state / scratch
+.DS_Store
+*.log
+desktop/src-tauri/gen/
+
+# Python bytecode (scripts/lint-terminology is run, never imported)
+__pycache__/
+*.pyc

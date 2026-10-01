@@ -1,0 +1,7 @@
+# Built-in channel: delivery — sequence, handoffs, and what ships when.
+
+[channel]
+name = "delivery"
+topic = "What is blocked, what slipped, what ships when, and who is told. The room for the schedule and the handoffs between roles, as opposed to what is broken right now (operations) or what is worth building at all (product)."
+tags = ["delivery", "management"]
+agents = ["project-manager", "release-manager", "technical-writer", "document-humanizer", "communications-lead"]

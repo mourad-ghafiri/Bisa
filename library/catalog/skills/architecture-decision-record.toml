@@ -1,0 +1,63 @@
+# Built-in skill: Architecture Decision Record — write down why, for the person who asks later.
+
+[skill]
+name = "Architecture Decision Record"
+description = "Use when a structural choice is made that someone will later want to change without knowing why it exists."
+tags = ["engineering", "planning"]
+content = """
+# Architecture Decision Record
+
+Use this when a decision is hard to reverse, spans more than one component, or will look arbitrary
+in six months. The audience is whoever proposes undoing it. Give them what they need to judge.
+
+## Structure
+
+Write these sections, in this order, in one file per decision, numbered and dated.
+
+1. **Title** — the decision as a noun phrase: "Workstreams live under the goal, not in the
+   project". Not "Workstream storage discussion".
+2. **Status** — proposed, accepted, superseded by ADR-0012, deprecated. Never delete a superseded
+   record; the wrong-in-hindsight ones are the most instructive.
+3. **Context** — the forces at the time. What the system looked like, what the constraint was, what
+   was uncertain, what deadline applied. Write it so a reader who joined later understands the
+   world you were in. This section is what stops the record reading as arbitrary.
+4. **Decision** — one paragraph, active voice, present tense: "Workstreams are created under
+   `goals/<id>/workstreams/<id>`." Say what is now true, not what you plan to do.
+5. **Options rejected** — each one named, with the reason it lost, in one or two sentences. This
+   is the section that gets skipped and the section that gets read. Without it, the next person
+   re-litigates a path you already walked down.
+6. **Consequences** — what becomes easier, what becomes harder, what you now have to live with.
+   Include the costs you accepted knowingly; a consequences section with no downsides is
+   advertising.
+7. **Revisit when** — the concrete trigger that should reopen this: a scale threshold, a
+   dependency's end of life, a constraint that expires, a metric crossing a line. "Revisit if
+   workstream count per goal exceeds a few thousand and directory listing becomes the bottleneck."
+
+## Rules
+
+- One decision per record. Two decisions in one file means neither can be superseded alone.
+- Write it when the decision is made, not after implementation. Written afterward it becomes a
+  description of the code, which the code already provides.
+- Record the decision, not the debate. Who argued what belongs in the meeting notes.
+- Cite the evidence you had: the benchmark, the incident, the constraint document. Say what you
+  did not know.
+- Keep it under two pages. An ADR nobody finishes is an ADR nobody uses.
+- Do not edit an accepted record to reflect a new decision. Write a new one and mark the old
+  superseded — the value is the trail.
+
+## Failure modes
+
+- **Context-free.** Straight to the decision. The reader cannot tell whether the reasoning still
+  holds, so they either cargo-cult it forever or ignore it entirely.
+- **No rejected options.** The most expensive omission: the next team pays again to learn what you
+  already learned.
+- **Consequences as benefits.** Only upsides listed. Then the real cost arrives and the record has
+  no credibility left.
+- **Retroactive tidying.** Rewriting the context to make the decision look better reasoned than it
+  was. The record's only value is honesty about what you knew.
+
+## Done when
+
+Context, decision, rejected options, consequences and a revisit trigger are all present; the
+decision is stated in one paragraph; and the record does not need this conversation to be read.
+"""

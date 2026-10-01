@@ -1,0 +1,139 @@
+{
+  "id": "bisa-pets.midnight-shipping.fathom",
+  "displayName": "Fathom",
+  "description": "Reads all the way down. A deep-water squid that starts at the bottom of the log and works upward. Has already read the part you scrolled past. Marks the line, taps the margin twice, and never says it told you so.",
+  "spritesheetPath": "spritesheet.webp",
+  "frame": {
+    "width": 192,
+    "height": 208
+  },
+  "fps": 8,
+  "defaultAnimation": "idle",
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 6,
+      "frameDurationsMs": [
+        2490,
+        1029,
+        1029,
+        1295,
+        1295,
+        2822
+      ]
+    },
+    "running-right": {
+      "row": 1,
+      "frames": 8,
+      "frameDurationsMs": [
+        143,
+        143,
+        143,
+        169,
+        143,
+        143,
+        143,
+        246
+      ]
+    },
+    "running-left": {
+      "row": 2,
+      "frames": 8,
+      "frameDurationsMs": [
+        143,
+        143,
+        143,
+        169,
+        143,
+        143,
+        143,
+        246
+      ]
+    },
+    "waving": {
+      "row": 3,
+      "frames": 4,
+      "frameDurationsMs": [
+        322,
+        219,
+        219,
+        468
+      ]
+    },
+    "jumping": {
+      "row": 4,
+      "frames": 5,
+      "frameDurationsMs": [
+        327,
+        164,
+        409,
+        177,
+        518
+      ]
+    },
+    "failed": {
+      "row": 5,
+      "frames": 8,
+      "frameDurationsMs": [
+        199,
+        183,
+        229,
+        275,
+        336,
+        397,
+        489,
+        947
+      ]
+    },
+    "waiting": {
+      "row": 6,
+      "frames": 6,
+      "frameDurationsMs": [
+        697,
+        564,
+        564,
+        697,
+        564,
+        1162
+      ]
+    },
+    "running": {
+      "row": 7,
+      "frames": 6,
+      "frameDurationsMs": [
+        234,
+        203,
+        203,
+        234,
+        203,
+        343
+      ]
+    },
+    "review": {
+      "row": 8,
+      "frames": 6,
+      "frameDurationsMs": [
+        414,
+        319,
+        319,
+        383,
+        351,
+        988
+      ]
+    }
+  },
+  "x-bisa-pets": {
+    "pack": "midnight-shipping",
+    "slug": "fathom",
+    "tagline": "Reads all the way down.",
+    "archetype": "squid",
+    "personality": "patient-archivist",
+    "mood": "curious",
+    "render": {
+      "fitScale": 1.1226,
+      "riseCap": 10.18,
+      "inkWidth": 3.4,
+      "eyeRadius": 12.29
+    }
+  }
+}

@@ -1,0 +1,73 @@
+# Built-in workflow: Weekly review — a digest of what moved, posted where the
+# team reads, every week on its own or whenever someone runs it.
+#
+# Two ways in: by hand, and a schedule read from the `when` input — a cron
+# expression in UTC, Monday at 09:00 unless it is changed. The schedule is
+# heard once the workflow is turned On, or while a goal that runs it is open.
+
+[workflow]
+name = "Weekly review"
+description = "On a weekly schedule or by hand: an advisor reads the whole workspace, writes what moved, what is waiting on a person and what stalled, and posts it. The schedule is Monday at 09:00 UTC unless it is changed."
+tags = ["management", "planning"]
+
+[[workflow.inputs]]
+name = "channel"
+label = "Where the digest is posted"
+kind = "text"
+default = "general"
+
+[[workflow.inputs]]
+name = "when"
+label = "When it runs on its own, as a cron expression in UTC"
+kind = "text"
+default = "0 9 * * MON"
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["digest"]
+
+[[workflow.steps]]
+id = "weekly"
+name = "Every week"
+kind = "start"
+on = { event = "schedule", cron = { input = "when" } }
+then = ["digest"]
+
+[[workflow.steps]]
+id = "digest"
+name = "Write the digest"
+kind = "agent"
+assignee = { agent = "general-advisor" }
+max_visits = 1
+retries = 1
+instructions = """
+Write this week's review of the workspace. Read the goals and their runs, the
+conversations and the inbox. Three sections: what moved, what is waiting on a
+person, what stalled and why. Short; the names, not the adjectives. Your
+result carries the digest as markdown.
+"""
+then = ["post"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["digest"]
+
+[workflow.steps.output_schema.properties.digest]
+type = "string"
+description = "The digest as markdown, in three sections: what moved, what is waiting on a person, what stalled and why."
+
+[[workflow.steps]]
+id = "post"
+name = "Post it"
+kind = "notify"
+scope = "{inputs.channel}"
+template = "{steps.digest.output.digest}"
+then = ["done"]
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

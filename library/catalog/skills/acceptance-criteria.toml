@@ -1,0 +1,58 @@
+# Built-in skill: Acceptance Criteria — turn a wanted outcome into criteria that can fail.
+
+[skill]
+name = "Acceptance Criteria"
+description = "Use when an outcome needs criteria a verifier can pass or fail without asking what you meant."
+tags = ["product", "quality"]
+content = """
+# Acceptance Criteria
+
+Use this when you have a desired outcome and need the contract that decides whether it was
+delivered. The criteria are what a verifier judges against, so they must be able to fail.
+
+## Procedure
+
+1. Write the outcome in one sentence, in the owner's words. If you cannot, you do not yet
+   understand it — ask, do not guess.
+2. List the observable differences between "done" and "not done". Each difference is a candidate
+   criterion. Ignore anything you cannot observe from outside the work.
+3. For each candidate, write the check. Prefer a check a shell command performs:
+   `cargo test -p bisa-core` exits 0. `curl -s localhost:8080/health | grep -q '"ok"'` exits 0.
+   `rg -n 'unwrap\\(\\)' crates/bisa-vcs/src` returns nothing.
+4. When no command can check it, name the file and the line, the screen and the action, or the
+   document and the section that a human reads. "Reviewed and looks good" is not a check.
+5. Cut to three to five criteria. Three sharp criteria beat eight vague ones — the eight get
+   skimmed, the three get run.
+6. Test each criterion against the independence rule below. Rewrite or drop the ones that fail.
+7. Show the set to the owner before work starts. Criteria discovered after delivery are not
+   criteria, they are complaints.
+
+## Rules each criterion obeys
+
+- **One claim.** "The endpoint returns 200 and logs the request id" is two criteria. Split it, or
+  the verdict is half-passed and meaningless.
+- **Independent.** Criterion 3 must be checkable whether or not criterion 2 passed. Chained
+  criteria collapse into a single all-or-nothing check the moment the first one fails.
+- **Falsifiable.** Say what input, in what environment, produces what result. If you cannot
+  describe the observation that would refute it, it is a wish.
+- **Outcome, not method.** "Requests are rate limited to 10/s" is a criterion. "Uses a token
+  bucket" is a design decision smuggled into the contract.
+- **Bounded.** Numbers have units and thresholds: "p95 under 200ms over 1000 requests", never
+  "fast". "No new clippy warnings", never "clean code".
+
+## Failure modes
+
+- **The criterion that cannot fail.** "The code compiles" on a change that only edits Markdown.
+  It passes for free and tells you nothing. Every criterion must have a plausible failing world.
+- **The criterion nobody can run.** It names a fixture, a dataset or an account the verifier does
+  not have. Name the setup as part of the criterion or choose a different check.
+- **Scope smuggling.** A criterion that requires work nobody agreed to build. If passing it means
+  doing more than the stated outcome, it belongs in a separate goal.
+- **The adjective.** "Clean", "intuitive", "solid", "properly handled". Replace with the
+  observation you would actually make, or delete the criterion.
+
+## Done when
+
+Each criterion states one claim, someone other than you can run it without further questions, and
+you can describe, for every criterion, the world in which it fails.
+"""

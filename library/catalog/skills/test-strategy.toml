@@ -1,0 +1,63 @@
+# Built-in skill: Test Strategy — decide what to automate, at which level, and what to skip.
+
+[skill]
+name = "Test Strategy"
+description = "Use when deciding what to test and at which level, before writing tests or reviewing coverage."
+tags = ["quality", "engineering"]
+content = """
+# Test Strategy
+
+Use this before writing a test suite, or when an existing one is slow, flaky, or passing while the
+product is broken. Tests exist to let you change code without fear. Anything else is overhead.
+
+## Procedure
+
+1. List the behaviours that must not break, in the user's terms. That list — not the code — is
+   what you are covering.
+2. For each behaviour, pick the cheapest level that would actually catch it breaking:
+   - **Unit** — pure logic, branching, parsing, arithmetic, state machines. Fast, no I/O, no
+     sleeps. Most of your tests. If a unit test needs five mocks, the design is telling you
+     something; fix the seam rather than the test.
+   - **Integration** — the seams you actually own: a real database, real serialization, real
+     filesystem, a real HTTP handler. This is where the bugs that reach production live, because
+     it is where two correct components disagree about the contract.
+   - **End to end** — a handful, covering the paths whose failure you would be paged for. They are
+     slow and brittle in proportion to their coverage, so spend them on the money paths only.
+   - **Property or fuzz** — where inputs are adversarial or the invariant is easy to state:
+     round-trips, parsers, ordering, idempotence.
+3. Write the failing test first when you can. A test never observed failing has not been tested.
+4. For each behaviour, write down what a regression would look like in the failure output.
+5. Cover the error paths at the level the error is produced, not three layers up.
+
+## What a good failure message says
+
+The name says what broke: `commit_refuses_clean_tree`, not `test_commit_3`. The assertion names
+the expected value, the actual value, and the input that produced them. When a test fails at 3am,
+the message alone should tell the on-call engineer whether to roll back. Prefer one assertion per
+behaviour so the name and the failure agree.
+
+## Flake discipline
+
+- A flaky test is worse than no test: it trains the team to re-run red builds, and a real failure
+  gets re-run too.
+- Quarantine on the second flake, with an owner and a date. Never add a blanket retry — retries
+  hide the race you were about to find.
+- Root causes are nearly always one of: a real race, a shared fixture, wall-clock time, ordering
+  assumed from a set or map, an unawaited task, or a port or temp path collision. Check those
+  before blaming the runner.
+- Never assert on timing with a sleep. Wait for the condition.
+
+## What not to test
+
+- Generated code, third-party libraries, and the language's own semantics.
+- Private helpers, directly — test them through the behaviour that uses them, or they will pin the
+  implementation and make refactoring impossible.
+- Exact log lines, exact error strings, exact struct field order, unless they are the contract.
+- Coverage percentage as a target. It measures lines executed, not assertions made; a suite can
+  hit 90% and assert almost nothing.
+
+## Done when
+
+Each must-not-break behaviour maps to exactly one test at the cheapest level that catches it, every
+test has been seen to fail for the right reason, and no test in the suite is known to be flaky.
+"""

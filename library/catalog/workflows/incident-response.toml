@@ -1,0 +1,199 @@
+# Built-in workflow: Incident response — scope, mitigate, tell people, then find
+# the cause.
+#
+# Mitigation comes before diagnosis, a person confirms the bleeding stopped,
+# and the root cause becomes its own goal. It starts by hand, or — once the
+# workflow is turned On — whenever a run fails anywhere in the workspace.
+
+[workflow]
+name = "Incident response"
+description = "Something is broken now — reported by hand, or a run that failed: triage scopes the blast radius and names a mitigation, a person decides when data is at risk, the mitigation is applied and announced, a person confirms it held, and the cause and the follow-up work come after."
+tags = ["ops", "delivery", "quality"]
+
+[[workflow.inputs]]
+name = "symptom"
+label = "What is observed, by whom, since when"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "channel"
+label = "Where updates are posted"
+kind = "text"
+default = "general"
+
+[[workflow.inputs]]
+name = "project"
+label = "The project the cause is fixed in"
+kind = "project"
+required = true
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["triage"]
+
+[[workflow.steps]]
+id = "run-failed"
+name = "A run fails"
+kind = "start"
+on = { event = "run", outcome = "failed" }
+inputs = { symptom = "Run {event.payload.run} of workflow {event.payload.workflow} failed." }
+then = ["triage"]
+
+[[workflow.steps]]
+id = "triage"
+name = "Triage"
+kind = "agent"
+assignee = { agent = "sre" }
+max_visits = 3
+retries = 1
+instructions = """
+Incident: {inputs.symptom}
+
+Follow the incident-triage skill: write the symptom precisely, establish the
+blast radius, ask what changed, name the mitigation. Do not diagnose yet. Your
+result gives the blast radius, whether data is at risk, the mitigation, and
+the severity.
+"""
+then = ["risk"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["radius", "risky", "mitigation"]
+
+[workflow.steps.output_schema.properties.radius]
+type = "string"
+description = "The blast radius: who and what is affected, since when."
+
+[workflow.steps.output_schema.properties.risky]
+type = "boolean"
+description = "Whether data may be lost or exposed, which makes a person decide the mitigation."
+
+[workflow.steps.output_schema.properties.mitigation]
+type = "string"
+description = "The mitigation to apply: roll back, disable the flag, shed load, fail over."
+
+[workflow.steps.output_schema.properties.severity]
+type = "string"
+enum = ["sev1", "sev2", "sev3"]
+description = "The severity, sev1 the worst."
+
+[[workflow.steps]]
+id = "risk"
+name = "Data at risk?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "triage", path = "risky", value = true }, branch = "escalate" }]
+otherwise = "mitigate"
+then = [{ to = "call", branch = "escalate" }, { to = "mitigate", branch = "mitigate" }]
+
+[[workflow.steps]]
+id = "call"
+name = "A person decides the mitigation"
+kind = "human"
+prompt = "Data may be lost or exposed. Proposed mitigation: {steps.triage.output.mitigation}. Which way?"
+options = [{ id = "apply", label = "Apply the mitigation", recommended = true }, { id = "hold", label = "Hold — I am taking over" }]
+then = ["mitigate"]
+
+[[workflow.steps]]
+id = "mitigate"
+name = "Mitigate"
+kind = "agent"
+assignee = { agent = "devops-engineer" }
+join = "any"
+retries = 1
+instructions = """
+Apply the mitigation for: {inputs.symptom}
+Mitigation: {steps.triage.output.mitigation}
+
+Roll back, disable the flag, shed load, fail over. Nothing destructive or
+irreversible without ask_human. Your result says what was applied and whether
+it was verified to hold.
+"""
+then = ["announce"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["applied"]
+
+[workflow.steps.output_schema.properties.applied]
+type = "string"
+description = "What was applied, in one sentence a stakeholder can read."
+
+[workflow.steps.output_schema.properties.verified]
+type = "boolean"
+description = "Whether the mitigation was seen to hold: the symptom gone, the metric back."
+
+[[workflow.steps]]
+id = "announce"
+name = "Tell stakeholders"
+kind = "notify"
+scope = "{inputs.channel}"
+template = "Incident update — {inputs.symptom}. Blast radius: {steps.triage.output.radius}. Mitigation applied: {steps.mitigate.output.applied}. Next update within 30 minutes."
+then = ["confirm"]
+
+[[workflow.steps]]
+id = "confirm"
+name = "Confirm the bleeding stopped"
+kind = "human"
+prompt = "Is the impact gone after the mitigation? ({steps.mitigate.output.applied})"
+options = [{ id = "yes", label = "Yes, mitigated" }, { id = "no", label = "No — still broken" }]
+then = ["held"]
+
+[[workflow.steps]]
+id = "held"
+name = "Mitigated?"
+kind = "decide"
+rules = [{ when = { condition = "answered", step = "confirm", option = "yes" }, branch = "yes" }]
+otherwise = "no"
+then = [{ to = "cause", branch = "yes" }, { to = "triage", branch = "no" }]
+
+[[workflow.steps]]
+id = "cause"
+name = "Find the cause"
+kind = "agent"
+assignee = { agent = "sre" }
+retries = 1
+instructions = """
+Impact is mitigated. Now find the proximate and the root cause of:
+{inputs.symptom}
+
+Confirm the mechanism with a log line, a metric or a reproduction before
+naming it. Write the timeline. Your result names the proximate cause, the
+root cause, and the follow-up work.
+"""
+then = ["followup"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["root"]
+
+[workflow.steps.output_schema.properties.proximate]
+type = "string"
+description = "The proximate cause: the change or event that set the incident off."
+
+[workflow.steps.output_schema.properties.root]
+type = "string"
+description = "The root cause, confirmed by a log line, a metric or a reproduction — this becomes the follow-up goal's statement."
+
+[workflow.steps.output_schema.properties.follow]
+type = "array"
+items = { type = "string" }
+description = "The follow-up work, one item per sentence."
+
+[[workflow.steps]]
+id = "followup"
+name = "Open the follow-up work"
+kind = "spawn"
+statement_template = "Fix the root cause of the incident: {steps.cause.output.root}"
+workflow = "bug-fix"
+inputs = { report = "{steps.cause.output.root}", project = "{inputs.project}" }
+wait = false
+then = ["done"]
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

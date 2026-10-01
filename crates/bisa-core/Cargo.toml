@@ -1,0 +1,34 @@
+[package]
+name = "bisa-core"
+description = "Zero-I/O foundation for Bisa: the domain model, the goal lifecycle, the GEP kind registry, settings, capabilities, errors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+# This crate is deliberately zero-I/O: no tokio, no sqlx/rusqlite, no axum, no reqwest.
+# Everything here must be pure, deterministic, and portable (incl. WASM targets).
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }
+ulid = { workspace = true }
+bitflags = { workspace = true }
+# A proxy URL is checked as a URL; `url` parses and does no I/O.
+url = { workspace = true }
+# The host grammar a connector declares its reach in — one crate, shared with the client and the security rules.
+bisa-netrules = { workspace = true }
+# Line diffs and three-way merges for a review of an agent's changes: pure, no I/O.
+similar = "3"
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+# A workflow template is TOML; the test that a step reads from one lives here.
+toml = { workspace = true }
+
+[lints]
+workspace = true

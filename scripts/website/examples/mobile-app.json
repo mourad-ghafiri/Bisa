@@ -1,0 +1,101 @@
+{
+  "about": "The website's worked example: a goal, and the steps the Workflow Agent could propose for it. Presentation only — no template of the platform. The build holds every kind to the designer's palette, every agent to the catalog and every skill to that agent's own list, so the example can only name what ships.",
+  "goal": "Find a new mobile app idea, build it, then guide me to publish it on the App Store and Google Play",
+  "mode": "guided",
+  "steps": [
+    {
+      "id": "start",
+      "kind": "start",
+      "name": "Start"
+    },
+    {
+      "id": "ideas",
+      "kind": "agent",
+      "name": "Research app ideas",
+      "agent": "researcher",
+      "skills": [
+        "options-and-tradeoffs",
+        "evidence-and-citation"
+      ]
+    },
+    {
+      "id": "choose",
+      "kind": "human",
+      "name": "Choose the idea",
+      "who": "you"
+    },
+    {
+      "id": "screens",
+      "kind": "agent",
+      "name": "Draw the screens",
+      "agent": "ux-designer",
+      "skills": [
+        "structured-brainstorming",
+        "drawing"
+      ]
+    },
+    {
+      "id": "build",
+      "kind": "agent",
+      "name": "Build the Flutter app",
+      "agent": "mobile-developer",
+      "skills": [
+        "flutter-development"
+      ]
+    },
+    {
+      "id": "tests",
+      "kind": "check",
+      "name": "Tests pass",
+      "command": "flutter test"
+    },
+    {
+      "id": "review",
+      "kind": "agent",
+      "name": "Code review",
+      "agent": "code-reviewer",
+      "skills": [
+        "code-review-checklist"
+      ]
+    },
+    {
+      "id": "ship",
+      "kind": "decide",
+      "name": "Shippable?"
+    },
+    {
+      "id": "gate",
+      "kind": "approval",
+      "name": "Submit to the stores?",
+      "who": "you"
+    },
+    {
+      "id": "both",
+      "kind": "parallel",
+      "name": "Both stores at once"
+    },
+    {
+      "id": "apple",
+      "kind": "agent",
+      "name": "App Store, step by step",
+      "agent": "mobile-developer",
+      "skills": [
+        "app-store-publishing"
+      ]
+    },
+    {
+      "id": "google",
+      "kind": "agent",
+      "name": "Google Play, step by step",
+      "agent": "mobile-developer",
+      "skills": [
+        "google-play-publishing"
+      ]
+    },
+    {
+      "id": "done",
+      "kind": "end",
+      "name": "Published"
+    }
+  ]
+}

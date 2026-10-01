@@ -1,0 +1,7 @@
+# Built-in channel: go-to-market — positioning, content, campaigns, pipeline.
+
+[channel]
+name = "go-to-market"
+topic = "Positioning, content, campaigns and pipeline — how the thing is described to people who do not work on it, and what that brings in."
+tags = ["marketing", "sales"]
+agents = ["marketing-manager", "content-strategist", "social-media-manager", "performance-marketer", "sales-lead"]

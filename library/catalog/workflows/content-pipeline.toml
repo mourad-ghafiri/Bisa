@@ -1,0 +1,151 @@
+# Built-in workflow: Content pipeline — brief, draft, edit, hold, publish.
+
+[workflow]
+name = "Content pipeline"
+description = "A brief, a draft for the chosen channel, a person's edit that can send it back, a hold until the publishing moment, and a post announcing it."
+tags = ["content", "marketing", "writing"]
+
+[[workflow.inputs]]
+name = "topic"
+label = "What the piece is about"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "channel"
+label = "Where it goes"
+kind = "choice"
+options = ["blog", "newsletter", "social"]
+default = "blog"
+
+[[workflow.inputs]]
+name = "hold"
+label = "Seconds to hold before publishing"
+kind = "number"
+default = 0
+
+[[workflow.inputs]]
+name = "announce"
+label = "The conversation the publication is announced in"
+kind = "text"
+default = "general"
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["brief"]
+
+[[workflow.steps]]
+id = "brief"
+name = "Write the content brief"
+kind = "agent"
+assignee = { agent = "content-strategist" }
+retries = 1
+instructions = """
+Write the brief for a {inputs.channel} piece about: {inputs.topic}
+
+Audience, the one point it makes, the tone, what it must not say. Your
+result carries the brief as markdown.
+"""
+then = ["which"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["brief"]
+
+[workflow.steps.output_schema.properties.brief]
+type = "string"
+description = "The brief as markdown: the audience, the one point, the tone, what the piece must not say."
+
+[[workflow.steps]]
+id = "which"
+name = "Which writer?"
+kind = "decide"
+rules = [{ when = { condition = "input_equals", input = "channel", value = "social" }, branch = "social" }]
+otherwise = "long"
+then = [{ to = "social", branch = "social" }, { to = "long", branch = "long" }]
+
+[[workflow.steps]]
+id = "social"
+name = "Draft the posts"
+kind = "agent"
+assignee = { agent = "social-media-manager" }
+max_visits = 3
+instructions = """
+Draft the social posts from this brief:
+
+{steps.brief.output.brief}
+
+Your result carries the draft as markdown.
+"""
+then = ["edit"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["draft"]
+
+[workflow.steps.output_schema.properties.draft]
+type = "string"
+description = "The posts as markdown, one per channel variant, ready for a person to edit."
+
+[[workflow.steps]]
+id = "long"
+name = "Draft the piece"
+kind = "agent"
+assignee = { agent = "technical-writer" }
+max_visits = 3
+instructions = """
+Draft the {inputs.channel} piece from this brief:
+
+{steps.brief.output.brief}
+
+Your result carries the draft as markdown.
+"""
+then = ["edit"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["draft"]
+
+[workflow.steps.output_schema.properties.draft]
+type = "string"
+description = "The piece as markdown, ready for a person to edit."
+
+[[workflow.steps]]
+id = "edit"
+name = "Edit"
+kind = "human"
+join = "any"
+prompt = "The draft about \"{inputs.topic}\" is ready to read in the run. Approve it for publishing, or send it back with notes?"
+options = [{ id = "approve", label = "Approve" }, { id = "rewrite", label = "Send back with notes" }]
+then = ["decision"]
+
+[[workflow.steps]]
+id = "decision"
+name = "Approved?"
+kind = "decide"
+rules = [{ when = { condition = "answered", step = "edit", option = "approve" }, branch = "approve" }]
+otherwise = "rewrite"
+then = [{ to = "hold", branch = "approve" }, { to = "which", branch = "rewrite" }]
+
+[[workflow.steps]]
+id = "hold"
+name = "Hold until the moment"
+kind = "wait"
+until = { until = "delay", secs = { input = "hold" } }
+then = ["publish"]
+
+[[workflow.steps]]
+id = "publish"
+name = "Announce the publication"
+kind = "notify"
+scope = "{inputs.announce}"
+template = "Published: {inputs.topic} ({inputs.channel}). Brief: {steps.brief.output.brief}"
+then = ["done"]
+
+[[workflow.steps]]
+id = "done"
+name = "Done"
+kind = "end"

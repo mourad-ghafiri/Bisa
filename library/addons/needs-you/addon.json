@@ -1,0 +1,28 @@
+{
+  "id": "needs-you",
+  "name": "Needs you",
+  "description": "How many things wait on you, are under review, or are running — a click goes to them.",
+  "version": "0.1.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "workspace",
+    "attention"
+  ],
+  "window": {
+    "width": 200,
+    "height": 88,
+    "min_width": 180,
+    "min_height": 72,
+    "max_width": 320,
+    "max_height": 140,
+    "frame": "none",
+    "transparent": true
+  },
+  "permissions": [
+    "workspace_summary",
+    "navigate"
+  ]
+}

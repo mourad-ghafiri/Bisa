@@ -1,0 +1,139 @@
+{
+  "id": "bisa-pets.midnight-shipping.moonrice",
+  "displayName": "Moonrice",
+  "description": "Brought you something warm. A small rice-dumpling ghost that drifts in around 2am with a bowl of something warm and no questions. Hums when it thinks you cannot hear. Has never once mentioned the time.",
+  "spritesheetPath": "spritesheet.webp",
+  "frame": {
+    "width": 192,
+    "height": 208
+  },
+  "fps": 8,
+  "defaultAnimation": "idle",
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 6,
+      "frameDurationsMs": [
+        2070,
+        856,
+        856,
+        1076,
+        1076,
+        2346
+      ]
+    },
+    "running-right": {
+      "row": 1,
+      "frames": 8,
+      "frameDurationsMs": [
+        129,
+        129,
+        129,
+        152,
+        129,
+        129,
+        129,
+        222
+      ]
+    },
+    "running-left": {
+      "row": 2,
+      "frames": 8,
+      "frameDurationsMs": [
+        129,
+        129,
+        129,
+        152,
+        129,
+        129,
+        129,
+        222
+      ]
+    },
+    "waving": {
+      "row": 3,
+      "frames": 4,
+      "frameDurationsMs": [
+        279,
+        190,
+        190,
+        405
+      ]
+    },
+    "jumping": {
+      "row": 4,
+      "frames": 5,
+      "frameDurationsMs": [
+        290,
+        145,
+        363,
+        157,
+        459
+      ]
+    },
+    "failed": {
+      "row": 5,
+      "frames": 8,
+      "frameDurationsMs": [
+        170,
+        156,
+        196,
+        235,
+        287,
+        339,
+        417,
+        808
+      ]
+    },
+    "waiting": {
+      "row": 6,
+      "frames": 6,
+      "frameDurationsMs": [
+        580,
+        469,
+        469,
+        580,
+        469,
+        966
+      ]
+    },
+    "running": {
+      "row": 7,
+      "frames": 6,
+      "frameDurationsMs": [
+        198,
+        172,
+        172,
+        198,
+        172,
+        291
+      ]
+    },
+    "review": {
+      "row": 8,
+      "frames": 6,
+      "frameDurationsMs": [
+        349,
+        268,
+        268,
+        322,
+        295,
+        832
+      ]
+    }
+  },
+  "x-bisa-pets": {
+    "pack": "midnight-shipping",
+    "slug": "moonrice",
+    "tagline": "Brought you something warm.",
+    "archetype": "ghost",
+    "personality": "quiet-comfort",
+    "mood": "serene",
+    "render": {
+      "fitScale": 1.2889,
+      "riseCap": 8.87,
+      "inkWidth": 3.4,
+      "eyeRadius": 13.64
+    }
+  }
+}

@@ -1,0 +1,42 @@
+/* ---------------------------------------------------------------------------
+   Fonts.
+
+   Two dials on <html>, answered here: `data-font-ui` and `data-font-mono`.
+   Absent means the system stack `tokens.css` declares — the fastest to paint
+   and the one a person's OS already tuned. The bundled faces are open ones,
+   shipped in the app (no network, ever): Inter for a modern grotesque with
+   tabular numerals, Atkinson Hyperlegible for a face drawn to be told apart
+   letter by letter, JetBrains Mono and IBM Plex Mono for code.
+
+   Each face pulls only the weights the app uses (400–700), from the
+   `@fontsource` packages, so a face costs a few hundred kilobytes rather than
+   a family. The `@theme` fallback stacks stay behind each name: a face that
+   fails to load degrades to the system, never to nothing.
+
+   `shell/theme.ts` stamps the attributes and keeps `--font-mono` honest for
+   the editor and the terminal, which read it themselves.
+
+   The faces themselves are NOT imported here: the default dial is
+   the system stack, so a build used to parse four families' `@font-face` rules
+   that most sessions never call on. `shell/theme.ts` now injects a family's
+   `@fontsource` CSS on demand — when a non-system dial is stamped, and once
+   when the appearance settings open to preview them. The dial rules below stay
+   here; only the `@import`s moved.
+--------------------------------------------------------------------------- */
+
+:root[data-font-ui="inter"] {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-feature-settings: "cv11", "ss01", "tnum" 0;
+}
+
+:root[data-font-ui="atkinson"] {
+  --font-sans: "Atkinson Hyperlegible", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:root[data-font-mono="jetbrains"] {
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root[data-font-mono="plex"] {
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

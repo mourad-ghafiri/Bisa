@@ -1,0 +1,82 @@
+# Built-in skill: Workstream Workflow — how work reaches a branch, a commit and a PR in Bisa.
+
+[skill]
+name = "Workstream Workflow"
+description = "Use when doing work inside an Bisa project: where the checkout is, and how a commit reaches a PR."
+tags = ["engineering", "delivery"]
+content = """
+# Workstream Workflow
+
+Use this when you are executing a work item inside an Bisa project, or driving a branch to a
+pull request by hand. A workstream is one branch plus one checkout. It belongs to a project; it
+*may* record the goal and the work item it was opened for, and one opened by hand — from the CLI
+or the IDE — records neither.
+
+## Where you are working
+
+Opening a workstream (`bisa workstream open`, or the executor when a work item names a project)
+resolves in this order, and the disk decides — not the project record.
+
+1. **Git project with at least one commit** → `git worktree add -b <branch> <path> <base>` at
+   `~/.bisa/projects/<slug>/workstreams/<id>`, based on the project's `default_branch`.
+   Re-running the same work item reuses its worktree; the branch is derived from the item id.
+2. **Git project with an unborn HEAD** (freshly `git init`'d, no commits) → the item runs **in the
+   project root, with no workstream**. Nothing exists to branch from. It heals itself: once the repo
+   has a first commit, workstreams open normally.
+3. **Non-git project, or one recorded as git whose folder is not** → `bisa-iso` copies the
+   project root into the workstream path, and teardown captures a `.patch` result.
+
+Workstreams live under the project's own record in the workspace, never inside the project tree, so
+scratch cannot land in an adopted repository — and attaching or detaching the project from a goal
+moves none of them. Branch names are `work/<first 40 characters of the instructions, slugified>-<last
+6 of the item ULID>`, e.g. `work/implement-the-parser-a3f9k2`.
+
+## The commands
+
+```sh
+bisa workstream list --project <project-id>
+bisa workstream open <project-id> [--goal <id>] [--label <text>] [--agent <id>]
+bisa workstream show <workstream-id>
+bisa workstream diff <workstream-id>
+bisa workstream commit <workstream-id> -m "message"
+bisa workstream push <workstream-id> [--yes]
+bisa workstream pr <workstream-id> --title "…" [--body "…"] [--yes]
+bisa workstream close <workstream-id> [--tree]
+```
+
+There is no `workstream sync`. Workspace sync is the top-level `bisa sync`.
+
+## Committing
+
+- `commit` **refuses a clean tree** rather than making an empty commit, and an unset `user.email`
+  comes back as an identity error — the platform never writes anybody's global git config. Fix it
+  in the repository or ask the owner.
+- When a work item settles, the executor commits whatever the session left in a git workstream:
+  message `<first line of the instructions>` plus an `bisa-work-item:` trailer. A clean tree
+  is ordinary for an item that only read or answered — it is logged and dropped.
+- **Nothing is pushed there.** If the commit is refused (unset identity, a pre-commit hook saying
+  no) the worktree is left exactly as the session left it, the workstream goes `dirty`, and the
+  reason is journaled on the goal. Do not force past it; `--no-verify` is never passed.
+
+## Publishing
+
+A commit is local and reversible. A push or a PR leaves the machine, so it passes the **Publish
+gate**, decided by `project.publish`: `manual` refuses (a person pushes themselves), `gated` (the
+default) opens a `Publish` gate and waits for a human, `auto` goes straight through.
+
+- On a terminal, `push` and `pr` ask inline (`[y/N]`); `--yes` approves up front. **With no
+  terminal and no `--yes`, the CLI says the gate is open and pushes nothing** — the embedded engine
+  dies with the process, so an undecided gate cannot escape later.
+- Over HTTP: `200` published (`auto`), `202` a gate is open and **nothing has left the machine**,
+  `409` the project is `manual` or the tree was clean, `504` neither finished nor gated in 120s.
+  Under `202` the daemon finishes the push once a human decides.
+- The Publish gate **never defers to an assignment** — it fails closed to the owner, because
+  approving it makes this node push with the owner's credentials.
+- `pushed`, `pr_open` and `merged` count as published, which stops cleanup discarding something
+  that has left the machine. `close` forgets the record; `--tree` also removes the checkout.
+
+## Done when
+
+Your changes are committed on the work item's branch, `bisa workstream show` reports the state
+you expect, and any push or PR was either approved through the gate or left open for a human.
+"""

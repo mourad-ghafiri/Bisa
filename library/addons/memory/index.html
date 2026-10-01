@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Memory</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="widget" aria-label="Memory load" aria-live="polite">
+    <div class="row">
+      <span class="label">Memory</span>
+      <span class="value"><span id="value">—</span><span id="unit" class="unit"></span></span>
+    </div>
+    <svg id="spark" class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true">
+      <polyline id="line" points=""></polyline>
+      <polygon id="fill" points=""></polygon>
+      <circle id="dot" class="dot" r="1.6" hidden></circle><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
+    </svg>
+    <div id="bar" class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="barfill"></span></div>
+    <p id="note" class="note"></p>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

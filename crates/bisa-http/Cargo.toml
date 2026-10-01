@@ -1,0 +1,22 @@
+[package]
+name = "bisa-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+description = "The one place an outbound HTTP client is built: a proxy policy applied to a swappable set of reqwest clients, and the environment a child is handed to obey the same policy"
+
+# A leaf every I/O-doing crate may share, like `bisa-cache`: no Bisa
+# dependency, so the code host and connector crates stay core-free. The policy
+# is this crate's own value type; the engine maps the `network.*` settings
+# onto it.
+[dependencies]
+reqwest = { workspace = true }
+url = { workspace = true }
+thiserror = { workspace = true }
+bisa-deps = { version = "0.1", path = "../bisa-deps" }
+
+[lints]
+workspace = true

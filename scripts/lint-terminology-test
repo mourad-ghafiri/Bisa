@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Tests for scripts/lint-terminology.
+
+A lint that ships without tests is a lint that silently stops working. The
+first version of this one listed only tracked files, so every newly written
+file — exactly the files most likely to reintroduce a banned word — was waved
+through until the moment it stopped being new. That bug is `new_files_are_scanned`
+below.
+
+Nothing here touches the filesystem, creates a repository, or shells out. It
+imports the lint and calls it on strings.
+
+    scripts/lint-terminology-test
+"""
+
+from __future__ import annotations
+
+import importlib.machinery
+import importlib.util
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+LINT = HERE / "lint-terminology"
+
+# The lint has no `.py` suffix, so it is loaded by path. It must be registered
+# in sys.modules *before* execution: @dataclass resolves annotations through
+# the module's own namespace and fails with an unhelpful AttributeError if the
+# module cannot find itself.
+spec = importlib.util.spec_from_loader(
+    "lint_terminology",
+    importlib.machinery.SourceFileLoader("lint_terminology", str(LINT)),
+)
+assert spec and spec.loader
+lint = importlib.util.module_from_spec(spec)
+sys.modules["lint_terminology"] = lint
+spec.loader.exec_module(lint)
+
+RULES = lint.compiled()
+FAILURES: list[str] = []
+
+
+def scan(text: str) -> list[str]:
+    """Labels found in a block of text, in order."""
+    import tempfile
+
+    # check_contents reads a file, so give it one — in the OS temp area, which
+    # the caller owns and this process never removes.
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "sample.txt"
+        p.write_text(text, encoding="utf-8")
+        return [f.label for f in lint.check_contents(Path(d), "sample.txt", RULES)]
+
+
+def check(name: str, actual, expected) -> None:
+    if actual == expected:
+        print(f"  ok   {name}")
+    else:
+        print(f"  FAIL {name}\n         expected {expected!r}\n         got      {actual!r}")
+        FAILURES.append(name)
+
+
+print("terminology lint")
+
+# ── the banned vocabulary is caught, in every casing ────────────────────────
+check("lower", scan("the intent of the change"), ["intent"])
+check("title", scan("An Intent was captured"), ["intent"])
+check("screaming snake", scan("INTENT_STATE"), ["intent"])
+check("camel type", scan("pub struct IntentId;"), ["intent"])
+check("snake field", scan("pub intent_id: String"), ["intent"])
+check("snake suffix", scan("owner_intent TEXT NOT NULL"), ["intent"])
+check("kind constant", scan("KIND_IEP_CARRIER"), ["IEP"])
+check("camel acronym", scan("enum IepEventKind {}"), ["IEP"])
+check("plural", scan("list the intents"), ["intent"])
+check("acronym", scan("see the IEP spec"), ["IEP"])
+check("old checkout noun", scan("open a worksite"), ["worksite"])
+check("old checkout noun, plural", scan("two worksites"), ["worksite"])
+check("old checkout noun, camel type", scan("let w: WorksiteId = x;"), ["worksite"])
+check("old checkout noun, path", [f.label for f in lint.check_path("projects/app/worksites/x.json", RULES)], ["worksite"])
+check("the new noun is clean", scan("open a workstream; WorkstreamId; workstreams/"), [])
+check("old host noun", scan("open it on the forge"), ["forge"])
+check("old host noun, plural", scan("five parallel fields for five forges"), ["forge"])
+check("old host noun, camel type", scan("pub struct GitHubForge;"), ["forge"])
+check("old host noun, snake field", scan("forge_ttl_ms: u64"), ["forge"])
+check("old host noun, path", [f.label for f in lint.check_path("crates/bisa-forge/src/lib.rs", RULES)], ["forge"])
+check("forget is a different word", scan("forget the token; forgetRoot(); Forgetting; forged"), [])
+check("the new host noun is clean", scan("the code host; CodeHostId; codehost_pr; code_host"), [])
+check("old judge name", scan("the decision-maker is off"), ["decision-maker"])
+check("old judge name, its full name", scan("Decision-maker model"), ["decision-maker"])
+check("old judge name, as two words", scan("ask a decision maker"), ["decision-maker"])
+check("old judge name, snake field", scan("pub decision_maker: bool,"), ["decision-maker"])
+check("old judge name, screaming snake", scan("DECISION_MAKER_NAME"), ["decision-maker"])
+check("old judge name, camel variant", scan("CheckId::DecisionMaker"), ["decision-maker"])
+check("old judge name, camel component", scan("function DecisionMakerCard() {}"), ["decision-maker"])
+check("old judge name, possessive in a test name", scan("fn no_agent_takes_the_decision_makers_id() {}"), ["decision-maker"])
+check("old judge name, the reserved id", scan('id = "decision-maker-model"'), ["decision-maker"])
+check("old judge name, a message id", scan("settings-decisions-reading-decision-maker = Reading"), ["decision-maker"])
+check("old judge name, a definition's path", [f.label for f in lint.check_path("library/core/decision-maker-model.toml", RULES)], ["decision-maker"])
+check("old judge name, a page's path", [f.label for f in lint.check_path("docs/architecture/15-decision-maker.md", RULES)], ["decision-maker"])
+check(
+    "the new judge name is clean",
+    scan("Decision-Making Agent; decision-making-agent; DecisionMakingAgent; decision_making_agent; decision_making: bool; DECISION_MAKING; --decision-making; decision making"),
+    [],
+)
+check("the new judge name is clean, in a path", [f.label for f in lint.check_path("library/core/decision-making-agent.toml", RULES)], [])
+check("what is kept is clean", scan("decisions.enabled; /decisions/status; bisa decisions; bisa-decision; decider.rs; a judgement; the decide tool"), [])
+check("room", scan("open a circle"), ["circle"])
+check("rooms", scan("two circles"), ["circle"])
+check("removed", scan("the initiative rollup"), ["initiative"])
+check("old slug", scan("id = bisa-agent"), ["bisa-agent"])
+
+# ── the brand is free, without an exception list ────────────────────────────
+check("brand", scan("Bisa is local-first"), [])
+check("crate", scan("use bisa_core::Goal;"), [])
+check("data dir", scan("lives in ~/.bisa"), [])
+check("binary", scan("run `bisa node`"), [])
+# SCREAMING_SNAKE has no case hump to end the word on; `_` and the end do.
+check("screaming-snake domain is caught", scan("pub const KIND_INTENT: u16 = 33400;"), ["intent"])
+check("screaming-snake env prefix is free", scan("keys under BISA_ are reserved"), [])
+
+# ── word boundaries, so a longer identifier is a different word ─────────────
+# A camel hump starts a new word, so a third-party identifier IS caught — and
+# must be excused in place. That is the pragma's entire reason to exist.
+check("third-party identifier is caught", scan("import { CircleX } from 'x'"), ["circle"])
+check("camel hump mid-identifier", scan("import { LoaderCircle } from 'x'"), ["circle"])
+check("intentional", scan("this is intentional"), [])
+check("goal is fine", scan("the goal and its criteria"), [])
+
+# ── the pragma ──────────────────────────────────────────────────────────────
+check(
+    "pragma excuses its own term",
+    scan("import { Circle } from 'x'; // terminology-lint-ignore: circle - third-party icon"),
+    [],
+)
+check(
+    "pragma excuses a term that carries a hyphen",
+    scan('let old = json!({"decision_maker": true}); // terminology-lint-ignore: decision-maker - proves the retired word is refused'),
+    [],
+)
+check(
+    "pragma does not excuse a different term",
+    scan("the intent here // terminology-lint-ignore: circle - unrelated"),
+    ["intent"],
+)
+check(
+    "a pragma with no reason is itself a failure",
+    scan("const a = 1; // terminology-lint-ignore"),
+    ["pragma"],
+)
+check(
+    "em dash separator is accepted",
+    scan("Circle // terminology-lint-ignore: circle — third-party icon"),
+    [],
+)
+
+# ── paths are checked, not only contents ────────────────────────────────────
+check("banned dir", [f.label for f in lint.check_path("library/catalog/circles/x.toml", RULES)], ["circle"])
+check("banned file", [f.label for f in lint.check_path("docs/IEP.md", RULES)], ["IEP"])
+check("clean path", [f.label for f in lint.check_path("crates/bisa-core/src/goal.rs", RULES)], [])
+
+# ── what is never scanned ───────────────────────────────────────────────────
+check("skips lockfiles", lint.scannable("Cargo.lock", []), False)
+check("skips images", lint.scannable("docs/assets/circle.png", []), False)
+check("skips the lint", lint.scannable("scripts/lint-terminology", []), False)
+check("skips this test", lint.scannable("scripts/lint-terminology-test", []), False)
+check("scans source", lint.scannable("crates/bisa-core/src/goal.rs", []), True)
+check("honours the ignore file", lint.scannable("docs/refactoring/07.md", ["docs/refactoring/*"]), False)
+
+# ── mobile development, named in full ───────────────────────────────────────
+check("old crate name", scan('bisa-mobile = { path = "../bisa-mobile" }'), ["bisa-mobile", "bisa-mobile"])
+check("old crate ident", scan("use bisa_mobile::Real;"), ["bisa-mobile"])
+check("the new crate name is clean", scan("bisa-mobile-development; bisa_mobile_development::Real; crates/bisa-mobile-development/src/lib.rs"), [])
+check("old settings keys", scan('"mobile.enabled" `mobile.platforms` mobile.agents mobile.flutter.path mobile.android.sdk'), ["mobile-key"] * 5)
+check("the new keys are clean", scan("mobile_development.enabled mobile_development.flutter.path `mobile_development.*`"), [])
+check("old routes", scan('get("/mobile/status"); `/workstreams/${wid}/mobile`; "/workstreams/{wid}/mobile"'), ["mobile-route"] * 3)
+check("the new routes are clean", scan("/mobile-development/status /workstreams/{wid}/mobile-development/run-command"), [])
+check("old tools", scan("mobile_status, mobile_devices, mobile_boot and mobile_screenshot"), ["mobile-tool"] * 4)
+check("the new tools are clean", scan("mobile_development_status mobile_development_devices"), [])
+check("old event", scan('"mobile_changed" | `mobile.changed`'), ["mobile-event", "mobile-event"])
+check("the new event is clean", scan("mobile_development_changed mobile_development.changed"), [])
+check("phones stay mobile", scan("the mobile-developer agent; the mobile-release workflow; client: mobile; the tag `mobile`; a mobile client embeds bisa-guest; MobilePlatform; MobileDevice; mobile-AAAA1-01J.png"), [])
+
+# ── the regression that motivated this file ─────────────────────────────────
+# `git ls-files` alone lists tracked files only. The lint must ask for
+# untracked-but-not-ignored ones too, or new work is never checked.
+src = LINT.read_text(encoding="utf-8")
+check("new files are scanned", "--others" in src and "--exclude-standard" in src, True)
+
+print()
+if FAILURES:
+    print(f"{len(FAILURES)} failed: {', '.join(FAILURES)}")
+    sys.exit(1)
+print("all passed")

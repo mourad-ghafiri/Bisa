@@ -1,0 +1,209 @@
+# Built-in workflow: Product launch — positioning, a red team, readiness,
+# assets in parallel, a go/no-go, the wait for the date, the announcement.
+
+[workflow]
+name = "Product launch"
+description = "Positioning that a red team attacks first, a release-readiness pass, launch assets written in parallel, a go/no-go a person decides, a hold until the launch moment, and the announcement."
+tags = ["product", "marketing", "delivery"]
+
+[[workflow.inputs]]
+name = "product"
+label = "What is launching, in one line"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "when"
+label = "The launch moment, as a cron expression"
+kind = "text"
+required = true
+
+[[workflow.inputs]]
+name = "channel"
+label = "Where the announcement is posted"
+kind = "text"
+default = "general"
+
+[[workflow.steps]]
+id = "start"
+name = "Start"
+kind = "start"
+on = { event = "manual" }
+then = ["positioning"]
+
+[[workflow.steps]]
+id = "positioning"
+name = "Positioning"
+kind = "agent"
+assignee = { agent = "marketing-manager" }
+max_visits = 2
+retries = 1
+instructions = """
+Position the launch of {inputs.product}.
+
+Who it is for, the one thing it does for them, why now, what we will not
+claim. Your result carries the positioning as markdown.
+"""
+then = ["redteam"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["positioning"]
+
+[workflow.steps.output_schema.properties.positioning]
+type = "string"
+description = "The positioning as markdown: who it is for, the one thing it does for them, why now, what we will not claim."
+
+[[workflow.steps]]
+id = "redteam"
+name = "Red-team the launch"
+kind = "agent"
+assignee = { agent = "red-team" }
+retries = 1
+instructions = """
+How does the launch of {inputs.product} fail? Attack the positioning:
+
+{steps.positioning.output.positioning}
+
+The three most likely ways it goes wrong, and for each whether the
+positioning survives. Your result gives the verdict — ready, or rework — and
+the attacks as markdown.
+"""
+then = ["survives"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["verdict"]
+
+[workflow.steps.output_schema.properties.verdict]
+type = "string"
+enum = ["ready", "rework"]
+description = "Whether the positioning survives the attacks: ready, or rework."
+
+[workflow.steps.output_schema.properties.attacks]
+type = "string"
+description = "The three most likely ways the launch goes wrong, and for each whether the positioning survives, as markdown."
+
+[[workflow.steps]]
+id = "survives"
+name = "Survives?"
+kind = "decide"
+rules = [{ when = { condition = "output_equals", step = "redteam", path = "verdict", value = "ready" }, branch = "ready" }]
+otherwise = "rework"
+then = [{ to = "readiness", branch = "ready" }, { to = "positioning", branch = "rework" }]
+
+[[workflow.steps]]
+id = "readiness"
+name = "Release readiness"
+kind = "agent"
+assignee = { agent = "release-manager" }
+retries = 1
+instructions = """
+Walk the release checklist for {inputs.product}: what ships, what is
+verified, what is rolled back how, who is on call. Your result carries the
+checklist as markdown and lists the blockers.
+"""
+then = ["copy", "comms", "social"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["checklist", "blockers"]
+
+[workflow.steps.output_schema.properties.checklist]
+type = "string"
+description = "The release checklist as markdown: what ships, what is verified, what is rolled back how, who is on call."
+
+[workflow.steps.output_schema.properties.blockers]
+type = "array"
+items = { type = "string" }
+description = "What would stop the launch, one item each; empty when nothing would."
+
+[[workflow.steps]]
+id = "copy"
+name = "Launch copy"
+kind = "agent"
+assignee = { agent = "content-strategist" }
+instructions = """
+Write the launch page copy for {inputs.product} from the positioning:
+{steps.positioning.output.positioning}
+Your result carries the copy as markdown.
+"""
+then = ["gonogo"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["copy"]
+
+[workflow.steps.output_schema.properties.copy]
+type = "string"
+description = "The launch page copy as markdown."
+
+[[workflow.steps]]
+id = "comms"
+name = "Announcement"
+kind = "agent"
+assignee = { agent = "communications-lead" }
+retries = 1
+instructions = """
+Write the announcement for {inputs.product}: the note to customers, the note
+to the team, the note for the press. Positioning:
+{steps.positioning.output.positioning}
+Your result carries the announcement as markdown.
+"""
+then = ["gonogo"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["announcement"]
+
+[workflow.steps.output_schema.properties.announcement]
+type = "string"
+description = "The announcement as markdown — the note to customers, the note to the team, the note for the press — posted as written on launch day."
+
+[[workflow.steps]]
+id = "social"
+name = "Social posts"
+kind = "agent"
+assignee = { agent = "social-media-manager" }
+instructions = """
+Write the launch-day social posts for {inputs.product} from the positioning:
+{steps.positioning.output.positioning}
+Your result carries the posts as markdown.
+"""
+then = ["gonogo"]
+
+[workflow.steps.output_schema]
+type = "object"
+required = ["posts"]
+
+[workflow.steps.output_schema.properties.posts]
+type = "string"
+description = "The launch-day social posts as markdown, one per platform."
+
+[[workflow.steps]]
+id = "gonogo"
+name = "Go / no-go"
+kind = "approval"
+join = "all"
+prompt = "{inputs.product}: readiness {steps.readiness.output.checklist}; blockers {steps.readiness.output.blockers}. Go?"
+then = ["hold"]
+
+[[workflow.steps]]
+id = "hold"
+name = "Hold for the launch moment"
+kind = "wait"
+until = { until = "schedule", cron = { input = "when" } }
+then = ["announce"]
+
+[[workflow.steps]]
+id = "announce"
+name = "Announce"
+kind = "notify"
+scope = "{inputs.channel}"
+template = "{steps.comms.output.announcement}"
+then = ["done"]
+
+[[workflow.steps]]
+id = "done"
+name = "Launched"
+kind = "end"

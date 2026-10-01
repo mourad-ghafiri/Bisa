@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Pomodoro</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="pomo" aria-label="Pomodoro">
+    <div class="top">
+      <span id="phase" class="phase">Focus</span>
+      <span id="count" class="count"></span>
+      <button id="gear" class="gear" type="button" aria-label="Lengths" title="Lengths" aria-expanded="false" aria-controls="lengths">⚙</button>
+    </div>
+    <div class="dial">
+      <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="track" cx="50" cy="50" r="46"></circle><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
+        <circle id="arc" class="arc" cx="50" cy="50" r="46"></circle><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
+      </svg>
+      <output id="time" class="time" aria-live="polite">25:00</output>
+    </div>
+    <div class="row">
+      <button id="toggle" type="button">Start</button>
+      <button id="skip" type="button" class="quiet">Skip</button>
+      <button id="reset" type="button" class="quiet">Reset</button>
+    </div>
+    <form id="lengths" class="lengths" hidden>
+      <label>Focus <input id="focus" type="number" min="1" max="120" step="1"> min</label>
+      <label>Break <input id="rest" type="number" min="1" max="60" step="1"> min</label>
+    </form>
+  </main>
+  <script src="bisa-addon.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

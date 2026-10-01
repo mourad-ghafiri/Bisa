@@ -1,0 +1,62 @@
+name: "Catalog or harness"
+description: "Propose an agent, skill, team, channel, workflow template, connector, addon, pet or harness for everyone."
+title: "[Catalog]: "
+labels: ["kind: catalog", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The catalog ships with Bisa, for everybody: an addition must be generic, documented from official sources, and carry only material we may redistribute. See docs/contributing/areas/catalog.md and docs/contributing/areas/harnesses.md.
+  - type: dropdown
+    id: what
+    attributes:
+      label: What to add
+      options:
+        - "An agent"
+        - "A skill"
+        - "A team"
+        - "A channel"
+        - "A workflow template"
+        - "A connector"
+        - "An addon"
+        - "A pet"
+        - "A harness"
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: "Name"
+      description: "What it is called."
+    validations:
+      required: true
+  - type: textarea
+    id: does
+    attributes:
+      label: "What it does"
+      description: "In a few sentences, for a person who has never seen it."
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: "Why everybody needs it"
+      description: "Who uses it, and why it belongs in the catalog rather than in your own workspace."
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: "Official sources"
+      description: "For a harness or a connector: the official documentation of its protocol or API. For assets: their licence."
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: "I searched the open and closed issues and the Discussions, and this is not a duplicate."
+          required: true
+        - label: "I follow the Code of Conduct."
+          required: true
