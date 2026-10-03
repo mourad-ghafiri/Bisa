@@ -7,7 +7,10 @@
  * the panel behind it. It follows the browser's switch and both hosts'
  * slots, so it never says a browser that is not there: nothing outside the
  * shell, while the browser is off, or before this machine's settings have
- * been read (`canOpenBrowser`). Every word is `browserStatModel.mjs`'s.
+ * been read (`canOpenBrowser`). Every word is `browserStatModel.mjs`'s. The
+ * trigger is the popover's own `<button>` (`asChild`) — its word, its
+ * number, pressed while a host draws a tab — named by how many tabs are open;
+ * the footer's sentence is the tooltip, on a plain wrapper around it.
  */
 
 import { useState } from "react";
@@ -32,24 +35,31 @@ export function BrowserStat() {
   if (!canOpenBrowser()) return null;
   const words = statWords({ sessions, busy, shown: shownTab({ center, aux }) });
   return (
-    <Popover
-      label={words.title}
-      side="top"
-      align="end"
-      open={open}
-      onOpenChange={setOpen}
-      className="w-[calc(var(--type-rem)*40)] max-w-[90vw]"
-      trigger={
-        <Tooltip label={words.title}>
-          <span aria-label={t("shell-browser-stat-browser-value", { value: words.value })} aria-pressed={words.pressed} className={cn("anim flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-control px-1 hover:bg-surface-2", words.pressed ? "bg-accent-soft text-accent-ink" : "text-text-dim")}>
-            <ICON.page size={13} aria-hidden />
-            <span className="tnum text-2xs text-text">{words.value}</span>
-            {words.live && <WorkingDot title={words.live} />}
-          </span>
-        </Tooltip>
-      }
-    >
-      {open && <BrowserOverlay close={() => setOpen(false)} />}
-    </Popover>
+    <Tooltip label={words.title}>
+      <span className="inline-flex shrink-0">
+        <Popover
+          asChild
+          side="top"
+          align="end"
+          open={open}
+          onOpenChange={setOpen}
+          className="w-[calc(var(--type-rem)*40)] max-w-[90vw]"
+          trigger={
+            <button
+              type="button"
+              aria-label={t("shell-browser-stat-browser-value", { count: sessions.length })}
+              aria-pressed={words.pressed}
+              className={cn("anim flex h-6 shrink-0 items-center gap-1 rounded-control px-1.5", words.pressed ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text")}
+            >
+              <ICON.page size={13} aria-hidden />
+              <span className={cn("tnum text-2xs", sessions.length > 0 ? "text-text" : "text-text-dim")}>{words.value}</span>
+              {words.live && <WorkingDot title={words.live} />}
+            </button>
+          }
+        >
+          {open && <BrowserOverlay close={() => setOpen(false)} />}
+        </Popover>
+      </span>
+    </Tooltip>
   );
 }

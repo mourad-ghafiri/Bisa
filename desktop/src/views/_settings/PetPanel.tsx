@@ -89,10 +89,10 @@ export function PetPanel() {
   const mine = pets.filter((p) => p.origin !== "catalog");
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <Section title={t("settings-pet-panel-pet")}>
         <Card>
-          <p className="mb-3 text-2xs text-text-dim">{rich("settings-pet-panel-blurb", { code: (inner) => <code>{inner}</code> })}</p>
+          <p className="mb-3 max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-pet-panel-blurb", { code: (inner) => <code>{inner}</code> })}</p>
           <Switch checked={!!active} onChange={togglePet} label={words.label} hint={words.hint} disabled={!loaded || pets.length === 0} />
         </Card>
       </Section>
@@ -119,7 +119,7 @@ export function PetPanel() {
                 ))}
               </div>
               <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-2xs text-text-dim">
+                <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
                   {mine.length === 0 ? t("settings-pet-panel-own-pack-imports-here-codex-s") : t("settings-pet-panel-own-after-nine", { mine: mine.length })}
                 </p>
                 {inDesktopShell() ? (
@@ -161,7 +161,7 @@ export function PetPanel() {
         <Section title={t("settings-notes-panel-layout")}>
           <Card>
             <div className="flex items-center justify-between gap-3">
-              <p className="text-2xs text-text-dim">
+              <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
                 {positionWords(moved)} {t("settings-pet-panel-drag-anywhere-keeps-distance-from-edges")}
               </p>
               <Button size="sm" variant="ghost" disabled={!moved} onClick={resetPetPosition}>{t("settings-notes-panel-reset-position")}</Button>
@@ -169,6 +169,6 @@ export function PetPanel() {
           </Card>
         </Section>
       )}
-    </>
+    </div>
   );
 }

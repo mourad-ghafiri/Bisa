@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { deleteCopy, deletedWords, discardCopy, discardedWords, recoveryWords, restoreWords, shortRef } from "./gitDiscardModel.mjs";
+import { deleteCopy, deletedWords, discardCopy, discardedWords, recoveryOpWords, recoveryWords, restoreWords, shortRef } from "./gitDiscardModel.mjs";
 
 test("every recovery kind the vcs crate names has a Safety word, and restore says what comes back", () => {
   const src = readFileSync(new URL("../../../../crates/bisa-vcs/src/git.rs", import.meta.url), "utf8");
@@ -17,6 +17,21 @@ test("every recovery kind the vcs crate names has a Safety word, and restore say
   assert.match(restoreWords({ ref_name: "refs/bisa/safety/1-stash_drop.stash", kind: "stash", branch: "main" }), /back on the stash list\. Nothing in the working tree moves/);
   assert.match(restoreWords({ ref_name: "refs/bisa/safety/1-checkout.wip", kind: "tree", branch: "main" }), /HEAD to main, then the saved index and working tree on top/);
   assert.match(restoreWords({ ref_name: "refs/bisa/safety/1-branch_delete", kind: "commit", branch: null }), /HEAD to the commit it was on\./);
+});
+
+test("every operation that writes a recovery point has catalog words — never its raw id on a Safety row", () => {
+  const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const sources = [read("../../../../crates/bisa-vcs/src/interactive.rs"), read("../../../../crates/bisa-engine/src/ide/interactive.rs")];
+  const ops = new Set();
+  for (const src of sources) for (const m of src.matchAll(/\bcapture\(\s*[^,()]+(?:\([^)]*\))?,\s*&?path,\s*"([a-z_]+)"/g)) ops.add(m[1]);
+  assert.ok(ops.has("checkout") && ops.has("stash_drop") && ops.has("workstream_close"), `the Rust sources are read (${[...ops].join(", ")})`);
+  for (const op of ops) {
+    const words = recoveryOpWords(op);
+    assert.notEqual(words, op.replaceAll("_", " "), `${op} has words of its own`);
+    assert.match(words, /^[A-Z]/, `${op} reads in sentence case`);
+  }
+  assert.equal(recoveryOpWords("branch_delete"), "Delete branch");
+  assert.equal(recoveryOpWords("some_new_op"), "some new op", "an op a newer node writes still reads as something");
 });
 
 test("a discard's confirmation names the file and keeps the index out of it in two sentences; the recovery promise is the dialog's SafetyNote, not a third", () => {

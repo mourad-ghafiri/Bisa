@@ -10,3 +10,12 @@ export function prRequest(
   form: { title: string; body: string; draft: boolean; reviewers: string; labels: string },
 ): { title: string; body?: string; draft?: boolean; reviewers?: string[]; labels?: string[] };
 export function checksSummary(checks: CheckRun[] | null | undefined): { text: string; tone: "ok" | "danger" | "dim" };
+export function prSuggestionOutcome(
+  response: { suggested?: boolean; title?: unknown; body?: unknown; error?: unknown } | null | undefined,
+): { draft: { title: string; body: string } | null; note: string | null };
+export function applyPrSuggestion(facts: {
+  asked: { title: string; body: string };
+  now: { title: string; body: string };
+  draft: { title: string; body: string };
+}): { title: string; body: string; kept: ("title" | "body")[] };
+export function draftedWords(kept: ("title" | "body")[], noun: string): string;

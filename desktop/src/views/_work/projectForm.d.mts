@@ -54,6 +54,7 @@ export interface CreationFailure {
 export declare function refusalPlace(failure: CreationFailure, provenance: Provenance): Partial<Record<ProjectField, string>>;
 /** The commit button's words: what is about to happen. */
 export declare function primaryLabel(provenance: Provenance, placement: Placement): string;
+export declare function busyLabel(provenance: Provenance, placement: Placement): string;
 /** The account select's first row: the host's own choice, named when the node suggested one. */
 export declare function hostChoiceWords(suggested: string | null | undefined): string;
 export type DialogMode = "create" | "import";

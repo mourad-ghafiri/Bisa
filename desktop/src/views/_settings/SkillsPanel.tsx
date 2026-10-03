@@ -307,12 +307,12 @@ function SkillCard({
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
-          className="anim flex min-w-0 items-center gap-1.5 text-left"
+          className="anim group flex min-w-0 items-center gap-1.5 text-left"
         >
           <ICON.collapsed
             size={11}
             aria-hidden
-            className={`anim shrink-0 text-text-dim ${expanded ? "rotate-90" : ""}`}
+            className={`anim shrink-0 text-text-dim group-hover:text-text ${expanded ? "rotate-90" : ""}`}
           />
           <span className="truncate text-xs font-medium">{s.name}</span>
         </button>
@@ -325,13 +325,13 @@ function SkillCard({
         </span>
       </div>
 
-      <p className="mt-1 text-2xs text-text-dim">{s.description}</p>
+      <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{s.description}</p>
       <code className="mt-0.5 block font-mono text-2xs text-text-dim">{s.id}</code>
 
       {expanded && (
-        <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3">
+        <div className="mt-3 flex flex-col gap-3 border-t border-hairline pt-3">
           {carriers.length > 0 && (
-            <p className="text-2xs text-text-dim">{t("settings-skills-panel-delivered-into-every-session-run-by", { carriers: carriers.join(", ") })}</p>
+            <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-skills-panel-delivered-into-every-session-run-by", { carriers: carriers.join(", ") })}</p>
           )}
           {s.markdown.trim() ? (
             <Markdown text={s.markdown} />
@@ -469,7 +469,7 @@ export function SkillsPanel() {
     <div className="flex flex-col gap-4">
       {rosterWords && <ReadLine words={rosterWords} onReload={roster.reload} />}
       <div className="flex flex-wrap items-start gap-2">
-        <p className="max-w-xl text-2xs text-text-dim">
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
           <strong className="font-medium text-text">{SKILL_RULE}</strong> {SKILL_BUDGET}
         </p>
         <Button size="sm" variant="ghost" className="ml-auto shrink-0" onClick={reload}>{t("settings-catalog-panel-refresh")}</Button>

@@ -12,7 +12,7 @@
 import { useState } from "react";
 import { api } from "../../api";
 import type { Workflow, WorkflowRow } from "../../types";
-import { Select, useToast } from "../../ui";
+import { Select, failureText, useToast } from "../../ui";
 import { useAsync } from "../_work/useAsync";
 import { useEngineEvents } from "../../bus";
 import { WORKFLOW_FACTS } from "./designerSession.mjs";
@@ -77,7 +77,7 @@ export function WorkflowPicker({
         if (row) onChange(row.workflow.id, row.workflow);
         else toast.error(tr("workflow-workflow-picker-installed-but-could-not-find-afterwards", { slug }));
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e));
+        toast.error(failureText("workflow", "workflow-picker-failed", e));
       } finally {
         setInstalling(false);
       }

@@ -466,11 +466,12 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
   var FIND_ALL = "bisa-find", FIND_CURRENT = "bisa-find-current";
   var MAX_EXCERPT = ${MAX_EXCERPT_BYTES}, MAX_DEPTH = ${MAX_SELECTOR_DEPTH}, MAX_TEXT = ${MAX_TEXT_CHARS}, MAX_NOTE = ${MAX_NOTE_CHARS};
   var ATTR = "data-bisa-inspector", ACT = "data-bisa-act", SEL = "data-bisa-selector";
-  var BOX_WIDTH = ${BOX_WIDTH}, GAP = 6;
+  var BOX_WIDTH = ${BOX_WIDTH}, GAP = 6, LABEL_HEIGHT = 18;
   var BLOCKED = ["click", "mousedown", "mouseup", "pointerdown", "pointerup"];
   var mode = "off", tracked = null, marks = [], held = false;
   var outline = null, label = null, badges = null;
-  var box = null, crumbsEl = null, textEl = null, input = null, addBtn = null;
+  var box = null, crumbsEl = null, textEl = null, input = null, addBtn = null, MAX_CRUMBS = 3;
+  function worded(words, tag) { return String(words).split("%TAG%").join(tag); }
   function own(el) { return !!(el && el.closest && el.closest("[" + ATTR + "]")); }
   function part(tag, what) {
     var el = document.createElement(tag);
@@ -518,16 +519,16 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
     root.appendChild(badges);
     box = part("div", "box");
     box.setAttribute("role", "dialog");
-    box.setAttribute("aria-label", "Annotate the element");
+    box.setAttribute("aria-label", worded(WORDS.box, ""));
     var head = part("div", "box-head");
     crumbsEl = part("nav", "crumbs");
-    crumbsEl.setAttribute("aria-label", "Where the element is in the page");
+    crumbsEl.setAttribute("aria-label", WORDS.where);
+    // The close is drawn by its dress (two strokes in the text's colour), never a glyph from a font.
     var close = part("button", "close");
     close.setAttribute(ACT, "close");
     close.setAttribute("type", "button");
-    close.setAttribute("aria-label", "Never mind");
-    close.setAttribute("title", "Never mind");
-    close.textContent = "\u00d7";
+    close.setAttribute("aria-label", WORDS.close);
+    close.setAttribute("title", WORDS.close);
     hot(close, "close", "mouseenter", "mouseleave");
     head.appendChild(crumbsEl);
     head.appendChild(close);
@@ -536,19 +537,25 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
     input = part("input", "input");
     input.setAttribute(ACT, "input");
     input.setAttribute("type", "text");
-    input.setAttribute("placeholder", "What should change here?");
-    input.setAttribute("aria-label", "What should change here?");
+    input.setAttribute("placeholder", WORDS.ask);
+    input.setAttribute("aria-label", WORDS.ask);
     hot(input, "input", "focus", "blur");
+    // The foot: how the keys answer, and the one button that adds the note.
+    var foot = part("div", "box-foot");
+    var hint = part("span", "box-hint");
+    hint.textContent = WORDS.keys;
     addBtn = part("button", "add");
     addBtn.setAttribute(ACT, "add");
     addBtn.setAttribute("type", "button");
-    addBtn.textContent = "Add";
+    addBtn.textContent = WORDS.add;
     hot(addBtn, "add", "mouseenter", "mouseleave");
     row.appendChild(input);
-    row.appendChild(addBtn);
+    foot.appendChild(hint);
+    foot.appendChild(addBtn);
     box.appendChild(head);
     box.appendChild(textEl);
     box.appendChild(row);
+    box.appendChild(foot);
     root.appendChild(box);
   }
   function crumbWord(tag) {
@@ -565,25 +572,38 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
     var d = document.documentElement;
     return { width: Number(window.innerWidth) || (d && d.clientWidth) || 0, height: Number(window.innerHeight) || (d && d.clientHeight) || 0 };
   }
+  // Where the note box stands for an element: above it when there is room, else below, else
+  // beside it — right, then left — so it never lands on what it is about, nor on its tag (the
+  // label rides on the side named by labelAbove, lh tall). Only an element about the viewport's
+  // own size leaves nowhere: then the corner farthest from its middle.
+  function boxSpot(r, bw, bh, v, lh, labelAbove) {
+    var bottom = r.top + r.height, right = r.left + r.width;
+    var maxTop = Math.max(0, v.height - bh), maxLeft = Math.max(0, v.width - bw);
+    var flush = Math.max(0, Math.min(r.left, maxLeft)), level = Math.max(0, Math.min(r.top, maxTop));
+    var over = labelAbove ? lh + 2 : 0, under = labelAbove ? 0 : lh + 2;
+    if (r.top - over - bh - GAP >= 0) return { top: r.top - over - bh - GAP, left: flush };
+    if (bottom + under + GAP + bh <= v.height) return { top: bottom + under + GAP, left: flush };
+    if (right + GAP + bw <= v.width) return { top: level, left: right + GAP };
+    if (r.left - GAP - bw >= 0) return { top: level, left: r.left - GAP - bw };
+    return { top: r.top + r.height / 2 < v.height / 2 ? maxTop : 0, left: r.left + r.width / 2 < v.width / 2 ? maxLeft : 0 };
+  }
   function placeBox(el) {
     if (!box) return;
     var r = el.getBoundingClientRect();
     var b = box.getBoundingClientRect ? box.getBoundingClientRect() : null;
     var bw = b && b.width ? b.width : BOX_WIDTH, bh = b && b.height ? b.height : 96;
-    var v = viewport();
-    var above = r.top - bh - GAP >= 0;
-    var top = above ? r.top - bh - GAP : r.top + r.height + GAP;
-    var left = r.left;
-    top = Math.max(0, Math.min(top, Math.max(0, v.height - bh)));
-    left = Math.max(0, Math.min(left, Math.max(0, v.width - bw)));
-    box.style.top = top + "px";
-    box.style.left = left + "px";
+    var lb = label && label.getBoundingClientRect ? label.getBoundingClientRect() : null;
+    var lh = lb && lb.height ? lb.height : LABEL_HEIGHT;
+    var spot = boxSpot(r, bw, bh, viewport(), lh, r.top - lh - 2 >= 0);
+    box.style.top = spot.top + "px";
+    box.style.left = spot.left + "px";
   }
   function openBox(el) {
     ensure();
     var selector = cssPath(el);
     while (crumbsEl.firstChild) crumbsEl.removeChild(crumbsEl.firstChild);
-    var chain = ancestorsOf(el), i;
+    // The nearest parents only — one line of where the element sits; a crumb re-picks, so a farther one is a click away.
+    var chain = ancestorsOf(el).slice(-MAX_CRUMBS), i;
     for (i = 0; i < chain.length; i++) {
       if (i > 0) { var sep = part("span", "crumb-sep"); sep.textContent = "\u203a"; sep.setAttribute("aria-hidden", "true"); crumbsEl.appendChild(sep); }
       var crumb = part("button", "crumb");
@@ -591,7 +611,7 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
       crumb.setAttribute(ACT, "crumb");
       crumb.setAttribute(SEL, chain[i].selector);
       crumb.setAttribute("type", "button");
-      crumb.setAttribute("title", "Annotate <" + chain[i].tag + "> instead");
+      crumb.setAttribute("title", worded(WORDS.instead, chain[i].tag));
       crumb.textContent = crumbWord(chain[i].tag);
       crumbsEl.appendChild(crumb);
     }
@@ -604,8 +624,8 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
     textEl.style.display = textEl.textContent ? "block" : "none";
     var existing = noteFor(selector);
     if (!String(input.value || "").trim()) input.value = existing;
-    addBtn.textContent = existing ? "Change" : "Add";
-    box.setAttribute("aria-label", "Annotate <" + tagWords(el) + ">");
+    addBtn.textContent = existing ? WORDS.change : WORDS.add;
+    box.setAttribute("aria-label", worded(WORDS.box, tagWords(el)));
     held = true;
     box.style.display = "block";
     placeBox(el);
@@ -714,8 +734,20 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
     outline.style.height = r.height + "px";
     label.style.display = "block";
     label.textContent = tagWords(el);
-    label.style.top = Math.max(0, r.top - 18) + "px";
-    label.style.left = Math.max(0, r.left) + "px";
+    var lb = label.getBoundingClientRect ? label.getBoundingClientRect() : null;
+    var spot = labelSpot(r, lb && lb.width ? lb.width : 0, lb && lb.height ? lb.height : LABEL_HEIGHT, viewport());
+    label.style.top = spot.top + "px";
+    label.style.left = spot.left + "px";
+  }
+  // The tag rides outside the element, never over it: above its edge when there is room, else
+  // under it, and inside its top edge only when the element is the whole height of the view.
+  // Never past the right edge.
+  function labelSpot(r, lw, lh, v) {
+    var bottom = r.top + r.height, top;
+    if (r.top - lh - 2 >= 0) top = r.top - lh - 2;
+    else if (bottom + 2 + lh <= v.height) top = bottom + 2;
+    else top = Math.max(0, r.top + 2);
+    return { top: top, left: Math.max(0, Math.min(r.left, v.width - lw)) };
   }
   function hideOutline() {
     if (!outline) return;
@@ -1437,13 +1469,32 @@ const INSPECTOR_CORE = String.raw`  var INSPECT = "${INSPECTOR_MESSAGES.INSPECT}
 `;
 
 /**
- * The overlay's dress, written into a script as the page opens: the first
- * paint is the theme's with no word over the wire, and a browser tab's every
- * new document — the script runs again on each navigation — starts dressed.
+ * The words the note box says, from the catalog — written into its script as
+ * the page opens, as its dress is. `%TAG%` stands where an element's tag goes.
+ */
+export function inspectorWords() {
+  const tag = "%TAG%";
+  return Object.freeze({
+    box: tr("ui-page-inspector-annotate", { tag }),
+    instead: tr("ui-page-inspector-annotate-instead", { tag }),
+    where: tr("ui-page-inspector-where"),
+    close: tr("ui-page-inspector-never-mind"),
+    ask: tr("ui-page-inspector-what-should-change"),
+    add: tr("ui-page-inspector-add"),
+    change: tr("ui-page-inspector-change"),
+    keys: tr("ui-page-inspector-keys"),
+  });
+}
+
+/**
+ * The overlay's dress and its words, written into a script as the page
+ * opens: the first paint is the theme's with no word over the wire, and a
+ * browser tab's every new document — the script runs again on each
+ * navigation — starts dressed.
  * @param {import("./inspectorTheme.mjs").InspectorTheme} theme
  */
 function bakedStyles(theme) {
-  return `var STYLES = ${JSON.stringify(inspectorStyles(theme))};`;
+  return `var STYLES = ${JSON.stringify(inspectorStyles(theme))}; var WORDS = ${JSON.stringify(inspectorWords())};`;
 }
 
 /**

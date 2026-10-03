@@ -193,6 +193,21 @@ export function tokenWords(kind) {
 }
 
 /**
+ * Why *Add account* cannot be pressed yet, or `null` when it can (or while
+ * an add is already on its way — the button says *Checking…* itself). The
+ * reason is said on the disabled button, never left for the person to guess.
+ * @param {{ ready: boolean, token: string, sent: string | null, needsLogin: boolean, login: string }} form
+ * @returns {string | null}
+ */
+export function addBlockedWords({ ready, token, sent, needsLogin, login }) {
+  if (!ready) return t("settings-code-host-panel-waiting-connection-check");
+  if (!token.trim()) return t("settings-code-host-accounts-paste-token-first");
+  if (needsLogin && !login.trim()) return t("settings-code-host-accounts-type-login-first");
+  if (token === sent) return t("settings-code-host-accounts-token-already-added");
+  return null;
+}
+
+/**
  * The sign-in button and its blurb, from the node's plan.
  * @param {import("../../types").LoginPlan | null | undefined} plan
  * @returns {{button: string, blurb: string, opens: "terminal" | "install" | "token" | null}}

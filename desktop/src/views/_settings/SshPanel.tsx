@@ -12,7 +12,7 @@ import { useState } from "react";
 import { api, openExternal } from "../../api";
 import { useEngineEvents } from "../../bus";
 import { copyText } from "../../ui/clipboard";
-import { Button, Card, Chip, CopyText, EmptyState, ErrorNote, ICON, Pending, ReadLine, Section, TextInput, useToast } from "../../ui";
+import { Button, Card, Chip, CopyText, EmptyState, ErrorNote, ICON, Pending, ReadLine, Section, TextInput, failureText, useToast } from "../../ui";
 import { attempt, useAsync } from "../_work/useAsync";
 import { pendingRows, phase, readWords } from "./loadModel.mjs";
 import { GenerateDialog } from "./ssh/GenerateDialog";
@@ -45,7 +45,7 @@ export function SshPanel() {
     return (
       <Card className="p-3">
         <ErrorNote error={view.error ?? t("settings-ssh-panel-ssh-directory-read")} retry={view.reload} />
-        <p className="mt-2 text-2xs text-text-dim">{rich("settings-ssh-panel-read-by-node-blurb", { code: (inner) => <code className="font-mono">{inner}</code> })}</p>
+        <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-ssh-panel-read-by-node-blurb", { code: (inner) => <code className="font-mono">{inner}</code> })}</p>
       </Card>
     );
   }
@@ -86,7 +86,7 @@ export function SshPanel() {
       return;
     }
     toast.ok(copiedForHostWords(host));
-    await openExternal(page).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+    await openExternal(page).catch((e: unknown) => toast.error(failureText("settings", "ssh-panel-failed", e)));
   };
   const ask = () => {
     const host = askHost.trim();
@@ -95,7 +95,7 @@ export function SshPanel() {
   };
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-2">
         <ReadLine words={status} busy={view.loading || view.refreshing} onReload={view.reload} reloadLabel={t("settings-ssh-panel-read-ssh-directory-again")} />
         <span className="flex-1" />
@@ -153,7 +153,7 @@ export function SshPanel() {
       >
         <Card className="flex flex-col gap-2 p-3">
           {blocks.length === 0 ? (
-            <p className="text-2xs text-text-dim">{rich("settings-ssh-panel-no-git-host-blurb", { code: (inner) => <code className="font-mono">{inner}</code> })}</p>
+            <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-ssh-panel-no-git-host-blurb", { code: (inner) => <code className="font-mono">{inner}</code> })}</p>
           ) : (
             <ul className="flex flex-col gap-1 font-mono text-2xs" aria-label={t("settings-ssh-panel-host-blocks")}>
               {blocks.map((h) => (
@@ -168,7 +168,7 @@ export function SshPanel() {
             </ul>
           )}
           <form
-            className="flex flex-wrap items-end gap-1.5 border-t border-border pt-2"
+            className="flex flex-wrap items-end gap-1.5 border-t border-hairline pt-2"
             onSubmit={(e) => {
               e.preventDefault();
               ask();

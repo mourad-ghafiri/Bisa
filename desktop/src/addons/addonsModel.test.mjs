@@ -134,6 +134,6 @@ test("a switch the node refused goes back alone, on the list as it stands — an
   // Of two reads out, the newest asked for lands; one that refused is said and leaves `loaded` as it was.
   const refresh = store.slice(store.indexOf("export async function refreshAddons"), store.indexOf("/** Show or hide every window at once"));
   assert.ok(refresh.includes("const ticket = reads.begin();") && refresh.split("reads.lands(ticket)").length - 1 === 2, "the answer and the refusal are both held to the ticket");
-  assert.ok(refresh.includes("set({ ...state, failed: e instanceof Error ? e.message : String(e) });") && !refresh.includes("set({ ...state, loaded: true });"), "a read that refused is not a list that was read");
+  assert.ok(refresh.includes('set({ ...state, failed: failureReason("addons", "the addons could not be read", e) });') && !refresh.includes("set({ ...state, loaded: true });"), "a read that refused is not a list that was read, and its reason is the node's words or the log's pointer, never an exception's text");
   for (const surface of ["../views/_settings/AddonsPanel.tsx", "../shell/AddonsOverlay.tsx"]) assert.ok(readFileSync(new URL(surface, import.meta.url), "utf8").includes("{failed && "), `${surface} says the refusal`);
 });

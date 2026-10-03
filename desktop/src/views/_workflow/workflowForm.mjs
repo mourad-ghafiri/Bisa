@@ -131,3 +131,78 @@ export function nextInputName(inputs) {
     if (!taken.has(name)) return name;
   }
 }
+
+/** The kinds an input may be, in the order the editor offers them. */
+export const INPUT_KINDS = Object.freeze(["text", "number", "bool", "choice", "assignee", "project", "account"]);
+
+/** An input kind in words, never its wire slug: `bool` is *Yes or no*. */
+export function inputKindWords(kind) {
+  switch (kind) {
+    case "text":
+      return t("workflow-workflow-form-kind-text");
+    case "number":
+      return t("workflow-workflow-form-kind-number");
+    case "bool":
+      return t("workflow-workflow-form-kind-bool");
+    case "choice":
+      return t("workflow-workflow-form-kind-choice");
+    case "assignee":
+      return t("workflow-workflow-form-kind-assignee");
+    case "project":
+      return t("workflow-workflow-form-kind-project");
+    case "account":
+      return t("workflow-workflow-form-kind-account");
+    default:
+      return String(kind ?? "");
+  }
+}
+
+/** The grammar of a step's id and of an input's name: what a template can read. */
+const ID_GRAMMAR = /^[a-z][a-z0-9_-]{0,31}$/;
+
+/**
+ * Why an id or a name as typed cannot be taken — `grammar` or `taken` — or
+ * `null` when it may. The current value is never taken by itself.
+ * @param {string} draft
+ * @param {string} current
+ * @param {(name: string) => boolean} taken
+ */
+export function idProblem(draft, current, taken) {
+  if (!ID_GRAMMAR.test(draft)) return "grammar";
+  if (draft !== current && taken(draft)) return "taken";
+  return null;
+}
+
+/**
+ * The reason, in words, a field shows under what was typed — and, once the
+ * field has put the old value back (`kept`), that it did: a refused rename is
+ * said where it was typed, never undone in silence.
+ * @param {"grammar" | "taken" | null} problem
+ * @param {"step" | "input"} what
+ * @param {string | null} [kept]
+ */
+export function idProblemWords(problem, what, kept = null) {
+  if (problem === null) return null;
+  const why =
+    problem === "grammar"
+      ? t("workflow-step-common-form-z-0-9-starts-letter-32")
+      : what === "input"
+        ? t("workflow-input-defs-editor-another-input-has-name")
+        : t("workflow-step-common-form-another-step-has-id");
+  return kept === null ? why : t("workflow-workflow-form-kept", { why, kept });
+}
+
+/** A choice's options as the field shows them while it is not being typed in. */
+export function optionsText(options) {
+  return (options ?? []).join(", ");
+}
+
+/** The options a typed list means: split on commas, trimmed, blanks and repeats dropped. */
+export function optionsFrom(text) {
+  const out = [];
+  for (const part of String(text ?? "").split(",")) {
+    const o = part.trim();
+    if (o && !out.includes(o)) out.push(o);
+  }
+  return out;
+}

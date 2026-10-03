@@ -126,7 +126,8 @@ export function WorkflowCard({ row, projects = [], onChanged }: { row: WorkflowR
         footer={
           <>
             {row.used_by.length > 0 && (
-              <Chip tone="accent" title={t("workflow-workflow-card-goals-workflows-use-it")}>{t("workflow-workflow-card-used", { used_by: row.used_by.length })}</Chip>
+              // Who uses it is a fact about the workflow, not a summons: neutral.
+              <Chip tone="neutral" title={t("workflow-workflow-card-goals-workflows-use-it")}>{t("workflow-workflow-card-used", { used_by: row.used_by.length })}</Chip>
             )}
             <TagChips tags={[...(w.tags ?? [])]} max={3} />
           </>
@@ -137,7 +138,7 @@ export function WorkflowCard({ row, projects = [], onChanged }: { row: WorkflowR
           <li>{t("workflow-workflow-card-projects-made-by-steps", { projects: projects.length })}</li>
           {projects.map((p) => (
             <li key={p.project.id}>
-              <a href={href({ name: "workbench", scope: "workstream", id: p.project.id })} title={t("workflow-workflow-card-open-project-ide")} className="anim inline-flex items-center gap-1 rounded border border-border px-1 hover:border-accent/50 hover:text-text">
+              <a href={href({ name: "workbench", scope: "workstream", id: p.project.id })} title={t("workflow-workflow-card-open-project-ide")} className="anim inline-flex items-center gap-1 rounded border border-border px-1 hover:border-text-dim/40 hover:text-text">
                 <ICON.project size={10} aria-hidden />
                 {p.project.name}
               </a>

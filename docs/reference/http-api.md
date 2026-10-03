@@ -211,6 +211,7 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | `POST /workstreams/{wid}/push` | Push the branch — through the `publish` gate: 200 done, 202 gate open, 409 refused with a `code` (`publish_manual` · `publish_no_goal` · `publish_declined` · `nothing_to_publish` · `workstream_state`). The record is reconciled with the checkout first, so a commit made in a terminal counts. |
 | `POST /workstreams/{wid}/push-with-lease` | Push a rewritten workstream branch with `--force-with-lease` — never the project's default branch, through the `publish` gate, consented; a recovery ref is written first. 409 when the remote moved. |
 | `POST /workstreams/{wid}/pr` | Open a pull request on the code host behind `origin` — through the `publish` gate: `{title, body?, draft?, reviewers?, labels?}`; only what `GET /codehost/capabilities/{pid}` allows is sent. A branch not on the remote yet is pushed first under the same gate; 409 with a `code` as for `push`. |
+| `POST /workstreams/{wid}/pr/suggest` | Ask the general agent for a pull request's title and description from the branch's commits and its diff against the base (`base...HEAD`) — read-only, nothing is pushed or opened. Always 200: `{suggested, title, body, agent, error}`; `suggested: false` with the reason when no agent answers or the branch has nothing beyond its base. |
 
 ## Channels and direct channels
 

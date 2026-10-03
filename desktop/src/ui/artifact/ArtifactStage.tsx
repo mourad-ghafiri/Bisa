@@ -52,17 +52,17 @@ export function ArtifactStage({
         onRequest={onRequest}
         libraries={libraries}
         onOpenInBrowser={onOpenInBrowser}
-        className="min-h-0 flex-1 rounded-card border border-border bg-surface shadow-xl"
+        className="min-h-0 flex-1 rounded-card border border-border bg-surface shadow-lg"
         actions={
           <>
             {onPrev && (
               <Button size="sm" variant="ghost" onClick={onPrev} aria-label={t("ui-artifact-stage-previous-artifact")}>
-                ←
+                <ICON.back size={13} aria-hidden />
               </Button>
             )}
             {onNext && (
               <Button size="sm" variant="ghost" onClick={onNext} aria-label={t("ui-artifact-stage-next-artifact")}>
-                →
+                <ICON.forward size={13} aria-hidden />
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={onClose} aria-label={t("ui-dialog-close")}>

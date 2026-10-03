@@ -8,9 +8,9 @@
  */
 
 import { useState } from "react";
-import { ApiError } from "../api";
 import { t } from "../i18n/l10n.mjs";
-import { href } from "../router";
+import { errorFields, log } from "../log";
+import { navigate } from "../router";
 import { Button, Chip, ICON, Switch, Tooltip, useToast } from "../ui";
 import { settingsPath, settingsSearch } from "../views/_settings/settingsLink.mjs";
 import { overlayRows, rowStateWords, switchWords, titleWords, visibleAddons } from "../addons/addonsModel.mjs";
@@ -26,7 +26,8 @@ function Row({ row, disabled }: { row: OverlayRow; disabled: boolean }) {
     try {
       await setAddonEnabled(addon.id, on);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : t("shell-addons-overlay-could-not-switch", { name: addon.manifest.name }));
+      log.warn("addons", "an addon could not be switched", { addon: addon.id, on, ...errorFields(e) });
+      toast.error(t("shell-addons-overlay-could-not-switch", { name: addon.manifest.name }));
     } finally {
       setBusy(false);
     }
@@ -36,7 +37,7 @@ function Row({ row, disabled }: { row: OverlayRow; disabled: boolean }) {
     <li className="flex items-center gap-2">
       {/* content, never translated: the addon's own name. */}
       <span className="min-w-0 flex-1 truncate text-xs text-text">{addon.manifest.name}</span>
-      <Chip tone={row.running ? (row.shown ? "accent" : "neutral") : "quiet"}>{rowStateWords(row)}</Chip>
+      <Chip tone={row.running && row.shown ? "neutral" : "quiet"}>{rowStateWords(row)}</Chip>
       {row.running && (
         <Tooltip label={eye}>
           <button
@@ -45,13 +46,13 @@ function Row({ row, disabled }: { row: OverlayRow; disabled: boolean }) {
             aria-pressed={row.shown}
             disabled={disabled}
             onClick={() => setAddonHidden(addon.id, row.shown)}
-            className="anim flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-50"
+            className="anim flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
           >
             {row.shown ? <ICON.eye size={13} aria-hidden /> : <ICON.eyeOff size={13} aria-hidden />}
           </button>
         </Tooltip>
       )}
-      <Switch checked={addon.enabled} disabled={busy || (!addon.enabled && !row.canEnable)} onChange={(on) => void flip(on)} label={t("shell-addons-overlay-on", { name: addon.manifest.name })} className="[&>label]:sr-only" />
+      <Switch checked={addon.enabled} disabled={busy || (!addon.enabled && !row.canEnable)} onChange={(on) => void flip(on)} label={t("shell-addons-overlay-on", { name: addon.manifest.name })} hideLabel />
     </li>
   );
 }
@@ -68,7 +69,7 @@ export function AddonsOverlay({ close }: { close: () => void }) {
       <Switch checked={layerShown} onChange={(on) => toggleAddonLayer(on)} label={words.label} hint={words.hint} disabled={!switchedOn || !loaded} />
       {rows.length > 0 && (
         <div className="flex flex-col gap-1 px-1">
-          <p className="text-2xs font-semibold tracking-wide text-text-dim uppercase">{t("shell-addons-overlay-installed", { n: rows.length })}</p>
+          <p className="text-2xs font-semibold text-text-dim">{t("shell-addons-overlay-installed", { n: rows.length })}</p>
           <ul className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
             {rows.map((row) => (
               <Row key={row.addon.id} row={row} disabled={!layerShown || !switchedOn} />
@@ -81,7 +82,14 @@ export function AddonsOverlay({ close }: { close: () => void }) {
       {!switchedOn && loaded && <p className="px-1 text-2xs text-text-dim">{t("shell-addons-overlay-machine-off")}</p>}
       <div className="flex items-center justify-between gap-2 px-1">
         <Button size="sm" variant="ghost" disabled={running === 0} onClick={resetAddonPositions}>{t("shell-addons-overlay-reset-positions")}</Button>
-        <a href={href({ name: "settings" }, settingsSearch("addons"))} onClick={close} className="anim rounded-control px-2 py-1 text-2xs text-accent-ink hover:bg-surface-2">{settingsPath("addons")}</a>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            navigate({ name: "settings" }, settingsSearch("addons"));
+            close();
+          }}
+        >{settingsPath("addons")}</Button>
       </div>
     </div>
   );

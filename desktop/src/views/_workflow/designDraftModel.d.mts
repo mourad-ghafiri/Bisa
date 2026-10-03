@@ -6,3 +6,4 @@ import type { NewWorkflowBody } from "../../types";
 export declare const MAX_DRAFTS: number;
 /** A drawing read back from the memory, or `null` for what is no drawing. */
 export declare function draftBody(raw: unknown): NewWorkflowBody | null;
+export declare function draftChanged(present: object | null | undefined, stored: object | null | undefined, undoable: boolean): boolean;

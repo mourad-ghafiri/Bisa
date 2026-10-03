@@ -19,7 +19,7 @@ The rules that decide the shape are the IDE's own ([01](01-trust-boundary.md)): 
 names a program or a path — the node resolves the run command, hosts the servers and names a
 screenshot's copy; nothing reaches an agent that is not a chip or a tool's answer
 ([09](09-agents-in-the-ide.md)); a page the node serves is on loopback only; a native layer never
-paints over a dialog; and a tool list is a menu, not a permission — who may ask is checked in the
+paints over a dialog or a floating overlay; and a tool list is a menu, not a permission — who may ask is checked in the
 engine.
 
 ---
@@ -218,8 +218,10 @@ the bar, say — is logged once per tab as *browser placed out of place* with bo
 viewport, so where the page went is a fact in the log and never a guess.
 
 **Where the page goes.** The slot's box is in the main page's CSS viewport — `getBoundingClientRect`
-— while a child webview is an `NSView` in the window's content view, a sibling of the main
-webview's own view, in AppKit points from the bottom-left. The two spaces agree only when the
+— while a child webview is an `NSView` standing in the **browser layer** (`browser.rs` `mod layer`,
+`BisaBrowserLayer`: a view the content view's size, unflipped, just above the main webview's own
+view; a tab is moved into it once, as it opens, still hidden), in AppKit points from the
+bottom-left. The two spaces agree only when the
 page's `(0, 0)` is the content view's top-left corner and one CSS pixel is one point; whenever the
 page's viewport sits lower than the main webview's frame (a content inset above the page), the
 main frame is shorter than its parent, or the page is zoomed, a box handed straight to the child
@@ -256,6 +258,33 @@ component that portals at the `z-50` tier counts itself or is allowed there with
 Nothing of the annotation flow has to paint over the page: the note box is the page's own
 (§Annotating a page).
 
+**The page's floating overlays are not surfaces: the layer cuts around them.** The Notes and Draw
+panels (floating, not maximized), their docks, the pet and every addon window float over the
+content where a tab may stand, and hiding the page for each would blank it most of the time. So
+each says its painted box (`shell/browserClear.ts`, `useBrowserClear`: the element's
+`getBoundingClientRect` and border radius, re-read on every render, on a resize and at the end of a
+transition; a dock's count badge says its own), `browserClearModel.mjs` keeps the ones that meet
+a slot holding a browser tab — kept while a surface hides the tab, so it shows again already cut,
+never over an overlay for a frame — and `BrowserPanel.tsx` sends them once a frame, only when they
+changed, with the page's viewport (`browser_clear`). A floating panel that opens while a tab
+shows asks for the keyboard (`browser_focus_main`), since the page may hold it natively. The shell maps each box through the tab's own `Anchor` (`browser.rs`
+`mod clear`, pure and unit-tested) into **disjoint** pieces — a lone overlay keeps its rounded
+corners; overlapping ones are cut as their union, each corner no other overlay touches kept round
+as a quarter disc — and the browser layer leaves them see-through:
+its layer's **mask** (a `CAShapeLayer`, even-odd, set in `layout`/`updateLayer` with implicit
+animations off — "fully transparent pixels block that content", Apple, `CALayer.mask`) shows the
+main page there, and its **`hitTest:`** answers nothing for a point in a piece, so the window's own
+hit-test goes on to the main webview and the overlay gets the click, the scroll and the keys ("you
+might want to override it to have a view object hide mouse-down events from its subviews", Apple,
+`NSView.hitTest(_:)`). The page keeps its size and stays live everywhere else; with no piece the
+mask is dropped, so the common case costs nothing. Three limits stay: shipping WebKit still sends
+mouse-moves to a tab under a hole (a page tooltip may peek out; WebKit's own topmost check, which
+asks this very `hitTest:`, closes it), a file dropped on an overlay over a page goes to the page
+(AppKit finds a drop target by a private lookup that ignores `hitTest:`), and where an overlay is
+see-through — the pet, a transparent addon — the main page's own ground shows, not the tab's.
+Off macOS the shell answers `false` and cuts nothing: an addon window still hides while it meets a
+tab (`addonWindowModel.hiddenByLayer`), the rest stays as it was.
+
 ## What a page may reach
 
 Nothing of the app. The tabs' webviews stand in **no capability**, so no page — this machine's or
@@ -286,7 +315,7 @@ be a memory, and showing a tab kept out of sight is a click's to do. **The pane 
 its own**: with none in sight it says so — *No browser tab here yet* — and offers *New tab*; a
 pane that merely mounted (an address the place memory brought back, an addon's `navigate`) once
 made a blank tab nobody asked for, and the footer counted it. The person's doors keep the one
-step: ⌘⇧L, the palette and a screen's Browser button go through `browserDoors.toggleBrowserPane`
+step: ⌘⇧L and the palette go through `browserDoors.toggleBrowserPane`
 (`browserDoorsModel.paneToggle`: *hide* while the pane shows, *show* while a tab is in sight,
 *open* one — the person's — when there is none). The pane's width is bounded by
 the room, not by pixels (`auxPaneModel.auxBounds`): the floor is 300 px and the ceiling seven
@@ -300,12 +329,10 @@ Browser button's, the keymap's `new_browser` through `NEW_BROWSER_HERE`, the age
 that place's browser is; `openArtifactInBrowser(artifact)` (§Artifacts in the browser). They are reached from ⌘⇧L and the palette (`open_browser`, toggling the occupant
 through the `OPEN_BROWSER` door the pane hears — a toggle that closes at once when the pane shows
 the occupant on any tab, `auxPaneModel.toggledAux`), the footer's **Browser** read-out
-(§The footer's count) — the **Browser** button the Pulse's, every conversation's, goal's and workflow's header carries
-(`shell/BrowserDoor.tsx` over `browserDoorModel.mjs`: the count of open tabs, `aria-pressed` while
-the pane shows, the dot while a tab is busy, and a caret listing the tabs at home here first, the
-active leading, a busy one marked, then *New tab*, *Close the pane*, *Close every tab* — every
-screen's door naming the screen as the tab's home: a goal, a workflow, a channel, a direct
-message, a conversation, the Inbox's row (`inboxModel.browserHomeOf`), the Pulse the workspace's),
+(§The footer's count) — no screen outside the Project IDE carries a **Browser** button: the
+IDE's (§The Browser button) is the only one, and beside any other screen ⌘⇧L opens a tab at home
+in what the screen shows (`browserDoorsModel.screenHome`: the conversation on screen, else a goal,
+a workflow, a channel or a direct message by the route, else the workspace),
 the footer's ports: a
 port a checkout's shell opened goes to the IDE, a port with no root to the pane; a URL in a message,
 whose card's first verb is *Open in Bisa's browser* (`shell/linkHandler.tsx`, the machine's browser
@@ -364,7 +391,7 @@ overlay paint. The names are one index over the workspace the shell already hold
 (`browserPlacesModel.browserPlaces` through `shell/browserPlaces.ts`: the goals by title, the
 workstreams by project and branch through `footerSessionsModel.placeIndex`, the channels and
 direct messages by name, the Inbox's conversations by title, the workflow rows read once and
-again when one changes), and every other list of tabs — a screen's Browser button, the pane's
+again when one changes), and every other list of tabs — the IDE's Browser button, the pane's
 strip — wears the same words.
 
 ## Screenshots
@@ -444,7 +471,7 @@ taken where the tab renders (`browserBridge.untilShown`), never by revealing it.
 lists only the **seen** tabs on the IDE's strip (`seenRootedAt`) and as the pane's shown tab
 (`seenSessions`), and one act shows it — `reveal` (`revealBrowserTab`): the person's click on the
 tab in the pane's strip (dim, the hidden glyph), on its row in the footer's Browser overlay (under
-*Unseen*, or worded *unseen* under *Tabs*), in a screen's Browser button menu (*· unseen*) or the IDE's
+*Unseen*, or worded *unseen* under *Tabs*), or in the IDE's
 Browser menu, or the pane opened on it (`openBrowserPane` reveals first). **Nothing an agent does
 reveals a headless tab** (`revealPlan` answers `null` for one): only the person, or the agent's own
 `headless: false` on a later `browser_open` of that tab.
@@ -480,8 +507,9 @@ differs only in how words leave the page — the `bisa` message handler — in
 `window.__bisaBrowser.perform`, the app's way in, and in the chords it relays). **The overlay wears
 the app's theme**: `inspectorTheme.mjs` maps the role tokens read off `<html>` (`inspectorTokens.ts`:
 colour, radius, shadow, font and motion as `getComputedStyle` gives them, the two type sizes measured
-on a probe) to the `cssText` of every part — outline, tag label, note box, crumbs, input, *Add*,
-badges — with no colour, radius or font of its own (`pageInspector.test.mjs` builds the script from a
+on a probe) to the `cssText` of every part — outline (an accent edge with no fill, so the element
+under it stays readable), tag label, note box, crumbs, input, *Add*, badges (which, like the outline
+and the tag, never catch the pointer) — with no colour, radius or font of its own (`pageInspector.test.mjs` builds the script from a
 sentinel theme and finds nothing else in it). The dress is written into the tab's script as the tab
 opens, so every document the tab loads starts dressed, and said again as `bisa:theme` by
 `useBrowserAnnotation` after each load and whenever the theme, the accent, the scheme or the type
@@ -516,11 +544,25 @@ page is `Annotation { page: Url { url } }` — the agent reads *the annotated el
 wire's word for both (`{kind: file, path}` · `{kind: url, url}`), and `framing::context_block`
 prints the path or the URL.
 
+**Annotating is the Project IDE's alone.** `useBrowserAnnotation` reads the route: on the Project
+IDE's screen (`workbench`) the centre's tab and the Details pane's have the wand, the note box and
+the tray; beside any other screen the Browser pane shows the page and draws no wand (`BrowserBar`'s
+`wand` is optional), and a wand left on — or badges left drawn — when the person leaves the IDE are
+taken back from the page (`inspectMessage("off")`, `marksMessage([])`). The draft stays the
+session's and the badges come back with it in the IDE.
+
+**The note box** is drawn by the page's own inspector in the kit's popover language: a solid
+surface (the theme's `surface` with its alpha taken off, `inspectorTheme.opaque` — nothing frosts
+behind a box in a page), the element's three nearest parents as one line of quiet crumbs with the
+element a neutral chip, a close drawn in CSS, the element's text, the field, and a foot with the
+keys' hint and the one primary *Add* (*Change* for an element already annotated); its words are
+catalog messages baked into the script (`pageInspector.inspectorWords`).
+
 **Where the chips go** is `serversModel.annotationHome`'s word. A tab at home in a workstream has
 the **checkout's tray** (`AnnotationTray`; in the pane `CheckoutAnnotationTray`, which reads the
 checkout's project itself): **Send** to an agent as an edit into the checkout's conversation, or
-**Attach** to the IDE's Agent pane. Any other tab — a goal's or a work item's in the IDE, a
-conversation's or the workspace's in the pane — has the **screen's tray**
+**Attach** to the IDE's Agent pane. Any other tab — a goal's or a work item's, in the IDE's centre
+or in the pane beside it — has the **screen's tray**
 (`views/_workbench/PaneAnnotationTray.tsx`): **Attach to the message** puts every annotation as an
 `annotation` chip in the tray of the conversation on screen, whose composer sends them with the
 words the person writes, and *Clear*. The conversation on screen is **published, never looked up**
@@ -662,7 +704,9 @@ page's network. The tools do not pretend to them.
   the same on every origin, and what it says is data the main window bounds — a pick, an answer, a
   title, one of six chord ids — never an instruction.
 - A native layer hides while any surface is open — a dialog, a popover, a menu, a right-click
-  menu, the link card, the artifact stage, the palette; never for a tooltip or a toast — and shows
+  menu, the link card, the artifact stage, the palette; never for a tooltip or a toast, and never
+  for a floating overlay (the Notes and Draw panels, their docks, the pet, an addon window), which
+  the browser layer cuts around instead, so the page stays live under it — and shows
   only over the slot of its own tab, the centre before the pane; a webview opens hidden and shows
   on its first placement, one atomic call whose read-back is compared with the ask, a stray one
   logged and a refused one too.
@@ -744,13 +788,13 @@ page's network. The tools do not pretend to them.
 | the bar is whole on every tab: a blank tab holds every verb but the address with its reason, a page frees them, back and forward follow the history, Stop while loading, the wand held with its reason, the IDE door the pane's alone | `desktop/src/shell/browserChromeModel.test.mjs` |
 | what a request means for the tabs — a new tab at home where the engine said (any of the desktop's scopes), else the IDE's root, else the workspace, the engine's headless word riding into it; a read, a snapshot, a find, a click, a fill, typing, a key, a choice, a hover, a scroll, the console and a script on any page by ref or selector and none on a blank tab, the acts that may move the page marked, a wait for the load the bridge's own and bounded, the other waits the page's; back, forward and reload; a screenshot of any page, where a tab is shown — the strip at home while the centre shows documents, the pane otherwise — and that a headless one never is; the answers with every fact the page gave, a move said so | `desktop/src/shell/browserBridgeModel.test.mjs` |
 | the policy's three words, everyone first; out of sight's three, unattended first; the status card counting the tabs kept out of sight | `desktop/src/views/_settings/browserSettingsModel.test.mjs` |
-| a screen's Browser door and the IDE's Browser menu mark a tab kept out of sight *unseen* with the hidden glyph, a pick showing it | `desktop/src/shell/browserDoorModel.test.mjs`, `views/_workbench/serversModel.test.mjs` |
+| the IDE's Browser menu marks a tab kept out of sight *unseen* with the hidden glyph, a pick showing it | `desktop/src/shell/browserDoorModel.test.mjs`, `views/_workbench/serversModel.test.mjs` |
 | every catalog agent carries the Embedded Browser skill, the strips ride seen tabs only, Settings draws the out-of-sight and the scripts switches, an open desktop keeps the engine's presence fresh; the twenty-one tools are one list in the engine's note, the skill, the reference and the server, the bridge plans every act and a move answers the new page; the camera is two buttons and no screenshot is asked of a hidden page — the shot waits for the tab to show over the slots and the surfaces, the shell refuses a hidden view before WebKit is asked, the picture goes through the shell's clipboard, a refused placement is said, and every kit surface counts itself | `desktop/src/scenarios/browser.test.mjs` |
 | the browser's program is the core over the shell's door on every page — no IPC, inert with no door — answering the driver and relaying the browser chords by ⌘ on a Mac and Ctrl elsewhere; a snapshot names every heading, landmark and control with a ref and the refs drive the other tools until the page loads again; typing is a keystroke at a time and Enter in a form's field submits it, a key is pressed on the target or the focused element, a fill is one act; an option is chosen by value or label, a hover moves the pointer, a scroll answers where the page stands; a wait answers at once when its condition holds and says what it waited for when it cannot; the console and the errors are kept and drained, a dialog is answered and reported once, a script's value comes back bounded; the parser bounds an answer's every field, a title and a chord | `desktop/src/ui/artifact/pageInspector.test.mjs` |
 | the browser scope's six chords, narrowest like the editor's, the bracket keys pressed as themselves, ⌘W the browser tab's in a browser body, and the relay table read from the keymap — a rebinding riding into it | `desktop/src/shell/keymapModel.test.mjs` |
 | an address typed into the palette is a row; a conversation's chips are kept under kind and id; the attach door names the message or says what to open | `desktop/src/shell/omniboxUrlModel.test.mjs`, `desktop/src/views/_studio/chatScopeModel.test.mjs` |
 | both hosts draw the one bar over a body the chords are live in and draw no note box of their own; no capability, no IPC command, a blank tab on the blank page, the page anchored on the main webview's frame with a real read-back and the anchor logged, the viewport riding every placement, a stray placement logged; the Pulse's door, a link's first verb, the palette's row; a tab at home in the IDE follows its centre — the reveal rule reads the published centre, every door shows a tab through `showBrowserTab`, the Workbench derives the centre once and carries the tab on a switch of the same root, the hosts know nothing of the mode | `desktop/src/scenarios/browser.test.mjs` |
 | the anchor is the identity when the page fills the content view, a top inset moves the page down by as much, a shorter lower main webview anchors the page to its own top, a zoom scales every edge, and a placement reads back as asked whatever the anchor; a tab's anchor is noted once per change; a hidden tab is refused a snapshot at once in its own words, apart from a late one's | `desktop/src-tauri/src/browser.rs` (`anchor::tests`, `tests`) |
-| under either program — the frame's and the browser's — a pick opens the note box in the page with its crumbs, text and question, the caret in it; while it is open the pointer outlines nothing, a click outside is swallowed and a click inside is the box's own; Enter or Add says the note with its element and closes the box, Escape or Never mind closes it alone and says so, Escape with no box open leaves; a crumb re-picks keeping the words typed, an annotated element opens with its note and Change; the box sits above or below, clamped, and follows a scroll; the app's word closes it | `desktop/src/ui/artifact/pageInspector.test.mjs` |
+| under either program — the frame's and the browser's — a pick opens the note box in the page with its crumbs, text and question, the caret in it; while it is open the pointer outlines nothing, a click outside is swallowed and a click inside is the box's own; Enter or Add says the note with its element and closes the box, Escape or Never mind closes it alone and says so, Escape with no box open leaves; a crumb re-picks keeping the words typed, an annotated element opens with its note and Change; the box sits above, below or beside the element and never on it, and follows a scroll; the tag rides outside the element and inside the right edge; the app's word closes it | `desktop/src/ui/artifact/pageInspector.test.mjs` |
 | a browser tab id round-trips, rides the strip and is never stored; its menu, the annotation offered on a page an agent can edit; the run tab's identity; the surfaces count | `workbenchModel.test.mjs`, `tabMenuModel.test.mjs`, `terminalsModel.test.mjs`, `ui/surfacesModel.test.mjs` |
 | annotations are about a page — a file's or a URL's — and the chips say which | `annotationModel.test.mjs`, `contextChips.test.mjs` |

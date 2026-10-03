@@ -3,8 +3,8 @@
  * name set strong and never cut before the activity is, what the model says
  * of it (*missing*; a folded project's loudest line, in the row's slack after
  * the name), `+` and `⋯` on hover, the state mark at the edge in its own
- * column so every card's mark aligns. The current project wears the wash,
- * the pill and the accent ink (`railStyleModel.rowTreatment`).
+ * column so every card's mark aligns. The current project wears the
+ * neutral wash and pill (`railStyleModel.rowTreatment`, `RailRow`).
  */
 
 import { Avatar, Chip, ContextMenu, ICON, SessionMark, TextInput, cn, usePhotoThumb } from "../../../ui";
@@ -58,7 +58,7 @@ export function RailProjectRow({
           name={p.name}
           url={photo}
           size={avatarSize("project")}
-          className={cn("shrink-0 rounded-control ring-1", row.current ? "ring-accent/40" : "ring-border/60")}
+          className={cn("shrink-0 rounded-control ring-1", row.current ? "ring-text/25" : "ring-border/60")}
         />
         {editing ? (
           <TextInput

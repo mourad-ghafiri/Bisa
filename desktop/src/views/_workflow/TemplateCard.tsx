@@ -31,8 +31,9 @@ export function TemplateCard({ entry, busy, onUse }: { entry: CatalogEntry; busy
       footer={
         <>
           <TagChips tags={[...entry.tags]} max={3} />
-          <Button size="sm" variant={entry.installed ? "default" : "primary"} className="ml-auto" disabled={busy} onClick={onUse}>
-            {busy ? "…" : entry.installed ? t("workflow-template-card-open") : t("workflow-template-card-use-template")}
+          {/* A per-card verb: a primary on every card of a grid is a wall of accent with no single ask among them. */}
+          <Button size="sm" variant="default" className="ml-auto" disabled={busy} onClick={onUse}>
+            {busy ? (entry.installed ? t("workflow-template-card-opening") : t("workflow-template-card-installing")) : entry.installed ? t("workflow-template-card-open") : t("workflow-template-card-use-template")}
           </Button>
         </>
       }

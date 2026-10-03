@@ -1,9 +1,9 @@
 /**
  * The goal's header: what it is and where it
  * stands — title, statement, who holds the ball, the step count and the
- * workflow's name — one primary action, the Browser door (ide/18: the
- * embedded browser beside the goal, its tabs and whether an agent is
- * browsing) and the details toggle. The step chips stay on the Goals list;
+ * workflow's name — one primary action and the details toggle. The
+ * embedded browser's button is the Project IDE's alone (ide/18); beside a
+ * goal the browser opens with ⌘⇧L or the palette. The step chips stay on the Goals list;
  * here the Progress tab below is the run, so the header does not draw it
  * twice. Everything else is behind the menu or in the Details pane; the
  * header ranks, it does not list.
@@ -17,7 +17,7 @@
 import { useState, type ReactNode } from "react";
 import { api } from "../../api";
 import { navigate } from "../../router";
-import { Button, Chip, ICON, Menu, PageHeader, WorkingDot, cn, useToast, type MenuItem } from "../../ui";
+import { Button, Chip, ICON, MoreMenu, PageHeader, WorkingDot, cn, useToast, type MenuItem } from "../../ui";
 import type { GoalView, ListenerView } from "../../types";
 import { HolderBadge } from "../_goals/HolderBadge";
 import { attempt, useAsync } from "../_work/useAsync";
@@ -81,7 +81,6 @@ export function GoalHeader({
   view,
   working,
   primary,
-  door,
   detailsOpen,
   onToggleDetails,
   menu,
@@ -91,8 +90,6 @@ export function GoalHeader({
   working: boolean;
   /** The one primary action, when there is one: start, or adopt and start. */
   primary?: ReactNode;
-  /** The Browser door, from the page that knows the goal's id. */
-  door?: ReactNode;
   detailsOpen: boolean;
   onToggleDetails: () => void;
   menu: MenuItem[];
@@ -107,7 +104,7 @@ export function GoalHeader({
   return (
     <div className="shrink-0 border-b border-border">
       <PageHeader
-        className="items-start px-4 pt-3 pb-1"
+        className="items-start px-4 pt-3 pb-3"
         back={{ label: t("goal-goal-header-back-to-goals"), onClick: () => navigate({ name: "goals" }) }}
         title={<span className="line-clamp-2 whitespace-normal" title={words.title}>{words.title}</span>}
         subtitle={words.subtitle ? <span className="line-clamp-2">{words.subtitle}</span> : undefined}
@@ -115,41 +112,36 @@ export function GoalHeader({
           <>
             <HolderBadge holder={holder} strip={strip} />
             {goal.archived && (
-              <Chip tone="quiet" icon={ICON.archive} title={t("goal-goal-header-put-away-hidden-from-goals-list")}>{t("goal-goal-header-archived")}</Chip>
+              <Chip icon={ICON.archive} title={t("goal-goal-header-put-away-hidden-from-goals-list")}>{t("goal-goal-header-archived")}</Chip>
             )}
             {working && <WorkingDot title={holder === "design" ? t("goal-designing-card-workflow-agent-designing") : t("goal-goal-header-agent-writing")} />}
+            {/* Under the title, on its edge: the count, the workflow and what it listens for read as the goal's facts, not a line of their own. */}
+            <span className="tnum text-xs text-text-dim">{count.label}</span>
+            {strip.workflow_name && <span className="truncate text-xs text-text-dim">· {strip.workflow_name}</span>}
+            <ListeningLine view={view} onChanged={onChanged} />
           </>
         }
         actions={
           <>
             {primary}
-            {door}
             <Button
               size="icon"
               aria-label={detailsOpen ? t("goal-goal-header-hide-details") : t("goal-goal-header-show-details")}
               aria-pressed={detailsOpen}
-              className={detailsOpen ? "border-accent/50 text-accent-ink" : ""}
+              // Pressed is a place you are, not a summons: the neutral fill, never the accent.
+              className={detailsOpen ? "bg-selected text-text" : ""}
               onClick={onToggleDetails}
             >
               <ICON.info size={13} aria-hidden />
             </Button>
-            <Menu
+            <MoreMenu
               label={t("goal-goal-header-actions", { title: goal.title ?? t("goal-goal-header-goal") })}
-              trigger={
-                <span className="anim inline-flex h-7 w-7 items-center justify-center rounded-control border border-border text-text-dim hover:bg-surface-2 hover:text-text">
-                  <ICON.more size={14} aria-hidden />
-                </span>
-              }
               items={menu}
+              className="h-7 w-7 rounded-control border border-border hover:bg-surface-2"
             />
           </>
         }
       />
-      <div className="flex min-w-0 flex-wrap items-center gap-3 px-4 pb-3">
-        <span className="tnum text-xs text-text-dim">{count.label}</span>
-        {strip.workflow_name && <span className="truncate text-xs text-text-dim">· {strip.workflow_name}</span>}
-        <ListeningLine view={view} onChanged={onChanged} />
-      </div>
     </div>
   );
 }

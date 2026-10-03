@@ -139,7 +139,9 @@ test("the list is filtered by name or upstream, ordered current first then the d
   );
   assert.equal(localNameFor({ remote: "origin", name: "feature/x" }, rows), "feature/x");
   assert.equal(localNameFor({ remote: "origin", name: "topic" }, rows), "origin-topic", "the name is taken: prefixed with the remote's");
-  assert.equal(standingWords(rows[0]), "↑2 ↓1");
+  // Words, not typed arrows: the row draws the kit's glyphs, and this is what a screen reader and the tooltip say.
+  assert.equal(standingWords(rows[0]), "2 ahead, 1 behind");
   assert.equal(standingWords(rows[1]), "");
-  assert.equal(standingWords({ ahead: 0, behind: 3 }), "↓3");
+  assert.equal(standingWords({ ahead: 0, behind: 3 }), "3 behind");
+  assert.equal(standingWords({ ahead: 4, behind: 0 }), "4 ahead");
 });

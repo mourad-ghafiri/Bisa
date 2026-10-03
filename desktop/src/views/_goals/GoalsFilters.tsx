@@ -3,15 +3,15 @@
  * are no sections: who holds the ball, which workflow, tags, text. Holder
  * and workflow and text live in the URL (`?holder=&workflow=&q=`), so Back
  * restores a view and a link carries it; tags reuse the shared bar.
+ *
+ * Who holds it is a select, not a segmented control: six options, each a
+ * phrase, are past what a row of segments carries (the kit's rule is two to
+ * four). Its words are the filter's own, sentence case
+ * (`HOLDER_FILTER_LABEL`).
  */
-import { SegmentedControl, Switch, TextInput, type Segment } from "../../ui";
-import { HOLDERS, HOLDER_FILTER_ALL, HOLDER_LABEL, type Filters } from "./goalStripModel.mjs";
+import { Select, Switch, TextInput } from "../../ui";
+import { HOLDERS, HOLDER_FILTER_ALL, HOLDER_FILTER_LABEL, type Filters } from "./goalStripModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
-
-const HOLDER_SEGMENTS: readonly Segment<string>[] = [
-  { id: HOLDER_FILTER_ALL, label: t("goals-goals-filters-all") },
-  ...HOLDERS.map((h) => ({ id: h, label: HOLDER_LABEL[h] })),
-];
 
 export function GoalsFilters({
   filters,
@@ -24,16 +24,23 @@ export function GoalsFilters({
 }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <SegmentedControl
-        options={HOLDER_SEGMENTS}
+      <Select
+        aria-label={t("goals-goals-filters-who-holds")}
+        className="h-7 w-auto py-0 text-2xs"
         value={filters.holder ?? HOLDER_FILTER_ALL}
-        onChange={(h) => onChange({ ...filters, holder: h === HOLDER_FILTER_ALL ? undefined : h })}
-        label={t("goals-goals-filters-who-holds")}
-      />
+        onChange={(e) => onChange({ ...filters, holder: e.target.value === HOLDER_FILTER_ALL ? undefined : e.target.value })}
+      >
+        <option value={HOLDER_FILTER_ALL}>{t("goals-goals-filters-all")}</option>
+        {HOLDERS.map((h) => (
+          <option key={h} value={h}>
+            {HOLDER_FILTER_LABEL[h]}
+          </option>
+        ))}
+      </Select>
       {facets.length > 1 && (
-        <select
+        <Select
           aria-label={t("goals-goals-filters-workflow")}
-          className="rounded-control border border-border bg-surface px-1.5 py-1 text-2xs"
+          className="h-7 w-auto py-0 text-2xs"
           value={filters.workflow ?? ""}
           onChange={(e) => onChange({ ...filters, workflow: e.target.value || undefined })}
         >
@@ -43,7 +50,7 @@ export function GoalsFilters({
               {f.name} ({f.count})
             </option>
           ))}
-        </select>
+        </Select>
       )}
       <TextInput
         aria-label={t("goals-goals-filters-filter-goals")}

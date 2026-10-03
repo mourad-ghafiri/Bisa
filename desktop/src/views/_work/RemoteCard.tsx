@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { api } from "../../api";
 import type { RemoteInfo } from "../../types";
-import { Button, ConfirmDialog, ErrorNote, ICON, SkeletonRows, TextInput, Tooltip, useToast } from "../../ui";
+import { Button, ConfirmDialog, ErrorNote, ICON, SkeletonRows, TextInput, Tooltip, failureText, useToast } from "../../ui";
 import { confirmLabel } from "./gitWords.mjs";
 import { isRemoteUrl, remoteSummary } from "./remoteModel.mjs";
 import { attempt, useAsync } from "./useAsync";
@@ -61,7 +61,7 @@ export function RemoteCard({ wid, onChanged }: { wid: string; onChanged?: () => 
       toast.ok(t("work-remote-card-deleted-remote", { name }));
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "remote-card-failed", e));
     } finally {
       setBusy(false);
     }

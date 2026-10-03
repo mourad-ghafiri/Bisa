@@ -47,7 +47,8 @@ export function RunSteps({
   // what it had just produced out of sight.
   const [wasLive] = useState<ReadonlySet<string>>(() => new Set(strip.current));
   return (
-    <ul className="flex flex-col gap-0.5">
+    // A size container: a row's holder and time take their columns only where the list has the room (`StepRow`).
+    <ul className="@container flex flex-col gap-0.5">
       {rows.map((r) => {
         const live = r.current || wasLive.has(r.id);
         return (

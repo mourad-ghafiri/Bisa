@@ -20,16 +20,21 @@
  * The rail and each panel come back where they were scrolled
  * (`shell/useViewScroll`) — and that is all the screen remembers of itself:
  * a panel's forms start from what the node says, never from what was typed
- * and left.
+ * and left. So the rail asks before it leaves a panel whose explicit-save
+ * form holds unsaved edits (`_settings/unsavedModel.mjs`): leaving drops them,
+ * and that is the person's call, not a click's side effect.
+ *
+ * One content width for every panel (`max-w-3xl` on the column), so moving
+ * between panels never moves the edge the eye reads against.
  */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useSearchValue } from "../router";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf } from "../shell/viewMemoryStore";
-import { ErrorNote, ICON, Spinner, cn } from "../ui";
-import type { LucideIcon } from "../ui";
+import { ConfirmDialog, ErrorNote, GitMark, ICON, Spinner, cn } from "../ui";
+import type { LucideIcon, Mark } from "../ui";
 import { GovernancePanel } from "./_work/GovernancePanel";
 import { AppearancePanel } from "./_settings/AppearancePanel";
 import { BrowserAccessPanel } from "./_settings/BrowserAccessPanel";
@@ -66,6 +71,8 @@ import { ConnectorsPanel } from "./_settings/ConnectorsPanel";
 import { ClassifierPanel, GuardPanel, RedactorPanel } from "./_settings/SecurityPanels";
 import { SCALARS } from "./_settings/securityRules.mjs";
 import { DecisionsPanel } from "./_settings/DecisionsPanel";
+import { leaveAsks } from "./_settings/unsavedModel.mjs";
+import { forgetUnsaved, useUnsavedForms } from "./_settings/unsavedStore";
 
 /** The `security.collaboration.*` keys, drawn beside the classifier's (14-collaboration). */
 const COLLABORATION_KEYS = ["security.collaboration.classify", "security.collaboration.agent_tools"] as const;
@@ -86,7 +93,7 @@ import { t } from "../i18n/l10n.mjs";
  * rail that borrows another concept's icon teaches the reader the wrong
  * association.
  */
-const GLYPH: Record<SettingsTab, LucideIcon> = {
+const GLYPH: Record<SettingsTab, LucideIcon | Mark> = {
   identity: ICON.identity,
   appearance: ICON.appearance,
   pet: ICON.pet,
@@ -115,7 +122,8 @@ const GLYPH: Record<SettingsTab, LucideIcon> = {
   "security-guard": ICON.guard,
   "security-classifier": ICON.guard,
   "decision-making": ICON.decisions,
-  git: ICON.identity,
+  // Git & code hosts › Identity — who commits: git is the tool, so the Git mark, never You › Identity's key.
+  git: GitMark,
   "git-ssh": ICON.fingerprint,
   github: ICON.account,
   gitlab: ICON.account,
@@ -160,19 +168,27 @@ export default function Settings() {
   const root = useRef<HTMLDivElement>(null);
   useViewScroll(root, `${PLACE}#${panel.id}`, PLACE);
 
+  // A panel with unsaved edits asks before the rail leaves it.
+  const unsaved = useUnsavedForms();
+  const [leavingTo, setLeavingTo] = useState<SettingsTab | null>(null);
+  const go = (to: SettingsTab) => {
+    if (leaveAsks(unsaved, panel.id, to)) setLeavingTo(to);
+    else setTab(to);
+  };
+
   return (
     <div ref={root} className="flex h-full min-h-0">
       <nav
         aria-label={t("screens-settings-settings-sections")}
         data-scroll-keep="nav"
-        className="w-48 shrink-0 overflow-y-auto border-r border-border py-3"
+        className="w-48 shrink-0 overflow-y-auto border-r border-border px-2 py-3"
       >
         {SETTINGS_GROUPS.map((g) => (
-          <div key={g.id} className="mb-3 last:mb-0">
-            <h2 className="px-4 pb-1 text-2xs font-semibold tracking-wide text-text-dim uppercase">
+          <div key={g.id} className="mb-4 last:mb-0">
+            <h2 className="px-2 pb-1 text-2xs font-semibold text-text-dim">
               {g.label}
             </h2>
-            <ul>
+            <ul className="flex flex-col gap-px">
               {g.panels.map((p) => {
                 const on = p.id === panel.id;
                 const Glyph = GLYPH[p.id];
@@ -184,11 +200,14 @@ export default function Settings() {
                       // places in the URL, not tabs over one panel, and a
                       // screen reader should hear "current page".
                       aria-current={on ? "page" : undefined}
-                      onClick={() => setTab(p.id)}
+                      onClick={() => go(p.id)}
+                      // The current panel is where you are, drawn the way the
+                      // sidebar draws its current row: a neutral fill, never
+                      // the accent, which means something waits on you.
                       className={cn(
-                        "anim flex h-row w-full items-center gap-2 px-4 text-left text-xs outline-none",
+                        "anim flex h-row w-full items-center gap-2 rounded-control px-2 text-left text-xs",
                         on
-                          ? "bg-accent-soft font-medium text-accent-ink"
+                          ? "bg-selected font-medium text-text"
                           : "text-text-dim hover:bg-surface-2 hover:text-text focus-visible:bg-surface-2",
                       )}
                     >
@@ -204,15 +223,17 @@ export default function Settings() {
       </nav>
 
       <div data-scroll-keep={`panel:${panel.id}`} className="min-w-0 flex-1 overflow-y-auto">
-        <header className="px-6 pt-4 pb-3">
+        <header className="max-w-3xl px-6 pt-4 pb-3">
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <PanelGlyph size={16} aria-hidden className="shrink-0 text-text-dim" />
             {panel.label}
           </h2>
-          <p className="mt-0.5 max-w-2xl text-2xs text-text-dim">{panel.blurb}</p>
+          <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{panel.blurb}</p>
         </header>
 
-        <div className="px-6 pb-10">
+        {/* A column with a gap, so a hand-written panel and the registry's
+            settings under it read as two blocks rather than one run-on. */}
+        <div className="flex max-w-3xl flex-col gap-6 px-6 pb-10">
           {blocked ? (
             offline ? (
               <ErrorNote error={offline} retry={refresh} />
@@ -354,6 +375,20 @@ export default function Settings() {
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={leavingTo !== null}
+        onClose={() => setLeavingTo(null)}
+        onConfirm={() => {
+          const to = leavingTo;
+          setLeavingTo(null);
+          forgetUnsaved();
+          if (to) setTab(to);
+        }}
+        title={t("settings-unsaved-leave-title")}
+        body={t("settings-unsaved-leave-body")}
+        confirmLabel={t("settings-unsaved-leave-confirm")}
+        danger
+      />
     </div>
   );
 }

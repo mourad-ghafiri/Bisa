@@ -66,7 +66,7 @@ test("opening a stored workflow is clean at its revision, and every save is an u
   const s = open(stored(1), []);
   assert.equal(dirty(s), false);
   assert.equal(saveRequest(s), null);
-  assert.equal(statusLine(s), "saved");
+  assert.equal(statusLine(s), "Saved");
   assert.deepEqual(present(s), bodyOf(stored(1)));
   // An empty draft the library just created: stored at revision 1 with its
   // one problem, and its first edit is an update like any other.
@@ -86,7 +86,7 @@ test("a save sends the head at the base revision, and the revision moves with th
   s = saved(s, 2);
   assert.equal(s.base.revision, 2);
   assert.equal(dirty(s), false);
-  assert.equal(statusLine(s), "saved");
+  assert.equal(statusLine(s), "Saved");
 });
 
 test("our own save echo is not a reload", () => {
@@ -140,7 +140,7 @@ test("a failed save re-arms with a growing delay and the draft where it was", ()
   s = saveStarted(s, saveRequest(s).body);
   s = saveFailed(s, "node unreachable");
   assert.equal(s.status, "failed");
-  assert.equal(statusLine(s), "not saved: node unreachable");
+  assert.equal(statusLine(s), "Not saved: node unreachable");
   assert.equal(present(s).name, "Two", "nothing lost");
   assert.ok(saveRequest(s), "still to be sent");
   assert.equal(retryDelayMs(s), 1000);
@@ -164,7 +164,7 @@ test("a conflict blocks saving and has two exits", () => {
   assert.equal(saveRequest(s), null, "blocked until the person decides");
   assert.equal(remoteDecision(s, 3), "ignore", "no reload over an open conflict");
   assert.equal(present(s).name, "Mine", "my body is still the head");
-  assert.ok(statusLine(s).startsWith("conflict"));
+  assert.ok(statusLine(s).startsWith("Conflict"));
 
   // Keep mine: my head rides on their revision.
   const mine = keepMine(s);
@@ -252,7 +252,7 @@ test("a body the node could not read is not sent again; an edit is", () => {
   assert.equal(saveRequest(s), null, "the same body is not retried");
   assert.equal(saveDue(s, 0, 800), null, "and nothing is due");
   assert.equal(retryDelayMs(s), 0, "no backoff: it is not a failure that passes on its own");
-  assert.equal(statusLine(s), 'not saved — the node could not read this design: steps[0]: invalid connector id ""');
+  assert.equal(statusLine(s), 'Not saved — the node could not read this design: steps[0]: invalid connector id ""');
   assert.equal(present(s).name, "Two", "nothing lost");
   assert.ok(dirty(s), "still unsaved");
   // An edit is a different body: it may be read.
@@ -440,7 +440,7 @@ test("a save the node refuses over a copy nobody changed is said beside the draf
   s = settle(s, refusalOutcome({ status: 409, message: held, body: { error: held } }, 3, stored(3)));
   assert.equal(s.status, "failed");
   assert.equal(s.conflict, null, "no banner: nobody saved first");
-  assert.equal(statusLine(s), `not saved: ${held}`);
+  assert.equal(statusLine(s), `Not saved: ${held}`);
   assert.equal(dirty(s), true, "the draft stays where it was");
   assert.equal(s.base.revision, 3);
   // It is tried again at the backoff's pace, and stored once the host was turned off.
@@ -456,10 +456,10 @@ test("a save the node refuses over a copy nobody changed is said beside the draf
 
 test("the header's line is the catalog's in every state, and the driver decides nothing of its own", () => {
   const clean = open(stored(3));
-  assert.equal(statusLine(clean), "saved");
+  assert.equal(statusLine(clean), "Saved");
   const typing = edit(clean, { ...bodyOf(stored(3)), name: "Edited" }, 1000);
-  assert.equal(statusLine(typing), "unsaved edits");
-  assert.equal(statusLine(saveStarted(typing, saveRequest(typing).body)), "saving…");
+  assert.equal(statusLine(typing), "Unsaved edits");
+  assert.equal(statusLine(saveStarted(typing, saveRequest(typing).body)), "Saving…");
   const model = readFileSync(new URL("./designerSession.mjs", import.meta.url), "utf8");
   assert.ok(!model.includes('"saving…"') && !model.includes('"saved"'), "no word is spelt in the model");
   const driver = readFileSync(new URL("./useAutosave.ts", import.meta.url), "utf8");

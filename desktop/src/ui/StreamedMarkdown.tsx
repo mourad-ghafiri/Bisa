@@ -12,18 +12,19 @@ import { settledBlocks } from "../views/_studio/streamBlocksModel.mjs";
 import { Markdown } from "./Markdown";
 import { cn } from "./cn";
 
-const Block = memo(function Block({ text }: { text: string }) {
-  return <Markdown text={text} />;
+const Block = memo(function Block({ text, textClass }: { text: string; textClass?: string }) {
+  return <Markdown text={text} className={textClass} />;
 });
 
-export function StreamedMarkdown({ text, className }: { text: string; className?: string }) {
+/** `textClass` reaches every block's own text — a fold that reads smaller than an answer (`ThinkingBlock`). */
+export function StreamedMarkdown({ text, className, textClass }: { text: string; className?: string; textClass?: string }) {
   const { settled, tail } = useMemo(() => settledBlocks(text), [text]);
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {settled.map((block, i) => (
-        <Block key={i} text={block} />
+        <Block key={i} text={block} textClass={textClass} />
       ))}
-      {tail.trim() !== "" && <Markdown text={tail} />}
+      {tail.trim() !== "" && <Markdown text={tail} className={textClass} />}
     </div>
   );
 }

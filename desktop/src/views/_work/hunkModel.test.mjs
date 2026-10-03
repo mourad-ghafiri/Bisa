@@ -127,7 +127,7 @@ test("a review note that is gone is a 404 on its edit, its resolve and its delet
   const { readFileSync } = await import("node:fs");
   const list = readFileSync(new URL("./ReviewNotes.tsx", import.meta.url), "utf8");
   const act = list.slice(list.indexOf("const act = async"), list.indexOf("const send = () =>"));
-  assert.ok(act.includes("toast.error(e instanceof Error ? e.message : String(e));"), "the node's own sentence is said");
+  assert.ok(act.includes('toast.error(failureText("work", "review-notes-failed", e));'), "the node's own sentence is said — and an exception's text never is");
   assert.ok(act.includes("if (e instanceof ApiError && reviewNoteGone(e.status)) notes.reload();"), "and a note that is gone is read out of the list");
   assert.ok(!/status === 400|not found/i.test(list), "no old status, no words of a refusal");
   for (const verb of ["api.reviewNoteEdit(", "api.reviewNoteResolve(", "api.reviewNoteDelete("]) assert.ok(list.includes(`act("note", () => ${verb}`), `${verb} goes through the one door`);

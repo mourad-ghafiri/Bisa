@@ -24,6 +24,9 @@ export function WorkstreamStatusChips({
 }) {
   const chips = cardChips(w ?? null, s).filter((c) => !omit.includes(c.id));
   if (chips.length === 0) return null;
+  // A fact with no tone of its own (`+3`, `↑1 ↓0`, *not pushed*) is drawn as
+  // dim words, so the chips left in the row are the ones that say something.
+  const plain = (tone: string) => tone === "neutral" || tone === "quiet";
   return (
     <span className="tnum inline-flex shrink-0 flex-wrap items-center gap-1 text-2xs">
       {chips.map((c) => (
@@ -32,6 +35,8 @@ export function WorkstreamStatusChips({
             <ExternalLink href={c.href} className="inline-flex">
               <Chip tone={c.tone}>{c.text}</Chip>
             </ExternalLink>
+          ) : plain(c.tone) ? (
+            <span className="inline-flex h-5 items-center whitespace-nowrap px-0.5 text-text-dim">{c.text}</span>
           ) : (
             <span className="inline-flex">
               <Chip tone={c.tone}>{c.text}</Chip>

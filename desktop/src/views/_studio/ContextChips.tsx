@@ -82,7 +82,7 @@ function ContextChip({ item, onRemove }: { item: ContextRef; onRemove?: () => vo
   const opens = door && link ? door : null;
   return (
     <span className="inline-flex max-w-full flex-col">
-      <span className={cn("inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs text-text")}>
+      <span className={cn("inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-2xs text-text")}>
         <Glyph size={11} aria-hidden className="shrink-0 text-text-dim" />
         <button
           type="button"
@@ -116,7 +116,7 @@ function ContextChip({ item, onRemove }: { item: ContextRef; onRemove?: () => vo
         )}
       </span>
       {open && body && (
-        <pre className="mt-1 max-h-40 max-w-md overflow-auto rounded-control border border-border bg-surface p-1.5 font-mono text-3xs leading-relaxed text-text-dim">
+        <pre className="mt-1 max-h-40 max-w-md overflow-auto rounded-control border border-border bg-surface p-1.5 font-mono text-2xs leading-relaxed text-text-dim">
           {body}
         </pre>
       )}
@@ -152,13 +152,14 @@ export function ContextTray({
 }) {
   if (frame.length === 0 && refs.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-3 py-1.5">
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-hairline px-3 py-1.5">
       {frame.map((f, i) => (
         <span
           key={`f${i}`}
           className={cn(
             "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs",
-            f.kind === "project" && "bg-accent-soft text-accent-ink",
+            // The project the agent works in is identity, not a summons: a neutral fill.
+            f.kind === "project" && "bg-surface-2 text-text",
             f.kind === "goal" && "border border-border text-text-dim",
           )}
           title={f.kind === "goal" ? t("studio-context-chips-goal-project-attached-agent-told-which") : t("studio-context-chips-project-agent-works")}

@@ -62,7 +62,7 @@ export function ConversationSurface({
     <div className="flex h-row shrink-0 items-center gap-2 border-b border-border px-2 text-2xs">
       {icon && <span className="shrink-0 text-text-dim">{icon}</span>}
       <Tooltip label={title}>
-        <span className="min-w-0 flex-1 truncate text-text">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">{title}</span>
       </Tooltip>
       {barExtras}
       <ConversationsDoor {...c.door} controls={listId} />

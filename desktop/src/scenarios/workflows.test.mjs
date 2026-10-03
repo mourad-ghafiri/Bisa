@@ -147,12 +147,12 @@ test("a save the node refuses: somebody saved first is a choice with two exits; 
   // The node answers 409 and the stored copy is at 4: a conflict.
   const moved = "the stored copy has moved: you edited revision 3, it is at 4";
   s = settle(saveStarted(s, sent.body), refusalOutcome({ status: 409, message: moved, body: { error: moved } }, sent.revision, stored(4, "Theirs")));
-  assert.deepEqual([s.status, statusLine(s), saveRequest(s)], ["conflict", "conflict — somebody saved first", null]);
+  assert.deepEqual([s.status, statusLine(s), saveRequest(s)], ["conflict", "Conflict — somebody saved first", null]);
   // Keep mine: my body, on their revision.
   const mine = keepMine(s);
   assert.deepEqual([saveRequest(mine).revision, saveRequest(mine).body.name], [4, "Triage, then fix"]);
   const landed = settle(saveStarted(mine, saveRequest(mine).body), { kind: "stored", workflow: stored(5, "Triage, then fix"), problems: [] });
-  assert.deepEqual([landed.status, landed.base.revision, dirty(landed), statusLine(landed)], ["idle", 5, false, "saved"]);
+  assert.deepEqual([landed.status, landed.base.revision, dirty(landed), statusLine(landed)], ["idle", 5, false, "Saved"]);
   // Take theirs: clean on theirs, and undo still holds mine.
   const theirs = takeTheirs(s);
   assert.deepEqual([theirs.base.revision, dirty(theirs), saveRequest(theirs)], [4, false, null]);
@@ -161,7 +161,7 @@ test("a save the node refuses: somebody saved first is a choice with two exits; 
   const held = "the public hook start `ticket` is still answered by a listening host: turn it off first";
   let h = edit(open(stored(3)), { ...bodyOf(stored(3)), name: "Without its hook" }, 1000);
   h = settle(saveStarted(h, saveRequest(h).body), refusalOutcome({ status: 409, message: held, body: { error: held } }, 3, stored(3)));
-  assert.deepEqual([h.status, h.conflict, statusLine(h)], ["failed", null, `not saved: ${held}`]);
+  assert.deepEqual([h.status, h.conflict, statusLine(h)], ["failed", null, `Not saved: ${held}`]);
 
   // Another writer's save heard on the bus: a clean designer stands on it, an edited one is asked.
   const clean = open(stored(3));

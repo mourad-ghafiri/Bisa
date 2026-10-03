@@ -15,11 +15,15 @@ import { useMemo } from "react";
 import type { Definition } from "./workflowGraph.mjs";
 import { ICON, STEP_KIND_ICON } from "../../ui";
 import { thumbnail, type ThumbNode } from "./thumbnailModel.mjs";
+import { familyColor } from "./familyInk";
 
 /** The glyph's box inside a card, and the name's baseline, in canvas pixels. */
 const GLYPH = 16;
 const INSET = 12;
 const NAME_SIZE = 15;
+
+/** The thumbnail's box on a library card, in CSS pixels (`LibraryCard`: h-32 less its padding, a card's width). */
+const BOX = { w: 250, h: 112 };
 
 /** A card's corner: an event is a pill, as on the canvas; every other family a card. */
 function cornerOf(n: ThumbNode): number {
@@ -35,10 +39,12 @@ export function WorkflowThumbnail({ definition }: { definition: Definition }) {
       </span>
     );
   }
-  // One stroke and one arrowhead whatever the picture's size: scaled to the
-  // viewBox so a tall workflow's lines do not vanish and a short one's do not
-  // thicken.
-  const stroke = Math.max(1.5, viewBox.w / 260);
+  // One stroke and one arrowhead whatever the picture's size: from the scale
+  // the card's box fits the picture at (its long side, not only its width),
+  // so a line is never thinner than about a pixel — a tall workflow reads as
+  // its shape, not as nothing — and a short one's lines do not thicken.
+  const fitted = Math.min(BOX.w / viewBox.w, BOX.h / viewBox.h);
+  const stroke = Math.max(1.5, 1.25 / fitted);
   const marker = `wf-arrow-${nodes[0]?.id ?? "x"}-${nodes.length}-${Math.round(viewBox.w)}`;
   return (
     <svg viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`} preserveAspectRatio="xMidYMid meet" aria-hidden className="block h-full w-full" style={{ strokeWidth: stroke }}>
@@ -67,8 +73,8 @@ export function WorkflowThumbnail({ definition }: { definition: Definition }) {
         const Icon = STEP_KIND_ICON[n.kind as keyof typeof STEP_KIND_ICON] ?? ICON.workflow;
         return (
           <g key={n.id} clipPath={`url(#${marker}-clip-${n.id})`}>
-            <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={cornerOf(n)} fill="var(--color-surface)" stroke="var(--color-border)" />
-            <Icon x={n.x + INSET} y={n.y + (n.h - GLYPH) / 2} width={GLYPH} height={GLYPH} color="var(--color-text-dim)" strokeWidth={1.75} aria-hidden />
+            <rect x={n.x} y={n.y} width={n.w} height={n.h} rx={cornerOf(n)} fill="var(--color-surface)" stroke="var(--color-text-dim)" strokeOpacity={0.8} />
+            <Icon x={n.x + INSET} y={n.y + (n.h - GLYPH) / 2} width={GLYPH} height={GLYPH} color={familyColor(n.kind)} strokeWidth={1.75} aria-hidden />
             <text x={n.x + INSET + GLYPH + 8} y={n.y + n.h / 2} dominantBaseline="middle" fontSize={NAME_SIZE} fontFamily="var(--font-sans)" fill="var(--color-text)" stroke="none">
               {n.name}
             </text>

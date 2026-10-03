@@ -8,7 +8,7 @@
 
 import { useRef, useState } from "react";
 import { api } from "../../api";
-import { TextInput, useToast } from "../../ui";
+import { TextInput, failureText, useToast } from "../../ui";
 import { renameBody, renamedWords, renames } from "./workstreamCardModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -29,7 +29,7 @@ function useRenameWorkstream(wid: string, onRenamed?: () => void) {
       toast.ok(renamedWords(body));
       onRenamed?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "rename-workstream-failed", e));
     } finally {
       writing.current = false;
     }

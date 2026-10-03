@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { NewWorkflowBody, Problem } from "../../types";
+import { failureText } from "../../ui";
 
 const VALIDATE_DELAY_MS = 200;
 
@@ -56,7 +57,7 @@ export function useLiveValidation(
         .catch((e: unknown) => {
           // A validation that could not run is not a problem list: the last
           // one stays, and the reason stands beside it.
-          if (!ac.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+          if (!ac.signal.aborted) setError(failureText("workflow", "use-live-validation-failed", e));
         })
         .finally(() => {
           if (!ac.signal.aborted) setValidating(false);

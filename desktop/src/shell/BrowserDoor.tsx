@@ -53,7 +53,7 @@ export function BrowserDoor({ home = null, className }: { home?: BrowserHome | n
     else if (id === "hide") aux.close();
     else if (id === "close-all") for (const s of sessions) closeBrowserTab(s.key);
   };
-  const pressed = showing ? "border-accent/50 bg-accent-soft text-accent-ink" : "border-border text-text-dim hover:bg-surface-2 hover:text-text";
+  const pressed = showing ? "border-border bg-selected text-text" : "border-border text-text-dim hover:bg-surface-2 hover:text-text";
   return (
     <span className={cn("inline-flex items-center", className)}>
       <Tooltip label={words.hint}>

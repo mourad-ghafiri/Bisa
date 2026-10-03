@@ -185,11 +185,12 @@ export function AssigneeTag({ option }: { option: AssigneeOption }) {
   return (
     // The name is clipped at 9rem and the one line of context never shows at
     // all, so the tooltip is where a reader finds out which of two agents
-    // called "Reviewer" this is.
+    // called "Reviewer" this is. Filled like the kit's neutral chip; one the
+    // workspace no longer has is the empty outline, the kit's `quiet`.
     <Tooltip label={`${option.name} — ${option.sub}`}>
       <span
         className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-1.5 py-0.5 text-2xs ${
-          option.known ? "border-border" : "border-dashed border-border text-text-dim"
+          option.known ? "border-transparent bg-surface-2" : "border-border text-text-dim"
         }`}
       >
         <Avatar id={option.avatar} name={option.name} photo={option.photo} size={14} />
@@ -338,7 +339,7 @@ export function AssigneePicker({
               <Tooltip key={key} label={`${o.name} — ${o.sub}`}>
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-1 pl-1.5 text-2xs ${
-                    o.known ? "border-border" : "border-dashed border-border text-text-dim"
+                    o.known ? "border-transparent bg-surface-2" : "border-border text-text-dim"
                   }`}
                 >
                   <Avatar id={o.avatar} name={o.name} photo={o.photo} size={14} />
@@ -348,7 +349,7 @@ export function AssigneePicker({
                     disabled={disabled}
                     onClick={() => onChange(value.filter((k) => k !== key))}
                     aria-label={tr("work-assignee-picker-remove", { o: o.name })}
-                    className="anim rounded-full px-1 text-text-dim hover:text-danger disabled:opacity-45"
+                    className="anim rounded-full px-1 text-text-dim hover:bg-surface hover:text-danger disabled:opacity-45"
                   >
                     <ICON.close size={10} aria-hidden />
                   </button>
@@ -363,6 +364,7 @@ export function AssigneePicker({
         value={query}
         disabled={disabled}
         placeholder={placeholder}
+        aria-label={tr("work-assignee-picker-search-label")}
         onChange={(e) => setQuery(e.target.value)}
       />
 
@@ -385,7 +387,7 @@ export function AssigneePicker({
         ) : (
           shown.map((g) => (
             <div key={g.kind} className="mb-2 last:mb-0">
-              <p className="mb-1 text-2xs font-medium text-text-dim">{GROUP_LABEL[g.kind]}</p>
+              <p className="mb-1 text-2xs font-semibold text-text-dim">{GROUP_LABEL[g.kind]}</p>
               <ul className="flex flex-col gap-1">
                 {g.rows.map((o) => (
                   <Row

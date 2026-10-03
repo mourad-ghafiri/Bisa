@@ -43,11 +43,11 @@ function Row({ h, models }: { h: HarnessRow; models: ModelInfo[] | null | undefi
   const Mark = harnessMark(h.id);
   return (
     <Card className={h.installed ? "" : "opacity-70"}>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Dot tone={h.installed ? "ok" : "neutral"} title={h.installed ? t("settings-harnesses-panel-is-installed") : t("settings-harnesses-panel-installed-2")} />
         <Mark size={14} tone="brand" aria-hidden className="shrink-0" />
-        <span className="text-xs font-medium">{h.label}</span>
-        <Chip tone="quiet">{h.tier}</Chip>
+        <span className="text-xs font-medium whitespace-nowrap">{h.label}</span>
+        <Chip tone="neutral">{h.tier}</Chip>
         {/* Whether the Tool & Commands Guard can stop a call before it runs — Settings › Security says the same. */}
         <Tooltip
           label={
@@ -77,7 +77,7 @@ function Row({ h, models }: { h: HarnessRow; models: ModelInfo[] | null | undefi
             <span className="text-2xs text-text-dim">{t("settings-harnesses-panel-asking")}</span>
           ) : models ? (
             models.slice(0, 6).map((m) => (
-              <Chip key={m.id} tone="quiet" title={m.id}>
+              <Chip key={m.id} tone="neutral" title={m.id}>
                 {m.label ?? m.id}
               </Chip>
             ))
@@ -137,15 +137,10 @@ export function HarnessesPanel() {
   if (rows.length === 0) {
     return (
       <EmptyState
+        icon={ICON.harness}
         title={t("settings-harnesses-panel-harnesses-found")}
         hint={t("settings-harnesses-panel-install-claude-code-codex-opencode-any")}
-        action={
-          <button
-            type="button"
-            onClick={reload}
-            className="text-2xs text-accent-ink underline underline-offset-2"
-          >{t("settings-harnesses-panel-probe-again")}</button>
-        }
+        action={<Button onClick={reload}>{t("settings-harnesses-panel-probe-again")}</Button>}
       />
     );
   }
@@ -154,16 +149,14 @@ export function HarnessesPanel() {
   const missing = rows.filter((h) => !h.installed);
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <ReadLine words={status} busy={probed.refreshing} onReload={reload} reloadLabel={t("settings-harnesses-panel-probe-again")} />
       <Section
         title={t("settings-harnesses-panel-available", { installed: installed.length })}
         action={
-          <button
-            type="button"
-            onClick={reload}
-            className="text-2xs text-text-dim underline underline-offset-2 hover:text-text"
-          >{t("settings-harnesses-panel-probe-again-2")}</button>
+          <Button size="sm" variant="ghost" disabled={probed.refreshing} onClick={reload}>
+            {t("settings-harnesses-panel-probe-again")}
+          </Button>
         }
       >
         <div className="flex flex-col gap-2">

@@ -16,6 +16,10 @@
  * what it asks for. It reads again on `settings_changed`, after a fix, on
  * *Check again*, when the node comes back, and every twenty seconds while
  * something is missing or the checks could not be read (`useReadiness.ts`).
+ *
+ * One primary in the dialog: the first missing check's first fix — the next
+ * thing to do. Every other fix is a default button; the checks are groups
+ * inside the panel, never bordered cards inside a bordered card.
  */
 
 import * as A from "@radix-ui/react-alert-dialog";
@@ -23,7 +27,8 @@ import { useState } from "react";
 import { api, openExternal } from "../api";
 import { navigate } from "../router";
 import type { InstallHint, Readiness, ReadinessCheck, ReadinessFix } from "../types";
-import { Button, Card, Chip, ICON, copyText, useToast } from "../ui";
+import { Button, Chip, ErrorNote, ICON, copyText, useToast } from "../ui";
+import { errorFields, log } from "../log";
 import { BODY, HEADER, OVERLAY, PANEL } from "../ui/dialogLayout.mjs";
 import { useSurface } from "../ui/openSurfaces";
 import { bannerWords, checkWords, commandsFor, doorLabel, doorTarget, fixBody, gateMode, offeredFixes, platformOf, progressWords } from "./setupModel.mjs";
@@ -35,7 +40,7 @@ import { rich } from "../i18n/rich";
 function CommandLine({ command }: { command: string }) {
   const toast = useToast();
   return (
-    <div className="flex items-center gap-2 rounded-control border border-border bg-surface-2 px-2 py-1">
+    <div className="flex items-center gap-2 rounded-control bg-surface-2/50 py-1 pl-2.5 pr-1">
       <code className="min-w-0 flex-1 truncate font-mono text-2xs text-text" title={command}>
         {command}
       </code>
@@ -53,8 +58,8 @@ function Hint({ hint, platform }: { hint: InstallHint; platform: string }) {
       {commandsFor(hint, platform).map((c) => (
         <CommandLine key={c} command={c} />
       ))}
-      {hint.verify && <p className="text-2xs text-text-dim">{rich("shell-setup-gate-then-check-landed", { verify: <code className="font-mono">{hint.verify}</code> })}</p>}
-      {hint.sign_in && <p className="text-2xs text-text-dim">{t("shell-setup-gate-sign", { sign_in: hint.sign_in })}</p>}
+      {hint.verify && <p className="text-2xs leading-relaxed text-text-dim">{rich("shell-setup-gate-then-check-landed", { verify: <code className="font-mono">{hint.verify}</code> })}</p>}
+      {hint.sign_in && <p className="text-2xs leading-relaxed text-text-dim">{t("shell-setup-gate-sign", { sign_in: hint.sign_in })}</p>}
       <div>
         <Button size="sm" variant="ghost" onClick={() => void openExternal(hint.url).catch(() => toast.error(t("shell-setup-gate-browser-did-open")))}>
           <ICON.open size={11} aria-hidden />{t("shell-setup-gate-open-official-docs")}</Button>
@@ -63,7 +68,7 @@ function Hint({ hint, platform }: { hint: InstallHint; platform: string }) {
   );
 }
 
-function CheckCard({ check, platform, onFixed }: { check: ReadinessCheck; platform: string; onFixed: () => void }) {
+function CheckCard({ check, platform, first, onFixed }: { check: ReadinessCheck; platform: string; /** The first missing check: its first fix is the dialog's one primary. */ first: boolean; onFixed: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const words = checkWords(check);
@@ -80,26 +85,30 @@ function CheckCard({ check, platform, onFixed }: { check: ReadinessCheck; platfo
       toast.ok(t("shell-setup-gate-done", { f: f.label }));
       onFixed();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("shell-setup-gate-could", { f: f.label.toLowerCase() }));
+      log.warn("setup", "a fix did not go through", { fix: f.label, ...errorFields(e) });
+      toast.error(t("shell-setup-gate-could", { f: f.label }));
     } finally {
       setBusy(null);
     }
   };
   return (
-    <Card className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <Glyph size={14} aria-hidden className="shrink-0 text-text-dim" />
-        <span className="text-xs font-semibold text-text">{check.title}</span>
-        <Chip tone={words.tone}>{words.word}</Chip>
+    <section aria-label={check.title} className="flex flex-col gap-3 rounded-control bg-surface-2/50 p-3">
+      {/* What the check is and where it stands, tight; what to do about it, a step below. */}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <Glyph size={14} aria-hidden className="shrink-0 text-text-dim" />
+          <span className="text-sm font-medium text-text">{check.title}</span>
+          <Chip tone={words.tone}>{words.word}</Chip>
+        </div>
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{check.detail}</p>
       </div>
-      <p className="text-2xs text-text-dim">{check.detail}</p>
       {check.state !== "ready" && (
         <>
           {check.hint && <Hint hint={check.hint} platform={platform} />}
           {fixes.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {fixes.map((f) => (
-                <Button key={f.label} size="sm" variant="primary" disabled={busy !== null} onClick={() => void fix(f)}>
+              {fixes.map((f, i) => (
+                <Button key={f.label} size="sm" variant={first && i === 0 ? "primary" : "default"} disabled={busy !== null} onClick={() => void fix(f)}>
                   {busy === f.label ? "…" : f.label}
                 </Button>
               ))}
@@ -114,7 +123,7 @@ function CheckCard({ check, platform, onFixed }: { check: ReadinessCheck; platfo
           )}
         </>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -142,6 +151,7 @@ export function SetupGate({ screen }: { screen: string }) {
   const platform = platformOf(typeof navigator === "undefined" ? null : navigator);
   if (mode === "none" || !readiness) return null;
   if (mode === "banner") return <Banner readiness={readiness} checking={checking} onCheck={check} />;
+  const firstMissing = readiness.checks.find((c) => c.state !== "ready")?.id ?? null;
   return (
     <A.Root open>
       <A.Portal>
@@ -155,12 +165,12 @@ export function SetupGate({ screen }: { screen: string }) {
             </Button>
           </header>
           <A.Description asChild>
-            <p className="px-4 pt-3 text-2xs text-text-dim">{t("shell-setup-gate-platform-needs-git-one-coding-harness")}</p>
+            <p className="max-w-measure px-5 pt-4 text-xs leading-relaxed text-text-dim">{t("shell-setup-gate-platform-needs-git-one-coding-harness")}</p>
           </A.Description>
-          <div className={`${BODY} flex flex-col gap-2`}>
-            {error && <p className="text-2xs text-danger">{error}</p>}
+          <div className={`${BODY} flex flex-col gap-3`}>
+            {error && <ErrorNote error={error} retry={check} />}
             {readiness.checks.map((c) => (
-              <CheckCard key={c.id} check={c} platform={platform} onFixed={check} />
+              <CheckCard key={c.id} check={c} platform={platform} first={c.id === firstMissing} onFixed={check} />
             ))}
           </div>
         </A.Content>

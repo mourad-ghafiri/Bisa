@@ -36,6 +36,7 @@ import {
   type SaveRequest,
   type Session,
 } from "./designerSession.mjs";
+import { failureText } from "../../ui";
 
 interface AutosaveDriver {
   update: (
@@ -62,7 +63,7 @@ export interface Autosave {
 
 /** What the node said of a save it did not store, as the session reads it (`refusalOutcome`). */
 function refusalOf(e: unknown): { status: number | null; message: string; body?: unknown } {
-  const message = e instanceof Error ? e.message : String(e);
+  const message = failureText("workflow", "use-autosave-failed", e);
   return e instanceof ApiError ? { status: e.status, message, body: e.body } : { status: null, message };
 }
 

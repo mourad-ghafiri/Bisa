@@ -20,6 +20,7 @@ import { useHarnessLabels } from "../../shell/useHarnesses";
 import { dividers, leafOfTab, leaves, rects } from "../../shell/paneTreeModel.mjs";
 import type { PaneNode } from "../../shell/paneTreeModel.mjs";
 import { exitNote, isExited, isLive, livenessTone, sessionsRootedAt, terminalTabLabel, terminalTitle, harnessOf } from "../../shell/terminalsModel.mjs";
+import { terminalChipName } from "../../shell/terminalChipModel.mjs";
 import { browserLabel, browserTitle, seenRootedAt } from "../../shell/browsersModel.mjs";
 import { closeBrowserTab, focusBrowserTab, useBrowsers } from "../../shell/useBrowsers";
 import { setBrowserInspecting } from "../../shell/browserInspectorStore";
@@ -38,7 +39,7 @@ import {
 import { requestCloseOthers, requestCloseTerminal } from "../../shell/terminalCloseGuard";
 import { terminalTail } from "../../terminal/tails";
 import { inDesktopShell, openExternal, revealPath } from "../../api";
-import { DropZone, ICON, PaneDivider, TabStrip, cn, docTabDrag, revealLabel, useToast, copyText as copyToClipboard, PANE_RING, StripControlButton, harnessMark } from "../../ui";
+import { DropZone, ICON, PaneDivider, TabStrip, failureText, cn, docTabDrag, revealLabel, useToast, copyText as copyToClipboard, PANE_RING, StripControlButton, harnessMark } from "../../ui";
 import type { DragData } from "../../ui";
 import type { MenuItem, StripTab } from "../../ui";
 import { chordHint } from "../../ui/keymapHints";
@@ -291,7 +292,7 @@ export function CenterDocuments({
           focusBrowserTab(s.key);
         },
         "copy-url": () => copyText(s.url),
-        "open-outside": () => void openExternal(s.url).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e))),
+        "open-outside": () => void openExternal(s.url).catch((e: unknown) => toast.error(failureText("workbench", "center-documents-failed", e))),
         close: () => closeBrowserTab(s.key),
         "close-others": () => {
           for (const other of browsersHere) if (other.key !== s.key) closeBrowserTab(other.key);
@@ -309,7 +310,7 @@ export function CenterDocuments({
         restart: () => restartTerminalTab(s.key),
         "send-to-agent": () => {
           const lines = terminalTail(s.key);
-          if (lines) attachContext(terminalChip(`${harnessOf(s) ?? "shell"} · ${s.key}`, lines));
+          if (lines) attachContext(terminalChip(terminalChipName(s, sessions), lines));
           showRightPanel("agents", `${scope}:${id}`);
         },
         "show-agents": () => showRightPanel("agents", `${scope}:${id}`),
@@ -354,7 +355,7 @@ export function CenterDocuments({
       "copy-absolute": () => copyText(absolute),
       "reveal-files": () => onRevealInFiles(path),
       "reveal-os": () => {
-        void revealPath(absolute).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+        void revealPath(absolute).catch((e: unknown) => toast.error(failureText("workbench", "center-documents-failed", e)));
       },
     };
     return spec.map((item) => ({ label: item.label, danger: item.danger, disabled: item.disabled, separatorBefore: item.separatorBefore, shortcut: chordHint(item.command), onSelect: act[item.id] ?? (() => undefined) }));
@@ -437,9 +438,9 @@ export function CenterDocuments({
     const leaf = paneLeaves[0];
     const strip = stripFor(leaf, true);
     return (
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TabStrip
-          className="shrink-0 border-b border-border"
+          className="shrink-0 border-b border-hairline"
           label={tr("workbench-center-documents-open-documents-terminals")}
           tabs={strip}
           active={activeId}
@@ -452,12 +453,12 @@ export function CenterDocuments({
           trailing={docControls(leaf.id, leaf.tabs.length >= 2, true)}
         />
         <div className="min-h-0 flex-1">{bodyFor(leaf, true)}</div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div ref={body} className="relative min-h-0 flex-1">
         {paneDividers.map((d) => (
           <PaneDivider key={d.splitId} d={d} body={body} onRatio={onRatio} />
@@ -480,7 +481,7 @@ export function CenterDocuments({
                   through `onDropForeign`, the body through the zone. */}
               <DropZone className="flex min-h-0 flex-1 flex-col" label={tr("workbench-center-documents-pane", { i: i + 1 })} accepts={(d) => d.type === "doc-tab" && d.pane !== leaf.id && !d.id.startsWith("terminal:") && !d.id.startsWith("browser:")} onDrop={takeTab(leaf.id)}>
                 <TabStrip
-                  className="shrink-0 border-b border-border"
+                  className="shrink-0 border-b border-hairline"
                   size="sm"
                   label={tr("workbench-center-documents-documents-pane", { i: i + 1 })}
                   tabs={strip}
@@ -503,7 +504,7 @@ export function CenterDocuments({
           );
         })}
       </div>
-    </main>
+    </div>
   );
 }
 

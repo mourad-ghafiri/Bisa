@@ -12,6 +12,7 @@ import { useSyncExternalStore } from "react";
 import { api } from "../api";
 import { useReloadOnReconnect } from "../ui/useReloadOnReconnect";
 import type { MobileDevice } from "../types";
+import { failureReason } from "../ui/failure";
 
 export interface DevicesState {
   readonly devices: readonly MobileDevice[];
@@ -36,7 +37,7 @@ export function refreshDevices(): Promise<void> {
     .mobileDevelopmentDevices()
     .then(
       (r) => set({ devices: r.devices, read: true, error: null }),
-      (e: unknown) => set({ ...state, read: true, error: e instanceof Error ? e.message : String(e) }),
+      (e: unknown) => set({ ...state, read: true, error: failureReason("devices", "the devices could not be listed", e) }), // for the log
     )
     .finally(() => {
       inflight = null;

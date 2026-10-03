@@ -51,14 +51,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { useEngineEvents } from "../bus";
 import { href, navigate, setSearch, useSearchValue } from "../router";
-import { BrowserDoor } from "../shell/BrowserDoor";
 import { useGonePlace } from "../shell/useGonePlace";
 import { useKeymap } from "../shell/useKeymap";
 import { useViewScroll } from "../shell/useViewScroll";
 import { placeOf } from "../shell/viewMemoryStore";
 import { chordFor } from "../shell/keymapModel.mjs";
 import type { ListenerView, NewWorkflowBody, Problem, Workflow } from "../types";
-import { Button, Chip, ConfirmDialog, ErrorNote, ICON, IconRail, Menu, PageHeader, ResizeHandle, SkeletonRows, useStoredSize, useToast, type MenuItem } from "../ui";
+import { Button, Chip, ConfirmDialog, ErrorNote, ICON, IconRail, MoreMenu, PageHeader, ResizeHandle, SkeletonRows, cn, useStoredSize, useToast, type MenuItem } from "../ui";
 import { railAnchor } from "../ui/iconRailModel.mjs";
 import { attempt, useAsync } from "./_work/useAsync";
 import { readKey } from "./_work/keptReadsModel.mjs";
@@ -83,6 +82,7 @@ import { Inspector } from "./_workflow/Inspector";
 import { Palette } from "./_workflow/Palette";
 import { canRedoEdit, canUndoEdit, caughtUp, definitionBody, dirty, edit, keepMine, open, present, putBody, redoEdit, remoteLoaded, rowBehind, statusLine, takeTheirs, undoEdit, type Session, remoteAction } from "./_workflow/designerSession.mjs";
 import { addStep } from "./_workflow/workflowGraph.mjs";
+import { fitColumns } from "./_workbench/ideColumnsModel.mjs";
 import { useAutosave } from "./_workflow/useAutosave";
 import { useDesignerSettings } from "./_workflow/useDesignerSettings";
 import { useLiveValidation } from "./_workflow/useLiveValidation";
@@ -95,6 +95,8 @@ const PANEL_KEY = "bisa.workflow.panel.width";
 const PANEL_DEFAULT = 380;
 const PANEL_MIN = 300;
 const PANEL_MAX = 720;
+/** The palette's column with its words (`w-40`). */
+const PALETTE_WIDTH = 160;
 
 export default function WorkflowDesigner({ id }: { id: string }) {
   const toast = useToast();
@@ -131,6 +133,22 @@ export default function WorkflowDesigner({ id }: { id: string }) {
   // furniture (`designerPanelStore`). A link may name a pane (`?panel=agent`,
   // a conversation's door): read once, shown, and taken off the address.
   const panel = useDesignerPanel();
+  // The palette, the canvas and the column share the row as the Project
+  // IDE's columns do (`ideColumnsModel.fitColumns`): past the canvas's least,
+  // the column gives way to its own least, then the palette folds to its
+  // glyphs — while the window is that narrow, never in the stored width.
+  const [rowEl, setRowEl] = useState<HTMLDivElement | null>(null);
+  const [rowWidth, setRowWidth] = useState(0);
+  useEffect(() => {
+    if (!rowEl) return;
+    setRowWidth(rowEl.getBoundingClientRect().width);
+    const ro = new ResizeObserver((entries) => setRowWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(rowEl);
+    return () => ro.disconnect();
+  }, [rowEl]);
+  // The pane rail's column (`IconRail`, w-10) never moves.
+  const fit = fitColumns({ total: rowWidth, fixed: 40, rail: PALETTE_WIDTH, railMin: PALETTE_WIDTH, railOpen: true, right: panelWidth, rightMin: PANEL_MIN, rightOpen: panel.open });
+  const paletteCompact = fit.railFolded;
   const [panelParam] = useSearchValue(PANEL_PARAM);
   useEffect(() => {
     if (!panelParam) return;
@@ -374,14 +392,7 @@ export default function WorkflowDesigner({ id }: { id: string }) {
         subtitle={body.description || undefined}
         meta={
           <>
-            <Chip tone="quiet">{t("workflow-goal-workflow-tab-rev", { revision: base.revision })}</Chip>
-            {slug ? (
-              <Chip tone="quiet" icon={ICON.template} title={t("screens-workflow-designer-installed-from-catalog-editing-changes-copy")}>
-                {slug}
-              </Chip>
-            ) : (
-              <Chip tone="quiet">{t("screens-workflow-designer-yours")}</Chip>
-            )}
+            {/* What a person acts on first: whether it can run, and whether the last edit is saved. */}
             {problems.length > 0 ? (
               <Chip tone="danger" icon={ICON.warn}>
                 {t("workflow-workflow-card-problem-s", { problems: problems.length })}
@@ -389,13 +400,25 @@ export default function WorkflowDesigner({ id }: { id: string }) {
             ) : (
               <Chip tone="ok" icon={ICON.ok}>{t("screens-workflow-designer-runs")}</Chip>
             )}
-            {used.length > 0 && <Chip tone="accent">{t("screens-workflow-designer-used", { used: used.length })}</Chip>}
             <span className={`text-2xs ${session.status === "failed" || session.status === "rejected" || session.status === "conflict" ? "text-danger" : "text-text-dim"}`}>
               {statusLine(session)}
             </span>
             {session.status === "failed" && (
               <Button size="sm" variant="ghost" onClick={() => void auto.flush()}>{t("screens-workflow-designer-retry")}</Button>
             )}
+            {/* The facts behind it, quiet words in one group: its revision, where it came from, who points at it. */}
+            <span className="flex min-w-0 items-center gap-2 text-2xs text-text-dim">
+              <span className="tnum">{t("workflow-goal-workflow-tab-rev", { revision: base.revision })}</span>
+              {slug ? (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <ICON.template size={11} aria-hidden className="shrink-0" />
+                  <span className="truncate">{t("screens-workflow-designer-installed-from", { slug })}</span>
+                </span>
+              ) : (
+                <span>{t("screens-workflows-yours")}</span>
+              )}
+              {used.length > 0 && <span className="tnum">{t("screens-workflow-designer-used", { used: used.length })}</span>}
+            </span>
           </>
         }
         actions={
@@ -403,23 +426,15 @@ export default function WorkflowDesigner({ id }: { id: string }) {
             {/* What its events hold for a person to read, while it listens. */}
             {data && <HeldSignals host={{ workflow: id }} listening={Boolean(data.listening)} onChanged={heard.reload} />}
             {data && <ListeningSwitch row={data} listeners={listeners} onChanged={reload} />}
-            <BrowserDoor home={{ scope: "workflow", id }} />
-            <Menu
-              label={t("screens-workflow-designer-workflow-actions")}
-              trigger={
-                <span className="anim inline-flex h-7 w-7 items-center justify-center rounded-control border border-border text-text-dim hover:bg-surface-2 hover:text-text">
-                  <ICON.more size={14} aria-hidden />
-                </span>
-              }
-              items={menu}
-            />
+            <MoreMenu label={t("screens-workflow-designer-workflow-actions")} items={menu} className="h-7 w-7" />
           </>
         }
       />
 
       {theirs && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-danger/40 bg-danger-soft/40 px-3 py-1.5 text-2xs">
-          <ICON.warn size={13} aria-hidden className="text-danger" />
+        // A choice that waits on the person now: the summons, not an alarm.
+        <div className="flex flex-wrap items-center gap-2 border-b border-accent/40 bg-accent-soft px-3 py-1.5 text-2xs text-accent-ink">
+          <ICON.warn size={13} aria-hidden />
           <span className="font-medium">{t("screens-workflow-designer-somebody-saved-revision", { theirs: theirs.revision, mine: base.revision })}</span>
           <span className="text-text-dim">{t("screens-workflow-designer-nothing-saved-until-choose")}</span>
           <Button size="sm" variant="primary" className="ml-auto" onClick={() => setSession((s) => (s ? keepMine(s) : s))}>{t("screens-workflow-designer-keep-mine-top-theirs")}</Button>
@@ -430,13 +445,14 @@ export default function WorkflowDesigner({ id }: { id: string }) {
           goal is where that run stops or restarts, so each is a link to it.
           A run of the workspace runs its own copy and freezes nothing. */}
       {frozen && !theirs && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent-soft px-3 py-1.5 text-2xs text-accent-ink">
-          <ICON.run size={13} aria-hidden />
+        // It informs and asks nothing, so it is neutral: the accent is for what waits on you.
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-2/70 px-3 py-1.5 text-2xs text-text">
+          <ICON.run size={13} aria-hidden className="text-text-dim" />
           <span className="text-text-dim">
             {rich(
               "screens-workflow-designer-running-in-goals-read-only",
               {
-                lead: (inner) => <span className="font-medium text-accent-ink">{inner}</span>,
+                lead: (inner) => <span className="font-medium text-text">{inner}</span>,
                 goals: liveOn.map((g, i) => (
                   <span key={g.id}>
                     {i > 0 ? t("screens-workflow-designer-list-separator") : ""}
@@ -453,12 +469,13 @@ export default function WorkflowDesigner({ id }: { id: string }) {
       )}
       {runVerbs.dialogs}
 
-      <div className="flex min-h-0 flex-1">
+      <div ref={setRowEl} className="flex min-h-0 flex-1">
         {/* The root the palette's scroll is kept from; it draws no box of its own. */}
         <div ref={paletteRoot} className="contents">
-        <aside data-scroll-keep="palette" className="w-40 shrink-0 overflow-y-auto border-r border-border p-2">
-            <h3 className="mb-1 px-2 text-2xs font-semibold tracking-wide text-text-dim uppercase">{t("screens-workflow-designer-steps")}</h3>
+        <aside data-scroll-keep="palette" className={cn("shrink-0 overflow-y-auto border-r border-border", paletteCompact ? "w-12 px-1.5 py-2" : "w-40 p-2")}>
+            <h3 className={paletteCompact ? "sr-only" : "mb-2 px-2 pt-1 text-sm font-semibold text-text"}>{t("screens-workflow-designer-steps")}</h3>
             <Palette
+              compact={paletteCompact}
               disabled={frozen}
               onAdd={(kind) => {
                 const { wf, id: added } = addStep(body, kind);
@@ -467,11 +484,11 @@ export default function WorkflowDesigner({ id }: { id: string }) {
                 revealStep(added);
               }}
             />
-            <p className="mt-3 px-2 text-2xs text-text-dim">{t("screens-workflow-designer-palette-hint")}</p>
+            {!paletteCompact && <p className="mt-3 px-2 text-2xs leading-relaxed text-text-dim">{t("screens-workflow-designer-palette-hint")}</p>}
           </aside>
         </div>
 
-        <main className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1">
           <Designer
             value={body}
             problems={problems}
@@ -490,13 +507,13 @@ export default function WorkflowDesigner({ id }: { id: string }) {
             startViewport={memory.viewport}
             onViewport={(v) => rememberCanvasViewport(id, v)}
           />
-        </main>
+        </div>
 
         {/* The column, when open: Properties, Agent or Runs. The rail stays either way. */}
         {panel.open && (
           <>
             <ResizeHandle side="left" size={panelWidth} min={PANEL_MIN} max={PANEL_MAX} defaultSize={PANEL_DEFAULT} onSize={setPanelWidth} label={t("workflow-designer-panel-resize")} />
-            <aside className="flex min-h-0 shrink-0 flex-col border-l border-border" style={{ width: panelWidth }} role="tabpanel" aria-label={tabs.find((tab) => tab.id === pane)?.label}>
+            <aside className="flex min-h-0 shrink-0 flex-col border-l border-border" style={{ width: fit.right ?? panelWidth }} role="tabpanel" aria-label={tabs.find((tab) => tab.id === pane)?.label}>
               {pane === "agent" ? (
                 <WorkflowAgentPane workflow={base} />
               ) : pane === "runs" && data ? (

@@ -13,7 +13,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { paneToggle } from "../shell/browserDoorsModel.mjs";
+import { paneToggle, screenHome as homeOfScreen } from "../shell/browserDoorsModel.mjs";
 import { EMPTY_BROWSERS, PERSON, byAgent, byPage, openBrowser, parseBrowsers, seenSessions, serializeBrowsers, sessionOf } from "../shell/browsersModel.mjs";
 import { statWords } from "../shell/browserStatModel.mjs";
 import { urlCard } from "../shell/linkCardModel.mjs";
@@ -30,7 +30,14 @@ test("both hosts draw the one bar with the wand on it, over a body the browser c
     assert.ok(!text.includes("NoteBox"), `${host} draws no note box: the page draws its own`);
     assert.ok(text.includes("PaneAnnotationTray"), `${host} offers the screen's tray`);
   }
+  // Annotating a page for an agent is the Project IDE's alone: beside any other screen the pane shows the page and draws no wand,
+  // and a wand left on, or badges left drawn, are taken back from the page.
+  const hook = read("views/_workbench/useBrowserAnnotation.ts");
+  assert.ok(hook.includes('const offered = useRoute().name === "workbench";') && hook.includes("const annotatable = offered && read && canAnnotate(session, all);"), "annotating is offered on the Project IDE's screen alone");
+  assert.ok(hook.includes('driveBrowserView(key, inspectMessage("off"))') && hook.includes("driveBrowserView(key, marksMessage([]))"), "off the IDE the page's wand and badges are taken back");
+  assert.ok(read("shell/BrowserPane.tsx").includes("wand={a.offered ? {"), "the pane draws the wand only where annotating is offered");
   const bar = read("shell/BrowserBar.tsx");
+  assert.ok(bar.includes("{wand && ("), "a bar with no wand draws none");
   assert.ok(bar.includes("data-browser-bar") && bar.includes("BROWSER_COMMAND"), "the bar answers the chords");
   for (const verb of ['label={t("shell-browser-bar-back")}', 'label={t("shell-browser-bar-forward")}', 'aria-label={t("shell-browser-bar-address")}', 'aria-label={t("shell-browser-bar-annotate-page-agent")}']) {
     assert.ok(bar.includes(verb), `the bar has ${verb}`);
@@ -61,8 +68,14 @@ test("a page's words come through the shell's door on every page, never IPC: no 
   assert.ok(!script.includes("__TAURI_INTERNALS__"), "the page's script asks nothing of IPC");
 });
 
-test("the workspace's home carries the Browser door, a URL in a message opens here first, and the palette takes an address", () => {
-  assert.ok(read("views/Pulse.tsx").includes("<BrowserDoor />"), "the Pulse has the door");
+test("the Browser button is the Project IDE's alone, a URL in a message opens here first, and the palette takes an address", () => {
+  // No screen outside the IDE wears a Browser button; beside any of them the
+  // pane still opens with ⌘⇧L or the palette (the Details pane's door).
+  for (const screen of ["views/Pulse.tsx", "views/Inbox.tsx", "views/Channels.tsx", "views/Messages.tsx", "views/GoalDetail.tsx", "views/_goal/GoalHeader.tsx", "views/WorkflowDesigner.tsx", "views/_studio/ConversationThread.tsx"]) {
+    assert.ok(!read(screen).includes("BrowserDoor"), `${screen} wears no Browser button`);
+  }
+  assert.ok(read("views/Workbench.tsx").includes("<BrowserLauncher scope={scope} id={id}"), "the Project IDE keeps its Browser button");
+  assert.ok(read("shell/AuxPane.tsx").includes("onDoor(OPEN_BROWSER, () => toggleBrowserPane({ kind, toggle }))"), "⌘⇧L and the palette open the pane beside any screen");
   // The card's verbs are the model's (`linkCardModel.urlCard`); the provider binds each to its act.
   const card = urlCard("https://example.com/docs", { embedded: true });
   assert.deepEqual(card.verbs.map((v) => [v.id, v.label, v.primary === true]), [["open_here", "Open in Bisa's browser", true], ["open_machine", "Open in the machine's browser", false], ["copy", "Copy the URL", false]], "a link's card opens the page here first; the machine's browser is the other door");
@@ -71,8 +84,9 @@ test("the workspace's home carries the Browser door, a URL in a message opens he
   assert.ok(/case "open_machine":[\s\S]{0,80}openExternal\(verb\.url\)/.test(link), "the second the machine's");
   const palette = read("shell/Omnibox.tsx");
   assert.ok(palette.includes("urlRow(q)") && palette.includes("openUrlInBrowser(address.url)"), "a typed address is a row");
-  assert.ok(read("views/Channels.tsx").includes('{ scope: "channel", id }'), "a channel's door names the channel as the tab's home");
-  assert.ok(read("views/Messages.tsx").includes('{ scope: "dm", id }'), "a direct message's door names the message");
+  // With no button on these screens, a tab ⌘⇧L opens beside a channel, a direct message, a goal or a workflow is still at home there: the door reads the route.
+  for (const name of ["channel", "dm", "goal", "workflow"]) assert.deepEqual(homeOfScreen(null, null, { name, id: "X1" }), { scope: name, id: "X1" }, `beside a ${name}, the tab is at home in it`);
+  assert.deepEqual(homeOfScreen({ kind: "conversation", id: "C1" }, null, { name: "goal", id: "X1" }), { scope: "conversation", id: "C1" }, "beside a conversation on screen, in the conversation");
 });
 
 test("the browser tools are one list everywhere: the engine's note, the skill, the reference and the MCP server name the same twenty-one", () => {
@@ -139,16 +153,6 @@ test("the footer's Browser count tells the truth: it follows the browser's switc
     assert.ok(overlay.includes(fact), `the overlay ${fact}`);
   }
   assert.ok(!overlay.includes("homeWords"), "no raw ids: every home by name");
-  for (const [screen, home] of [
-    ["views/WorkflowDesigner.tsx", 'scope: "workflow", id'],
-    ["views/Channels.tsx", 'scope: "channel", id'],
-    ["views/Messages.tsx", 'scope: "dm", id'],
-    ["views/Inbox.tsx", "browserHomeOf(current)"],
-    ["views/_studio/ConversationThread.tsx", 'scope: "conversation", id: row.id'],
-    ["views/GoalDetail.tsx", 'scope: "goal", id'],
-  ]) {
-    assert.ok(read(screen).includes(home), `${screen}'s door names its home`);
-  }
   assert.ok(!read("shell/browsersModel.mjs").includes("export function homeWords"), "the id-printing words are gone");
   assert.ok(read("App.tsx").includes("resetKey={routeKey} onError={(error, info) => log.error(\"browser\""), "the browser layer's boundary resets with the route");
   const panel = read("shell/BrowserPanel.tsx");
@@ -308,4 +312,29 @@ test("the footer's bars are the kit's one stacked bar: Bisa's parts first, every
   assert.ok(read("shell/ResourceOverlay.tsx").includes("legend={bar.legend}"), "the resource bar says Bisa, the machine and the free rest beneath");
   const model = read("shell/resourceModel.mjs");
   assert.ok(model.includes("export function usageBar(") && !model.includes("export function stackedBar("), "one bar model, read left to right");
+});
+
+test("the page's floating overlays are never under a tab: each says its box, the layer cuts a hole for it, and the page stays live around it", () => {
+  const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+  // Every overlay that floats over the content says where it is painted.
+  for (const [file, id] of [
+    ["notes/NoteOverlay.tsx", '"notes-panel"'],
+    ["draw/DrawOverlay.tsx", '"draw-panel"'],
+    ["notes/NoteDock.tsx", '"notes-dock"'],
+    ["draw/DrawDock.tsx", '"draw-dock"'],
+    ["pet/PetCompanion.tsx", '"pet"'],
+    ["addons/AddonWindow.tsx", "`addon:${addon.id}`"],
+  ]) assert.ok(read(file).includes(`useBrowserClear(${id}`), `${file} says its box to the browser layer`);
+  // A panel floating says it; maximized it is a surface, as before (scenarios/maximize.test.mjs).
+  for (const file of ["notes/NoteOverlay.tsx", "draw/DrawOverlay.tsx"]) assert.ok(read(file).includes(", panel, open && !fixed);"), `${file}: only while floating`);
+  // The one file that talks to the webviews sends them, once a frame, a failure logged.
+  const panel = read("shell/BrowserPanel.tsx");
+  assert.ok(panel.includes("setBrowserClears(clears, viewport)") && panel.includes("the browser layer could not cut around the overlays"), "sent, and a refusal is logged");
+  assert.ok(panel.includes("requestAnimationFrame") && panel.includes("sameClears(last.clears, clears)"), "coalesced per frame, nothing sent twice");
+  // The shell's layer: a mask for what shows, a hit-test for what is clicked — Apple's own primitives, no private API.
+  const shell = readFileSync(new URL("../../src-tauri/src/browser.rs", import.meta.url), "utf8");
+  for (const piece of ["#[name = \"BisaBrowserLayer\"]", "hitTest:", "updateLayer", "setDisableActions(true)", "addSubview_positioned_relativeTo", "kCAFillRuleEvenOdd"]) {
+    assert.ok(shell.includes(piece), `browser.rs: ${piece}`);
+  }
+  assert.ok(!shell.includes("new_copy_by_"), "no CGPath boolean operation: they are macOS 13 and the app runs from 11");
 });

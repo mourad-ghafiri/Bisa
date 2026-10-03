@@ -159,7 +159,7 @@ export function StashesPanel({ wid, status, onChanged }: { wid: string; status: 
                       label={t("work-stashes-panel-more", { row: row.id })}
                       items={verbsOf(entry)}
                       trigger={
-                        <span className="anim flex h-6 w-6 items-center justify-center rounded text-text-dim hover:bg-surface hover:text-text">
+                        <span className="anim flex h-6 w-6 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text">
                           <ICON.more size={13} aria-hidden />
                         </span>
                       }

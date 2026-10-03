@@ -36,6 +36,7 @@ import {
   TextArea,
   TextInput,
   Tooltip,
+  failureText,
   useToast,
 } from "../../ui";
 import { href } from "../../router";
@@ -68,7 +69,10 @@ import {
   verdictWords,
   withDraft,
   withoutDraft,
+  keepRowKey,
+  rowKey,
 } from "./securityRules.mjs";
+import { SaveFooter } from "./SaveFooter";
 import { t as tr } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
 
@@ -87,7 +91,7 @@ async function fetchOr<T>(fn: () => Promise<T>, onError: (message: string) => vo
   try {
     return await fn();
   } catch (e) {
-    onError(e instanceof Error ? e.message : String(e));
+    onError(failureText("settings", "security-panels-failed", e));
     return null;
   }
 }
@@ -196,14 +200,14 @@ function Builtins<T extends RuleLike>({
     if (ok) onChanged();
   };
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col divide-y divide-hairline rounded-card border border-border bg-surface shadow-sm">
       {rules.map((r) => (
-        <div key={r.id} className="flex items-center gap-2 rounded-control border border-border px-2 py-1.5">
+        <div key={r.id} className="flex min-h-row items-center gap-2 px-3 py-1.5">
           <Switch checked={r.enabled !== false} disabled={busy} onChange={(v) => void flip(r.id, v)} label={r.label} />
           <span className="min-w-0 flex-1 truncate font-mono text-2xs text-text-dim" title={words(r)}>
             {words(r)}
           </span>
-          <Chip tone="quiet">{tr("settings-security-panels-built")}</Chip>
+          <Chip tone="neutral">{tr("settings-security-panels-built")}</Chip>
         </div>
       ))}
     </div>
@@ -255,24 +259,16 @@ function UserRules<T extends RuleLike>({
       onChanged();
     }
   };
+  // The edit of one row: the same row (`keepRowKey`), so its box keeps the caret.
+  const patch = (i: number, next: T) => edit(draft.map((x, j) => (j === i ? keepRowKey(x, next) : x)));
   return (
-    <Section
-      title={title}
-      action={
-        <div className="flex items-center gap-1">
-          {dirty && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDrafts((all) => withoutDraft(all, scope))}>{tr("settings-global-git-panel-discard")}</Button>
-          )}
-          <Button size="sm" disabled={!dirty || blocked || busy} onClick={() => void save()}>{tr("settings-decisions-panel-save")}</Button>
-        </div>
-      }
-    >
+    <Section title={title}>
       <div className="flex flex-col gap-2">
         {draft.length === 0 && <p className="text-2xs text-text-dim">{tr("settings-security-panels-no-rules-of-your-own-at", { scope: scopeWords(scope) })}</p>}
         {draft.map((r, i) => (
-          <div key={i} className="rounded-control border border-border p-2">
+          <div key={rowKey(r)} className="rounded-control border border-border p-2">
             <div className="flex items-center gap-1">
-              <Switch checked={r.enabled !== false} onChange={(v) => edit(draft.map((x, j) => (j === i ? { ...x, enabled: v } : x)))} label="" />
+              <Switch checked={r.enabled !== false} onChange={(v) => patch(i, { ...r, enabled: v })} label={tr("settings-security-panels-rule-enabled")} hideLabel />
               <TextInput
                 value={r.label}
                 placeholder={tr("settings-git-profiles-panel-name")}
@@ -280,24 +276,24 @@ function UserRules<T extends RuleLike>({
                 className="w-48"
                 onChange={(e) => {
                   const label = e.target.value;
-                  edit(draft.map((x, j) => (j === i ? { ...x, label, id: x.id === slugOf(x.label) || !x.id ? slugOf(label) : x.id } : x)));
+                  patch(i, { ...r, label, id: r.id === slugOf(r.label) || !r.id ? slugOf(label) : r.id });
                 }}
               />
               <span className="font-mono text-2xs text-text-dim">{r.id || "—"}</span>
               <span className="flex-1" />
               <Tooltip label={tr("settings-security-panels-earlier-rules-tried-first")}>
                 <Button size="sm" variant="ghost" aria-label={tr("settings-security-panels-move-up")} disabled={i === 0} onClick={() => edit(moveRule(draft, i, -1))}>
-                  ▲
+                  <ICON.up size={12} aria-hidden />
                 </Button>
               </Tooltip>
               <Button size="sm" variant="ghost" aria-label={tr("settings-security-panels-move-down")} disabled={i === draft.length - 1} onClick={() => edit(moveRule(draft, i, 1))}>
-                ▼
+                <ICON.down size={12} aria-hidden />
               </Button>
               <Button size="sm" variant="ghost" aria-label={tr("settings-git-profiles-panel-remove-2")} onClick={() => edit(draft.filter((_, j) => j !== i))}>
                 <ICON.close size={11} aria-hidden />
               </Button>
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1">{row(r, (next) => edit(draft.map((x, j) => (j === i ? next : x))))}</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">{row(r, (next) => patch(i, next))}</div>
             {problems[i] && (
               <p className="mt-1 text-2xs text-danger" role="alert">
                 {problems[i]}
@@ -308,6 +304,15 @@ function UserRules<T extends RuleLike>({
         <div>
           <Button size="sm" onClick={() => edit([...draft, blank()])}>{tr("settings-security-panels-add-rule")}</Button>
         </div>
+        <SaveFooter
+          form={`security-rules:${settingKey}`}
+          dirty={dirty}
+          saving={busy}
+          canSave={!blocked}
+          blockedReason={tr("settings-save-footer-fix-first")}
+          onSave={() => void save()}
+          onDiscard={() => setDrafts((all) => withoutDraft(all, scope))}
+        />
       </div>
     </Section>
   );
@@ -333,7 +338,7 @@ export function RedactorPanel() {
   const env = envDetectorWords(status.data);
 
   return (
-    <div className="mb-4 flex max-w-3xl flex-col gap-4">
+    <div className="mb-4 flex flex-col gap-6">
       {status.error && <ErrorNote error={status.error} retry={status.reload} />}
       {isOff && <OffBanner feature="redactor" />}
       <Problems lines={problemLines(status.data?.problems, "redactor")} />
@@ -367,7 +372,7 @@ export function RedactorPanel() {
             />
           </div>
         )}
-        <p className="mt-1.5 text-2xs text-text-dim">{tr("settings-security-panels-variable-whose-name-says-is-detector")}</p>
+        <p className="mt-1.5 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("settings-security-panels-variable-whose-name-says-is-detector")}</p>
       </Section>
       <ScopePicker scope={scope} onChange={setScope} />
       {phase(layer) === "failed" ? (
@@ -438,7 +443,7 @@ function RedactTryIt() {
   };
   return (
     <Section title={tr("settings-decisions-panel-try")}>
-      <p className="mb-1 text-2xs text-text-dim">{tr("settings-security-panels-paste-something-made-up-key-text")}</p>
+      <p className="mb-2 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("settings-security-panels-paste-something-made-up-key-text")}</p>
       <TextArea value={text} rows={3} className="font-mono text-2xs" placeholder={tr("settings-security-panels-deploy-akiaexampleexample00-tonight")} onChange={(e) => setText(e.target.value)} />
       <div className="mt-1 flex items-center gap-2">
         <Button size="sm" disabled={!text.trim() || busy} onClick={() => void run()}>{tr("settings-security-panels-redact")}</Button>
@@ -469,7 +474,7 @@ export function GuardPanel() {
   const isOff = status.data ? !status.data.guard_enabled : false;
 
   return (
-    <div className="mb-4 flex max-w-3xl flex-col gap-4">
+    <div className="mb-4 flex flex-col gap-6">
       {status.error && <ErrorNote error={status.error} retry={status.reload} />}
       {isOff && <OffBanner feature="guard" />}
       <Problems lines={problemLines(status.data?.problems, "guard")} />
@@ -588,7 +593,7 @@ function GuardTryIt() {
   const words = result ? verdictWords(result.verdict) : null;
   return (
     <Section title={tr("settings-decisions-panel-try")}>
-      <p className="mb-1 text-2xs text-text-dim">{tr("settings-security-panels-rules-alone-nothing-runs-nothing-asked")}</p>
+      <p className="mb-2 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("settings-security-panels-rules-alone-nothing-runs-nothing-asked")}</p>
       <div className="flex items-center gap-1">
         <Select value={tool} aria-label={tr("settings-security-panels-tool")} onChange={(e) => setTool(e.target.value)}>
           {TRY_TOOLS.map((t) => (
@@ -639,7 +644,7 @@ function Harnesses({ status }: { status: SecurityStatus | null | undefined }) {
         })}
         {status.harnesses.length === 0 && <p className="text-2xs text-text-dim">{tr("settings-security-panels-harness-registered-node")}</p>}
       </div>
-      <p className="mt-1.5 text-2xs text-text-dim">{tr("settings-security-panels-harness-guard-judges-stopped-before-refused")}</p>
+      <p className="mt-1.5 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("settings-security-panels-harness-guard-judges-stopped-before-refused")}</p>
     </Section>
   );
 }
@@ -693,14 +698,14 @@ export function ClassifierPanel() {
   const provider = status.data?.classifier.provider ?? "agent";
   const fields = classifierFieldsFor(provider);
   return (
-    <div className="mb-4 flex max-w-3xl flex-col gap-4">
+    <div className="mb-4 flex flex-col gap-6">
       {status.error && <ErrorNote error={status.error} retry={status.reload} />}
       <Card>
         <div className="flex items-center gap-2">
           <ICON.guard size={14} aria-hidden className="shrink-0 text-text-dim" />
           <Chip tone={line.tone}>{line.text}</Chip>
         </div>
-        <p className="mt-1.5 text-2xs text-text-dim">{rich("settings-security-panels-classifier-blurb", { code: (inner) => <span className="font-mono">{inner}</span> })}</p>
+        <p className="mt-1.5 max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-security-panels-classifier-blurb", { code: (inner) => <span className="font-mono">{inner}</span> })}</p>
       </Card>
       <RegistryPanel group="security" only={[KEYS.classifier.provider]} />
       {provider === "agent" && (
@@ -723,8 +728,8 @@ export function ClassifierPanel() {
       )}
       {fields.length > 0 && <RegistryPanel group="security" only={fields} />}
       {provider === "decision_making_agent" && (
-        <p className="rounded-control border border-border bg-surface-2 px-2 py-1.5 text-2xs text-text-dim">
-          {rich("settings-security-panels-decision-making-agent-reads-redacted-call", { door: <a href={href({ name: "settings" }, settingsSearch("decision-making"))} className="text-accent-ink underline underline-offset-2">{settingsPath("decision-making")}</a> })}
+        <p className="rounded-control border border-border bg-surface-2/70 px-2 py-1.5 text-2xs leading-relaxed text-text-dim">
+          {rich("settings-security-panels-decision-making-agent-reads-redacted-call", { door: <a href={href({ name: "settings" }, settingsSearch("decision-making"))} className="anim text-accent-ink underline underline-offset-2 hover:text-text">{settingsPath("decision-making")}</a> })}
         </p>
       )}
       <Section title={tr("settings-security-panels-what-classifier-decided")}>

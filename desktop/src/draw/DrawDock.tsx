@@ -9,7 +9,10 @@
 import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
 import { WorkingDot } from "../ui";
+import { useRef } from "react";
 import { DOCK_SIZE, dockBox, dockStyle, useDockDrag, useDockViewport } from "../ui/Dock";
+import { useBrowserClear } from "../shell/browserClear";
+import { useDockFootprint } from "../ui/dockClearance";
 import { chordFor } from "../shell/keymapModel.mjs";
 import { currentKeymap } from "../shell/shortcuts";
 import { useBusyDrawings } from "./drawActivityStore";
@@ -23,10 +26,18 @@ export function DrawDock({ count, showCount = true }: { count?: number; showCoun
   const viewport = useDockViewport(DOCK_SIZE);
   const box = dockBox(dock, viewport);
   const drag = useDockDrag(box, viewport, moveDrawDock);
+  useDockFootprint("draw", box, DOCK_SIZE);
+  // Over a browser tab the layer leaves a round hole for the dock (ide/18), and one for
+  // its count badge, as the notes dock's.
+  const button = useRef<HTMLButtonElement>(null);
+  const badge = useRef<HTMLSpanElement>(null);
+  useBrowserClear("draw-dock", button, true);
+  useBrowserClear("draw-dock-count", badge, showCount && Boolean(count));
   const chord = chordFor(currentKeymap(), "toggle_draw");
 
   return (
     <button
+      ref={button}
       type="button"
       aria-label={count ? t("draw-dock-drawings-count", { count }) : t("draw-dock-drawings")}
       aria-keyshortcuts={chord ?? undefined}
@@ -51,7 +62,7 @@ export function DrawDock({ count, showCount = true }: { count?: number; showCoun
         </span>
       )}
       {showCount && Boolean(count) && (
-        <span aria-hidden className="tnum absolute -top-0.5 -right-0.5 min-w-4 rounded-full border border-border bg-bg px-1 text-3xs leading-tight text-text">
+        <span ref={badge} aria-hidden className="tnum absolute -top-0.5 -right-0.5 min-w-4 rounded-full border border-border bg-bg px-1 text-3xs leading-tight text-text">
           {count}
         </span>
       )}

@@ -50,7 +50,6 @@
  * thread's own to keep.
  */
 
-import { BrowserDoor } from "../shell/BrowserDoor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api";
 import { pulseLine } from "../activity";
@@ -75,17 +74,20 @@ import {
   CountBadge,
   Dot,
   EmptyState,
+  useCleared,
   ErrorNote,
   GATE_ICON,
   ICON,
   INBOX_KIND_ICON,
-  Menu,
+  MoreMenu,
   Pending,
   ReadLine,
   RelativeTime,
+  ScreenBar,
   SectionHeader,
   SegmentedControl,
   Tabs,
+  cn,
   type LucideIcon,
   type MenuItem,
   useToast, harnessMark } from "../ui";
@@ -99,7 +101,6 @@ import { ConversationHeader } from "./_studio/Conversation";
 import { READ_AFTER_MS } from "./_studio/readModel.mjs";
 import {
   applyDelta,
-  browserHomeOf,
   conversationOf,
   counts,
   doorOf,
@@ -179,7 +180,7 @@ const LINE_TONE: Record<string, string> = {
   ok: "text-ok",
   fail: "text-danger",
   danger: "text-danger",
-  wait: "text-warn",
+  wait: "text-accent-ink",
   warn: "text-warn",
   spine: "text-text",
   dim: "text-text-dim",
@@ -208,12 +209,12 @@ function WaitingSessionCard({ row }: { row: InboxRow }) {
     if (!openHarnessSession({ id: waiting.session, workstream: waiting.workstream ?? null, terminalKey: tab?.key ?? null })) open(row);
   };
   return (
-    <section className="border-b border-border px-3 py-2" aria-label={tr("screens-inbox-waiting-terminal")}>
+    <section className="border-b border-hairline px-3 py-2" aria-label={tr("screens-inbox-waiting-terminal")}>
       <div className="flex items-center gap-2 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5">
         <Mark size={13} aria-hidden className="shrink-0 text-accent-ink" />
         <span className="min-w-0 flex-1 truncate text-xs">{waitingWords(row, labels)}</span>
         <RelativeTime at={waiting.since} className="tnum shrink-0 text-2xs text-text-dim" />
-        <Button size="sm" variant="primary" disabled={!waiting.workstream} onClick={openTerminal}>{tr("screens-inbox-open-terminal")}</Button>
+        <Button size="sm" variant="primary" disabled={!waiting.workstream} disabledReason={tr("screens-inbox-open-terminal-no-checkout")} onClick={openTerminal}>{tr("screens-inbox-open-terminal")}</Button>
       </div>
       <p className="mt-1 text-2xs text-text-dim">{tr("screens-inbox-answered-at-harness-prompt")}</p>
     </section>
@@ -243,15 +244,15 @@ function JoinCard({ row, onDone }: { row: InboxRow; onDone: () => void }) {
       onDone();
     } catch (e) {
       log.warn("inbox", "a decision could not be sent", errorFields(e));
-      toast.error(e instanceof Error ? e.message : tr("screens-inbox-could-not-decide"));
+      toast.error(tr("screens-inbox-could-not-decide"));
     } finally {
       setBusy(false);
     }
   };
   return (
-    <section className="border-b border-border px-3 py-2" aria-label={tr("screens-inbox-waiting-admitted")}>
-      <div className="flex items-center gap-2 rounded-control border border-warn/40 bg-warn-soft px-2 py-1.5">
-        <ICON.members size={13} aria-hidden className="shrink-0 text-warn" />
+    <section className="border-b border-hairline px-3 py-2" aria-label={tr("screens-inbox-waiting-admitted")}>
+      <div className="flex items-center gap-2 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5">
+        <ICON.members size={13} aria-hidden className="shrink-0 text-accent-ink" />
         <span className="min-w-0 flex-1 truncate text-xs">{joinWords(row)}</span>
         <Button size="sm" variant="primary" disabled={busy} onClick={() => void act(true)}>{tr("screens-inbox-admit")}</Button>
         <Button size="sm" disabled={busy} onClick={() => void act(false)}>{tr("screens-inbox-refuse")}</Button>
@@ -272,14 +273,17 @@ function WhatHappened({ row, channelKind }: { row: InboxRow; channelKind: (id: s
   const shown = showAll ? notices : notices.slice(0, NOTICES_SHOWN);
   const itemOfNotice = (n: NoticeDto): PulseItem => itemOf(n, pulseLine(n));
   return (
-    <section className="border-b border-border px-2 py-1.5" aria-label={tr("screens-inbox-what-happened")}>
+    <section className="border-b border-hairline px-2 py-1.5" aria-label={tr("screens-inbox-what-happened")}>
       <SectionHeader title={tr("screens-inbox-what-happened")} count={notices.length} trailing={unread > 0 ? <Chip tone="accent">{tr("screens-inbox-new", { unread })}</Chip> : undefined} />
       <div className="flex flex-col">
         {shown.map((n, i) => {
           const item = itemOfNotice(n);
           const door = linkOf(n.source, channelKind);
           return (
-            <div key={item.key} className={i < unread ? "border-l-2 border-l-accent" : "border-l-2 border-l-transparent"}>
+            // An unread notice is marked by the accent dot in the gutter, level with
+            // its line, rather than a stripe down the row's edge.
+            <div key={item.key} className="relative">
+              {i < unread && <span aria-hidden className="absolute top-[calc(var(--spacing-row)/2)] -left-0.5 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent" />}
               <PulseRow
                 item={item}
                 expanded={expanded.has(item.key)}
@@ -294,7 +298,7 @@ function WhatHappened({ row, channelKind }: { row: InboxRow; channelKind: (id: s
         })}
       </div>
       {notices.length > NOTICES_SHOWN && (
-        <button type="button" className="mt-1 text-2xs text-accent-ink underline underline-offset-2" onClick={() => setShowAll((v) => !v)}>
+        <button type="button" className="anim mt-1 rounded px-2 text-2xs text-text-dim underline underline-offset-2 hover:text-text" onClick={() => setShowAll((v) => !v)}>
           {showAll ? tr("screens-inbox-show-newest-five") : tr("screens-inbox-show-all", { notices: notices.length })}
         </button>
       )}
@@ -306,7 +310,9 @@ function WhatHappened({ row, channelKind }: { row: InboxRow; channelKind: (id: s
  * A thing with no conversation of its own — a workflow, a project: what
  * happened to it, scrolled back to where it was read. Mounted with the
  * row's key as its `key`, so another row is another detail with its own
- * place.
+ * place. The way to the thing is the header's own door (*Open workflow*,
+ * *Open in the IDE*); the empty state names it rather than drawing a
+ * second, vaguer one.
  */
 function QuietDetail({ row, channelKind }: { row: InboxRow; channelKind: (id: string) => "channel" | "dm" | null }) {
   const root = useRef<HTMLDivElement>(null);
@@ -319,10 +325,8 @@ function QuietDetail({ row, channelKind }: { row: InboxRow; channelKind: (id: st
           <EmptyState
             icon={ICON[rowGlyph(row)]}
             title={tr("screens-inbox-nothing-say-here")}
-            hint={tr("screens-inbox-has-no-conversation-own-what-happened", { kind: kindLabel(row.kind).toLowerCase() })}
-            action={
-              <Button variant="ghost" onClick={() => open(row)}>{tr("screens-inbox-open")}</Button>
-            }
+            hint={tr("screens-inbox-has-no-conversation-own-what-happened", { kind: kindLabel(row.kind).toLowerCase(), door: doorLabel(row.kind) })}
+            action={null}
           />
         </div>
       </div>
@@ -363,6 +367,8 @@ export default function Inbox() {
   // back: a list left scrolled away from its row would hide what the detail
   // beside it is about. A row already in view moves nothing.
   const list = useRef<HTMLDivElement>(null);
+  /** The list's own `<nav>`: where its keys act (`keyAction`'s `onControl`). */
+  const listNav = useRef<HTMLElement>(null);
   useViewScroll(list, PLACE);
   const revealed = useRef(false);
   useEffect(() => {
@@ -434,6 +440,8 @@ export default function Inbox() {
   useReloadOnReconnect(() => void load());
 
   const visible = useMemo(() => visibleRows(rows, filter, source), [rows, filter, source]);
+  // The list emptied while the person worked through it — in this filter, from this source.
+  const cleared = useCleared(visible.length, `${filter}:${source}`, loaded);
   const groups = useMemo(() => groupRows(visible), [visible]);
   const tally = useMemo(() => counts(rows, filter), [rows, filter]);
 
@@ -449,6 +457,8 @@ export default function Inbox() {
   // Looked up in the unfiltered set, so switching to "Needs you" leaves the
   // thing you were reading on the right-hand side.
   const current = useMemo(() => rows.find((r) => r.key === selected) ?? null, [rows, selected]);
+  // Read, empty in this filter, and nothing open: no detail beside it.
+  const lone = loaded && visible.length === 0 && !current;
   const conversation = current ? conversationOf(current) : null;
 
   // What a conversation row is about, named: the goal's title, the project's
@@ -481,7 +491,7 @@ export default function Inbox() {
         await (read ? api.markRead(row.key) : api.markUnread(row.key));
       } catch (e) {
         log.warn("inbox", "a row could not be marked", { row: row.key, read, ...errorFields(e) });
-        toast.error(e instanceof Error ? e.message : tr("screens-inbox-could-not-update-read-state"));
+        toast.error(tr("screens-inbox-could-not-update-read-state"));
         // The mark did not land: the list says what is so.
         await load();
       }
@@ -507,7 +517,7 @@ export default function Inbox() {
       toast.ok(keys.length === 1 ? tr("screens-inbox-marked-read") : tr("screens-inbox-marked-read-2", { keys: keys.length }));
     } catch (e) {
       log.warn("inbox", "the visible rows could not be marked read", errorFields(e));
-      toast.error(e instanceof Error ? e.message : tr("screens-inbox-could-not-mark-them-read"));
+      toast.error(tr("screens-inbox-could-not-mark-them-read"));
     } finally {
       // Whichever marks landed, the list says what is so.
       ws.refresh();
@@ -527,7 +537,16 @@ export default function Inbox() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A control that took the key for itself — a menu's trigger opening on
+      // Enter, a menu closing on Escape — has answered it.
+      if (e.defaultPrevented) return;
       const el = e.target as HTMLElement | null;
+      // Where focus stands: the list's keys are the list's — a row of it, the
+      // list itself, or the page with nothing focused. A tab, a filter, a
+      // menu, a button in the detail keeps its own keys.
+      const focus = document.activeElement as HTMLElement | null;
+      const inList = !!focus && (focus === listNav.current || focus.closest("[data-inbox-row]") !== null);
+      const onControl = !!focus && focus !== document.body && !inList;
       const action = keyAction(e.key, {
         inInput: !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable),
         // The pinned answer form has buttons in it — Send, "I'm not sure" —
@@ -536,6 +555,7 @@ export default function Inbox() {
         inAsk: !!el?.closest(`[${ASK_ATTR}]`),
         modifier: e.metaKey || e.ctrlKey || e.altKey,
         hasSelection: current !== null,
+        onControl,
       });
       if (!action) return;
       e.preventDefault();
@@ -591,31 +611,39 @@ export default function Inbox() {
           from, and what is owed or new. One row across the screen, as the
           Pulse's, so five words with their glyphs and counts always have
           room; the counts say what pressing would show. */}
-      <div className="flex shrink-0 items-center gap-2 px-4 pt-1">
-        <Tabs
-          className="min-w-0 flex-1"
-          tabs={sourceTabs(tally.sources).map((t) => ({
-            id: t.id,
-            label: t.label,
-            icon: ICON[t.icon],
-            count: t.count,
-            badge: t.count > 0 ? <CountBadge count={t.count} tone="neutral" /> : undefined,
-          }))}
-          active={source}
-          onChange={(id) => setSource(id as SourceId)}
-        />
-        <SegmentedControl size="sm" label={tr("screens-inbox-filter-inbox")} options={filterSegments(tally.buckets)} value={filter} onChange={setFilter} />
-        {unreadInView > 0 && (
-          <Button size="sm" variant="ghost" onClick={() => void markAllRead()} title={tr("screens-inbox-mark-every-row-view-read")}>
-            <ICON.read size={12} aria-hidden />
-            <span className="ml-1">{tr("screens-inbox-mark-all-read")}</span>
-          </Button>
-        )}
-      </div>
+      <ScreenBar
+        tabs={
+          <Tabs
+            bare
+            className="flex-1"
+            tabs={sourceTabs(tally.sources).map((t) => ({
+              id: t.id,
+              label: t.label,
+              icon: ICON[t.icon],
+              count: t.count,
+              badge: t.count > 0 ? <CountBadge count={t.count} tone="quiet" /> : undefined,
+            }))}
+            active={source}
+            onChange={(id) => setSource(id as SourceId)}
+          />
+        }
+        end={
+          <>
+            <SegmentedControl size="sm" label={tr("screens-inbox-filter-inbox")} options={filterSegments(tally.buckets)} value={filter} onChange={setFilter} />
+            {unreadInView > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => void markAllRead()} title={tr("screens-inbox-mark-every-row-view-read")}>
+                <ICON.read size={12} aria-hidden />
+                <span className="ml-1">{tr("screens-inbox-mark-all-read")}</span>
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <div className="flex min-h-0 flex-1">
-        <div ref={list} className="flex w-[22rem] shrink-0 flex-col border-r border-border">
-          <nav aria-label={tr("screens-inbox-inbox")} data-scroll-keep="list" className="min-h-0 flex-1 overflow-y-auto">
+        {/* An empty list with nothing open has nothing to read beside it: the list takes the screen, its empty state the one thing on it. */}
+        <div ref={list} className={cn("flex flex-col", lone ? "min-w-0 flex-1" : "w-[clamp(16rem,38%,22rem)] shrink-0 border-r border-border")}>
+          <nav ref={listNav} aria-label={tr("screens-inbox-inbox")} data-scroll-keep="list" className="min-h-0 flex-1 overflow-y-auto">
             {!loaded && error && (
               <div className="p-3">
                 <ErrorNote error={error} retry={() => void load()} />
@@ -633,6 +661,7 @@ export default function Inbox() {
                   icon={ICON.inbox}
                   title={empty.title}
                   hint={empty.hint}
+                  cleared={cleared}
                   action={
                     filter === "all" && source === "any" ? (
                       <Button variant="ghost" onClick={() => navigate({ name: "goals" })}>{tr("screens-agents-see-all-goals")}</Button>
@@ -670,13 +699,14 @@ export default function Inbox() {
                       const fresh = row.unread_count + unreadNoticesOf(row);
                       return (
                         <ContextMenu items={actionsFor(row)} className="block">
-                          <div className="group relative">
+                          <div className="group relative" data-inbox-row>
+                            {/* A read row recedes by its words — dim ink, normal weight — never by fading them. */}
                             <button
                               type="button"
                               aria-current={active ? "true" : undefined}
                               onClick={() => select(row.key)}
                               onDoubleClick={() => open(row)}
-                              className={`anim w-full border-l-2 px-3 py-2 text-left ${active ? "border-l-accent bg-surface-2" : "border-l-transparent hover:bg-surface-2/60"} ${unread ? "" : "opacity-65"}`}
+                              className={`anim min-h-row-lg w-full px-3 py-2 text-left ${active ? "bg-selected text-text" : "hover:bg-surface-2/60"}`}
                             >
                               <div className="flex items-center gap-1.5">
                                 {/* Three states, one slot: an accent dot for
@@ -690,8 +720,8 @@ export default function Inbox() {
                                   <ICON.read size={11} aria-label={tr("screens-inbox-mark-read-word")} className="shrink-0 text-text-dim" />
                                 )}
                                 <Kind size={12} aria-label={kindLabel(row.kind)} className="shrink-0 text-text-dim" />
-                                <span className={`truncate text-xs ${unread ? "font-semibold" : "font-normal text-text-dim"}`}>{row.title}</span>
-                                {about && <span className="hidden min-w-0 shrink truncate text-2xs text-text-dim sm:inline">{about}</span>}
+                                <span title={row.title} className={`truncate text-xs ${unread ? "font-semibold" : "font-normal text-text-dim"}`}>{row.title}</span>
+                                {about && <span title={about} className="hidden min-w-0 shrink truncate text-2xs text-text-dim sm:inline">{about}</span>}
                                 <RelativeTime at={row.latest_at} className="tnum ml-auto shrink-0 text-2xs text-text-dim" />
                               </div>
                               <div className="mt-0.5 flex items-center gap-1.5">
@@ -708,20 +738,12 @@ export default function Inbox() {
                                   <span className="truncate">
                                     {ws.nameOf(row.representative.author)}: {row.representative.snippet}
                                   </span>
-                                  <RelativeTime at={row.representative.at} className="tnum shrink-0 opacity-70" />
+                                  <RelativeTime at={row.representative.at} className="tnum shrink-0" />
                                 </p>
                               )}
                             </button>
                             <div className="row-actions anim absolute top-1.5 right-2">
-                              <Menu
-                                label={tr("screens-inbox-actions", { title: row.title })}
-                                items={actionsFor(row)}
-                                trigger={
-                                  <span className="anim flex h-5 w-5 items-center justify-center rounded-control bg-surface text-text-dim hover:bg-surface-2 hover:text-text">
-                                    <ICON.more size={13} aria-hidden />
-                                  </span>
-                                }
-                              />
+                              <MoreMenu label={tr("screens-inbox-actions", { title: row.title })} items={actionsFor(row)} className="h-5 w-5 rounded-control bg-surface hover:bg-surface-2" />
                             </div>
                           </div>
                         </ContextMenu>
@@ -731,23 +753,26 @@ export default function Inbox() {
                 </section>
               ))}
           </nav>
-          <p className="shrink-0 border-t border-border px-3 py-1 text-3xs text-text-dim">
+          <p className="shrink-0 border-t border-hairline px-3 py-1 text-2xs text-text-dim">
             {rich("screens-inbox-keys-legend")}
           </p>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        {!lone && <div className="flex min-w-0 flex-1 flex-col">
           {!current ? (
-            <div className="flex h-full items-center justify-center p-6">
-              <EmptyState icon={ICON.inbox} title={tr("screens-inbox-nothing-selected")} hint={tr("screens-inbox-pick-row-left-j-k-move")} action={null} />
-            </div>
+            // Beside an empty list there is nothing to pick: the list's own empty state says it all.
+            visible.length > 0 && (
+              <div className="flex h-full items-center justify-center p-6">
+                <EmptyState icon={ICON.inbox} title={tr("screens-inbox-nothing-selected")} hint={tr("screens-inbox-pick-row-left-j-k-move")} action={null} />
+              </div>
+            )
           ) : (
             <>
               <ConversationHeader
                 icon={(() => {
                   const Kind = ICON[rowGlyph(current)];
                   return (
-                    <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full border border-border bg-surface-2 text-text-dim">
+                    <span className="flex size-6.5 items-center justify-center rounded-full border border-border bg-surface-2 text-text-dim">
                       <Kind size={14} aria-hidden />
                     </span>
                   );
@@ -761,7 +786,7 @@ export default function Inbox() {
                       return g ? <HolderBadge holder={g.holder} strip={g.strip} /> : null;
                     })()}
                     {needsOf(current).length > 0 && (
-                      <Chip tone="warn" icon={ICON.waiting}>
+                      <Chip tone="accent" icon={ICON.waiting}>
                         {needsOf(current).length === 1 ? tr("screens-inbox-waiting") : tr("screens-inbox-waiting-2", { needsOf: needsOf(current).length })}
                       </Chip>
                     )}
@@ -775,19 +800,10 @@ export default function Inbox() {
                 }
                 actions={
                   <>
-                    <BrowserDoor home={browserHomeOf(current)} />
                     <Button size="sm" onClick={() => open(current)}>
                       {doorLabel(current.kind)}
                     </Button>
-                    <Menu
-                      label={tr("screens-inbox-row-actions")}
-                      items={actionsFor(current)}
-                      trigger={
-                        <span className="anim flex h-7 w-7 items-center justify-center rounded-control border border-border text-text-dim hover:bg-surface-2 hover:text-text">
-                          <ICON.more size={14} aria-hidden />
-                        </span>
-                      }
-                    />
+                    <MoreMenu label={tr("screens-inbox-row-actions")} items={actionsFor(current)} className="h-7 w-7 rounded-control border border-border hover:bg-surface-2" />
                   </>
                 }
               />
@@ -835,7 +851,7 @@ export default function Inbox() {
               </div>
             </>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );

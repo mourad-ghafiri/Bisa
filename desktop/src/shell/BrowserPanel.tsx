@@ -4,7 +4,11 @@
  * workbench's centre while its tab is the active one there, the Details
  * pane's Browser occupant while it shows the tab — hidden otherwise, and
  * hidden while any surface is open, since a native view paints above every
- * dialog. Which host is `browserPlacementModel.mjs`'s word. Mounted in
+ * dialog. Which host is `browserPlacementModel.mjs`'s word. The main page's
+ * floating overlays — the Notes and Draw panels, their docks, the pet, the
+ * addon windows — are not surfaces: the layer leaves a hole for each one
+ * over a showing tab (`browserClear.ts`, `browser.rs` `layer`), so they show
+ * and take their clicks while the page stays live. Mounted in
  * `App.tsx` beside the terminal layer, outside the routed screen, so a
  * screen change closes nothing.
  *
@@ -23,8 +27,10 @@ import { errorFields, log } from "../log";
 import { readInspectorTheme } from "../ui/artifact/inspectorTokens";
 import { browserScript } from "../ui/artifact/pageInspector.mjs";
 import { layerMayShowNow, useLayerMayShow } from "../ui/openSurfaces";
-import { browserAvailable, closeBrowserView, listenBrowserViews, openBrowserView, setBrowserViewBounds } from "../browser/session";
-import type { BrowserBounds } from "../browser/session";
+import { browserAvailable, closeBrowserView, focusMainView, listenBrowserViews, openBrowserView, setBrowserClears, setBrowserViewBounds } from "../browser/session";
+import type { BrowserBounds, BrowserClear } from "../browser/session";
+import { browserClearsNow, noteBrowserCuts, useBrowserClears } from "./browserClear";
+import { clearsOver, sameClears } from "./browserClearModel.mjs";
 import { noteBrowserMessage, noteBrowserNavigated, noteBrowserOpened, performBrowserRequest } from "./browserBridge";
 import { forgetBrowserWork } from "./browserActivityStore";
 import { forgetBrowserInspector } from "./browserInspectorStore";
@@ -58,6 +64,11 @@ export function BrowserPanel() {
   const strayed = useRef(new Set<string>());
   const available = browserAvailable();
   const { resolved } = useResolvedSettings(null);
+  const overlays = useBrowserClears();
+  /** What the layer was last told to cut, and against which viewport — so an unchanged frame sends nothing. */
+  const cut = useRef<{ clears: BrowserClear[]; width: number; height: number } | null>(null);
+  /** The floating panels open at the last look — one that opens takes the keyboard from a page. */
+  const panelsOpen = useRef(new Set<string>());
 
   // Put a webview where its tab shows, or out of sight — with the page's
   // viewport, so the shell anchors the box on the page rather than on the
@@ -160,6 +171,49 @@ export function BrowserPanel() {
       place(s.key, placementOf(s.key, { center, aux, mayShow, headless: s.headless }));
     }
   }, [sessions, center, aux, mayShow, available, place]);
+
+  // The overlays over a browser tab's slot, cut out of the layer: once a
+  // frame, only when they changed — kept while a surface hides the tabs, so a
+  // tab shows again already cut around them.
+  useEffect(() => {
+    if (!available) return;
+    const frame = window.requestAnimationFrame(() => {
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      const now = browserClearsNow();
+      // A panel that opens while a page shows takes the keyboard: the page may
+      // hold it natively, and the panel's field would look focused but type nowhere.
+      const panels = new Set(now.map((e) => e.id).filter((id) => id === "notes-panel" || id === "draw-panel" || id.startsWith("addon:")));
+      const opened = [...panels].some((id) => !panelsOpen.current.has(id));
+      panelsOpen.current = panels;
+      if (opened && [center, aux].some((s) => s.visible && s.layer === "browser")) {
+        void focusMainView().catch((e: unknown) => log.warn("browser", "the keyboard could not be handed back to the app", errorFields(e)));
+      }
+      const clears = clearsOver(now, [center, aux]);
+      const last = cut.current;
+      if (last && last.width === viewport.width && last.height === viewport.height && sameClears(last.clears, clears)) return;
+      cut.current = { clears, ...viewport };
+      void setBrowserClears(clears, viewport)
+        .then(noteBrowserCuts)
+        .catch((e: unknown) => {
+          cut.current = null;
+          // Nothing was cut: an addon window must hide from the page again rather than sit unseen under it.
+          noteBrowserCuts(false);
+          log.warn("browser", "the browser layer could not cut around the overlays", { overlays: clears.length, ...errorFields(e) });
+        });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [overlays, center, aux, available]);
+
+  // The layer is going: no hole is left in it.
+  useEffect(
+    () => () => {
+      if (!browserAvailable()) return;
+      void setBrowserClears([], { width: window.innerWidth, height: window.innerHeight }).catch((e: unknown) =>
+        log.warn("browser", "the browser layer's holes could not be closed as it went", errorFields(e)),
+      );
+    },
+    [],
+  );
 
   // A desktop that is open says so: the engine refuses a request at once
   // as not available when none has read the list within its presence

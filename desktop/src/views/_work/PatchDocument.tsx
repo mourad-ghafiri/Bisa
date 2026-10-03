@@ -101,7 +101,7 @@ export function PatchDocument({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-2xs">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-4 py-2 text-2xs">
         <Glyph size={14} aria-hidden className="shrink-0 text-text-dim" />
         <span className="min-w-0 truncate font-mono text-text" title={path}>
           {path}
@@ -125,7 +125,7 @@ export function PatchDocument({
         )}
         <Tooltip label={t("work-patch-document-commits-touched-file")}>
           <span className="inline-flex">
-            <Button size="sm" variant="ghost" className="h-6" aria-pressed={showHistory} onClick={() => setShowHistory((v) => !v)}>
+            <Button size="sm" variant="ghost" className="h-6 aria-pressed:bg-selected aria-pressed:text-text" aria-pressed={showHistory} onClick={() => setShowHistory((v) => !v)}>
               <ICON.history size={12} aria-hidden />{t("work-patch-document-history")}</Button>
           </span>
         </Tooltip>

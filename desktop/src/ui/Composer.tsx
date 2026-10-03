@@ -27,11 +27,12 @@ import type { ArtifactRef, AttachmentRef } from "../types";
 import { artifactFromFile } from "./artifact/artifactModel.mjs";
 import { Button } from "./Button";
 import { cn } from "./cn";
-import { SEND_HANDOVER_GRACE_MS, composerButton, handoverElapsed } from "./composerButtonModel.mjs";
+import { SEND_HANDOVER_GRACE_MS, composerButton, explainOff, handoverElapsed } from "./composerButtonModel.mjs";
 import { ICON } from "./icons";
 import { Menu, type MenuItem } from "./Menu";
 import { PendingFiles } from "./PendingFiles";
 import { Tooltip } from "./Tooltip";
+import { useDockOverlap } from "./dockClearance";
 import { useUploads, type PendingFile } from "./useUploads";
 import { usePastedImages } from "./usePastedImages";
 import { AgentRow, type AgentCandidate } from "./AgentPicker";
@@ -336,7 +337,8 @@ export function Composer({
       throw e;
     }
   };
-  const button = composerButton({ busy, stop, sendable, disabled });
+  // The model's word for the slot, with the reason a *Send* that is off is off.
+  const button = explainOff(composerButton({ busy, stop, sendable, disabled }), sendDisabled ? "over-budget" : uploading ? "uploading" : "empty");
 
   // The one attach door: the caller's ways of attaching context, then files
   // from disk. With nothing but disk, the paperclip is a plain button.
@@ -344,16 +346,19 @@ export function Composer({
     ? [...attachItems, { label: tr("ui-composer-files-from-disk"), icon: ICON.attach, separatorBefore: attachItems.length > 0, immediate: true, onSelect: () => fileInput.current?.click() }]
     : [];
   const attachButton = "anim h-7 shrink-0 rounded-control px-1.5 text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-40";
+  const root = useRef<HTMLDivElement>(null);
+  const dockRoom = useDockOverlap(root);
 
   return (
-    <div className="relative">
+    // The room a floating dock over this row takes (`dockClearance.ts`), so Send is never under it.
+    <div ref={root} className="relative" style={dockRoom > 0 ? { marginRight: dockRoom } : undefined}>
       {open && (
         <div id={listId} role="listbox" aria-label={tr("ui-composer-mention")} className="absolute bottom-full left-0 z-30 mb-1 max-h-72 w-80 max-w-full overflow-y-auto rounded-control border border-border bg-surface p-1 shadow-lg">
-          {matches.length > 0 && fileMatches.length > 0 && <div className="px-2 pb-0.5 pt-1 text-3xs font-semibold uppercase tracking-wide text-text-dim">{tr("ui-composer-people-agents")}</div>}
+          {matches.length > 0 && fileMatches.length > 0 && <div className="px-2 pb-1 pt-1.5 text-2xs font-semibold text-text-dim">{tr("ui-composer-people-agents")}</div>}
           {matches.map((m, i) => (
             <AgentRow key={m.id} id={rowId(i)} candidate={m} compact active={i === at} onHover={() => setCursor(i)} onSelect={() => insert(m)} />
           ))}
-          {fileMatches.length > 0 && <div className="px-2 pb-0.5 pt-1 text-3xs font-semibold uppercase tracking-wide text-text-dim">{tr("ui-composer-files-attached-context")}</div>}
+          {fileMatches.length > 0 && <div className="px-2 pb-1 pt-1.5 text-2xs font-semibold text-text-dim">{tr("ui-composer-files-attached-context")}</div>}
           {fileMatches.map((p, j) => {
             const i = matches.length + j;
             return (
@@ -368,7 +373,7 @@ export function Composer({
                 // The dropdown sits over a textarea that must keep its caret.
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => insertFile(p)}
-                className={cn("anim flex w-full items-center gap-2 rounded-control px-2 py-1 text-left text-2xs", i === at ? "bg-accent-soft text-accent-ink" : "text-text hover:bg-surface-2")}
+                className={cn("anim flex w-full items-center gap-2 rounded-control px-2 py-1 text-left text-2xs", i === at ? "bg-selected text-text" : "text-text hover:bg-surface-2")}
               >
                 <ICON.file size={11} aria-hidden className="shrink-0 text-text-dim" />
                 <span className="shrink-0 font-mono">{basename(p)}</span>
@@ -397,7 +402,7 @@ export function Composer({
                 type="button"
                 aria-pressed={asArtifact}
                 onClick={() => uploads.patch(f.key, { asArtifact: !asArtifact })}
-                className="anim shrink-0 rounded px-1 text-3xs uppercase tracking-wide hover:text-text"
+                className="anim shrink-0 rounded px-1 text-2xs font-medium capitalize hover:text-text"
               >
                 {asArtifact ? tr("ui-composer-artifact") : tr("ui-composer-file")}
               </button>
@@ -455,6 +460,7 @@ export function Composer({
           value={text}
           disabled={disabled}
           placeholder={placeholder}
+          aria-label={tr("ui-composer-message")}
           // A textarea is natively `role="textbox"`, which supports both of
           // these; a `role="combobox"` override would rename the message box
           // itself for a dropdown that is open a few seconds a day.

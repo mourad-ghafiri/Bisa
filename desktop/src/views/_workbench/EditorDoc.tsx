@@ -50,6 +50,7 @@ import {
   SegmentedControl,
   Spinner,
   Tooltip,
+  failureText,
   absolute,
   cn,
   ICON,
@@ -383,7 +384,7 @@ export function EditorDoc({
         toast.info(tr("workbench-editor-doc-file-changed-since-refetching-review"));
         review.reload();
       } else {
-        toast.error(e instanceof Error ? e.message : String(e));
+        toast.error(failureText("workbench", "editor-doc-failed", e));
       }
     }
   };
@@ -475,7 +476,7 @@ export function EditorDoc({
       .catch((e) => {
         if (!alive) return;
         setBlame(null);
-        setBlameNote(e instanceof Error ? e.message : String(e));
+        setBlameNote(failureText("workbench", "editor-doc-failed", e));
       });
     return () => {
       alive = false;
@@ -519,7 +520,7 @@ export function EditorDoc({
         onNamed?.({ kind: "file", path: target });
         return true;
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = failureText("workbench", "editor-doc-failed", e);
         setBuffer((cur) => saveFailed(cur, msg));
         initial = target;
         problem = msg;
@@ -554,7 +555,7 @@ export function EditorDoc({
       onNamed?.({ kind: "loose", path: written.path });
       return true;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = failureText("workbench", "editor-doc-failed", e);
       setBuffer((cur) => saveFailed(cur, msg));
       toast.error(tr("workbench-editor-doc-could-not-save", { chosen, msg }));
       return false;
@@ -818,12 +819,14 @@ export function EditorDoc({
 
   // The wand: annotate the page for an agent — pressed while the pointer picks
   // elements, with how many annotations wait in the tray. Only where an agent
-  // can run and the page is on screen.
+  // can run and the page is on screen. Pressed is a mode, not a summons: the
+  // neutral `selected` fill; the count of annotations waiting keeps the accent,
+  // the colour the page's own badges wear.
   const annotateControl =
     annotatable && mode !== "source" ? (
       <Tooltip label={wandWords({ enabled: true, why: null }, annotating)}>
         <span className="inline-flex">
-          <Button size="icon" className="relative" variant={annotating ? "primary" : "ghost"} aria-pressed={annotating} aria-label={tr("workbench-editor-doc-annotate-page-agent")} onClick={() => setAnnotating((v) => !v)}>
+          <Button size="icon" className={cn("relative", annotating && "bg-selected text-text")} variant="ghost" aria-pressed={annotating} aria-label={tr("workbench-editor-doc-annotate-page-agent")} onClick={() => setAnnotating((v) => !v)}>
             <ICON.annotate size={13} aria-hidden />
             {annotations > 0 && (
               <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold text-accent-contrast" aria-label={tr("workbench-editor-doc-annotations", { annotations })}>
@@ -926,7 +929,7 @@ export function EditorDoc({
         {/* The same right-hand cluster as the source bar, after the one
             spacer: the view control keeps its place whichever mode the
             document is in, with nothing on the left as well as with crumbs. */}
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-1">
           <StatusChip buffer={buffer} />
           <span className="flex-1" />
           {viewControls}
@@ -968,12 +971,12 @@ export function EditorDoc({
         }
       }}
     >
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1 text-2xs">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-1 text-2xs">
         {/* The path as crumbs: a folder reveals itself in Files, the file copies its path. */}
         <nav aria-label={tr("workbench-editor-doc-path")} className="flex min-w-0 items-center gap-0.5 truncate font-mono text-text-dim">
           {breadcrumbsOf(path).map((crumb, i) => (
             <span key={crumb.path} className="flex min-w-0 items-center gap-0.5">
-              {i > 0 && <ICON.collapsed size={10} aria-hidden className="shrink-0 text-text-dim/60" />}
+              {i > 0 && <ICON.collapsed size={10} aria-hidden className="shrink-0 text-text-dim" />}
               {isFile ? (
                 <button
                   type="button"
@@ -989,7 +992,7 @@ export function EditorDoc({
                   type="button"
                   title={crumb.dir ? tr("workbench-editor-doc-machine-under-no-project") : `${revealWord} · ${path}`}
                   disabled={crumb.dir}
-                  onClick={() => void revealPath(path).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))}
+                  onClick={() => void revealPath(path).catch((e: unknown) => toast.error(failureText("workbench", "editor-doc-failed", e)))}
                   className={cn("anim min-w-0 truncate rounded px-0.5", crumb.dir ? "cursor-default" : "text-text hover:bg-surface-2")}
                 >
                   {crumb.label}
@@ -1008,7 +1011,8 @@ export function EditorDoc({
         {blameNote && <span className="text-warn">{blameNote}</span>}
         {lspLanguage && chip && (
           <span className={cn("inline-flex items-center gap-1", chip.tone === "ok" ? "text-ok" : chip.tone === "danger" ? "text-danger" : "text-text-dim")} title={chip.title}>
-            ● {chip.words}
+            <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+            {chip.words}
             {chip.restart && (
               <Button
                 size="sm"
@@ -1020,7 +1024,7 @@ export function EditorDoc({
                       lspRestarted(scope, id, lspLanguage);
                       lspStatus.reload();
                     },
-                    (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)),
+                    (e: unknown) => toast.error(failureText("workbench", "editor-doc-failed", e)),
                   )
                 }
               >
@@ -1033,14 +1037,15 @@ export function EditorDoc({
         {viewControls}
         {reviewApplies && fileReview && (
           <Tooltip label={lensOn ? fileActionWords().dropLens : tr("workbench-editor-doc-show-review-lens-over-file-s")}>
-            <Button size="sm" variant={lensOn ? "primary" : "ghost"} aria-pressed={lensOn} onClick={() => setLensOn((v) => !v)}>
+            <Button size="sm" variant="ghost" className={cn(lensOn && "bg-selected text-text")} aria-pressed={lensOn} onClick={() => setLensOn((v) => !v)}>
               <ICON.inspect size={12} aria-hidden />{tr("workbench-editor-doc-review")}</Button>
           </Tooltip>
         )}
         {canBlame && (
           <Button
             size="sm"
-            variant={blameOn ? "primary" : "ghost"}
+            variant="ghost"
+            className={cn(blameOn && "bg-selected text-text")}
             aria-pressed={blameOn}
             title={tr("workbench-editor-doc-who-last-touched-each-line-beside")}
             onClick={() => setBlameOn((v) => !v)}
@@ -1127,7 +1132,7 @@ export function EditorDoc({
         </div>
       ) : conflict && reviewing ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1 text-2xs text-text-dim">
+          <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-3 py-1 text-2xs text-text-dim">
             <span>{tr("workbench-editor-doc-theirs-yours")}</span>
             <span className="flex-1" />
             <Button
@@ -1252,13 +1257,16 @@ function TextKindPreview({
 /**
  * The file changed on disk under a dirty buffer: the three ways out, in
  * every mode — a rendered page too, where *Take theirs* is *Reload the
- * page* and *Review* opens the source with the difference.
+ * page* and *Review* opens the source with the difference. It asks for a
+ * decision now, so it wears the summons as `ReviewPendingBanner` does —
+ * not warn, which is caution that blocks nothing.
  */
 function ChangedOnDiskBanner({ page = false, onReview, onKeepMine, onTakeTheirs }: { page?: boolean; onReview: () => void; onKeepMine: () => void; onTakeTheirs: () => void }) {
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warn/40 bg-warn-soft/40 px-3 py-1.5 text-2xs">
-      <span className="font-semibold">{tr("workbench-editor-doc-changed-disk-since-read")}</span>
-      <span className="text-text-dim">{page ? tr("workbench-editor-doc-page-shows-text-reload-see-file") : tr("workbench-editor-doc-text-untouched-review-difference-keep-yours")}</span>
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-accent/40 bg-accent-soft px-3 py-1.5 text-2xs">
+      <ICON.warn size={12} aria-hidden className="shrink-0 text-accent-ink" />
+      <span className="font-semibold text-text">{tr("workbench-editor-doc-changed-disk-since-read")}</span>
+      <span className="text-text">{page ? tr("workbench-editor-doc-page-shows-text-reload-see-file") : tr("workbench-editor-doc-text-untouched-review-difference-keep-yours")}</span>
       <span className="flex-1" />
       {page ? (
         <Button size="sm" variant="primary" onClick={onTakeTheirs}>{tr("workbench-editor-doc-reload-page")}</Button>
@@ -1317,7 +1325,7 @@ function ReviewLensBar({
   const words = fileActionWords(left);
   const other = lensLayoutWords(toggleLensLayout(layout));
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border bg-surface-2/40 px-3 py-1 text-2xs text-text-dim" data-review-lens-bar>
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-hairline bg-surface-2/40 px-3 py-1 text-2xs text-text-dim" data-review-lens-bar>
       <Tooltip label={withChord(tr("workbench-editor-doc-previous-change"), "review_previous_change")}>
         <Button size="icon" variant="ghost" aria-label={tr("workbench-editor-doc-previous-change")} disabled={!hasPreviousHunk(hunks, index)} onClick={onPrevious}>
           <ICON.collapsed size={12} aria-hidden className="rotate-180" />
@@ -1329,14 +1337,14 @@ function ReviewLensBar({
           <ICON.collapsed size={12} aria-hidden />
         </Button>
       </Tooltip>
-      <span className="text-text-dim/60">·</span>
+      <span aria-hidden className="text-text-dim">·</span>
       <span>{withChord(tr("workbench-editor-doc-keep"), "review_keep_change")}</span>
-      <span className="text-text-dim/60">·</span>
+      <span aria-hidden className="text-text-dim">·</span>
       <span>{withChord(tr("workbench-editor-doc-undo"), "review_undo_change")}</span>
       <span className="flex-1" />
       <Tooltip label={tr("workbench-editor-doc-show-diff", { other: other.toLowerCase() })}>
         <Button size="icon" variant="ghost" aria-label={tr("workbench-editor-doc-show-diff", { other: other.toLowerCase() })} onClick={onToggleLayout}>
-          <ICON.splitRight size={12} aria-hidden className={cn(layout === "side-by-side" && "text-accent-ink")} />
+          <ICON.splitRight size={12} aria-hidden className={cn(layout === "side-by-side" && "text-text")} />
         </Button>
       </Tooltip>
       <Button size="sm" variant="primary" onClick={onKeepFile} className="text-2xs">
@@ -1360,7 +1368,7 @@ function ReviewLensBar({
   );
 }
 
-/** A rendered or split view of a file whose diff waits in Source: the count, and the way there. */
+/** A rendered or split view of a file whose diff waits in Source: the count, and the way there. It asks the person to keep or undo, so it wears the accent. */
 function ReviewPendingBanner({ n, onShow }: { n: number; onShow: () => void }) {
   const words = pendingReviewWords(n);
   return (
@@ -1379,7 +1387,7 @@ function ReviewPendingBanner({ n, onShow }: { n: number; onShow: () => void }) {
 function ReviewLensOpaqueBanner({ onKeepFile, onUndoFile, onDrop }: { onKeepFile: () => void; onUndoFile: () => void; onDrop: () => void }) {
   const words = fileActionWords();
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-2/60 px-3 py-1.5 text-2xs">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline bg-surface-2/60 px-3 py-1.5 text-2xs">
       <span className="text-text-dim">{tr("workbench-editor-doc-file-binary-keep-undo-whole")}</span>
       <span className="flex-1" />
       <Button size="sm" onClick={onKeepFile}>
@@ -1398,7 +1406,7 @@ function ReviewLensOpaqueBanner({ onKeepFile, onUndoFile, onDrop }: { onKeepFile
 function StatusChip({ buffer }: { buffer: Buffer }) {
   switch (buffer.status) {
     case "dirty":
-      return <Chip tone="accent">{tr("workbench-editor-doc-unsaved")}</Chip>;
+      return <Chip>{tr("workbench-editor-doc-unsaved")}</Chip>;
     case "saving":
       return <Chip tone="quiet">{tr("workbench-editor-doc-saving")}</Chip>;
     case "conflict":

@@ -17,7 +17,7 @@
  * exists to make the edits it will judge.
  */
 
-import { FIXED_BRANCHES, blankStep, branchesOf, divertNamesOf, isBranching } from "./stepKinds.mjs";
+import { FIXED_BRANCHES, blankStep, branchesOf, divertNamesOf, isBranching, kindBranchesOf } from "./stepKinds.mjs";
 import { t as tr } from "../../i18n/l10n.mjs";
 
 /**
@@ -572,6 +572,53 @@ export function failChoice(steps, step, word) {
   const kept = step.on_fail?.on_fail === "then" ? step.on_fail.step : null;
   const to = targets.some((s) => s.id === kept) ? kept : (targets[0]?.id ?? null);
   return to === null ? null : { on_fail: "then", step: to };
+}
+
+/**
+ * Where a step's flows may go, for the inspector's *Then* — the keyboard's
+ * way to draw what the canvas draws with a drag. Every step it may flow into
+ * is a target (never itself, never a start; an end has nothing after, so
+ * none). A plain step says which targets a plain flow already reaches; a
+ * branching kind lists its own branches, each with the step it goes to or
+ * `null`. A divert's path is drawn from its boundary chip and is not listed.
+ * @param {{steps?: readonly object[]}} wf
+ * @param {string} id
+ */
+export function thenChoices(wf, id) {
+  const steps = wf?.steps ?? [];
+  const src = steps.find((s) => s.id === id);
+  if (!src || src.kind === "end") return { branching: false, targets: [], branches: [] };
+  const flows = src.then ?? [];
+  const targets = steps
+    .filter((s) => s.id !== id && s.kind !== "start")
+    .map((s) => ({ id: s.id, label: s.name || s.id, on: flows.some((f) => f.to === s.id && !f.branch) }));
+  if (!isBranching(src)) return { branching: false, targets, branches: [] };
+  const branches = kindBranchesOf(src).map((branch) => ({ branch, to: flows.find((f) => f.branch === branch)?.to ?? null }));
+  return { branching: true, targets: targets.map((x) => ({ ...x, on: false })), branches };
+}
+
+/**
+ * One plain flow, on or off — `connect` with every refusal it makes, or
+ * `disconnect`. What a tick in *Then* does.
+ */
+export function setThen(wf, from, to, on) {
+  if (!on) return { ok: true, wf: disconnect(wf, from, to) };
+  return connect(wf, from, to);
+}
+
+/**
+ * A branch pointed at a step, or at nothing: the branch's old flow is cut and
+ * the new one drawn through `connect`, so the canvas's refusals hold here too
+ * and a refused pick leaves the old flow standing.
+ */
+export function setBranchTarget(wf, from, branch, to) {
+  const src = (wf.steps ?? []).find((s) => s.id === from);
+  const old = (src?.then ?? []).find((f) => f.branch === branch);
+  if ((old?.to ?? null) === (to || null)) return { ok: true, wf };
+  const cut = old ? disconnect(wf, from, old.to, branch) : wf;
+  if (!to) return { ok: true, wf: cut };
+  const r = connect(cut, from, to, branch);
+  return r.ok ? r : { ok: false, reason: r.reason };
 }
 
 /** One step's `on_fail`, set — what deleting an on-fail edge on the canvas does. */

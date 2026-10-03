@@ -27,7 +27,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { useEngineEvents } from "../bus";
 import { navigate, setSearch, useSearchParams } from "../router";
-import { Button, EmptyState, ErrorNote, ICON, NO_TAG_FILTER, SegmentedControl, SkeletonRows, Switch, TagFilterBar, TextInput, parseTagFilter, useToast, type Segment, type TagFilterState } from "../ui";
+import { Button, EmptyState, ErrorNote, ICON, NO_TAG_FILTER, ScreenBar, SegmentedControl, SkeletonRows, Switch, TagFilterBar, Tabs, TextInput, parseTagFilter, useToast, type TabDef, type TagFilterState } from "../ui";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf, useViewState } from "../shell/viewMemoryStore";
@@ -43,7 +43,7 @@ import { LIBRARY_GRID } from "./_workflow/libraryLayout.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
 const VIEW_KEY = "bisa.workflow.library.view";
-const VIEWS: readonly Segment<LibraryView>[] = [
+const VIEWS: readonly TabDef[] = [
   { id: "yours", label: tr("screens-workflows-yours"), icon: ICON.workflow },
   { id: "templates", label: tr("screens-workflows-templates"), icon: ICON.template },
 ];
@@ -59,7 +59,8 @@ export default function Workflows() {
   const params = useSearchParams();
   const filters = useMemo(() => parseFilters(params, remembered()), [params]);
   const { view, q, status, archived } = filters;
-  const set = (next: Partial<LibraryFilters>) => setSearch(serializeFilters({ ...filters, ...next }));
+  // A pick is one Back away; the words typed are one entry however many keys made them (`replace`).
+  const set = (next: Partial<LibraryFilters>, opts?: { replace?: boolean }) => setSearch(serializeFilters({ ...filters, ...next }), opts);
   // A preference, not state.
   useEffect(() => {
     writePref(webStorage(), VIEW_KEY, view);
@@ -99,7 +100,7 @@ export default function Workflows() {
    * A new workflow is a workflow from its first second: a draft recorded
    * on the node at once — *Untitled workflow*, one start by hand
    * (`blankWorkflow`) — so the designer opens on a thing the Workflow
-   * Agent, the conversations, the browser door and the CLI all have. The
+   * Agent, the conversations and the CLI all have. The
    * `workflow_changed` frame it announces reloads the library on return.
    */
   const create = () => {
@@ -120,31 +121,36 @@ export default function Workflows() {
 
   return (
     <div ref={root} className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-2">
-        <SegmentedControl options={VIEWS} value={view} onChange={(v) => set({ view: v, status: "all" })} label={tr("screens-workflows-which-workflows")} />
-        <Button size="sm" variant="primary" className="ml-auto" disabled={creating} onClick={create}>
-          <ICON.add size={12} aria-hidden />{tr("screens-workflows-new-workflow")}</Button>
-      </div>
-      {/* One bar for both views: the words, the status, the tags, the put-away ones. */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-2" data-library-filters>
-        <span className="relative">
+      {/* The screen's band (`ui/ScreenBar.tsx`): which workflows, as tabs; then the words, the status and the put-away ones narrow them; the count and *New workflow* last. */}
+      <ScreenBar
+        stack
+        tabs={<Tabs bare label={tr("screens-workflows-which-workflows")} tabs={[...VIEWS]} active={view} onChange={(v) => set({ view: v as LibraryView, status: "all" })} />}
+        end={
+          <>
+            <span className="tnum text-2xs text-text-dim">{tr("screens-goals-words", { shown, rows: total })}</span>
+            {isNarrowed && (
+              <Button size="sm" variant="ghost" onClick={clear}>{tr("screens-workflows-clear-filters")}</Button>
+            )}
+            <Button size="sm" variant="primary" disabled={creating} onClick={create}>
+              <ICON.add size={12} aria-hidden />{tr("screens-workflows-new-workflow")}</Button>
+          </>
+        }
+      >
+        <span className="relative" data-library-filters>
           <ICON.search size={12} aria-hidden className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-text-dim" />
-          <TextInput value={q ?? ""} placeholder={tr("screens-workflows-search")} aria-label={tr("screens-workflows-search-2")} className="h-7 w-56 py-0 pl-7" onChange={(e) => set({ q: e.target.value || undefined })} />
+          <TextInput value={q ?? ""} placeholder={tr("screens-workflows-search")} aria-label={tr("screens-workflows-search-2")} className="h-7 w-56 py-0 pl-7" onChange={(e) => set({ q: e.target.value || undefined }, { replace: true })} />
         </span>
         <SegmentedControl options={statusSegments(view)} value={status} onChange={(s) => set({ status: s })} label={tr("screens-workflows-which-of-them")} size="sm" />
         {view === "yours" && <Switch checked={archived} onChange={(on) => set({ archived: on })} label={tr("screens-workflows-archived")} />}
-        <span className="tnum text-2xs text-text-dim">{tr("screens-goals-words", { shown, rows: total })}</span>
-        {isNarrowed && (
-          <Button size="sm" variant="ghost" onClick={clear}>{tr("screens-workflows-clear-filters")}</Button>
-        )}
-        {view === "yours" ? (
-          <TagFilterBar items={rows} tagsOf={(r) => [...(r.workflow.tags ?? [])]} value={tagFilter} onChange={setTagFilter} className="basis-full" />
-        ) : (
-          <TagFilterBar items={entries} tagsOf={(e) => [...e.tags]} value={tagFilter} onChange={setTagFilter} className="basis-full" />
-        )}
-      </div>
+      </ScreenBar>
 
       <div data-scroll-keep={`list:${view}`} className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        {/* The tags, at the head of the list as on Goals, Agents and Teams: what they narrow is right under them. */}
+        {view === "yours" ? (
+          <TagFilterBar items={rows} tagsOf={(r) => [...(r.workflow.tags ?? [])]} value={tagFilter} onChange={setTagFilter} className="mb-4" />
+        ) : (
+          <TagFilterBar items={entries} tagsOf={(e) => [...e.tags]} value={tagFilter} onChange={setTagFilter} className="mb-4" />
+        )}
         {current.loading && !current.data ? (
           <SkeletonRows rows={6} />
         ) : current.error && !current.data ? (
@@ -176,10 +182,11 @@ export default function Workflows() {
             }}
           />
         ) : (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-6">
             {groupByDomain(shownRows, (r) => r.workflow.tags).map(([domain, list]) => (
               <section key={domain}>
-                <h3 className="mb-2 text-2xs font-semibold tracking-wide text-text-dim uppercase">{domainLabel(domain)}</h3>
+                {/* A domain is a lowercase tag from the data, so it is capitalised rather than shouted; an `h2`, the level under the chrome's `h1`. */}
+                <h2 className="mb-2 text-sm font-semibold text-text capitalize">{domainLabel(domain)}</h2>
                 <div className={LIBRARY_GRID}>
                   {list.map((r) => (
                     <WorkflowCard key={r.workflow.id} row={r} projects={projectsMadeByWorkflow(ws.projects, r.workflow.id)} onChanged={library.reload} />

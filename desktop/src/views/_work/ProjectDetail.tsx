@@ -20,7 +20,9 @@
 import { useState } from "react";
 import { PLAIN_FOLDER } from "./initRepositoryModel.mjs";
 import { api, inDesktopShell, revealPath } from "../../api";
+import { AheadBehind } from "./AheadBehind";
 import { AssigneePicker } from "./AssigneePicker";
+import { FolderMissing } from "./FolderMissing";
 import { href } from "../../router";
 import type { AttachmentRef, GitStatusInfo, Project } from "../../types";
 import {
@@ -35,7 +37,8 @@ import {
   ErrorNote,
   Field,
   ICON,
-  Menu,
+  Labelled,
+  MoreMenu,
   PageHeader,
   SectionHeader,
   Skeleton,
@@ -45,6 +48,7 @@ import {
   TagInput,
   TextInput,
   Tooltip,
+  failureText,
   revealLabel,
   useToast,
   PhotoField,
@@ -146,9 +150,8 @@ export function GitFacts({
    */
   showCounts?: boolean;
 }) {
-  if (!status.exists) {
-    return <p className="text-2xs text-danger">{t("work-project-detail-folder-not-disk")}</p>;
-  }
+  // Not a fault in red: the folder is the workstream's to lay down, and the door goes there.
+  if (!status.exists) return <FolderMissing className="py-4" />;
   if (!status.git) return <p className="text-2xs text-text-dim">{PLAIN_FOLDER}</p>;
   const dirty = status.staged + status.unstaged + status.untracked + status.conflicted;
   return (
@@ -163,8 +166,10 @@ export function GitFacts({
         {status.head && <span> · {status.head.slice(0, 7)}</span>}
       </p>
       {status.upstream ? (
-        <p className="tnum">
-          {status.upstream} · {status.ahead}↑ {status.behind}↓
+        <p className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate">{status.upstream}</span>
+          <span aria-hidden>·</span>
+          <AheadBehind ahead={status.ahead} behind={status.behind} words={t("work-project-detail-ahead-behind", { ahead: status.ahead, behind: status.behind })} all />
         </p>
       ) : (
         <p>{t("work-project-detail-no-upstream-branch")}</p>
@@ -245,7 +250,7 @@ export function ProjectDetail({
       await api.setProjectAssignees(p.id, next);
       await reload();
     } catch (e) {
-      setAssigneeError(e instanceof Error ? e.message : String(e));
+      setAssigneeError(failureText("work", "project-detail-failed", e));
     } finally {
       setSavingAssignees(false);
     }
@@ -315,7 +320,7 @@ export function ProjectDetail({
     });
 
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-5">
       {/*
         A `PageHeader` at its default `h2`: this is a heading *below* the
         screen's, which the shell's chrome already renders. Everything is
@@ -330,10 +335,11 @@ export function ProjectDetail({
           <>
             <Avatar id={p.id} name={p.name} url={headerThumb} size={18} />
             <ProjectDot exists={data.exists} status={status.data?.status} />
-            <Chip tone="quiet">{p.slug}</Chip>
+            {/* The slug is a fact, not a state: plain words, so the chips after it are the ones that say something. */}
+            <span className="font-mono text-2xs text-text-dim">{p.slug}</span>
             {p.group && <Chip tone="neutral">{p.group}</Chip>}
             {projectIsGit(p) ? (
-              <Chip tone="accent">{t("work-goal-inspector-git")}</Chip>
+              <Chip tone="neutral">{t("work-goal-inspector-git")}</Chip>
             ) : (
               <Chip tone="quiet">{t("work-project-detail-plain-folder")}</Chip>
             )}
@@ -349,13 +355,9 @@ export function ProjectDetail({
         }
         actions={
           <>
-            <Menu
+            <MoreMenu
               label={t("work-project-detail-actions", { p: p.name })}
-              trigger={
-                <span className="anim flex h-7 w-7 items-center justify-center rounded-control border border-border text-text-dim hover:bg-surface-2 hover:text-text">
-                  <ICON.more size={14} aria-hidden />
-                </span>
-              }
+              className="h-7 w-7 rounded-control border border-border hover:bg-surface-2"
               items={[
                 {
                   label: t("work-project-detail-edit-project-2"),
@@ -395,7 +397,7 @@ export function ProjectDetail({
         making you leave it to ask.
       */}
       <section className="min-w-0">
-        <SectionHeader title={t("work-goal-inspector-files")} />
+        <SectionHeader flush title={t("work-goal-inspector-files")} />
         <CopyText value={data.path} />
         {/*
           Beside the path rather than in the overflow menu, because both of
@@ -415,7 +417,7 @@ export function ProjectDetail({
                 // Silence is exactly the wrong answer to "the shell said no",
                 // which is what a missing capability line looks like here.
                 revealPath(data.path).catch((e: unknown) => {
-                  toast.error(e instanceof Error ? e.message : String(e));
+                  toast.error(failureText("work", "project-detail-failed", e));
                 });
               }}
               className="anim inline-flex h-6 items-center gap-1.5 rounded-control border border-border px-2 text-2xs text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
@@ -443,7 +445,7 @@ export function ProjectDetail({
         it is the list below, and changes whenever you like.
       */}
       <section>
-        <SectionHeader title={t("work-goal-inspector-origin")} />
+        <SectionHeader flush title={t("work-goal-inspector-origin")} />
         <div className="flex flex-wrap items-center gap-2">
           <ProjectOriginChip
             origin={p.origin}
@@ -465,7 +467,7 @@ export function ProjectDetail({
         does not — it is additive, reversible and moves nothing.
       */}
       <section>
-        <SectionHeader title={t("work-project-detail-goals")} />
+        <SectionHeader flush title={t("work-project-detail-goals")} />
         {data.goals.length === 0 ? (
           <EmptyState
             icon={ICON.goal}
@@ -501,7 +503,7 @@ export function ProjectDetail({
       </section>
 
       <section>
-        <SectionHeader title={t("work-goal-inspector-assignees")} />
+        <SectionHeader flush title={t("work-goal-inspector-assignees")} />
         <p className="mb-1.5 text-2xs text-text-dim">
           {t("work-project-detail-work-goes-to-these-agents-first")}
         </p>
@@ -535,10 +537,9 @@ export function ProjectDetail({
           <Field label={t("work-agent-editor-name")}>
             <TextInput autoFocus value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <div>
-            <span className="mb-1 block text-2xs font-medium text-text-dim">{t("work-agent-editor-tags")}</span>
+          <Labelled label={t("work-agent-editor-tags")}>
             <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />
-          </div>
+          </Labelled>
           <Field label={t("work-project-detail-group")} hint={t("work-project-detail-projects-same-group-sit-together-rail")}>
             <TextInput
               list="project-groups"

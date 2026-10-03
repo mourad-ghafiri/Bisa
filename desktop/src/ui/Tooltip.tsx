@@ -35,19 +35,29 @@ export function Tooltip({
   children,
   side = "top",
   className,
+  active = true,
 }: {
   label: ReactNode;
   /** A single element that can hold a ref — usually a button. */
   children: ReactNode;
   side?: "top" | "right" | "bottom" | "left";
   className?: string;
+  /**
+   * Whether the tip shows. False keeps the trigger mounted and draws
+   * nothing — for a tip that comes and goes with a state (a disabled
+   * button's reason) without remounting what it wraps, which would drop
+   * keyboard focus.
+   */
+  active?: boolean;
 }) {
-  if (!label) return <>{children}</>;
+  // A tip with nothing to say is no tip — unless it was asked to stand by
+  // (`active={false}`), which keeps the trigger mounted for when it has.
+  if (!label && active) return <>{children}</>;
   return (
     <T.Provider delayDuration={400} skipDelayDuration={200}>
       <T.Root disableHoverableContent>
         <T.Trigger asChild>{children}</T.Trigger>
-        <T.Portal>
+        {active && <T.Portal>
           <T.Content
             data-pane
             side={side}
@@ -60,7 +70,7 @@ export function Tooltip({
           >
             {label}
           </T.Content>
-        </T.Portal>
+        </T.Portal>}
       </T.Root>
     </T.Provider>
   );

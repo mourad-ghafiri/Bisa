@@ -43,7 +43,8 @@ test("a morning in the Inbox: what is owed first, read as you go, the badge foll
     ],
   );
   let badge = inboxBadge(rows);
-  assert.deepEqual([badge.count, badge.tone, badgeText(badge.count, "sm")], [2, "accent", "2"]);
+  // Two counts, never one sum: the owed one in the accent, the unread one beside it, neutral.
+  assert.deepEqual([badge.needs, badge.unread, badgeText(badge.needs, "sm")], [1, 1, "1"]);
 
   // The person opens the first row: selected, and it stays selected under every filter that still holds it.
   let selected = nextSelection(visibleRows(rows, "all", "any"), rows, null);
@@ -61,7 +62,7 @@ test("a morning in the Inbox: what is owed first, read as you go, the badge foll
   assert.strictEqual(heard.rows[0], rows[0], "the rows a frame does not name are the same objects");
   rows = heard.rows;
   badge = inboxBadge(rows);
-  assert.deepEqual([badge.count, badge.title], [1, "1 needs you"]);
+  assert.deepEqual([badge.needs, badge.unread, badge.title], [1, 0, "1 needs you"]);
 
   // The question is answered: the count clears the ask, the row is handled, the badge is gone.
   heard = hear(rows, { stream: "inbox", payload: frame({ key: "asking", needs_action_count: 0, handled: true, read: true }) });
@@ -69,8 +70,8 @@ test("a morning in the Inbox: what is owed first, read as you go, the badge foll
   assert.equal(heard.reload, false);
   assert.equal(rowState(rows[0]), "read", "nothing is owed any more");
   assert.ok(isHandled(rows[0]), "and the row says it was decided — beside its state, not as one");
-  assert.equal(inboxBadge(rows).count, 0);
-  assert.equal(badgeText(inboxBadge(rows).count), null, "nothing owed draws nothing");
+  assert.deepEqual([inboxBadge(rows).needs, inboxBadge(rows).unread], [0, 0]);
+  assert.equal(badgeText(inboxBadge(rows).needs), null, "nothing owed draws nothing");
   assert.deepEqual(unreadKeys(visibleRows(rows, "all", "any")), []);
 });
 
@@ -124,7 +125,7 @@ test("a full Inbox marked read: a few at a time, shown before the node says so, 
   for (const key of batches.flat()) rows = withReadMark(rows, key, true);
   assert.equal(counts(rows, "all").buckets.unread, 0);
   assert.equal(counts(rows, "all").buckets.needs_you, 1, "reading a question does not answer it");
-  assert.deepEqual([inboxBadge(rows).count, inboxBadge(rows).tone], [1, "accent"]);
+  assert.deepEqual([inboxBadge(rows).needs, inboxBadge(rows).unread], [1, 0], "what is owed stays; nothing unread is left");
   assert.deepEqual([summarize(rows.at(-1)).text, summarize(rows.at(-1)).tone], ["escalation: step ask", "accent"], "the ask is still the row's line");
   // Nothing new is left under Unread, and the screen says so.
   assert.deepEqual(visibleRows(rows, "unread", "any"), []);

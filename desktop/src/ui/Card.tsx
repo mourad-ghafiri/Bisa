@@ -22,9 +22,12 @@ export function Card({
   className?: string;
   onClick?: () => void;
 }) {
+  // Raised: the family's `shadow-raised` is what a card lifts by — a light
+  // edge on glass, nothing on a matte family — so a card and the page it
+  // sits on are two layers without a heavier border to say so.
   const cls = cn(
-    "rounded-card border border-border bg-surface p-3",
-    onClick && "anim w-full cursor-pointer text-left hover:bg-surface-2",
+    "rounded-card border border-border bg-surface p-3 shadow-sm",
+    onClick && "anim w-full cursor-pointer text-left hover:border-text-dim/30 hover:bg-surface-2",
     className,
   );
   return onClick ? (
@@ -51,8 +54,10 @@ export function Section({
     <section className={className}>
       {(title || action) && (
         <header className="mb-2 flex items-center justify-between gap-2">
+          {/* Sentence case at full ink: a section's name is a heading, not a
+              label shouted in capitals at the same grey as the meta under it. */}
           {typeof title === "string" ? (
-            <h2 className="text-xs font-semibold tracking-wide text-text-dim uppercase">{title}</h2>
+            <h2 className="text-sm font-semibold text-text">{title}</h2>
           ) : (
             title
           )}
@@ -123,7 +128,7 @@ export function ReadLine({
 
 export function ErrorNote({ error, retry }: { error: string; retry?: () => void }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-control border border-border bg-danger-soft px-3 py-2 text-2xs text-danger">
+    <div role="alert" className="flex items-center justify-between gap-3 rounded-control border border-border bg-danger-soft px-3 py-2 text-2xs text-danger">
       <span className="flex items-start gap-1.5">
         <ICON.danger size={12} aria-hidden className="mt-px shrink-0" />
         {error}

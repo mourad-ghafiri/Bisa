@@ -16,19 +16,24 @@ import type { Sides } from "./conflictSidesModel.mjs";
 import { SideSwatch } from "./ResolveCard";
 import { t } from "../../i18n/l10n.mjs";
 
-/** A run of lines, numbered, as a pane. */
-function Pane({ text, tone, label }: { text: string; tone: "accent" | "ok" | "neutral"; label: string }) {
+/**
+ * A run of lines, numbered, as a pane. No edge of its own — it sits inside
+ * the conflict's card — and one neutral wash for every side: a side is an
+ * identity, said by the mark and name above it (`SideSwatch`), never by a
+ * colour that would read as a state or a summons.
+ */
+function Pane({ text, label }: { text: string; label: string }) {
   const lines = text.replace(/\n$/, "").split("\n");
   const empty = text === "";
   return (
-    <div className={cn("min-w-0 flex-1 rounded-control border", tone === "accent" ? "border-accent/40 bg-accent-soft/20" : tone === "ok" ? "border-ok/40 bg-ok-soft/20" : "border-border bg-surface-2/40")} aria-label={label}>
+    <div className="min-w-0 flex-1 rounded-control bg-surface-2/60" aria-label={label}>
       {empty ? (
         <p className="px-2 py-1.5 text-2xs italic text-text-dim">{t("work-conflict-block-nothing-side-has-no-lines-here")}</p>
       ) : (
         <pre className="max-h-64 overflow-auto px-2 py-1.5 font-mono text-2xs leading-5 text-text">
           {lines.map((l, i) => (
             <div key={i} className="flex gap-2">
-              <span className="w-6 shrink-0 select-none text-right text-text-dim/60">{i + 1}</span>
+              <span className="tnum w-6 shrink-0 select-none text-right text-text-dim">{i + 1}</span>
               <span className="whitespace-pre">{l || " "}</span>
             </div>
           ))}
@@ -105,7 +110,7 @@ export function ConflictBlock({
         ) : (
           <>
             {block.base !== null && (
-              <Button size="sm" variant="ghost" aria-pressed={showBase} onClick={() => setShowBase((v) => !v)}>
+              <Button size="sm" variant="ghost" className="aria-pressed:bg-selected aria-pressed:text-text" aria-pressed={showBase} onClick={() => setShowBase((v) => !v)}>
                 {showBase ? t("work-conflict-block-hide-base") : t("work-conflict-block-show-base")}
               </Button>
             )}
@@ -119,7 +124,7 @@ export function ConflictBlock({
         )}
       </div>
       {settled ? (
-        <Pane text={textFor(block, made, swapped)} tone="neutral" label={t("work-conflict-block-text-kept")} />
+        <Pane text={textFor(block, made, swapped)} label={t("work-conflict-block-text-kept")} />
       ) : editing !== null ? (
         <>
           <div className="h-48 overflow-hidden rounded-control border border-border">
@@ -138,19 +143,19 @@ export function ConflictBlock({
               <div className="text-2xs">
                 <SideSwatch side={sides.mine} />
               </div>
-              <Pane text={mine} tone="accent" label={t("work-conflict-block-mine", { mine: sides.mine.name })} />
+              <Pane text={mine} label={t("work-conflict-block-mine", { mine: sides.mine.name })} />
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="text-2xs">
                 <SideSwatch side={sides.theirs} />
               </div>
-              <Pane text={theirs} tone="ok" label={t("work-conflict-block-theirs", { theirs: sides.theirs.name })} />
+              <Pane text={theirs} label={t("work-conflict-block-theirs", { theirs: sides.theirs.name })} />
             </div>
           </div>
           {showBase && block.base !== null && (
             <div className="flex flex-col gap-1">
               <span className="text-2xs text-text-dim">{t("work-conflict-block-base-what-both-sides-started-from")}</span>
-              <Pane text={block.base} tone="neutral" label={t("work-conflict-block-base")} />
+              <Pane text={block.base} label={t("work-conflict-block-base")} />
             </div>
           )}
           <div className="flex flex-wrap items-center gap-1.5">

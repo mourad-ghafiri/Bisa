@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { BOX_WIDTH, FALLBACK_SIZES, INSPECTOR_ROLES, STYLE_PARTS, inspectorStyles, inspectorTheme, safeCssValue } from "./inspectorTheme.mjs";
+import { BOX_WIDTH, FALLBACK_SIZES, INSPECTOR_ROLES, STYLE_PARTS, inspectorStyles, inspectorTheme, opaque, safeCssValue } from "./inspectorTheme.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TOKENS = readFileSync(join(HERE, "..", "..", "theme", "tokens.css"), "utf8");
@@ -51,6 +51,15 @@ test("a role no theme answers falls back to the app's side, and every leaf is a 
   assert.ok(Object.isFrozen(answered) && Object.isFrozen(answered.color));
 });
 
+test("the box's ground is the surface made solid — nothing frosts behind a box drawn inside a page", () => {
+  assert.equal(opaque("oklch(0.995 0.003 235 / 0.72)"), "oklch(0.995 0.003 235)", "glass's translucent surface, solid");
+  assert.equal(opaque("oklch(0.25 0.014 235 / 0.7)"), "oklch(0.25 0.014 235)");
+  assert.equal(opaque("rgba(1, 2, 3, 0.5)"), "rgb(1, 2, 3)");
+  assert.equal(opaque("rgb(0 0 0 / 0.5)"), "rgb(0 0 0)");
+  for (const kept of ["oklch(0.6 0.2 250)", "#fff", "white", "color-mix(in oklch, red 50%, blue)"]) assert.equal(opaque(kept), kept, `${kept} passes as it is`);
+  assert.equal(inspectorTheme({ "--color-surface": "oklch(0.99 0 0 / 0.72)" }, "light").color.surface, "oklch(0.99 0 0)", "the overlay's surface is the solid one");
+});
+
 test("nothing that could break the script, a declaration or a tag gets through as a value", () => {
   for (const bad of ["", "   ", "red; background:url(x)", "a}", "{b", "<style>", "url(http://x)", "URL (x)", "expression(1)", "a`b", "back\\slash", "@import 'x'", "x".repeat(201)]) {
     assert.equal(safeCssValue(bad), null, `${JSON.stringify(bad)} is refused`);
@@ -76,10 +85,20 @@ test("every part is dressed from the theme alone, from all:initial, and the box 
   assert.ok(styles.box.includes("S-COLOR-SURFACE") && styles.box.includes("S-COLOR-BORDER") && styles.box.includes("S-RADIUS-CARD") && styles.box.includes("S-SHADOW-FLOATING") && styles.box.includes("S-FONT-UI"));
   assert.ok(styles.box.includes("color-scheme:dark"), "the form control inside follows the app's side");
   assert.ok(styles.box.includes(`width:${BOX_WIDTH}px`) && styles.box.includes("max-width:calc(100vw - 16px)"), "the box asks for its width and takes less");
-  assert.ok(styles.outline.includes("S-COLOR-ACCENT") && styles.outline.includes("S-COLOR-ACCENTSOFT") && styles.outline.includes("S-MOTION-FAST"), "the outline is the accent, and glides");
+  assert.ok(styles.outline.includes("border:2px solid S-COLOR-ACCENT") && styles.outline.includes("S-MOTION-FAST"), "the outline is the accent's edge, and glides");
+  // The soft accent is opaque in every real theme: a fill would hide the very element pointed at.
+  assert.ok(styles.outline.includes("background:transparent") && !styles.outline.includes("S-COLOR-ACCENTSOFT"), "an outline, never a fill — what you point at stays readable");
+  assert.ok(styles.outline.includes("box-shadow:0 0 0 1px S-COLOR-SURFACE"), "a thin surface ring keeps the edge visible on a page of the accent's colour");
+  // `all:initial` resets pointer-events to auto: every part that only marks says none again.
+  for (const part of ["outline", "label", "badges", "badge"]) assert.ok(styles[part].includes("pointer-events:none"), `${part} never catches the pointer`);
   assert.ok(styles.label.includes("S-FONT-MONO") && styles.label.includes("S-COLOR-ACCENTCONTRAST"));
   assert.ok(styles.badge.includes("S-COLOR-ACCENT") && styles.badge.includes("S-COLOR-SURFACE"), "a badge is ringed in the surface so it sits on any page");
-  assert.ok(styles["crumb-current"].includes("S-COLOR-ACCENTINK") && styles["crumb-current"].includes("S-COLOR-ACCENTSOFT"));
+  // Where you stand is neutral (DESIGN, The Neutral Here Rule): the element in full ink on the pressed step, never the accent.
+  assert.ok(styles["crumb-current"].includes("S-COLOR-TEXT") && styles["crumb-current"].includes("S-COLOR-SURFACE2") && !styles["crumb-current"].includes("S-COLOR-ACCENT"));
+  // The close is drawn, never a glyph from a font: two strokes in the text's own colour.
+  assert.ok(styles.close.includes("currentColor") && styles.close.includes("background-image:"), "the close draws its own mark");
+  assert.ok(styles.add.includes("S-COLOR-ACCENT") && styles.add.includes("S-SHADOW-RAISED") && styles.add.includes("height:28px"), "Add is the kit's small primary button");
+  assert.ok(styles["box-hint"].includes("S-COLOR-TEXTDIM") && styles["box-foot"].includes("justify-content:space-between"), "the foot says the keys and holds the one button");
   for (const [base, state] of [["crumb", "crumb:hover"], ["close", "close:hover"], ["input", "input:focus"], ["add", "add:hover"]]) {
     assert.ok(styles[state].startsWith(styles[base]) && styles[state].length > styles[base].length, `${state} is ${base} with more`);
   }

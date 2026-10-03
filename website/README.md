@@ -18,7 +18,7 @@ just website-check    # the site's tests and the check that it is what its sourc
 | `index.html`, `features/`, `harnesses/`, `security/`, `download/`, `404.html` | the pages — **built, never edited by hand** |
 | `robots.txt`, `sitemap.xml`, `site.webmanifest`, `favicon.*`, `apple-touch-icon.png` | built too; the icons are copied from `logo/` and the desktop's icon set |
 | `assets/site.css` | the look: the desktop's Glass tokens, light and dark following the system |
-| `assets/site.js` | the few behaviours — the opening's slideshow, the tour's rail, shown once the reader is past the opening, the reading line, the IDE's arrows, the asks' filter, Moonrice — **built** from `scripts/website/site.src.js` and `railModel.mjs` into one plain script; every page reads whole without it |
+| `assets/site.js` | the few behaviours — the opening's slideshow, the tour's rail, shown once the reader is past the opening, the reading line, the asks' filter, the small screen's menu, Moonrice — **built** from `scripts/website/site.src.js` and `railModel.mjs` into one plain script; every page reads whole without it |
 | `assets/social-card.png` | the picture a shared link shows, rendered by `just website-card` |
 | `screenshots/` | the app's screenshots, which you add — see below |
 
@@ -62,9 +62,11 @@ address, a token, a usage number.
 The opening's slideshow comes from one list, `slides` in the home page's front matter: each
 screen's label and the screenshots that may show it — the first of them that is here; until one
 is, the slide is the outlined window naming the file to add.
-It moves on by itself every few seconds, with no tabs and no Pause — the owner's choice — and stays
-still only where the visitor's system asks for reduced motion; two arrows, shown while the pointer
-is over it (always on a touch screen), go back and on.
+Each screen carries its label as a caption. It moves on by itself every few seconds, with no tabs
+and no Pause — the owner's choice — and holds still where the visitor's system asks for reduced
+motion, while the pointer rests on it, while something inside it has the focus, and while it is
+scrolled out of sight; two arrows, shown while the pointer is over it (always on a touch screen),
+go back and on, and the first press of one, or the first swipe, stops it for good.
 The repository's README opens with the same screens as one animated image,
 `assets/readme-slideshow.webp`, which `just website-shots` makes again with `img2webp` whenever a
 screen changes — `assets/readme-slideshow.json` records which it holds, and `just website-check`

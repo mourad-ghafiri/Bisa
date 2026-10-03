@@ -49,7 +49,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ApiError, api } from "../api";
 import type { NoteRow } from "../types";
-import { Button, ConfirmDialog, FindBar, Markdown, SegmentedControl, Tooltip, emptyFind, matchesOf, replaceAll, replaceOne, stepIndex, useDomFind } from "../ui";
+import { Button, ConfirmDialog, FindBar, Markdown, SegmentedControl, Tooltip, emptyFind, matchesOf, replaceAll, replaceOne, stepIndex, useDockOverlap, useDomFind } from "../ui";
 import type { Find } from "../ui";
 import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
@@ -69,7 +69,7 @@ import { forgetPref, readPref, webStorage, writePref } from "../shell/storedPref
 import { MaximizeToggle } from "../shell/MaximizeToggle";
 import { isSaveChord, useDocumentHold } from "../shell/documentGuard";
 import { ConversationDrawer } from "../views/_studio/ConversationDrawer";
-import { notesGuard, setNotesAskOpen, toggleNotesMaximized, useNotesOverlay } from "./notesStore";
+import { notesGuard, setNotesAskOpen, setNotesOpen, toggleNotesMaximized, useNotesOverlay } from "./notesStore";
 import { t } from "../i18n/l10n.mjs";
 
 /** The model owns the vocabulary; this is the same three, named locally. */
@@ -141,6 +141,9 @@ export function NoteEditor({
   const [gone, setGone] = useState<string | null>(null);
   const area = useRef<HTMLTextAreaElement>(null);
   const preview = useRef<HTMLDivElement>(null);
+  // The editor's foot holds Delete at its right end, where a floating dock may stand: the button keeps clear of it, the dock never moves.
+  const foot = useRef<HTMLElement>(null);
+  const dockRoom = useDockOverlap(foot);
   /** Where to put the caret after a splice, applied once the value is painted. */
   const pendingRange = useRef<{ from: number; to: number } | null>(null);
   /** The find bar: `null` while closed. */
@@ -451,13 +454,13 @@ export function NoteEditor({
         }
       }}
     >
-      <header className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+      <header className="flex shrink-0 items-center gap-1 border-b border-hairline px-2 py-1.5">
         <Tooltip label={t("notes-note-editor-back-list")}>
           <button
             type="button"
             aria-label={t("notes-note-editor-back-list")}
             onClick={onBack}
-            className="anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text"
+            className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
           >
             <ICON.back size={14} aria-hidden />
           </button>
@@ -468,13 +471,13 @@ export function NoteEditor({
           onChange={(e) => setTitle(e.target.value)}
           className="min-w-0 flex-1 bg-transparent text-xs font-medium text-text focus:outline-none"
         />
-        <span className="max-w-[8rem] shrink-0 truncate text-3xs text-text-dim" title={scopeName}>
+        <span className="max-w-[8rem] shrink-0 truncate text-2xs text-text-dim" title={scopeName}>
           {scopeName}
         </span>
         <span
           aria-live="polite"
           className={cn(
-            "tnum shrink-0 text-3xs",
+            "tnum shrink-0 text-2xs",
             conflict || error ? "text-danger" : "text-text-dim",
           )}
         >
@@ -489,18 +492,29 @@ export function NoteEditor({
             aria-label={t("notes-note-editor-ask-agent")}
             aria-pressed={askOpen}
             onClick={() => setNotesAskOpen(!askOpen)}
-            className={cn("anim shrink-0 rounded-control p-1 hover:bg-surface-2 hover:text-text", askOpen ? "bg-accent-soft text-accent-ink" : "text-text-dim")}
+            className={cn("anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control", askOpen ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text")}
           >
-            <ICON.dm size={14} aria-hidden />
+            <ICON.agent size={14} aria-hidden />
           </button>
         </Tooltip>
         <MaximizeToggle maximized={maximized} onToggle={toggleNotesMaximized} />
+        {/* The panel's ×, in the same place as in the list: it closes the panel and keeps this note the open one. */}
+        <Tooltip label={t("notes-note-overlay-close-notes")}>
+          <button
+            type="button"
+            aria-label={t("notes-note-overlay-close-notes")}
+            onClick={() => setNotesOpen(false)}
+            className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
+          >
+            <ICON.close size={13} aria-hidden />
+          </button>
+        </Tooltip>
       </header>
 
       {/* The document's column — toolbar, find, body, foot — and, beside it, the conversation drawer. */}
       <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1">
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-hairline px-2 py-1">
         {TOOLS.map((tool) => {
           const Glyph = tool.icon;
           return (
@@ -510,7 +524,7 @@ export function NoteEditor({
                 aria-label={tool.label}
                 disabled={view === "read"}
                 onClick={() => mark(tool.kind)}
-                className="anim rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-40"
+                className="anim flex h-6 w-6 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
               >
                 <Glyph size={13} aria-hidden />
               </button>
@@ -524,8 +538,8 @@ export function NoteEditor({
             aria-pressed={find !== null}
             onClick={() => (find ? closeFind() : openFind(!reading))}
             className={cn(
-              "anim ml-1 rounded-control p-1 hover:bg-surface-2 hover:text-text",
-              find ? "bg-accent-soft text-accent-ink" : "text-text-dim",
+              "anim ml-1 flex h-6 w-6 items-center justify-center rounded-control",
+              find ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text",
             )}
           >
             <ICON.search size={13} aria-hidden />
@@ -536,7 +550,7 @@ export function NoteEditor({
       </div>
 
       {find && (
-        <div className="shrink-0 border-b border-border px-2 py-1">
+        <div className="shrink-0 border-b border-hairline px-2 py-1">
           <FindBar
             find={find}
             onChange={setFind}
@@ -554,7 +568,7 @@ export function NoteEditor({
       )}
 
       {conflict && (
-        <div className="shrink-0 border-b border-border bg-danger-soft px-2 py-1.5 text-2xs text-danger">
+        <div className="shrink-0 border-b border-hairline bg-danger-soft px-3 py-1.5 text-2xs text-danger">
           {t("notes-note-editor-saving-paused")}{" "}
           <button type="button" onClick={() => void merge()} className="underline">{t("notes-note-editor-put-theirs-above-mine")}</button>
         </div>
@@ -574,7 +588,7 @@ export function NoteEditor({
             onChange={(e) => setBody(e.target.value)}
             className={cn(
               "min-h-0 flex-1 resize-none bg-transparent p-3 font-mono text-xs leading-relaxed text-text placeholder:text-text-dim focus:outline-none",
-              view === "split" && "border-r border-border",
+              view === "split" && "border-r border-hairline",
             )}
           />
         )}
@@ -585,8 +599,8 @@ export function NoteEditor({
         )}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-between border-t border-border px-2 py-1">
-        <span className="tnum text-3xs text-text-dim">
+      <footer ref={foot} style={dockRoom > 0 ? { paddingRight: dockRoom } : undefined} className="flex shrink-0 items-center justify-between border-t border-hairline py-1 pl-3 pr-2">
+        <span className="tnum text-2xs text-text-dim">
           {t("notes-note-editor-characters", { n: body.length.toLocaleString() })}
         </span>
         <Button size="sm" variant="danger" onClick={() => setConfirmingDelete(true)}>{t("notes-note-editor-delete")}</Button>

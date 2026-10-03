@@ -470,6 +470,18 @@ test("the chords: j k move, Enter and o open, a focuses the ask, e and u mark, E
   assert.equal(keyAction("e", { ...ctx, hasSelection: false }), null);
 });
 
+test("the list's keys are the list's: on a control elsewhere — a tab, a filter, a menu, the detail's buttons — none of them act", () => {
+  const ctx = { inInput: false, inAsk: false, modifier: false, hasSelection: true };
+  for (const key of ["j", "k", "Enter", "o", "a", "e", "u", "Escape"]) {
+    assert.equal(keyAction(key, { ...ctx, onControl: true }), null, `${key} on a control outside the list`);
+    assert.notEqual(keyAction(key, { ...ctx, onControl: false }), null, `${key} in the list, or with nothing focused`);
+  }
+  assert.equal(keyAction("Escape", { ...ctx, onControl: true }), null, "an Escape that closes a menu keeps the selection");
+  assert.equal(keyAction("j", ctx), "next", "said without the flag, the list has the keys — as before");
+  const view = readFileSync(new URL("../Inbox.tsx", import.meta.url), "utf8");
+  assert.ok(view.includes("onControl,") && view.includes("document.activeElement"), "the screen says where focus stands, from the document");
+});
+
 test("a held step's release has one verb, a decision two", () => {
   assert.deepEqual(askVerbs({ subject: "release:01J0RUN/hold" }), { approve: "Release", decline: null });
   assert.deepEqual(askVerbs({ subject: "approval:01J0RUN/ship" }), { approve: "Approve", decline: "Decline" });

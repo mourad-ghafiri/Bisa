@@ -15,6 +15,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { api } from "../api";
 import type { AttachmentRef } from "../types";
+import { failureReason } from "./failure";
 
 /** One file held, and how its upload is going. */
 export interface PendingFile {
@@ -54,7 +55,7 @@ export function useUploads(): Uploads {
         .uploadAttachment(file)
         .then((r) => setPending((p) => p.map((x) => (x.key === key ? { ...x, state: "done", file: r } : x))))
         .catch((e: unknown) =>
-          setPending((p) => p.map((x) => (x.key === key ? { ...x, state: "failed", error: e instanceof Error ? e.message : String(e) } : x))),
+          setPending((p) => p.map((x) => (x.key === key ? { ...x, state: "failed", error: failureReason("uploads", "an attachment did not upload", e) } : x))), // for the log
         );
     }
   }, []);

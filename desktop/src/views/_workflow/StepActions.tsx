@@ -51,8 +51,9 @@ export function StepActions({
   const options = step.kind === "human" ? (step.options ?? []) : [];
   const multi = step.kind === "human" && step.multi === true;
   return (
-    <div className="flex flex-col gap-2 rounded-card border border-warn/40 bg-warn-soft/40 p-3">
-      <p className="text-2xs font-semibold tracking-wide text-warn uppercase">{t("workflow-step-actions-step-yours")}</p>
+    // No edge of its own: it sits inside the step's bordered card, and the accent ground already says it is yours.
+    <div className="flex flex-col gap-2 rounded-control bg-accent-soft/50 p-3">
+      <p className="text-xs font-semibold text-accent-ink">{t("workflow-step-actions-step-yours")}</p>
       {actions.includes("answer") && (
         <>
           {options.length > 0 && !multi && (
@@ -107,7 +108,7 @@ export function StepActions({
         <div className="flex items-center gap-2">
           <p className="min-w-0 flex-1 text-2xs text-text-dim">{t("workflow-step-actions-approval-signed-decision-decide-gate-pinned")}</p>
           {onDecide && (
-            <Button size="sm" variant="primary" onClick={onDecide}>{t("workflow-step-actions-go-gate")}</Button>
+            <Button size="sm" onClick={onDecide}>{t("workflow-step-actions-go-gate")}</Button>
           )}
         </div>
       )}

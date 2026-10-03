@@ -1,8 +1,7 @@
 /**
  * Which browser tabs an agent is working in right now (ide/18): the bridge
  * begins a request on a tab and ends it (`browserBridge.ts`, `working`);
- * every Browser door and the footer read the busy tabs to say *an agent
- * is browsing*. A tab closed is forgotten (`BrowserPanel.tsx`). The rules
+ * the footer reads the busy tabs to say *an agent is browsing*. A tab closed is forgotten (`BrowserPanel.tsx`). The rules
  * are `browserActivityModel.mjs`'s.
  */
 

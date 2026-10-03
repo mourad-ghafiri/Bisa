@@ -27,10 +27,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { href, navigate } from "../router";
+import { listUnread } from "../shell/workspaceLoadModel.mjs";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf, useViewState } from "../shell/viewMemoryStore";
 import { NEW_CHANNEL, onDoor } from "../shell/shortcuts";
-import { BrowserDoor } from "../shell/BrowserDoor";
 import {
   AgentPicker,
   Avatar,
@@ -41,10 +41,12 @@ import {
   ErrorNote,
   Field,
   ICON,
+  Labelled,
   MoreMenu,
   NO_TAG_FILTER,
   Popover,
   RelativeTime,
+  ScreenBar,
   ScrollArea,
   Skeleton,
   SkeletonRows,
@@ -118,8 +120,7 @@ function PeoplePicker({ value, onChange }: { value: string[]; onChange: (next: s
   const candidates = usePeopleRosterCandidates();
   if (candidates.length === 0) return null;
   return (
-    <div>
-      <span className="mb-1 block text-2xs font-medium text-text-dim">{t("screens-channels-people")}</span>
+    <Labelled label={t("screens-channels-people")} hint={t("screens-channels-guest-reaches-only-when-listed")}>
       <AgentPicker
         candidates={candidates}
         value={value}
@@ -131,8 +132,7 @@ function PeoplePicker({ value, onChange }: { value: string[]; onChange: (next: s
         emptyTitle={t("screens-channels-nobody-list")}
         note={value.length > 0 ? t("screens-channels-listed", { length: value.length }) : undefined}
       />
-      <p className="mt-1 text-2xs text-text-dim">{t("screens-channels-guest-reaches-only-when-listed")}</p>
-    </div>
+    </Labelled>
   );
 }
 
@@ -229,12 +229,14 @@ function NewChannelDialog({
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const toast = useToast();
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
   const [roster, setRoster] = useState<string[]>([]);
   const [humans, setHumans] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  // A refusal is said in the dialog, where the name was typed — as the edit
+  // dialog says its own — not in a toast that leaves with the moment.
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -244,12 +246,14 @@ function NewChannelDialog({
       setRoster([]);
       setHumans([]);
       setTags([]);
+      setError(null);
     }
   }, [open]);
 
   const create = async () => {
     if (!name.trim() || busy) return;
     setBusy(true);
+    setError(null);
     const ok = await attempt(async () => {
       const { channel } = await api.createChannel({
         name: name.trim(),
@@ -259,7 +263,7 @@ function NewChannelDialog({
         tags,
       });
       onCreated(channel.id);
-    }, toast.error);
+    }, setError);
     setBusy(false);
     if (ok) onClose();
   };
@@ -272,7 +276,7 @@ function NewChannelDialog({
       description={t("screens-channels-standing-conversation-whole-workspace-can-read")}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t("screens-channels-cancel")}</Button>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>{t("screens-channels-cancel")}</Button>
           <Button variant="primary" disabled={!name.trim() || busy} onClick={() => void create()}>
             {busy ? t("screens-channels-creating") : t("screens-channels-create")}
           </Button>
@@ -280,6 +284,7 @@ function NewChannelDialog({
       }
     >
       <div className="flex flex-col gap-3">
+        {error && <ErrorNote error={error} />}
         <Field label={t("screens-channels-name")}>
           <TextInput
             autoFocus
@@ -298,16 +303,13 @@ function NewChannelDialog({
             onChange={(e) => setTopic(e.target.value)}
           />
         </Field>
-        <div>
-          <span className="mb-1 block text-2xs font-medium text-text-dim">{t("screens-channels-roster")}</span>
+        <Labelled label={t("screens-channels-roster")} hint={ROSTER_RULE}>
           <RosterPicker value={roster} onChange={setRoster} />
-          <p className="mt-1 text-2xs text-text-dim">{ROSTER_RULE}</p>
-        </div>
+        </Labelled>
         <PeoplePicker value={humans} onChange={setHumans} />
-        <div>
-          <span className="mb-1 block text-2xs font-medium text-text-dim">{t("screens-channels-tags")}</span>
+        <Labelled label={t("screens-channels-tags")}>
           <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />
-        </div>
+        </Labelled>
       </div>
     </Dialog>
   );
@@ -398,16 +400,13 @@ function EditChannelDialog({
             onChange={(e) => setTopic(e.target.value)}
           />
         </Field>
-        <div>
-          <span className="mb-1 block text-2xs font-medium text-text-dim">{t("screens-channels-roster")}</span>
+        <Labelled label={t("screens-channels-roster")} hint={ROSTER_RULE}>
           <RosterPicker value={roster} onChange={setRoster} />
-          <p className="mt-1 text-2xs text-text-dim">{ROSTER_RULE}</p>
-        </div>
+        </Labelled>
         <PeoplePicker value={humans} onChange={setHumans} />
-        <div>
-          <span className="mb-1 block text-2xs font-medium text-text-dim">{t("screens-channels-tags")}</span>
+        <Labelled label={t("screens-channels-tags")}>
           <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />
-        </div>
+        </Labelled>
       </div>
     </Dialog>
   );
@@ -445,21 +444,34 @@ function ChannelIndex({ onNew }: { onNew: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-2">
+      {/* The screen's band (`ui/ScreenBar.tsx`): the words narrow the list; the count and *New channel* last. */}
+      <ScreenBar
+        end={
+          <>
+            <span className="tnum text-2xs text-text-dim">{t("screens-goals-words", { shown: shown.length, rows: entries.length })}</span>
+            {narrowed && (
+              <Button size="sm" variant="ghost" onClick={clear}>{t("screens-agents-clear-filters")}</Button>
+            )}
+            <Button size="sm" variant="primary" onClick={onNew}>
+              <ICON.add size={12} aria-hidden />{t("screens-channels-new-channel")}</Button>
+          </>
+        }
+      >
         <span className="relative">
           <ICON.search size={12} aria-hidden className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-text-dim" />
           <TextInput value={search} placeholder={t("screens-channels-search")} aria-label={t("screens-channels-search")} className="h-7 w-56 py-0 pl-7" onChange={(e) => setSearch(e.target.value)} />
         </span>
-        <span className="tnum text-2xs text-text-dim">{t("screens-goals-words", { shown: shown.length, rows: entries.length })}</span>
-        {narrowed && (
-          <Button size="sm" variant="ghost" onClick={clear}>{t("screens-agents-clear-filters")}</Button>
-        )}
-        <Button size="sm" variant="primary" className="ml-auto" onClick={onNew}>
-          <ICON.add size={12} aria-hidden />{t("screens-channels-new-channel")}</Button>
-        <TagFilterBar items={entries} tagsOf={(e) => e.channel.tags ?? []} value={filter} onChange={setFilter} className="basis-full" />
-      </div>
-      <div data-scroll-keep="list" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-        {entries.length === 0 ? (
+      </ScreenBar>
+      {/* An `@container`: a row's topic shows by the list's width, not the window's. */}
+      <div data-scroll-keep="list" className="@container min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        {/* The tags, at the head of the list as on every index screen. */}
+        <TagFilterBar items={entries} tagsOf={(e) => e.channel.tags ?? []} value={filter} onChange={setFilter} className="mb-4" />
+        {/* Unread is unknown, never empty: before the workspace answers, the shape of the list; a read that failed, the reason and a way to ask again — as on Goals. */}
+        {!ws.ready ? (
+          <SkeletonRows rows={4} />
+        ) : entries.length === 0 && listUnread(ws.degraded, ws.offline, "channels") ? (
+          <ErrorNote error={t("screens-channels-could-not-read")} retry={ws.refresh} />
+        ) : entries.length === 0 ? (
           <EmptyState
             icon={ICON.channel}
             title={t("screens-channels-no-channels-yet")}
@@ -481,12 +493,13 @@ function ChannelIndex({ onNew }: { onNew: () => void }) {
               const said = latestWords(latest, ws.nameOf);
               const roster = rosterAgents(channel);
               return (
-                <div key={channel.id} className="anim flex min-w-0 items-start gap-2 rounded-card px-3 py-2 hover:bg-surface-2">
+                <div key={channel.id} className="anim flex min-h-row-lg min-w-0 items-start gap-2 rounded-control px-3 py-1.5 hover:bg-surface-2">
                   <ICON.channel size={14} aria-hidden className="mt-0.5 shrink-0 text-text-dim" />
                   <a href={href({ name: "channel", id: channel.id })} className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex min-w-0 items-center gap-2">
-                      <span className={`truncate text-sm text-text ${unread > 0 ? "font-semibold" : "font-medium"}`}>{channel.name}</span>
-                      {channel.topic && <span className="hidden min-w-0 truncate text-2xs text-text-dim md:inline">{channel.topic}</span>}
+                      {/* The name holds its width (to half the row) and the topic takes what is left: a long topic never squeezes the name to its first letters. */}
+                      <span className={`max-w-[50%] shrink-0 truncate text-sm text-text ${unread > 0 ? "font-semibold" : "font-medium"}`}>{channel.name}</span>
+                      {channel.topic && <span className="hidden min-w-0 truncate text-2xs text-text-dim @lg:inline">{channel.topic}</span>}
                       {latest && <RelativeTime at={latest.at} className="tnum ml-auto shrink-0 text-2xs text-text-dim" />}
                     </span>
                     <span className="flex min-w-0 items-center gap-1 text-2xs text-text-dim">
@@ -505,7 +518,7 @@ function ChannelIndex({ onNew }: { onNew: () => void }) {
                   <span className="flex shrink-0 items-center gap-1.5">
                     <TagChips tags={channel.tags ?? []} max={3} />
                     {busy && <WorkingDot title={t("screens-channels-agent-writing-here")} />}
-                    <CountBadge count={unread} />
+                    <CountBadge count={unread} tone="neutral" />
                     <MoreMenu
                       vertical
                       label={t("screens-channels-menu", { channel: channel.name })}
@@ -643,7 +656,7 @@ export default function Channels({ id }: { id?: string }) {
                   <Popover
                     label={t("screens-channels-who-reaches", { channel: channel.name })}
                     trigger={
-                      <span className="anim inline-flex h-5 items-center gap-1 rounded-full border border-border px-2 text-2xs font-medium text-text-dim hover:border-accent/40 hover:text-text">
+                      <span className="anim inline-flex h-5 items-center gap-1 rounded-full border border-border px-2 text-2xs font-medium text-text-dim hover:border-text/35 hover:text-text">
                         <ICON.mention size={11} aria-hidden />
                         {channel.name}
                       </span>
@@ -657,7 +670,6 @@ export default function Channels({ id }: { id?: string }) {
             }
             actions={
               <>
-                <BrowserDoor home={id ? { scope: "channel", id } : null} />
                 {editable && (
                   <Button size="sm" onClick={() => setEditing(true)}>
                     <ICON.edit size={13} aria-hidden />{t("screens-channels-edit")}</Button>

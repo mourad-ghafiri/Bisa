@@ -297,11 +297,11 @@ export function PullRequestLifecycle({
     const words = readWords(data.readAt, run.busy, run.run?.agent ?? null, readTick / 1000);
     if (!words) return null;
     return (
-      <div className="flex items-center gap-1 text-3xs text-text-dim" role="status">
+      <div className="flex items-center gap-1 text-2xs text-text-dim" role="status">
         <span className="min-w-0 truncate">{words}</span>
         <Tooltip label={t("work-pull-request-lifecycle-read-code-host-checkout-now")}>
-          <button type="button" aria-label={t("work-commit-graph-refresh")} className="anim flex h-4 w-4 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text" onClick={data.reload}>
-            <ICON.refresh size={10} aria-hidden />
+          <button type="button" aria-label={t("work-commit-graph-refresh")} className="anim flex h-5 w-5 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text" onClick={data.reload}>
+            <ICON.refresh size={11} aria-hidden />
           </button>
         </Tooltip>
       </div>
@@ -325,6 +325,7 @@ export function PullRequestLifecycle({
         initialTitle={prTitleFrom(tipSubject, d.branch)}
         busy={busy === "pr"}
         onSubmit={(values) => void openPr(values)}
+        suggest={(signal) => api.suggestPr(wid, signal)}
       />
 
       {d.project && afterMerge && (

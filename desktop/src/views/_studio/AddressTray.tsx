@@ -190,7 +190,8 @@ export function AddressTray({
           className="w-80"
           side="top"
           trigger={
-            <span className="anim inline-flex h-6 items-center gap-1 rounded-full border border-dashed border-border px-2 text-2xs text-text-dim hover:border-accent/50 hover:text-accent-ink">
+            // Dashed because it is an "add here" door; its hover stays in the neutral ink.
+            <span className="anim inline-flex h-6 items-center gap-1 rounded-full border border-dashed border-border px-2 text-2xs text-text-dim hover:border-text-dim/60 hover:bg-surface-2 hover:text-text">
               <ICON.add size={11} aria-hidden />
               {chips.length ? t("studio-address-tray-agent") : t("studio-address-tray-address-agent-2")}
             </span>

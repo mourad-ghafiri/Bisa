@@ -160,10 +160,10 @@ export function SelectionAgentBar({
             <Button size="sm" variant="ghost" className="h-6" onClick={attach}>
               <ICON.attach size={12} aria-hidden />{t("workbench-context-tray-attach")}</Button>
           </Tooltip>
-          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+          <span className="mx-0.5 h-4 w-px bg-hairline" aria-hidden />
           {agentMenu}
           <Tooltip label={t("workbench-selection-agent-bar-dismiss")}>
-            <button type="button" aria-label={t("workbench-selection-agent-bar-dismiss")} onClick={onClose} className={cn("anim flex h-6 w-6 items-center justify-center rounded-control text-text-dim hover:text-text", FOCUS_RING)}>
+            <button type="button" aria-label={t("workbench-selection-agent-bar-dismiss")} onClick={onClose} className={cn("anim flex h-6 w-6 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text", FOCUS_RING)}>
               <ICON.close size={12} aria-hidden />
             </button>
           </Tooltip>

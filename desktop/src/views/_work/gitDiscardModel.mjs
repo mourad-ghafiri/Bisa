@@ -80,6 +80,74 @@ export function recoveryWords(kind) {
 }
 
 /**
+ * What a Safety row names the operation that wrote it by — one entry per
+ * `capture(…, "<op>", …)` in the vcs crate and the engine, which the test
+ * reads from the Rust source. An op the desktop has not met yet (a newer
+ * node) reads as its own id with spaces rather than as nothing.
+ * @param {string} op
+ */
+export function recoveryOpWords(op) {
+  switch (op) {
+    case "checkout":
+      return t("work-git-discard-op-checkout");
+    case "branch_delete":
+      return t("work-git-discard-op-branch-delete");
+    case "branch_rename":
+      return t("work-git-discard-op-branch-rename");
+    case "rebase":
+      return t("work-git-discard-op-rebase");
+    case "rebase_plan":
+      return t("work-git-discard-op-rebase-plan");
+    case "merge":
+      return t("work-git-discard-op-merge");
+    case "cherry_pick":
+      return t("work-git-discard-op-cherry-pick");
+    case "revert":
+      return t("work-git-discard-op-revert");
+    case "pull":
+      return t("work-git-discard-op-pull");
+    case "abort":
+      return t("work-git-discard-op-abort");
+    case "continue":
+      return t("work-git-discard-op-continue");
+    case "skip":
+      return t("work-git-discard-op-skip");
+    case "resolve":
+      return t("work-git-discard-op-resolve");
+    case "discard_hunk":
+      return t("work-git-discard-op-discard-hunk");
+    case "discard_paths":
+      return t("work-git-discard-op-discard-paths");
+    case "tag_create":
+      return t("work-git-discard-op-tag-create");
+    case "tag_delete":
+      return t("work-git-discard-op-tag-delete");
+    case "remote_remove":
+      return t("work-git-discard-op-remote-remove");
+    case "amend":
+      return t("work-git-discard-op-amend");
+    case "push_with_lease":
+      return t("work-git-discard-op-push-with-lease");
+    case "push_delete":
+      return t("work-git-discard-op-push-delete");
+    case "restore":
+      return t("work-git-discard-op-restore");
+    case "stash_push":
+      return t("work-git-discard-op-stash-push");
+    case "stash_apply":
+      return t("work-git-discard-op-stash-apply");
+    case "stash_pop":
+      return t("work-git-discard-op-stash-pop");
+    case "stash_drop":
+      return t("work-git-discard-op-stash-drop");
+    case "workstream_close":
+      return t("work-git-discard-op-workstream-close");
+    default:
+      return String(op).replaceAll("_", " ");
+  }
+}
+
+/**
  * The confirmation before *Restore*: what comes back depends on the kind.
  * @param {{ ref_name: string; kind: "commit" | "tree" | "stash"; branch?: string | null }} rec
  */

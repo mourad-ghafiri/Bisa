@@ -13,7 +13,8 @@ function lineTone(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---")) return "text-text-dim";
   if (line.startsWith("+")) return "text-ok";
   if (line.startsWith("-")) return "text-danger";
-  if (line.startsWith("@@")) return "text-accent-ink";
+  // The hunk header is the patch's own bookkeeping: quiet, never the accent.
+  if (line.startsWith("@@")) return "text-text-dim";
   return "";
 }
 

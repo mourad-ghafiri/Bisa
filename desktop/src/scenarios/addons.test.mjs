@@ -72,7 +72,9 @@ test("the window is a sandboxed frame with an opaque origin and a token-less sou
   const stat = src("../shell/AddonsStat.tsx");
   assert.ok(stat.includes("open && <AddonsOverlay"), "content mounted only while open");
   const layer = src("../addons/AddonLayer.tsx");
-  assert.ok(!layer.includes("useSurface"), "a window is never a surface: it yields to a browser layer by intersection instead");
+  assert.ok(!layer.includes("useSurface"), "a window is never a surface: the browser layer cuts around it where it can (macOS), and it yields by intersection elsewhere");
+  const addonWindow = src("../addons/AddonWindow.tsx");
+  assert.ok(addonWindow.includes("useBrowserClear(`addon:${addon.id}`, shell, visible)") && addonWindow.includes("hiddenByLayer(box, total, slots, cutsAround)") && addonWindow.includes("useBrowserCutsAround()"), "a window says its box to the browser layer, and hides by intersection only where the layer cannot cut");
   // One source for what shows: the store's `switchedOn` (the node's word,
   // re-read on the setting's frame), read by the layer, the read-out and the
   // popover through one rule; the sync mounted once.

@@ -54,3 +54,43 @@ export function languageLabel(status) {
   if (!status) return "";
   return status.language ?? tr("shell-status-bar-plain-text");
 }
+
+/**
+ * A count trigger's name, its number said — `3 open terminals`. The footer's
+ * popover takes this as the trigger's accessible name, which stands in for
+ * whatever the trigger draws, so the number must be in the words.
+ * @param {"terminals" | "harnesses" | "ports"} what
+ * @param {number} count
+ */
+export function countWords(what, count) {
+  const n = Number.isFinite(count) ? count : 0;
+  switch (what) {
+    case "terminals":
+      return tr("shell-status-bar-open-terminals", { count: n });
+    case "harnesses":
+      return tr("shell-status-bar-running-harnesses", { count: n });
+    case "ports":
+      return tr("shell-status-bar-open-ports", { count: n });
+    default:
+      return String(n);
+  }
+}
+
+/** The word a group of ports is headed by: the kind of thing that started them (`portsModel.groupPorts`). */
+const PORT_OWNER_WORD = Object.freeze({
+  goal: tr("shell-status-bar-port-owner-goal"),
+  project: tr("shell-status-bar-port-owner-project"),
+  workstream: tr("shell-status-bar-port-owner-workstream"),
+  work_item: tr("shell-status-bar-port-owner-work-item"),
+  shell: tr("shell-status-bar-port-owner-shell"),
+  harness: tr("shell-status-bar-port-owner-harness"),
+});
+
+/**
+ * A port group's kind in words; a kind this build does not know is said as
+ * the node spelled it, never dropped.
+ * @param {string | null | undefined} kind
+ */
+export function portOwnerWord(kind) {
+  return PORT_OWNER_WORD[kind] ?? String(kind ?? "").replaceAll("_", " ");
+}

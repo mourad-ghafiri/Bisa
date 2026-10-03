@@ -20,9 +20,9 @@
  *
  * `import` and `adopt` are not two ways a project arrives — they are one way,
  * asked about a folder, with two answers to *where the files then live*. So
- * Import is one segment with a placement under it: **copy it in**, the default,
- * and **link it in place**, which is `adopt` and still writes nothing into the
- * folder. Making them peers in the picker asked a person to already know the
+ * Import is one segment with a placement under it: **link it in place**, the
+ * default and the first choice — `adopt`, which writes nothing into the
+ * folder — then **copy it in**. Making them peers in the picker asked a person to already know the
  * word "adopt" in order to find the thing they wanted.
  *
  * `link` went the other way, out of the dialog entirely. It creates nothing,
@@ -67,13 +67,16 @@ import {
   Button,
   Dialog,
   Field,
+  GitMark,
   ICON,
   Labelled,
+  WorkingDot,
   SegmentedControl,
   Select,
   TAG_VOCABULARY,
   TagInput,
   TextInput,
+  failureText,
   useToast,
   type Segment,
 } from "../../ui";
@@ -85,6 +88,7 @@ import {
   gitConfigSection,
   hostChoiceWords,
   primaryLabel,
+  busyLabel,
   refusalPlace,
   publishCaveat,
   importSummary,
@@ -171,7 +175,7 @@ function Choice<T extends string>({
             onClick={() => onChange(o.id)}
             aria-pressed={value === o.id}
             className={`anim flex-1 rounded-control border p-2 text-left ${
-              value === o.id ? "border-accent/60 bg-accent-soft" : "border-border hover:bg-surface-2"
+              value === o.id ? "border-text/35 bg-selected text-text" : "border-border hover:bg-surface-2"
             }`}
           >
             <span className="block text-xs font-medium">{o.title}</span>
@@ -213,7 +217,8 @@ export function NewProjectDialog({
   const toast = useToast();
   const segments = segmentsFor(mode);
   const [provenance, setProvenance] = useState<Provenance>(segments[0].id);
-  const [placement, setPlacement] = useState<Placement>("copy");
+  // Link it in place first, and chosen: the folder stays where it is and nothing is written into it.
+  const [placement, setPlacement] = useState<Placement>("link");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [name, setName] = useState("");
@@ -249,7 +254,7 @@ export function NewProjectDialog({
     setShowingAll(false);
     gitForm.reset();
     setProvenance(segmentsFor(mode)[0].id);
-    setPlacement("copy");
+    setPlacement("link");
     setSlug("");
     setSlugTouched(false);
     setName("");
@@ -328,7 +333,7 @@ export function NewProjectDialog({
       setErrors((e) => ({ ...e, path: undefined }));
     } catch (e) {
       // The shell could not open its picker: said beside the folder, where a path can still be typed.
-      setErrors((was) => ({ ...was, path: e instanceof Error ? e.message : String(e) }));
+      setErrors((was) => ({ ...was, path: failureText("work", "new-project-dialog-failed", e) }));
     }
   };
 
@@ -355,7 +360,7 @@ export function NewProjectDialog({
       // The node's own sentence, beside the input it is about when the form shows it, else on the form.
       // Placed by the refusal's id — the same in every language — never by its words.
       const answer = e instanceof ApiError ? e : null;
-      setErrors(refusalPlace({ message: e instanceof Error ? e.message : String(e), refusal: answer?.refusal, status: answer?.status }, provenance));
+      setErrors(refusalPlace({ message: failureText("work", "new-project-dialog-failed", e), refusal: answer?.refusal, status: answer?.status }, provenance));
     } finally {
       setBusy(false);
     }
@@ -369,7 +374,10 @@ export function NewProjectDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      // A clone or a copy under way runs to its end whatever the dialog does, so it is not dismissed under it.
+      onClose={() => {
+        if (!busy) onClose();
+      }}
       title={mode === "import" ? t("work-new-project-dialog-import-project") : t("work-new-project-dialog-new-project")}
       description={
         mode === "import"
@@ -378,9 +386,20 @@ export function NewProjectDialog({
       }
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>{t("work-agent-editor-cancel")}</Button>
+          {/* Mounted while the dialog is, so the words are announced when they arrive. */}
+          <span role="status" className="mr-auto inline-flex items-center gap-1.5 self-center text-2xs text-text-dim">
+            {busy && (
+              <>
+                <span aria-hidden className="inline-flex">
+                  <WorkingDot title={busyLabel(provenance, placement)} />
+                </span>
+                {busyLabel(provenance, placement)}
+              </>
+            )}
+          </span>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>{t("work-agent-editor-cancel")}</Button>
           <Button variant="primary" disabled={!ready || busy} onClick={() => void submit()}>
-            {busy ? t("work-after-merge-dialog-working") : primaryLabel(provenance, placement)}
+            {busy ? busyLabel(provenance, placement) : primaryLabel(provenance, placement)}
           </Button>
         </>
       }
@@ -464,14 +483,14 @@ export function NewProjectDialog({
               onChange={setPlacement}
               options={[
                 {
-                  id: "copy",
-                  title: t("work-new-project-dialog-copy"),
-                  blurb: t("work-new-project-dialog-files-become-workspace-s-history-all"),
-                },
-                {
                   id: "link",
                   title: t("work-new-project-dialog-link-place"),
                   blurb: t("work-new-project-dialog-stays-where-bisa-never-writes-into"),
+                },
+                {
+                  id: "copy",
+                  title: t("work-new-project-dialog-copy"),
+                  blurb: t("work-new-project-dialog-files-become-workspace-s-history-all"),
                 },
               ]}
             />
@@ -608,7 +627,7 @@ function CodeHostLine({
   return (
     <div className="flex flex-col gap-1 rounded-control border border-border bg-surface-2 px-2 py-1.5 text-2xs">
       <div className="flex flex-wrap items-center gap-2">
-        <ICON.repository size={13} aria-hidden className="shrink-0 text-text-dim" />
+        <GitMark size={13} aria-hidden className="shrink-0 text-text-dim" />
         <span className={`min-w-0 flex-1 truncate ${tone}`} title={line.text}>
           {line.text}
         </span>

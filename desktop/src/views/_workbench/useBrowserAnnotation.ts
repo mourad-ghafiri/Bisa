@@ -11,7 +11,10 @@
  * decides and drives.
  *
  * Whether a page can be annotated is `serversModel.annotatable`'s one rule:
- * any page the tab shows, never an artifact's own. Where the chips go is
+ * any page the tab shows, never an artifact's own — and only in the
+ * Project IDE (`offered`): the Details pane beside any other screen shows a
+ * page and never annotates it, and a wand left on, or badges left drawn,
+ * are taken back from the page when the person leaves the IDE. Where the chips go is
  * `annotationHome`'s: the checkout's conversation for a tab at home in a
  * workstream, else the conversation on screen.
  */
@@ -28,6 +31,7 @@ import { useServing } from "../../shell/useServing";
 import type { ServedFolder } from "../../types";
 import { useInspectorTheme } from "../../ui/artifact/inspectorTokens";
 import { inspectMessage, marksMessage, themeMessage } from "../../ui/artifact/pageInspector.mjs";
+import { useRoute } from "../../router";
 import { useSessionDraft } from "../_work/gitPanelStore";
 import { useAsync } from "../_work/useAsync";
 import { EMPTY_DRAFT, addAnnotation, annotationsKey, marksOf } from "./annotationModel.mjs";
@@ -38,6 +42,8 @@ import { annotatable as canAnnotate, annotationHome, serverAt } from "./serversM
 import type { AnnotationHome } from "./serversModel.mjs";
 
 export interface BrowserAnnotation {
+  /** Annotating is offered here at all: the Project IDE alone. Elsewhere the host draws no wand and no tray. */
+  readonly offered: boolean;
   /** The page can be annotated; when not, `whyNot` says why in the wand's words. */
   readonly annotatable: boolean;
   readonly whyNot: string | null;
@@ -61,13 +67,15 @@ export function useBrowserAnnotation(session: BrowserSession): BrowserAnnotation
   const home = annotationHome(session);
   const wid = home.kind === "checkout" ? home.wid : null;
   const { inspecting, lost } = useTabInspector(key);
+  // Annotating a page for an agent is the Project IDE's, wherever else the tab is seen.
+  const offered = useRoute().name === "workbench";
 
   // Which page the elements are on, and whether it can be annotated at all,
   // once the servers are read — an artifact's page is an agent's own.
   const { all, read } = useServing(wid);
   const server = useMemo(() => serverAt(all, session.url), [all, session.url]);
-  const annotatable = read && canAnnotate(session, all);
-  const whyNot = annotatable ? null : HELD.artifact;
+  const annotatable = offered && read && canAnnotate(session, all);
+  const whyNot = annotatable || !offered ? null : HELD.artifact;
   const resolved = useAsync(
     (s) => {
       if (!wid || !server || server.owner.kind !== "workstream") return Promise.resolve(null);
@@ -107,10 +115,21 @@ export function useBrowserAnnotation(session: BrowserSession): BrowserAnnotation
     void driveBrowserView(key, marksMessage(marks)).catch((e: unknown) => log.debug("browser", "the page did not take the marks", { key, ...errorFields(e) }));
   }, [key, marks, annotatable, session.url, session.loading]);
 
+  // Off the IDE's screen, or on a page nobody may edit: a wand left on is
+  // turned off, in the app and in the page, and the page's badges go — they
+  // come back with the draft when the person is in the IDE again.
+  useEffect(() => {
+    if (annotatable || session.loading) return;
+    if (inspecting) setBrowserInspecting(key, false);
+    void driveBrowserView(key, inspectMessage("off")).catch((e: unknown) => log.debug("browser", "the page did not take the inspector message", { key, mode: "off", ...errorFields(e) }));
+    void driveBrowserView(key, marksMessage([])).catch((e: unknown) => log.debug("browser", "the page did not take the marks", { key, ...errorFields(e) }));
+  }, [key, annotatable, inspecting, session.url, session.loading]);
+
   // The notes typed in the page's own box, each with the element it is about.
   useEffect(() => listenBrowserNotes(key, (m) => setDraft((d) => addAnnotation(d, m, m.note))), [key, setDraft]);
 
   return {
+    offered,
     annotatable,
     whyNot,
     server,

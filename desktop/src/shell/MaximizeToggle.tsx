@@ -13,7 +13,7 @@ export function MaximizeToggle({ maximized, onToggle, size = 14 }: { maximized: 
   const Icon = maximized ? ICON.collapse : ICON.expand;
   return (
     <Tooltip label={label}>
-      <button type="button" aria-label={label} aria-pressed={maximized} onClick={onToggle} className="anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text">
+      <button type="button" aria-label={label} aria-pressed={maximized} onClick={onToggle} className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
         <Icon size={size} aria-hidden />
       </button>
     </Tooltip>

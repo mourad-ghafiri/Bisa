@@ -16,6 +16,7 @@
  */
 import { useEffect, useState } from "react";
 import { api } from "../../api";
+import { errorFields, log } from "../../log";
 import { href, navigate } from "../../router";
 import type { GoalRow, GoalView, InboxRow, ProjectRow } from "../../types";
 import { Avatar, Button, Chip, GOAL_STATUS_ICON, ICON, MoreMenu, RelativeTime, TagChips, Tooltip, WorkingDot, useToast, type MenuItem } from "../../ui";
@@ -61,7 +62,8 @@ export function GoalCard({
       .catch((e: unknown) => {
         // A card that left gave the read up itself: there is nobody to tell.
         if (ctl.signal.aborted) return;
-        toast.error(e instanceof Error ? e.message : String(e));
+        log.warn("goals", "a goal could not be read for its verb", { goal: row.id, ...errorFields(e) });
+        toast.error(t("goals-goal-card-could-not-read"));
         setVerb(null);
       });
     return () => ctl.abort();
@@ -90,6 +92,7 @@ export function GoalCard({
   const people = assigneeSummary(row.assignees, 3);
   const mode = modeOf(row);
   const designing = designingRow(row, designs(mode));
+  const ModeIcon = ICON[MODE_ICON[mode]];
 
   return (
     <div className="anim flex min-w-0 flex-col gap-1 rounded-card px-3 py-2 hover:bg-surface-2">
@@ -123,16 +126,20 @@ export function GoalCard({
             <Chip tone={listening.tone} icon={ICON.signal}>{listening.words}</Chip>
           </span>
         )}
+        {/* The mode is meta, not a state to act on: plain words with their
+            glyph, so the line keeps its chips for what matters. */}
         {designing ? (
           <Tooltip label={t("goals-goal-card-workflow-agent-designing-goal-s-workflow")}>
-            <span className="hidden md:inline">
-              <Chip tone="quiet" icon={ICON.coreAgent}>{t("goals-goal-card-designing")}</Chip>
+            <span className="hidden shrink-0 items-center gap-1 text-2xs text-text-dim md:inline-flex">
+              <ICON.coreAgent size={11} aria-hidden className="shrink-0" />
+              {t("goals-goal-card-designing")}
             </span>
           </Tooltip>
         ) : (
           <Tooltip label={MODE_MEANING[mode]}>
-            <span className="hidden md:inline">
-              <Chip tone="quiet" icon={ICON[MODE_ICON[mode]]}>{MODE_LABEL[mode]}</Chip>
+            <span className="hidden shrink-0 items-center gap-1 text-2xs text-text-dim md:inline-flex">
+              <ModeIcon size={11} aria-hidden className="shrink-0" />
+              {MODE_LABEL[mode]}
             </span>
           </Tooltip>
         )}
@@ -184,13 +191,15 @@ export function GoalCard({
         {owed > 0 && (
           <Tooltip label={t("goals-goal-card-thing-things-waits-wait", { owed })}>
             <span className="inline-flex">
-              <Chip tone="warn" icon={ICON.question}>{owed}</Chip>
+              <Chip tone="accent" icon={ICON.question}>{owed}</Chip>
             </span>
           </Tooltip>
         )}
+        {/* A card is a row of the list, never the screen's one primary: the
+            summons is already the holder badge and the count beside it. */}
         {row.holder === "you" && (
           <GoalActPopover goal={row.id} open={acting} onClose={() => setActing(false)} onChanged={onChanged}>
-            <Button size="sm" variant="primary" onClick={() => setActing(true)} aria-label={t("goals-goal-card-act-2", { label })}>{t("goals-goal-card-act")}</Button>
+            <Button size="sm" variant="default" onClick={() => setActing(true)} aria-label={t("goals-goal-card-act-2", { label })}>{t("goals-goal-card-act")}</Button>
           </GoalActPopover>
         )}
         <MoreMenu vertical label={t("goals-goal-card-menu", { label })} items={menu} />

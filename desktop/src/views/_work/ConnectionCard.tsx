@@ -64,7 +64,7 @@ export function ConnectionCard({ wid, draft }: { wid: string; draft: ProjectSett
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-2xs">
         <Row label={t("work-connection-card-remote")} tone="ok">
           <span className="font-mono">{remote.summary}</span>
-          <Chip tone={remote.transport === "ssh" ? "accent" : remote.transport === "https" ? "neutral" : "quiet"}>{remote.protocol}</Chip>
+          <Chip tone={remote.transport === "ssh" || remote.transport === "https" ? "neutral" : "quiet"}>{remote.protocol}</Chip>
           {c.code_host && <Chip tone="quiet">{hostLabel(c.code_host)}</Chip>}
           <CopyText value={remote.url} label={t("work-connection-card-copy-url")} />
           {remote.note && <span className="text-text-dim">{remote.note}</span>}
@@ -96,7 +96,7 @@ export function ConnectionCard({ wid, draft }: { wid: string; draft: ProjectSett
                 ))}
               </Select>
             )}
-            {draft.draft.account !== undefined && draft.draft.account !== draft.current?.account && <Chip tone="accent">{t("work-connection-card-changed")}</Chip>}
+            {draft.draft.account !== undefined && draft.draft.account !== draft.current?.account && <Chip tone="neutral">{t("work-connection-card-changed")}</Chip>}
             <SettingsLink tab={settingsTabFor(c.code_host) ?? "github"}>{hostLabel(c.code_host)}</SettingsLink>
           </Row>
         )}

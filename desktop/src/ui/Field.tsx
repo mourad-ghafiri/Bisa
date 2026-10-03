@@ -16,7 +16,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
-import { useEffect, useId, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useState } from "react";
 import { copyText } from "./clipboard";
 import { cn } from "./cn";
 import { ICON } from "./icons";
@@ -24,25 +24,69 @@ import { parseBounded } from "./numberInputModel.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
 const CONTROL =
-  "anim w-full rounded-control border border-border bg-surface px-2 py-1.5 text-xs text-text placeholder:text-text-dim focus:border-accent focus:outline-none";
+  "anim w-full rounded-control border border-border bg-surface px-2.5 py-1.5 text-xs text-text placeholder:text-text-dim hover:border-text-dim/40 focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
+/**
+ * A labelled control. The hint and the error sit *beside* the `<label>`, not
+ * inside it: words inside a label become the control's name, and a screen
+ * reader would read a whole hint as what the field is called. They reach the
+ * control as its description instead — `aria-describedby` on the one element
+ * a Field wraps — and an error marks it `aria-invalid`.
+ *
+ * `error` is for a value the field refused or put back: a reason in the
+ * danger ink, said where the value was typed, never only in a tooltip.
+ *
+ * `action` is a control that works on the field itself — a *Suggest* that
+ * drafts its value — drawn at the end of the label's line and kept outside
+ * the `<label>`, so it is never part of the field's name and never a button
+ * inside a label.
+ */
 export function Field({
   label,
   hint,
+  error,
+  action,
   children,
   htmlFor,
 }: {
   label: string;
   hint?: ReactNode;
+  /** Why the value was refused or reverted — shown in danger ink and announced. */
+  error?: ReactNode;
+  /** A small control on the label's line — keep it `h-6` so the line does not grow. */
+  action?: ReactNode;
   children: ReactNode;
   htmlFor?: string;
 }) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  const described = [errorId, hintId].filter(Boolean).join(" ");
+  const control =
+    described && isValidElement<{ "aria-describedby"?: string; "aria-invalid"?: boolean }>(children)
+      ? cloneElement(children, {
+          "aria-describedby": [children.props["aria-describedby"], described].filter(Boolean).join(" "),
+          ...(error ? { "aria-invalid": true } : {}),
+        })
+      : children;
   return (
-    <label className="block" htmlFor={htmlFor}>
-      <span className="mb-1 block text-2xs font-medium text-text-dim">{label}</span>
-      {children}
-      {hint && <span className="mt-1 block text-2xs text-text-dim">{hint}</span>}
-    </label>
+    <div className={action ? "relative block" : "block"}>
+      <label className="block" htmlFor={htmlFor}>
+        <span className={cn("mb-1 block text-2xs font-medium text-text-dim", action && "pr-28")}>{label}</span>
+        {control}
+      </label>
+      {action && <div className="absolute -top-1 right-0 flex items-center">{action}</div>}
+      {error && (
+        <span id={errorId} role="alert" className="mt-1 block text-2xs text-danger">
+          {error}
+        </span>
+      )}
+      {hint && (
+        <span id={hintId} className="mt-1 block text-2xs text-text-dim">
+          {hint}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -85,6 +129,8 @@ export function NumberInput({
   className,
   disabled,
   "aria-label": ariaLabel,
+  "aria-describedby": describedBy,
+  "aria-invalid": invalid,
 }: {
   value: number;
   onCommit: (next: number) => void;
@@ -93,6 +139,9 @@ export function NumberInput({
   className?: string;
   disabled?: boolean;
   "aria-label"?: string;
+  /** A `Field`'s hint and error reach the input through these. */
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -108,6 +157,8 @@ export function NumberInput({
       value={draft}
       disabled={disabled}
       aria-label={ariaLabel}
+      aria-describedby={describedBy}
+      aria-invalid={invalid}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -163,12 +214,14 @@ export function Checkbox({
   disabled?: boolean;
 }) {
   const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
   return (
     <div className="flex items-start gap-2">
       <C.Root
         id={id}
         checked={checked}
         disabled={disabled}
+        aria-describedby={hintId}
         // Radix reports "indeterminate" for a tri-state box. This one is
         // binary, so anything that is not true is false rather than a third
         // value leaking out into the caller's boolean.
@@ -183,10 +236,14 @@ export function Checkbox({
           <ICON.check size={11} strokeWidth={3} />
         </C.Indicator>
       </C.Root>
-      <label htmlFor={id} className="text-xs">
-        {label}
-        {hint && <span className="mt-0.5 block text-2xs text-text-dim">{hint}</span>}
-      </label>
+      <div className="text-xs">
+        <label htmlFor={id}>{label}</label>
+        {hint && (
+          <span id={hintId} className="mt-0.5 block text-2xs text-text-dim">
+            {hint}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -218,7 +275,7 @@ export function CopyText({ value, label, onCopied }: { value: string; label?: st
         });
       }}
       className={cn(
-        "anim inline-flex max-w-full items-center gap-1.5 rounded-control border bg-surface-2 px-2 py-1 text-left font-mono text-2xs hover:border-accent/40",
+        "anim inline-flex max-w-full items-center gap-1.5 rounded-control border bg-surface-2 px-2 py-1 text-left font-mono text-2xs hover:border-text-dim/40",
         said === "refused" ? "border-danger/50 text-danger" : said === "copied" ? "border-ok/50 text-ok" : "border-border",
       )}
       aria-live="polite"

@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
-import { LinkedText, Spinner, cn } from "../../ui";
+import { LinkedText, Spinner, failureText, cn } from "../../ui";
 import { isHidden, onVisibilityChange } from "../../shell/visibility";
 import { t as tr } from "../../i18n/l10n.mjs";
 
@@ -42,7 +42,7 @@ export function SessionTranscript({ session, live, className }: { session: strin
         }
         setErr(null);
       } catch (e) {
-        if (!stop && !ac.signal.aborted) setErr(e instanceof Error ? e.message : String(e));
+        if (!stop && !ac.signal.aborted) setErr(failureText("work", "session-transcript-failed", e));
       }
     };
     void pull();
@@ -69,7 +69,7 @@ export function SessionTranscript({ session, live, className }: { session: strin
   if (err) return <p className="text-2xs text-text-dim">{tr("work-session-transcript-no-transcript-available")}</p>;
   if (!text) return <Spinner label={tr("work-session-transcript-reading-transcript")} />;
   return (
-    <pre ref={box} className={cn("overflow-auto rounded-control border border-border bg-surface-2 p-2 font-mono text-2xs whitespace-pre-wrap", className ?? "max-h-72")}>
+    <pre ref={box} className={cn("overflow-auto rounded-control bg-surface-2 p-2 font-mono text-2xs whitespace-pre-wrap", className ?? "max-h-72")}>
       <LinkedText text={text} />
     </pre>
   );

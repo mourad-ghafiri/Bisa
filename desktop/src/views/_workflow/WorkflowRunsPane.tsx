@@ -17,9 +17,10 @@ import { api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import { href, navigate } from "../../router";
 import type { WorkflowRow } from "../../types";
-import { Button, Chip, ErrorNote, ICON, RUN_STATUS_ICON, RelativeTime, SkeletonRows } from "../../ui";
+import { Button, Chip, EmptyState, ErrorNote, ICON, RUN_STATUS_ICON, RelativeTime, SkeletonRows } from "../../ui";
 import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
 import { useAsync } from "../_work/useAsync";
+import { StopRunDialog } from "./StopRunDialog";
 import { useRunVerbs } from "./useRunVerbs";
 import { useWorkflowVerbs } from "./WorkflowCard";
 import { RUNS_SHOWN, movesRunsOf, paneWindow, readStanding, runsPaneRows } from "./workflowRunsModel.mjs";
@@ -40,6 +41,8 @@ export function WorkflowRunsPane({ row, onChanged }: { row: WorkflowRow; onChang
   const { verbs, items, dialogs } = useWorkflowVerbs(row, moved);
   // Stop and Restart, one at a time on a run.
   const runVerbs = useRunVerbs(moved);
+  // The run whose *Stop* is asking first.
+  const [stopping, setStopping] = useState<string | null>(null);
   const runItem = items.find((item) => item.verb === "run");
   // How many rows the person asked to see: the first page until *Show older*.
   const [shown, setShown] = useState(RUNS_SHOWN);
@@ -50,9 +53,9 @@ export function WorkflowRunsPane({ row, onChanged }: { row: WorkflowRow; onChang
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-hairline px-4 py-2">
         <ICON.run size={13} aria-hidden className="text-text-dim" />
-        <h3 className="text-2xs font-semibold tracking-wide text-text-dim uppercase">{t("workflow-designer-panel-runs")}</h3>
+        <h3 className="text-sm font-semibold text-text">{t("workflow-designer-panel-runs")}</h3>
         <span className="tnum text-2xs text-text-dim">{row.runs.total}</span>
         {runItem && (
           <Button size="sm" variant="primary" className="ml-auto" onClick={runItem.onSelect}>
@@ -62,31 +65,44 @@ export function WorkflowRunsPane({ row, onChanged }: { row: WorkflowRow; onChang
         )}
       </div>
       {(row.workspace_problems ?? []).length > 0 && (
-        <p className="border-b border-border px-3 py-2 text-2xs text-text-dim">{t("workflow-runs-pane-runs-on-goal-only")}</p>
+        <p className="border-b border-hairline px-4 py-2 text-2xs leading-relaxed text-text-dim">{t("workflow-runs-pane-runs-on-goal-only")}</p>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {read.standing === "stale" && (
-          <p role="status" className="border-b border-border px-3 py-1 text-2xs text-danger">
+          <p role="status" className="border-b border-hairline px-4 py-1 text-2xs text-danger">
             {read.line}
           </p>
         )}
         {read.standing === "failed" ? (
-          <div className="p-3">
+          <div className="px-4 py-3">
             <ErrorNote error={read.line ?? ""} retry={reload} />
           </div>
         ) : read.standing === "reading" ? (
-          <SkeletonRows rows={4} className="p-3" />
+          <SkeletonRows rows={4} className="px-4 py-3" />
         ) : rows.length === 0 ? (
-          <p className="p-3 text-2xs text-text-dim">{t("workflow-runs-pane-no-runs-yet")}</p>
+          // The pane's header holds the one primary; the door here is its quieter twin.
+          <EmptyState
+            icon={ICON.run}
+            title={t("workflow-runs-pane-no-runs-title")}
+            hint={runItem ? t("workflow-runs-pane-no-runs-yet") : undefined}
+            action={
+              runItem ? (
+                <Button size="sm" onClick={runItem.onSelect}>
+                  <ICON.run size={12} aria-hidden />
+                  {verbs.run?.label}
+                </Button>
+              ) : null
+            }
+          />
         ) : (
           <ul className="flex flex-col">
             {rows.map((r) => {
               const Icon = RUN_STATUS_ICON[r.status] ?? ICON.run;
               return (
-                <li key={r.id} className="flex flex-col gap-1 border-b border-border px-3 py-2 text-2xs">
+                <li key={r.id} className="flex flex-col gap-1 border-b border-hairline px-4 py-2.5 text-2xs">
                   <div className="flex items-center gap-2">
                     <Icon size={12} aria-hidden style={{ color: `var(--color-${r.words.tone === "quiet" ? "text-dim" : r.words.tone})` }} />
-                    <a href={href({ name: "run", id: r.id })} className="min-w-0 truncate font-medium hover:underline">
+                    <a href={href({ name: "run", id: r.id })} className="min-w-0 truncate text-xs font-medium hover:underline">
                       {r.title}
                     </a>
                     <Chip tone={r.words.tone}>{r.words.word}</Chip>
@@ -99,7 +115,7 @@ export function WorkflowRunsPane({ row, onChanged }: { row: WorkflowRow; onChang
                     )}
                     <span>{r.startedBy}</span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="-ml-2 flex items-center gap-1">
                     <Button size="sm" variant="ghost" onClick={() => navigate({ name: "run", id: r.id })}>
                       <ICON.forward size={12} aria-hidden />
                       {t("workflow-runs-pane-open")}
@@ -111,7 +127,7 @@ export function WorkflowRunsPane({ row, onChanged }: { row: WorkflowRow; onChang
                       </Button>
                     )}
                     {r.verbs.stop && (
-                      <Button size="sm" variant="ghost" disabled={runVerbs.busy(r.id)} onClick={() => runVerbs.stop(r.id)}>
+                      <Button size="sm" variant="ghost" disabled={runVerbs.busy(r.id)} onClick={() => setStopping(r.id)}>
                         <ICON.stop size={12} aria-hidden />
                         {t("workflow-runs-pane-stop")}
                       </Button>
@@ -123,7 +139,7 @@ export function WorkflowRunsPane({ row, onChanged }: { row: WorkflowRow; onChang
           </ul>
         )}
         {hidden > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2 text-2xs text-text-dim">
+          <div className="flex items-center gap-2 px-4 py-2 text-2xs text-text-dim">
             <span>{t("workflow-runs-pane-older-hidden", { n: hidden })}</span>
             <Button size="sm" variant="ghost" onClick={() => setShown((n) => n + RUNS_SHOWN)}>
               {t("workflow-runs-pane-show-older", { n: more })}
@@ -132,6 +148,7 @@ export function WorkflowRunsPane({ row, onChanged }: { row: WorkflowRow; onChang
         )}
       </div>
       {dialogs}
+      <StopRunDialog run={stopping} onClose={() => setStopping(null)} onStop={runVerbs.stop} />
     </div>
   );
 }

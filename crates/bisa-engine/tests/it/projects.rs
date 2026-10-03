@@ -909,6 +909,63 @@ async fn committing_a_clean_workstream_is_refused_by_name() {
     engine.shutdown().await;
 }
 
+/// A pull request's draft is asked from what the branch carries beyond its
+/// base — its commits and its diff — and a branch with nothing beyond it is
+/// refused as opening the pull request would be, before anyone is asked. The
+/// core agent answers on the mock, which echoes the prompt it was given.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pull_request_draft_is_asked_from_the_branchs_commits_and_diff() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let mut general = engine
+        .workspace()
+        .get_agent(&bisa_core::AgentId::general())
+        .unwrap();
+    general.harness = MockAdapter::default().id;
+    engine.workspace().update_agent(general).unwrap();
+    let (goal, project, _root, _origin) = git_project(&engine, "cart", PublishPolicy::Gated).await;
+    let spec = item(goal, Some(&project), "Add the cart total");
+    let w = projects::open_workstream(engine.inner(), &spec, &project)
+        .await
+        .unwrap()
+        .workstream;
+
+    let err = projects::suggest_pull_request(engine.inner(), w.id)
+        .await
+        .refused("a branch with nothing beyond its base has nothing to describe");
+    assert!(
+        matches!(err, EngineError::NothingToPublish { .. }),
+        "got {err}"
+    );
+
+    let path = engine.workspace().workstream_checkout(&w).unwrap();
+    std::fs::write(path.join("cart.txt"), "total\n").unwrap();
+    projects::commit_workstream(engine.inner(), w.id, "Add the cart total")
+        .await
+        .unwrap();
+    let draft = projects::suggest_pull_request(engine.inner(), w.id)
+        .await
+        .expect("a draft");
+    let said = format!("{}\n{}", draft.title, draft.body);
+    assert!(!draft.title.is_empty(), "the first line is the title");
+    assert!(
+        said.contains("- Add the cart total"),
+        "the branch's commits: {said}"
+    );
+    assert!(said.contains("+total"), "its diff against the base: {said}");
+    assert!(
+        !said.contains("- baseline"),
+        "the base's own history is not the branch's: {said}"
+    );
+    // It suggests: nothing was pushed, nothing opened, the record did not move.
+    assert_eq!(
+        engine.workspace().get_workstream(w.id).unwrap().state,
+        WorkstreamState::Committed
+    );
+
+    engine.shutdown().await;
+}
+
 // ---------------------------------------------------------------------------
 // The Publish gate
 // ---------------------------------------------------------------------------

@@ -18,15 +18,18 @@
 
 import { STEP_KIND_ICON, Tooltip, cn } from "../../ui";
 import { FAMILIES, FAMILY_LABEL, STEP_KINDS, STEP_MIME, type KindDef, type StepKindName } from "./stepKinds.mjs";
+import { familyInk } from "./familyInk";
 import { t } from "../../i18n/l10n.mjs";
 
-function PaletteItem({ k, onAdd, disabled }: { k: KindDef; onAdd: (kind: StepKindName) => void; disabled?: boolean }) {
+function PaletteItem({ k, onAdd, disabled, compact }: { k: KindDef; onAdd: (kind: StepKindName) => void; disabled?: boolean; compact?: boolean }) {
   const Icon = STEP_KIND_ICON[k.kind];
   return (
     <li>
-      <Tooltip label={t("workflow-palette-drag-onto-canvas-press-enter-add", { explain: k.explain })} side="right">
+      {/* Folded to its glyph, the item's name moves into its tooltip and its accessible name. */}
+      <Tooltip label={compact ? t("workflow-palette-named-drag-onto-canvas", { label: k.label, explain: k.explain }) : t("workflow-palette-drag-onto-canvas-press-enter-add", { explain: k.explain })} side="right">
         <div
           role="button"
+          aria-label={compact ? k.label : undefined}
           tabIndex={disabled ? -1 : 0}
           aria-disabled={disabled || undefined}
           draggable={!disabled}
@@ -48,12 +51,13 @@ function PaletteItem({ k, onAdd, disabled }: { k: KindDef; onAdd: (kind: StepKin
             }
           }}
           className={cn(
-            "anim flex h-row w-full select-none items-center gap-2 rounded-control px-2 text-left text-xs outline-none focus-visible:ring-1 focus-visible:ring-accent",
+            "anim flex h-row w-full select-none items-center gap-2 rounded-control text-left text-xs outline-none focus-visible:ring-1 focus-visible:ring-accent",
+            compact ? "justify-center" : "px-2",
             disabled ? "cursor-not-allowed opacity-50" : "cursor-grab hover:bg-surface-2 active:cursor-grabbing",
           )}
         >
-          <Icon size={14} aria-hidden className="shrink-0 text-text-dim" />
-          {k.label}
+          <Icon size={14} aria-hidden className={`shrink-0 ${familyInk(k.kind)}`} />
+          {!compact && k.label}
         </div>
       </Tooltip>
     </li>
@@ -63,22 +67,25 @@ function PaletteItem({ k, onAdd, disabled }: { k: KindDef; onAdd: (kind: StepKin
 export function Palette({
   onAdd,
   disabled,
+  compact = false,
   className,
 }: {
   onAdd: (kind: StepKindName) => void;
   disabled?: boolean;
+  /** A narrow window's palette: glyphs only, each group parted by a hairline, its heading kept for a screen reader. */
+  compact?: boolean;
   className?: string;
 }) {
   return (
-    <div aria-label={t("workflow-palette-step-kinds")} className={cn("flex flex-col gap-2", className)}>
-      {FAMILIES.map((family) => (
-        <section key={family} aria-labelledby={`palette-${family}`}>
-          <h4 id={`palette-${family}`} className="px-2 pb-0.5 text-3xs font-semibold tracking-wide text-text-dim uppercase">
+    <div aria-label={t("workflow-palette-step-kinds")} className={cn("flex flex-col", compact ? "gap-2" : "gap-5", className)}>
+      {FAMILIES.map((family, i) => (
+        <section key={family} aria-labelledby={`palette-${family}`} className={cn(compact && i > 0 && "border-t border-hairline pt-2")}>
+          <h4 id={`palette-${family}`} className={compact ? "sr-only" : "px-2 pb-1 text-2xs font-semibold text-text-dim"}>
             {FAMILY_LABEL[family]}
           </h4>
           <ul className="flex flex-col gap-0.5">
             {STEP_KINDS.filter((k) => k.family === family).map((k) => (
-              <PaletteItem key={k.kind} k={k} onAdd={onAdd} disabled={disabled} />
+              <PaletteItem key={k.kind} k={k} onAdd={onAdd} disabled={disabled} compact={compact} />
             ))}
           </ul>
         </section>

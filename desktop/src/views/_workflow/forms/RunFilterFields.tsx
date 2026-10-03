@@ -18,7 +18,7 @@ export interface RunFilter {
 export function RunFilterFields<F extends RunFilter>({ value, onChange, disabled }: { value: F; onChange: (next: F) => void; disabled?: boolean }) {
   const set = (patch: Partial<RunFilter>) => onChange({ ...value, ...patch });
   return (
-    <div className="grid gap-3 md:grid-cols-2">
+    <div className="grid gap-3 @xs:grid-cols-2">
       <Field label={t("workflow-spawn-step-form-workflow")} hint={t("workflow-run-filter-fields-workflow-hint")}>
         <WorkflowPicker value={value.workflow ?? null} disabled={disabled} allowNone noneLabel={t("workflow-run-filter-fields-any-workflow")} onChange={(id) => set({ workflow: id })} />
       </Field>

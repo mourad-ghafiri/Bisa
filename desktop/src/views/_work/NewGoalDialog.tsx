@@ -25,30 +25,19 @@ import { navigate } from "../../router";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import { choiceOf } from "../../shell/settingsModel.mjs";
 import type { GoalMode } from "../../types";
-import { Button, Dialog, ICON, Labelled, PendingFiles, SegmentedControl, TAG_VOCABULARY, TagInput, TextArea, usePastedImages, useToast, useUploads, type Segment } from "../../ui";
+import { Button, Dialog, ICON, Labelled, PendingFiles, SegmentedControl, TAG_VOCABULARY, TagInput, TextArea, failureText, usePastedImages, useToast, useUploads, type Segment } from "../../ui";
 import { DEFAULT_MODE, DEFAULT_MODE_KEY, GOAL_MODES, MODE_MEANING, afterCapture, captureHint, modeSegments } from "../_goal/goalMode.mjs";
 import { showHookSecrets } from "../_workflow/hookSecretsStore";
-import { AssigneeTags } from "./AssigneePicker";
-import { attachRefusedWords, canSubmit, captureAssignees, captureLabel, captureToast, documentsHint, goalBody } from "./newGoalModel.mjs";
+import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody } from "./newGoalModel.mjs";
 import { attempt } from "./useAsync";
 import { t } from "../../i18n/l10n.mjs";
 
 const MODES: readonly Segment<GoalMode>[] = modeSegments().map((s) => ({ id: s.id, label: s.label, icon: ICON[s.icon] }));
 
 /**
- * A team chosen elsewhere ("New goal for this team") that this dialog
- * should open with. Set immediately before firing the create-request; the
- * dialog consumes it once so a later plain "New goal" is not pre-assigned.
- * It is shown, never edited: the dialog offers no picker.
- */
-let pendingTeam: string | null = null;
-export function setPendingTeam(id: string | null): void {
-  pendingTeam = id;
-}
-
-/**
  * Projects chosen elsewhere ("New goal from these projects" on the rail) that
- * the goal should be attached to once it exists. Consumed once, like the team.
+ * the goal should be attached to once it exists. Consumed once, so a later
+ * plain "New goal" carries none.
  */
 let pendingProjects: string[] = [];
 export function setPendingProjects(ids: string[]): void {
@@ -62,7 +51,6 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
   const [statement, setStatement] = useState("");
   const [mode, setMode] = useState<GoalMode>(defaultMode);
   const [touched, setTouched] = useState(false);
-  const [team, setTeam] = useState<string | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [projects, setProjects] = useState<string[]>([]);
@@ -76,13 +64,9 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
     if (!touched) setMode(defaultMode);
   }, [defaultMode, touched]);
 
-  // Consume a team or projects handed over from elsewhere, once.
+  // Consume projects handed over from elsewhere, once.
   useEffect(() => {
     if (!open) return;
-    if (pendingTeam) {
-      setTeam(pendingTeam);
-      pendingTeam = null;
-    }
     if (pendingProjects.length > 0) {
       setProjects(pendingProjects);
       pendingProjects = [];
@@ -94,7 +78,6 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
     setStatement("");
     setMode(defaultMode);
     setTouched(false);
-    setTeam(null);
     setTags([]);
     uploads.clear();
   };
@@ -106,7 +89,8 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
     const body = goalBody({
       statement,
       mode,
-      assignees: captureAssignees(team),
+      // The dialog hands a capture to nobody: who works on it is the goal's own business afterwards.
+      assignees: [],
       tags,
       documents: uploads.uploaded,
     });
@@ -127,7 +111,7 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
           await api.attachProject(pid, goal);
         } catch (e) {
           log.warn("goal", "a project handed over with a capture could not be attached", { goal, project: pid, ...errorFields(e) });
-          refused.push({ project: pid, reason: e instanceof Error ? e.message : String(e) });
+          refused.push({ project: pid, reason: failureText("work", "new-goal-dialog-failed", e) });
         }
       }
       const words = attachRefusedWords(refused);
@@ -192,11 +176,6 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
             label={t("work-new-goal-dialog-how-moves")}
           />
         </Labelled>
-        {team && (
-          <Labelled label={t("work-new-goal-dialog-carried")} hint={t("work-new-goal-dialog-team-goal-opened-agents-take-steps")}>
-            <AssigneeTags value={captureAssignees(team)} />
-          </Labelled>
-        )}
         <Labelled label={t("work-agent-editor-tags")} hint={t("work-new-goal-dialog-how-files-optional")}>
           <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />
         </Labelled>

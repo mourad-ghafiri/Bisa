@@ -490,6 +490,18 @@ test("a message and an engine fact stored in the feed render as themselves", () 
   assert.equal(fact.key, "p:7");
   const unknown = pulseLine(stored({ type: "invented_later" }, { concept: "node" }));
   assert.equal(unknown.text, "invented later", "a fact this build never heard of says its own name");
+  // A note or a drawing changed has no live line, but the Workspace tab lists it: what changed and what it is about, never `note changed`.
+  assert.equal(pulseLine(stored({ type: "note_changed", note: "N1", scope: "workspace" }, { concept: "workspace" })).text, "a workspace note changed");
+  assert.equal(pulseLine(stored({ type: "drawing_changed", drawing: "D1", scope: "goal", hash: "h" }, { concept: "workspace" })).text, "a drawing about a goal changed");
+  assert.equal(pulseLine(stored({ type: "note_changed", note: "N2", scope: "node" }, { concept: "workspace" })).text, "a note about this node changed");
+  assert.equal(pulseLine(stored({ type: "drawing_changed", drawing: "D2", scope: "workspace", hash: "h" }, { concept: "workspace" })).icon, "icon:draw");
+  // Under its subject's heading, a row does not say the subject again by its id; with no heading, the live words, id and all.
+  assert.equal(pulseLine(stored({ type: "goal_created", goal: "G00001", origin: { origin: "captured" } }, { title: "Ship the report" })).text, "goal captured");
+  assert.equal(pulseLine(stored({ type: "goal_created", goal: "G00001", origin: { origin: "run", run: RUN } }, { title: "Ship the report" })).text, "goal spawned by run 00RUN1");
+  assert.equal(pulseLine(stored({ type: "agent_replied", scope: "I1", agent: "general-agent", posted: true }, { title: "General Agent" })).text, "replied");
+  assert.equal(pulseLine(stored({ type: "agent_replied", scope: "I1", agent: "general-agent", posted: false }, { title: "General Agent" })).text, "acted without replying");
+  assert.equal(pulseLine(stored({ type: "agent_replied", scope: "I1", agent: "general-agent", posted: true }, { title: undefined })).text, "general-agent replied");
+  assert.equal(pulseLine(stored({ type: "goal_created", goal: "G00001" }, { title: null })).text, "goal G00001 captured");
 });
 
 // ---------------------------------------------------------------------------
@@ -780,7 +792,7 @@ test("what a person approved and did not go out says the act and the first line 
   const line = engineLine({ payload: ENGINE.workstream_publish_failed }, 1);
   assert.equal(line.text, "could not push fix/total — no usable remote: the remote hung up");
   assert.equal(line.tone, "danger");
-  assert.equal(line.icon, "icon:workstream");
+  assert.equal(line.icon, "mark:git", "a push that did not go out is git's, and wears the Git mark");
 });
 
 test("a failure is a failure and a wait is a wait", () => {

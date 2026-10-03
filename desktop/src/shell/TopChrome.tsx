@@ -24,6 +24,7 @@ import type { SidebarMode } from "./sidebarModel.mjs";
 import { useMemo, type ReactNode } from "react";
 import { back, forward, href, section, useRoute } from "../router";
 import { Chip, ICON, PageHeader, Tooltip, WorkingDot } from "../ui";
+import { settingsSearch } from "../views/_settings/settingsLink.mjs";
 import { CommandHint } from "./CommandHint";
 import { whereYouAre } from "./nav";
 import { ProfileMenu } from "./ProfileMenu";
@@ -48,11 +49,57 @@ function ChromeButton({
         type="button"
         onClick={onClick}
         aria-label={label}
-        className="anim flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
+        className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text active:bg-selected"
       >
         {children}
       </button>
     </Tooltip>
+  );
+}
+
+/** A chip that is also the door to where its condition is seen to — the node's own panel in Settings. */
+function NodeDoor({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <a href={href({ name: "settings" }, settingsSearch("node"))} title={title} className="anim inline-flex rounded-full hover:opacity-90">
+      {children}
+    </a>
+  );
+}
+
+/**
+ * The node's standing, when it is not simply *up*: unreachable, some lists
+ * unread, or the engine paused — ranked, not stacked, because each one makes
+ * the next irrelevant. Each is a door to Settings › Node. A status region
+ * that is always there, so a screen reader hears the node go and come back,
+ * once each.
+ */
+function NodeStatus() {
+  const ws = useWorkspace();
+  const degraded = degradedWords(ws.degraded, !!ws.offline);
+  let chip: ReactNode = null;
+  if (ws.offline) {
+    chip = (
+      <NodeDoor title={ws.offline}>
+        <Chip tone="danger" icon={ICON.warn}>{t("shell-top-chrome-node-unreachable")}</Chip>
+      </NodeDoor>
+    );
+  } else if (degraded) {
+    chip = (
+      <Chip tone="warn" icon={ICON.warn} title={degraded.title}>
+        {degraded.label}
+      </Chip>
+    );
+  } else if (ws.paused) {
+    chip = (
+      <NodeDoor title={t("shell-top-chrome-engine-paused-nothing-will-start")}>
+        <Chip tone="warn" icon={ICON.waiting}>{t("shell-top-chrome-paused")}</Chip>
+      </NodeDoor>
+    );
+  }
+  return (
+    <span role="status" className="inline-flex items-center">
+      {chip}
+    </span>
   );
 }
 
@@ -62,7 +109,9 @@ function ChromeButton({
  * The three conditions are ranked, not stacked: unreachable beats paused
  * beats busy, because each one makes the next irrelevant. Showing all three
  * at once would be three chips saying the same thing — nothing is moving —
- * in a strip that has no room to say it three times.
+ * in a strip that has no room to say it three times. The node's own
+ * conditions are `NodeStatus`'s; the agents at work are said only while the
+ * node is simply up.
  */
 function LiveStatus() {
   const ws = useWorkspace();
@@ -70,26 +119,17 @@ function LiveStatus() {
     () => new Set(Object.values(ws.working).flat()).size,
     [ws.working],
   );
+  const standing = !!ws.offline || degradedWords(ws.degraded, !!ws.offline) !== null || ws.paused;
+  return (
+    <>
+      <NodeStatus />
+      {!standing && busy > 0 && <BusyDoor busy={busy} />}
+    </>
+  );
+}
 
-  if (ws.offline) {
-    return (
-      <Chip tone="danger" icon={ICON.warn} title={ws.offline}>{t("shell-top-chrome-node-unreachable")}</Chip>
-    );
-  }
-  const degraded = degradedWords(ws.degraded, !!ws.offline);
-  if (degraded) {
-    return (
-      <Chip tone="warn" icon={ICON.warn} title={degraded.title}>
-        {degraded.label}
-      </Chip>
-    );
-  }
-  if (ws.paused) {
-    return (
-      <Chip tone="warn" icon={ICON.waiting} title={t("shell-top-chrome-engine-paused-nothing-will-start")}>{t("shell-top-chrome-paused")}</Chip>
-    );
-  }
-  if (busy === 0) return null;
+/** The agents at work, as a door to the Pulse. */
+function BusyDoor({ busy }: { busy: number }) {
   return (
     <a
       href={href({ name: "pulse" })}
@@ -118,7 +158,7 @@ export function TopChrome({
     <header
       data-tauri-drag-region
       data-pane
-      className="flex h-chrome shrink-0 items-center gap-1 border-b border-border bg-surface pl-3 pr-2"
+      className="flex h-chrome shrink-0 items-center gap-0.5 border-b border-border bg-surface pl-2.5 pr-2"
     >
       <ChromeButton onClick={onToggleSidebar} label={toggleWords(sidebarMode)}>
         {sidebarMode === "expanded" ? (
@@ -145,9 +185,9 @@ export function TopChrome({
       <button
         type="button"
         onClick={onOmnibox}
-        className="anim flex h-6 w-56 shrink-0 items-center gap-2 rounded-control border border-border bg-bg px-2 text-2xs text-text-dim hover:border-accent/40 hover:text-text"
+        className="anim flex h-7 w-64 shrink-0 items-center gap-2 rounded-control border border-hairline bg-surface-2/60 px-2.5 text-xs text-text-dim hover:border-border hover:bg-surface-2 hover:text-text"
       >
-        <ICON.search size={12} aria-hidden className="shrink-0" />
+        <ICON.search size={13} aria-hidden className="shrink-0" />
         <span className="flex-1 text-left">{t("shell-top-chrome-search-jump")}</span>
         {/* KeyHint, not a literal ⌘: the shortcut is Ctrl+K off macOS, and a
             Mac glyph there names a key the keyboard does not have. */}

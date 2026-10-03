@@ -24,18 +24,33 @@ export const HOLDER_LABEL = {
   you: t("goals-goal-strip-move"),
   agents: t("goals-goal-strip-agents-working"),
   world: t("goals-goal-strip-waiting-world"),
-  finished: "finished",
+  finished: t("goals-goal-strip-finished"),
   design: t("goals-goal-strip-being-designed"),
 };
 
 /**
- * Theme roles, not colours: you = the accent's warn (it wants you), agents =
- * accent (work is happening), world/design = dim, finished = ok — or danger
- * when the outcome is failed, which is a tone rule, not a grouping.
+ * What each holder reads as in the filter — the option of a list, so it
+ * begins a sentence: *Your move*, *Agents working*. The row's chip keeps the
+ * lowercase word (`HOLDER_LABEL`) because there it follows other words.
+ */
+export const HOLDER_FILTER_LABEL = {
+  you: t("goals-goals-filters-holder-you"),
+  agents: t("goals-goals-filters-holder-agents"),
+  world: t("goals-goals-filters-holder-world"),
+  finished: t("goals-goals-filters-holder-finished"),
+  design: t("goals-goals-filters-holder-design"),
+};
+
+/**
+ * Theme roles, not colours: you = the accent (it wants you — the one colour
+ * the tokens file reserves for a summons), agents = text (work is happening,
+ * and nothing is asked of you; the strip's working glyph says it is live),
+ * world/design = dim, finished = ok — or danger when the outcome is failed,
+ * which is a tone rule, not a grouping.
  */
 export const HOLDER_TONE = {
-  you: "warn",
-  agents: "accent",
+  you: "accent",
+  agents: "text",
   world: "text-dim",
   finished: "ok",
   design: "text-dim",
@@ -135,9 +150,9 @@ export function sortByActivity(rows) {
 }
 
 /**
- * The holder segment that means "no holder filter". A segmented control has
- * no empty value — the kit drops `""` as "re-picked the current option" — so
- * *All* needs an id of its own, and this is it. It is not a holder word.
+ * The holder option that means "no holder filter" — an id of its own, so a
+ * link that says `?holder=all` reads as no filter, as it always has. It is
+ * not a holder word.
  */
 export const HOLDER_FILTER_ALL = "all";
 

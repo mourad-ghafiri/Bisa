@@ -137,7 +137,8 @@ import keeps its history; symlinks are skipped and counted; above 2 GiB or 200,0
 refused before a byte is written; an existing destination is refused, never merged into. Adopting
 records the folder where it lies as an external root. Neither modifies the folder it was given, and
 neither runs `git init`: an imported plain folder stays a plain project — until you ask. The desktop
-offers both as one *Import* action with two placements, **Copy it in** and **Link it in place**.
+offers both as one *Import* action with two placements: **Link it in place**, the first and the
+default, and **Copy it in**.
 
 **Initialise a repository** is that ask. Wherever the IDE says *a plain folder* — the Git panel, the
 Workstreams panel on the project's own root, About › Checkout — one card offers the button, and

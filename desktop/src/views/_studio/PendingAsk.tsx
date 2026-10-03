@@ -212,7 +212,8 @@ export function AskControls({
                 key={o.id}
                 className={cn(
                   "anim flex cursor-pointer items-start gap-2 rounded-control px-2 py-1.5",
-                  checked ? "bg-accent-soft text-accent-ink" : "hover:bg-surface-2",
+                  // The picked option is where you are, not another summons inside the ask: the selected ground.
+                  checked ? "bg-selected text-text" : "hover:bg-surface-2",
                 )}
               >
                 <input
@@ -246,9 +247,9 @@ export function AskControls({
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-1.5">
                     <span className="text-xs">{o.label}</span>
-                    {/* Icon *and* word. `accent-soft` already means "you
-                        picked this", so a recommended-but-unpicked option
-                        cannot be marked with colour without saying the reader
+                    {/* Icon *and* word. The selected ground already means
+                        "you picked this", so a recommended-but-unpicked option
+                        cannot be marked with a fill without saying the reader
                         chose it. */}
                     {o.recommended && (
                       <Chip tone="quiet" icon={ICON.recommended}>{t("studio-pending-ask-recommended")}</Chip>

@@ -11,6 +11,7 @@ import {
   SECRET_FIELD_LABEL,
   accountBody,
   accountDraft,
+  accountVerbs,
   accountRows,
   addedWords,
   checkLine,
@@ -281,3 +282,14 @@ test("the callback port is the resolved setting, and unknown until it is read �
   assert.ok(!/useState\(\s*4478\s*\)/.test(panel) && !panel.includes("4478"), "no default of the registry's is repeated in the panel");
 });
 
+
+test("an account row shows one verb — Connect until an OAuth account holds a token, Check after — and keeps the rest in its menu", () => {
+  const fresh = { default: false, secrets_set: ["client_id"] };
+  const connected = { default: true, secrets_set: ["client_id", "access_token"] };
+  assert.deepEqual(accountVerbs(fresh, true), { main: "connect", more: ["secrets", "check", "default", "forget"] });
+  assert.deepEqual(accountVerbs(connected, true), { main: "check", more: ["connect", "secrets", "forget"] }, "connected: Connect again is in the menu, and a default is not made default twice");
+  assert.deepEqual(accountVerbs({ default: false, secrets_set: [] }, false), { main: "check", more: ["secrets", "default", "forget"] }, "no OAuth: no Connect at all");
+  const panel = readFileSync(new URL("./ConnectorsPanel.tsx", import.meta.url), "utf8");
+  assert.ok(panel.includes("accountVerbs(a, oauth)") && panel.includes("<MoreMenu"), "the row draws the model's verbs; the rest behind one menu");
+  assert.ok(panel.includes("onSelect: () => setForgetting(a)"), "Forget still asks first");
+});

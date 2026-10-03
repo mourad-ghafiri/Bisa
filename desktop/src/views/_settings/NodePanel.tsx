@@ -62,7 +62,7 @@ export function NodePanel() {
   };
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <Section title={t("settings-node-panel-engine")}>
         <Card>
           <div className="flex items-center gap-2">
@@ -72,7 +72,7 @@ export function NodePanel() {
               <Chip tone={paused ? "warn" : "ok"}>{paused ? t("settings-node-panel-paused") : t("settings-node-panel-running")}</Chip>
             )}
           </div>
-          <p className="mt-2 text-2xs text-text-dim">{t("settings-node-panel-pausing-parks-every-loop-safe-boundary")}</p>
+          <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-node-panel-pausing-parks-every-loop-safe-boundary")}</p>
         </Card>
       </Section>
 
@@ -88,7 +88,7 @@ export function NodePanel() {
             </span>
             <Button size="sm" onClick={() => void restart()}>{t("settings-node-panel-restart-sidecar")}</Button>
           </div>
-          <p className="mt-2 text-2xs text-text-dim">
+          <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">
             {isTauri()
               ? t("settings-node-panel-app-runs-node-child-process-restarting")
               : t("settings-node-panel-build-talks-node-started-yourself-so")}

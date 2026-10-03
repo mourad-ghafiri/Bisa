@@ -146,7 +146,7 @@ menu are the same and the Dock line is absent; a left click may do nothing where
 |---|---|
 | **Inbox** | what concerns *you*: what is owed — questions, gates, held steps — and what happened to what you asked for — a run that finished or failed, a script that failed, a listener that could not start its run, a pull request opened — plus mentions and direct channels |
 | **Agents** | the roster you have, and what is running right now |
-| **Teams** | the teams you have, their members, what they are carrying |
+| **Teams** | the teams you have and their members, with the catalog's teams one click away |
 | **Projects** | the IDE: every project, the workstreams open on them, and what runs there ([`the-ide.md`](the-ide.md)) |
 | **Workflows** | the library — yours and the catalog's templates, each a card with a thumbnail of its graph, searched and filtered in one bar; a goal's designs stay on their goal — the designer, each workflow's **On/Off** switch for the events it starts on, and its runs in the workspace |
 | **Goals** | everything the workspace is carrying, one flat list narrowed by filters — the goals put away only when the *Archived* switch is on |
@@ -471,17 +471,14 @@ on the conversation, never among a checkout's harnesses and terminals.
 ## The Browser pane
 
 The platform has a browser of its own — the one the IDE's Browser tab uses — and it is never
-further than the Details pane. Every conversation's, goal's and workflow's header carries the
-**Browser** button: it shows the pane beside you and hides it again — pressed while the pane shows
-— and it always says what is there: the count of open tabs, and a pulsing dot while an agent is
-browsing in one. Its caret lists every open tab (the ones about this screen first, a busy one
-marked *an agent is browsing*, the rest with where they are at home) to bring the pane back on,
-then *New tab*, *Close the pane* and *Close every tab*. So a pane closed by mistake — the ✕,
-Escape, Back — loses nothing: the tabs stay, the button says how many, one click brings them back.
-`⌘⇧L` and *Browser* in the search do the same from anywhere, and close a pane opened on a tab at
-once — and with no tab in sight they open one for you; the pane by itself never does: land on a
-screen that remembers it, or follow an addon there, and it says *No browser tab here yet* with
-*New tab*. The footer's **Browser** count is one number for every tab wherever you are — the ones you
+further than the Details pane. `⌘⇧L` and *Browser* in the search show the pane beside whatever
+screen you are on and hide it again, and close a pane opened on a tab at once — and with no tab in
+sight they open one for you, at home in the goal, workflow, channel, message or conversation you
+are on; the pane by itself never does: land on a screen that remembers it, or follow an addon
+there, and it says *No browser tab here yet* with *New tab*. The **Browser** button is the Project
+IDE's alone ([the IDE](the-ide.md#terminals)); no other screen's header carries one. So a pane
+closed by mistake — the ✕, Escape, Back — loses nothing: the tabs stay, the footer's count says
+how many, and `⌘⇧L` brings them back. The footer's **Browser** count is one number for every tab wherever you are — the ones you
 can look at and the ones kept out of sight — and only ever moves because somebody opened or closed
 one: you, an agent, or a page asking for a window. It is tinted while a tab is on screen, in the pane or the
 IDE, its tooltip saying what is showing and how many agents opened (*3 browser tabs — 2 opened by
@@ -512,18 +509,22 @@ opens here too — its card's first verb, *Open in Bisa's browser* — and an ad
 search (`⌘K`) is one row that opens it. The **camera** is two buttons: one copies a screenshot of
 the page to the clipboard, the other saves one where you choose — the same picture an agent gets
 when it asks for one, and the page never blanks for it. Right-click menus, dialogs and the
-palette are drawn over the page, which steps aside while they are open. An
+palette are drawn over the page, which steps aside while they are open. Notes, drawings, their
+round buttons, the pet and addon windows float over the page instead: it stays live around them —
+you keep browsing — and they take their own clicks (on macOS). An
 html page or a figure an agent posted as an artifact opens here too, from its `…`, *Open in the
 browser*, with an origin of its own so its scripts and assets load.
 
-**Annotate any page for an agent, right here.** The wand on the bar works on every page a tab
+**Annotate a page for an agent — in the Project IDE.** The wand sits on the bar while you are in
+the Project IDE, for a tab in its centre or in this pane beside it, and works on every page a tab
 shows — a page the project serves, your dev server, the web — never on a page an agent posted as
-an artifact, which is its own. Press it, point at an element, click it and say what should change;
-each becomes a numbered badge on the page and a line in the tray under it. For a tab that belongs
-to a checkout the tray is the IDE's — **Send** to an agent as an edit, file chips when the page is
-a file of the checkout — and for any other tab it is the screen's: **Attach to the message** puts
-the elements as chips in the composer of the goal, the channel or the message beside the pane,
-and you write the words and send. With no conversation on screen the button says what to open.
+an artifact, which is its own. Press it, point at an element, click it and say what should change
+in the box that opens beside it — *Enter* adds the note, *Esc* closes the box; each becomes a
+numbered badge on the page and a line in the tray under it. For a tab that belongs to a checkout
+the tray is the IDE's — **Send** to an agent as an edit, file chips when the page is a file of the
+checkout — and for a goal's tab it is the screen's: **Attach to the message** puts the elements as
+chips in the composer beside it. Beside any other screen the pane only shows the page: there is no
+wand, and annotations you started in the IDE wait there for you.
 
 **Agents browse here, the way you do, and out of sight when nobody is watching.** Every agent —
 the platform's own and every one from the catalog, on whatever harness it runs — reads and drives
@@ -538,7 +539,7 @@ it and shows there. In a goal in **auto mode**, where nobody
 is watching, the tab is **kept out of sight**: it renders and answers the agent's every tool, the
 screenshot too, and nothing opens beside you. The footer's Browser count includes it, its overlay
 lists it under **Unseen** — and *unseen* under **Tabs**, dim, its row's title *an agent browses
-here out of sight* — and one click there shows it; the pane's strip and every Browser button list
+here out of sight* — and one click there shows it; the pane's strip and the IDE's Browser button list
 it the same way, dim with the hidden glyph. An agent may ask
 for one tab either way, and says so.
 
@@ -569,8 +570,9 @@ gets a **Devices** button beside Browser ([the IDE](the-ide.md#mobile-developmen
 **Agents** has *Definitions* and *Running*. The three core agents are pinned above the filters: the General Agent and the Workflow Agent each as an agent's card, then the Decision-Making Agent — its name, what it is, whether it is on and who answers for it — which opens Settings › Decision Settings › Decision Making, since it has no page of its own and nothing messages it. A card
 shows origin, harness, model plan with live health badges, skills, MCP servers; the pane carries
 identity, respond policy, and **Recall**. *Running* is the live roster with **Abort** on each session that is running or waiting on you. **Teams**
-lists members (the General Agent and the Workflow Agent marked *implicit*) and what each team is carrying, with **New goal
-for this team**. The **Catalog** (Settings → Library) shows every entry by kind with its install
+lists members (the General Agent and the Workflow Agent marked *implicit*). Both screens carry
+**Catalog** in their top bar, beside *New agent* and *New team*, which opens the catalog on that kind
+— Settings › Library › Agents or Teams. The **Catalog** (Settings → Library) shows every entry by kind with its install
 plan — what it brings, marked *already here* or *will be created* — and confirms before a
 multi-object install.
 
@@ -623,8 +625,8 @@ navigating from a goal to a project changes neither the tab nor the open note �
 the strip or a click on a row does — because reading a note about one thing while looking at another
 is the point. The route has one say: **New** files a note where you stand (this goal's, this
 project's, this workflow's, this channel's, else the workspace's), and on a tab with more than one
-place it is a menu with that place first, marked *here*. **Ask an agent** in a note's header opens a
-conversation beside it — the same thread and composer as everywhere else, started in one click and
+place it is a menu with that place first, marked *here*. **Ask an agent** (the agent glyph) in a
+note's header opens a conversation beside it — the same thread and composer as everywhere else, started in one click and
 named later from its menu, in a drawer you drag wider or narrower by its edge; the agent reads the
 note first and writes into it only when you ask, with `note_append`.
 
@@ -638,7 +640,8 @@ conversation beside the note, whose only write is to append when asked). Leaving
 changes — Back, the panel's ×, `Alt+N`, the dock, another note opened over it — asks first: **Save**,
 **Don't save** or **Cancel**, the same question the IDE's tabs ask, and quitting the app counts and saves
 an unsaved note like a document. **Delete** asks first too, and says that the note's conversations go
-with it. Nothing in
+with it; it is also on every row of the list (the trash that shows when you point at a row or tab to
+it), so a note goes without being opened. Nothing in
 the workspace depends on a note, and it stays on this machine unless you push. The notes icon floats
 over the app: drag it anywhere, and it keeps its distance from the edges it is nearest when the
 window is resized or maximized — a restore puts it back exactly; **Settings → Notes → Reset
@@ -717,14 +720,15 @@ a timeline — each a tile with a preview of the picture and a line on when to r
 template proposes and you may change, and, when the tab offers several places, *Where* it is filed
 (where you stand, first). *Create* opens it. **Save** in the header (or ⌘S) saves now, beside the
 autosave; leaving a drawing with unsaved strokes asks **Save · Don't save · Cancel**, as a note does, and
-**Delete** asks first, naming the snapshot and the conversations that go with it. The canvas is Excalidraw, with the platform's own shape libraries in its sidebar: software-engineering
+**Delete** asks first, naming the snapshot and the conversations that go with it — from the open
+drawing's header, or from the trash on its row in the list. The canvas is Excalidraw, with the platform's own shape libraries in its sidebar: software-engineering
 shapes (a service, a database, a queue, a cache, a client, an API gateway, a load balancer, an
 external system, a person), stickers (sticky notes, callouts, badges, a checkmark, a warning) and
 drawing elements (a title banner, a section frame, a legend, a note card). Everything is vector: the
 image tool is off, since a drawing must reach every member whole. The canvas saves as you draw, and
 nothing about the window — the zoom, the selection — is saved with it.
 
-**Ask an agent** opens a conversation beside the canvas whose subject is this drawing — started in one
+**Ask an agent** (the agent glyph) opens a conversation beside the canvas whose subject is this drawing — started in one
 click, named later from its menu, in a drawer you resize by its edge, with the composer the IDE's
 has: who a bare message reaches, and *Stop* while an agent works. Every agent
 carries the Drawing skill and seven tools: it reads the drawing first (every element with its id),

@@ -6,7 +6,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Spinner } from "../Card";
+import { ErrorNote, Spinner } from "../Card";
+import { sayFailure } from "../failure";
 import { cn } from "../cn";
 import { notesPath, notesText, slideImages, slidePaths, slideRelsPath, slideText, slideWords } from "./pptxModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
@@ -60,13 +61,18 @@ export function SlidesView({ bytes, className, onFacts }: { bytes: Uint8Array; c
         setSlides(out.slides);
         onFacts?.(slideWords(out.slides.length));
       })
-      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => live && setError(sayFailure("artifact", t("ui-slides-view-could-not-show"), e)));
     return () => {
       live = false;
       for (const u of urls) URL.revokeObjectURL(u);
     };
   }, [bytes, onFacts]);
-  if (error) return <p className={cn("p-3 text-2xs text-danger", className)}>{error}</p>;
+  if (error)
+    return (
+      <div className={cn("p-3", className)}>
+        <ErrorNote error={error} />
+      </div>
+    );
   if (!slides) {
     return (
       <div className={cn("p-3", className)}>
@@ -82,7 +88,7 @@ export function SlidesView({ bytes, className, onFacts }: { bytes: Uint8Array; c
           <section key={s.index} className="rounded-card border border-border bg-surface p-3">
             <div className="mb-1 flex items-baseline gap-2">
               <span className="tnum text-2xs text-text-dim">{s.index}</span>
-              <h3 className="text-xs font-semibold text-text">{s.title || t("ui-slides-view-untitled-slide")}</h3>
+              <h3 className="text-sm font-semibold text-text">{s.title || t("ui-slides-view-untitled-slide")}</h3>
             </div>
             {s.paragraphs.length > 0 && (
               <ul className="ml-4 list-disc text-2xs text-text">
@@ -98,7 +104,7 @@ export function SlidesView({ bytes, className, onFacts }: { bytes: Uint8Array; c
                 ))}
               </div>
             )}
-            {s.notes && <p className="mt-2 border-t border-border pt-2 text-2xs italic text-text-dim">{s.notes}</p>}
+            {s.notes && <p className="mt-2 border-t border-hairline pt-2 text-2xs italic text-text-dim">{s.notes}</p>}
           </section>
         ))}
       </div>

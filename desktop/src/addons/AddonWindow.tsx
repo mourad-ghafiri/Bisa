@@ -28,6 +28,7 @@ import { useAddonBridge } from "./addonBridge";
 import type { AddonBridgeHandlers, AddonLoad, AddonSummary } from "./addonBridge";
 import { barTitle, entryOf, manifestWindow } from "./addonsModel.mjs";
 import { BAR_HEIGHT, clampSize, hiddenByLayer, placementAfterResize, sizeBounds, sizeFrom } from "./addonWindowModel.mjs";
+import { useBrowserClear, useBrowserCutsAround } from "../shell/browserClear";
 import type { Size } from "./addonWindowModel.mjs";
 import { moveAddon, resizeAddon, setAddonHidden, useAddons, windowOf } from "./addonsStore";
 
@@ -142,8 +143,12 @@ export function AddonWindow({
     [onShield],
   );
 
-  const under = hiddenByLayer(box, total, slots);
+  // Over a browser tab the layer leaves a hole for the window (ide/18) where the platform can; elsewhere it hides while they meet.
+  const cutsAround = useBrowserCutsAround();
+  const under = hiddenByLayer(box, total, slots, cutsAround);
   const visible = layerVisible && !under;
+  const shell = useRef<HTMLDivElement>(null);
+  useBrowserClear(`addon:${addon.id}`, shell, visible);
 
   const handlers: AddonBridgeHandlers = useMemo(
     () => ({
@@ -171,6 +176,7 @@ export function AddonWindow({
 
   return createPortal(
     <div
+      ref={shell}
       role="dialog"
       aria-label={name}
       // content, never translated: the addon's own name in its bar.
@@ -197,7 +203,7 @@ export function AddonWindow({
         <div
           style={{ height: BAR_HEIGHT }}
           onPointerDown={drag.onPointerDown}
-          className="flex shrink-0 cursor-grab items-center gap-1 border-b border-border bg-surface-2 px-1.5 text-2xs text-text-dim active:cursor-grabbing"
+          className="flex shrink-0 cursor-grab items-center gap-1 border-b border-hairline bg-surface-2 pl-1.5 pr-0.5 text-2xs text-text-dim active:cursor-grabbing"
         >
           <ICON.grip size={12} aria-hidden className="shrink-0" />
           {/* content, never translated */}
@@ -209,7 +215,7 @@ export function AddonWindow({
               title={t("addons-addon-window-close", { name })}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => setAddonHidden(addon.id, true)}
-              className="anim flex h-4 w-4 items-center justify-center rounded-control hover:bg-surface-3"
+              className="anim flex h-5 w-5 items-center justify-center rounded-control hover:bg-selected hover:text-text"
             >
               <ICON.close size={11} aria-hidden />
             </button>

@@ -100,7 +100,7 @@ export function CloseWorkstreamDialogs({
               <div className="mt-2 rounded-control border border-danger/40 bg-danger-soft p-2 text-2xs">
                 <p className="font-medium text-danger">{problem.title}</p>
                 <p className="text-text-dim">{t("work-close-workstream-dialogs-checkout-stays-until-script-succeeds-fix", { message: problem.message })}</p>
-                {problem.output && <LinkedText as="pre" className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-3xs text-text" text={problem.output} />}
+                {problem.output && <LinkedText as="pre" className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-2xs text-text" text={problem.output} />}
               </div>
             )}
           </>

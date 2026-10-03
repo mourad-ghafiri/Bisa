@@ -56,6 +56,20 @@ body {
   overscroll-behavior: none;
 }
 
+/* The layer the page's ground frosts on (`theme/material.css`): the whole
+   window, under every element, catching nothing. It carries the frost so
+   `body` carries none — a backdrop-filter on `body` would make it the
+   Backdrop Root of every pane, and no dialog, menu or sidebar would frost
+   what lies under it. An opaque family gives it no filter, so it draws
+   nothing. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
 code,
 kbd,
 pre,
@@ -73,6 +87,42 @@ samp {
 ::highlight(bisa-find-current) {
   background-color: var(--color-warn-soft);
   color: var(--color-text);
+}
+
+/*
+ * The parts of the page nobody draws still wear the theme: a selection is
+ * the accent thinned to a wash every family's text reads through, the caret
+ * is the accent, and an underline sits clear of the descenders. The browser's
+ * own defaults belong to no family.
+ */
+::selection {
+  background-color: color-mix(in oklch, var(--color-accent) 26%, transparent);
+}
+input,
+textarea,
+[contenteditable="true"] {
+  caret-color: var(--color-accent);
+}
+a,
+button {
+  text-underline-offset: 0.2em;
+}
+
+/* A heading breaks into balanced lines; a paragraph avoids a lone last word.
+   Defaults for the element, so they sit in the base layer: `text-wrap` sets
+   the same longhand `white-space: nowrap` does, and an unlayered element
+   rule outranks every layered utility — a `<p class="truncate">` would wrap
+   instead of ending in an ellipsis. In `base`, the utility on the element
+   wins, as it should. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
 }
 
 /* Timestamps, counters and ids line up column-wise. */
@@ -133,6 +183,25 @@ select:focus-visible,
 [data-radix-popper-content-wrapper] :focus:not(:focus-visible),
 [role="dialog"]:focus:not(:focus-visible) {
   outline: none;
+}
+
+/*
+ * Room at the end of a screen's scroll for a floating dock (the notes and
+ * draw buttons) standing over the content's lower edge: the last row scrolls
+ * clear of it instead of living under it. The content column carries the
+ * flag and the height only while a dock is there (`ui/dockClearance.ts`), so
+ * a screen with none draws exactly as before. A screen's scroll region says
+ * so with `data-scroll-keep`, and the kit's virtual list with `data-dock-room`;
+ * a strip that scrolls sideways (a tab row, the board's columns) has no end
+ * below to make room at, and is left alone.
+ */
+[data-dock-clear] [data-scroll-keep]:not(.overflow-x-auto)::after,
+[data-dock-clear] [data-dock-room]::after {
+  content: "";
+  display: block;
+  flex-shrink: 0;
+  height: var(--dock-clear-bottom, 0px);
+  pointer-events: none;
 }
 
 /* A row whose actions appear on hover — the sidebar and every dense list. */
@@ -266,20 +335,33 @@ select:focus-visible,
 .link-url {
   color: var(--color-accent-ink);
 }
+/* A document's headings sit a clear step over its 14px body — 22, 18, 16 —
+   so a heading is found by size before weight, and break into balanced
+   lines rather than leaving one word alone on the last. */
 .prose-i h1,
 .prose-i h2,
 .prose-i h3 {
   font-weight: 600;
   line-height: 1.3;
+  text-wrap: balance;
 }
 .prose-i h1 {
-  font-size: var(--text-lg);
+  font-size: var(--text-xl);
 }
 .prose-i h2 {
-  font-size: var(--text-base);
+  font-size: var(--text-lg);
 }
 .prose-i h3 {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
+}
+/* Running text holds the measure (`--container-measure`, about 70
+   characters) and avoids a lone last word; a table, a code block or a
+   diagram keeps the width it needs. */
+.prose-i > p,
+.prose-i li,
+.prose-i > blockquote {
+  max-width: var(--container-measure);
+  text-wrap: pretty;
 }
 .prose-i ul,
 .prose-i ol {

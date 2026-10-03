@@ -658,6 +658,42 @@ fn raw_git(dir: &std::path::Path, args: &[&str]) {
 }
 
 /// Hunk staging, blame, history, and the review-note loop over HTTP.
+/// A pull request's draft is asked as a commit message's is: always 200, and a
+/// checkout with no branch of its own — the project's primary — says why
+/// rather than drafting anything.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pull_request_draft_is_always_answered_and_says_why_when_there_is_none() {
+    let (_dir, socket, pid, root, _stop) = boot().await;
+    raw_git(&root, &["init", "--quiet", "-b", "main"]);
+    raw_git(&root, &["config", "user.name", "Bisa Test"]);
+    raw_git(&root, &["config", "user.email", "test@example.invalid"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    raw_git(&root, &["add", "-A"]);
+    raw_git(&root, &["commit", "-m", "first", "--quiet"]);
+
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{pid}/pr/suggest"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["suggested"], json!(false), "{v}");
+    assert_eq!(
+        (v["title"].clone(), v["body"].clone()),
+        (json!(""), json!("")),
+        "nothing drafted: {v}"
+    );
+    assert!(
+        v["error"].as_str().is_some_and(|e| !e.is_empty()),
+        "the reason, said: {v}"
+    );
+
+    let (status, _) = request(&socket, "POST", "/workstreams/not-an-id/pr/suggest", None).await;
+    assert_eq!(status, 400, "an id that is not one is refused");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn hunks_blame_history_and_review_notes() {
     let (_dir, socket, pid, root, _stop) = boot().await;

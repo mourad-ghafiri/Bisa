@@ -22,7 +22,7 @@ import { finishedWords, liveSteps } from "../views/_goal/progressModel.mjs";
 import { adoptAction, bandActions } from "../views/_goal/proposalRouting.mjs";
 import { listenVerb, panelFrozen, runRows, runVerbs } from "../views/_goal/runControl.mjs";
 import { cardMenu, listeningChip, queuedChip, rowVerbs, statusWord } from "../views/_goals/goalCardModel.mjs";
-import { attachRefusedWords, canSubmit, captureAssignees, goalBody } from "../views/_work/newGoalModel.mjs";
+import { attachRefusedWords, canSubmit, goalBody } from "../views/_work/newGoalModel.mjs";
 import { confirmWords, defaultChoices, deleteAvailable, destroys, planOf, retireSections, titleWords } from "../views/_work/retireModel.mjs";
 import { RUNS_SHOWN, paneWindow } from "../views/_workflow/workflowRunsModel.mjs";
 import { initialValues, inputHint, toRequest, validateInputs } from "../views/_workflow/workflowForm.mjs";
@@ -45,7 +45,7 @@ test("capture, in each of the three modes: what is sent, what is said, and where
   assert.equal(canSubmit({ statement: "  ", busy: false, uploading: false }), false, "a capture waits for a statement");
   const said = {};
   for (const mode of GOAL_MODES) {
-    const body = goalBody({ statement: " Ship the quarterly report. ", mode, assignees: captureAssignees(null), tags: [], documents: [] });
+    const body = goalBody({ statement: " Ship the quarterly report. ", mode, assignees: [], tags: [], documents: [] });
     assert.deepEqual(fits("NewGoalBody", body), [], `${mode}: the body is the node's shape`);
     assert.deepEqual(body, { statement: "Ship the quarterly report.", mode }, "only what was set travels");
     said[mode] = [captureHint(mode), captureToast(mode), afterCapture(mode)];
@@ -61,8 +61,8 @@ test("capture, in each of the three modes: what is sent, what is said, and where
   assert.deepEqual([said.auto[2], said.guided[2], said.manual[2]], [null, null, { tab: "workflow", edit: "1" }], "a manual goal opens on its designer");
   assert.equal(tabOf(said.manual[2].tab), "workflow");
   assert.equal(tabOf("nowhere"), "progress", "a stale link never lands nowhere");
-  // Opened from a team: handed to it, in the wire's word.
-  const forTeam = goalBody({ statement: "Ship", mode: "auto", assignees: captureAssignees("01TEAM"), tags: ["ops"], documents: [] });
+  // Assignees a body names travel in the wire's word.
+  const forTeam = goalBody({ statement: "Ship", mode: "auto", assignees: ["team:01TEAM"], tags: ["ops"], documents: [] });
   assert.deepEqual(forTeam.assignees, ["team:01TEAM"]);
   assert.deepEqual(fits("NewGoalBody", forTeam), []);
   // Projects handed over with the capture are attached one by one: a refusal is said once, and the goal stands.

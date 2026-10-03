@@ -22,7 +22,7 @@ import { navigate } from "../../router";
 import { sessionRows, useSessions } from "../../shell/sessionsStore";
 import { terminalSessions, useTerminals } from "../../shell/useTerminals";
 import type { Retirement as RetirementFacts } from "../../types";
-import { Button, Checkbox, Dialog, Pending, SegmentedControl, cn, useToast } from "../../ui";
+import { Button, Checkbox, Dialog, Pending, SegmentedControl, failureText, cn, useToast } from "../../ui";
 import type { Segment } from "../../ui";
 import type { Retirement } from "./retire";
 import { retire } from "./retire";
@@ -41,7 +41,8 @@ const PROJECTS: readonly Segment<ProjectsFate>[] = [
   { id: "delete", label: t("work-library-refs-delete") },
 ];
 
-const TONE = { quiet: "border-border", warn: "border-warn/40 bg-warn-soft", danger: "border-danger/40 bg-danger-soft" } as const;
+// A quiet section is a ground, not a box; only a warning or a deletion keeps an edge.
+const TONE = { quiet: "border-transparent bg-surface-2/50", warn: "border-warn/40 bg-warn-soft", danger: "border-danger/40 bg-danger-soft" } as const;
 
 export function RetireDialog({
   kind,
@@ -86,7 +87,7 @@ export function RetireDialog({
         setChoices(defaultChoices(wanted, r.retirement));
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setError(failureText("work", "retire-dialog-failed", e));
       });
     return () => {
       cancelled = true;
@@ -139,9 +140,9 @@ export function RetireDialog({
       {preview && (
         <div className="flex flex-col gap-3 text-xs">
           <section className="flex flex-col gap-1">
-            <span className="text-3xs font-semibold uppercase tracking-wide text-text-dim">{t("work-retire-dialog-words", { kind })}</span>
+            <span className="text-2xs font-semibold text-text-dim">{t("work-retire-dialog-words", { kind })}</span>
             <SegmentedControl options={THING} value={choices.thing} onChange={(thing) => setChoices({ ...choices, thing })} label={t("work-retire-dialog-s-fate", { kind })} size="sm" />
-            <p className="text-2xs text-text-dim">
+            <p className="text-2xs leading-relaxed text-text-dim">
               {choices.thing === "delete"
                 ? kind === "goal"
                   ? t("work-retire-dialog-journal-runs-work-items-removed-from")
@@ -154,7 +155,7 @@ export function RetireDialog({
           </section>
           {sections.map((s) => (
             <section key={s.id} className={cn("flex flex-col gap-1 rounded-control border px-2 py-1.5", TONE[s.tone])}>
-              <span className="text-3xs font-semibold uppercase tracking-wide text-text-dim">{s.title}</span>
+              <span className="text-2xs font-semibold text-text-dim">{s.title}</span>
               {s.id === "born" && (
                 <div className="flex flex-col gap-1">
                   <SegmentedControl options={PROJECTS} value={choices.projects} onChange={(projects) => setChoices({ ...choices, projects })} label={t("work-retire-dialog-projects-fate")} size="sm" />
@@ -176,7 +177,7 @@ export function RetireDialog({
                       <li key={h.id}>
                         <button
                           type="button"
-                          className="text-accent-ink underline underline-offset-2"
+                          className="anim rounded-sm text-text underline decoration-text-dim/50 underline-offset-2 hover:decoration-text"
                           onClick={() => {
                             onClose();
                             navigate({ name: "goal", id: h.id });

@@ -45,10 +45,10 @@ export function AskCard({ ask, conversationId, onAnswered }: { ask: AskView; con
   };
 
   return (
-    <div className="mx-3 mb-2 flex flex-col gap-2 rounded-card border border-warn/40 bg-warn-soft/30 p-3 text-xs">
+    <div className="mx-3 mb-2 flex flex-col gap-2 rounded-card border border-accent/40 bg-accent-soft/30 p-3 text-xs">
       <div className="flex items-center gap-2">
-        {content && <ICON.guard size={12} aria-hidden className="shrink-0 text-warn" />}
-        <Chip tone="warn">{words.chip}</Chip>
+        {content && <ICON.guard size={12} aria-hidden className="shrink-0 text-accent-ink" />}
+        <Chip tone="accent">{words.chip}</Chip>
         <span className="font-semibold text-text">{words.name}</span>
         <span className="ml-auto text-2xs text-text-dim">{ask.agent}</span>
       </div>
@@ -56,7 +56,7 @@ export function AskCard({ ask, conversationId, onAnswered }: { ask: AskView; con
         <>
           {/* Where it came from, why it was held, and what it says — the
               screen's account, so the person decides knowing the risk. */}
-          <p className="text-2xs text-text">{ask.question}</p>
+          <p className="text-sm text-text">{ask.question}</p>
           {content.url && (
             <p className="truncate font-mono text-2xs text-text-dim" title={content.url}>
               {content.url}
@@ -64,17 +64,18 @@ export function AskCard({ ask, conversationId, onAnswered }: { ask: AskView; con
           )}
           <p className="text-2xs text-warn">{reasonWords(ask)}</p>
           {content.excerpt && (
-            <div className="rounded-control border border-border bg-surface px-2 py-1.5 text-2xs text-text-dim">
+            // The card draws the edge; what it quotes sits on the surface's own ground, unboxed.
+            <div className="rounded-control bg-surface px-2 py-1.5 text-2xs text-text-dim">
               <FoldedText text={content.excerpt} />
             </div>
           )}
         </>
       ) : (
-        <pre className="whitespace-pre-wrap rounded-control border border-border bg-surface px-2 py-1.5 font-mono text-2xs text-text">{ask.question}</pre>
+        <pre className="whitespace-pre-wrap rounded-control bg-surface px-2 py-1.5 font-mono text-2xs text-text">{ask.question}</pre>
       )}
       {denying ? (
         <div className="flex flex-col gap-1.5">
-          <TextArea rows={2} value={note} placeholder={t("studio-ask-card-note-agent-optional")} disabled={busy} onChange={(e) => setNote(e.target.value)} />
+          <TextArea rows={2} value={note} aria-label={t("studio-ask-card-note-agent-optional")} placeholder={t("studio-ask-card-note-agent-optional")} disabled={busy} onChange={(e) => setNote(e.target.value)} />
           <div className="flex gap-2">
             <Button variant="danger" disabled={busy} onClick={() => void answer(denyBody(note))}>
               {busy ? "…" : t("studio-ask-card-deny")}

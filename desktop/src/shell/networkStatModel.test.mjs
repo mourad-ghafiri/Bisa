@@ -4,8 +4,9 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
-import { VALUES, footnote, overlaySections, statWords } from "./networkStatModel.mjs";
+import { VALUES, barWord, footnote, overlaySections, statWords } from "./networkStatModel.mjs";
 
 const tunnel = (over = {}) => ({
   interface: "utun4",
@@ -79,6 +80,15 @@ test("the word is DOWN over VPN over UP, each with its tone and the panel's sent
   const set = statWords(noVpn({ vpn: { up: false, tunnels: [], services: [{ name: "Office", kind: "IKEv2", connected: false }] } }), direct(), true);
   assert.equal(set.value, "UP");
   assert.match(set.title, /VPN not connected: A VPN is set up but not connected: Office/);
+});
+
+test("the bar draws a word only for a VPN — up and down are the dot's tone, the dash its quiet", () => {
+  assert.equal(barWord(statWords(facts(), proxied(), true)), "VPN");
+  assert.equal(barWord(statWords(noVpn(), proxied(), true)), null, "up is the dot's ok tone");
+  assert.equal(barWord(statWords(down(), direct(), true)), null, "down is the dot's danger tone");
+  assert.equal(barWord(statWords(null, null, null)), null, "before the first read: the quiet dot");
+  const bar = readFileSync(new URL("./NetworkStat.tsx", import.meta.url), "utf8");
+  assert.ok(bar.includes("barWord(words)") && bar.includes("words.value"), "the bar draws barWord's word and keeps every value in its name");
 });
 
 test("the window's offline word beats stale facts; its online word never beats the probe", () => {

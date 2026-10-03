@@ -2,7 +2,7 @@
  * The doors to the embedded browser from anywhere (ide/18): the Details
  * pane's Browser occupant on a tab, a tab shown where it belongs, a URL
  * opened where the person is, an artifact's page opened with an origin of
- * its own. Every screen's Browser button, the footer, the palette, the
+ * its own. The IDE's Browser button, the footer, the palette, the
  * keymap and the agents' bridge come through here, so what "show the
  * browser" means is written once: a tab at home in the IDE's root is shown
  * in the strip while that root's centre shows documents, and in the pane
@@ -13,7 +13,7 @@
 import { useEffect } from "react";
 import { api } from "../api";
 import { currentRoute, setSearch } from "../router";
-import { toaster } from "../ui";
+import { sayFailure, toaster } from "../ui";
 import type { ArtifactRef } from "../types";
 import { chatTargetNow } from "../views/_studio/chatTargetStore";
 import { workbenchCentreFor } from "../views/_workbench/workbenchCentreStore";
@@ -42,8 +42,8 @@ export function openBrowserPane(key: string | null = null): void {
 }
 
 /**
- * The person's door to the Browser pane — ⌘⇧L, the palette, a screen's
- * Browser button (`paneToggle`): hide it while it shows, show it while a tab
+ * The person's door to the Browser pane — ⌘⇧L and the palette, beside any
+ * screen (`paneToggle`): hide it while it shows, show it while a tab
  * is in sight, and with none **open one** — at home in `home`, the person's
  * own — and show it. The one place a tab is opened for the pane: by an act.
  */
@@ -108,6 +108,6 @@ export async function openArtifactInBrowser(artifact: ArtifactRef): Promise<void
     const served = await api.serveArtifact(artifact.sha256, artifact.name);
     openUrlInBrowser(served.page);
   } catch (e) {
-    toaster.error(e instanceof Error ? e.message : String(e));
+    toaster.error(sayFailure("browser", t("shell-browser-doors-could-not-open-page"), e));
   }
 }

@@ -62,7 +62,7 @@ export function ContextMenu({
         >
           {items.map((item, i) => (
             <div key={`${i}:${item.label}`}>
-              {item.separatorBefore && <C.Separator className="my-1 h-px bg-border" />}
+              {item.separatorBefore && <C.Separator className="my-1 h-px bg-hairline" />}
               <C.Item
                 disabled={item.disabled}
                 onSelect={() => chosen.select(item)}

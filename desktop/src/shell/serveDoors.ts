@@ -9,10 +9,11 @@
  */
 
 import { api } from "../api";
-import { toaster } from "../ui";
+import { sayFailure, toaster } from "../ui";
 import { MEMORY_KEY, ROOT_FOLDER, parseRemembered, rememberFolder, rememberedFolder, serverFor } from "../views/_workbench/serveFolderModel.mjs";
 import { servingWords } from "../views/_workbench/serversModel.mjs";
 import { openBrowserAt } from "./browserDoors";
+import { t } from "../i18n/l10n.mjs";
 
 /** The folder last served in a checkout — the root when none was, or when storage says nothing. */
 export function lastServedFolder(wid: string): string {
@@ -46,7 +47,7 @@ export async function serveAndOpen(wid: string, folder: string): Promise<boolean
     openBrowserAt({ scope: "workstream", id: wid }, server.page);
     return true;
   } catch (e) {
-    toaster.error(e instanceof Error ? e.message : String(e));
+    toaster.error(sayFailure("browser", t("shell-serve-doors-could-not-serve"), e));
     return false;
   }
 }

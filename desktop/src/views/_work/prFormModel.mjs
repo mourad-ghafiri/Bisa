@@ -120,3 +120,59 @@ export function checksSummary(checks) {
   if (other) parts.push(t("work-pr-form-other", { other }));
   return { text: parts.join(" · "), tone: failed ? "danger" : running ? "dim" : "ok" };
 }
+
+/**
+ * The node's answer to *Suggest* (`POST /workstreams/{wid}/pr/suggest`), as
+ * the form reads it: a draft to put in the fields, or `null` and the
+ * sentence that says why. The route is always 200; `suggested: false` — no
+ * harness, no model, a branch with nothing beyond its base — and an answer
+ * with no title both leave the fields as they are, never a draft nobody wrote.
+ * @param {{suggested?: boolean, title?: unknown, body?: unknown, error?: unknown} | null | undefined} response
+ * @returns {{draft: {title: string, body: string} | null, note: string | null}}
+ */
+export function prSuggestionOutcome(response) {
+  if (!response || response.suggested !== true) {
+    const why = typeof response?.error === "string" ? response.error.trim() : "";
+    return {
+      draft: null,
+      note: why ? t("work-pr-form-no-suggestion", { why }) : t("work-pr-form-no-suggestion-node"),
+    };
+  }
+  const title = typeof response.title === "string" ? response.title.trim() : "";
+  const body = typeof response.body === "string" ? response.body.trim() : "";
+  if (title === "") return { draft: null, note: t("work-pr-form-empty-suggestion") };
+  return { draft: { title, body }, note: null };
+}
+
+/**
+ * Where a draft lands. The ask takes a while, and the person may type in
+ * the meantime: a field changed since *Suggest* was pressed keeps what they
+ * typed — the draft never writes over words written while it was asked —
+ * and every other field takes the draft. A draft with no body leaves the
+ * body as it is.
+ * @param {{asked: {title: string, body: string}, now: {title: string, body: string}, draft: {title: string, body: string}}} facts
+ * @returns {{title: string, body: string, kept: ("title" | "body")[]}}
+ */
+export function applyPrSuggestion({ asked, now, draft }) {
+  /** @type {("title" | "body")[]} */
+  const kept = [];
+  const titleKept = now.title !== asked.title;
+  const bodyKept = now.body !== asked.body;
+  if (titleKept) kept.push("title");
+  if (bodyKept) kept.push("body");
+  return {
+    title: titleKept ? now.title : draft.title,
+    body: bodyKept || draft.body === "" ? now.body : draft.body,
+    kept,
+  };
+}
+
+/**
+ * The line under the fields once a draft landed: that it is a draft to read,
+ * and which field kept the person's own words.
+ * @param {("title" | "body")[]} kept @param {string} noun the code host's word for a pull request
+ */
+export function draftedWords(kept, noun) {
+  if (kept.length === 0) return t("work-pr-form-drafted", { noun });
+  return t("work-pr-form-drafted-kept", { kept: kept.length > 1 ? "both" : kept[0] });
+}

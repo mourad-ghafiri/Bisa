@@ -83,9 +83,11 @@ import {
 } from "react";
 import {
   ArtifactCard,
+  failureText,
   artifactKey,
   Avatar,
   Button,
+  cn,
   Composer,
   ConfirmDialog,
   ContextMenu,
@@ -121,7 +123,7 @@ import type { ChangedFilesBarProps } from "./ChangedFilesBar";
 /** The harness's own mark on the agent chip — which harness answered, at a glance. */
 function HarnessGlyph({ harness }: { harness: string | null | undefined }) {
   const Glyph = harnessMark(harness);
-  return <Glyph size={9} aria-hidden />;
+  return <Glyph size={10} aria-hidden />;
 }
 import { api } from "../../api";
 import type {
@@ -194,7 +196,9 @@ function MessageThinking({ text }: { text: string }) {
  * engine's cadence and parsed block by block, the caret at the end of
  * whichever is still being written — and the tool it runs, one dim line.
  * Reads its own turn, so a frame re-renders this row alone. Once the reply
- * landed it stands frozen until its message is drawn; then it goes.
+ * landed it stands frozen until its message is drawn; then it goes. The row
+ * is no live region: a region around streaming words would read every frame
+ * aloud — `LiveTurnWords` says who is writing and who replied instead.
  */
 function LiveTurnRow({ scope, agentId, agent, name }: { scope: string; agentId: string; agent: AgentDef | undefined; name: string }) {
   const turn = useLiveTurn(scope, agentId);
@@ -207,7 +211,7 @@ function LiveTurnRow({ scope, agentId, agent, name }: { scope: string; agentId: 
   if (!turn) return null;
   const live = !landed;
   return (
-    <div role="status" aria-label={landed ? tr("studio-chat-replied", { name }) : tr("studio-chat-writing-2", { name })} className="border-l-2 border-l-transparent px-3 py-1">
+    <div className="border-l border-l-transparent px-3 py-1">
       <div className="flex gap-2">
         <div className="w-6 shrink-0 pt-0.5">
           <Avatar id={agent?.pubkey ?? agentId} name={name} photo={agent?.photo} size={24} />
@@ -217,7 +221,7 @@ function LiveTurnRow({ scope, agentId, agent, name }: { scope: string; agentId: 
             <span className="text-xs font-semibold">{name}</span>
             {agent && (
               <Tooltip label={tr("studio-chat-runs", { agent: agent.name, harness: agent.harness, models: planSummary(agent.models) })}>
-                <span className="inline-flex items-center gap-0.5 rounded-full border border-border px-1 text-3xs leading-tight font-medium tracking-wide text-text-dim uppercase">
+                <span className="inline-flex h-4 items-center gap-1 rounded-full bg-surface-2 px-1.5 text-3xs font-medium text-text-dim capitalize">
                   <HarnessGlyph harness={agent.harness} />{tr("studio-chat-agent")}</span>
               </Tooltip>
             )}
@@ -237,6 +241,19 @@ function LiveTurnRow({ scope, agentId, agent, name }: { scope: string; agentId: 
       </div>
     </div>
   );
+}
+
+/**
+ * One turn in flight, as a screen reader hears it: *Reviewer is writing*,
+ * then *Reviewer replied* — the words only, never the reply's text. Drawn
+ * inside the timeline's one always-mounted status region, so a change of
+ * these words is announced and a streamed frame (which changes nothing
+ * here) is not.
+ */
+function LiveTurnWords({ scope, agentId, name }: { scope: string; agentId: string; name: string }) {
+  const turn = useLiveTurn(scope, agentId);
+  if (!turn) return null;
+  return <span>{turn.landed ? tr("studio-chat-replied", { name }) : tr("studio-chat-writing-2", { name })} </span>;
 }
 
 /**
@@ -264,7 +281,7 @@ function UnreadDivider() {
   return (
     <div className="flex items-center gap-2 px-3 py-1">
       <Separator decorative={false} className="flex-1 bg-accent/40" />
-      <span className="text-2xs font-semibold tracking-wide text-accent-ink uppercase">{tr("studio-chat-new")}</span>
+      <span className="text-2xs font-semibold text-accent-ink">{tr("studio-chat-new")}</span>
       <Separator decorative={false} className="flex-1 bg-accent/40" />
     </div>
   );
@@ -318,7 +335,7 @@ function AttachmentChip({ file }: { file: MessageAttachment }) {
     } catch (e) {
       // A peer that is offline is the ordinary reason, and it is worth saying
       // out loud rather than leaving the chip looking inert.
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("studio", "chat-failed", e));
     } finally {
       setAsking(false);
     }
@@ -356,10 +373,10 @@ function AttachmentChip({ file }: { file: MessageAttachment }) {
         disabled={asking}
         onClick={() => void request()}
         title={tr("studio-chat-ask-peer", { file: file.name })}
-        className="anim inline-flex max-w-72 items-center gap-1.5 rounded-full border border-dashed border-border px-2 py-1 text-2xs text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-50"
+        className="anim inline-flex max-w-72 items-center gap-1.5 rounded-full border border-border px-2 py-1 text-2xs text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
       >
         {body}
-        <span className="shrink-0 text-accent-ink">{asking ? tr("studio-chat-asking") : tr("studio-chat-request")}</span>
+        <span className="shrink-0 font-medium text-text">{asking ? tr("studio-chat-asking") : tr("studio-chat-request")}</span>
       </button>
     );
   }
@@ -428,7 +445,7 @@ function Row({
 
   if (message.retracted) {
     return (
-      <div className="border-l-2 border-l-transparent px-3 py-1 text-2xs text-text-dim italic">{tr("studio-chat-retracted-message", { name })}</div>
+      <div className="border-l border-l-transparent px-3 py-1 text-2xs text-text-dim italic">{tr("studio-chat-retracted-message", { name })}</div>
     );
   }
 
@@ -453,14 +470,15 @@ function Row({
   return (
     <ContextMenu items={items} className="block">
       <div
-        className={`group relative border-l-2 px-3 py-1 hover:bg-surface-2/60 ${
-          // Your own messages carry an accent rail rather than being pushed to
+        className={`group relative border-l px-3 py-1 hover:bg-surface-2/60 ${
+          // Your own messages carry a quiet rail rather than being pushed to
           // the other side of the pane: alignment is what makes a timeline
           // scannable, and a right-aligned run of your own turns costs that to
           // say something the name already says. The rail is reserved as a
           // transparent border on every row, so it changes colour rather than
-          // width and nothing shifts.
-          mine ? "border-l-accent/40" : "border-l-transparent"
+          // width and nothing shifts. Neutral ink, never the accent: your own
+          // words are not waiting on you.
+          mine ? "border-l-text-dim/60" : "border-l-transparent"
         }`}
       >
         <div className="flex gap-2">
@@ -479,7 +497,7 @@ function Row({
                   // reads oddly — but it is four facts, and four facts in a
                   // message header is a header nobody reads.
                   <Tooltip label={tr("studio-chat-runs", { agent: agent.name, harness: agent.harness, models: planSummary(agent.models) })}>
-                    <span className="inline-flex items-center gap-0.5 rounded-full border border-border px-1 text-3xs leading-tight font-medium tracking-wide text-text-dim uppercase">
+                    <span className="inline-flex h-4 items-center gap-1 rounded-full bg-surface-2 px-1.5 text-3xs font-medium text-text-dim capitalize">
                       <HarnessGlyph harness={agent.harness} />{tr("studio-chat-agent")}</span>
                   </Tooltip>
                 )}
@@ -540,8 +558,9 @@ function Row({
                         aria-label={`${r.emoji} — ${who}`}
                         onClick={() => (r.mine ? onUnreact(r.mine) : onReact(r.emoji))}
                         className={`anim inline-flex h-5 items-center gap-1 rounded-full border px-1.5 text-2xs ${
+                          // Your own mark is a pressed toggle, not a summons: the selected ground.
                           r.mine
-                            ? "border-accent/40 bg-accent-soft text-accent-ink"
+                            ? "border-text/35 bg-selected text-text"
                             : "border-border bg-surface hover:bg-surface-2"
                         }`}
                       >
@@ -962,8 +981,9 @@ export function Chat({
     return () => ro.disconnect();
   }, []);
 
-  const guard = (p: Promise<unknown>, what: string) => {
-    void p.catch((e: unknown) => toast.error(e instanceof Error ? e.message : tr("studio-chat-could-not", { what })));
+  /** A verb's call, its failure toasted: the server's reason when it gave one, else the verb's own sentence. */
+  const guard = (p: Promise<unknown>, fallback: string) => {
+    void p.catch((e: unknown) => toast.error(e instanceof Error ? e.message : fallback));
   };
 
   const copyLink = (id: string) => {
@@ -987,6 +1007,8 @@ export function Chat({
 
   /** The message a *Restore to before this message* confirmation is pending on. */
   const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null);
+  /** The message a *Retract* confirmation is pending on: taking words back from everyone here is asked first. */
+  const [retractConfirm, setRetractConfirm] = useState<string | null>(null);
 
   const renderMessage = (m: MessageRow, previous: MessageRow | undefined, indented: boolean) => {
     const compact = isCompact(m, previous, firstUnreadId);
@@ -995,7 +1017,7 @@ export function Chat({
       ? [{ label: tr("studio-chat-restore-before-message"), icon: ICON.history, danger: true, separatorBefore: true, onSelect: () => setRestoreConfirm(m.id) }]
       : undefined;
     return (
-      <div key={m.id} data-message={m.id} className={indented ? "ml-8 border-l border-border pl-2" : undefined}>
+      <div key={m.id} data-message={m.id} className={indented ? "ml-8 border-l border-hairline pl-2" : undefined}>
         <Row
           message={m}
           reactions={groupReactions(conv.reactions, m.id, ws.me)}
@@ -1006,9 +1028,9 @@ export function Chat({
           agent={hosted ? undefined : ws.agentByPubkey(m.author)}
           compact={compact && !indented}
           onReply={() => setReplyTo(m)}
-          onReact={(emoji) => guard(conv.react(m.id, emoji), "react")}
-          onUnreact={(id) => guard(conv.unreact(id), tr("studio-chat-remove-reaction"))}
-          onRetract={() => guard(conv.retract(m.id), "retract")}
+          onReact={(emoji) => guard(conv.react(m.id, emoji), tr("studio-chat-could-not-react"))}
+          onUnreact={(id) => guard(conv.unreact(id), tr("studio-chat-could-not-unreact"))}
+          onRetract={() => setRetractConfirm(m.id)}
           onArrived={conv.refreshMessage}
           onCopy={() => copyMessage(m)}
           onCopyLink={() => copyLink(m.id)}
@@ -1120,6 +1142,13 @@ export function Chat({
           const def = hosted ? undefined : ws.agents.find((a) => a.id === id);
           return <LiveTurnRow key={`live:${id}`} scope={scope} agentId={id} agent={def} name={def?.name ?? id} />;
         })}
+        {/* Mounted whether or not a turn is out, so its first words are heard. */}
+        <span role="status" className="sr-only">
+          {liveAgents.map((id) => {
+            const def = hosted ? undefined : ws.agents.find((a) => a.id === id);
+            return <LiveTurnWords key={`words:${id}`} scope={scope} agentId={id} name={def?.name ?? id} />;
+          })}
+        </span>
         </div>
       </div>
 
@@ -1128,7 +1157,7 @@ export function Chat({
             floats over the timeline's foot, so nothing reflows when it shows. */}
         {!atBottom && !conv.loading && conv.messages.length > 0 && (
           <div className="pointer-events-none absolute inset-x-0 -top-9 flex justify-center">
-            <Button size="sm" className="pointer-events-auto rounded-full shadow-sm" onClick={jumpToNewest}>
+            <Button size="sm" className="pointer-events-auto rounded-full shadow-lg" onClick={jumpToNewest}>
               <ICON.down size={12} aria-hidden />
               {tr("studio-chat-jump-newest")}
             </Button>
@@ -1139,9 +1168,12 @@ export function Chat({
             knows the tool and the sub-agents — else the conversation stream's
             own tr("studio-chat-writing") for an agent whose words have not begun (one
             that has begun is a live row above). The thinking control stands
-            only where there is thinking to show or hide. */}
-        {(activity ? !!activity.words : workingNames.length > 0) || anyThinking ? (
-          <div role="status" className="mb-1 flex items-center gap-1.5 px-1 text-2xs text-text-dim">
+            only where there is thinking to show or hide. The status region
+            stays mounted, empty and taking no room while nothing is happening,
+            so the first line that appears in it is announced; the picker sits
+            beside it, not in it, so choosing a mode is not read out. */}
+        <div className={cn("flex items-center gap-1.5 px-1 text-2xs text-text-dim", ((activity ? !!activity.words : workingNames.length > 0) || anyThinking) && "mb-1")}>
+          <div role="status" className="flex min-w-0 flex-1 items-center gap-1.5">
             {activity ? (
               activity.words && (
                 <>
@@ -1160,13 +1192,13 @@ export function Chat({
                 </>
               )
             )}
-            {anyThinking && (
-              <span className="ml-auto shrink-0">
-                <ThinkingPicker mode={thinkingMode} onChange={setThinkingMode} />
-              </span>
-            )}
           </div>
-        ) : null}
+          {anyThinking && (
+            <span className="ml-auto shrink-0">
+              <ThinkingPicker mode={thinkingMode} onChange={setThinkingMode} />
+            </span>
+          )}
+        </div>
 
         {/* What the agents changed in this conversation — the ledger's bar (ide/20); nothing of git's tree is here. */}
         {changedFiles && <ChangedFilesBar {...changedFiles} />}
@@ -1249,6 +1281,19 @@ export function Chat({
             danger
           />
         )}
+        <ConfirmDialog
+          open={retractConfirm !== null}
+          onClose={() => setRetractConfirm(null)}
+          onConfirm={() => {
+            const id = retractConfirm;
+            setRetractConfirm(null);
+            if (id) guard(conv.retract(id), tr("studio-chat-could-not-retract"));
+          }}
+          title={tr("studio-chat-retract-title")}
+          body={tr("studio-chat-retract-body")}
+          confirmLabel={tr("studio-message-verbs-retract")}
+          danger
+        />
       </div>
     </div>
   );

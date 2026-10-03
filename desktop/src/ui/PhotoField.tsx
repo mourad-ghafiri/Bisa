@@ -16,6 +16,7 @@ import { Button } from "./Button";
 import { PHOTO_PROFILES, PHOTO_TYPES } from "./photoModel.mjs";
 import type { PhotoProfile } from "./photoModel.mjs";
 import { scalePhoto } from "./photoScale";
+import { sayFailure } from "./failure";
 import { useToast } from "./Toast";
 import { t } from "../i18n/l10n.mjs";
 
@@ -58,7 +59,7 @@ export function PhotoField({
           scalePhoto(file, profile)
             .then((scaled) => api.uploadAttachment(scaled))
             .then((ref) => onChange(ref))
-            .catch((err: unknown) => toast.error(err instanceof Error ? err.message : String(err)))
+            .catch((err: unknown) => toast.error(sayFailure("photo", t("ui-photo-field-could-not-add"), err)))
             .finally(() => setUploading(false));
         }}
       />

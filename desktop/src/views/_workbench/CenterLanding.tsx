@@ -28,11 +28,12 @@ export function CenterLanding({
   onNewWorkstream?: (() => void) | null;
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-      <div className="flex max-w-md flex-col gap-1">
-        <h3 className="text-sm font-semibold">{title}</h3>
+    <div className="flex h-full min-w-0 flex-col items-center justify-center gap-4 p-8 text-center">
+      {/* As wide as the column allows and no wider: on a narrow window the words wrap and the path ends in an ellipsis, never past the column's edges. */}
+      <div className="flex w-full max-w-md min-w-0 flex-col gap-1">
+        <h3 className="text-base font-semibold tracking-tight">{title}</h3>
         {subtitle && <p className="text-2xs text-text-dim">{subtitle}</p>}
-        {path && <p className="truncate font-mono text-2xs text-text-dim">{path}</p>}
+        {path && <p className="truncate font-mono text-2xs text-text-dim" title={path}>{path}</p>}
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button size="sm" onClick={onOpenFile}>
@@ -54,7 +55,7 @@ export function CenterLanding({
           </Button>
         )}
       </div>
-      <ul className="flex flex-col gap-0.5 text-2xs text-text-dim">
+      <ul className="mt-2 flex flex-col gap-1 text-2xs text-text-dim">
         <li>{rich("workbench-center-landing-panels-legend", { show_terminal: <CommandHint id="show_terminal" />, toggle_right_panel: <CommandHint id="toggle_right_panel" />, toggle_rail: <CommandHint id="toggle_rail" /> })}</li>
         <li>{rich("workbench-center-landing-tabs-legend", { git_panel: <CommandHint id="git_panel" />, panel_files: <CommandHint id="panel_files" />, rename: <CommandHint id="rename" />, close_tab: <CommandHint id="close_tab" />, reopen_tab: <CommandHint id="reopen_tab" /> })}</li>
       </ul>
@@ -68,8 +69,8 @@ export function EmptyIdeLanding({ onNewProject }: { onNewProject: () => void }) 
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
       <PlatformMark size={48} title={t("workbench-center-landing-bisa-mark")} />
       <div className="flex max-w-md flex-col gap-1">
-        <h3 className="text-sm font-semibold">{t("workbench-center-landing-add-project-get-started")}</h3>
-        <p className="text-2xs text-text-dim">
+        <h3 className="text-base font-semibold tracking-tight">{t("workbench-center-landing-add-project-get-started")}</h3>
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
           {t("workbench-center-landing-project-is-a-folder")}
         </p>
       </div>

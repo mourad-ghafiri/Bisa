@@ -141,7 +141,7 @@ export function RenderedFileDoc({
 
   return (
     <div ref={docRoot} className={cn("flex h-full min-h-0 flex-col", className)}>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1 text-2xs">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-1 text-2xs">
         <nav aria-label={t("workbench-editor-doc-path")} className="flex min-w-0 items-center gap-0.5 truncate font-mono text-text-dim">
           {breadcrumbsOf(path).map((crumb, i) => (
             <span key={crumb.path} className="flex min-w-0 items-center gap-0.5">

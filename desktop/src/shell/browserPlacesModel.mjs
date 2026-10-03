@@ -1,6 +1,6 @@
 /**
  * Where a browser tab is at home, by name (ide/18): the one index every
- * list of tabs — the footer's Browser count, a screen's Browser button, the
+ * list of tabs — the footer's Browser count, the IDE's Browser button, the
  * pane's strip — names a tab's home from, and the words each row wears.
  * A tab's home is a scope and an id (`browsersModel.BROWSER_SCOPES`); a
  * person never sees an id, so the index turns it into the place's own

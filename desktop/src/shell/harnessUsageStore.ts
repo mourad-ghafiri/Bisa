@@ -22,6 +22,7 @@ import type { UsageState } from "../types";
 import { settled } from "./harnessUsageModel.mjs";
 import { isHidden, onVisibilityChange } from "./visibility";
 import { t } from "../i18n/l10n.mjs";
+import { failureReason } from "../ui/failure";
 
 /** The node holds a report three minutes; asking sooner only reads the cache. */
 const USAGE_POLL_MS = 180_000;
@@ -64,7 +65,7 @@ async function read(id: string, refresh: boolean): Promise<void> {
   try {
     answer = (await api.harnessUsage(id, refresh)).usage;
   } catch (e) {
-    answer = { state: "failed", reason: t("shell-harness-usage-store-node-unreached", { error: e instanceof Error ? e.message : String(e) }) };
+    answer = { state: "failed", reason: t("shell-harness-usage-store-node-unreached", { error: failureReason("usage", "a harness's usage could not be read", e) }) }; // for the log
   }
   set(id, { ...settled(entries[id] ?? EMPTY, answer, Math.floor(Date.now() / 1000)), loading: false });
   inFlight.delete(id);

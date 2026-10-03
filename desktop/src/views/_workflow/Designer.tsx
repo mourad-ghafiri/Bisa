@@ -39,7 +39,7 @@ import type { NewWorkflowBody, Problem, Workflow, WorkflowRun } from "../../type
 import { Button, ICON, Tooltip } from "../../ui";
 import { FlowCanvas, type FlowEdge, type FlowNode, type FlowSize, type FlowViewport } from "../../ui/flow";
 import { reuse, sameShallow } from "../../ui/flowMirrorModel.mjs";
-import { edgeTone, firedBoundaries, stepLabel, stepTone } from "./runView.mjs";
+import { edgeTone, firedBoundaries, stepActions, stepLabel, stepTone } from "./runView.mjs";
 import { STEP_MIME, branchHandle, branchOfHandle, type StepKindName } from "./stepKinds.mjs";
 import { HANDLE, NODE_TYPES, type StepNodeData } from "./StepNode";
 import {
@@ -75,9 +75,15 @@ function handlesFor(e: { kind: string; branch: string | null; loop: boolean }): 
   return { source: e.branch === null ? HANDLE.out : branchHandle(e.branch), target: HANDLE.in };
 }
 
-/** The same card: the same step object, count, run words, fired boundaries and gate. */
+/** The same card: the same step object, count, run words, fired boundaries, gate and whose move it is. */
 const sameNodeData = (a: StepNodeData, b: StepNodeData) =>
-  sameShallow(a, b, ["step", "problems", "tone", "label", "fired", "editable"]) && sameShallow(a.state, b.state);
+  sameShallow(a, b, ["step", "problems", "tone", "label", "fired", "editable", "yours"]) && sameShallow(a.state, b.state);
+
+/** The acts that make a waiting step the person's move — an answer, a decision, a release — as `stepActions` names them. */
+const YOUR_ACTS = new Set(["answer", "decide", "release"]);
+
+/** Where a run is: the states a step is in while the run stands on it. */
+const LIVE_STATES = new Set(["running", "waiting"]);
 
 export function Designer<D extends NewWorkflowBody | Workflow>({
   value,
@@ -170,11 +176,15 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
   const nodes = useMemo<FlowNode<StepNodeData>[]>(() => {
     const kept = new Map<string, StepNodeData>();
     const out = graph.nodes.map((n) => {
+      // A step waiting on the person wears the accent's ring — the summons —
+      // where one waiting on the world keeps its state's own.
+      const yours = run ? stepActions(n.step, run.steps[n.id]).some((a) => YOUR_ACTS.has(a)) : false;
       const fresh: StepNodeData = {
         step: n.step,
         problems: countBy.get(n.id) ?? 0,
         state: run ? (run.steps[n.id]?.state ?? { state: "pending" }) : null,
-        tone: run ? stepTone(run, n.id) : null,
+        tone: run ? (yours ? "accent" : stepTone(run, n.id)) : null,
+        yours,
         label: run ? stepLabel(run, n.id) : null,
         fired: run ? [...firedBoundaries(run, n.id)].join(",") || null : null,
         editable: mayEdit(gate, n.id) || !!readOnly,
@@ -207,7 +217,8 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
           kind: e.kind,
           loop: e.loop,
           tone: run ? edgeTone(run, e) : "default",
-          animated: run ? run.steps[e.to]?.state?.state === "running" : false,
+          // The flow the run came along to the step it stands on: drawn moving toward it (`theme/flow.css`).
+          live: run ? edgeTone(run, e) === "taken" && LIVE_STATES.has(run.steps[e.to]?.state?.state ?? "") : false,
         };
       }),
     [graph, run],
@@ -216,6 +227,7 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
   return (
     <div className="relative h-full w-full">
       <FlowCanvas<StepNodeData>
+        label={t("workflow-designer-canvas")}
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
@@ -322,11 +334,13 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
           </>
         )}
         {!readOnly && (
-          <Tooltip label={mayTidy ? t("workflow-designer-tidy-lay-every-step-out-again") : t("workflow-designer-step-has-already-run-stays-where-2")}>
+          // While it may not tidy, the button says why itself (`disabledReason`): a disabled button takes no hover.
+          <Tooltip label={mayTidy ? t("workflow-designer-tidy-lay-every-step-out-again") : undefined}>
             <Button
               size="sm"
               variant="ghost"
               disabled={!mayTidy}
+              disabledReason={t("workflow-designer-step-has-already-run-stays-where")}
               aria-label={t("workflow-designer-tidy")}
               onClick={() => {
                 onChange(tidy(value, { sizes }));

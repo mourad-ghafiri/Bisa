@@ -24,6 +24,7 @@ import { revealLabel } from "../fileTreeMutations.mjs";
 import { ICON } from "../icons";
 import { useLinkHandler } from "../linkContext";
 import { Menu } from "../Menu";
+import { sayFailure } from "../failure";
 import { useToast } from "../Toast";
 import { Tooltip } from "../Tooltip";
 import { bytesWords, isTextKind, kindWords } from "./artifactModel.mjs";
@@ -82,28 +83,28 @@ export function ArtifactView({
   const text = useMemo(() => (bytes.state === "ready" && isTextKind(artifact.kind) ? textOf(bytes.bytes) : null), [bytes, artifact.kind]);
   const onFacts = useCallback((w: string) => setFacts(w), []);
 
-  const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : String(e));
+  const fail = (what: string, e: unknown) => toast.error(sayFailure("artifact", what, e));
   const save = async () => {
     try {
       const from = shell ? await namedCopy(artifact) : "";
       const path = await saveArtifactCopy(from, artifact.name, () => loadArtifactBytes(artifact.sha256, artifact.mime).then((l) => l.bytes), artifact.mime);
       if (path) toast.ok(t("ui-mermaid-view-saved", { path }));
     } catch (e) {
-      fail(e);
+      fail(t("ui-artifact-view-could-not-save"), e);
     }
   };
   const revealIt = async () => {
     try {
       await revealPath(await namedCopy(artifact));
     } catch (e) {
-      fail(e);
+      fail(t("ui-artifact-view-could-not-reveal"), e);
     }
   };
   const openWith = async () => {
     try {
       await openArtifactFile(await namedCopy(artifact));
     } catch (e) {
-      fail(e);
+      fail(t("ui-artifact-view-could-not-open"), e);
     }
   };
   const copy = async () => {
@@ -116,7 +117,7 @@ export function ArtifactView({
     try {
       await onRequest();
     } catch (e) {
-      fail(e);
+      fail(t("ui-artifact-view-could-not-request"), e);
     } finally {
       setAsking(false);
     }
@@ -193,7 +194,7 @@ export function ArtifactView({
 
   return (
     <div className={cn("flex min-h-0 flex-col", fill && "h-full", className)}>
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-2">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-hairline px-2">
         <Glyph size={13} aria-hidden className="shrink-0 text-text-dim" />
         <Tooltip label={`${artifact.name} · ${bytesWords(artifact.size)}`}>
           <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text">{artifact.title}</span>

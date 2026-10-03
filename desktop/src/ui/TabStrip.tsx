@@ -19,8 +19,14 @@
  * A `<button>` inside a `<button>` is invalid, and in practice the outer one
  * takes every click. So the `×` is a span with a pointer handler for the mouse, and
  * the keyboard gets **Delete or Backspace on the focused tab**, announced with
- * `aria-keyshortcuts`. That is the ARIA pattern for closeable tabs, and it keeps
- * a strip of eight terminals at eight tab stops instead of sixteen.
+ * `aria-keyshortcuts`. That is the ARIA pattern for closeable tabs.
+ *
+ * # Keyboard
+ *
+ * The strip is one tab stop — the open tab, or the first when the open one is
+ * elsewhere — and ← → Home End walk the rest (`tabStripModel.mjs`). The
+ * arrows move focus, not the open tab: Enter or Space opens it. While a tab
+ * is lifted for a keyboard drag, the arrows are the drag's.
  *
  * Middle-click closes too, because every tab strip in every editor does.
  *
@@ -47,6 +53,7 @@ import { ICON, type LucideIcon } from "./icons";
 import type { Mark } from "./harnessMarks";
 import type { MenuItem } from "./Menu";
 import { FOCUS_RING } from "./rings";
+import { nextStripIndex, stripTabStop } from "./tabStripModel.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
 /**
@@ -77,7 +84,7 @@ export function StripControlButton({
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
-      className={cn("anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45", FOCUS_RING, active && "text-accent-ink")}
+      className={cn("anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45", FOCUS_RING, active && "bg-selected text-text")}
     >
       {children}
     </button>
@@ -146,6 +153,7 @@ export function TabStrip({
   trailing?: ReactNode;
   className?: string;
 }) {
+  const stop = stripTabStop(tabs.map((t) => t.id), active);
   const renderTab = (t: StripTab, handle: SortableHandle) => {
     const on = t.id === active;
     const closes = t.closeable !== false && onClose ? () => onClose(t.id) : null;
@@ -159,7 +167,7 @@ export function TabStrip({
         {...handle.props}
         type="button"
         role="tab"
-        tabIndex={on ? 0 : -1}
+        tabIndex={t.id === stop ? 0 : -1}
         aria-selected={on}
         aria-keyshortcuts={closes ? "Delete" : undefined}
         title={t.title ?? t.label}
@@ -174,6 +182,15 @@ export function TabStrip({
         onKeyDown={(e) => {
           dragKey?.(e);
           if (e.defaultPrevented) return;
+          if (!handle.dragging) {
+            const siblings = Array.from(e.currentTarget.closest('[role="tablist"]')?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []);
+            const next = nextStripIndex(e.key, siblings.indexOf(e.currentTarget), siblings.length);
+            if (next !== null) {
+              e.preventDefault();
+              siblings[next]?.focus();
+              return;
+            }
+          }
           if (!closes || (e.key !== "Delete" && e.key !== "Backspace")) return;
           e.preventDefault();
           closes();
@@ -183,17 +200,18 @@ export function TabStrip({
           FOCUS_RING,
           // The density tokens, as every row uses them — a compact setting compacts the strip.
           size === "sm" ? "h-row-sm max-w-52 px-2 text-2xs" : "h-row max-w-56 px-3 text-xs",
-          on ? "border-accent text-text" : "border-transparent text-text-dim hover:bg-surface-2 hover:text-text",
+          on ? "border-text/70 bg-selected/50 text-text" : "border-transparent text-text-dim hover:bg-surface-2 hover:text-text",
           t.dimmed && !on && "opacity-55",
           handle.dragging && "cursor-grabbing",
         )}
       >
         {Glyph && <Glyph size={11} aria-hidden className="shrink-0" />}
         <span className={cn("min-w-0 truncate", t.preview && "italic")}>{t.label}</span>
-        {t.note && <span className={cn("shrink-0 text-3xs", t.noteTone === "danger" ? "text-danger" : "text-text-dim")}>{t.note}</span>}
+        {t.note && <span className={cn("shrink-0 text-2xs", t.noteTone === "danger" ? "text-danger" : "text-text-dim")}>{t.note}</span>}
+        {/* Unsaved is a fact, not a summons: the dot takes the tab's own ink, never the accent. */}
         {t.dirty && (
-          <span aria-label={tr("ui-file-tree-unsaved-changes")} className="shrink-0 text-accent group-hover:hidden">
-            ●
+          <span role="img" aria-label={tr("ui-file-tree-unsaved-changes")} className="flex h-3 w-3 shrink-0 items-center justify-center group-hover:hidden">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
           </span>
         )}
         {closes && (
@@ -225,8 +243,8 @@ export function TabStrip({
   };
 
   return (
-    <div role="tablist" aria-label={label} data-tab-strip className={cn("flex min-w-0 items-center gap-1", className)}>
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+    <div data-tab-strip className={cn("flex min-w-0 items-center gap-1", className)}>
+      <div role="tablist" aria-label={label} className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {dragData && onReorder ? (
           <SortableList items={tabs} direction="horizontal" dragData={(t) => dragData(t.id)} onReorder={onReorder} onDropForeign={onDropForeign}>
             {renderTab}

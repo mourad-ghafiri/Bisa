@@ -66,7 +66,8 @@ export function StepChipStrip({
                 "anim inline-flex shrink-0 items-center justify-center rounded-full border",
                 c.current ? geometry.current : geometry.chip,
                 chipClasses(role),
-                c.current && "ring-2 ring-accent ring-offset-2 ring-offset-surface",
+                // Where the run stands, not a summons: a neutral ring. The chip's own tone says its state.
+                c.current && "ring-2 ring-text/50 ring-offset-2 ring-offset-surface",
               )}
             >
               <Icon size={c.current ? geometry.glyph + 1 : geometry.glyph} aria-hidden />

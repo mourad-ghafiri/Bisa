@@ -16,7 +16,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import { boolOf, choiceOf } from "../../shell/settingsModel.mjs";
-import { Button, Card, ErrorNote, ICON, Pending, SegmentedControl, Section, useToast } from "../../ui";
+import { Button, Card, ErrorNote, ICON, Pending, SegmentedControl, Section, failureText, useToast } from "../../ui";
 import { BOARD_DEFAULTS, BOARD_ENABLED_KEY } from "../_board/boardSettings.mjs";
 import { DEFAULT_MODE, DEFAULT_MODE_KEY, MODES, modeFor, type IdeMode } from "../_workbench/ideModeModel.mjs";
 import { modeSegments, modeWords } from "../_workbench/workbenchChromeModel.mjs";
@@ -40,7 +40,7 @@ export function IdePanel() {
       await api.setSettings("workspace", { [DEFAULT_MODE_KEY]: next });
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "ide-panel-failed", e));
     } finally {
       setBusy(false);
     }
@@ -51,7 +51,7 @@ export function IdePanel() {
       await api.unsetSetting("workspace", DEFAULT_MODE_KEY);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "ide-panel-failed", e));
     } finally {
       setBusy(false);
     }

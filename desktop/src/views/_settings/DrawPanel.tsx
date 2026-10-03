@@ -17,7 +17,7 @@ export function DrawPanel() {
   const moved = drawDockMoved(dock);
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <Section title={t("settings-draw-panel-on-screen")}>
         <Card>
           <div className="flex flex-col gap-3">
@@ -46,13 +46,13 @@ export function DrawPanel() {
       <Section title={t("settings-draw-panel-layout")}>
         <Card>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-2xs text-text-dim">{moved ? t("settings-draw-panel-dock-dragged") : t("settings-draw-panel-dock-where-started")}</p>
+            <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{moved ? t("settings-draw-panel-dock-dragged") : t("settings-draw-panel-dock-where-started")}</p>
             <Button size="sm" variant="ghost" disabled={!moved} onClick={resetDrawDockPosition}>
               {t("settings-draw-panel-reset-position")}
             </Button>
           </div>
         </Card>
       </Section>
-    </>
+    </div>
   );
 }

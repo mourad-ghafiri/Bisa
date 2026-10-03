@@ -4,7 +4,15 @@ export declare const CORE_AGENT_IDS: readonly string[];
 export declare function respondsTo(agent: Pick<AgentDef, "respond"> | null | undefined): string;
 export declare function attachedTo(
   session: Pick<SessionRow, "goal" | "run" | "work_item" | "conversation" | "kind"> | null | undefined,
+  /** A goal's title, when the window knows it; the id's tail stands in otherwise. */
+  titleOf?: (goal: string) => string | null | undefined,
 ): { label: string; route: { name: "goal" | "run" | "conversation"; id: string } | null };
+/** Where a session's ask is answered — the Inbox row it lives under — or `null` when nothing waits on you. */
+export declare function answerOf(
+  session: Pick<SessionRow, "state" | "goal" | "conversation" | "workstream"> | null | undefined,
+): { item: string | null } | null;
+/** Whether the detail column sits under the roster (the narrow layout) rather than beside it. */
+export declare function detailStacked(roster: { right: number } | null | undefined, detail: { left: number } | null | undefined): boolean;
 export declare const isImplicitMember: (m: Assignee) => boolean;
 export declare function storedMembers(team: Pick<TeamDef, "members"> | null | undefined): Assignee[];
 export declare function rosterLine(members: readonly Assignee[] | null | undefined): string;

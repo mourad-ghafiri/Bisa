@@ -9,6 +9,7 @@
  */
 
 import { useEffect } from "react";
+import { errorFields, log } from "../log";
 import { navigate, replace } from "../router";
 import { Button, EmptyState, ICON, Spinner } from "../ui";
 import { ConversationThread } from "./_studio/ConversationThread";
@@ -28,8 +29,13 @@ export default function ConversationDoor({ id }: { id: string }) {
   useEffect(() => {
     if (door && owned) replace(door.route as Parameters<typeof replace>[0], door.search ?? undefined);
   }, [door, owned]);
-  if (one.error && !row) {
-    return <EmptyState icon={ICON.dm} title={t("screens-conversation-door-no-such-conversation")} hint={one.error} action={<Button onClick={() => navigate({ name: "inbox" })}>{t("screens-conversation-door-back-inbox")}</Button>} />;
+  // What the read said is the log's to keep; the page says it in words a person reads.
+  const failed = !!one.error && !row;
+  useEffect(() => {
+    if (failed) log.warn("conversations", "a conversation could not be read", { id, ...errorFields(one.error) });
+  }, [failed, id, one.error]);
+  if (failed) {
+    return <EmptyState icon={ICON.dm} title={t("screens-conversation-door-no-such-conversation")} hint={t("screens-conversation-door-could-not-read")} action={<Button onClick={() => navigate({ name: "inbox" })}>{t("screens-conversation-door-back-inbox")}</Button>} />;
   }
   if (!row || owned) {
     return (

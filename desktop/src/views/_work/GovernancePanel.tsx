@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import type { Gate, GatePolicy, Governance, TeamDef } from "../../types";
 import {
-  Button,
   Card,
   ErrorNote,
   Field,
@@ -23,6 +22,7 @@ import {
   useToast,
 } from "../../ui";
 import { pendingRows, phase, readWords } from "../_settings/loadModel.mjs";
+import { SaveFooter } from "../_settings/SaveFooter";
 import { matrixRows, roleLabel } from "../_settings/peopleModel.mjs";
 import { GATES, governanceBody } from "./governanceModel.mjs";
 import { attempt, useAsync } from "./useAsync";
@@ -64,7 +64,7 @@ function RoleMatrix() {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.permission} className="border-t border-border">
+              <tr key={row.permission} className="border-t border-hairline">
                 <td className="py-1 pr-2" title={row.words}>
                   {row.label}
                 </td>
@@ -136,7 +136,7 @@ export function GovernancePanel() {
               {/* The same glyph this gate wears everywhere else — in the
                   inbox, on a gate bar, on a project's publishing policy. */}
               <GateIcon kind={gate} />
-              <h3 className="text-xs font-medium capitalize">{gate}</h3>
+              <h3 className="text-sm font-medium capitalize text-text">{gate}</h3>
               <span className="min-w-0 text-2xs text-text-dim">{EXPLAIN[gate]}</span>
             </div>
             <div className="grid gap-2 md:grid-cols-2">
@@ -187,7 +187,7 @@ export function GovernancePanel() {
                   <button
                     key={t.id}
                     type="button"
-                    className="anim inline-flex items-center gap-1 rounded-full border border-border px-1.5 hover:border-accent/50 hover:text-text"
+                    className="anim inline-flex items-center gap-1 rounded-full border border-border px-1.5 hover:bg-surface-2 hover:text-text"
                     onClick={() =>
                       set(gate, {
                         policy: "listed",
@@ -208,13 +208,17 @@ export function GovernancePanel() {
         );
       })}
 
-      <div>
-        <Button variant="primary" onClick={() => void save()} disabled={busy}>
-          {busy ? tr("work-agent-editor-saving") : tr("work-governance-panel-save-governance")}
-        </Button>
-      </div>
+      {/* The settings' one footer for an explicit save: Unsaved changes, Discard and Save under a hairline, and leaving with edits asks first. */}
+      <SaveFooter
+        form="governance"
+        dirty={data !== undefined && data !== null && JSON.stringify(governanceBody(draft)) !== JSON.stringify(governanceBody(data.governance))}
+        saving={busy}
+        saveLabel={tr("work-governance-panel-save-governance")}
+        onSave={() => void save()}
+        onDiscard={() => data && setDraft(data.governance)}
+      />
 
-      <h3 className="mt-2 text-xs font-medium">{tr("work-governance-panel-roles")}</h3>
+      <h3 className="mt-4 text-sm font-semibold text-text">{tr("work-governance-panel-roles")}</h3>
       <RoleMatrix />
     </div>
   );

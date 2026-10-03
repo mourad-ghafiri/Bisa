@@ -27,6 +27,7 @@ import { micromark } from "micromark";
 import { gfm, gfmHtml } from "micromark-extension-gfm";
 import { delegateLinkClick, useLinkHandler, useLinkRoots } from "./linkContext";
 import { linkifyHtml } from "./linkModel.mjs";
+import { cn } from "./cn";
 import { MermaidView } from "./MermaidView";
 import { mermaidBlocks } from "./mermaidModel.mjs";
 import { placeholderChips } from "./placeholderChips.mjs";
@@ -141,7 +142,7 @@ export function Markdown({
   if (segments.length === 1) {
     return (
       <div
-        className={`prose-i text-xs leading-relaxed ${className}`}
+        className={cn("prose-i text-sm leading-relaxed", className)}
         onClick={onClick}
         // Sanitized above: no raw HTML, no non-vouched protocols, no handlers.
         dangerouslySetInnerHTML={{ __html: html }}
@@ -149,7 +150,7 @@ export function Markdown({
     );
   }
   return (
-    <div className={`prose-i text-xs leading-relaxed ${className}`} onClick={onClick}>
+    <div className={cn("prose-i text-sm leading-relaxed", className)} onClick={onClick}>
       {segments.map((seg, i) =>
         seg.mermaid ? (
           <MermaidView

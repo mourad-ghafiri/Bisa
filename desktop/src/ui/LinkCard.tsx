@@ -69,7 +69,7 @@ export function LinkCard({
       role="dialog"
       aria-label={title}
       style={{ left: pos.x, top: pos.y }}
-      className="fixed z-50 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-1.5 rounded-card border border-border bg-surface p-2 shadow-xl"
+      className="fixed z-50 flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-1.5 rounded-card border border-border bg-surface p-2 shadow-lg"
     >
       <div className="min-w-0">
         <p className="truncate text-xs font-semibold text-text" title={title}>
@@ -92,10 +92,9 @@ export function LinkCard({
               v.onSelect();
             }}
             className={cn(
-              "anim rounded-control px-2 py-1 text-left text-2xs",
+              "anim rounded-control px-2 py-1 text-left text-2xs disabled:opacity-45",
               v.primary ? "bg-accent text-accent-contrast hover:opacity-90" : "text-text hover:bg-surface-2",
               v.danger && "text-danger",
-              v.disabled && "opacity-50",
             )}
           >
             {v.label}

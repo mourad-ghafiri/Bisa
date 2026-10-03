@@ -13,7 +13,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import type { Project } from "../../types";
 import { refreshWorkstreamStatuses } from "../../shell/workstreamStatusStore";
-import { Button, Card, ConfirmDialog, ErrorNote, ICON, useToast } from "../../ui";
+import { Button, Card, ConfirmDialog, ErrorNote, GitMark, sayFailure, useToast } from "../../ui";
 import { INIT_LABEL, PLAIN_FOLDER, initConsequence, initDoneWords } from "./initRepositoryModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -48,7 +48,7 @@ export function InitRepositoryCard({
       refreshWorkstreamStatuses();
       onDone?.(done.project.project);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(sayFailure("git", t("work-init-repository-card-could-not-init"), e));
     } finally {
       setBusy(false);
     }
@@ -56,12 +56,12 @@ export function InitRepositoryCard({
 
   return (
     <Card className="flex flex-col gap-2">
-      <p className="text-xs text-text-dim">{PLAIN_FOLDER}</p>
-      <p className="text-2xs text-text-dim">{consequence.body}</p>
+      <p className="text-xs text-text">{PLAIN_FOLDER}</p>
+      <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{consequence.body}</p>
       {error !== null && <ErrorNote error={error} retry={() => void run()} />}
       <div>
         <Button variant="primary" size="sm" disabled={busy} onClick={() => (consequence.needsConfirm ? setAsking(true) : void run())}>
-          <ICON.repository size={12} aria-hidden />
+          <GitMark size={12} aria-hidden />
           {busy ? t("work-init-repository-card-initialising") : INIT_LABEL}
         </Button>
       </div>

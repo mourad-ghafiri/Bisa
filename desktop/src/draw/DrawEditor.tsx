@@ -1,6 +1,7 @@
 /**
  * A drawing on the canvas (19 — Drawings): a header bar — back, the title,
- * the status, *Save*, the Ask drawer, maximize, delete — over the canvas,
+ * the status, *Save*, the Ask drawer, maximize, delete and the panel's × —
+ * over the canvas,
  * with the drawer beside it when it is open. *Save* saves now (⌘S too);
  * leaving with unsaved strokes asks through the panel's leave guard
  * (`shell/documentGuard.ts`), and *Delete* asks first.
@@ -41,7 +42,7 @@ import { ConversationDrawer } from "../views/_studio/ConversationDrawer";
 import { lastSaved, noteSaved, registerLiveScene, unregisterLiveScene } from "./liveScene";
 import { MaximizeToggle } from "../shell/MaximizeToggle";
 import { isSaveChord, useDocumentHold } from "../shell/documentGuard";
-import { drawGuard, setDrawAskOpen, toggleDrawMaximized, useDrawOverlay } from "./drawStore";
+import { drawGuard, setDrawAskOpen, setDrawOpen, toggleDrawMaximized, useDrawOverlay } from "./drawStore";
 import { t } from "../i18n/l10n.mjs";
 
 type ExcalidrawModule = typeof import("@excalidraw/excalidraw");
@@ -307,9 +308,9 @@ export function DrawEditor({
         }
       }}
     >
-      <header className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+      <header className="flex shrink-0 items-center gap-1 border-b border-hairline px-2 py-1.5">
         <Tooltip label={t("draw-editor-back-to-list")}>
-          <button type="button" aria-label={t("draw-editor-back-to-list")} onClick={onBack} className="anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text">
+          <button type="button" aria-label={t("draw-editor-back-to-list")} onClick={onBack} className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
             <ICON.back size={14} aria-hidden />
           </button>
         </Tooltip>
@@ -323,10 +324,10 @@ export function DrawEditor({
           }}
           className="min-w-0 flex-1 bg-transparent text-xs font-medium text-text focus:outline-none"
         />
-        <span className="max-w-[8rem] shrink-0 truncate text-3xs text-text-dim" title={scopeName}>
+        <span className="max-w-[8rem] shrink-0 truncate text-2xs text-text-dim" title={scopeName}>
           {scopeName}
         </span>
-        <span aria-live="polite" className={cn("tnum shrink-0 text-3xs", conflict || error ? "text-danger" : "text-text-dim")}>
+        <span aria-live="polite" className={cn("tnum shrink-0 text-2xs", conflict || error ? "text-danger" : "text-text-dim")}>
           {status}
         </span>
         <Button size="sm" disabled={!dirty || saving || conflict !== null} onClick={() => void saveNow()}>
@@ -338,15 +339,21 @@ export function DrawEditor({
             aria-label={t("draw-editor-ask-agent")}
             aria-pressed={askOpen}
             onClick={() => setDrawAskOpen(!askOpen)}
-            className={cn("anim shrink-0 rounded-control p-1 hover:bg-surface-2 hover:text-text", askOpen ? "bg-accent-soft text-accent-ink" : "text-text-dim")}
+            className={cn("anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control", askOpen ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text")}
           >
-            <ICON.dm size={14} aria-hidden />
+            <ICON.agent size={14} aria-hidden />
           </button>
         </Tooltip>
         <MaximizeToggle maximized={maximized} onToggle={toggleDrawMaximized} />
         <Tooltip label={t("draw-editor-delete")}>
-          <button type="button" aria-label={t("draw-editor-delete")} disabled={deleting} onClick={() => setConfirmingDelete(true)} className="anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-danger disabled:opacity-40">
+          <button type="button" aria-label={t("draw-editor-delete")} disabled={deleting} onClick={() => setConfirmingDelete(true)} className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-danger disabled:opacity-45">
             <ICON.delete size={14} aria-hidden />
+          </button>
+        </Tooltip>
+        {/* The panel's ×, last as in the list: it closes the panel and keeps this drawing the open one. */}
+        <Tooltip label={t("draw-overlay-close")}>
+          <button type="button" aria-label={t("draw-overlay-close")} onClick={() => setDrawOpen(false)} className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
+            <ICON.close size={13} aria-hidden />
           </button>
         </Tooltip>
       </header>
@@ -363,7 +370,7 @@ export function DrawEditor({
         danger
       />
       {conflict && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-danger-soft px-2 py-1.5 text-2xs text-danger">
+        <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-danger-soft py-1 pl-3 pr-2 text-2xs text-danger">
           <span className="min-w-0 flex-1">{t("draw-editor-strokes-since-are-lost")}</span>
           <Button size="sm" variant="ghost" onClick={() => void adopt()}>
             {t("draw-editor-take-theirs")}

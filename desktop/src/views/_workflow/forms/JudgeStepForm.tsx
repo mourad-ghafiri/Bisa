@@ -92,7 +92,7 @@ export function JudgeStepForm({ step, onChange, disabled }: { step: Judge; onCha
       <Field label={t("workflow-human-step-form-options")} hint={t("workflow-judge-step-form-what-each-branch-means-decision-making-agent")}>
         <div className="flex flex-col gap-2">
           {options.map((o, i) => (
-            <div key={`${o.branch}:${i}`} className="flex flex-col gap-1.5 rounded-control border border-border p-2">
+            <div key={`${o.branch}:${i}`} className="flex flex-col gap-1.5 rounded-control bg-surface-2/50 p-2">
               <div className="flex items-center gap-2">
                 <Chip tone="quiet">{t("workflow-judge-step-form-option-n", { n: i + 1 })}</Chip>
                 <span className="text-2xs text-text-dim">{t("workflow-decide-step-form-branch")}</span>

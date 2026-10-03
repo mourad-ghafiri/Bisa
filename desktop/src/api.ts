@@ -222,6 +222,7 @@ import type {
   SessionsResponse,
   SkillDef,
   SuggestedCommitMessage,
+  SuggestedPullRequest,
   TagFacet,
   TeamDef,
   WorkItemDetail,
@@ -2129,6 +2130,12 @@ export const api = {
   /// gate. Send only what {@link codeHostCapabilities} allows; `prFormModel.mjs`
   /// builds the body from the form the capabilities produced.
   openPr: (wid: string, body: PrBody, s?: AbortSignal) => post<PrOutcome>(`/workstreams/${wid}/pr`, body, s),
+  /// A pull request's title and body drafted by the core agent from the
+  /// branch's commits and its diff against the base — the PR dialog's
+  /// *Suggest*. **Always 200**: `{suggested: false, error}` is the no-harness,
+  /// timed-out or nothing-beyond-the-base case. Nothing here pushes or opens:
+  /// the session runs read-only with no MCP servers.
+  suggestPr: (wid: string, s?: AbortSignal) => post<SuggestedPullRequest>(`/workstreams/${wid}/pr/suggest`, {}, s),
 
   // --- the code host (ide/08) ----------------------------------------
   /// What the code host behind a project's `origin` can do, or `code_host: null` for a

@@ -24,7 +24,7 @@
  * and the root's memory takes them along when it goes.
  */
 
-import { harnessOf } from "../../shell/terminalsModel.mjs";
+import { terminalChipName } from "../../shell/terminalChipModel.mjs";
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useCallback, useEffect, useMemo } from "react";
 import { api } from "../../api";
 import type { ConversationMode } from "../../types";
@@ -33,7 +33,7 @@ import { setSearch, useSearchValue } from "../../router";
 import { stopSession, useSessions } from "../../shell/sessionsStore";
 import { stopWords } from "../../shell/sessionRosterModel.mjs";
 import { usePathIndex } from "../../shell/pathIndexStore";
-import { Button, ICON, Menu, focusComposer, isDragOf, useLinkHandler, useToast } from "../../ui";
+import { Button, ICON, Menu, failureText, focusComposer, isDragOf, useLinkHandler, useToast } from "../../ui";
 import type { ComposerFiles, DragData, LinkRootRef, MenuItem } from "../../ui";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { terminalTail } from "../../terminal/tails";
@@ -210,7 +210,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
           return;
         }
         const s = terminals.find((t) => t.key === key);
-        attach(terminalChip(s ? `${harnessOf(s) ?? "shell"} · ${key}` : key, lines, terminalLines));
+        attach(terminalChip(s ? terminalChipName(s, terminals) : key, lines, terminalLines));
       },
     },
   ];
@@ -238,7 +238,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
   const abort = (id: string) =>
     void stopSession(id).then(
       (how) => toast.ok(stopWords(how, tr("workbench-project-rail-session-aborted"))),
-      (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)),
+      (e: unknown) => toast.error(failureText("workbench", "use-conversation-pane-failed", e)),
     );
 
   // Who an unaddressed message reaches. The chip reads the project's setting;
@@ -250,7 +250,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
   const pickDefault = (id: string) => {
     void api.setSettings("project", { "agents.default": id }, pid).then(
       () => settings.reload(),
-      (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)),
+      (e: unknown) => toast.error(failureText("workbench", "use-conversation-pane-failed", e)),
     );
   };
   const addresseeChip: ReactNode = reaches && (
@@ -261,7 +261,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
         .map((a) => ({ label: a.name, icon: a.id === reaches.id ? ICON.check : ICON.agent, onSelect: () => pickDefault(a.id) }))}
       trigger={
         <span
-          className="anim inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border px-2 text-2xs text-text-dim hover:border-accent/50 hover:text-accent-ink"
+          className="anim inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border px-2 text-2xs text-text-dim hover:bg-surface-2 hover:text-text"
           title={tr("workbench-use-conversation-pane-message-names-nobody-reaches-runs-pick", { reaches: reaches.name, harness: reaches.harness, flag: (reaches.harness) ? "yes" : "no" })}
         >
           <ICON.agent size={11} aria-hidden />
@@ -296,7 +296,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
   const setMode = useCallback(
     (next: ConversationMode) => {
       if (!current || next === mode) return;
-      void api.patchConversation(current.id, { mode: next }).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+      void api.patchConversation(current.id, { mode: next }).catch((e: unknown) => toast.error(failureText("workbench", "use-conversation-pane-failed", e)));
     },
     [current, mode, toast],
   );
@@ -333,8 +333,6 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
     },
     [linkHandler, linkRoots, scopeKey],
   );
-  const keepAllChanges = () => current && void api.settleChanges(current.id, { verdict: "keep", target: { grain: "all" } }).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
-  const undoAllChanges = () => current && void api.settleChanges(current.id, { verdict: "undo", target: { grain: "all" } }).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
 
   const buildPlan = async () => {
     if (!current) return;
@@ -359,7 +357,8 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
       if (id === TIMELINE_END && mode === "plan" && !stoppable && current.message_count > 0) {
         const words = planBannerWords();
         nodes.push(
-          <div key="plan-banner" className="mt-1.5 flex items-center gap-2 rounded-card border border-accent/40 bg-accent-soft px-2 py-1.5 text-2xs">
+          // The plan waits on the person — build it or refine it — so the banner keeps the accent.
+          <div key="plan-banner" className="mt-2 flex items-center gap-2 rounded-card border border-accent/40 bg-accent-soft px-3 py-2 text-2xs">
             <span className="min-w-0 flex-1 text-text">{tr("workbench-use-conversation-pane-reply-above-plan")}</span>
             <Button size="sm" variant="primary" onClick={() => void buildPlan()}>
               {words.build}
@@ -385,7 +384,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
         onRestore: (id: string) => {
           const turn = (changes.data?.turns ?? []).find((t) => t.prompt === id);
           if (!turn) return;
-          void api.restoreChanges(current.id, turn.turn).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+          void api.restoreChanges(current.id, turn.turn).catch((e: unknown) => toast.error(failureText("workbench", "use-conversation-pane-failed", e)));
         },
       }
     : undefined;
@@ -415,8 +414,6 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
           conversationId: current.id,
           agentName: (id: string) => ws.agents.find((a) => a.id === id)?.name ?? id,
           onOpenFile: openReviewFile,
-          onKeepAll: keepAllChanges,
-          onUndoAll: undoAllChanges,
           onAttach: () => void attachGitChanges(wid, scopeKey),
         }
       : null;

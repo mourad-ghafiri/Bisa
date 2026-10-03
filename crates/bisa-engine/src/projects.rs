@@ -2157,10 +2157,7 @@ pub(crate) async fn suggest_for_tree(
         })
         .collect();
 
-    let (patch, truncated) = match diff.char_indices().nth(DIFF_BUDGET) {
-        Some((at, _)) => (&diff[..at], true),
-        None => (diff.as_str(), false),
-    };
+    let (patch, truncated) = budgeted(&diff);
     let prompt = format!(
         "{brief}\n\nStaged files:\n{}\n\n--- staged diff ---\n{patch}{}",
         staged.join("\n"),
@@ -2177,6 +2174,152 @@ pub(crate) async fn suggest_for_tree(
     // one here is cheaper than a second round trip, and leaves anything else
     // it said exactly as it said it.
     Ok(unfence(&text))
+}
+
+/// A patch cut to [`DIFF_BUDGET`] characters, on a character boundary, and
+/// whether it was cut.
+fn budgeted(diff: &str) -> (&str, bool) {
+    match diff.char_indices().nth(DIFF_BUDGET) {
+        Some((at, _)) => (&diff[..at], true),
+        None => (diff, false),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The pull request an agent drafts
+// ---------------------------------------------------------------------------
+
+/// What an agent drafts for a pull request: the title and the description.
+/// A draft in the person's dialog, never a pull request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequestDraft {
+    pub title: String,
+    pub body: String,
+}
+
+/// How many of the branch's commits go to the model, newest first: a pull
+/// request is described from what it does, and the subjects past this many
+/// say less than the diff already does.
+const PR_COMMIT_BUDGET: usize = 50;
+
+const PR_BRIEF: &str = "\
+Write the title and the description of a pull request for the branch below, \
+from its commits and its diff against the base. Reply in exactly this shape \
+and nothing else — no preamble, no code fences, no labels such as \"Title:\": \
+the title on the first line, under 72 characters, in the imperative, with no \
+trailing period; then one blank line; then the description in Markdown — one \
+or two sentences on what changes and why, then a short bulleted list of the \
+notable changes. Say how to test it only if the commits or the diff show \
+tests. Describe what the commits and the diff show, and do not invent a \
+motive, an issue number or a result they do not support.";
+
+/// Ask an agent for a pull request's title and description, from what the
+/// workstream's branch carries beyond its base: its commits and its diff
+/// (`base...HEAD`). The sibling of [`suggest_commit_message`], under the same
+/// contract — it suggests, and nothing on this path pushes, opens or writes
+/// anything; the session is the same read-only one ([`crate::ask`]); the core
+/// agent writes it; no harness, no model or no answer is the error, and the
+/// caller shows its own fields untouched and that sentence.
+///
+/// A branch with nothing beyond its base is refused as opening the pull
+/// request would refuse it ([`EngineError::NothingToPublish`]) — before any
+/// agent is asked.
+pub async fn suggest_pull_request(
+    inner: &Inner,
+    id: WorkstreamId,
+) -> Result<PullRequestDraft, EngineError> {
+    let w = inner.ws.get_workstream(id)?;
+    let (branch, base) = require_worktree(&w)?;
+    let path = inner.ws.workstream_checkout(&w)?;
+    let (commits, diff) = blocking({
+        let base = base.clone();
+        move || {
+            let commits = git::log(&path, Some(&base), PR_COMMIT_BUDGET)?;
+            let diff = git::branch_diff(&path, &base)?;
+            Ok((commits, diff))
+        }
+    })
+    .await?;
+    if commits.is_empty() {
+        return Err(EngineError::NothingToPublish {
+            workstream: id.to_string(),
+            branch,
+            base,
+        });
+    }
+    let listed: Vec<String> = commits.iter().map(|c| format!("- {}", c.subject)).collect();
+    let (patch, truncated) = budgeted(&diff);
+    let prompt = format!(
+        "{PR_BRIEF}\n\nBranch: {branch}, into {base}\n\nCommits on the branch, newest first:\n{}{}\n\n--- diff against {base} ---\n{patch}{}",
+        listed.join("\n"),
+        if commits.len() == PR_COMMIT_BUDGET {
+            "\n… (older commits not listed)"
+        } else {
+            ""
+        },
+        if truncated {
+            "\n… (diff truncated; describe the change from what is shown)"
+        } else {
+            ""
+        }
+    );
+    let text =
+        crate::ask::ask_agent_once(inner, AgentId::GENERAL, &prompt, SUGGESTION_DEADLINE).await?;
+    Ok(draft_of(&unfence(&text)))
+}
+
+/// The title and the description out of a reply shaped as asked — the title
+/// on the first line, a blank line, the description — and out of the shapes
+/// models drift into anyway: a `Title:` label, a Markdown heading or quotes
+/// around the title, a `Description:` label over the body.
+fn draft_of(text: &str) -> PullRequestDraft {
+    let mut lines = text.lines();
+    let title = lines
+        .by_ref()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(clean_title)
+        .unwrap_or_default();
+    let rest = lines.collect::<Vec<_>>().join("\n");
+    let mut body = rest.trim();
+    for label in [
+        "description:",
+        "body:",
+        "**description:**",
+        "**description**",
+        "## description",
+        "# description",
+    ] {
+        // `get`, not an index: a reply may open on a character wider than a byte.
+        if body
+            .get(..label.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(label))
+        {
+            body = body[label.len()..].trim_start();
+            break;
+        }
+    }
+    PullRequestDraft {
+        title,
+        body: body.to_string(),
+    }
+}
+
+/// A title line without what a model wraps it in.
+fn clean_title(line: &str) -> String {
+    let mut t = line.trim_start_matches('#').trim();
+    for label in ["**title:**", "**title**:", "title:"] {
+        if t.get(..label.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(label))
+        {
+            t = t[label.len()..].trim();
+            break;
+        }
+    }
+    let t = t
+        .trim_matches(|c| matches!(c, '"' | '`' | '\'' | '*'))
+        .trim();
+    t.trim_end_matches('.').trim_end().to_string()
 }
 
 /// Strip a single surrounding code fence, if the whole reply is one.
@@ -2969,6 +3112,55 @@ pub(crate) async fn settle_commit(inner: &Inner, id: WorkstreamId, message: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pull_request_draft_is_the_first_line_and_the_rest() {
+        let d = draft_of(
+            "Add the cart total\n\nThe cart now shows its total.\n\n- adds `total()`\n- tests it",
+        );
+        assert_eq!(d.title, "Add the cart total");
+        assert_eq!(
+            d.body,
+            "The cart now shows its total.\n\n- adds `total()`\n- tests it"
+        );
+    }
+
+    #[test]
+    fn a_pull_request_draft_survives_the_shapes_a_model_drifts_into() {
+        let labelled =
+            draft_of("Title: \"Fix rounding in the cart.\"\n\nDescription:\nRounds half up.");
+        assert_eq!(labelled.title, "Fix rounding in the cart");
+        assert_eq!(labelled.body, "Rounds half up.");
+        let heading = draft_of("\n\n# **Fix rounding**\n\n## Description\n\nRounds half up.");
+        assert_eq!(heading.title, "Fix rounding");
+        assert_eq!(heading.body, "Rounds half up.");
+        let fenced = draft_of(&unfence(
+            "```markdown\nFix rounding\n\nRounds half up.\n```",
+        ));
+        assert_eq!(
+            fenced,
+            PullRequestDraft {
+                title: "Fix rounding".into(),
+                body: "Rounds half up.".into()
+            }
+        );
+        let alone = draft_of("Fix rounding");
+        assert_eq!(
+            (alone.title.as_str(), alone.body.as_str()),
+            ("Fix rounding", ""),
+            "a title alone is a draft with no body"
+        );
+        assert_eq!(
+            draft_of("   \n  ").title,
+            "",
+            "nothing said is an empty title, never a made-up one"
+        );
+        // A reply that opens on a character wider than a byte is read, not a panic.
+        assert_eq!(
+            draft_of("Résumé support\n\névite les accents cassés").body,
+            "évite les accents cassés"
+        );
+    }
 
     #[test]
     fn a_typed_branch_name_is_made_safe_and_never_refused() {

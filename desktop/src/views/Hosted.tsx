@@ -8,14 +8,19 @@
  * What is here is what the host relayed: the channels the role reaches,
  * the people the host's directory names. Nothing of this node's own
  * workspace — its agents, its members, its rosters — is offered.
+ *
+ * A screen that has no conversation to show is still a door: back to the
+ * Inbox, or to Settings › People, where a membership is kept.
  */
 
 import { useMemo } from "react";
 import { api } from "../api";
+import { navigate } from "../router";
+import { settingsPath, settingsSearch } from "./_settings/settingsLink.mjs";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { hostName, hostedNameOf, hostedPhotoOf, hostedScreen, stateWords } from "../shell/hostedModel.mjs";
 import { roleLabel } from "./_settings/peopleModel.mjs";
-import { Avatar, Chip, EmptyState, ICON, Skeleton, SkeletonRows } from "../ui";
+import { Avatar, Button, Chip, EmptyState, ICON, Skeleton, SkeletonRows } from "../ui";
 import { audiencePrincipals } from "../types";
 import { Conversation, ConversationHeader } from "./_studio/Conversation";
 import { useAsync } from "./_work/useAsync";
@@ -31,6 +36,8 @@ export default function Hosted({ host, id, kind }: { host: string; id: string; k
   const hosted = useMemo(() => ({ host, directory }), [host, directory]);
 
   const screen = hostedScreen({ ready: ws.ready, section, channel });
+  const toInbox = <Button onClick={() => navigate({ name: "inbox" })}>{t("screens-conversation-door-back-inbox")}</Button>;
+  const toPeople = <Button onClick={() => navigate({ name: "settings" }, settingsSearch("people"))}>{settingsPath("people")}</Button>;
   if (screen === "reading") {
     // The workspace is not read yet: nothing is known of the membership, so nothing is said of it.
     return (
@@ -45,21 +52,21 @@ export default function Hosted({ host, id, kind }: { host: string; id: string; k
   if (screen === "unknown-host" || !section) {
     return (
       <div className="p-6">
-        <EmptyState icon={ICON.members} title={t("screens-hosted-not-member-workspace")} hint={t("screens-hosted-section-gone-from-sidebar-left-never")} action={null} />
+        <EmptyState icon={ICON.members} title={t("screens-hosted-not-member-workspace")} hint={t("screens-hosted-section-gone-from-sidebar-left-never")} action={toInbox} />
       </div>
     );
   }
   if (screen === "not-member") {
     return (
       <div className="p-6">
-        <EmptyState icon={ICON.members} title={`${hostName(section.host)}: ${stateWords(section.host) ?? t("screens-hosted-not-a-member")}`} hint={t("screens-hosted-what-already-received-stays-machine-nothing")} action={null} />
+        <EmptyState icon={ICON.members} title={`${hostName(section.host)}: ${stateWords(section.host) ?? t("screens-hosted-not-a-member")}`} hint={t("screens-hosted-what-already-received-stays-machine-nothing")} action={toPeople} />
       </div>
     );
   }
   if (screen === "unreached" || !channel) {
     return (
       <div className="p-6">
-        <EmptyState icon={kind === "dm" ? ICON.dm : ICON.channel} title={t("screens-hosted-do-not-reach-channel")} hint={t("screens-hosted-has-not-put-gone", { host: hostName(section.host) })} action={null} />
+        <EmptyState icon={kind === "dm" ? ICON.dm : ICON.channel} title={t("screens-hosted-do-not-reach-channel")} hint={t("screens-hosted-has-not-put-gone", { host: hostName(section.host) })} action={toInbox} />
       </div>
     );
   }
@@ -95,10 +102,10 @@ export default function Hosted({ host, id, kind }: { host: string; id: string; k
           }
           chips={
             <>
-              <Chip tone="quiet" icon={ICON.members}>
+              <Chip icon={ICON.members}>
                 {roleLabel(section.host.role)}
               </Chip>
-              <Chip tone="quiet" title={t("screens-hosted-text-mentions-replies-reach-host-files")}>{t("screens-hosted-text-only")}</Chip>
+              <Chip title={t("screens-hosted-text-mentions-replies-reach-host-files")}>{t("screens-hosted-text-only")}</Chip>
               {/* The host's people did not answer: names read as keys, and the header says why. */}
               {members.error && !members.data && (
                 <Chip tone="warn" title={members.error}>

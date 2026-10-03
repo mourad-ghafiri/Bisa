@@ -35,11 +35,12 @@ export function HumanStepForm({
       <Field label={t("workflow-human-step-form-options")} hint={t("workflow-human-step-form-leave-empty-free-text-question-ids")}>
         <div className="flex flex-col gap-1.5">
           {options.map((o, i) => (
-            <div key={i} className="grid gap-1.5 md:grid-cols-[1fr_2fr_auto]">
+            <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-1.5">
               <TextInput className="font-mono" value={o.id} placeholder={t("workflow-human-step-form-id")} aria-label={t("workflow-condition-editor-option-id")} disabled={disabled} onChange={(e) => patch(i, { id: e.target.value })} />
               <TextInput value={o.label} placeholder={t("workflow-human-step-form-label")} aria-label={t("workflow-human-step-form-option-label")} disabled={disabled} onChange={(e) => patch(i, { label: e.target.value })} />
               <div className="flex items-center gap-1">
-                <Button size="sm" variant={o.recommended ? "primary" : "ghost"} disabled={disabled} onClick={() => set({ options: options.map((x, j) => ({ ...x, recommended: j === i ? !x.recommended : false })) })}>
+                {/* A pressed toggle, so the selected ground — the accent is kept for what waits on the person. */}
+                <Button size="sm" variant="ghost" className={o.recommended ? "bg-selected text-text" : undefined} disabled={disabled} onClick={() => set({ options: options.map((x, j) => ({ ...x, recommended: j === i ? !x.recommended : false })) })}>
                   <ICON.recommended size={12} aria-hidden />
                 </Button>
                 <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ options: options.filter((_, j) => j !== i) })}>

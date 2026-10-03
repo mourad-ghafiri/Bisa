@@ -32,7 +32,7 @@ const ENABLED_KEY = "sync.enabled";
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-control border border-border px-2 py-1.5">
+    <div className="rounded-control bg-surface-2/50 px-2 py-1.5">
       <div className="tnum text-sm">{value}</div>
       <div className="text-2xs text-text-dim">{label}</div>
     </div>
@@ -117,7 +117,7 @@ export function RelaysPanel() {
   const allChecked = checkAllWords(relays.map((u) => rowChecks[u]).filter((c): c is RelayCheck => !!c));
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <Card>
         <Switch
           checked={enabled}
@@ -151,14 +151,14 @@ export function RelaysPanel() {
         {relays.length === 0 ? (
           <EmptyState icon={ICON.sync} title={t("settings-relays-panel-relays-2")} hint={t("settings-relays-panel-alone-works-relay-all-add-one")} action={null} />
         ) : (
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex flex-col divide-y divide-hairline rounded-card border border-border bg-surface shadow-sm">
             {relays.map((r) => {
               const h = healthOf(r);
               const tone = relayTone(h);
               const last = checkWords(rowChecks[r] ?? null);
               const state = !report ? t("settings-relays-panel-read-yet") : `${tone.word}${relayWords(h) ? ` · ${relayWords(h)}` : ""}`;
               return (
-                <li key={r} className="flex items-center gap-2 rounded-control border border-border px-2 py-1.5">
+                <li key={r} className="flex min-h-row-lg items-center gap-2 px-3 py-1.5">
                   <Dot tone={last ? (last.tone === "ok" ? "ok" : "danger") : tone.tone === "danger" ? "danger" : tone.tone === "warn" ? "warn" : tone.tone === "ok" ? "ok" : "neutral"} title={last ? last.text : tone.word} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-mono text-2xs">{r}</span>
@@ -176,7 +176,7 @@ export function RelaysPanel() {
           </ul>
         )}
 
-        <Card className="mt-2">
+        <Card className="mt-3">
           <div className="flex flex-col gap-2">
             <Field label={t("settings-relays-panel-add-relay")} /* for the machine */ hint={entry.ok ? t("settings-relays-panel-any-public-nostr-relay-works-only") : entry.reason || "wss://relay.example.com"}>
               <TextInput
@@ -227,13 +227,13 @@ export function RelaysPanel() {
               )}
             </div>
             {report.iroh_node_id && (
-              <div className="mt-2 border-t border-border pt-2">
+              <div className="mt-3 border-t border-hairline pt-3">
                 <div className="mb-1 flex items-center gap-2">
-                  <span className="text-2xs font-medium text-text-dim">{t("settings-relays-panel-direct-transport")}</span>
+                  <span className="text-2xs font-semibold text-text-dim">{t("settings-relays-panel-direct-transport")}</span>
                   <Chip tone="quiet">{t("settings-relays-panel-sessions", { iroh_peers_connected: report.iroh_peers_connected })}</Chip>
                 </div>
                 <CopyText value={report.iroh_node_id} label={`${report.iroh_node_id.slice(0, 16)}…`} />
-                <p className="mt-1 text-2xs text-text-dim">{t("settings-relays-panel-node-s-endpoint-id-peer-entered")}</p>
+                <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-relays-panel-node-s-endpoint-id-peer-entered")}</p>
               </div>
             )}
           </Card>

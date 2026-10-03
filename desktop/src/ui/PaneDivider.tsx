@@ -54,5 +54,5 @@ export function PaneDivider({
     d.dir === "row"
       ? { left: `calc(${d.at * 100}% - 3px)`, top: `${d.y * 100}%`, width: 6, height: `${d.h * 100}%`, cursor: "col-resize" }
       : { top: `calc(${d.at * 100}% - 3px)`, left: `${d.x * 100}%`, height: 6, width: `${d.w * 100}%`, cursor: "row-resize" };
-  return <div role="separator" aria-orientation={d.dir === "row" ? "vertical" : "horizontal"} aria-label={t("ui-pane-divider-resize-panes")} style={style} className="absolute z-20 hover:bg-accent/40" onPointerDown={onPointerDown} />;
+  return <div role="separator" aria-orientation={d.dir === "row" ? "vertical" : "horizontal"} aria-label={t("ui-pane-divider-resize-panes")} style={style} className="anim absolute z-20 hover:bg-text/20" onPointerDown={onPointerDown} />;
 }

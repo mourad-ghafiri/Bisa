@@ -98,7 +98,7 @@ export function ConversationList({
           type="button"
           aria-current={home.current ? "true" : undefined}
           onClick={home.onPick}
-          className={cn("anim mb-1 flex w-full min-w-0 items-center gap-1.5 rounded-control px-2 py-1 text-left text-xs hover:bg-surface-2", home.current ? "bg-surface-2 font-semibold text-text" : "text-text")}
+          className={cn("anim mb-1 flex w-full min-w-0 items-center gap-1.5 rounded-control px-2 py-1 text-left text-xs hover:bg-surface-2", home.current ? "bg-selected font-semibold text-text" : "text-text")}
         >
           {home.icon && <span className="shrink-0 text-text-dim">{home.icon}</span>}
           <span className="min-w-0 truncate">{home.label}</span>

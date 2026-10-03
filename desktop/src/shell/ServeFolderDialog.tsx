@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent } from "react";
 import { api } from "../api";
-import { Button, Chip, Dialog, ICON, TextInput, TreeList, cn } from "../ui";
+import { Button, Chip, Dialog, ICON, TextInput, TreeList, cn, failureReason } from "../ui";
 import { ROOT, initialState, loadKey, pendingLoads, reduce } from "../ui/fileTreeModel.mjs";
 import {
   ancestorsOf,
@@ -95,7 +95,7 @@ export function ServeFolderDialog({
         .tree("workstream", wid, path || undefined, 1, ac.signal)
         .then((tree) => dispatch({ type: "loaded", path, entries: tree.entries, truncated: tree.truncated, root: tree.root }))
         .catch((e: unknown) => {
-          if (!ac.signal.aborted) dispatch({ type: "failed", path, error: e instanceof Error ? e.message : String(e) });
+          if (!ac.signal.aborted) dispatch({ type: "failed", path, error: failureReason("serve", "a folder could not be listed", e) }); // for the log
         })
         .finally(() => {
           if (inflight.current.get(path) === ac) inflight.current.delete(path);
@@ -207,7 +207,7 @@ export function ServeFolderDialog({
             />
           )}
         />
-        <p className="min-h-8 text-2xs text-text-dim" aria-live="polite">
+        <p className="min-h-8 text-2xs leading-relaxed text-text-dim" aria-live="polite">
           {folder === null ? (rootListing?.status === "error" ? t("shell-serve-folder-dialog-checkout-could-listed-root-can-still", { error: rootListing.error }) : t("shell-serve-folder-dialog-choose-root-folder-under")) : choiceWords(folder, server)}
         </p>
       </div>
@@ -252,7 +252,7 @@ function FolderLine({
     <div
       onClick={onPick}
       onDoubleClick={onServe}
-      className={cn("anim flex h-full cursor-default items-center gap-1.5 rounded-control px-1 text-xs", cursor ? "bg-accent-soft text-text" : "hover:bg-surface-2", row.ignored && !cursor && "text-text-dim")}
+      className={cn("anim flex h-full cursor-default items-center gap-1.5 rounded-control px-1 text-xs", cursor ? "bg-selected text-text" : "hover:bg-surface-2", row.ignored && !cursor && "text-text-dim")}
       style={{ marginLeft: indent }}
     >
       {row.expandable ? (
@@ -264,19 +264,19 @@ function FolderLine({
             e.stopPropagation();
             onToggle();
           }}
-          className="anim flex size-4 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-3 hover:text-text"
+          className="anim flex size-4 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-selected hover:text-text"
         >
           <Chevron size={12} aria-hidden />
         </button>
       ) : (
         <span className="size-4 shrink-0" aria-hidden />
       )}
-      <Glyph size={13} className={cn("shrink-0", root ? "text-accent-ink" : "text-text-dim")} aria-hidden />
+      <Glyph size={13} className={cn("shrink-0", root ? "text-text" : "text-text-dim")} aria-hidden />
       <span className={cn("min-w-0 truncate", (root || row.kind === "typed") && "font-medium")}>{root ? t("shell-serve-folder-dialog-root") : row.kind === "typed" ? t("shell-serve-folder-dialog-serve-as-typed", { label: row.label }) : row.label}</span>
       {root && <span className="min-w-0 truncate text-2xs text-text-dim">{t("shell-serve-folder-dialog-whole-checkout", { row: row.label })}</span>}
       <span className="flex-1" />
       {hasPage && <Chip tone="quiet">index.html</Chip>}{/* for the machine */}
-      {port !== null && <Chip tone="accent">{t("shell-serve-folder-dialog-serving-port", { port })}</Chip>}
+      {port !== null && <Chip tone="neutral">{t("shell-serve-folder-dialog-serving-port", { port })}</Chip>}
     </div>
   );
 }

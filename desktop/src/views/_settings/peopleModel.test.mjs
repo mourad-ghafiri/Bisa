@@ -89,7 +89,8 @@ test("a key admitted by hand is 64 hex characters and nobody already here", () =
   assert.deepEqual(admitKey("C".repeat(64), people, me), { key: "c".repeat(64), problem: null });
   // The panel says the model's own sentence under the field — the one that is true of the key typed — and decides nothing from its words.
   const panel = readFileSync(new URL("./PeoplePanel.tsx", import.meta.url), "utf8");
-  assert.ok(panel.includes('hint={keyProblem || tr("settings-people-panel-somebody-who-already-knows-relays-invitation")}'), "a key that is yours, or already a member's, is told so — it once read as no hex key at all");
+  // The problem is the field's error — danger ink, announced — and the hint stays the hint: one sentence each, never the same one twice.
+  assert.ok(panel.includes('error={keyProblem || undefined} hint={tr("settings-people-panel-somebody-who-already-knows-relays-invitation")}'), "a key that is yours, or already a member's, is told so — it once read as no hex key at all");
   assert.ok(panel.includes("disabled={keyProblem !== null || adding}"), "nothing typed, or a key with a problem, admits nobody");
   assert.ok(!/keyProblem\.includes\(/.test(panel), "a sentence of the catalog is never matched for a word");
   // A read that refused is said where its answer goes: *None made yet* and *None yet* are claims only an answer makes.

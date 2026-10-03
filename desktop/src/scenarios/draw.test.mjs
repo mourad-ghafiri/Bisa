@@ -107,3 +107,36 @@ test("the footer, the keymap, Settings and the wire carry the feature", () => {
   const noteOverlay = read("notes/NoteOverlay.tsx");
   assert.ok(noteOverlay.includes('<RepoStrip repo={api.notesRepo} subject="Notes" pulls'), "the notes overlay draws the same strip");
 });
+
+test("the panel's × is there whatever is open — the list, a note, a drawing — and an agent is asked with the agent glyph", () => {
+  // The × closes the panel and keeps the open record the open one (`setNotesOpen(false)` / `setDrawOpen(false)`, through
+  // the leave guard); Back is what returns to the list. Both live in every header, so the way out never moves.
+  for (const [file, close, label] of [
+    ["notes/NoteOverlay.tsx", "setNotesOpen(false)", "notes-note-overlay-close-notes"],
+    ["notes/NoteEditor.tsx", "setNotesOpen(false)", "notes-note-overlay-close-notes"],
+    ["draw/DrawOverlay.tsx", "setDrawOpen(false)", "draw-overlay-close"],
+    ["draw/DrawEditor.tsx", "setDrawOpen(false)", "draw-overlay-close"],
+  ]) {
+    const src = read(file);
+    assert.ok(src.includes(`onClick={() => ${close}}`) && src.includes(`aria-label={${file.endsWith("Editor.tsx") ? "t" : "tr"}("${label}")}`), `${file}: the panel's ×`);
+  }
+  for (const file of ["notes/NoteEditor.tsx", "draw/DrawEditor.tsx"]) {
+    const src = read(file);
+    assert.ok(src.includes("<ICON.agent size={14} aria-hidden />") && !src.includes("ICON.dm"), `${file}: Ask an agent wears the agent glyph, not a message bubble`);
+  }
+});
+
+test("a note or a drawing is deleted from its list row, asked first in the editor's own words", () => {
+  // The trash is the row's sibling, never nested in the row's button, and shows on hover or focus (`row-actions`);
+  // it asks in the danger dialog the editor asks in, then calls the same delete, and a record already gone just leaves.
+  for (const [file, del, label, words, gone] of [
+    ["notes/NoteOverlay.tsx", "api.deleteNote(n.id)", "notes-note-overlay-delete-note", "notes-note-editor-delete-title", 'noteRefusal(e.status) === "gone"'],
+    ["draw/DrawOverlay.tsx", "api.deleteDrawing(r.id)", "draw-overlay-delete-drawing", "draw-editor-delete-title", "e.status === 404"],
+  ]) {
+    const src = read(file);
+    assert.ok(src.includes('className="group relative"') && src.includes("row-actions anim absolute"), `${file}: the row holds its trash beside the row's button`);
+    assert.ok(src.includes(`aria-label={tr("${label}"`) && src.includes("<ICON.delete size={13} aria-hidden />"), `${file}: the trash names the record it deletes`);
+    assert.ok(src.includes("<ConfirmDialog") && src.includes(`tr("${words}"`) && /confirmLabel=\{[^}]+\}\s+danger/.test(src), `${file}: asked first, in a danger dialog`);
+    assert.ok(src.includes(del) && src.includes(gone) && src.includes("sayFailure("), `${file}: the same delete, gone counts as done, a failure said through the kit`);
+  }
+});

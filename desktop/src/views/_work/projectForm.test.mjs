@@ -31,6 +31,7 @@ import {
   provenancesFor,
   hostChoiceWords,
   primaryLabel,
+  busyLabel,
   refusalPlace,
   shownFields,
   } from "./projectForm.mjs";
@@ -45,6 +46,11 @@ test("import defaults to copying the folder in, and can link it in place", () =>
     assert.equal(bodyKind("clone", placement), "clone");
   }
   assert.deepEqual([...PROVENANCE], ["new", "clone", "import"]);
+  // Import's placements, in the order the dialog offers them: linked in place first and chosen, then copied in.
+  assert.deepEqual([...PLACEMENT], ["link", "copy"]);
+  const dialog = readFileSync(new URL("./NewProjectDialog.tsx", import.meta.url), "utf8");
+  assert.ok(dialog.includes('useState<Placement>("link")') && dialog.includes('setPlacement("link");') && !dialog.includes('setPlacement("copy")'), "the dialog opens, and reopens, on Link it in place");
+  assert.ok(dialog.indexOf('id: "link",') < dialog.indexOf('id: "copy",'), "Link it in place is the first choice, Copy it in the second");
 });
 
 test("a suggested slug is one the server's allowlist would accept", () => {
@@ -142,7 +148,7 @@ test("a refusal is said where the form shows it: beside its input when that inpu
   for (const field of ["slug", "name", "url", "path"]) assert.ok(dialog.includes(`err("${field}")`), `the dialog draws ${field}'s refusal`);
   assert.ok(dialog.includes("errors.form"), "and the form's");
   assert.ok(!dialog.includes('err("project")'), "no project picker, so no place for a refusal about one");
-  assert.ok(dialog.includes("setErrors(refusalPlace({ message: e instanceof Error ? e.message : String(e), refusal: answer?.refusal, status: answer?.status }, provenance));"), "the dialog places a refusal through the model, by the id the answer carries");
+  assert.ok(dialog.includes('setErrors(refusalPlace({ message: failureText("work", "new-project-dialog-failed", e), refusal: answer?.refusal, status: answer?.status }, provenance));'), "the dialog places a refusal through the model, by the id the answer carries — the node's words, never an exception's");
 });
 
 test("the dialog never asks about a goal: nothing it draws is a goal's, no door hands it a list of them, and attaching is one dialog elsewhere", () => {
@@ -176,6 +182,11 @@ test("the commit button says what is about to happen, and the account select's f
   assert.equal(primaryLabel("clone", "link"), "Create");
   assert.equal(primaryLabel("import", "copy"), "Copy it in");
   assert.equal(primaryLabel("import", "link"), "Link it in place");
+  // While the node works, the same verb going on — never a borrowed *Working…*.
+  assert.equal(busyLabel("new", "copy"), "Creating…");
+  assert.equal(busyLabel("clone", "link"), "Cloning…");
+  assert.equal(busyLabel("import", "copy"), "Copying…");
+  assert.equal(busyLabel("import", "link"), "Linking…");
   assert.equal(hostChoiceWords(null), "— the host's own choice —");
   assert.equal(hostChoiceWords("ada"), "— the host's own choice (@ada) —");
 });

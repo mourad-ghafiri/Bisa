@@ -21,12 +21,13 @@ import { api, openExternal } from "../../api";
 import { useEngineEvents } from "../../bus";
 import { canOpenTerminal, openTerminalIn, useTerminals } from "../../shell/useTerminals";
 import type { CodeHostConnection, CodeHostKind } from "../../types";
-import { Button, Card, Chip, ConfirmDialog, CopyText, ErrorNote, Field, ICON, Pending, ReadLine, SecretInput, Select, TextInput, Tooltip, useToast } from "../../ui";
+import { Button, Card, Chip, ConfirmDialog, CopyText, ErrorNote, Field, ICON, Pending, ReadLine, SecretInput, Section, Select, TextInput, Tooltip, failureText, useToast } from "../../ui";
 import { cliName, hostLabel, prNouns } from "../_work/codeHostWords.mjs";
 import { attempt, useAsync } from "../_work/useAsync";
 import { pendingRows, phase, readWords } from "./loadModel.mjs";
 import {
   accountRows,
+  addBlockedWords,
   addedWords,
   checksStillListed,
   cliLine,
@@ -141,7 +142,7 @@ export function CodeHostPanel({ kind }: { kind: CodeHostKind }) {
     toast.ok(signingInWords(kind));
   };
 
-  const open = (url: string) => void openExternal(url).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+  const open = (url: string) => void openExternal(url).catch((e: unknown) => toast.error(failureText("settings", "code-host-panel-failed", e)));
 
   // The panel is drawn at once with its shape; each read fills the place its
   // answer goes (ide/13 §Every panel reads the same way). `data` is null only
@@ -164,174 +165,182 @@ export function CodeHostPanel({ kind }: { kind: CodeHostKind }) {
   const toneClass = (tone: string) => (tone === "ok" ? "text-text-dim" : tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : "text-text-dim");
   const probe = t("settings-code-host-panel-cli-3", { cliWords: cliWords?.label ?? t("settings-code-host-panel-code-host") });
   const status = connection === "ready" ? readWords({ what: probe, refreshing: health.refreshing, error: health.error, at: health.at, data }, Date.now() / 1000) : null;
+  const blockedAdd = busy !== null ? null : addBlockedWords({ ready: Boolean(data), token, sent, needsLogin: words.needsLogin, login });
 
   return (
-    <div className="flex flex-col gap-3">
-      <Card className="flex flex-col gap-3 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-xs font-semibold">{label}</h3>
-          {data ? (
-            <Chip tone={data.resolves ? "ok" : "warn"} icon={data.resolves ? ICON.ok : ICON.warn}>
-              {data.resolves ? t("settings-code-host-panel-connected") : t("settings-code-host-panel-signed")}
-            </Chip>
-          ) : (
-            <Chip tone="quiet">{connection === "failed" ? t("settings-code-host-panel-read") : t("settings-system-permissions-checking")}</Chip>
-          )}
-          <span className="flex-1" />
+    <div className="flex flex-col gap-6">
+      <Section
+        title={
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold text-text">{label}</h2>
+            {data ? (
+              <Chip tone={data.resolves ? "ok" : "warn"} icon={data.resolves ? ICON.ok : ICON.warn}>
+                {data.resolves ? t("settings-code-host-panel-connected") : t("settings-code-host-panel-signed")}
+              </Chip>
+            ) : (
+              <Chip tone="quiet">{connection === "failed" ? t("settings-code-host-panel-read") : t("settings-system-permissions-checking")}</Chip>
+            )}
+          </div>
+        }
+        action={
           <Tooltip label={t("settings-code-host-panel-read-again-cli-s-status-stored")}>
             <ReadLine words={status} busy={health.loading || health.refreshing} onReload={health.reload} reloadLabel={t("settings-code-host-panel-check-again")} />
           </Tooltip>
-        </div>
+        }
+      >
+        <Card className="flex flex-col gap-3">
 
-        {connection === "pending" && <Pending what={probe} rows={pendingRows(t("settings-code-host-panel-github-cli"))} />}
-        {connection === "failed" && <ErrorNote error={health.error ?? t("settings-code-host-panel-connection-check-refused")} retry={health.reload} />}
+          {connection === "pending" && <Pending what={probe} rows={pendingRows(t("settings-code-host-panel-github-cli"))} />}
+          {connection === "failed" && <ErrorNote error={health.error ?? t("settings-code-host-panel-connection-check-refused")} retry={health.reload} />}
 
-        {data && (
-          <>
-            <p className={`text-2xs ${resolves.tone === "ok" ? "text-text" : "text-warn"}`}>{resolves.text}</p>
+          {data && (
+            <>
+              <p className={`text-2xs ${resolves.tone === "ok" ? "text-text" : "text-warn"}`}>{resolves.text}</p>
 
-            {env && (
-              <p className="rounded-control border border-warn/40 bg-warn/10 px-2 py-1 text-2xs text-warn" role="status">
-                {env}
-              </p>
-            )}
-
-            {/* The CLI: what the machine has, and the way in. */}
-            <div className="flex flex-col gap-1.5 rounded-control border border-border bg-surface-2 p-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <ICON.shell size={13} aria-hidden className="shrink-0 text-text-dim" />
-                <span className={`min-w-0 flex-1 text-2xs ${toneClass(cli.tone)}`}>{cli.text}</span>
-                {data.cli?.path && <span className="font-mono text-3xs text-text-dim" title={data.cli.path}>{data.cli.path}</span>}
-              </div>
-              {data.cli?.accounts && data.cli.accounts.length > 0 && (
-                <ul className="flex flex-wrap gap-2 pl-5" aria-label={t("settings-code-host-panel-accounts", { cliWords: cliWords?.label ?? t("settings-code-host-panel-cli-2") })}>
-                  {data.cli.accounts.map((a) => (
-                    <li key={`${a.host}:${a.login}`} className="flex items-center gap-1">
-                      <span className="font-mono text-2xs">@{a.login}</span>
-                      {a.active && <Chip tone="accent">{t("settings-code-host-panel-active")}</Chip>}
-                      {data.cli && (
-                        <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void check(a.login)}>
-                          {busy === `check:${a.login}` ? t("settings-code-host-panel-checking") : t("settings-code-host-panel-check")}
-                        </Button>
-                      )}
-                      {checks[a.login] && <span className={`text-3xs ${toneClass(connectionLine(checks[a.login], label).tone)}`}>{connectionLine(checks[a.login], label).text}</span>}
-                    </li>
-                  ))}
-                </ul>
+              {env && (
+                <p className="rounded-control border border-warn/40 bg-warn/10 px-2 py-1 text-2xs text-warn" role="status">
+                  {env}
+                </p>
               )}
-              {/* The way in is its own read: the button appears with its words, never before them. */}
-              {cli.action !== null && phase(plan) === "pending" && <Pending what={t("settings-load-how-sign")} rows={pendingRows(t("settings-load-how-sign"))} className="pl-5" />}
-              {cli.action !== null && phase(plan) === "failed" && <ErrorNote error={plan.error ?? t("settings-code-host-panel-sign-in-plan-refused")} retry={plan.reload} />}
-              {cli.action === "signin" && plan.data && (
-                <div className="flex flex-wrap items-center gap-2 pl-5">
-                  <Button size="sm" variant="primary" disabled={!data.cli?.installed} onClick={authenticate}>
-                    <ICON.open size={12} aria-hidden />
-                    <span className="ml-1">{way.button}</span>
-                  </Button>
-                  <span className="text-3xs text-text-dim">{way.blurb}</span>
+
+              {/* The CLI: what the machine has, and the way in. */}
+              <div className="flex flex-col gap-1.5 rounded-control bg-surface-2/50 p-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <ICON.shell size={13} aria-hidden className="shrink-0 text-text-dim" />
+                  <span className={`min-w-0 flex-1 text-2xs ${toneClass(cli.tone)}`}>{cli.text}</span>
+                  {data.cli?.path && <span className="font-mono text-2xs text-text-dim" title={data.cli.path}>{data.cli.path}</span>}
                 </div>
-              )}
-              {cli.action === "install" && plan.data?.kind === "install" && (
-                <div className="flex flex-col gap-1 pl-5">
-                  <p className="text-3xs text-text-dim">{way.blurb}</p>
-                  <ul className="flex flex-wrap gap-2">
-                    {installLines(plan.data.hints).map((l) => (
-                      <li key={l.label} className="flex items-center gap-1">
-                        <span className="text-3xs text-text-dim">{l.label}</span>
-                        <code className="font-mono text-2xs">{l.command}</code>
-                        <CopyText value={l.command} label={t("settings-code-host-panel-copy-command", { l: l.label })} />
+                {data.cli?.accounts && data.cli.accounts.length > 0 && (
+                  <ul className="flex flex-wrap gap-2 pl-5" aria-label={t("settings-code-host-panel-accounts", { cliWords: cliWords?.label ?? t("settings-code-host-panel-cli-2") })}>
+                    {data.cli.accounts.map((a) => (
+                      <li key={`${a.host}:${a.login}`} className="flex items-center gap-1">
+                        <span className="font-mono text-2xs">@{a.login}</span>
+                        {a.active && <Chip tone="neutral">{t("settings-code-host-panel-active")}</Chip>}
+                        {data.cli && (
+                          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void check(a.login)}>
+                            {busy === `check:${a.login}` ? t("settings-code-host-panel-checking") : t("settings-code-host-panel-check")}
+                          </Button>
+                        )}
+                        {checks[a.login] && <span className={`text-2xs ${toneClass(connectionLine(checks[a.login], label).tone)}`}>{connectionLine(checks[a.login], label).text}</span>}
                       </li>
                     ))}
                   </ul>
-                  <button type="button" className="self-start text-2xs text-accent-ink underline underline-offset-2" onClick={() => open(plan.data!.kind === "install" ? plan.data!.hints.url : "")}>
-                    {t("settings-code-host-panel-cli-install-page", { cli: cliWords?.label ?? t("settings-code-host-panel-cli") })}
-                  </button>
-                </div>
+                )}
+                {/* The way in is its own read: the button appears with its words, never before them. */}
+                {cli.action !== null && phase(plan) === "pending" && <Pending what={t("settings-load-how-sign")} rows={pendingRows(t("settings-load-how-sign"))} className="pl-5" />}
+                {cli.action !== null && phase(plan) === "failed" && <ErrorNote error={plan.error ?? t("settings-code-host-panel-sign-in-plan-refused")} retry={plan.reload} />}
+                {cli.action === "signin" && plan.data && (
+                  <div className="flex flex-wrap items-center gap-2 pl-5">
+                    <Button size="sm" variant="primary" disabled={!data.cli?.installed} onClick={authenticate}>
+                      <ICON.open size={12} aria-hidden />
+                      <span className="ml-1">{way.button}</span>
+                    </Button>
+                    <span className="text-2xs text-text-dim">{way.blurb}</span>
+                  </div>
+                )}
+                {cli.action === "install" && plan.data?.kind === "install" && (
+                  <div className="flex flex-col gap-1 pl-5">
+                    <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{way.blurb}</p>
+                    <ul className="flex flex-wrap gap-2">
+                      {installLines(plan.data.hints).map((l) => (
+                        <li key={l.label} className="flex items-center gap-1">
+                          <span className="text-2xs text-text-dim">{l.label}</span>
+                          <code className="font-mono text-2xs">{l.command}</code>
+                          <CopyText value={l.command} label={t("settings-code-host-panel-copy-command", { l: l.label })} />
+                        </li>
+                      ))}
+                    </ul>
+                    <Button size="sm" variant="ghost" className="self-start" onClick={() => open(plan.data!.kind === "install" ? plan.data!.hints.url : "")}>
+                      <ICON.open size={12} aria-hidden />
+                      {t("settings-code-host-panel-cli-install-page", { cli: cliWords?.label ?? t("settings-code-host-panel-cli") })}
+                    </Button>
+                  </div>
+                )}
+                {cli.action === null && data.cli?.installed && data.cli.accounts.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 pl-5">
+                    <Button size="sm" variant="ghost" onClick={authenticate}>{t("settings-code-host-panel-sign-another-account")}</Button>
+                  </div>
+                )}
+              </div>
+
+              {rows.length > 0 && (
+                <ul className="flex flex-col gap-2" aria-label={t("settings-code-host-panel-stored-accounts")}>
+                  {rows.map((row) => {
+                    const line = connectionLine(checks[row.login], label);
+                    return (
+                      <li key={row.login} className="rounded-control bg-surface-2/50 p-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ICON.account size={13} aria-hidden className="shrink-0 text-text-dim" />
+                          <span className="font-mono text-xs">@{row.login}</span>
+                          {row.isDefault && <Chip tone="neutral">{t("settings-appearance-panel-default")}</Chip>}
+                          <span className="text-2xs text-text-dim">{t("settings-code-host-panel-token", { sourceWords: row.sourceWords })}</span>
+                          <span className="flex-1" />
+                          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void check(row.login)}>
+                            {busy === `check:${row.login}` ? t("settings-code-host-panel-checking") : t("settings-code-host-panel-check")}
+                          </Button>
+                          {!row.isDefault && (
+                            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void setDefault(row.login)}>{t("settings-code-host-panel-make-default")}</Button>
+                          )}
+                          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setForgetting(row.login)}>{t("settings-code-host-panel-forget")}</Button>
+                        </div>
+                        {checks[row.login] && <p className={`mt-1 text-2xs ${toneClass(line.tone)}`}>{line.text}</p>}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-              {cli.action === null && data.cli?.installed && data.cli.accounts.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 pl-5">
-                  <Button size="sm" variant="ghost" onClick={authenticate}>{t("settings-code-host-panel-sign-another-account")}</Button>
-                </div>
-              )}
-            </div>
 
-            {rows.length > 0 && (
-              <ul className="flex flex-col gap-2" aria-label={t("settings-code-host-panel-stored-accounts")}>
-                {rows.map((row) => {
-                  const line = connectionLine(checks[row.login], label);
-                  return (
-                    <li key={row.login} className="rounded-control border border-border bg-surface-2 p-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <ICON.account size={13} aria-hidden className="shrink-0 text-text-dim" />
-                        <span className="font-mono text-xs">@{row.login}</span>
-                        {row.isDefault && <Chip tone="accent">{t("settings-appearance-panel-default")}</Chip>}
-                        <span className="text-2xs text-text-dim">{t("settings-code-host-panel-token", { sourceWords: row.sourceWords })}</span>
-                        <span className="flex-1" />
-                        <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void check(row.login)}>
-                          {busy === `check:${row.login}` ? t("settings-code-host-panel-checking") : t("settings-code-host-panel-check")}
-                        </Button>
-                        {!row.isDefault && (
-                          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void setDefault(row.login)}>{t("settings-code-host-panel-make-default")}</Button>
-                        )}
-                        <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setForgetting(row.login)}>{t("settings-code-host-panel-forget")}</Button>
-                      </div>
-                      {checks[row.login] && <p className={`mt-1 text-2xs ${toneClass(line.tone)}`}>{line.text}</p>}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-
-            <div className="flex flex-wrap items-end gap-2">
-              <Field label={t("settings-code-host-panel-default-account")} hint={defaultLine(data)}>
-                <Select value={data.default ?? ""} disabled={busy !== null || (rows.length === 0 && !data.cli_login)} onChange={(e) => void setDefault(e.target.value || null)} className="w-56">
-                  <option value="">{t("settings-code-host-panel-chain-s-own-choice")}</option>
-                  {[...new Set([...rows.map((r) => r.login), ...(data.cli_login ? [data.cli_login] : [])])].map((l) => (
-                    <option key={l} value={l}>
-                      @{l}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
-            {helpers && <p className={`text-2xs ${helpers.tone === "ok" ? "text-text-dim" : "text-warn"}`}>{helpers.text}</p>}
-          </>
-        )}
-      </Card>
-
-      {/* Drawn at once: a token can be typed while the probe is on its way; adding waits for its answer. */}
-      <Card className="flex flex-col gap-2 p-3">
-        <h3 className="text-xs font-semibold">{t("settings-code-host-panel-add-token")}</h3>
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void add();
-          }}
-        >
-          {words.needsLogin && (
-            <Field label={t("settings-code-host-panel-login")} hint={t("settings-code-host-panel-login-token-belongs", { label })}>
-              <TextInput value={login} /* for the machine */ placeholder="your-login" className="w-40 font-mono" onChange={(e) => setLogin(e.target.value)} />
-            </Field>
-          )}
-          <Field label={t("settings-code-host-panel-token-2")} hint={data ? storeHint(data) : t("settings-code-host-panel-waiting-connection-check")}>
-            <SecretInput what={t("ui-secret-input-what-token")} value={token} placeholder={words.placeholder} className="w-80" onChange={setToken} />
-          </Field>
-          <Button size="sm" type="submit" variant="primary" disabled={!data || busy !== null || !token.trim() || token === sent || (words.needsLogin && !login.trim())} title={data ? undefined : t("settings-code-host-panel-waiting-connection-check")}>
-            {busy === "add" ? t("settings-code-host-panel-checking", { label }) : t("settings-code-host-panel-add-account")}
-          </Button>
-        </form>
-        <p className="text-3xs text-text-dim">
-          {words.scopes}{" "}
-          {data && (
-            <>
-              <button type="button" className="text-accent-ink underline underline-offset-2" onClick={() => open(data.token_page)}>{t("settings-code-host-panel-make-one", { label })}</button>
-              .{" "}
+              <div className="flex flex-wrap items-end gap-2">
+                <Field label={t("settings-code-host-panel-default-account")} hint={defaultLine(data)}>
+                  <Select value={data.default ?? ""} disabled={busy !== null || (rows.length === 0 && !data.cli_login)} onChange={(e) => void setDefault(e.target.value || null)} className="w-56">
+                    <option value="">{t("settings-code-host-panel-chain-s-own-choice")}</option>
+                    {[...new Set([...rows.map((r) => r.login), ...(data.cli_login ? [data.cli_login] : [])])].map((l) => (
+                      <option key={l} value={l}>
+                        @{l}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              {helpers && <p className={`text-2xs ${helpers.tone === "ok" ? "text-text-dim" : "text-warn"}`}>{helpers.text}</p>}
             </>
           )}
-          {t("settings-code-host-panel-which-account-repository-uses", { prs: prNouns(kind) })}
-        </p>
-      </Card>
+        </Card>
+      </Section>
+
+      {/* Drawn at once: a token can be typed while the probe is on its way; adding waits for its answer. */}
+      <Section title={t("settings-code-host-panel-add-token")}>
+        <Card className="flex flex-col gap-2">
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void add();
+            }}
+          >
+            {words.needsLogin && (
+              <Field label={t("settings-code-host-panel-login")} hint={t("settings-code-host-panel-login-token-belongs", { label })}>
+                <TextInput value={login} /* for the machine */ placeholder="your-login" className="w-40 font-mono" onChange={(e) => setLogin(e.target.value)} />
+              </Field>
+            )}
+            <Field label={t("settings-code-host-panel-token-2")} hint={data ? storeHint(data) : t("settings-code-host-panel-waiting-connection-check")}>
+              <SecretInput what={t("ui-secret-input-what-token")} value={token} placeholder={words.placeholder} className="w-80" onChange={setToken} />
+            </Field>
+            <Button size="sm" type="submit" variant="primary" disabled={!data || busy !== null || !token.trim() || token === sent || (words.needsLogin && !login.trim())} disabledReason={blockedAdd ?? undefined}>
+              {busy === "add" ? t("settings-code-host-panel-checking", { label }) : t("settings-code-host-panel-add-account")}
+            </Button>
+          </form>
+          <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
+            {words.scopes} {t("settings-code-host-panel-which-account-repository-uses", { prs: prNouns(kind) })}
+          </p>
+          {data && (
+            <Button size="sm" variant="ghost" className="self-start" onClick={() => open(data.token_page)}>
+              <ICON.open size={12} aria-hidden />
+              {t("settings-code-host-panel-make-one", { label })}
+            </Button>
+          )}
+        </Card>
+      </Section>
 
       <ConfirmDialog
         open={forgetting !== null}

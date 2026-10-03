@@ -198,7 +198,7 @@ name or kind or a tag; a **status** — *All · Runs · Has problems · In use* 
 filters live in the address, so a link carries a search and Back restores it. *New workflow*
 **creates the workflow at once** — *Untitled workflow*, a draft holding one step, *Start · by hand*,
 which the first step you draw follows — and opens its designer: it is a workflow from its first second, so
-the Agent pane, the conversations, the browser door and `bisa workflow …` all have it, and the
+the Agent pane, the conversations and `bisa workflow …` all have it, and the
 library lists it when you come back. Every card leads with **one state line** — *ready to run*, *2
 problems*, *running 2 runs*, *running in one goal*, *runs on a goal*, *archived* — then what it is,
 how big and where from (*3 steps · 2 inputs · yours*), its holders and its tags; and every card has
@@ -535,9 +535,8 @@ each with its place, and a queued run can be withdrawn until it starts. *Stop* c
 and withdraws the queue; *Restart* cancels it and starts a new run of the same workflow and inputs
 ahead of the queue ([Goals](goals.md#stopping-and-restarting)). A goal's run is stopped and
 restarted from its goal, never from the workflow: the designer's *Running in n goals* banner names
-the goals running it, each a link. The designer's header carries the **Browser** button too:
-the embedded browser beside the workflow, its open tabs counted, a dot while an agent browses, the
-pane shown or hidden ([the desktop](the-desktop.md#the-browser-pane)).
+the goals running it, each a link. Beside the designer the embedded browser opens with `⌘⇧L`
+([the desktop](the-desktop.md#the-browser-pane)); the **Browser** button is the Project IDE's.
 
 A `wait` holds a run for something: a `delay`, a moment (`time`), a `schedule`, a named `signal`, a
 `message`, a `project`'s change, a `run`'s end, a `platform` topic, or a person's `release`

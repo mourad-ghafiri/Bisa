@@ -16,7 +16,7 @@
  * restores it, once the canvas has nothing of its own to cancel.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { ApiError, api } from "../api";
 import { useEngineEvents } from "../bus";
@@ -27,10 +27,11 @@ import { MaximizeToggle } from "../shell/MaximizeToggle";
 import { UnsavedDialog } from "../shell/UnsavedDialog";
 import { leaveWords } from "../shell/leaveGuardModel.mjs";
 import { useMaximizedPanel } from "../shell/maximizedPanel";
+import { useBrowserClear } from "../shell/browserClear";
 import { RepoStrip } from "../shell/repo/RepoStrip";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import type { DrawingDetail, DrawingRow } from "../types";
-import { Button, ResizeHandle, Spinner, Tabs, TextInput, useStoredSize } from "../ui";
+import { Button, Chip, ConfirmDialog, EmptyState, ErrorNote, ResizeHandle, Spinner, Tabs, TextInput, Tooltip, sayFailure, useStoredSize, useToast } from "../ui";
 import { NewDrawingDialog } from "./NewDrawingDialog";
 import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
@@ -45,6 +46,8 @@ import { clearActiveDrawing, drawGuard, openDrawing, restoredDrawing, setDrawMax
 import { useDrawPrefs } from "./drawPrefsStore";
 import { templateOf } from "./templates/index.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
+import { useFloatingPanelWidth, useViewportWidth } from "../shell/floatingPanelStore";
+import { besideOffset } from "./besideModel.mjs";
 
 const DEFAULT_WIDTH = 720;
 const DEFAULT_HEIGHT = 560;
@@ -115,6 +118,13 @@ export function DrawOverlay() {
   const workflows = useWorkflowNames(open);
   // Maximized, the panel fills the content column — the frame `shell/maximizedPanel.ts` gives, shared with Notes.
   const fixed = useMaximizedPanel(open, maximized);
+  // Beside a floating Notes panel when the window holds both, never on it (`besideModel.mjs`).
+  const notesWidth = useFloatingPanelWidth("notes");
+  const viewport = useViewportWidth();
+  const beside = fixed ? 0 : besideOffset({ notesWidth, drawWidth: width, viewport });
+  // Over a browser tab the layer leaves a hole for the floating panel (ide/18); maximized it is a surface instead.
+  const panel = useRef<HTMLElement>(null);
+  useBrowserClear("draw-panel", panel, open && !fixed);
   // A way out parked behind the question about unsaved work (`shell/documentGuard.ts`).
   const leaving = drawGuard.usePending();
 
@@ -144,7 +154,9 @@ export function DrawOverlay() {
         setError(null);
       } catch (e) {
         if (signal?.aborted || !reads.current.lands(ticket)) return;
-        setError(e instanceof ApiError ? e.message : tr("draw-overlay-could-not-load"));
+        // What the node said is the log's; the panel says it in words a person reads.
+        log.warn("draw", "the drawings could not be read", { tab, ...errorFields(e) });
+        setError(tr("draw-overlay-could-not-load"));
       } finally {
         if (!signal?.aborted && reads.current.lands(ticket)) setLoading(false);
       }
@@ -176,7 +188,10 @@ export function DrawOverlay() {
       .catch((e: unknown) => {
         if (ctrl.signal.aborted) return;
         // The drawing that came back from the last window may have gone since: it opens nothing, and says nothing.
-        if (!goneQuietly(active, restoredDrawing(), e instanceof ApiError ? e.status : null)) setError(e instanceof ApiError ? e.message : tr("draw-overlay-could-not-load"));
+        if (!goneQuietly(active, restoredDrawing(), e instanceof ApiError ? e.status : null)) {
+          log.warn("draw", "a drawing could not be read", { drawing: active, ...errorFields(e) });
+          setError(tr("draw-overlay-could-not-load"));
+        }
         clearActiveDrawing();
       });
     return () => ctrl.abort();
@@ -238,8 +253,38 @@ export function DrawOverlay() {
       setRepoTick((n) => n + 1);
       openDrawing(drawing.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : tr("draw-overlay-could-not-create"));
+      log.warn("draw", "a drawing could not be created", { scope: scope.scope, template, ...errorFields(e) });
+      setError(tr("draw-overlay-could-not-create"));
     }
+  };
+
+  // Delete from the list, without opening the drawing: asked first in the
+  // editor's own words (the Irreversible Asks Rule). `doomed` outlives the
+  // question, so the dialog keeps its title while it closes.
+  const toast = useToast();
+  const [doomed, setDoomed] = useState<DrawingRow | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const askRemove = (r: DrawingRow) => {
+    setDoomed(r);
+    setAsking(true);
+  };
+  const remove = async (r: DrawingRow) => {
+    setRemoving(r.id);
+    try {
+      await api.deleteDrawing(r.id);
+    } catch (e) {
+      // A drawing already gone is a delete that happened: the row leaves, as it would have.
+      if (!(e instanceof ApiError && e.status === 404)) {
+        toast.error(sayFailure("draw", tr("draw-overlay-could-not-delete"), e));
+        setRemoving(null);
+        return;
+      }
+    }
+    setRows((prev) => prev.filter((x) => x.id !== r.id));
+    setRepoTick((n) => n + 1);
+    setRemoving(null);
+    if (active === r.id) clearActiveDrawing();
   };
 
   const onListKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -261,7 +306,7 @@ export function DrawOverlay() {
   // *New* opens the dialog — the gallery, a title, and *Where* when the tab
   // offers several places — never a menu of `places × templates` rows.
   const newButton = (
-    <Button size="sm" variant="ghost" disabled={targets.length === 0} title={targets.length === 0 ? tr("draw-overlay-nothing-to-file-under-yet") : undefined} onClick={() => setNewOpen(true)}>
+    <Button size="sm" variant="ghost" disabled={targets.length === 0} disabledReason={tr("draw-overlay-nothing-to-file-under-yet")} onClick={() => setNewOpen(true)}>
       {tr("draw-overlay-new")}
     </Button>
   );
@@ -269,98 +314,135 @@ export function DrawOverlay() {
   const body = (
     <>
       {open && enabled && (
-        <section
-          aria-label={tr("draw-dock-drawings")}
-          data-pane
-          data-draw-panel
-          data-maximized={fixed ? "true" : undefined}
-          style={fixed ?? { width, height }}
-          onKeyDown={onPanelKey}
-          className={cn(
-            "z-40 overflow-hidden border border-border bg-bg shadow-xl",
-            fixed ? "fixed rounded-none" : "fixed right-4 bottom-20 max-h-[calc(100vh-8rem)] max-w-[calc(100vw-2rem)] rounded-card",
-          )}
-        >
-          <div className="flex h-full w-full bg-surface">
-            {!fixed && <ResizeHandle side="left" size={width} min={MIN_WIDTH} max={1600} defaultSize={DEFAULT_WIDTH} onSize={setWidth} label={tr("draw-overlay-panel-width")} />}
-            <div className="flex min-w-0 flex-1 flex-col">
-              {!fixed && <ResizeHandle side="top" size={height} min={MIN_HEIGHT} max={1400} defaultSize={DEFAULT_HEIGHT} onSize={setHeight} label={tr("draw-overlay-panel-height")} />}
-              {detail && active === detail.id ? (
-                <DrawEditor
-                  key={detail.id}
-                  detail={detail}
-                  scopeName={scopeWords(scopeOfRow(detail), names)}
-                  onSaved={handleSaved}
-                  onBack={clearActiveDrawing}
-                  onDeleted={handleDeleted}
-                  onApi={(api_) => {
-                    canvasApi.current = api_;
-                  }}
-                />
-              ) : (
-                <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onListKey}>
-                  <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-                    <ICON.draw size={14} aria-hidden className="shrink-0 text-text-dim" />
-                    <h2 className="min-w-0 flex-1 truncate text-xs font-medium">{tr("draw-dock-drawings")}</h2>
-                    {newButton}
-                    <MaximizeToggle maximized={maximized} onToggle={toggleDrawMaximized} size={13} />
-                    <button type="button" aria-label={tr("draw-overlay-close")} onClick={() => setDrawOpen(false)} className="anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text">
-                      <ICON.close size={13} aria-hidden />
-                    </button>
-                  </header>
-                  <Tabs tabs={TABS} active={tab} onChange={changeTab} className="shrink-0 overflow-x-auto px-1" />
-                  <div className="relative shrink-0 px-2 py-1.5">
-                    <ICON.search size={12} aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-text-dim" />
-                    <TextInput
-                      ref={searchBox}
-                      value={query}
-                      type="search"
-                      aria-label={tr("draw-overlay-search")}
-                      placeholder={tr("draw-overlay-search")}
-                      onChange={(e) => setDrawQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape" && query) {
-                          e.preventDefault();
-                          setDrawQuery("");
-                        }
-                      }}
-                      className="h-7 w-full pl-6 text-xs"
-                    />
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto p-1">
-                    {loading && rows.length === 0 && <Spinner />}
-                    {error && <p className="px-2 py-3 text-2xs text-danger">{error}</p>}
-                    {!loading && !error && rows.length === 0 && <p className="px-2 py-6 text-center text-2xs text-text-dim">{EMPTY_WORDS[tab]}</p>}
-                    {!loading && !error && rows.length > 0 && shown.length === 0 && <p className="px-2 py-6 text-center text-2xs text-text-dim">{tr("draw-overlay-no-drawing-named-so")}</p>}
-                    {shown.map((r) => {
-                      const scope = scopeOfRow(r);
-                      const Glyph = KIND_ICON[scope.scope];
-                      return (
-                        <button key={r.id} type="button" onClick={() => openDrawing(r.id)} className="anim flex w-full flex-col items-start gap-0.5 rounded-control px-2 py-1.5 text-left hover:bg-surface-2">
-                          <span className="flex w-full items-center gap-1.5">
-                            {r.pinned && <ICON.pin size={10} aria-label={tr("draw-overlay-pinned")} className="shrink-0" />}
-                            <span className="min-w-0 flex-1 truncate text-xs">{r.title}</span>
-                          </span>
-                          <span className="flex w-full min-w-0 items-center gap-1.5 text-2xs text-text-dim">
-                            {chips && (
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-3xs">
-                                <Glyph size={9} aria-hidden />
-                                <span className="max-w-[10rem] truncate">{scopeWords(scope, names)}</span>
-                              </span>
-                            )}
-                            <span className="tnum min-w-0 flex-1">{tr("draw-overlay-elements", { count: r.element_count })}</span>
-                          </span>
+        // `contents`: no box of its own — it only hands the panel how far beside the Notes panel it stands.
+        <div className="contents" style={{ "--draw-beside": `${beside}px` } as CSSProperties}>
+          <section
+            ref={panel}
+            aria-label={tr("draw-dock-drawings")}
+            data-pane
+            data-draw-panel
+            data-maximized={fixed ? "true" : undefined}
+            style={fixed ?? { width, height }}
+            onKeyDown={onPanelKey}
+            className={cn(
+              "z-40 overflow-hidden border border-border bg-bg shadow-xl",
+              fixed ? "fixed rounded-none" : "fixed right-4 bottom-20 max-h-[calc(100vh-8rem)] max-w-[calc(100vw-2rem)] rounded-card mr-[var(--draw-beside,0px)]",
+            )}
+          >
+            <div className="flex h-full w-full bg-surface">
+              {!fixed && <ResizeHandle side="left" size={width} min={MIN_WIDTH} max={1600} defaultSize={DEFAULT_WIDTH} onSize={setWidth} label={tr("draw-overlay-panel-width")} />}
+              <div className="flex min-w-0 flex-1 flex-col">
+                {!fixed && <ResizeHandle side="top" size={height} min={MIN_HEIGHT} max={1400} defaultSize={DEFAULT_HEIGHT} onSize={setHeight} label={tr("draw-overlay-panel-height")} />}
+                {detail && active === detail.id ? (
+                  <DrawEditor
+                    key={detail.id}
+                    detail={detail}
+                    scopeName={scopeWords(scopeOfRow(detail), names)}
+                    onSaved={handleSaved}
+                    onBack={clearActiveDrawing}
+                    onDeleted={handleDeleted}
+                    onApi={(api_) => {
+                      canvasApi.current = api_;
+                    }}
+                  />
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onListKey}>
+                    <header className="flex shrink-0 items-center gap-1 border-b border-hairline py-1.5 pl-3 pr-2">
+                      <ICON.draw size={14} aria-hidden className="mr-1 shrink-0 text-text-dim" />
+                      <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{tr("draw-dock-drawings")}</h2>
+                      {newButton}
+                      <MaximizeToggle maximized={maximized} onToggle={toggleDrawMaximized} size={13} />
+                      <Tooltip label={tr("draw-overlay-close")}>
+                        <button type="button" aria-label={tr("draw-overlay-close")} onClick={() => setDrawOpen(false)} className="anim flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
+                          <ICON.close size={13} aria-hidden />
                         </button>
-                      );
-                    })}
+                      </Tooltip>
+                    </header>
+                    <Tabs tabs={TABS} active={tab} onChange={changeTab} className="shrink-0 overflow-x-auto px-1" />
+                    <div className="relative shrink-0 px-2 py-1.5">
+                      <ICON.search size={12} aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-text-dim" />
+                      <TextInput
+                        ref={searchBox}
+                        value={query}
+                        type="search"
+                        aria-label={tr("draw-overlay-search")}
+                        placeholder={tr("draw-overlay-search")}
+                        onChange={(e) => setDrawQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape" && query) {
+                            e.preventDefault();
+                            setDrawQuery("");
+                          }
+                        }}
+                        className="h-7 w-full pl-6 text-xs"
+                      />
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto p-1">
+                      {loading && rows.length === 0 && <Spinner />}
+                      {error && (
+                        <div className="p-1">
+                          <ErrorNote error={error} retry={() => void load()} />
+                        </div>
+                      )}
+                      {/* Doors, not prose: an empty tab offers the first drawing; a search that matched nothing, the way back. */}
+                      {!loading && !error && rows.length === 0 && (
+                        <EmptyState
+                          icon={ICON.draw}
+                          title={tr("draw-overlay-no-drawings-yet")}
+                          hint={EMPTY_WORDS[tab]}
+                          action={targets.length > 0 ? <Button size="sm" variant="primary" onClick={() => setNewOpen(true)}>{tr("draw-overlay-new-drawing")}</Button> : null}
+                        />
+                      )}
+                      {!loading && !error && rows.length > 0 && shown.length === 0 && (
+                        <EmptyState
+                          icon={ICON.search}
+                          title={tr("draw-overlay-no-drawing-named-so")}
+                          action={<Button size="sm" variant="ghost" onClick={() => setDrawQuery("")}>{tr("draw-overlay-clear-search")}</Button>}
+                        />
+                      )}
+                      {shown.map((r) => {
+                        const scope = scopeOfRow(r);
+                        const Glyph = KIND_ICON[scope.scope];
+                        // The row opens the drawing; its trash, a sibling and never nested, shows on hover or focus.
+                        return (
+                          <div key={r.id} className="group relative">
+                            <button type="button" onClick={() => openDrawing(r.id)} className="anim flex w-full flex-col items-start gap-0.5 rounded-control py-1.5 pr-9 pl-2 text-left group-hover:bg-surface-2">
+                              <span className="flex w-full items-center gap-1.5">
+                                {r.pinned && <ICON.pin size={10} aria-label={tr("draw-overlay-pinned")} className="shrink-0" />}
+                                <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">{r.title}</span>
+                              </span>
+                              <span className="flex w-full min-w-0 items-center gap-1.5 text-2xs text-text-dim">
+                                {chips && (
+                                  <Chip icon={Glyph} className="max-w-40 shrink-0">
+                                    <span className="min-w-0 truncate">{scopeWords(scope, names)}</span>
+                                  </Chip>
+                                )}
+                                <span className="tnum min-w-0 flex-1">{tr("draw-overlay-elements", { count: r.element_count })}</span>
+                              </span>
+                            </button>
+                            <Tooltip label={tr("draw-overlay-delete-drawing", { title: r.title })}>
+                              <button
+                                type="button"
+                                aria-label={tr("draw-overlay-delete-drawing", { title: r.title })}
+                                disabled={removing === r.id}
+                                onClick={() => askRemove(r)}
+                                className="row-actions anim absolute top-1/2 right-1.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-control text-text-dim hover:bg-danger-soft hover:text-danger disabled:opacity-45"
+                              >
+                                <ICON.delete size={13} aria-hidden />
+                              </button>
+                            </Tooltip>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* content, never translated: the folder's word for a commit subject nobody wrote */}
+                    <RepoStrip repo={api.drawingsRepo} subject="Drawings" pulls={false} folder="drawings" tick={repoTick} />
                   </div>
-                  {/* content, never translated: the folder's word for a commit subject nobody wrote */}
-                  <RepoStrip repo={api.drawingsRepo} subject="Drawings" pulls={false} tick={repoTick} />
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
       )}
       <NewDrawingDialog
         open={newOpen}
@@ -373,6 +455,18 @@ export function DrawOverlay() {
       />
       {dockVisible && enabled && <DrawDock count={rows.length || undefined} showCount={countBadge} />}
       <UnsavedDialog open={leaving !== null} words={leaving ? leaveWords(leaving.kind, leaving.title) : null} saving={leaving?.saving ?? false} onCancel={drawGuard.cancel} onDiscard={drawGuard.discardAndGo} onSave={() => void drawGuard.saveAndGo()} />
+      <ConfirmDialog
+        open={asking}
+        onClose={() => setAsking(false)}
+        onConfirm={() => {
+          setAsking(false);
+          if (doomed) void remove(doomed);
+        }}
+        title={tr("draw-editor-delete-title", { title: doomed?.title.trim() || tr("shell-leave-guard-this-drawing") })}
+        body={tr("draw-editor-delete-body")}
+        confirmLabel={tr("draw-editor-delete-confirm")}
+        danger
+      />
     </>
   );
 

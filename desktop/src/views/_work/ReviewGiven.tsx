@@ -14,7 +14,7 @@ export function When({ iso }: { iso: string | null | undefined }) {
   const at = unixOf(iso);
   if (at === null) return null;
   return (
-    <span className="shrink-0 text-3xs text-text-dim" title={iso ?? undefined}>
+    <span className="shrink-0 text-2xs text-text-dim" title={iso ?? undefined}>
       {relative(at)}
     </span>
   );

@@ -7,6 +7,7 @@ import {
   HOLDERS,
   HOLDER_FILTER_ALL,
   HOLDER_LABEL,
+  HOLDER_FILTER_LABEL,
   HOLDER_TONE,
   KIND_LABEL,
   chipsOf,
@@ -39,6 +40,7 @@ test("every core holder has a label and a theme-role tone, in the core's order",
   assert.deepEqual([...HOLDERS], holders);
   for (const h of holders) {
     assert.ok(HOLDER_LABEL[h], `label for ${h}`);
+    assert.ok(HOLDER_FILTER_LABEL[h] && HOLDER_FILTER_LABEL[h][0] === HOLDER_FILTER_LABEL[h][0].toUpperCase(), `a sentence-case filter option for ${h}`);
     assert.ok(HOLDER_TONE[h], `tone for ${h}`);
     assert.ok(isRole(HOLDER_TONE[h]), `${HOLDER_TONE[h]} is a theme role`);
   }

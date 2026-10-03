@@ -21,6 +21,7 @@ import {
   signingInWords,
   storeHint,
   tokenWords,
+  addBlockedWords,
   checksStillListed,
   signInExitKey,
   signInPlan,
@@ -145,4 +146,15 @@ test("a login that left the list takes its Check line with it, and nothing moves
   assert.deepEqual(checksStillListed(checks, ["ada"]), { ada: { state: "connected" } });
   assert.deepEqual(checksStillListed(checks, []), {});
   assert.deepEqual(checksStillListed({}, ["ada"]), {});
+});
+
+test("a disabled Add account says why: the check still on its way, no token, no login, the token already added", () => {
+  const form = { ready: true, token: "ghp_new", sent: null, needsLogin: false, login: "" };
+  assert.equal(addBlockedWords(form), null);
+  assert.equal(addBlockedWords({ ...form, ready: false }), "Waiting for the connection check.");
+  assert.equal(addBlockedWords({ ...form, token: "  " }), "Paste a token first.");
+  assert.equal(addBlockedWords({ ...form, needsLogin: true }), "Type the login the token belongs to first.");
+  assert.equal(addBlockedWords({ ...form, sent: "ghp_new" }), "This token was already added.");
+  const panel = readFileSync(new URL("./CodeHostPanel.tsx", import.meta.url), "utf8");
+  assert.ok(panel.includes("disabledReason={blockedAdd ?? undefined}"), "the reason rides on the disabled button");
 });

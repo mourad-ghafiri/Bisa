@@ -55,6 +55,7 @@ import type { WorkbenchScope } from "../routeModel.mjs";
 import type { Placement } from "../types";
 import { Button } from "./Button";
 import { ErrorNote } from "./Card";
+import { nodeSentence } from "./failureModel.mjs";
 import { EmptyState } from "./EmptyState";
 import { SkeletonRows } from "./Skeleton";
 import { cn } from "./cn";
@@ -91,9 +92,12 @@ const ROW_HEIGHT_FALLBACK = 28;
 /** Per nesting level. Enough to read the shape, small enough for a 300px pane. */
 const INDENT = 14;
 
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+/** A listing that failed with no sentence of the node's: the detail is logged, and the folder says it could not be listed. */
+function failedQuietly(path: string, e: unknown): string {
+  log.warn("files", "a folder could not be listed", { path, ...errorFields(e) });
+  return tr("ui-file-tree-folder-could-listed");
 }
+
 
 /** The chevron column: disclosure for a directory, blank for a file. */
 function Twisty({ dir, expanded }: { dir: boolean; expanded: boolean }) {
@@ -351,7 +355,8 @@ export function FileTreeView({
           }),
         )
         .catch((e) => {
-          if (!ac.signal.aborted) dispatch({ type: "failed", path, error: message(e) });
+          // The node's own refusal shows on the row; a raw exception is logged, and the row says the folder could not be listed.
+          if (!ac.signal.aborted) dispatch({ type: "failed", path, error: nodeSentence(e) ?? failedQuietly(path, e) });
         })
         .finally(() => {
           // A refresh may already have replaced this entry; deleting blindly
@@ -638,9 +643,10 @@ export function FileTreeView({
           data-drop-inside={rs.dropInside || undefined}
           className={cn(
             "anim tree-nest mr-1 flex h-full cursor-default items-center gap-1.5 rounded-control pr-2 text-2xs",
-            // One vocabulary: a selected row wears the accent wash, the open
-            // document its ink as well, the cursor a ring — three facts, three marks.
-            opened ? "bg-accent-soft text-accent-ink" : rs.selected ? "bg-accent-soft" : "hover:bg-surface-2",
+            // One vocabulary: the open document wears the neutral wash, a
+            // selected row a lighter one, the cursor a ring — three facts, three
+            // marks. The hover is the same ink: the tree's ground is `surface-2`.
+            opened ? "bg-selected text-text" : rs.selected ? "bg-selected/70" : "hover:bg-selected/50",
             rs.cursor && CURSOR_RING,
             // The folder a drop would join: the wash here, the ring through `.tree-nest`, both easing.
             rs.dropInside && "bg-accent-soft/40",
@@ -673,15 +679,16 @@ export function FileTreeView({
             </span>
           )}
           {dirty && !renaming && (
-            <span aria-label={tr("ui-file-tree-unsaved-changes")} className="shrink-0 text-accent">
-              ●
+            // A drawn dot, the tab strip's own, never a glyph from the font — in the row's ink: unsaved is a fact, not a summons.
+            <span role="img" aria-label={tr("ui-file-tree-unsaved-changes")} className="flex h-3 w-3 shrink-0 items-center justify-center">
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />
             </span>
           )}
           {/* A symlink is listed and never followed, so the row has to say so —
               otherwise an unexpandable directory reads as a broken one. */}
           {entry.symlink && (
-            <span className="shrink-0 text-text-dim" title={tr("ui-file-tree-link-listed-never-followed")}>
-              ↗
+            <span className="flex shrink-0 text-text-dim" title={tr("ui-file-tree-link-listed-never-followed")}>
+              <ICON.link size={11} aria-hidden />
             </span>
           )}
           {!entry.dir && !renaming && <span className="tnum shrink-0 text-text-dim">{formatSize(entry.size)}</span>}
@@ -799,7 +806,7 @@ export function FileTreeView({
           beforeRows={rootError}
           empty={rootEmpty}
           fill={fill}
-          className={cn("rounded-control border border-border bg-surface-2 py-1 focus-visible:border-accent/60", fill && "min-h-0 flex-1 overflow-hidden")}
+          className={cn("rounded-control border border-border bg-surface-2/50 py-1 focus-visible:border-accent/60", fill && "min-h-0 flex-1 overflow-hidden")}
         />
       </ContextMenu>
 

@@ -146,7 +146,7 @@ export function isProse(literal) {
   if (/;(?! )|;$|&(?! )|&&/.test(bare)) return false; // a statement's end, an entity, a conjunction of conditions
   if (s.includes("${")) return false; // a template nested in a template: code the scanner cut short
   const tokens = bare.split(/\s+/);
-  if (tokens.every((t) => /^-?[[\]&:a-z0-9./%(),*>+~=_"'-]+$/.test(t)) && tokens.some((t) => /[-[]|:./.test(t))) return false; // a class list — `hover:bg-raised`, `gap-2` — never a word that ends on a colon or a path's slash
+  if (tokens.every((t) => /^[-@]?[[\]&:a-z0-9./%(),*>+~=_"'@-]+$/.test(t)) && tokens.some((t) => /[-[]|:./.test(t))) return false; // a class list — `hover:bg-raised`, `gap-2`, a container's `@container`, `@md:grid-cols-2` — never a word that ends on a colon or a path's slash
   if (tokens.some((t) => /^-?\d+(\.\d+)?(px|rem|em|%|vh|vw|ms|s|fr|deg|ch)$/.test(t)) || s.includes("var(--")) return false; // a CSS value
   const words = s.replace(/\{x\}/g, " ").match(/\b[\p{L}]{2,}\b/gu) ?? [];
   // One word alone is an identifier or a label's key; one word beside a placeable is a sentence cut short (`{x} more`).

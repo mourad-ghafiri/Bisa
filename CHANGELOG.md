@@ -20,6 +20,28 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- The desktop app's look, refined across every screen without changing what any screen does. The
+  accent now means one thing, as the theme's colour rules always said: something is waiting on you.
+  "Your move", a question, a gate, a join request, a held ask and the Inbox's counts wear it; the row,
+  tab, filter or node you are on wears a neutral selection (`--color-selected`), and dividers inside a
+  surface are hairlines (`--color-hairline`), both mixed from each theme's own roles. "Agents working"
+  is neutral, so it never reads as your move. One primary button per region; section and sidebar
+  labels in sentence case; open empty states instead of dashed boxes; quieter tags, chips and
+  explanatory prose; themed text selection and caret. The notes and draw buttons keep the content
+  clear of them: a list's last row scrolls above them and a composer's Send moves aside, only while
+  one stands there (`desktop/src/ui/dockClearance.ts`).
+- A run's canvas is a live map: the flow the run came along moves toward the step it stands on, a
+  running step breathes, a step waiting on you calls once, and a step's ring changes colour instead
+  of snapping; the path already taken is drawn firm and neutral. Nothing moves under reduced motion.
+- Each step family — events, gateways, loops, tasks — wears its own quiet ink on its glyph, on the
+  canvas, in the palette, in thumbnails and in a run's steps (`--color-step-*`).
+- Reading: Markdown, chat and documents are set at the 14px body, running text holds a measure of
+  about 70 characters (`max-w-measure`), document headings sit a clear step over it, and readable text
+  keeps a 12px floor. Inter's tabular numerals work again where columns line up.
+- Layout: list-and-detail screens, the designer's inspector forms and Settings › Appearance split by
+  the room they have rather than the window's width, so an open pane or a narrow window no longer
+  squeezes them. The Inbox count arrives once when something new waits on you; clearing the last
+  item says so in the empty state.
 - Compatibility is a promise from 0.1.0: inside 0.x a minor or a patch release never breaks the
   workspace, the wire, the HTTP API, the CLI, MCP, the settings or the addon API; a change that cannot
   be made by addition waits for 1.0.0 and its migration. `SECURITY.md` and the release process follow it.

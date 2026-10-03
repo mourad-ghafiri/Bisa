@@ -137,6 +137,7 @@ pub(crate) fn routes() -> Router<Shared> {
         .route("/workstreams/{wid}/push", post(push))
         .route("/workstreams/{wid}/push-with-lease", post(push_with_lease))
         .route("/workstreams/{wid}/pr", post(open_pr))
+        .route("/workstreams/{wid}/pr/suggest", post(pr_suggest))
         // The git surface of one checkout: the primary for the
         // project's own tree, a worktree for a branch of its own — one code
         // path, keyed by the workstream.
@@ -1381,6 +1382,44 @@ async fn git_message(
     }
 }
 
+/// Ask the core agent for a pull request's title and description, from the
+/// branch's commits and its diff against the base.
+///
+/// **It suggests; nothing here pushes or opens anything** — the same
+/// read-only session as [`git_message`], and the draft lands in the person's
+/// dialog, where the last word is theirs.
+///
+/// Always `200`, even when there is no answer: a failure — no harness, no
+/// model, a branch with nothing beyond its base — comes back as
+/// `{"suggested": false, "title": "", "body": "", "error": "<why>"}`, so the
+/// dialog keeps what it holds and says why.
+async fn pr_suggest(
+    State(state): State<Shared>,
+    AxPath(wid): AxPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let wid = parse_workstream_id(&wid)?;
+    // The workstream must exist; whether an agent answers is a separate question.
+    state.engine.workspace().get_workstream(wid)?;
+    match eng::suggest_pull_request(state.engine.inner(), wid).await {
+        Ok(draft) => Ok(Json(json!({
+            "workstream": wid.to_string(),
+            "suggested": true,
+            "title": draft.title,
+            "body": draft.body,
+            "agent": AgentId::GENERAL,
+            "error": serde_json::Value::Null,
+        }))),
+        Err(e) => Ok(Json(json!({
+            "workstream": wid.to_string(),
+            "suggested": false,
+            "title": "",
+            "body": "",
+            "agent": AgentId::GENERAL,
+            "error": e.to_string(),
+        }))),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Workstreams
 // ---------------------------------------------------------------------------
@@ -2046,4 +2085,5 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "POST", path: "/workstreams/{wid}/push", summary: "Push the branch — through the `publish` gate: 200 done, 202 gate open, 409 refused with a `code` (`publish_manual` · `publish_no_goal` · `publish_declined` · `nothing_to_publish` · `workstream_state`). The record is reconciled with the checkout first, so a commit made in a terminal counts." },
     RouteDoc { method: "POST", path: "/workstreams/{wid}/push-with-lease", summary: "Push a rewritten workstream branch with `--force-with-lease` — never the project's default branch, through the `publish` gate, consented; a recovery ref is written first. 409 when the remote moved." },
     RouteDoc { method: "POST", path: "/workstreams/{wid}/pr", summary: "Open a pull request on the code host behind `origin` — through the `publish` gate: `{title, body?, draft?, reviewers?, labels?}`; only what `GET /codehost/capabilities/{pid}` allows is sent. A branch not on the remote yet is pushed first under the same gate; 409 with a `code` as for `push`." },
+    RouteDoc { method: "POST", path: "/workstreams/{wid}/pr/suggest", summary: "Ask the general agent for a pull request's title and description from the branch's commits and its diff against the base (`base...HEAD`) — read-only, nothing is pushed or opened. Always 200: `{suggested, title, body, agent, error}`; `suggested: false` with the reason when no agent answers or the branch has nothing beyond its base." },
 ];

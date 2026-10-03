@@ -37,7 +37,7 @@ export function SettingsToolbar({
   const words = toolbarWords(count, saving, whole);
   const dirty = count > 0;
   return (
-    <div className="sticky top-7 z-10 -mx-2 flex items-center gap-2 border-b border-border bg-surface px-2 py-1.5">
+    <div className="sticky top-7 z-10 -mx-2 flex items-center gap-2 border-b border-hairline bg-surface px-2 py-1.5">
       <span className={cn("flex min-w-0 items-center gap-1 text-2xs", dirty ? "text-text" : "text-text-dim")}>
         {dirty ? <ICON.edit size={12} aria-hidden className="shrink-0" /> : <ICON.ok size={12} aria-hidden className="shrink-0 text-ok" />}
         <span className="truncate">{words.status}</span>

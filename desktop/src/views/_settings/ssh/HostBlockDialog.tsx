@@ -63,7 +63,7 @@ export function HostBlockDialog({
             </Select>
           </Field>
         </div>
-        <pre className="overflow-x-auto rounded-control bg-surface-2 p-2 font-mono text-3xs text-text-dim">{text}</pre>
+        <pre className="overflow-x-auto rounded-control bg-surface-2 p-2 font-mono text-2xs text-text-dim">{text}</pre>
       </div>
     </Dialog>
   );

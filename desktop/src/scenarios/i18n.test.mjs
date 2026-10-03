@@ -91,7 +91,7 @@ test("a sentence moved by hand before the scanner could see its shape — a text
     ["views/_work/GovernancePanel.tsx", "work-governance-panel-only-you-default", "Only you is the default."],
     ["views/_work/GovernancePanel.tsx", "work-governance-panel-what-each-role-may-do", "What each role may do."],
     ["views/_settings/ConnectorsPanel.tsx", "settings-connectors-panel-field-left-blank-keeps-stored", "A field left blank keeps what is stored"],
-    ["views/_settings/ConnectorsPanel.tsx", "settings-connectors-panel-definition-syncs-like-skill", "A definition syncs like a skill"],
+    ["views/_settings/ConnectorsPanel.tsx", "settings-connectors-panel-install-more-from-library", "Install more from Library"],
     ["views/_settings/GitProfilesPanel.tsx", "settings-git-profiles-panel-profile-who-you-are", "A profile is who you are for one organization"],
     ["views/Channels.tsx", "screens-channels-guest-reaches-only-when-listed", "A guest reaches this channel only when listed here"],
     ["views/Inbox.tsx", "screens-inbox-answered-at-harness-prompt", "Answered at the harness's own prompt"],

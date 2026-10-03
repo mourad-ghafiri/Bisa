@@ -19,6 +19,7 @@ import { WORKFLOW_AGENT_ID } from "../../types";
 import { Button, Chip, ICON, Markdown, STEP_KIND_ICON, TextArea, useToast } from "../../ui";
 import { attempt } from "../_work/useAsync";
 import { AskControls } from "./PendingAsk";
+import { familyInk } from "../_workflow/familyInk";
 import { adoptionInputs, changeRequest, flowSentence, inputsNeeded, listens, loopSentences, proposalHeadline, startsOn, stepLines } from "./proposalModel.mjs";
 
 export function ProposalCard({
@@ -78,7 +79,7 @@ export function ProposalCard({
         <span className="text-xs font-semibold">{proposalHeadline(proposal)}</span>
         {needed.required.length > 0 && <Chip tone="quiet">{t("studio-proposal-card-inputs-to-fill", { n: needed.required.length })}</Chip>}
       </div>
-      {hero && <p className="text-xs text-text-dim">{t("studio-proposal-card-workflow-agent-designed-plan-review-adopt")}</p>}
+      {hero && <p className="max-w-measure text-xs leading-relaxed text-text-dim">{t("studio-proposal-card-workflow-agent-designed-plan-review-adopt")}</p>}
       {proposal.description && <Markdown text={proposal.description} className="text-xs text-text" />}
       {/* What adopting it starts on — by hand, or the events its goal will listen for. */}
       {starts.length > 0 && (
@@ -89,18 +90,19 @@ export function ProposalCard({
       )}
       <p className="text-2xs text-text-dim">{flowSentence(proposal)}</p>
 
-      <ol className="flex flex-col divide-y divide-border rounded-card border border-border bg-surface">
+      {/* The steps on the surface's own ground, rows divided by a hairline: this list sits inside the ask's card, so it draws no edge of its own. */}
+      <ol className="flex flex-col divide-y divide-hairline rounded-control bg-surface">
         {lines.map((l) => {
           const Icon = STEP_KIND_ICON[l.kind as keyof typeof STEP_KIND_ICON] ?? ICON.workflow;
           return (
-            <li key={l.id} className="flex items-start gap-2 px-2 py-1.5">
+            <li key={l.id} className="flex items-start gap-2 px-2.5 py-2">
               <span className="tnum w-4 shrink-0 pt-0.5 text-right text-2xs text-text-dim">{l.index}</span>
-              <Icon size={13} aria-hidden className="mt-0.5 shrink-0 text-text-dim" />
+              <Icon size={13} aria-hidden className={`mt-0.5 shrink-0 ${familyInk(l.kind)}`} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-xs font-medium">{l.name}</span>
                   <span className="text-2xs text-text-dim">{l.kind}</span>
-                  {l.assignee && <Chip tone="quiet">{l.assignee}</Chip>}
+                  {l.assignee && <Chip tone="neutral">{l.assignee}</Chip>}
                 </div>
                 {l.summary && <p className="text-2xs text-text-dim">{tx(l.summary)}</p>}
                 {l.notes.length > 0 && <p className="text-2xs text-text-dim italic">{l.notes.join(" · ")}</p>}
@@ -112,7 +114,7 @@ export function ProposalCard({
       {loops.length > 0 && <p className="text-2xs text-text-dim">{loops.join("; ")}.</p>}
 
       {changing ? (
-        <div className="flex flex-col gap-2 rounded-card border border-border p-2">
+        <div className="flex flex-col gap-2 rounded-control bg-surface/60 p-2">
           <TextArea
             rows={3}
             autoFocus

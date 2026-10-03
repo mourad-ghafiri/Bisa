@@ -595,11 +595,34 @@ export function pulseLine(row) {
     return { ...base, tone: "dim", text: truncate(String(e.snippet ?? "")) || (membership ? t("app-activity-changed-who-here") : t("app-activity-posted-message")) };
   }
   if (JOURNAL_TAGS.has(e.type)) return { ...base, ...payloadLine(e) };
+  // A note written or a drawing changed has no live line — its overlay is
+  // where it shows (`engineLine`) — but the Pulse's Workspace tab lists it
+  // (`pulseModel`): said as what changed and what it is about, never the
+  // fact's own name.
+  if (e.type === "note_changed" || e.type === "drawing_changed") {
+    const what = e.type === "note_changed" ? "note" : "drawing";
+    return { ...base, tone: "dim", icon: what === "note" ? "icon:note" : "icon:draw", text: t("app-activity-record-changed", { what, scope: String(e.scope ?? "workspace") }) };
+  }
   // An engine fact, stored as its frame was: the live words, so a row reads
   // the same after a reload as it did the moment it happened.
   const live = engineWords(e, row.at);
-  if (live) return { ...base, tone: live.tone, text: live.text, icon: live.icon, detail: live.detail };
+  // Under its subject's heading — the agent's name, the goal's title — a row
+  // does not say the subject again by its id: the live line needs the id,
+  // having no heading; the Pulse has one (`row.title`).
+  if (live) return { ...base, tone: live.tone, text: (row.title && titledWords(e)) || live.text, icon: live.icon, detail: live.detail };
   return { ...base, tone: "dim", text: String(e.type ?? "unknown").replace(/_/g, " ") };
+}
+
+/** A fact's words under a heading that already names its subject; `null` for a fact whose live words never name it. */
+function titledWords(e) {
+  switch (e.type) {
+    case "goal_created":
+      return t("app-activity-goal-created-titled", { origin: String(e.origin?.origin ?? "captured"), run: shortId(e.origin?.run) });
+    case "agent_replied":
+      return e.posted ? t("app-activity-replied-titled") : t("app-activity-acted-without-replying-titled");
+    default:
+      return null;
+  }
 }
 
 /**
@@ -1273,7 +1296,7 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
         ...base,
         key,
         tone: "spine",
-        icon: "icon:workstream",
+        icon: "mark:git",
         text: t("app-activity-committed", { commit: p.commit.slice(0, 12), branch: p.branch }),
       };
     // A script that ran is an ambient fact; one that failed is the line
@@ -1336,7 +1359,7 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
         ...base,
         key,
         tone: "danger",
-        icon: "icon:workstream",
+        icon: "mark:git",
         text: t("app-activity-publish-failed", { what: p.what, reason: String(p.reason ?? "").split("\n")[0] }),
       };
     case "guard_decided":

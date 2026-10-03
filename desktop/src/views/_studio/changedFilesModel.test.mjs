@@ -4,7 +4,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { barWords, changeKindMark, changeKindTone, changedByAgents, changedFileRows, changedFilesHeaderWords, splitPathForRow } from "./changedFilesModel.mjs";
+import { barWords, changeKindMark, changeKindTone, changedByAgents, changedFileRows, changedFilesHeaderWords, settledAllWords, splitPathForRow, undoAllConfirmWords } from "./changedFilesModel.mjs";
 
 function file(over = {}) {
   return { path: "src/a.ts", kind: "modified", state: "pending", opaque: false, overlapped: false, added: 3, removed: 1, ...over };
@@ -63,4 +63,22 @@ test("the footer's words are the platform's own — Keep and Undo, never Accept 
   const w = barWords();
   assert.deepEqual(w, { keepAll: "Keep all", undoAll: "Undo all", review: "Review", attach: "Attach" });
   for (const v of Object.values(w)) assert.ok(!/accept|reject/i.test(v));
+});
+
+test("Undo all asks first, naming the count and whose changes; an overlapped file is said to stay", () => {
+  const one = { turns: [turn({ files: [file({ path: "a" }), file({ path: "b" })] })] };
+  const w = undoAllConfirmWords(one);
+  assert.equal(w.title, "Undo the agent's changes to 2 files?");
+  assert.equal(w.confirm, "Undo all");
+  assert.ok(!w.body.includes("someone else"), "nothing overlapped, nothing said about it");
+  const two = { turns: [turn({ files: [file({ path: "a", overlapped: true })] }), turn({ turn: "t2", agent: "coder", files: [file({ path: "b" })] })] };
+  const v = undoAllConfirmWords(two);
+  assert.equal(v.title, "Undo the agents' changes to 2 files?");
+  assert.ok(v.body.includes("1 file was also edited by someone else"), v.body);
+});
+
+test("a bulk word's toast says how many files it reached, and nothing when it reached none", () => {
+  assert.equal(settledAllWords("keep", 1), "Kept the changes to 1 file.");
+  assert.equal(settledAllWords("undo", 7), "Undid the changes to 7 files.");
+  assert.equal(settledAllWords("undo", 0), null);
 });

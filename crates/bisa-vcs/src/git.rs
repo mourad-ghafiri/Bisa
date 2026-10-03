@@ -1515,6 +1515,16 @@ impl Git {
         Ok(String::from_utf8_lossy(&self.run(Some(path), &args, false)?).into_owned())
     }
 
+    /// What the branch at HEAD changed since it left `base` — `base...HEAD`,
+    /// three dots: the diff from their merge base, so what landed on `base`
+    /// since does not read as the branch undoing it. The change a pull
+    /// request proposes. Committed work only; the working tree is not read.
+    pub fn branch_diff(&self, path: &Path, base: &str) -> VcsResult<String> {
+        validate_ref("base", base)?;
+        let args = [s("diff"), s("--no-color"), s(format!("{base}...HEAD"))];
+        Ok(String::from_utf8_lossy(&self.run(Some(path), &args, false)?).into_owned())
+    }
+
     /// One file's patch. `staged` selects the index against HEAD; otherwise
     /// the working tree against the index — the same two questions
     /// [`Self::diff`] asks, narrowed to a path.
@@ -3754,6 +3764,10 @@ pub fn branch_set_upstream(path: &Path, branch: &str, upstream: Option<&str>) ->
 /// See [`Git::changed_paths`].
 pub fn changed_paths(path: &Path, from: &str, to: &str, limit: usize) -> VcsResult<Vec<String>> {
     shared().changed_paths(path, from, to, limit)
+}
+/// See [`Git::branch_diff`].
+pub fn branch_diff(path: &Path, base: &str) -> VcsResult<String> {
+    shared().branch_diff(path, base)
 }
 /// See [`Git::commits_between`].
 pub fn commits_between(

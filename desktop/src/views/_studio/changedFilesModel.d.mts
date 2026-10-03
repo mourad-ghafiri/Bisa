@@ -10,3 +10,5 @@ export declare function splitPathForRow(path: string): { dir: string; base: stri
 export declare function changeKindMark(kind: string): "+" | "−" | "~";
 export declare function changeKindTone(kind: string): "ok" | "warn";
 export declare function barWords(): { keepAll: string; undoAll: string; review: string; attach: string };
+export declare function undoAllConfirmWords(view: ChangesView | null | undefined): { title: string; body: string; confirm: string };
+export declare function settledAllWords(verdict: "keep" | "undo", files: number): string | null;

@@ -1,6 +1,7 @@
 import type { Disposal, GitRecoveryKind, GitRecoveryRef } from "../../types";
 
 export declare function recoveryWords(kind: GitRecoveryKind): string;
+export declare function recoveryOpWords(op: string): string;
 export declare function restoreWords(rec: Pick<GitRecoveryRef, "ref_name" | "kind" | "branch">): string;
 
 export interface DiscardCopy {

@@ -8,3 +8,4 @@ export declare function composerButton(state: { busy: boolean; stop: { label?: s
   hint: string;
   enabled: boolean;
 };
+export declare function explainOff<B extends { kind: "send" | "sending" | "stop"; label: string; hint: string; enabled: boolean }>(button: B, why: "empty" | "uploading" | "over-budget"): B;

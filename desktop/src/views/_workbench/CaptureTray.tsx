@@ -93,7 +93,7 @@ export function CaptureNoteBox({ mark, label, onAdd, onClose }: { mark: Mark | n
     }
   };
   return (
-    <div className={cn("flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-3 py-2 text-2xs")} role="group" aria-label={t("workbench-capture-tray-what-should-change-here")}>
+    <div className={cn("flex shrink-0 flex-wrap items-center gap-2 border-t border-hairline px-3 py-2 text-2xs")} role="group" aria-label={t("workbench-capture-tray-what-should-change-here")}>
       <span className="text-text-dim">
         {label} · <span className="font-mono">{markWords(mark)}</span>
       </span>

@@ -837,7 +837,11 @@ The **Workstreams** panel (`⌘⇧U`), on any workstream with a branch beside th
 branch to its base in seven steps right under its name — **Commit · Push · Open pull request · Checks · Review · Merge ·
 Clean up** — and offers exactly one action at a time, under the step it belongs to: *Commit in Git › Changes* when nothing is beyond the base yet, **Push and open pull
 request** when commits are not on the remote, **Open pull request** once they are, **Merge** once
-the pull request is open, **Clean up branch** once it has landed. The step with the action wears
+the pull request is open, **Clean up branch** once it has landed. In the pull request's dialog,
+**Suggest** asks the General Agent for the title and the body from the branch's commits and its
+changes, as the commit box asks for a message: the draft lands in the fields for you to read and
+edit, a field you typed in while it was asked keeps your words, **Undo** puts back what was there,
+and nothing goes to the code host until you open it. The step with the action wears
 the accent dot, and only that one; a step merely in flight — checks still running, the code host
 still checking — wears a ring that pulses instead, so the dot always means *here is what you can
 do*. Each step keeps its own surface
@@ -1092,7 +1096,8 @@ the agent it posts to is on the toolbar, remembered. `⌘I` and `⌘⇧I` do the
 Dismiss it and it stays away until you select something else.
 
 **From a rendered page.** Press the **wand** on an HTML page's rendered or split view and the page
-becomes an inspector: hover an element and it is outlined with its tag, click it and a small box —
+becomes an inspector: hover an element and it is outlined with its tag — an edge only, so you still
+see the element — click it and a small box beside it —
 in your theme, whichever the page's own colours — asks *What should change here?* The box shows where the element sits — *html › body › main › …* —
 and each crumb is a door: click one to annotate that container, the body or the page itself
 instead; a click on the page's margin picks `html`, on the body's own area `body`. While the box is
@@ -1111,7 +1116,7 @@ in the Agent pane's tray instead, for a message you want to write there. `Esc` l
 inspector; the badges stay until you send, attach or clear. Editing the source in *Split* keeps
 them — an element the page no longer has says so in the tray, and its chip keeps the element as it
 was. The same wand sits on the browser tab's bar for any page the tab shows — the checkout the
-Browser menu serves, your dev server, the web — the same box over the element, the same crumbs,
+Browser menu serves, your dev server, the web — the same box beside the element, the same crumbs,
 the same keys — and *Annotate the page for an agent…* in the tab's right-click menu and the Browser
 button's menu turns it on too; a page served from a file of the checkout sends file chips the
 agent edits, any other page sends the page's URL with each element. A page an agent posted as an
@@ -1139,8 +1144,9 @@ by the mode; the mode only says what happens to a call the rules left undecided.
 **Review a turn.** Once an agent has written to a checkout, its turn shows in the conversation with
 the files it touched, and a bar above the box sums them up — *3 files changed by Reviewer · +40 −12*.
 Open it for a row per file, each with **Keep** (moves what is pending forward to what is on disk)
-and **Undo** (writes it back); **Keep all**, **Undo all** and **Review** sit under it. A file somebody
-else also edited is marked so, and an Undo of it asks first. The bar is the agent's changes alone;
+and **Undo** (writes it back); **Undo all**, **Review** and **Keep all** sit under it. A file somebody
+else also edited is marked so, and an Undo of it asks first; **Undo all** always asks, naming how
+many files it writes back. The bar is the agent's changes alone;
 the working tree's are in the Git panel.
 
 **Undo one change.** Press **Review**, or a file's name, and the file opens in the editor on its

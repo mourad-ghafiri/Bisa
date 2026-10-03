@@ -65,13 +65,16 @@ export function AgentModeCenter({
           {c.frame.map((f, i) => (
             <Tooltip key={`${f.kind}:${i}`} label={t("workbench-agent-mode-center-placement-every-agent-here-told-fact")}>
               <span>
-                <Chip tone="neutral">{f.kind === "goal" ? `↳ ${f.label}` : f.label}</Chip>
+                <Chip tone="neutral" icon={f.kind === "goal" ? ICON.goal : ICON.project}>
+                  {f.label}
+                </Chip>
               </span>
             </Tooltip>
           ))}
         </span>
       }
-      actions={<ConversationsDoor {...s.door} />}
+      // The door switches between the thread and the list; with neither a thread nor a row it would only repeat the title.
+      actions={threadShows || s.rows.length > 0 ? <ConversationsDoor {...s.door} /> : undefined}
     />
   );
 

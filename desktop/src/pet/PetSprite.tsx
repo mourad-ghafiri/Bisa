@@ -192,7 +192,7 @@ export function PetSprite({
     return (
       <span
         title={t("pet-pet-sprite-pet-s-sprite-sheet-could-not")}
-        className="flex items-center justify-center rounded-card border border-dashed border-border bg-surface/80 text-text-dim"
+        className="flex items-center justify-center rounded-card border border-border bg-surface/80 text-text-dim"
         style={{ width: box.width, height: box.height }}
       >
         <ICON.note size={16} aria-hidden />

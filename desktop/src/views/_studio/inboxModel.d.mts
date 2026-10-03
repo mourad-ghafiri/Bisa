@@ -104,7 +104,14 @@ export declare function doorLabel(kind: InboxKind | string | null | undefined): 
 export declare function emptyWords(filter: FilterId, source: SourceId): { title: string; hint: string };
 export declare function keyAction(
   key: string,
-  ctx: { inInput: boolean; inAsk: boolean; modifier: boolean; hasSelection: boolean },
+  ctx: {
+    inInput: boolean;
+    inAsk: boolean;
+    modifier: boolean;
+    hasSelection: boolean;
+    /** Focus stands on a control outside the list's rows — anything but the page itself or the list. */
+    onControl?: boolean;
+  },
 ): KeyAction | null;
 
 export type { GateKind };

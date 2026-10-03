@@ -22,7 +22,7 @@
  * run that is gone is left for the library (`useGonePlace`).
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { useEngineEvents } from "../bus";
 import { navigate, replace } from "../router";
@@ -40,6 +40,7 @@ import { Designer } from "./_workflow/Designer";
 import { keptSelection } from "./_workflow/designerMemoryModel.mjs";
 import { canvasViewportAt, rememberViewportAt } from "./_workflow/designerMemoryStore";
 import { useDesignerSettings } from "./_workflow/useDesignerSettings";
+import { StopRunDialog } from "./_workflow/StopRunDialog";
 import { useRunVerbs } from "./_workflow/useRunVerbs";
 import { movesRun, readStanding, runPageFacts } from "./_workflow/workflowRunsModel.mjs";
 import { t } from "../i18n/l10n.mjs";
@@ -79,6 +80,8 @@ export default function WorkflowRun({ id }: { id: string }) {
   // frame: the read is made again when the bus comes back (`useAsync`).
   // Stop and Restart, one at a time: a restart lands on the new run's page.
   const runVerbs = useRunVerbs(reload);
+  // *Stop* asks first: a stopped run is cancelled, never resumed.
+  const [stopping, setStopping] = useState<string | null>(null);
   // What the page says, decided before it draws.
   const facts = useMemo(() => runPageFacts(data), [data]);
   // A goal's run is its goal's: the goal's Workflow tab draws it, on this run.
@@ -129,20 +132,20 @@ export default function WorkflowRun({ id }: { id: string }) {
             <Chip tone={words.tone} icon={StatusIcon}>
               {words.word}
             </Chip>
-            <Chip tone="quiet">{facts.holder}</Chip>
+            <Chip>{facts.holder}</Chip>
             {words.at != null && (
               <span className="text-2xs text-text-dim">
                 {words.atWord} <RelativeTime at={words.at} />
               </span>
             )}
             <span className="text-2xs text-text-dim">{facts.startedBy}</span>
-            <Chip tone="quiet">{facts.revision}</Chip>
+            <Chip>{facts.revision}</Chip>
           </>
         }
         actions={
           <div className="flex items-center gap-1">
             {verbs.stop && (
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => runVerbs.stop(run.id)}>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setStopping(run.id)}>
                 <ICON.stop size={12} aria-hidden />
                 {t("workflow-runs-pane-stop")}
               </Button>
@@ -160,6 +163,7 @@ export default function WorkflowRun({ id }: { id: string }) {
           </div>
         }
       />
+      <StopRunDialog run={stopping} onClose={() => setStopping(null)} onStop={runVerbs.stop} />
       {read.standing === "stale" && (
         <p role="status" className="shrink-0 border-b border-border px-4 py-1 text-2xs text-danger">
           {read.line}
@@ -169,7 +173,7 @@ export default function WorkflowRun({ id }: { id: string }) {
       <div data-scroll-keep={tab === "progress" ? "tab:progress" : undefined} className={tab === "progress" ? "relative min-h-0 flex-1 overflow-y-auto" : "relative flex min-h-0 flex-1 flex-col overflow-hidden"}>
         <YourMoveBand actions={needs_actions} adoptInputs={null} onResolved={reload} />
         {tab === "progress" ? (
-          <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 px-4 py-3">
+          <div className="flex w-full max-w-4xl flex-col gap-2 px-4 py-3">
             <RunSteps
               run={run}
               strip={{ current: facts.live, steps: [] }}
@@ -181,9 +185,9 @@ export default function WorkflowRun({ id }: { id: string }) {
             {facts.ended && <p className="px-3 py-2 text-2xs text-text-dim">{facts.ended}</p>}
           </div>
         ) : (
-          <main className="relative min-h-0 flex-1">
+          <div className="relative min-h-0 flex-1">
             <Designer value={run.workflow} problems={[]} run={run} selected={selected} onSelect={setSelected} onChange={() => {}} readOnly settings={settings} startViewport={startViewport} onViewport={keepViewport} />
-          </main>
+          </div>
         )}
       </div>
     </div>

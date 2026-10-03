@@ -32,7 +32,10 @@ import {
   replaceStep,
   setOnFail,
   setPosition,
+  setBranchTarget,
   setPositions,
+  setThen,
+  thenChoices,
   toGraph,
   uniqueId,
 } from "./workflowGraph.mjs";
@@ -584,4 +587,33 @@ test("a step's upstream is every step a flow leads from, however far — in the 
   assert.deepEqual(upstreamOf(null, "a"), []);
   const inspector = readFileSync(new URL("./Inspector.tsx", import.meta.url), "utf8");
   assert.ok(inspector.includes("upstreamOf(wf, step.id)") && !inspector.includes("function upstreamOf"), "the inspector asks the model");
+});
+
+test("Then, from the keyboard: a plain step's targets with the flows it has, a gateway's branches with where each goes — every change through connect", () => {
+  const started = { steps: [{ id: "begin", name: "Begin", kind: "start", on: { event: "manual" }, then: [{ to: "design" }] }, ...diamond().steps] };
+  const plain = thenChoices(started, "design");
+  assert.equal(plain.branching, false);
+  assert.deepEqual(plain.targets.map((x) => [x.id, x.on]), [["build", true], ["docs", true], ["ship", false]], "never itself, never a start");
+  assert.deepEqual(thenChoices({ steps: [{ ...agent("done"), kind: "end" }, agent("x")] }, "done").targets, [], "an end has nothing after");
+  assert.deepEqual(thenChoices(started, "nowhere").targets, []);
+
+  const on = setThen(started, "design", "ship", true);
+  assert.equal(on.ok, true);
+  assert.deepEqual(on.wf.steps[1].then.map((f) => f.to), ["build", "docs", "ship"]);
+  const off = setThen(on.wf, "design", "build", false);
+  assert.deepEqual(off.wf.steps[1].then.map((f) => f.to), ["docs", "ship"]);
+  assert.match(setThen(started, "ship", "begin", true).reason, /start begins a run/, "the canvas's refusals hold");
+
+  const gate = { steps: [decide("verdict", [{ to: "ship", branch: "pass" }]), agent("ship"), agent("fix")] };
+  const g = thenChoices(gate, "verdict");
+  assert.equal(g.branching, true);
+  assert.deepEqual(g.branches, [{ branch: "pass", to: "ship" }, { branch: "fail", to: null }]);
+  const moved = setBranchTarget(gate, "verdict", "pass", "fix");
+  assert.deepEqual(moved.wf.steps[0].then, [{ to: "fix", branch: "pass" }], "the old flow of the branch is cut");
+  const added = setBranchTarget(moved.wf, "verdict", "fail", "ship");
+  assert.deepEqual(added.wf.steps[0].then, [{ to: "fix", branch: "pass" }, { to: "ship", branch: "fail" }]);
+  const cleared = setBranchTarget(added.wf, "verdict", "pass", null);
+  assert.deepEqual(cleared.wf.steps[0].then, [{ to: "ship", branch: "fail" }]);
+  assert.equal(setBranchTarget(gate, "verdict", "pass", "ship").wf, gate, "the same pick is no edit");
+  assert.equal(setBranchTarget(gate, "verdict", "pass", "verdict").ok, false, "a refused pick leaves the old flow standing");
 });

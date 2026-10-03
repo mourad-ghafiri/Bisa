@@ -4,8 +4,8 @@
  * cluster — *primary*, `+3 · −1` (how far the branch stands from its base,
  * `railFactsModel`; the tree's state is never a word here — that is the
  * Git tab's mark), *no checkout*, who is here when the row is folded (a
- * glyph per harness, one per shell), the ports — and `⋯` on hover. The pill is accent for the current row or one waiting on you,
- * danger for a failed one. No line under it: folded, the glyphs and the
+ * glyph per harness, one per shell), the ports — and `⋯` on hover. The pill is neutral for the current row, accent for one
+ * waiting on you, danger for a failed one. No line under it: folded, the glyphs and the
  * mark say who is here; open, the session rows do.
  */
 
@@ -79,7 +79,7 @@ export function RailWorkstreamRow({
         ) : (
           <span className={cn("min-w-0 flex-1 truncate text-xs", !row.primary && "font-mono")}>{row.label}</span>
         )}
-        <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-3xs text-text-dim">
+        <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-2xs text-text-dim">
           {row.primary && (
             <Tooltip label={t("workbench-rail-workstream-row-project-s-own-root-remove-project")}>
               <span>
@@ -88,8 +88,10 @@ export function RailWorkstreamRow({
             </Tooltip>
           )}
           {facts.text !== "" && (
+            // `+3 · −1` is a glyph's worth of meaning; a screen reader hears the tooltip's sentence instead.
             <span className="tnum" title={facts.title}>
-              {facts.text}
+              <span aria-hidden>{facts.text}</span>
+              <span className="sr-only">{facts.title}</span>
             </span>
           )}
           {!row.exists && <Chip tone="warn">{t("workbench-rail-workstream-row-no-checkout")}</Chip>}

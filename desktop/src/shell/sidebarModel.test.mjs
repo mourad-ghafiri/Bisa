@@ -21,15 +21,17 @@ const NAV = [
 const row = (over = {}) => ({ key: "k", kind: "goal", title: "t", latest_at: 1, unread_count: 0, read: true, handled: false, mentioned: false, needs_action: [], notices: [], unread_notices: 0, ...over });
 const ask = { kind: "ask", id: "a1" };
 
-test("the Inbox badge counts every row not yet dealt with once — needing you, or unread — never a read one, and is accented by what is owed alone", () => {
-  assert.deepEqual(inboxBadge([]), { count: 0, needs: 0, unread: 0, tone: "neutral", title: null });
-  assert.deepEqual(inboxBadge(null), { count: 0, needs: 0, unread: 0, tone: "neutral", title: null });
+test("the Inbox badge is two counts — what needs you and what is unread — each row once, never a read one, and never one summed number", () => {
+  const none = { needs: 0, unread: 0, needsTitle: null, unreadTitle: null, title: null };
+  assert.deepEqual(inboxBadge([]), none);
+  assert.deepEqual(inboxBadge(null), none);
   const b = inboxBadge([row({ needs_action: [ask, ask], read: false }), row({ read: false }), row({ read: false, unread_notices: 1, notices: [{}] }), row({ read: true })]);
-  assert.deepEqual([b.count, b.needs, b.unread], [3, 1, 2], "a row with two asks is one row; a notice-only unread row counts; a read row does not");
-  assert.equal(b.tone, "accent", "an ask is owed: the accent");
+  assert.deepEqual([b.needs, b.unread], [1, 2], "a row with two asks is one row; a notice-only unread row counts; a read row does not");
+  assert.ok(!("count" in b) && !("tone" in b), "no sum and no single tone: the accent is the owed count's alone");
+  assert.deepEqual([b.needsTitle, b.unreadTitle], ["1 needs you", "2 unread"], "each count has its own words");
   assert.equal(b.title, "1 needs you · 2 unread");
   const quiet = inboxBadge([row({ read: false }), row({ read: false })]);
-  assert.deepEqual([quiet.count, quiet.tone, quiet.title], [2, "neutral", "2 unread"], "only unread: neutral");
+  assert.deepEqual([quiet.needs, quiet.unread, quiet.needsTitle, quiet.title], [0, 2, null, "2 unread"], "only unread: no owed count at all");
   assert.equal(inboxBadge([row({ join: { id: "j" } })]).title, "1 needs you", "a join to admit needs you, read or not");
   assert.equal(inboxBadge([row({ waiting: { session: "s" }, read: true })]).needs, 1, "a harness waiting in its terminal needs you");
   assert.equal(inboxBadge([row({ needs_action: [ask] }), row({ needs_action: [ask] }), row({ read: false })]).title, "2 need you · 1 unread");
@@ -38,21 +40,32 @@ test("the Inbox badge counts every row not yet dealt with once — needing you, 
   assert.equal(needsWords(4), "4 need you");
 });
 
-test("a full Inbox: the badge's count is exact, its title names both parts, and what the rail draws is capped while the tooltip is not", () => {
+test("a full Inbox: each count is exact, the title names both parts, and what the rail draws is capped while the tooltip is not", () => {
   const rows = [...Array.from({ length: 120 }, () => row({ read: false })), ...Array.from({ length: 12 }, () => row({ needs_action: [ask] }))];
   const b = inboxBadge(rows);
-  assert.deepEqual([b.count, b.needs, b.unread, b.tone], [132, 12, 120, "accent"]);
+  assert.deepEqual([b.needs, b.unread], [12, 120]);
   assert.equal(b.title, "12 need you · 120 unread", "the exact numbers are the tooltip's");
-  assert.equal(badgeText(b.count, "md"), "99+");
-  assert.equal(badgeText(b.count, "sm"), "9+", "the collapsed rail's corner mark has room for a digit and a plus");
+  assert.equal(badgeText(b.unread, "md"), "99+");
+  assert.equal(badgeText(b.needs, "sm"), "9+", "the collapsed rail's corner mark has room for a digit and a plus");
   const door = railDoors({ inbox: rows }, NAV).find((d) => d.key === "inbox");
-  assert.deepEqual(door.badge, { count: 132, tone: "accent", title: "12 need you · 120 unread" });
+  assert.deepEqual(door.badge, { count: 12, tone: "accent", title: "12 need you · 120 unread" }, "the corner counts what is owed, in the accent");
+  assert.equal(door.unreadDot, true, "and a neutral dot says something is unread besides");
+  assert.equal(door.arrival, 12, "the arrival is the owed count's");
+});
+
+test("the rail's Inbox corner: the owed count in the accent, else the unread count neutral, else nothing — never one sum", () => {
+  const owedOnly = railDoors({ inbox: [row({ needs_action: [ask] })] }, NAV)[0];
+  assert.deepEqual([owedOnly.badge, owedOnly.unreadDot], [{ count: 1, tone: "accent", title: "1 needs you" }, false]);
+  const unreadOnly = railDoors({ inbox: [row({ read: false }), row({ read: false })] }, NAV)[0];
+  assert.deepEqual([unreadOnly.badge, unreadOnly.unreadDot, unreadOnly.arrival], [{ count: 2, tone: "neutral", title: "2 unread" }, false, 0], "nothing owed: the unread, neutral — and nothing to announce");
+  const both = railDoors({ inbox: [row({ needs_action: [ask] }), row({ read: false }), row({ read: false })] }, NAV)[0];
+  assert.deepEqual([both.badge.count, both.badge.tone, both.unreadDot], [1, "accent", true]);
 });
 
 test("rows the node could not type never count and never throw", () => {
-  assert.equal(inboxBadge([null, undefined, row({ read: false })]).count, 1);
-  assert.equal(inboxBadge("not a list").count, 0);
-  assert.equal(inboxBadge([{}]).count, inboxBadge([{}]).needs + inboxBadge([{}]).unread, "a bare row is counted once or not at all");
+  assert.equal(inboxBadge([null, undefined, row({ read: false })]).unread, 1);
+  assert.deepEqual([inboxBadge("not a list").needs, inboxBadge("not a list").unread], [0, 0]);
+  assert.ok(inboxBadge([{}]).needs + inboxBadge([{}]).unread <= 1, "a bare row is counted once or not at all");
   assert.equal(railDoors({ inbox: [] }, NAV).find((d) => d.key === "inbox").badge, null, "nothing owed draws no badge");
   assert.equal(railDoors(null, NAV).find((d) => d.key === "inbox").badge, null, "before the workspace has loaded there is no badge");
 });
@@ -85,7 +98,8 @@ test("the rail's doors are the seven destinations, the Inbox with its badge, the
     doors.map((d) => d.key),
     ["inbox", "agents", "teams", "projects", "workflows", "goals", "pulse", "channels", "messages"],
   );
-  assert.deepEqual(doors[0].badge, { count: 2, tone: "accent", title: "1 needs you · 1 unread" });
+  assert.deepEqual(doors[0].badge, { count: 1, tone: "accent", title: "1 needs you · 1 unread" }, "the owed count, never the sum");
+  assert.equal(doors[0].unreadDot, true);
   assert.equal(doors.find((d) => d.key === "goals").badge, null, "Goals carries no count: the Inbox is the one place the total appears");
   const channels = doors.find((d) => d.key === "channels");
   assert.deepEqual(channels.badge, { count: 4, tone: "neutral", title: "4 unread" }, "the live map first, the listing's count else");
@@ -101,7 +115,7 @@ test("the rail's doors are the seven destinations, the Inbox with its badge, the
   assert.equal(railTooltip(doors.find((d) => d.key === "goals")), "Goals");
   const empty = railDoors({}, NAV);
   assert.equal(empty.length, 9);
-  assert.ok(empty.every((d) => d.badge === null && d.live === null && d.note === null));
+  assert.ok(empty.every((d) => d.badge === null && !d.unreadDot && d.live === null && d.note === null));
 });
 
 /** Tailwind's spacing scale: one unit is 4px. */

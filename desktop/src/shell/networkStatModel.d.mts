@@ -13,6 +13,8 @@ export interface StatWords {
   title: string;
 }
 export declare function statWords(facts: NetworkFacts | null, status: NetworkStatus | null, online: boolean | null): StatWords;
+/** The word the bar draws beside the glyph: only VPN; up and down are the dot's tone. */
+export declare function barWord(words: { value: string }): "VPN" | null;
 
 export interface OverlaySection {
   key: string;

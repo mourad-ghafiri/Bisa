@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api";
 import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
 import { keepRead, keptRead } from "./keptReadsStore";
+import { failureText } from "../../ui/failure";
 
 export interface Async<T> {
   data: T | null;
@@ -106,7 +107,7 @@ export function useAsync<T>(
         setMissing(false);
       } catch (e) {
         if (!live || ac.signal.aborted) return;
-        setError(e instanceof Error ? e.message : String(e));
+        setError(failureText("view", "a read failed", e)); // for the log
         setOffline(e instanceof ApiError && e.offline);
         setMissing(e instanceof ApiError && e.status === 404);
       } finally {
@@ -149,7 +150,7 @@ export async function attempt<T>(
     onDone?.(value);
     return true;
   } catch (e) {
-    onError(e instanceof Error ? e.message : String(e));
+    onError(failureText("view", "an act failed", e)); // for the log
     return false;
   }
 }

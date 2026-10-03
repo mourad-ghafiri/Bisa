@@ -67,11 +67,11 @@ goal-goal-mode-say-plainly-workflow-agent-reads-asks = Say it plainly. The Workf
 goal-goal-mode-tool-above-step-s-ceiling-no = A tool above its step's ceiling that no guard rule decides is read by the classifier: safe runs, harmful asks you or is refused as the classifier settings say, no verdict asks you.
 goal-goal-mode-tool-above-step-s-ceiling-no-2 = A tool above its step's ceiling that no guard rule decides is put to you, as in a guided goal.
 goal-goal-mode-workflow-agent-designs-proposes-adopt-ask = The Workflow Agent designs and proposes; you adopt it, ask for changes or decline, and approve every amendment.
-goal-goal-mode-workflow-agent-designs-workflow-platform-adopts = The Workflow Agent designs the workflow and the platform adopts, starts and repairs it by itself; a tool above a step's ceiling is read by the classifier, not put to you. You are asked only where a step is yours, a guard rule objects, or the classifier finds a command harmful.
+goal-goal-mode-workflow-agent-designs-workflow-platform-adopts = The Workflow Agent designs the workflow, and the platform adopts, starts and repairs it. You are asked only where a step is yours or a guard rule objects; a tool above a step's ceiling goes to the classifier, which asks you only about a harmful command.
 goal-goal-tabs-conversation = Conversation
 goal-goal-tabs-progress = Progress
 goal-goal-tabs-workflow = Workflow
-goal-progress-no-steps-yet = no steps yet
+goal-progress-no-steps-yet = No steps yet
 goal-progress-run-finished = The run finished { $outcome ->
     [done] done
    *[other] { $outcome }

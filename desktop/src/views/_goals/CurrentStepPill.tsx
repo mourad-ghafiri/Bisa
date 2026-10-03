@@ -7,6 +7,7 @@ import { STEP_KIND_ICON, Tooltip } from "../../ui";
 import type { GoalRow, StepKind } from "../../types";
 import { HOLDER_LABEL, KIND_LABEL, currentStepOf } from "./goalStripModel.mjs";
 import { HolderBadge } from "./HolderBadge";
+import { familyInk } from "../_workflow/familyInk";
 
 export function CurrentStepPill({
   row,
@@ -22,7 +23,7 @@ export function CurrentStepPill({
   return (
     <Tooltip label={`${KIND_LABEL[step.kind] ?? step.kind} · ${HOLDER_LABEL[row.holder] ?? row.holder}`}>
       <span className="inline-flex min-w-0 items-center gap-1 text-2xs text-text-dim">
-        {Icon && <Icon size={11} aria-hidden className="shrink-0" />}
+        {Icon && <Icon size={11} aria-hidden className={`shrink-0 ${familyInk(step.kind)}`} />}
         <span className="max-w-40 truncate">{step.name}</span>
         {step.more > 0 && <span className="tnum">+{step.more}</span>}
         {withHolder && <HolderBadge holder={row.holder} strip={row.strip} />}

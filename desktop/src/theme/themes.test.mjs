@@ -183,6 +183,29 @@ test("material.css frosts the glass families — the bare root among them, since
   }
 });
 
+test("the element's wrap defaults sit in the base layer, so a utility on the element — `truncate`, `whitespace-nowrap` — wins", () => {
+  const styles = strip(readFileSync(join(HERE, "..", "styles.css"), "utf8"));
+  const base = styles.indexOf("@layer base");
+  assert.ok(base >= 0, "styles.css keeps its element defaults in a base layer");
+  const layer = styles.slice(base, styles.indexOf("text-wrap: pretty", base) + 40);
+  assert.match(layer, /h3\s*\{\s*text-wrap:\s*balance;/, "headings balance, in the layer");
+  assert.match(layer, /p\s*\{\s*text-wrap:\s*pretty;/, "paragraphs avoid a lone word, in the layer");
+  const unlayered = styles.slice(0, base) + styles.slice(styles.indexOf("text-wrap: pretty", base) + 60);
+  assert.ok(!/(^|[};])\s*(?:p|h[1-6])(?:\s*,\s*(?:p|h[1-6]))*\s*\{[^}]*text-wrap/.test(unlayered), "no unlayered bare-element rule sets text-wrap: it would outrank every layered utility");
+});
+
+test("the page's ground frosts on a layer under the content, never on body — a frosted body is every pane's Backdrop Root, and no pane would frost", () => {
+  const css = strip(readFileSync(join(HERE, "material.css"), "utf8"));
+  for (const { selector, values } of blocks(css)) {
+    if (!("backdrop-filter" in values) && !("-webkit-backdrop-filter" in values)) continue;
+    for (const head of selector.split(",").map((s) => s.trim())) {
+      assert.ok(!/(^|\s)body$/.test(head) && !/(^|\s)html$/.test(head), `${head} frosts an ancestor of every pane (drafts.csswg.org/filter-effects-2, Backdrop Root)`);
+    }
+  }
+  const styles = strip(readFileSync(join(HERE, "..", "styles.css"), "utf8"));
+  assert.match(styles, /body::before\s*\{[^}]*position:\s*fixed;[^}]*z-index:\s*-1;[^}]*pointer-events:\s*none;/, "the frost layer covers the window, under the content, and catches nothing");
+});
+
 test("the theme files are the five families, and the default owns bare :root", () => {
   assert.deepEqual([...THEME_FILES].sort(), ["dune.css", "glass.css", "harbor.css", "orchard.css", "suede.css"]);
   const root = themeBlocks.filter((b) => b.selector.split(",").some((s) => s.trim() === ":root"));

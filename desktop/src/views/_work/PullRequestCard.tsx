@@ -13,7 +13,7 @@
 import { openExternal } from "../../api";
 import { errorFields, log } from "../../log";
 import type { CheckRun, CodeHostCapabilities, PullRequest } from "../../types";
-import { Chip } from "../../ui";
+import { Chip, ICON } from "../../ui";
 import { prNounCap } from "./codeHostWords.mjs";
 import { checksSummary } from "./prFormModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
@@ -38,7 +38,7 @@ export function PullRequestCard({
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          className="font-mono text-accent-ink underline underline-offset-2"
+          className="anim rounded-sm font-mono text-text underline decoration-text-dim/50 underline-offset-2 hover:decoration-text"
           title={pr.url}
           onClick={() => void openExternal(pr.url).catch((e: unknown) => log.warn("shell", "the machine's browser could not be opened", { url: pr.url, ...errorFields(e) }))}
         >
@@ -56,8 +56,10 @@ export function PullRequestCard({
         )}
       </div>
       <div className="flex items-center gap-2 font-mono text-text-dim">
-        <span className="min-w-0 truncate">
-          {pr.head} → {pr.base}
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="min-w-0 truncate">{pr.head}</span>
+          <ICON.forward size={10} aria-hidden className="shrink-0" />
+          <span className="min-w-0 truncate">{pr.base}</span>
         </span>
         {pr.author && <span className="shrink-0">{t("work-pull-request-card-words", { author: pr.author })}</span>}
       </div>

@@ -107,7 +107,7 @@ export function ChangesToolbar({
         trigger={
           <span
             title={t("work-changes-toolbar-which-changes-show")}
-            className={`anim inline-flex h-6 items-center gap-1 rounded-control px-1.5 text-2xs hover:bg-surface-2 hover:text-text ${filter === "all" ? "text-text-dim" : "bg-accent-soft text-accent-ink"}`}
+            className={`anim inline-flex h-6 items-center gap-1 rounded-control px-1.5 text-2xs hover:bg-surface-2 hover:text-text ${filter === "all" ? "text-text-dim" : "bg-selected text-text"}`}
           >
             <ICON.filter size={11} aria-hidden />
             {filterWords(filter, counts[filter])}

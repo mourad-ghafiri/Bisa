@@ -18,11 +18,13 @@ export const POPOVER_SURFACE =
 
 /** A row inside a menu. Focus is `data-highlighted`, which Radix drives for
  *  both the pointer and the keyboard, so hover and arrow-key selection cannot
- *  end up looking different. */
+ *  end up looking different. Inset from the panel's edge with its own small
+ *  corner, so the highlight is a shape inside the menu rather than a band
+ *  cut across it. */
 export const MENU_ITEM =
-  "anim flex cursor-default select-none items-center gap-2 px-3 py-1.5 text-left text-xs outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40";
+  "anim mx-1 flex cursor-default select-none items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40";
 
 export const MENU_ITEM_TONE = {
-  default: "text-text data-[highlighted]:bg-surface-2",
+  default: "text-text data-[highlighted]:bg-selected",
   danger: "text-danger data-[highlighted]:bg-danger-soft",
 } as const;

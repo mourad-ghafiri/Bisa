@@ -130,7 +130,7 @@ function ProjectsPanel({ goal }: { goal: string }) {
             <a
               href={href({ name: "workbench", scope: "workstream", id: row.project.id })}
               title={t("work-goal-inspector-open-project-ide")}
-              className="anim flex min-w-0 items-center gap-1.5 hover:text-accent-ink"
+              className="anim flex min-w-0 items-center gap-1.5 underline-offset-2 hover:underline"
             >
               <ProjectDot exists={row.exists} />
               <span className="min-w-0 flex-1 truncate text-xs font-medium">{row.project.name}</span>
@@ -142,7 +142,7 @@ function ProjectsPanel({ goal }: { goal: string }) {
               {row.project.origin.origin === "step" && (
                 <Chip tone="quiet" title={t("work-goal-inspector-made-step-library-workflow-running-here", { step: stepOf(row.project.origin)?.step })}>{t("work-goal-inspector-workflow-step")}</Chip>
               )}
-              {projectIsGit(row.project) ? <Chip tone="accent">{t("work-goal-inspector-git")}</Chip> : <Chip tone="quiet">{t("work-goal-inspector-plain")}</Chip>}
+              {projectIsGit(row.project) ? <Chip tone="neutral">{t("work-goal-inspector-git")}</Chip> : <Chip tone="quiet">{t("work-goal-inspector-plain")}</Chip>}
             </a>
             <Tooltip label={row.path} side="left">
               <p className="mt-0.5 truncate font-mono text-2xs text-text-dim">{row.path}</p>
@@ -229,7 +229,7 @@ function WorkPanel({ items, onOpenItem }: { items: WorkItemSpec[]; onOpenItem: (
                   {w.agent && (
                     <Tooltip label={t("work-goal-inspector-agent-running-picked-engine-not-asked")}>
                       <span>
-                        <Chip tone="accent" icon={ICON.agent}>
+                        <Chip tone="neutral" icon={ICON.agent}>
                           {w.agent}
                         </Chip>
                       </span>
@@ -251,7 +251,7 @@ function ProjectsCard({ goal, onSeeAll }: { goal: string; onSeeAll: () => void }
   const words = projectsWords(data?.projects);
   return (
     <section>
-      <SectionHeader title={t("work-goal-inspector-projects")} />
+      <SectionHeader flush title={t("work-goal-inspector-projects")} />
       {words === null ? (
         // Nothing is created or attached here: a goal's projects are born of its run.
         <p className="text-2xs text-text-dim">{t("work-goal-inspector-none-yet-see-projects")}</p>
@@ -276,7 +276,7 @@ function RunCard({ view }: { view: GoalView }) {
     );
     return (
       <section>
-        <SectionHeader title={t("work-goal-inspector-run")} />
+        <SectionHeader flush title={t("work-goal-inspector-run")} />
         <p className="text-2xs text-text-dim">{goal.workflow ? rich("work-goal-inspector-not-started-open", { door }) : rich("work-goal-inspector-no-workflow-yet-open", { door })}</p>
       </section>
     );
@@ -284,15 +284,16 @@ function RunCard({ view }: { view: GoalView }) {
   const pct = Math.round(progress(run) * 100);
   return (
     <section>
-      <SectionHeader title={t("work-goal-inspector-run")} />
+      <SectionHeader flush title={t("work-goal-inspector-run")} />
       <button type="button" onClick={() => setSearch({ tab: "workflow" })} className="anim mb-1.5 w-full rounded-control border border-border p-2 text-left hover:bg-surface-2">
         <p className="flex items-center gap-1.5 text-2xs">
           <ICON.run size={12} aria-hidden className="text-text-dim" />
           <span className="min-w-0 flex-1 truncate font-medium">{run.workflow.name}</span>
           <span className="tnum text-text-dim">{percent(pct / 100)}</span>
         </p>
-        <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
-          <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
+        {/* Progress is a fact, not a summons: the kit Meter's quiet fill. */}
+        <div className="mt-1 h-1 overflow-hidden rounded-full bg-border/70">
+          <div className="h-full bg-text-dim" style={{ width: `${pct}%` }} />
         </div>
         <p className="mt-1 text-2xs text-text-dim">{runCardWords(run, runs)}</p>
       </button>
@@ -356,17 +357,17 @@ export function GoalInspector({
         <Tabs tabs={tabs} active={panel} onChange={(id) => setPanel(id as Panel)} />
       </div>
 
-      <div data-scroll-keep={`insp:${panel}`} className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div data-scroll-keep={`insp:${panel}`} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {frozen && (
-          <p className="mb-3 flex items-start gap-1.5 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5 text-2xs text-accent-ink">
-            <ICON.run size={12} aria-hidden className="mt-px shrink-0" />
+          <p className="mb-4 flex items-start gap-1.5 rounded-control border border-border bg-surface-2/70 px-3 py-2 text-2xs text-text">
+            <ICON.run size={12} aria-hidden className="mt-px shrink-0 text-text-dim" />
             {FROZEN_HINT}
           </p>
         )}
         {panel === "details" && (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-6">
             <section>
-              <SectionHeader title={t("work-goal-inspector-statement")} />
+              <SectionHeader flush title={t("work-goal-inspector-statement")} />
               <Markdown text={goal.statement} />
             </section>
 
@@ -384,12 +385,12 @@ export function GoalInspector({
             <DocumentsCard goal={goal.id} readOnly={frozen} onOpenFiles={() => setPanel("files")} />
 
             <section>
-              <SectionHeader title={t("work-goal-inspector-spend")} />
+              <SectionHeader flush title={t("work-goal-inspector-spend")} />
               <p className="tnum text-2xs text-text-dim">{spendWords(spent)}</p>
             </section>
 
             <section>
-              <SectionHeader title={t("work-goal-inspector-assignees")} />
+              <SectionHeader flush title={t("work-goal-inspector-assignees")} />
               <p className="mb-1.5 text-2xs text-text-dim">{t("work-goal-inspector-names-agent-every-step")}</p>
               {frozen ? (
                 <AssigneeTags value={(goal.assignees ?? []).map(assigneeWire)} />
@@ -403,7 +404,7 @@ export function GoalInspector({
             </section>
 
             <section>
-              <SectionHeader title={t("work-goal-inspector-origin")} />
+              <SectionHeader flush title={t("work-goal-inspector-origin")} />
               <ul className="flex flex-wrap gap-1.5 text-2xs text-text-dim">
                 {originChips(goal, run, mode).map((chip) => {
                   const drawn = (

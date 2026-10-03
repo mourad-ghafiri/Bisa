@@ -26,8 +26,8 @@ export function screenHome(target, root, route) {
 }
 
 /**
- * What the person's door to the Browser pane does — ⌘⇧L, the palette, a
- * screen's Browser button — as one word: **hide** the pane while it shows;
+ * What the person's door to the Browser pane does — ⌘⇧L and the palette,
+ * beside any screen — as one word: **hide** the pane while it shows;
  * **show** it while a tab is in sight to look at; **open** a tab and show it
  * when there is none. Opening one is the person's act, made here at the
  * door: the pane itself, mounting — by a remembered address, by an addon's

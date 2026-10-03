@@ -11,19 +11,7 @@
  */
 
 import { t } from "../../i18n/l10n.mjs";
-import { assigneeToWire } from "./assigneeWire.mjs";
-
 export { captureToast } from "../_goal/goalMode.mjs";
-
-/**
- * Who a capture is handed to, on the wire: the team the Teams screen handed
- * over, or nobody — the dialog offers no picker of its own.
- * @param {string | null | undefined} team a team's id
- * @returns {string[]}
- */
-export function captureAssignees(team) {
-  return team ? [assigneeToWire({ team })] : [];
-}
 
 /**
  * What is said when projects handed over with a capture could not be

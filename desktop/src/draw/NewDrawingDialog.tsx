@@ -65,10 +65,10 @@ export function NewDrawingDialog({
       initialFocus={titleBox}
       footer={
         <>
-          <Button size="sm" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose}>
             {t("draw-new-cancel")}
           </Button>
-          <Button size="sm" variant="primary" disabled={!ready} onClick={submit}>
+          <Button variant="primary" disabled={!ready} onClick={submit}>
             {t("draw-new-create")}
           </Button>
         </>

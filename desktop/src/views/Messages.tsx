@@ -15,7 +15,7 @@ import { placeOf, useViewState } from "../shell/viewMemoryStore";
 import { textValue } from "../shell/viewValuesModel.mjs";
 import { settingsSearch } from "./_settings/settingsLink.mjs";
 import { NEW_MESSAGE, onDoor } from "../shell/shortcuts";
-import { BrowserDoor } from "../shell/BrowserDoor";
+import { listUnread } from "../shell/workspaceLoadModel.mjs";
 import {
   AgentPicker,
   Avatar,
@@ -27,6 +27,7 @@ import {
   ErrorNote,
   ICON,
   RelativeTime,
+  ScreenBar,
   Skeleton,
   SkeletonRows,
   TextInput,
@@ -140,20 +141,32 @@ function DmIndex({ onNew }: { onNew: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-2">
+      {/* The screen's band (`ui/ScreenBar.tsx`): the name narrows the list; the count and *New message* last. */}
+      <ScreenBar
+        end={
+          <>
+            <span className="tnum text-2xs text-text-dim">{t("screens-goals-words", { shown: shown.length, rows: entries.length })}</span>
+            {search.trim() !== "" && (
+              <Button size="sm" variant="ghost" onClick={() => setSearch("")}>{t("screens-agents-clear-filters")}</Button>
+            )}
+            <Button size="sm" variant="primary" onClick={onNew}>
+              <ICON.add size={12} aria-hidden />{t("screens-messages-new-message")}</Button>
+          </>
+        }
+      >
         <span className="relative">
           <ICON.search size={12} aria-hidden className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-text-dim" />
           <TextInput value={search} placeholder={t("screens-messages-search")} aria-label={t("screens-messages-search")} className="h-7 w-56 py-0 pl-7" onChange={(e) => setSearch(e.target.value)} />
         </span>
-        <span className="tnum text-2xs text-text-dim">{t("screens-goals-words", { shown: shown.length, rows: entries.length })}</span>
-        {search.trim() !== "" && (
-          <Button size="sm" variant="ghost" onClick={() => setSearch("")}>{t("screens-agents-clear-filters")}</Button>
-        )}
-        <Button size="sm" variant="primary" className="ml-auto" onClick={onNew}>
-          <ICON.add size={12} aria-hidden />{t("screens-messages-new-message")}</Button>
-      </div>
-      <div data-scroll-keep="list" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-        {entries.length === 0 ? (
+      </ScreenBar>
+      {/* An `@container`: a row's harness shows by the list's width, not the window's. */}
+      <div data-scroll-keep="list" className="@container min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        {/* Unread is unknown, never empty: before the workspace answers, the shape of the list; a read that failed, the reason and a way to ask again — as on Goals. */}
+        {!ws.ready ? (
+          <SkeletonRows rows={4} />
+        ) : entries.length === 0 && listUnread(ws.degraded, ws.offline, "dms") ? (
+          <ErrorNote error={t("screens-messages-could-not-read")} retry={ws.refresh} />
+        ) : entries.length === 0 ? (
           <EmptyState
             icon={ICON.dm}
             title={t("screens-messages-no-direct-messages")}
@@ -177,19 +190,19 @@ function DmIndex({ onNew }: { onNew: () => void }) {
               const busy = (ws.working[channel.id] ?? []).length > 0;
               const said = latestWords(latest, nameOf);
               return (
-                <a key={channel.id} href={href({ name: "dm", id: channel.id })} className="anim flex min-w-0 items-center gap-3 rounded-card px-3 py-2 hover:bg-surface-2">
+                <a key={channel.id} href={href({ name: "dm", id: channel.id })} className="anim flex min-h-row-lg min-w-0 items-center gap-3 rounded-control px-3 py-1.5 hover:bg-surface-2">
                   <Avatar id={head} name={agent?.name ?? nameOf(head)} photo={ws.photoOf(head)} size={28} />
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex min-w-0 items-center gap-2">
                       <span className={`truncate text-sm text-text ${unread > 0 ? "font-semibold" : "font-medium"}`}>{label}</span>
-                      {agent && <span className="hidden shrink-0 text-2xs text-text-dim sm:inline">{agent.harness}</span>}
+                      {agent && <span className="hidden shrink-0 text-2xs text-text-dim @md:inline">{agent.harness}</span>}
                       {latest && <RelativeTime at={latest.at} className="tnum ml-auto shrink-0 text-2xs text-text-dim" />}
                     </span>
                     <span className="truncate text-2xs text-text-dim">{said ?? t("screens-messages-nothing-said-yet")}</span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
                     {busy && <WorkingDot title={t("shell-sidebar-is-writing", { name: agent?.name ?? t("shell-sidebar-an-agent") })} />}
-                    <CountBadge count={unread} />
+                    <CountBadge count={unread} tone="neutral" />
                   </span>
                 </a>
               );
@@ -323,13 +336,12 @@ export default function Messages({ id }: { id?: string }) {
               <>
                 {working.length > 0 && <WorkingDot title={t("screens-channels-agent-writing-here")} />}
                 {agents.length > 0 && !soloAgent && (
-                  <Chip tone="quiet" icon={ICON.agent}>{t("screens-messages-agents", { agents: agents.length })}</Chip>
+                  <Chip icon={ICON.agent}>{t("screens-messages-agents", { agents: agents.length })}</Chip>
                 )}
               </>
             }
             actions={
               <>
-                <BrowserDoor home={id ? { scope: "dm", id } : null} />
                 {soloAgent && (
                   <Button asChild size="sm">
                     <a href={href({ name: "agent", id: soloAgent.id })}>

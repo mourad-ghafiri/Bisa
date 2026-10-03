@@ -62,16 +62,16 @@ function Run({ text, storeKey }: { text: string; storeKey: string }) {
   if (lines === 0) return null;
   if (lines < FOLD_UNDER || open) {
     return (
-      <pre className="whitespace-pre-wrap rounded-control border border-border/60 bg-surface-2/30 px-2.5 py-1 font-mono text-2xs leading-5 text-text-dim" data-run={storeKey}>
+      <pre className="whitespace-pre-wrap rounded-control bg-surface-2/40 px-2.5 py-1 font-mono text-2xs leading-5 text-text-dim" data-run={storeKey}>
         {text.replace(/\n$/, "")}
         {lines >= FOLD_UNDER && (
-          <button type="button" className="anim ml-2 text-accent hover:underline" onClick={() => setOpen(false)}>{t("work-conflict-view-fold")}</button>
+          <button type="button" className="anim ml-2 text-text-dim underline-offset-2 hover:text-text hover:underline" onClick={() => setOpen(false)}>{t("work-conflict-view-fold")}</button>
         )}
       </pre>
     );
   }
   return (
-    <button type="button" className="anim rounded-control border border-dashed border-border px-2.5 py-1 text-left font-mono text-2xs text-text-dim hover:bg-surface-2" onClick={() => setOpen(true)}>
+    <button type="button" className="anim rounded-control bg-surface-2/40 px-2.5 py-1 text-left font-mono text-2xs text-text-dim hover:bg-surface-2 hover:text-text" onClick={() => setOpen(true)}>
       {foldWords(lines)}
     </button>
   );
@@ -224,7 +224,7 @@ export function ConflictView({
               {choices.map((ch) => (
                 <Tooltip key={ch.id} label={ch.hint}>
                   <span className="inline-flex">
-                    <Button size="sm" variant={ch.danger ? "ghost" : "primary"} className={ch.danger ? "hover:text-danger" : undefined} disabled={busy} onClick={() => void ops.resolve(scope, wid, path, ch.take, sides).then((ran) => ran && onSettled(path))}>
+                    <Button size="sm" variant={ch.danger ? "ghost" : "default"} className={ch.danger ? "hover:text-danger" : undefined} disabled={busy} onClick={() => void ops.resolve(scope, wid, path, ch.take, sides).then((ran) => ran && onSettled(path))}>
                       {ch.label}
                     </Button>
                   </span>
@@ -276,7 +276,7 @@ export function ConflictView({
         )}
         <Tooltip label={t("work-conflict-view-whole-file-will-saved-against-side")}>
           <span className="inline-flex">
-            <Button size="sm" variant="ghost" className="h-6" aria-pressed={reviewing} onClick={() => setReviewing((v) => !v)}>
+            <Button size="sm" variant="ghost" className="h-6 aria-pressed:bg-selected aria-pressed:text-text" aria-pressed={reviewing} onClick={() => setReviewing((v) => !v)}>
               <ICON.inspect size={12} aria-hidden />{t("work-conflict-view-review")}</Button>
           </span>
         </Tooltip>
@@ -343,7 +343,7 @@ export function ConflictView({
 /** The two sides, named, and the sentence that says what is happening. */
 function Legend({ sides, explain }: { sides: ReturnType<typeof sidesOf>; explain: string }) {
   return (
-    <div className="flex flex-col gap-1 rounded-control border border-border bg-surface-2/40 px-2.5 py-1.5 text-2xs">
+    <div className="flex flex-col gap-1 rounded-control bg-surface-2/50 px-3 py-2 text-2xs">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <SideSwatch side={sides.mine} />
         <span className="text-text-dim">{sides.mine.role}</span>

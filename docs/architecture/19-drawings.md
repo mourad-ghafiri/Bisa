@@ -101,18 +101,21 @@ keymap's `save`, ⌘S) saves now; the editor **holds** the drawing for the panel
 Back, the panel's ×, the chord, the dock, another drawing opened over it — asks *Save · Don't save ·
 Cancel* through the one `UnsavedDialog`, and the same hold is a dirty source of `editorRegistry`, so
 quitting counts and saves it like a document. *Delete* asks first (`ConfirmDialog`, the plain verb)
-and names what goes with the drawing: its snapshot and its conversations.
+and names what goes with the drawing: its snapshot and its conversations. The list offers the same
+*Delete* on every row (a trash that shows on hover or focus, beside the row and never inside it), asked
+in the same words, so a drawing goes without being opened; one already gone simply leaves the list.
 
 The **panel** is the notes overlay's twin — a pane that floats over whatever screen is open, at
-`z-40` under every dialog, with the same seven tabs, search, *New* and a repository strip at the
+`z-40` under every dialog, over a live browser tab too (the browser layer cuts around it, ide/18), with the same seven tabs, search, *New* and a repository strip at the
 foot of its list; its **dock** is a floating button the footer's Draw switch shows or hides, and
 **Mod+Alt+D** (`toggle_draw`) opens and closes the panel. *New* is a dialog (`NewDrawingDialog.tsx`):
 a gallery of the templates as tiles — each a **preview** drawn from its own skeleton (`templates/preview.mjs`,
 no canvas loaded) and a **blurb** on when to reach for it — a title the template proposes and a hand
 may change (`newDrawingModel.mjs`), and *Where* only when the tab offers several places; *Create*
 makes it and opens it. A drawing
-open in the panel has a header bar — back, its title, its status, **Save**, *Ask an agent*, **maximize**,
-delete — and the
+open in the panel has a header bar — back, its title, its status, **Save**, *Ask an agent* (the agent
+glyph), **maximize**, delete and the panel's × (which closes the panel and keeps the drawing open in it,
+as the list's × does) — and the
 canvas; maximized, the panel fills exactly the content column (everything but the header, the footer
 and the sidebar), a box `App.tsx` publishes from its content column's resize observer — the one frame
 `shell/maximizedPanel.ts` gives the notes overlay too, and one header button, `shell/MaximizeToggle.tsx` —

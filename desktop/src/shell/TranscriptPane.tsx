@@ -20,7 +20,7 @@ import { t } from "../i18n/l10n.mjs";
 export function TranscriptPane({ session }: { session: string | null }) {
   const route = useRoute();
   const row = useSessionRow(session ?? "");
-  if (!session) return <p className="p-3 text-2xs text-text-dim">{t("shell-transcript-pane-nothing-show-address-names-session")}</p>;
+  if (!session) return <p className="p-4 text-2xs text-text-dim">{t("shell-transcript-pane-nothing-show-address-names-session")}</p>;
   const line = transcriptWords(row);
   const inWorkbench = route.name === "workbench";
   const openAsTab = () => {
@@ -30,7 +30,7 @@ export function TranscriptPane({ session }: { session: string | null }) {
     setSearch({ doc: tabId(tab), aux: null, auxId: null });
   };
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 p-3">
+    <div className="flex h-full min-h-0 flex-col gap-2 px-4 py-3">
       <div className="flex shrink-0 items-center gap-2 text-2xs">
         {row && <SessionMark state={row.state} />}
         <span className="min-w-0 truncate font-mono text-text" title={session}>

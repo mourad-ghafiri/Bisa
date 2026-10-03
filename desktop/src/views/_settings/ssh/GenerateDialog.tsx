@@ -68,7 +68,7 @@ export function GenerateDialog({
         <Field label={t("settings-generate-dialog-comment")} hint={t("settings-generate-dialog-carried-public-key-email-machine-so")}>
           <TextInput value={comment} /* content, never translated */ placeholder="you@acme.example" onChange={(e) => setComment(e.target.value)} />
         </Field>
-        <p className="text-2xs text-text-dim">{PASSPHRASE_NOTE}</p>
+        <p className="text-2xs leading-relaxed text-text-dim">{PASSPHRASE_NOTE}</p>
       </form>
     </Dialog>
   );

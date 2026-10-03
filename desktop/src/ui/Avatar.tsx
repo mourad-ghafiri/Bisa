@@ -11,26 +11,10 @@
 import * as A from "@radix-ui/react-avatar";
 import { cn } from "./cn";
 import { usePhotoThumb } from "./photoThumbs";
+import { principalColor } from "./avatarModel.mjs";
 
-/**
- * Identicon hues, deliberately skipping 270–330: the app has no purple in it
- * and a stray violet avatar would be the only one on screen.
- */
-const HUES = [12, 40, 68, 95, 130, 155, 185, 205, 235, 258];
-
-function hash(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return Math.abs(h);
-}
-
-export function principalColor(id: string): string {
-  const hue = HUES[hash(id) % HUES.length]!;
-  return `oklch(0.62 0.13 ${hue})`;
-}
+// The ground under the initials is the model's: it holds them to 4.5:1 in every hue.
+export { principalColor };
 
 /** Two characters that stay stable for an id — never a slice of a name. */
 function initials(id: string, name?: string): string {

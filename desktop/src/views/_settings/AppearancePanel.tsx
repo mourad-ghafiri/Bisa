@@ -202,7 +202,7 @@ function AccentTile({ label, palette: p, active, onSelect }: { label: string; pa
       type="button"
       aria-pressed={active}
       onClick={onSelect}
-      className={cn("anim group flex items-center gap-2 rounded-control border px-2 py-1.5 text-left outline-none", active ? "border-accent ring-2 ring-accent/40" : "border-border hover:bg-surface-2 focus-visible:border-accent")}
+      className={cn("anim group flex items-center gap-2 rounded-control border px-2 py-1.5 text-left outline-none focus-visible:border-accent", active ? "border-accent ring-2 ring-accent/40" : "border-border hover:border-text-dim/40 hover:bg-surface-2")}
     >
       <span aria-hidden className="flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5" style={{ background: p["accent-soft"] }}>
         <span className="h-2 w-2 rounded-full" style={{ background: p.accent }} />
@@ -220,16 +220,16 @@ function FontSpecimen({ label, note, stack, text, mono, active, onSelect }: { la
       type="button"
       aria-pressed={active}
       onClick={onSelect}
-      className={cn("anim flex min-w-0 flex-col gap-1 rounded-control border px-3 py-2 text-left outline-none", active ? "border-accent ring-2 ring-accent/40" : "border-border hover:bg-surface-2 focus-visible:border-accent")}
+      className={cn("anim flex min-w-0 flex-col gap-1 rounded-control border px-3 py-2 text-left outline-none focus-visible:border-accent", active ? "border-accent ring-2 ring-accent/40" : "border-border hover:border-text-dim/40 hover:bg-surface-2")}
     >
       <span className="flex items-center gap-1 text-2xs">
-        {active && <ICON.check size={12} aria-hidden className="shrink-0 text-accent" />}
+        {active && <ICON.check size={12} aria-hidden className="shrink-0 text-text" />}
         <span className={active ? "font-medium text-text" : "text-text-dim"}>{label}</span>
       </span>
       <span className={cn("truncate text-text", mono ? "text-xs" : "text-sm")} style={{ fontFamily: stack || undefined }}>
         {text}
       </span>
-      <span className="text-3xs text-text-dim">{note}</span>
+      <span className="text-2xs text-text-dim">{note}</span>
     </button>
   );
 }
@@ -268,17 +268,18 @@ export function AppearancePanel() {
   const atDefault = isDefaultScale(a.typeScale, TYPE_SCALE.default);
 
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    // A size container: the tiles split by the panel's width, so a narrow window keeps whole previews.
+    <div className="@container flex flex-col gap-6">
       <Section title={tr("settings-appearance-panel-theme")}>
-        <p className="mb-3 text-xs text-text-dim">{rich("settings-appearance-panel-theme-blurb", { strong: (inner) => <strong className="font-medium text-text">{inner}</strong> })}</p>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <p className="mb-4 max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-appearance-panel-theme-blurb", { strong: (inner) => <strong className="font-medium text-text">{inner}</strong> })}</p>
+        <div className="grid gap-3 @xl:grid-cols-2">
           {cards.map((card) => (
             <Card key={card.id} className="flex flex-col gap-2">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-sm font-medium text-text">{card.label}</span>
-                {card.id === DEFAULT_FAMILY.id && <span className="text-3xs uppercase tracking-wide text-text-dim">{tr("settings-appearance-panel-default")}</span>}
+                {card.id === DEFAULT_FAMILY.id && <span className="text-2xs text-text-dim">{tr("settings-appearance-panel-default")}</span>}
               </div>
-              <p className="text-2xs text-text-dim">{card.mood}</p>
+              <p className="text-2xs leading-relaxed text-text-dim">{card.mood}</p>
               <div className="flex gap-3">
                 {card.tiles.map((t) => (
                   <ThemeTile
@@ -298,15 +299,15 @@ export function AppearancePanel() {
 
       <Section title={tr("settings-appearance-panel-accent")}>
         <Card>
-          <p className="text-xs text-text-dim">
+          <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
             <strong className="font-medium text-text">{tr("settings-appearance-panel-accent-means-attention")}</strong> {tr("settings-appearance-panel-whatever-waiting-on-you-wears-it")}
           </p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2 @xl:grid-cols-2">
             {ACCENTS.map((c) => (
               <AccentTile key={c.id} label={c.label} palette={palettes.accents[c.id]} active={a.accent === c.id} onSelect={() => setAccent(c.id)} />
             ))}
           </div>
-          <p className="mt-2 text-2xs text-text-dim">{tr("settings-appearance-panel-accent-replaces-four-roles-nothing-else")}</p>
+          <p className="mt-3 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("settings-appearance-panel-accent-replaces-four-roles-nothing-else")}</p>
         </Card>
       </Section>
 
@@ -314,13 +315,13 @@ export function AppearancePanel() {
         <Card>
           <div className="flex flex-wrap items-center gap-3">
             <SegmentedControl label={tr("settings-appearance-panel-density")} value={a.density} onChange={(d: DensityChoice) => setDensity(d)} options={DENSITIES.map((d) => ({ id: d.id, label: d.label }))} />
-            <p className="min-w-48 flex-1 text-xs text-text-dim">{tr("settings-appearance-panel-two-settings-rather-than-slider-app")}</p>
+            <p className="min-w-48 flex-1 text-2xs leading-relaxed text-text-dim">{tr("settings-appearance-panel-two-settings-rather-than-slider-app")}</p>
           </div>
           {/* Density applies the moment it is picked, so the sample below is
               the preview: these rows are the app's real row height. */}
-          <ul className="mt-3 overflow-hidden rounded-control border border-border">
+          <ul className="mt-3 overflow-hidden rounded-control bg-surface-2/50">
             {[tr("settings-appearance-panel-ship-landing-page"), tr("settings-appearance-panel-review-migration-plan"), tr("settings-appearance-panel-rotate-webhook-secret")].map((t) => (
-              <li key={t} className="flex h-row items-center gap-2 border-b border-border px-2 text-sm last:border-b-0">
+              <li key={t} className="flex h-row items-center gap-2 border-b border-hairline px-2 text-sm last:border-b-0">
                 <ICON.goal size={14} aria-hidden className="shrink-0 text-text-dim" />
                 <span className="truncate">{t}</span>
               </li>
@@ -346,32 +347,32 @@ export function AppearancePanel() {
           </div>
           {/* The whole app is already at the new scale; this paragraph is the
               live specimen, captioned with the pixels it is set in. */}
-          <div className="mt-3 rounded-control border border-border bg-surface-2 p-3">
+          <div className="mt-3 rounded-control bg-surface-2/50 p-3">
             <p className="text-sm text-text">{SPECIMEN.body}</p>
             <p className="mt-1 text-2xs text-text-dim">{tr("settings-appearance-panel-secondary-text-kind-under-name-reads")}</p>
-            <p className="tnum mt-2 text-3xs text-text-dim">{tr("settings-appearance-panel-body-px-secondary-px-meta-px", { body: specimen.body, secondary: specimen.secondary, meta: specimen.meta })}</p>
+            <p className="tnum mt-2 text-2xs text-text-dim">{tr("settings-appearance-panel-body-px-secondary-px-meta-px", { body: specimen.body, secondary: specimen.secondary, meta: specimen.meta })}</p>
           </div>
-          <p className="mt-2 text-2xs text-text-dim">{tr("settings-appearance-panel-multiplier-not-list-of-sizes")}</p>
+          <p className="mt-3 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("settings-appearance-panel-multiplier-not-list-of-sizes")}</p>
         </Card>
       </Section>
 
       <Section title={tr("settings-appearance-panel-fonts")}>
         <Card>
-          <p className="text-xs text-text-dim">{rich("settings-appearance-panel-fonts-blurb", { strong: (inner) => <strong className="font-medium text-text">{inner}</strong> })}</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-3" role="group" aria-label={tr("settings-appearance-panel-interface-font")}>
+          <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-appearance-panel-fonts-blurb", { strong: (inner) => <strong className="font-medium text-text">{inner}</strong> })}</p>
+          <div className="mt-3 grid gap-2 @2xl:grid-cols-3" role="group" aria-label={tr("settings-appearance-panel-interface-font")}>
             {FONTS_UI.map((f) => (
               <FontSpecimen key={f.id} label={f.label} note={f.note} stack={fonts.ui[f.id]} text={SPECIMEN.ui} active={a.fontUi === f.id} onSelect={() => setFontUi(f.id)} />
             ))}
           </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3" role="group" aria-label={tr("settings-appearance-panel-code-font")}>
+          <div className="mt-2 grid gap-2 @2xl:grid-cols-3" role="group" aria-label={tr("settings-appearance-panel-code-font")}>
             {FONTS_MONO.map((f) => (
               <FontSpecimen key={f.id} label={f.label} note={f.note} stack={fonts.mono[f.id]} text={SPECIMEN.mono} mono active={a.fontMono === f.id} onSelect={() => setFontMono(f.id)} />
             ))}
           </div>
-          <p className="mt-2 text-2xs text-text-dim">
+          <p className="mt-3 max-w-measure text-2xs leading-relaxed text-text-dim">
             {rich("settings-appearance-panel-editor-terminal-sizes-are-settings-under", {
-              editor: <a className="text-accent-ink hover:underline" href={href({ name: "settings" }, settingsSearch("editor"))}>{settingsPath("editor", { within: true })}</a>,
-              terminal: <a className="text-accent-ink hover:underline" href={href({ name: "settings" }, settingsSearch("terminal"))}>{settingsPath("terminal", { within: true })}</a>,
+              editor: <a className="anim text-accent-ink underline underline-offset-2 hover:text-text" href={href({ name: "settings" }, settingsSearch("editor"))}>{settingsPath("editor", { within: true })}</a>,
+              terminal: <a className="anim text-accent-ink underline underline-offset-2 hover:text-text" href={href({ name: "settings" }, settingsSearch("terminal"))}>{settingsPath("terminal", { within: true })}</a>,
             })}
           </p>
         </Card>
@@ -395,7 +396,7 @@ function SidebarOrderSection() {
     <Section title={tr("settings-appearance-panel-sidebar")}>
       <Card>
         <div className="flex items-center justify-between gap-3">
-          <p className="text-2xs text-text-dim">
+          <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
             {original ? tr("settings-appearance-panel-destinations-their-original-order") : tr("settings-appearance-panel-destinations-order-dragged-them")} {tr("settings-appearance-panel-drag-row-or-icon-to-move")}
           </p>
           <Button size="sm" variant="ghost" disabled={original} onClick={resetNavOrder}>{tr("settings-appearance-panel-reset-order")}</Button>

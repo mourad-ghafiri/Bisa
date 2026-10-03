@@ -86,8 +86,8 @@ export function BrowserOverlay({ close }: { close: () => void }) {
               <>
                 {r.busy && <WorkingDot title={t("shell-browser-door-agent-browsing")} />}
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span className={cn("min-w-0 truncate text-2xs", r.current ? "text-accent-ink" : "text-text")}>{r.label}</span>
-                  {r.sub && <span className="min-w-0 truncate text-3xs text-text-dim">{r.sub}</span>}
+                  <span className={cn("min-w-0 truncate text-2xs text-text", r.current && "font-medium")}>{r.label}</span>
+                  {r.sub && <span className="min-w-0 truncate text-2xs text-text-dim">{r.sub}</span>}
                 </span>
                 {r.percent !== null && <Meter percent={r.percent} tone="quiet" width="w-12" />}
                 <span className="tnum w-16 shrink-0 text-right text-2xs text-text-dim">{r.value}</span>
@@ -95,7 +95,7 @@ export function BrowserOverlay({ close }: { close: () => void }) {
             );
             const className = cn("flex min-w-0 flex-1 items-center gap-2 rounded-control px-1.5 py-1 text-left", r.dim && "opacity-60");
             return (
-              <div key={r.key} className={cn("flex items-center gap-1", r.current && "rounded-control bg-accent-soft")}>
+              <div key={r.key} className={cn("flex items-center gap-1", r.current && "rounded-control bg-selected")}>
                 {r.door ? (
                   <button type="button" onClick={() => walk(r.door, close)} aria-current={r.current ? "true" : undefined} title={r.hint ?? undefined} className={cn("anim hover:bg-surface-2", className)}>
                     {body}
@@ -106,7 +106,7 @@ export function BrowserOverlay({ close }: { close: () => void }) {
                   </div>
                 )}
                 {r.close && (
-                  <button type="button" aria-label={t("shell-browser-overlay-close", { r: r.label })} onClick={() => closeBrowserTab(r.close as string)} className="anim shrink-0 rounded p-0.5 text-text-dim hover:text-text">
+                  <button type="button" aria-label={t("shell-browser-overlay-close", { r: r.label })} onClick={() => closeBrowserTab(r.close as string)} className="anim flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
                     <ICON.close size={11} aria-hidden />
                   </button>
                 )}
@@ -115,7 +115,7 @@ export function BrowserOverlay({ close }: { close: () => void }) {
           })}
         </div>
       )}
-      <p className="px-1 text-3xs text-text-dim">{footnote(prefs.headless)}</p>
+      <p className="px-1 text-2xs text-text-dim">{footnote(prefs.headless)}</p>
     </div>
   );
 }

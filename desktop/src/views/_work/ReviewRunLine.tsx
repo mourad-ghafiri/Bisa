@@ -105,7 +105,7 @@ export function ReviewRunLine({
       </div>
       {reply && <FoldedText text={reply.content} storeKey={`ide.pr.run.${run.at}`} className="pl-5 text-text-dim" />}
       {isFix(run) && onOpenChanges && (
-        <button type="button" className="self-start pl-5 text-2xs text-accent-ink underline underline-offset-2" onClick={onOpenChanges}>{t("work-new-workstream-dialog-open-git-changes")}</button>
+        <button type="button" className="anim self-start pl-5 text-2xs text-accent-ink underline underline-offset-2 hover:text-text" onClick={onOpenChanges}>{t("work-new-workstream-dialog-open-git-changes")}</button>
       )}
     </div>
   );

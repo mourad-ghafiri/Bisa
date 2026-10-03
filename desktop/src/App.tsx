@@ -31,7 +31,7 @@ import { type ConnState, useEngineEvents, watchConnection } from "./bus";
 import { FIRST_CONN } from "./busModel.mjs";
 import { useReloadOnReconnect } from "./ui/useReloadOnReconnect";
 import { navigate, useRoute, type Route } from "./router";
-import { DragProvider, ErrorBoundary, OverlayBoundary, ResizeHandle, Spinner, ToastProvider, useStoredSize } from "./ui";
+import { DragProvider, ErrorBoundary, OverlayBoundary, ResizeHandle, Spinner, ToastProvider, useDockClearance, useStoredSize } from "./ui";
 import { AuxPane, useAux } from "./shell/AuxPane";
 import { NoteOverlay } from "./notes/NoteOverlay";
 import { DrawOverlay } from "./draw/DrawOverlay";
@@ -204,6 +204,8 @@ export default function App() {
   const [contentWidth, setContentWidth] = useState(0);
   const singleColumn = contentWidth > 0 && contentWidth < SINGLE_COLUMN_AT;
   const content = useRef<HTMLDivElement>(null);
+  // The room a floating dock over the content takes at the end of each screen's scroll (`ui/dockClearance.ts`).
+  useDockClearance(content);
 
   const toggleSidebar = useCallback(() => {
     setSidebarMode((mode) => {

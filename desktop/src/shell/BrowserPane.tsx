@@ -13,17 +13,18 @@
  * a click, never an address. A tab the IDE's centre shows at the same time
  * is drawn there, the bigger box, and the pane says so.
  *
- * A page is annotated here as in the IDE (`useBrowserAnnotation`): the
- * note box is the page's own, drawn over the element by the inspector, and
- * the tray sits under the page — the checkout's tray for a tab at home in a
- * workstream (`CheckoutAnnotationTray`: Send, the file chips),
- * the screen's for any other (`PaneAnnotationTray`: the chips into the
- * composer of the goal, channel or message beside the pane). The body
+ * A page is annotated here only while the pane stands beside the Project
+ * IDE (`useBrowserAnnotation`'s `offered`): beside any other screen the bar
+ * draws no wand and the page is only shown. In the IDE the note box is the
+ * page's own, drawn over the element by the inspector, and the tray sits
+ * under the page — the checkout's tray for a tab at home in a workstream
+ * (`CheckoutAnnotationTray`: Send, the file chips), the screen's for any
+ * other (`PaneAnnotationTray`: the chips into the composer beside it). The body
  * carries `data-browser-doc`, so the browser chords are live in it.
  */
 
 import { useEffect } from "react";
-import { Button, EmptyState, ICON, StripControlButton, Tooltip, cn } from "../ui";
+import { Button, EmptyState, ICON, StripControlButton, TabStrip, Tooltip } from "../ui";
 import { CheckoutAnnotationTray } from "../views/_workbench/AnnotationTray";
 import { PaneAnnotationTray } from "../views/_workbench/PaneAnnotationTray";
 import { useBrowserAnnotation } from "../views/_workbench/useBrowserAnnotation";
@@ -57,28 +58,39 @@ export function BrowserPane({ tab }: { tab: string | null }) {
   const newTab = () => void openBrowserIn({ home: screenHome(), by: PERSON });
 
   const shown = seen.find((s) => s.key === active) ?? seen[0] ?? null;
-  if (why) return <p className="p-3 text-2xs text-text-dim">{why}</p>;
+  if (why) return <p className="p-4 text-2xs text-text-dim">{why}</p>;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div role="tablist" aria-label={t("shell-browser-pane-browser-tabs")} className="flex h-row shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-1">
-        {sessions.map((s) => (
-          <span key={s.key} role="tab" aria-selected={s.key === shown?.key} className={cn("group inline-flex h-6 max-w-40 shrink-0 items-center gap-1 rounded-control px-1.5 text-2xs", s.key === shown?.key ? "bg-surface-2 text-text" : "text-text-dim hover:bg-surface-2 hover:text-text", s.headless && "opacity-60")}>
-            {s.headless && <ICON.hidden size={10} aria-hidden className="shrink-0" />}
-            <button type="button" className="min-w-0 truncate" title={t("shell-browser-pane-words", { s: browserTitle(s), places: whereWords(s, places), s2: visibilityWords(s), flag: (s.headless) ? "yes" : "no" })} onClick={() => revealBrowserTab(s.key)}>
-              {browserLabel(s)}
-            </button>
-            <button type="button" aria-label={t("shell-browser-pane-close-tab", { label: browserLabel(s) })} className="anim hidden rounded p-0.5 hover:text-text group-hover:inline-flex" onClick={() => closeBrowserTab(s.key)}>
-              <ICON.close size={10} aria-hidden />
-            </button>
-          </span>
-        ))}
-        <Tooltip label={t("shell-browser-overlay-new-tab")}>
-          <StripControlButton label={t("shell-browser-overlay-new-tab")} onClick={newTab}>
-            <ICON.add size={13} aria-hidden />
-          </StripControlButton>
-        </Tooltip>
-      </div>
+      {/* The kit's strip: one tab stop, ← → Home End between tabs, Delete
+          closes the focused one, the × shows on hover and on focus. A tab
+          kept out of sight wears the hidden glyph, dimmed. */}
+      <TabStrip
+        size="sm"
+        label={t("shell-browser-pane-browser-tabs")}
+        className="h-row shrink-0 border-b border-hairline px-1.5"
+        tabs={sessions.map((s) => ({
+          id: s.key,
+          label: browserLabel(s),
+          title: t("shell-browser-pane-words", { s: browserTitle(s), places: whereWords(s, places), s2: visibilityWords(s), flag: (s.headless) ? "yes" : "no" }),
+          icon: s.headless ? ICON.hidden : undefined,
+          dimmed: s.headless,
+        }))}
+        active={shown?.key ?? null}
+        onSelect={revealBrowserTab}
+        onClose={closeBrowserTab}
+        menuFor={(key) => {
+          const s = sessions.find((x) => x.key === key);
+          return s ? [{ label: t("shell-browser-pane-close-tab", { label: browserLabel(s) }), icon: ICON.close, onSelect: () => closeBrowserTab(key) }] : [];
+        }}
+        trailing={
+          <Tooltip label={t("shell-browser-overlay-new-tab")}>
+            <StripControlButton label={t("shell-browser-overlay-new-tab")} onClick={newTab}>
+              <ICON.add size={13} aria-hidden />
+            </StripControlButton>
+          </Tooltip>
+        }
+      />
       {shown ? (
         <PaneTab key={shown.key} session={shown} />
       ) : (
@@ -106,7 +118,7 @@ function PaneTab({ session }: { session: BrowserSession }) {
   const traying = a.annotatable && (a.draft.annotations.length > 0 || a.inspecting);
   return (
     <div data-browser-doc tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
-      <BrowserBar session={session} server={a.server} inIde={false} wand={{ enabled: a.annotatable, whyNot: a.whyNot, inspecting: a.inspecting, count: a.draft.annotations.length, onToggle: () => a.setInspecting(!a.inspecting) }} />
+      <BrowserBar session={session} server={a.server} inIde={false} wand={a.offered ? { enabled: a.annotatable, whyNot: a.whyNot, inspecting: a.inspecting, count: a.draft.annotations.length, onToggle: () => a.setInspecting(!a.inspecting) } : null} />
       <div className="relative min-h-0 flex-1">
         <LayerSlot host="aux" layer="browser" tabKey={session.key} label={t("shell-browser-pane-browser")} />
         {inCentre && (

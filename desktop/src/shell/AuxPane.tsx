@@ -18,7 +18,7 @@
  * browser occupant (ide/18), which the shell draws itself from the URL
  * alone, so an artifact opens beside any screen a message shows on, a
  * transcript beside any screen a session is named on, and the browser
- * beside any screen at all — ⌘⇧L, the footer, a Browser button.
+ * beside any screen at all — ⌘⇧L, the palette, the footer.
  *
  * The slot a view fills is **published, never looked up** (`auxSlot.ts`):
  * the pane hands its element over through a callback ref as it mounts and
@@ -31,7 +31,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { setSearch, useAddress, useSearchParams } from "../router";
 import { splitHash } from "../routeModel.mjs";
-import { ResizeHandle, useStoredSize } from "../ui";
+import { ICON, ResizeHandle, useStoredSize } from "../ui";
 import { ArtifactPane } from "./ArtifactPane";
 import { AUX_DEFAULT_WIDTH, AUX_MIN_WIDTH, AUX_WIDTH_KEY, auxBounds, shownWidth, toggledAux } from "./auxPaneModel.mjs";
 import { publishAuxSlot, useAuxSlot } from "./auxSlot";
@@ -140,16 +140,16 @@ export function AuxPane({ singleColumn, available }: { singleColumn: boolean; av
         className="flex min-w-0 shrink-0 flex-col border-l border-border bg-surface"
         style={singleColumn ? { flex: "1 1 auto" } : { width }}
       >
-        <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-          <h2 className="flex-1 truncate text-xs font-semibold">{TITLES[kind]}</h2>
+        <header className="flex h-9 shrink-0 items-center gap-2 border-b border-hairline pl-4 pr-2">
+          <h2 className="flex-1 truncate text-sm font-semibold text-text">{TITLES[kind]}</h2>
           <button
             type="button"
             onClick={close}
             title={t("shell-aux-pane-close-esc")}
             aria-label={t("shell-aux-pane-close-details-pane")}
-            className="anim rounded-control px-1.5 py-0.5 text-xs text-text-dim hover:bg-surface-2 hover:text-text"
+            className="anim flex h-6 w-6 shrink-0 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
           >
-            ✕
+            <ICON.close size={13} aria-hidden />
           </button>
         </header>
         {kind === "artifact" ? (

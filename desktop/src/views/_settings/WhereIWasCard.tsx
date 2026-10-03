@@ -41,10 +41,10 @@ export function WhereIWasCard() {
   };
 
   return (
-    <Section title={t("settings-where-i-was-card-where-you-were")} className="mt-4 max-w-2xl">
+    <Section title={t("settings-where-i-was-card-where-you-were")} className="mt-4">
       <Card>
         <div className="flex items-start gap-3">
-          <p className="min-w-0 flex-1 text-2xs text-text-dim">{t("settings-where-i-was-card-blurb")}</p>
+          <p className="min-w-0 max-w-measure flex-1 text-2xs leading-relaxed text-text-dim">{t("settings-where-i-was-card-blurb")}</p>
           <Button size="sm" disabled={busy} onClick={ask}>{t("settings-where-i-was-card-forget")}</Button>
         </div>
       </Card>

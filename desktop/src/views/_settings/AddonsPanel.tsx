@@ -75,7 +75,7 @@ function InstalledRow({ addon, onError }: { addon: Addon; onError: (e: string | 
             <Chip tone={addon.active ? "accent" : "neutral"}>{stateWords(addon)}</Chip>
           </div>
           {/* content, never translated: the manifest's description. */}
-          <p className="mt-1 text-2xs text-text-dim">{addon.manifest.description}</p>
+          <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{addon.manifest.description}</p>
         </div>
         <Switch
           checked={addon.enabled}
@@ -85,7 +85,7 @@ function InstalledRow({ addon, onError }: { addon: Addon; onError: (e: string | 
         />
       </div>
       <div className="mt-3 flex flex-col gap-2">
-        <p className="text-2xs font-medium text-text">{t("settings-addons-panel-may")}</p>
+        <p className="text-2xs font-semibold text-text-dim">{t("settings-addons-panel-may")}</p>
         <PermissionSwitches addon={addon} busy={busy} onChange={(granted) => void act(() => setAddonGrants(addon.id, granted), t("settings-addons-panel-could-not-grant"))} />
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">
@@ -214,10 +214,10 @@ export function AddonsPanel() {
   const offer = offerRows(offers.data?.offers ?? []);
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <Section title={t("settings-addons-panel-addons")}>
         <Card>
-          <p className="mb-3 text-2xs text-text-dim">{t("settings-addons-panel-blurb")}</p>
+          <p className="mb-3 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-addons-panel-blurb")}</p>
           <Switch checked={switchedOn} onChange={(on) => void setSwitch(on)} label={t("settings-addons-panel-show-addons-machine")} hint={t("settings-addons-panel-machine-hint")} />
         </Card>
       </Section>
@@ -262,7 +262,7 @@ export function AddonsPanel() {
 
       <Section title={t("settings-addons-panel-import-addon")}>
         <Card>
-          <p className="mb-3 text-2xs text-text-dim">{t("settings-addons-panel-import-blurb")}</p>
+          <p className="mb-3 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-addons-panel-import-blurb")}</p>
           {problems && (
             <div className="mb-3">
               <ErrorNote error={t("settings-addons-panel-folder-problems", { n: problems.length })} />
@@ -289,7 +289,7 @@ export function AddonsPanel() {
         onGrant={(granted) => setReview((r) => (r && r.kind === "folder" ? { ...r, granted } : r))}
         onEnable={(enabled) => setReview((r) => (r && r.kind === "folder" ? { ...r, enabled } : r))}
       />
-    </>
+    </div>
   );
 }
 
@@ -300,7 +300,7 @@ function OfferRow({ offer, onInstall }: { offer: AddonOffer; onInstall: () => vo
         <div className="min-w-0">
           {/* content, never translated: the built-in's own name and description. */}
           <p className="truncate text-sm font-medium text-text">{offer.manifest.name}</p>
-          <p className="mt-1 text-2xs text-text-dim">{offer.manifest.description}</p>
+          <p className="mt-1 text-2xs leading-relaxed text-text-dim">{offer.manifest.description}</p>
         </div>
         <Button size="sm" variant="ghost" onClick={onInstall}>{t("settings-addons-panel-install")}</Button>
       </div>

@@ -35,7 +35,7 @@ const DELAY = 800;
 test("open, add a step, connect it, save — the graph, the due save, the revision and the status at every step", () => {
   let s = open(stored(1));
   assert.equal(dirty(s), false);
-  assert.equal(statusLine(s), "saved");
+  assert.equal(statusLine(s), "Saved");
   assert.equal(saveDue(s, 1000, DELAY), null, "clean: nothing is due");
   assert.deepEqual(toGraph(present(s)).nodes.map((n) => n.id), ["a"]);
 
@@ -44,7 +44,7 @@ test("open, add a step, connect it, save — the graph, the due save, the revisi
   assert.equal(added.id, "agent");
   s = edit(s, added.wf, 1000);
   assert.equal(dirty(s), true);
-  assert.equal(statusLine(s), "unsaved edits");
+  assert.equal(statusLine(s), "Unsaved edits");
   assert.deepEqual(toGraph(present(s)).nodes.map((n) => n.id), ["a", "agent"]);
   assert.deepEqual(toGraph(present(s)).edges, []);
   assert.equal(saveDue(s, 1000, DELAY), DELAY, "the quiet delay from the edit");
@@ -68,12 +68,12 @@ test("open, add a step, connect it, save — the graph, the due save, the revisi
   assert.equal(req.revision, 1);
   assert.deepEqual(req.body.steps.map((x) => x.id), ["a", "agent"]);
   s = saveStarted(s, req.body);
-  assert.equal(statusLine(s), "saving…");
+  assert.equal(statusLine(s), "Saving…");
   assert.equal(saveDue(s, 5000, DELAY), null, "in flight: nothing more is due");
   s = saveSucceeded(s, { ...stored(2), ...req.body });
   assert.equal(s.base.revision, 2);
   assert.equal(dirty(s), false);
-  assert.equal(statusLine(s), "saved");
+  assert.equal(statusLine(s), "Saved");
   // Our own echo is not a reload; a stranger's revision is worth a look.
   assert.equal(remoteDecision(s, 2), "ignore");
   assert.equal(remoteDecision(s, 3), "reload");
@@ -120,7 +120,7 @@ test("a conflict is a choice: keep mine sends again over the new base, take thei
   const taken = takeTheirs(s);
   assert.equal(present(taken).name, "Theirs");
   assert.equal(dirty(taken), false);
-  assert.equal(statusLine(taken), "saved");
+  assert.equal(statusLine(taken), "Saved");
 });
 
 test("the picture is the person's: a drop lands where it was released and stays after a connect; the first edit writes every place; tidy is one edit", () => {

@@ -27,7 +27,9 @@
  * The underline slides between tabs instead of cutting. That is the one place
  * animation is doing work rather than decoration — it says *which* tab you
  * came from, which a hard cut throws away — and it is skipped entirely under
- * reduced motion, where the underline simply appears under the new tab.
+ * reduced motion, where the underline simply appears under the new tab. It
+ * is drawn in `text`, not the accent: the tab you are on is where you are,
+ * not something waiting on you (`theme/tokens.css`, the colour rules).
  */
 
 import * as T from "@radix-ui/react-tabs";
@@ -61,7 +63,23 @@ function contentWidth(el: HTMLElement): number {
   return widths + GAP_PX * Math.max(0, children.length - 1);
 }
 
-export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; active: string; onChange: (id: string) => void; className?: string }) {
+export function Tabs({
+  tabs,
+  active,
+  onChange,
+  className,
+  bare = false,
+  label,
+}: {
+  tabs: TabDef[];
+  active: string;
+  onChange: (id: string) => void;
+  className?: string;
+  /** In a `ScreenBar`: no line of its own — the strip stands the bar's height and its underline lands on the bar's hairline. */
+  bare?: boolean;
+  /** The strip's name for a screen reader, when the tabs alone do not say what they choose between. */
+  label?: string;
+}) {
   // Scoped so two tab strips on one screen do not animate into each other.
   const group = useId();
   const timing = useMotionTiming("fast");
@@ -101,8 +119,8 @@ export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; ac
   }, [foldable]);
 
   return (
-    <T.Root value={active} onValueChange={onChange} className={className}>
-      <T.List ref={list} className="flex items-center gap-1 overflow-hidden border-b border-border">
+    <T.Root value={active} onValueChange={onChange} className={cn(bare && "flex min-w-0", className)}>
+      <T.List ref={list} aria-label={label} className={cn("flex gap-1 overflow-hidden", bare ? "min-w-0 flex-1 items-stretch" : "items-center border-b border-hairline")}>
         {tabs.map((t) => {
           const on = t.id === active;
           const isFolded = folded.has(t.id);
@@ -112,7 +130,7 @@ export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; ac
               value={t.id}
               aria-label={isFolded ? glyphTitle(t.label, t.count) : undefined}
               className={cn(
-                "anim relative flex shrink-0 items-center gap-1.5 py-1.5 text-xs font-medium outline-none",
+                "anim relative flex shrink-0 items-center gap-1.5 py-2 text-xs font-medium outline-none focus-visible:text-text",
                 isFolded ? "px-2" : "px-3",
                 on ? "text-text" : "text-text-dim hover:text-text",
               )}
@@ -124,7 +142,7 @@ export function Tabs({ tabs, active, onChange, className }: { tabs: TabDef[]; ac
                 <motion.span
                   layoutId={`tab-underline-${group}`}
                   transition={timing}
-                  className="absolute inset-x-0 -bottom-px h-0.5 bg-accent"
+                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-text"
                 />
               )}
             </T.Trigger>

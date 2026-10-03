@@ -9,7 +9,7 @@ import { test } from "node:test";
 
 import { readFileSync } from "node:fs";
 
-import { accountChoices, initialValues, inputHint, toRequest, validateInputs, nextInputName } from "./workflowForm.mjs";
+import { INPUT_KINDS, accountChoices, idProblem, idProblemWords, initialValues, inputHint, inputKindWords, nextInputName, optionsFrom, optionsText, toRequest, validateInputs } from "./workflowForm.mjs";
 
 const inputs = [
   { name: "who", label: "Who", kind: "text", required: true },
@@ -120,4 +120,36 @@ test("the form is paint: the hint, the accounts and the home are the model's, an
   for (const [dialog, home] of [["./StartRunDialog.tsx", "goal"], ["../_studio/PendingAsk.tsx", "goal"], ["./RunWorkflowDialog.tsx", "workspace"], ["./TurnOnDialog.tsx", "workspace"]]) {
     assert.ok(read(dialog).includes(`home="${home}"`), `${dialog} is for a run of the ${home}`);
   }
+});
+
+test("an input's kind is said in words, never its wire slug", () => {
+  assert.deepEqual(INPUT_KINDS.map(inputKindWords), ["Text", "Number", "Yes or no", "Choice", "Assignee", "Project", "Connector account"]);
+  assert.equal(inputKindWords("teleport"), "teleport", "a kind from a newer node keeps its own word");
+  const editor = readFileSync(new URL("./forms/InputDefsEditor.tsx", import.meta.url), "utf8");
+  assert.ok(editor.includes("inputKindWords(k)") && !editor.includes("{k}</option>"), "the editor's options are the model's words");
+});
+
+test("a refused id or name says why where it was typed, and that the old one was kept", () => {
+  const taken = (n) => n === "build";
+  assert.equal(idProblem("ship", "design", taken), null);
+  assert.equal(idProblem("design", "design", taken), null, "the current value is never taken by itself");
+  assert.equal(idProblem("Build it", "design", taken), "grammar");
+  assert.equal(idProblem("", "design", taken), "grammar");
+  assert.equal(idProblem("build", "design", taken), "taken");
+  assert.equal(idProblemWords(null, "step"), null);
+  assert.match(idProblemWords("taken", "step"), /Another step/);
+  assert.match(idProblemWords("taken", "input"), /Another input/);
+  assert.match(idProblemWords("grammar", "input", "design"), /Kept “design”/);
+  for (const form of ["./forms/StepCommonForm.tsx", "./forms/InputDefsEditor.tsx"]) {
+    const text = readFileSync(new URL(form, import.meta.url), "utf8");
+    assert.ok(text.includes("idProblem(") && text.includes("idProblemWords("), `${form} asks the model`);
+    assert.ok(!/const (ID|NAME)_RE =/.test(text), `${form} keeps no grammar of its own`);
+  }
+});
+
+test("a choice's options are typed as a draft — commas and all — and read on commit", () => {
+  assert.equal(optionsText(["prod", "staging"]), "prod, staging");
+  assert.equal(optionsText(undefined), "");
+  assert.deepEqual(optionsFrom("prod, staging,, prod ,qa"), ["prod", "staging", "qa"]);
+  assert.deepEqual(optionsFrom(""), []);
 });

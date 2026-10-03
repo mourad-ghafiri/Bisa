@@ -22,6 +22,8 @@ export declare function settleLoads<T>(
 export declare function failedRead(name: string, reason: unknown): string;
 /** The reads that did not answer: the last load's, then the hosted sections' — each list replaced whole by the read that renews it. */
 export declare function degradedReads(load: readonly string[], hosted: readonly string[]): string[];
+/** A list the node is away for, or whose last read failed: unknown, not empty. */
+export declare function listUnread(degraded: readonly string[] | null | undefined, offline: string | null | undefined, name: string): boolean;
 
 export declare function degradedWords(degraded: readonly string[], offline: boolean): { label: string; title: string } | null;
 

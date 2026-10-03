@@ -105,6 +105,9 @@ app-activity-refused = refused { $tool } ({ $who }){ $call }{ $why }
 app-activity-relays-changed = the relays changed
 app-activity-repairing-workflow = repairing the workflow
 app-activity-replied = { $agent } replied
+# The same two, in the Pulse under the agent's own name.
+app-activity-replied-titled = replied
+app-activity-acted-without-replying-titled = acted without replying
 app-activity-result-accepted = result accepted
 app-activity-revision = Revision
 app-activity-rule = Rule
@@ -196,7 +199,7 @@ app-app-details-pane = the details pane
 app-app-details-pane-2 = details pane
 app-app-hit-error-move-another-screen-bring = The { $what } hit an error. Move to another screen to bring it back.
 app-app-notes-panel = the notes panel
-app-app-opening = opening…
+app-app-opening = Opening…
 app-app-palette = the palette
 app-app-resize-sidebar = Resize sidebar
 app-app-security-toasts = the security toasts
@@ -275,6 +278,12 @@ app-activity-goal-created = goal { $goal } { $origin ->
     [run] spawned by run { $run }
    *[captured] captured
   }
+# The same, in the Pulse under the goal's own title: the id is not said again.
+app-activity-goal-created-titled = goal { $origin ->
+    [spawned] spawned
+    [run] spawned by run { $run }
+   *[captured] captured
+  }
 app-activity-event-queued = { $source } event queued for { $host ->
     [goal] a goal
    *[workflow] a workflow
@@ -308,6 +317,21 @@ app-activity-model-went-away = model { $model } went away: { $reason }
 app-activity-session-failed-error = session failed: { $error }
 app-activity-session-suspended = session suspended: { $reason }
 app-activity-settings-changed-at = settings changed at { $scope }: { $keys }
+# A note or a drawing changed, in the Pulse: what it is about, never the fact's name.
+app-activity-record-changed = { $scope ->
+    [workspace] a workspace { $what ->
+        [note] note
+       *[drawing] drawing
+    }
+    [node] { $what ->
+        [note] a note
+       *[drawing] a drawing
+    } about this node
+   *[other] { $what ->
+        [note] a note
+       *[drawing] a drawing
+    } about a { $scope }
+  } changed
 app-activity-step-failed-error = step { $id } failed: { $error }
 app-activity-switched-from-to = switched from { $from } to { $to }: { $reason }
 app-activity-waiting-on-you-question = waiting on you: { $question }

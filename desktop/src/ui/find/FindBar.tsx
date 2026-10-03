@@ -67,13 +67,14 @@ export function FindBar({ find, onChange, index, count, onStep, onClose, replace
       type="button"
       aria-pressed={find[key]}
       title={title}
-      className={cn("rounded px-1 font-mono", find[key] ? "bg-accent-soft text-accent-ink" : "text-text-dim hover:text-text")}
+      className={cn("anim rounded px-1 font-mono", find[key] ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text")}
       onClick={() => onChange({ ...find, [key]: !find[key] })}
     >
       {word}
     </button>
   );
   const field = "h-5 rounded border border-border bg-surface-2 px-1 font-mono text-2xs text-text outline-none focus:border-accent";
+  const step = "anim flex h-5 items-center rounded px-1 text-text-dim hover:bg-surface-2 hover:text-text";
 
   return (
     <div role="search" aria-label={label} className={cn("flex flex-col gap-1 rounded-control border border-border bg-surface px-1.5 py-1 text-2xs shadow-sm", className)}>
@@ -84,13 +85,13 @@ export function FindBar({ find, onChange, index, count, onStep, onClose, replace
         </span>
         {toggle("regex", tr("ui-find-bar-regular-expression"), ".*")}
         {toggle("caseSensitive", tr("ui-find-bar-match-case"), "Aa")}
-        <button type="button" aria-label={tr("ui-find-bar-previous-match")} className="rounded px-1 text-text-dim hover:text-text" onClick={() => onStep("previous")}>
-          ↑
+        <button type="button" aria-label={tr("ui-find-bar-previous-match")} className={step} onClick={() => onStep("previous")}>
+          <ICON.up size={11} aria-hidden />
         </button>
-        <button type="button" aria-label={tr("ui-find-bar-next-match")} className="rounded px-1 text-text-dim hover:text-text" onClick={() => onStep("next")}>
-          ↓
+        <button type="button" aria-label={tr("ui-find-bar-next-match")} className={step} onClick={() => onStep("next")}>
+          <ICON.down size={11} aria-hidden />
         </button>
-        <button type="button" aria-label={tr("ui-find-bar-close-find")} className="rounded px-1 text-text-dim hover:text-text" onClick={onClose}>
+        <button type="button" aria-label={tr("ui-find-bar-close-find")} className={step} onClick={onClose}>
           <ICON.close size={11} aria-hidden />
         </button>
       </div>
@@ -114,8 +115,8 @@ export function FindBar({ find, onChange, index, count, onStep, onClose, replace
               }
             }}
           />
-          <button type="button" disabled={replace.disabled || !count} className="rounded px-1.5 text-text-dim hover:text-text disabled:opacity-45" onClick={replace.onReplace}>{tr("ui-find-bar-replace")}</button>
-          <button type="button" disabled={replace.disabled || !count} className="rounded px-1.5 text-text-dim hover:text-text disabled:opacity-45" onClick={replace.onReplaceAll}>{tr("ui-find-bar-replace-all")}</button>
+          <button type="button" disabled={replace.disabled || !count} className="anim rounded px-1.5 text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45" onClick={replace.onReplace}>{tr("ui-find-bar-replace")}</button>
+          <button type="button" disabled={replace.disabled || !count} className="anim rounded px-1.5 text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45" onClick={replace.onReplaceAll}>{tr("ui-find-bar-replace-all")}</button>
         </div>
       )}
       {note && <p className="text-text-dim">{note}</p>}

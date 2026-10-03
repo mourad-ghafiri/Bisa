@@ -41,9 +41,9 @@ export function PublishingCard({
             </option>
           ))}
         </Select>
-        {drafted !== null && drafted !== policy && <Chip tone="accent">{t("work-connection-card-changed")}</Chip>}
+        {drafted !== null && drafted !== policy && <Chip tone="neutral">{t("work-connection-card-changed")}</Chip>}
       </div>
-      <p className="text-2xs text-text-dim">{PUBLISH_MEANING[shown]}</p>
+      <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{PUBLISH_MEANING[shown]}</p>
     </div>
   );
 }

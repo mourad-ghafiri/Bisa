@@ -14,7 +14,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, openExternal } from "../../api";
 import type { AccountCheck, ConnectorAccountRow, ConnectorDefinition, ConnectorRow, ConnectorValidation, SecretField } from "../../types";
-import { Button, Card, Chip, ConfirmDialog, Dialog, ErrorNote, Field, ICON, Pending, SecretInput, SecretTextArea, TextArea, TextInput, Tooltip, useToast } from "../../ui";
+import { Button, Card, Chip, ConfirmDialog, Dialog, EmptyState, ErrorNote, Field, ICON, MoreMenu, Pending, SecretInput, SecretTextArea, TextArea, TextInput, Tooltip, failureText, cn, useToast } from "../../ui";
+import type { MenuItem } from "../../ui";
 import { attempt } from "../_work/useAsync";
 import { useResolvedSettings } from "../../shell/settingsStore";
 import { useConnectorDetail, useConnectors } from "../_workflow/useConnectors";
@@ -24,6 +25,7 @@ import {
   accountBody,
   accountDraft,
   accountRows,
+  accountVerbs,
   addedWords,
   checkLine,
   connectApplies,
@@ -135,7 +137,7 @@ function AccountDialog({
           </Field>
         ))}
         {fields.length > 0 && <SecretFields fields={fields} value={secrets} storedFields={account?.secrets_set ?? []} onChange={setSecrets} />}
-        {account && fields.length > 0 && <p className="text-3xs text-text-dim">{t("settings-connectors-panel-field-left-blank-keeps-stored")}</p>}
+        {account && fields.length > 0 && <p className="text-2xs text-text-dim">{t("settings-connectors-panel-field-left-blank-keeps-stored")}</p>}
       </div>
     </Dialog>
   );
@@ -148,6 +150,8 @@ function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDef
   const [validation, setValidation] = useState<ConnectorValidation | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"validate" | "save" | null>(null);
+  // The rules a definition is held to are reference for the one writing it: folded under one line, never a wall over the editor.
+  const [rulesOpen, setRulesOpen] = useState(false);
   const parsed = () => {
     const p = parseDefinition(text);
     if (!p.ok) {
@@ -199,11 +203,18 @@ function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDef
       }
     >
       <div className="flex flex-col gap-2">
-        <p className="text-2xs text-text-dim">
+        <p className="text-2xs text-text-dim">{t("settings-connectors-panel-shape-lead")}</p>
+        <button type="button" aria-expanded={rulesOpen} onClick={() => setRulesOpen((o) => !o)} className="anim flex w-fit items-center gap-1 rounded-control text-2xs font-medium text-text-dim hover:text-text">
+          <ICON.collapsed size={11} aria-hidden className={cn("anim shrink-0", rulesOpen && "rotate-90")} />
+          {t("settings-connectors-panel-shape-rules")}
+        </button>
+        {rulesOpen && <p className="max-w-measure pl-4 text-2xs leading-relaxed text-text-dim">
           {/* for the machine: the two placeholders a definition's templates take, as they are typed */}
           {rich("settings-connectors-panel-shape-blurb", { code: (inner) => <code className="font-mono">{inner}</code>, params: <code className="font-mono">{"{params.<name>}"}</code>, account: <code className="font-mono">{"{account.<name>}"}</code> })}
-        </p>
-        <TextArea rows={22} className="font-mono text-2xs" value={text} spellCheck={false} onChange={(e) => setText(e.target.value)} />
+        </p>}
+        <Field label={t("settings-connectors-panel-definition-json")}>
+          <TextArea rows={22} className="font-mono text-2xs" value={text} spellCheck={false} onChange={(e) => setText(e.target.value)} />
+        </Field>
         {parseError && <p className="text-2xs text-danger">{t("settings-connectors-panel-json", { parseError })}</p>}
         {validation && problems.length === 0 && <p className="text-2xs text-text">{t("settings-connectors-panel-valid")}</p>}
         {problems.length > 0 && (
@@ -263,7 +274,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
     await attempt(() => api.startConnectorOauth(row.id, a.id), toast.error, (start) => {
       setPending({ account: a.id, code: "" });
       toast.ok(openedWords());
-      void openExternal(start.url).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+      void openExternal(start.url).catch((e: unknown) => toast.error(failureText("settings", "connectors-panel-failed", e)));
     });
     setBusy(null);
   };
@@ -302,9 +313,9 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
     <Card className="flex flex-col gap-2 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <ICON.connector size={14} aria-hidden className="shrink-0 text-text-dim" />
-        <h3 className="text-xs font-semibold">{row.name}</h3>
+        <h3 className="text-sm font-semibold text-text">{row.name}</h3>
         <code className="font-mono text-2xs text-text-dim">{row.id}</code>
-        <Chip tone="quiet">{originWords(row.origin)}</Chip>
+        <Chip tone="neutral">{originWords(row.origin)}</Chip>
         <span className="flex-1" />
         {custom && (
           <>
@@ -317,7 +328,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
             <ICON.add size={12} aria-hidden />{t("settings-code-host-panel-add-account")}</Button>
         )}
       </div>
-      <p className="text-2xs text-text-dim">{row.description}</p>
+      <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{row.description}</p>
       <p className="text-2xs text-text-dim">{connectorLine(row)}</p>
       {detail.error && <ErrorNote error={detail.error} retry={detail.reload} />}
       {!needsAccount(row.auth) && <p className="text-2xs text-text-dim">{t("settings-connectors-panel-connector-needs-account-operations-called-they")}</p>}
@@ -329,27 +340,41 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
             const secrets = secretsLine(a, row.auth);
             const line = checkLine(checks[a.id], row.name);
             const expiry = oauthLine(a, now);
+            // One verb on the row, the rest behind its menu (`accountVerbs`); Forget still asks first.
+            const verbs = accountVerbs(a, oauth);
+            const idle = busy !== null;
+            const menu: Record<(typeof verbs.more)[number], MenuItem> = {
+              connect: { label: t("settings-connectors-panel-connect-again"), icon: ICON.open, disabled: idle || !a.secrets_set.includes("client_id"), onSelect: () => void connect(a) },
+              secrets: { label: t("settings-connectors-panel-set-secrets"), disabled: idle, onSelect: () => setEditing(a) },
+              check: { label: t("settings-code-host-panel-check"), disabled: idle, onSelect: () => void check(a) },
+              default: { label: t("settings-code-host-panel-make-default"), disabled: idle, onSelect: () => void setDefault(a) },
+              forget: { label: t("settings-code-host-panel-forget"), danger: true, separatorBefore: true, disabled: idle, onSelect: () => setForgetting(a) },
+            };
             return (
-              <li key={a.id} className="rounded-control border border-border bg-surface-2 p-2">
+              <li key={a.id} className="rounded-control bg-surface-2/50 p-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <ICON.account size={13} aria-hidden className="shrink-0 text-text-dim" />
                   <span className="text-xs font-medium">{a.label}</span>
-                  {a.default && <Chip tone="accent">{t("settings-appearance-panel-default")}</Chip>}
+                  {a.default && <Chip tone="neutral">{t("settings-appearance-panel-default")}</Chip>}
                   <span className={`text-2xs ${toneClass(secrets.tone)}`}>{secrets.text}</span>
                   <span className="flex-1" />
-                  {oauth && (
-                    <Button size="sm" variant={a.secrets_set.includes("access_token") ? "ghost" : "primary"} disabled={busy !== null || !a.secrets_set.includes("client_id")} title={a.secrets_set.includes("client_id") ? undefined : t("settings-connectors-panel-set-oauth-client-id-first")} onClick={() => void connect(a)}>
+                  {verbs.main === "connect" ? (
+                    <Button
+                      size="sm"
+                      disabled={busy !== null || !a.secrets_set.includes("client_id")}
+                      disabledReason={a.secrets_set.includes("client_id") ? undefined : t("settings-connectors-panel-set-oauth-client-id-first")}
+                      onClick={() => void connect(a)}
+                    >
                       <ICON.open size={12} aria-hidden />
-                      {busy === `connect:${a.id}` ? t("settings-connectors-panel-opening") : a.secrets_set.includes("access_token") ? t("settings-connectors-panel-connect-again") : t("settings-connectors-panel-connect")}
+                      {busy === `connect:${a.id}` ? t("settings-connectors-panel-opening") : t("settings-connectors-panel-connect")}
                     </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void check(a)}>{busy === `check:${a.id}` ? t("settings-mcp-panel-checking-2") : t("settings-code-host-panel-check")}</Button>
                   )}
-                  <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setEditing(a)}>{t("settings-connectors-panel-set-secrets")}</Button>
-                  <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void check(a)}>{busy === `check:${a.id}` ? t("settings-mcp-panel-checking-2") : t("settings-code-host-panel-check")}</Button>
-                  {!a.default && <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void setDefault(a)}>{t("settings-code-host-panel-make-default")}</Button>}
-                  <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setForgetting(a)}>{t("settings-code-host-panel-forget")}</Button>
+                  <MoreMenu label={t("settings-connectors-panel-more-account", { account: a.label })} items={verbs.more.map((verb) => menu[verb])} />
                 </div>
                 {Object.keys(a.params).length > 0 && (
-                  <p className="mt-1 font-mono text-3xs text-text-dim">
+                  <p className="mt-1 font-mono text-2xs text-text-dim">
                     {Object.entries(a.params).map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ")}
                   </p>
                 )}
@@ -380,7 +405,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
         </ul>
       )}
       {/* The redirect URI is copied into another platform's console: said with the port the node resolves, never a guessed one. */}
-      {oauth && (port === null ? <Pending what={t("settings-connectors-panel-callback-port")} rows={pendingRows(t("settings-connectors-panel-callback-port"))} /> : <p className="text-3xs text-text-dim">{connectWords(port)}</p>)}
+      {oauth && (port === null ? <Pending what={t("settings-connectors-panel-callback-port")} rows={pendingRows(t("settings-connectors-panel-callback-port"))} /> : <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{connectWords(port)}</p>)}
       {adding && <AccountDialog connector={row} account={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); detail.reload(); onChanged(); }} />}
       {editing && <AccountDialog connector={row} account={editing} onClose={() => setEditing(null)} onSaved={(saved) => { setEditing(null); setChecks((all) => withoutCheck(all, saved.id)); detail.reload(); }} />}
       {editingDef && detail.data && (
@@ -438,20 +463,42 @@ export function ConnectorsPanel() {
   if (connectors.loading && connectors.rows.length === 0) return <Pending what={t("settings-connectors-panel-connectors")} rows={pendingRows(t("settings-connectors-panel-connectors"))} />;
   if (connectors.error && connectors.rows.length === 0) return <ErrorNote error={connectors.error} retry={connectors.reload} />;
 
+  const empty = connectors.rows.length === 0;
+  const readAgain = (
+    <Tooltip label={t("settings-connectors-panel-read-definitions-machine-s-accounts-again")}>
+      <Button size="sm" variant="ghost" disabled={connectors.loading} onClick={connectors.reload} aria-label={t("settings-connectors-panel-read-again")}>
+        <ICON.refresh size={12} aria-hidden />
+      </Button>
+    </Tooltip>
+  );
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-2xs text-text-dim">{t("settings-connectors-panel-definition-syncs-like-skill")}</p>
-        <span className="flex-1" />
-        <Tooltip label={t("settings-connectors-panel-read-definitions-machine-s-accounts-again")}>
-          <Button size="sm" variant="ghost" disabled={connectors.loading} onClick={connectors.reload} aria-label={t("settings-connectors-panel-read-again")}>
-            <ICON.refresh size={12} aria-hidden />
-          </Button>
-        </Tooltip>
-        <Button size="sm" onClick={() => setAdding(true)}>
-          <ICON.add size={12} aria-hidden />{t("settings-connectors-panel-add-connector")}</Button>
-      </div>
-      {connectors.rows.length === 0 && <p className="text-2xs text-text-dim">{t("settings-connectors-panel-nothing-installed-here-yet")}</p>}
+      {/* The panel's own line above says what syncs and what stays; this row only adds where more come from. */}
+      {!empty && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-2xs text-text-dim">{t("settings-connectors-panel-install-more-from-library")}</p>
+          <span className="flex-1" />
+          {readAgain}
+          <Button size="sm" onClick={() => setAdding(true)}>
+            <ICON.add size={12} aria-hidden />{t("settings-connectors-panel-add-connector")}</Button>
+        </div>
+      )}
+      {empty && (
+        <EmptyState
+          icon={ICON.connector}
+          title={t("settings-connectors-panel-no-connectors")}
+          hint={t("settings-connectors-panel-nothing-installed-here-yet")}
+          action={
+            // Read again sits beside the door: one installed from the Library shows up without leaving.
+            <span className="inline-flex items-center gap-1">
+              <Button variant="primary" onClick={() => setAdding(true)}>
+                <ICON.add size={12} aria-hidden />{t("settings-connectors-panel-add-connector")}</Button>
+              <Button variant="ghost" disabled={connectors.loading} onClick={connectors.reload}>
+                <ICON.refresh size={12} aria-hidden />{t("settings-connectors-panel-read-again")}</Button>
+            </span>
+          }
+        />
+      )}
       {connectors.rows.map((row) => (
         <ConnectorCard key={row.id} row={row} port={port} onChanged={connectors.reload} />
       ))}

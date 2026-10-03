@@ -43,6 +43,7 @@ import {
   parseInspectorMessage,
   readMessage,
   inspectorScript,
+  inspectorWords,
   themeMessage,
 } from "./pageInspector.mjs";
 import { STYLE_PARTS, inspectorStyles, inspectorTheme } from "./inspectorTheme.mjs";
@@ -94,6 +95,15 @@ test("the overlay is dressed by the theme alone: no colour, no font of its own, 
   assert.ok(Object.keys(inspectorStyles(THEME)).every((k) => STYLE_PARTS.includes(k)), "the theme dresses only known parts");
 });
 
+test("the note box says the catalog's words, baked into the script — an element's tag where %TAG% stands", () => {
+  const words = inspectorWords();
+  for (const [key, value] of Object.entries(words)) assert.ok(typeof value === "string" && value.trim().length > 0, `${key} has words`);
+  assert.equal(words.box, "Annotate <%TAG%>");
+  assert.equal(words.instead, "Annotate <%TAG%> instead");
+  assert.deepEqual([words.add, words.change, words.close, words.ask], ["Add", "Change", "Never mind", "What should change here?"]);
+  for (const script of [inspectorScript(THEME), browserScript([], THEME)]) assert.ok(script.includes(`var WORDS = ${JSON.stringify(words)};`), "the words ride the script as its dress does");
+});
+
 test("run in a page: the first paint wears the baked theme, a THEME word re-dresses an open box in place, and a stranger's THEME is ignored", () => {
   const page = fakeDocument();
   const save = page.node("button", { id: "save", text: "Save" });
@@ -113,13 +123,13 @@ test("run in a page: the first paint wears the baked theme, a THEME word re-dres
   assert.equal(badges.children[0].style.top, badgeTop, "a badge stands by its element");
 
   box.input().value = "half typed";
-  page.fromParent(themeMessage(inspectorTheme({ "--color-surface": "T-SURFACE", "--color-accent": "T-ACCENT", "--color-accent-ink": "T-INK" }, "dark")));
+  page.fromParent(themeMessage(inspectorTheme({ "--color-surface": "T-SURFACE", "--color-accent": "T-ACCENT", "--color-accent-ink": "T-INK", "--color-text": "T-TEXT" }, "dark")));
   assert.ok(box.open(), "the box stays open");
   assert.equal(box.input().value, "half typed", "the words stay typed");
   assert.ok(box.el.style.cssText.includes("T-SURFACE") && !box.el.style.cssText.includes("S-COLOR-SURFACE"), "the box wears the new surface");
   assert.ok(box.el.style.cssText.includes("color-scheme:dark"));
   assert.ok(box.add().style.cssText.includes("T-ACCENT"), "Add follows");
-  assert.ok(box.current().style.cssText.includes("T-INK"), "the crumbs follow");
+  assert.ok(box.current().style.cssText.includes("T-TEXT"), "the crumbs follow — the element in full ink, neutral");
   assert.ok(badges.children[0].style.cssText.includes("T-ACCENT"), "the badge follows");
   assert.equal(badges.children[0].style.top, badgeTop, "and keeps its place");
   assert.equal(box.el.style.display, "block");
@@ -421,6 +431,7 @@ function boxOf(page) {
     input: () => part("input"),
     add: () => part("add"),
     close: () => part("close"),
+    hint: () => part("box-hint"),
   };
 }
 
@@ -483,6 +494,8 @@ for (const [name, boot] of PROGRAMS) {
     assert.equal(box.input().attrs.placeholder, "What should change here?");
     assert.equal(box.add().textContent, "Add");
     assert.equal(box.close().attrs["aria-label"], "Never mind");
+    assert.equal(box.close().textContent, "", "the close is drawn by its dress, never a glyph from a font");
+    assert.equal(box.hint().textContent, "Enter adds it · Esc closes", "the foot says how the keys answer");
     assert.equal(page.document.activeElement, box.input(), "the caret lands in the box");
 
     const quiet = said().length;
@@ -573,26 +586,54 @@ for (const [name, boot] of PROGRAMS) {
     assert.equal(box.add().textContent, "Add");
   });
 
-  test(`${name}: the box sits above the element when there is room and below it otherwise, clamped to the viewport, and follows a scroll`, () => {
+  test(`${name}: the box sits above the element when there is room, below it otherwise, beside it when neither fits — never on it — and follows a scroll`, () => {
     const { page, items, save, say } = pageUnder(boot);
     say(inspectMessage("picking"));
     page.fire("click", { target: items[0] });
     const box = boxOf(page);
     box.el.rect = { top: 0, left: 0, width: 320, height: 96 };
+    const tag = page.document.documentElement.children.find((c) => c.attrs["data-bisa-inspector"] === "label").getBoundingClientRect().height || 18;
     page.fire("scroll", {});
-    assert.equal(box.el.style.top, `${300 - 96 - 6}px`, "room above: over the element, a gap between");
+    assert.equal(box.el.style.top, `${300 - tag - 2 - 6 - 96}px`, "room above: over the element and over its tag, a gap between");
     assert.equal(box.el.style.left, "40px", "flush with its left edge");
     page.fire("keydown", { key: "Escape", target: box.input() });
     page.fire("click", { target: save });
-    assert.equal(box.el.style.top, `${10 + 24 + 6}px`, "no room above: under it");
+    assert.equal(box.el.style.top, `${10 + 24 + tag + 2 + 6}px`, "no room above: under it, and under the tag that went under it too");
     assert.equal(box.el.style.left, `${800 - 320}px`, "and never past the right edge");
     items[0].rect = { top: 50, left: 40, width: 200, height: 500 };
     page.fire("keydown", { key: "Escape", target: box.input() });
     page.fire("click", { target: items[0] });
-    assert.equal(box.el.style.top, `${600 - 96}px`, "a tall element with no room above: under it, but never past the bottom");
+    assert.deepEqual([box.el.style.top, box.el.style.left], ["50px", `${40 + 200 + 6}px`], "a tall element with no room above or below: beside it, to its right, level with its top");
+    items[0].rect = { top: 50, left: 470, width: 200, height: 500 };
+    page.fire("scroll", {});
+    assert.deepEqual([box.el.style.top, box.el.style.left], ["50px", `${470 - 6 - 320}px`], "no room to its right either: to its left");
+    items[0].rect = { top: 0, left: 0, width: 800, height: 600 };
+    page.fire("scroll", {});
+    assert.deepEqual([box.el.style.top, box.el.style.left], ["0px", "0px"], "an element the size of the view leaves nowhere off it: a corner of the view");
+    items[0].rect = { top: 0, left: 0, width: 300, height: 600 };
+    page.fire("scroll", {});
+    assert.deepEqual([box.el.style.top, box.el.style.left], ["0px", `${300 + 6}px`], "a full-height column: beside it");
+    items[0].rect = { top: 50, left: 40, width: 200, height: 500 };
     items[0].rect = { top: 200, left: 40, width: 200, height: 20 };
     page.fire("scroll", {});
-    assert.equal(box.el.style.top, `${200 - 96 - 6}px`, "a scroll moves the box with its element");
+    assert.equal(box.el.style.top, `${200 - tag - 2 - 6 - 96}px`, "a scroll moves the box with its element");
+  });
+
+  test(`${name}: the tag rides outside the element — above it, else under it — and never past the right edge`, () => {
+    const { page, items, save, say } = pageUnder(boot);
+    say(inspectMessage("picking"));
+    page.fire("mousemove", { target: items[0] });
+    const label = page.document.documentElement.children.find((c) => c.attrs["data-bisa-inspector"] === "label");
+    label.rect = { top: 0, left: 0, width: 120, height: 18 };
+    page.fire("mousemove", { target: items[1] });
+    page.fire("mousemove", { target: items[0] });
+    assert.deepEqual([label.style.top, label.style.left], [`${300 - 18 - 2}px`, "40px"], "room above: just over the element's top edge, not on it");
+    page.fire("mousemove", { target: save });
+    assert.equal(label.style.top, `${10 + 24 + 2}px`, "no room above: just under its bottom edge");
+    assert.equal(label.style.left, `${800 - 120}px`, "and pulled in from the right edge");
+    items[1].rect = { top: 0, left: 40, width: 200, height: 600 };
+    page.fire("mousemove", { target: items[1] });
+    assert.equal(label.style.top, "2px", "only an element the whole height of the view takes it inside its top edge");
   });
 
   test(`${name}: the app's word closes the box — picking again is no new word, off drops everything — and a repeated word installs nothing twice`, () => {

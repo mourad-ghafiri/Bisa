@@ -178,7 +178,7 @@ export function ModelPlanEditor({
       >
         <div className="flex flex-col gap-1.5">
           {models.length === 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 rounded-control border border-dashed border-border px-2 py-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 rounded-control bg-surface-2/50 px-2 py-1.5">
               <span className="font-mono text-2xs text-text-dim">{tr("work-model-plan-editor-default", { harness })}</span>
               {/* The ledger's own name for an unpinned session on this harness. */}
               <ModelHealthBadges row={healthOf(health, harness, null)} />
@@ -196,7 +196,7 @@ export function ModelPlanEditor({
             return (
               <div
                 key={m.model}
-                className="flex flex-col gap-1.5 rounded-control border border-border px-2 py-1.5"
+                className="flex flex-col gap-1.5 rounded-control bg-surface-2/50 px-2 py-1.5"
               >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="tnum w-5 shrink-0 text-right text-2xs text-text-dim">{i + 1}.</span>
@@ -230,12 +230,11 @@ export function ModelPlanEditor({
                     label={tr("work-model-plan-editor-effort-for", { model: m.model })}
                     onChange={(effort) => onChange({ ...plan, models: models.map((c, j) => (j === i ? withEffort(c, effort) : c)) })}
                   />
-                  {/* The two order arrows stay literal characters. `ui/icons`
-                      has no up/down glyph, and every arrow it does hold is
-                      named for navigation history — reusing one here would say
-                      "back" where the control means "one position earlier in
-                      the plan". Both carry an aria-label, which is what a
-                      screen reader reads either way. */}
+                  {/* The kit's own reorder glyphs (`ICON.up` / `ICON.down`,
+                      the rebase editor's), not the navigation arrows: those
+                      would say "back" where the control means "one position
+                      earlier in the plan". Both carry an aria-label, which is
+                      what a screen reader reads either way. */}
                   <div className="flex shrink-0 items-center">
                     <Button
                       size="sm"
@@ -244,7 +243,7 @@ export function ModelPlanEditor({
                       disabled={disabled || i === 0}
                       onClick={() => onChange(moveModel(plan, i, -1))}
                     >
-                      ↑
+                      <ICON.up size={12} aria-hidden />
                     </Button>
                     <Button
                       size="sm"
@@ -253,7 +252,7 @@ export function ModelPlanEditor({
                       disabled={disabled || i === models.length - 1}
                       onClick={() => onChange(moveModel(plan, i, 1))}
                     >
-                      ↓
+                      <ICON.down size={12} aria-hidden />
                     </Button>
                     <Tooltip label={tr("work-model-plan-editor-off-without-losing-place-order")}>
                       <span className="inline-flex">
@@ -343,9 +342,9 @@ export function ModelPlanEditor({
         </div>
       </Labelled>
 
-      <div className="rounded-control border border-border bg-surface-2 px-2 py-1.5">
-        <p className="text-2xs font-medium text-text-dim">{tr("work-model-plan-editor-live-health")}</p>
-        <p className="mt-0.5 text-2xs text-text-dim">
+      <div className="rounded-control bg-surface-2/50 px-2 py-1.5">
+        <p className="text-2xs font-semibold text-text-dim">{tr("work-model-plan-editor-live-health")}</p>
+        <p className="mt-0.5 max-w-measure text-2xs leading-relaxed text-text-dim">
           {healthError
             ? tr("work-model-plan-editor-couldn-t-read-ledger", { healthError })
             : health.length === 0

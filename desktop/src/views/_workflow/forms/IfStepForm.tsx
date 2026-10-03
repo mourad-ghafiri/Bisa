@@ -5,7 +5,7 @@
  */
 
 import type { InputDef, Step } from "../../../types";
-import { Field } from "../../../ui";
+import { Labelled } from "../../../ui";
 import { ConditionEditor } from "./ConditionEditor";
 import { t } from "../../../i18n/l10n.mjs";
 
@@ -25,8 +25,8 @@ export function IfStepForm({
   disabled?: boolean;
 }) {
   return (
-    <Field label={t("workflow-if-step-form-when")} hint={t("workflow-if-step-form-holds-yes-flow-does-not-no")}>
+    <Labelled label={t("workflow-if-step-form-when")} hint={t("workflow-if-step-form-holds-yes-flow-does-not-no")}>
       <ConditionEditor value={step.when} upstream={upstream} inputs={inputs} disabled={disabled} onChange={(when) => onChange({ ...step, when })} />
-    </Field>
+    </Labelled>
   );
 }

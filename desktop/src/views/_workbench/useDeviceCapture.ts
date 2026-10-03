@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import type { MobileDevelopmentShot } from "../../types";
-import { useToast } from "../../ui";
+import { failureText, useToast } from "../../ui";
 import { takeDeviceShot } from "../../shell/deviceShots";
 import { useSessionDraft } from "../_work/gitPanelStore";
 import { EMPTY_CAPTURE_DRAFT, addCapture, capturesKey } from "./captureModel.mjs";
@@ -56,7 +56,7 @@ export function useDeviceCapture({ wid, deviceId, label, up }: { wid: string; de
     setTaking(true);
     void takeDeviceShot(deviceId)
       .then((shot) => setPending({ mark, shot }))
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => toast.error(failureText("workbench", "use-device-capture-failed", e)))
       .finally(() => setTaking(false));
   };
   const add = (note: string) => {

@@ -29,7 +29,7 @@ export function WorkstreamScriptsCard({ draft }: { draft: ProjectSettingsDraft }
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-2xs text-text-dim">
+      <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
         {rich("work-workstream-scripts-card-blurb", { code: (inner) => <code className="font-mono">{inner}</code> })}
       </p>
       {PHASES.map((p) => {
@@ -73,7 +73,7 @@ export function WorkstreamScriptsCard({ draft }: { draft: ProjectSettingsDraft }
       <div>
         <SectionHeader title={t("work-workstream-scripts-card-what-script-told")} open={!envFolded} onToggle={toggleEnv} />
         {!envFolded && (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 pl-2 text-3xs text-text-dim">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pl-2 text-2xs text-text-dim">
             {ENV_VARS.map(([name, meaning]) => (
               <div key={name} className="contents">
                 <dt className="font-mono text-text">{name}</dt>

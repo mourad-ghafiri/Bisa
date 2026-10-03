@@ -92,6 +92,7 @@ export function TerminalLauncher({
   label,
   disabledReason,
   className,
+  wordClassName,
 }: {
   scope: TerminalScope;
   id: string;
@@ -102,6 +103,12 @@ export function TerminalLauncher({
   /** Set when there is nothing to open a terminal *in*, e.g. a missing folder. */
   disabledReason?: string | null;
   className?: string;
+  /**
+   * Classes for the word beside the glyph. A host that folds its toolbar to
+   * glyphs on a narrow container passes `sr-only` plus its own container
+   * variant, so the word leaves the line but stays the button's name.
+   */
+  wordClassName?: string;
 }) {
   const toast = useToast();
   const { sessions, launched } = useTerminals();
@@ -181,11 +188,11 @@ export function TerminalLauncher({
           type="button"
           disabled={disabled}
           onClick={() => revealTerminalIn(mainTarget)}
-          className="anim inline-flex h-6 items-center gap-1.5 rounded-l-control border border-r-0 border-border px-2 text-2xs text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
+          className="anim inline-flex h-7 items-center gap-1.5 rounded-l-control border border-r-0 border-border px-2 text-xs text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
         >
           {preferred ? <PreferredMark id={preferred.id} /> : <ICON.harness size={12} aria-hidden />}
-          {preferred ? preferred.label : t("shell-terminal-launcher-terminal")}
-          {here > 0 && <span className="tnum text-accent-ink">{here}</span>}
+          <span className={wordClassName}>{preferred ? preferred.label : t("shell-terminal-launcher-terminal")}</span>
+          {here > 0 && <span className="tnum text-text">{here}</span>}
         </button>
       </Tooltip>
       <Menu
@@ -195,7 +202,7 @@ export function TerminalLauncher({
           <span
             aria-disabled={disabled}
             className={cn(
-              "anim inline-flex h-6 items-center rounded-r-control border border-border px-1 text-text-dim",
+              "anim inline-flex h-7 items-center rounded-r-control border border-border px-1 text-text-dim",
               disabled ? "opacity-45" : "hover:bg-surface-2 hover:text-text",
             )}
           >

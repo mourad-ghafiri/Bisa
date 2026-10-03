@@ -21,11 +21,11 @@
  * is your own act from a button.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "../../api";
 import type { RepoApi } from "../../api";
 import type { FolderRepo } from "../../types";
-import { Button, Dialog, Field, KeyHint, Menu, PromptDialog, TextArea, TextInput, WorkingDot, toaster } from "../../ui";
+import { Button, Dialog, Field, KeyHint, Menu, PromptDialog, TextArea, TextInput, Tooltip, WorkingDot, toaster, useDockOverlap } from "../../ui";
 import { ICON } from "../../ui/icons";
 import { suggestionOutcome } from "../../views/_work/gitFiles.mjs";
 import { VERB } from "../../views/_work/gitWords.mjs";
@@ -45,6 +45,36 @@ import { t } from "../../i18n/l10n.mjs";
 
 type Busy = "suggest" | "commit" | "push" | "fetch" | "pull" | "remote" | "identity";
 
+/** Which folder the strip stands at the foot of. */
+type Folder = "notes" | "drawings";
+
+/** The sentences that name the folder — the region, its menu, its composer and its dialogs say *notes* or *drawings*, never one for the other. */
+function folderWords(folder: Folder) {
+  return folder === "drawings"
+    ? {
+        region: t("notes-notes-git-strip-drawings-repository"),
+        more: t("notes-notes-git-strip-more-drawings-repository"),
+        message: t("notes-notes-git-strip-commit-message-drawings"),
+        unread: t("notes-notes-git-strip-could-not-read-drawings-repository"),
+        where: t("notes-notes-git-strip-where-drawings-push"),
+        who: t("notes-notes-git-strip-who-commits-drawings"),
+        signed: t("notes-notes-git-strip-commits-signed-drawings"),
+        own: t("notes-notes-git-strip-set-drawings-repository-only"),
+        commits: (who: string) => t("notes-notes-git-strip-commits-drawings", { trim: who }),
+      }
+    : {
+        region: t("notes-notes-git-strip-notes-repository"),
+        more: t("notes-notes-git-strip-more-notes-repository"),
+        message: t("notes-notes-git-strip-commit-message-notes"),
+        unread: t("notes-notes-git-strip-could-not-read-notes-repository"),
+        where: t("notes-notes-git-strip-where-notes-push-code-host-url"),
+        who: t("notes-notes-git-strip-who-commits-notes"),
+        signed: t("notes-notes-git-strip-commits-signed-global-git-identity-setting"),
+        own: t("notes-notes-git-strip-set-notes-repository-only-project-s"),
+        commits: (who: string) => t("notes-notes-git-strip-commits-notes", { trim: who }),
+      };
+}
+
 const BUSY_WORD: Record<Busy, string> = {
   suggest: t("notes-notes-git-strip-asking"),
   commit: t("notes-notes-git-strip-committing"),
@@ -63,6 +93,7 @@ export function RepoStrip({
   repo,
   subject,
   pulls,
+  folder,
   tick,
 }: {
   /** The folder's routes — `api.notesRepo` or `api.drawingsRepo`. */
@@ -71,6 +102,8 @@ export function RepoStrip({
   subject: string;
   /** Whether the folder offers a pull; the drawings' does not. */
   pulls: boolean;
+  /** Which folder this is, for the sentences that name it. */
+  folder: Folder;
   /** Bumped by the overlay after every record write, so the count re-reads. */
   tick: number;
 }) {
@@ -82,6 +115,7 @@ export function RepoStrip({
   const [busy, setBusy] = useState<Busy | null>(null);
   const [originOpen, setOriginOpen] = useState(false);
   const [whoOpen, setWhoOpen] = useState(false);
+  const words = folderWords(folder);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -98,9 +132,9 @@ export function RepoStrip({
       setError(null);
     } catch (e) {
       if (!alive.current) return;
-      setError(said(e, t("notes-notes-git-strip-could-not-read-notes-repository")));
+      setError(said(e, folderWords(folder).unread));
     }
-  }, [repo]);
+  }, [repo, folder]);
   useEffect(() => {
     void load();
   }, [load, tick]);
@@ -159,17 +193,17 @@ export function RepoStrip({
   const setIdentity = (name: string, email: string) =>
     act("identity", async () => {
       await repo.setIdentity(name.trim(), email.trim());
-      toaster.ok(t("notes-notes-git-strip-commits-notes", { trim: name.trim() }));
+      toaster.ok(words.commits(name.trim()));
       setWhoOpen(false);
     });
 
   if (error) {
     return (
-      <footer className="shrink-0 border-t border-border px-3 py-1.5">
+      <Foot className="shrink-0 border-t border-hairline px-3 py-1.5">
         <ReasonLine tone="warn" door={{ label: t("notes-notes-git-strip-retry"), onClick: () => void load() }}>
           {error}
         </ReasonLine>
-      </footer>
+      </Foot>
     );
   }
   if (!status) return null;
@@ -195,7 +229,7 @@ export function RepoStrip({
   ];
 
   return (
-    <footer aria-label={t("notes-notes-git-strip-notes-repository")} className="flex shrink-0 flex-col gap-1.5 border-t border-border px-3 py-1.5">
+    <Foot label={words.region} className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-3 py-1.5">
       <div className="flex items-center gap-1.5">
         <ICON.branch size={12} aria-hidden className="shrink-0 text-text-dim" />
         <span className="min-w-0 flex-1 truncate text-2xs text-text-dim" title={status.upstream ?? status.branch ?? undefined}>
@@ -208,12 +242,12 @@ export function RepoStrip({
           </Button>
         )}
         <Menu
-          label={t("notes-notes-git-strip-more-notes-repository")}
+          label={words.more}
           items={items}
           trigger={
             <button
               type="button"
-              aria-label={t("notes-notes-git-strip-more-notes-repository")}
+              aria-label={words.more}
               className="anim shrink-0 rounded-control p-1 text-text-dim hover:bg-surface-2 hover:text-text"
             >
               <ICON.more size={13} aria-hidden />
@@ -228,7 +262,7 @@ export function RepoStrip({
             value={message}
             rows={2}
             placeholder={defaultMessage(undefined, subject)}
-            aria-label={t("notes-notes-git-strip-commit-message-notes")}
+            aria-label={words.message}
             autoFocus
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => {
@@ -242,10 +276,12 @@ export function RepoStrip({
             </p>
           )}
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="ghost" disabled={busy !== null || status.changed === 0} onClick={() => void suggest()} title={t("notes-notes-git-strip-draft-message-from-what-changed-read")}>
-              <ICON.agent size={12} aria-hidden />
-              {busy === "suggest" ? t("notes-notes-git-strip-asking") : t("notes-notes-git-strip-suggest")}
-            </Button>
+            <Tooltip label={t("notes-notes-git-strip-draft-message-from-what-changed-read")}>
+              <Button size="sm" variant="ghost" disabled={busy !== null || status.changed === 0} onClick={() => void suggest()}>
+                <ICON.agent size={12} aria-hidden />
+                {busy === "suggest" ? t("notes-notes-git-strip-asking") : t("notes-notes-git-strip-suggest")}
+              </Button>
+            </Tooltip>
             {(busy === "suggest" || busy === "commit") && <WorkingDot title={BUSY_WORD[busy]} />}
             <span className="flex-1" />
             <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setComposing(false)}>{t("notes-notes-git-strip-cancel")}</Button>
@@ -265,32 +301,50 @@ export function RepoStrip({
         onClose={() => setOriginOpen(false)}
         onSubmit={(v) => void setRemote(v)}
         title={status.remote === null ? t("notes-notes-git-strip-set-origin-2") : t("notes-notes-git-strip-change-origin-2")}
-        description={t("notes-notes-git-strip-where-notes-push-code-host-url")}
+        description={words.where}
         label={t("notes-notes-git-strip-repository")}
         initial={status.remote ?? ""}
-        placeholder="git@host:you/notes.git" // for the machine
+        placeholder={`git@host:you/${folder}.git`} // for the machine
         mono
         submitLabel={status.remote === null ? t("notes-notes-git-strip-set") : t("notes-notes-git-strip-change")}
         busy={busy === "remote"}
         validate={remoteRefusal}
       />
-      <WhoCommitsDialog open={whoOpen} status={status} busy={busy === "identity"} onClose={() => setWhoOpen(false)} onSubmit={(n, e) => void setIdentity(n, e)} />
+      <WhoCommitsDialog words={words} open={whoOpen} status={status} busy={busy === "identity"} onClose={() => setWhoOpen(false)} onSubmit={(n, e) => void setIdentity(n, e)} />
+    </Foot>
+  );
+}
+
+/**
+ * The strip's foot — the panel's last row, where a floating dock may stand:
+ * its right end keeps clear of the dock, and the dock never moves
+ * (`dockClearance.ts`). Its own component, so the measuring starts when the
+ * foot is drawn, not when the strip mounts before its status is read.
+ */
+function Foot({ label, className, children }: { label?: string; className: string; children: ReactNode }) {
+  const foot = useRef<HTMLElement>(null);
+  const room = useDockOverlap(foot);
+  return (
+    <footer ref={foot} aria-label={label} style={room > 0 ? { paddingRight: room } : undefined} className={className}>
+      {children}
     </footer>
   );
 }
 
 /**
- * The pair the notes repository commits as, set on the repository itself so
+ * The pair the folder's repository commits as, set on the repository itself so
  * it holds whatever the global identity does. Prefilled from the global pair
  * when there is one, so pinning it is a click.
  */
 function WhoCommitsDialog({
+  words,
   open,
   status,
   busy,
   onClose,
   onSubmit,
 }: {
+  words: ReturnType<typeof folderWords>;
   open: boolean;
   status: FolderRepo;
   busy: boolean;
@@ -312,11 +366,11 @@ function WhoCommitsDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title={t("notes-notes-git-strip-who-commits-notes")}
+      title={words.who}
       description={
         status.identity.source === "global"
-          ? t("notes-notes-git-strip-commits-signed-global-git-identity-setting")
-          : t("notes-notes-git-strip-set-notes-repository-only-project-s")
+          ? words.signed
+          : words.own
       }
       width="max-w-sm"
       footer={

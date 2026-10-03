@@ -7,7 +7,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Spinner } from "../Card";
+import { ErrorNote, Spinner } from "../Card";
+import { sayFailure } from "../failure";
 import { cn } from "../cn";
 import type { Find } from "../find/findModel.mjs";
 import { VirtualList } from "../VirtualList";
@@ -62,7 +63,7 @@ export function SheetView({
         setWhich(0);
         onFacts?.(sheetFacts(s));
       })
-      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => live && setError(sayFailure("artifact", t("ui-sheet-view-could-not-show"), e)));
     return () => {
       live = false;
     };
@@ -79,7 +80,12 @@ export function SheetView({
   const hit = hits[current] ?? null;
   const hitKey = (r: number, c: number) => hits.some((h) => h.row === r && h.col === c);
 
-  if (error) return <p className={cn("p-3 text-2xs text-danger", className)}>{error}</p>;
+  if (error)
+    return (
+      <div className={cn("p-3", className)}>
+        <ErrorNote error={error} />
+      </div>
+    );
   if (!sheets) {
     return (
       <div className={cn("p-3", className)}>
@@ -95,7 +101,7 @@ export function SheetView({
         key={i}
         aria-current={on ? "true" : undefined}
         className={cn(
-          "tnum shrink-0 overflow-hidden text-ellipsis whitespace-nowrap border-r border-border px-1.5 leading-6",
+          "tnum shrink-0 overflow-hidden text-ellipsis whitespace-nowrap border-r border-hairline px-1.5 leading-6",
           head ? "font-semibold text-text" : "text-text",
           found && !on && "bg-accent-soft/60",
           on && "bg-warn-soft ring-1 ring-inset ring-warn",
@@ -110,13 +116,13 @@ export function SheetView({
   return (
     <div className={cn("flex h-full flex-col font-mono text-2xs", className)}>
       {sheets.length > 1 && (
-        <div data-scroll-keep="sheet-tabs" className="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-2">
+        <div data-scroll-keep="sheet-tabs" className="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline px-2">
           {sheets.map((s, i) => (
             <button
               key={s.name}
               type="button"
               onClick={() => setWhich(i)}
-              className={cn("anim rounded-control px-2 py-0.5 font-sans", i === which ? "bg-surface-2 text-text" : "text-text-dim hover:text-text")}
+              className={cn("anim rounded-control px-2 py-0.5 font-sans", i === which ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text")}
             >
               {s.name}
             </button>
@@ -126,16 +132,16 @@ export function SheetView({
       {/* Two scrollports, each keeping its place (`useKeptScroll`): the grid sideways, the rows down. */}
       <div data-scroll-keep="sheet" className="min-h-0 flex-1 overflow-auto">
         <div className="min-w-max">
-          <div className="flex border-b border-border bg-surface-2 text-text-dim">
-            <div className="w-10 shrink-0 border-r border-border" />
+          <div className="flex border-b border-hairline bg-surface-2 text-text-dim">
+            <div className="w-10 shrink-0 border-r border-hairline" />
             {header.map((_, i) => (
-              <div key={i} className="shrink-0 border-r border-border px-1.5 text-center leading-6" style={{ width: `${widths[i] + 2}ch` }}>
+              <div key={i} className="shrink-0 border-r border-hairline px-1.5 text-center leading-6" style={{ width: `${widths[i] + 2}ch` }}>
                 {columnLetter(i)}
               </div>
             ))}
           </div>
           <div className="flex border-b border-border bg-surface-2">
-            <div className="w-10 shrink-0 border-r border-border text-center leading-6 text-text-dim">1</div>
+            <div className="w-10 shrink-0 border-r border-hairline text-center leading-6 text-text-dim">1</div>
             {header.map((v, i) => cell(v, i, 0, true))}
           </div>
           <VirtualList
@@ -147,8 +153,8 @@ export function SheetView({
             scrollToIndex={hit && hit.row > 0 ? hit.row - 1 : null}
             scrollNonce={current}
             render={(row, i) => (
-              <div className="flex border-b border-border/60">
-                <div className="w-10 shrink-0 border-r border-border text-center leading-6 text-text-dim">{i + 2}</div>
+              <div className="flex border-b border-hairline">
+                <div className="w-10 shrink-0 border-r border-hairline text-center leading-6 text-text-dim">{i + 2}</div>
                 {row.map((v, j) => cell(v, j, i + 1))}
               </div>
             )}

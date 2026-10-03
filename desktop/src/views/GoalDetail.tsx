@@ -28,7 +28,6 @@ import { api } from "../api";
 import { useEngineEvents } from "../bus";
 import { navigate, setSearch, useSearchValue } from "../router";
 import { useAux, AuxPortal } from "../shell/AuxPane";
-import { BrowserDoor } from "../shell/BrowserDoor";
 import { placeWasKnown } from "../shell/placeMemoryStore";
 import { useGonePlace } from "../shell/useGonePlace";
 import { useViewScroll } from "../shell/useViewScroll";
@@ -36,7 +35,7 @@ import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf } from "../shell/viewMemoryStore";
 import type { WorkItemSpec } from "../types";
 import { closeBody, closeWords, pageFacts, replacements, type CloseForm } from "./_goal/goalPageModel.mjs";
-import { Button, ConfirmDialog, ErrorNote, Field, GOAL_STATUS_ICON, ICON, Select, SkeletonRows, Tabs, TextArea, useToast, type MenuItem } from "../ui";
+import { Button, ConfirmDialog, Dialog, ErrorNote, Field, GOAL_STATUS_ICON, ICON, Select, SkeletonRows, Tabs, TextArea, useToast, type MenuItem } from "../ui";
 import { GoalHeader } from "./_goal/GoalHeader";
 import { ProgressTab } from "./_goal/ProgressTab";
 import { YourMoveBand, scrollToYourMove } from "./_goal/YourMoveBand";
@@ -355,13 +354,13 @@ export default function GoalDetail({ id }: { id: string }) {
           view={data}
           working={working}
           primary={primary}
-          door={<BrowserDoor home={{ scope: "goal", id }} />}
           detailsOpen={aux.kind === "inspector"}
           onToggleDetails={() => aux.toggle("inspector")}
           menu={menu}
           onChanged={refreshAll}
         />
-        <Tabs className="shrink-0 border-b border-border px-4" tabs={TAB_DEFS} active={tab} onChange={setTab} />
+        {/* The strip draws its own hairline; the header above draws the edge. */}
+        <Tabs className="shrink-0 px-4" tabs={TAB_DEFS} active={tab} onChange={setTab} />
         {/* The root the tabs' scrollports are kept from; none while the thread shows. */}
         <div ref={tab === "conversation" ? undefined : scrolls} className="flex min-h-0 flex-1 flex-col">
           <div data-scroll-keep={tab === "progress" ? "tab:progress" : undefined} className={tab === "progress" ? "relative min-h-0 flex-1 overflow-y-auto" : "relative flex min-h-0 flex-1 flex-col overflow-hidden"}>
@@ -407,26 +406,29 @@ export default function GoalDetail({ id }: { id: string }) {
 
       <RunVerbDialogs view={data} startable={startable} pending={verb} onClose={() => setVerb(null)} onDone={refreshAll} />
 
-      <ConfirmDialog
+      {/* A pick takes effect as it is made, so there is nothing to confirm or
+          take back: a plain dialog with one way out, never a Cancel that
+          reverts nothing. */}
+      <Dialog
         open={choosing}
         onClose={() => setChoosing(false)}
         title={tr("screens-goal-detail-choose-workflow")}
-        confirmLabel={tr("screens-goal-detail-done")}
-        body={
-          <div className="flex flex-col gap-2">
-            <p className="text-2xs text-text-dim">{tr("screens-goal-detail-next-run-uses-workflow")}</p>
-            <WorkflowPicker
-              goal={goal.id}
-              value={goal.workflow ?? null}
-              allowNone
-              onChange={(wf) =>
-                void act(wf ? tr("screens-goal-detail-workflow-chosen") : tr("screens-goal-detail-workflow-cleared"), () => api.setGoalWorkflow(goal.id, { workflow: wf }))
-              }
-            />
-          </div>
+        description={tr("screens-goal-detail-next-run-uses-workflow")}
+        footer={
+          <Button variant="primary" onClick={() => setChoosing(false)}>
+            {tr("screens-goal-detail-done")}
+          </Button>
         }
-        onConfirm={() => setChoosing(false)}
-      />
+      >
+        <WorkflowPicker
+          goal={goal.id}
+          value={goal.workflow ?? null}
+          allowNone
+          onChange={(wf) =>
+            void act(wf ? tr("screens-goal-detail-workflow-chosen") : tr("screens-goal-detail-workflow-cleared"), () => api.setGoalWorkflow(goal.id, { workflow: wf }))
+          }
+        />
+      </Dialog>
       {dialogs}
     </>
   );

@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../../api";
-import { Button, ErrorNote, Field, KeyHint, Pending, Select, TextInput, useToast } from "../../ui";
+import { Button, ErrorNote, Field, KeyHint, Pending, Select, TextInput, failureText, useToast } from "../../ui";
 import { isMac } from "../../ui/KeyHint";
 import { PRESETS, WHENS, bindingsIn, chordFromEvent, conflictFor, filterBindings, resolveKeymap } from "../../shell/keymapModel.mjs";
 import type { Binding, Keymap, When } from "../../shell/keymapModel.mjs";
@@ -54,7 +54,7 @@ export function KeymapPanel() {
       settings.reload();
       void reloadKeymap();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "keymap-panel-failed", e));
     } finally {
       setBusy(false);
     }
@@ -93,7 +93,7 @@ export function KeymapPanel() {
   };
 
   const row = (b: Binding) => (
-    <tr key={b.id} className="border-t border-border">
+    <tr key={b.id} className="border-t border-hairline">
       <td className="py-1.5 text-text">
         {b.label}
         {b.note && <span className="ml-1 text-text-dim">({b.note})</span>}
@@ -136,7 +136,7 @@ export function KeymapPanel() {
   if (state === "failed") return <ErrorNote error={settings.error ?? t("settings-keymap-panel-settings-read-refused")} retry={settings.reload} />;
 
   return (
-    <section className="mb-4 rounded-control border border-border p-3">
+    <section className="mb-4 rounded-card border border-border bg-surface p-3 shadow-sm">
       <div className="flex flex-wrap items-end gap-3">
         <Field label={t("settings-keymap-panel-preset")} hint={t("settings-keymap-panel-default-keeps-what-app-has-always")}>
           <Select value={preset} onChange={(e) => void save({ "keymap.preset": e.target.value }, t("settings-keymap-panel-preset-2", { target: e.target.value }))}>
@@ -154,7 +154,7 @@ export function KeymapPanel() {
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ "keymap.overrides": {} }, t("settings-keymap-panel-overrides-cleared"))}>{t("settings-keymap-panel-clear-all-overrides")}</Button>
         )}
       </div>
-      <p className="mt-2 text-2xs text-text-dim">{t("settings-keymap-panel-chord-needs-modifier-except-enter-space")}</p>
+      <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-keymap-panel-chord-needs-modifier-except-enter-space")}</p>
       {keymap.warnings.length > 0 && (
         <ul className="mt-2 text-2xs text-warn">
           {keymap.warnings.map((w) => (
@@ -164,10 +164,10 @@ export function KeymapPanel() {
       )}
       {groups.length === 0 && <p className="mt-3 text-2xs text-text-dim">{t("settings-keymap-panel-command-matches", { filter })}</p>}
       {groups.map((g) => (
-        <div key={g.when} className="mt-3">
-          <h4 className="text-2xs font-semibold text-text">
+        <div key={g.when} className="mt-5">
+          <h4 className="text-xs font-semibold text-text">
             <span className="font-mono">{g.when}</span>
-            <span className="ml-2 font-normal text-text-dim">{WHEN_BLURB[g.when]}</span>
+            <span className="ml-2 text-2xs font-normal text-text-dim">{WHEN_BLURB[g.when]}</span>
           </h4>
           <table className="mt-1 w-full text-2xs">
             <thead>

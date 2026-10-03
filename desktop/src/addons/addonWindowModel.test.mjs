@@ -50,6 +50,7 @@ test("a window hides only while it meets a showing browser layer", () => {
   assert.equal(hiddenByLayer(box, size, [{ ...browser, visible: false }]), false);
   assert.equal(hiddenByLayer(box, size, [{ ...browser, rect: null }]), false);
   assert.equal(hiddenByLayer(box, size, []), false);
+  assert.equal(hiddenByLayer(box, size, [browser], true), false, "never hidden where the platform cuts around it: it shows over the live page");
 });
 
 test("a stored preference is judged half by half", () => {

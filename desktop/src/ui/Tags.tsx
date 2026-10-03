@@ -14,6 +14,8 @@
 
 import { useMemo, useState } from "react";
 import { Chip } from "./Chip";
+import { cn } from "./cn";
+import { ICON } from "./icons";
 
 /** Normalization, mirroring `bisa-core`'s `Tags`. */
 export function normalizeTag(raw: string): string | null {
@@ -29,7 +31,7 @@ export function normalizeTag(raw: string): string | null {
   return trimmed && trimmed.length <= 32 ? trimmed : null;
 }
 
-/** A read-only row of an object's tags. */
+/** A read-only row of an object's tags: filled words, never outlines (`Chip`'s `neutral`). */
 export function TagChips({ tags, max }: { tags: string[]; max?: number }) {
   if (!tags.length) return null;
   const shown = max ? tags.slice(0, max) : tags;
@@ -37,12 +39,12 @@ export function TagChips({ tags, max }: { tags: string[]; max?: number }) {
   return (
     <>
       {shown.map((t) => (
-        <Chip key={t} tone="quiet">
+        <Chip key={t} tone="neutral">
           {t}
         </Chip>
       ))}
       {rest > 0 && (
-        <Chip tone="quiet" title={tags.join(", ")}>
+        <Chip tone="neutral" title={tags.join(", ")}>
           +{rest}
         </Chip>
       )}
@@ -55,6 +57,15 @@ export function TagChips({ tags, max }: { tags: string[]; max?: number }) {
 import { NO_TAG_FILTER } from "./tagSearchModel.mjs";
 import type { TagFilterState } from "./tagSearchModel.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
+
+/** How many unused vocabulary words a tag field offers before *N more*. */
+const SUGGESTIONS_SHOWN = 8;
+/**
+ * How many tags a filter bar shows before *N more*: the most used, which are
+ * the ones that narrow a list most. A roster's fourteen tags in a row were a
+ * wall to read past before the first card; a tag that is on always shows.
+ */
+const FACETS_SHOWN = 6;
 export { NO_TAG_FILTER, parseTagFilter, passesTagFilter } from "./tagSearchModel.mjs";
 export type { TagFilterState, TagMatch } from "./tagSearchModel.mjs";
 
@@ -89,8 +100,14 @@ export function TagFilterBar<T>({
     // rebuild the facets on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
+  const [unfolded, setUnfolded] = useState(false);
 
   if (facets.length < 2) return null;
+
+  // A fold that would hide one tag saves nothing: it folds from two hidden up.
+  const folds = facets.length > FACETS_SHOWN + 1;
+  const shown = !folds || unfolded ? facets : facets.filter(([tag], i) => i < FACETS_SHOWN || value.selected.includes(tag));
+  const hidden = facets.length - shown.length;
 
   const toggle = (tag: string) => {
     const selected = value.selected.includes(tag)
@@ -101,7 +118,7 @@ export function TagFilterBar<T>({
 
   return (
     <div className={`flex flex-wrap items-center gap-1 ${className}`}>
-      {facets.map(([tag, count]) => {
+      {shown.map(([tag, count]) => {
         const on = value.selected.includes(tag);
         return (
           <button
@@ -109,17 +126,29 @@ export function TagFilterBar<T>({
             type="button"
             onClick={() => toggle(tag)}
             aria-pressed={on}
+            // A filter that is on is where you are, so it is the neutral
+            // `selected` with an edge, never the accent; one that is off is a
+            // soft word you can press, with no outline to make a tag row a
+            // strip of little buttons.
             className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-2xs font-medium transition-colors ${
               on
-                ? "border-transparent bg-accent-soft text-accent-ink"
-                : "border-border text-text-dim hover:bg-surface-2"
+                ? "border-text/25 bg-selected text-text"
+                : "border-transparent bg-surface-2/60 text-text-dim hover:bg-surface-2 hover:text-text"
             }`}
           >
             {tag}
-            <span className="tnum opacity-60">{count}</span>
+            <span className="tnum text-text-dim">{count}</span>
           </button>
         );
       })}
+      {folds && (hidden > 0 || unfolded) && (
+        <button
+          type="button"
+          aria-expanded={unfolded}
+          onClick={() => setUnfolded((on) => !on)}
+          className="h-6 rounded-full px-2 text-2xs font-medium text-text-dim hover:bg-surface-2 hover:text-text"
+        >{unfolded ? tr("ui-fold-show-less") : tr("ui-tags-more-suggestions", { count: hidden })}</button>
+      )}
       {value.selected.length > 1 && (
         <button
           type="button"
@@ -129,7 +158,7 @@ export function TagFilterBar<T>({
               ? tr("ui-tags-showing-anything-one-selected-tags-switch")
               : tr("ui-tags-showing-only-what-carries-every-selected")
           }
-          className="h-6 rounded-full border border-border px-2 text-2xs text-text-dim hover:bg-surface-2"
+          className="h-6 rounded-full border border-hairline px-2 text-2xs text-text-dim hover:bg-surface-2 hover:text-text"
         >{tr("ui-tags-match", { match: value.match })}</button>
       )}
       {value.selected.length > 0 && (
@@ -167,6 +196,8 @@ export function TagInput({
 }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The vocabulary is long; a few suggestions read as help, twenty as a wall.
+  const [allSuggestions, setAllSuggestions] = useState(false);
 
   const add = (raw: string) => {
     const tag = normalizeTag(raw);
@@ -180,29 +211,38 @@ export function TagInput({
   };
 
   const unused = suggestions.filter((t) => !value.includes(t));
+  const shown = allSuggestions ? unused : unused.slice(0, SUGGESTIONS_SHOWN);
+  const errorId = id ? `${id}-error` : undefined;
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-1">
+      <div
+        className={cn(
+          "control-group anim flex flex-wrap items-center gap-1 rounded-control border border-border bg-surface px-1.5 py-1",
+          !disabled && "hover:border-text-dim/40",
+          error && "border-danger",
+        )}
+      >
         {value.map((tag) => (
           <button
             key={tag}
             type="button"
-            title={disabled ? undefined : tr("ui-tags-remove")}
+            title={disabled ? undefined : tr("ui-tags-remove", { tag })}
+            aria-label={disabled ? tag : tr("ui-tags-remove", { tag })}
             disabled={disabled}
             onClick={() => onChange(value.filter((t) => t !== tag))}
-            className="inline-flex h-5 items-center gap-1 rounded-full border border-border px-2 text-2xs text-text-dim hover:bg-surface-2"
+            className="anim inline-flex h-5 items-center gap-1 rounded-full bg-surface-2 pr-1.5 pl-2 text-2xs text-text hover:bg-selected disabled:opacity-60"
           >
             {tag}
-            <span aria-hidden className="opacity-50">
-              ×
-            </span>
+            {!disabled && <ICON.close size={10} aria-hidden className="text-text-dim" />}
           </button>
         ))}
         <input
           id={id}
           value={draft}
           disabled={disabled}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
           placeholder={value.length ? tr("ui-tags-add") : tr("ui-tags-engineering-product")}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -214,22 +254,37 @@ export function TagInput({
             }
           }}
           onBlur={() => draft.trim() && add(draft)}
-          className="h-6 min-w-24 flex-1 bg-transparent text-xs outline-none placeholder:text-text-dim/60"
+          className="h-5 min-w-24 flex-1 bg-transparent px-1 text-xs outline-none placeholder:text-text-dim"
         />
       </div>
-      {error && <p className="text-2xs text-danger">{error}</p>}
-      {unused.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {unused.map((tag) => (
+      {error && (
+        <p id={errorId} role="alert" className="text-2xs text-danger">
+          {error}
+        </p>
+      )}
+      {unused.length > 0 && !disabled && (
+        <div className="flex flex-wrap items-center gap-1">
+          {shown.map((tag) => (
             <button
               key={tag}
               type="button"
               onClick={() => add(tag)}
-              className="h-5 rounded-full px-1.5 text-2xs text-text-dim/70 hover:bg-surface-2 hover:text-text-dim"
+              aria-label={tr("ui-tags-add-named", { tag })}
+              className="anim inline-flex h-5 items-center gap-0.5 rounded-full px-1.5 text-2xs text-text-dim hover:bg-surface-2 hover:text-text"
             >
-              +{tag}
+              <ICON.add size={10} aria-hidden />
+              {tag}
             </button>
           ))}
+          {unused.length > shown.length && (
+            <button
+              type="button"
+              onClick={() => setAllSuggestions(true)}
+              className="anim h-5 rounded-full px-1.5 text-2xs font-medium text-text-dim hover:bg-surface-2 hover:text-text"
+            >
+              {tr("ui-tags-more-suggestions", { count: unused.length - shown.length })}
+            </button>
+          )}
         </div>
       )}
     </div>

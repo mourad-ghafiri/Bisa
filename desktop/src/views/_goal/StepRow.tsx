@@ -12,6 +12,7 @@ import type { StepKind } from "../../types";
 import { answerSummary } from "../../askModel.mjs";
 import { HOLDER_LABEL } from "../_goals/goalStripModel.mjs";
 import { StepActions } from "../_workflow/StepActions";
+import { familyInk } from "../_workflow/familyInk";
 import type { ProgressRow } from "./progressModel.mjs";
 import { navigate } from "../../router";
 import { useWorkspace } from "../../shell/useWorkspaceData";
@@ -48,18 +49,20 @@ export function StepRow({
   const made = run ? projectsMadeByStep(ws.projects, run, row.id) : [];
   const hasBody = row.error || row.output !== null || row.workItem || said || row.actions.length > 0 || made.length > 0;
   return (
-    <li className={cn("rounded-card border border-transparent", row.current && "border-l-2 border-l-accent bg-surface-2/60", expanded && "border-border")}>
+    // The live step is told by its ground and its state chip, never a coloured stripe down its edge.
+    <li className={cn("rounded-card border border-transparent", row.current && "bg-surface-2/60", expanded && "border-border")}>
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className="grid min-h-row w-full grid-cols-[auto_1fr_auto_auto_auto] items-center gap-3 px-3 py-1.5 text-left hover:bg-surface-2"
+        // Narrow (the list's own room, `RunSteps`' container), the holder and the time step aside and the name keeps the row.
+        className="grid min-h-row w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-1.5 text-left hover:bg-surface-2 @md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]"
       >
-        {Icon ? <Icon size={14} aria-hidden className="shrink-0 text-text-dim" /> : <span className="size-3.5" />}
+        {Icon ? <Icon size={14} aria-hidden className={`shrink-0 ${familyInk(row.kind)}`} /> : <span className="size-3.5" />}
         <span className="min-w-0 truncate text-sm">{row.name}</span>
         <StepStateChip state={row.state} />
-        <span className="w-14 text-2xs text-text-dim">{row.holder ? HOLDER_LABEL[row.holder] : ""}</span>
-        <span className="tnum w-24 text-right text-2xs text-text-dim">
+        <span className="hidden min-w-16 truncate text-2xs text-text-dim first-letter:uppercase @md:block" title={row.holder ? HOLDER_LABEL[row.holder] : undefined}>{row.holder ? HOLDER_LABEL[row.holder] : ""}</span>
+        <span className="tnum hidden w-24 text-right text-2xs text-text-dim @md:block">
           {row.startedAt !== null ? (
             <>
               <RelativeTime at={row.startedAt} />
@@ -73,7 +76,7 @@ export function StepRow({
           {row.error && <p className="text-danger">{row.error}</p>}
           {said && <p className="text-text-dim">{t("goal-step-row-answered", { said })}</p>}
           {row.output !== null && row.output !== undefined && (
-            <LinkedText as="pre" className="max-h-64 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-3xs" text={JSON.stringify(row.output, null, 2)} />
+            <LinkedText as="pre" className="max-h-64 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-2xs" text={JSON.stringify(row.output, null, 2)} />
           )}
           {row.workItem && (
             <Button size="sm" variant="ghost" className="self-start" onClick={() => onOpenItem(row.workItem!)}>

@@ -11,6 +11,7 @@ import { HOLDER_LABEL, HOLDER_TONE, failureWords, finishedTone } from "./goalStr
 const TONE: Record<string, Tone> = {
   warn: "warn",
   accent: "accent",
+  text: "neutral",
   "text-dim": "quiet",
   ok: "ok",
   danger: "danger",
@@ -24,7 +25,8 @@ function holderTone(holder: Holder, strip?: RunStrip | null): Tone {
 export function HolderBadge({ holder, strip }: { holder: Holder; strip?: RunStrip | null }) {
   return (
     <Chip tone={holderTone(holder, strip)} title={holder === "finished" ? (failureWords(strip ?? undefined) ?? undefined) : undefined}>
-      {HOLDER_LABEL[holder] ?? holder}
+      {/* A chip stands alone at the head of its row, so its word begins with a capital; the model keeps the word as it reads mid-sentence. */}
+      <span className="inline-block first-letter:uppercase">{HOLDER_LABEL[holder] ?? holder}</span>
     </Chip>
   );
 }

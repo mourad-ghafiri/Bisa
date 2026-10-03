@@ -59,7 +59,7 @@ export function KeyCard({
         <span className="flex-1" />
         <CopyText value={card.publicLine} label={t("settings-key-card-copy-public-key")} />
       </div>
-      <p className="truncate font-mono text-3xs text-text-dim" title={`${card.fingerprint} · ${card.path}`}>
+      <p className="truncate font-mono text-2xs text-text-dim" title={`${card.fingerprint} · ${card.path}`}>
         {card.shortFingerprint}
         {card.comment ? ` · ${card.comment}` : ""} · {card.path}
       </p>
@@ -93,7 +93,7 @@ export function KeyCard({
               ))}
             </datalist>
           </label>
-          <Button size="sm" type="submit" variant={next.action === "check" ? "primary" : "ghost"} disabled={checking || !host.trim()}>
+          <Button size="sm" type="submit" variant={next.action === "check" ? "default" : "ghost"} disabled={checking || !host.trim()}>
             {checking ? t("settings-mcp-panel-checking-2") : t("settings-code-host-panel-check")}
           </Button>
         </form>
@@ -121,7 +121,9 @@ function AddToHost({ card, onAddToHost, primary = false }: { card: KeyCardWords;
         onSelect: () => onAddToHost(card, host),
       }))}
       trigger={
-        <Button size="sm" variant={primary ? "primary" : "ghost"}>{t("settings-key-card-add-host")}</Button>
+        // `primary` marks the card's next step: raised out of ghost, but a
+        // per-card action never wears the screen's one primary.
+        <Button size="sm" variant={primary ? "default" : "ghost"}>{t("settings-key-card-add-host")}</Button>
       }
     />
   );

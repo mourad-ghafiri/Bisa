@@ -17,8 +17,13 @@
 import { IN_PROGRESS_LABEL } from "./syncModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
-/** The tone each side's swatch and chip wear, everywhere. */
-export const SIDE_TONE = Object.freeze({ mine: "accent", theirs: "ok" });
+/**
+ * The glyph each side's name wears, everywhere. A side is an identity, not a
+ * state and not a summons, so both are drawn in neutral ink and told apart by
+ * this mark and their names — the accent stays for what waits on the person,
+ * and `ok` for what is done.
+ */
+export const SIDE_ICON = Object.freeze({ mine: "person", theirs: "branch" });
 
 const short = (sha) => (typeof sha === "string" && sha.length >= 7 ? sha.slice(0, 7) : null);
 
@@ -53,15 +58,15 @@ function nameOf(ref, fallback) {
  * @param {"merge" | "rebase" | "cherry_pick" | "revert" | null | undefined} inProgress
  * @param {import("../../types").GitOperationFacts | null | undefined} facts
  * @returns {{mine: Side, theirs: Side, explain: string, step: string | null, title: string}}
- * @typedef {{key: "mine" | "theirs", git: "ours" | "theirs", name: string, role: string, tone: string}} Side
+ * @typedef {{key: "mine" | "theirs", git: "ours" | "theirs", name: string, role: string, icon: "person" | "branch"}} Side
  */
 export function sidesOf(inProgress, facts) {
   // The operation in progress names the kind — and so the swap (ide/04): facts
   // for another operation are stale and not read, but the swap still holds.
   const kind = inProgress ?? facts?.kind ?? "merge";
   const f = facts && facts.kind === kind ? facts : null;
-  const mine = { key: "mine", git: gitSideOf(kind, "mine"), tone: SIDE_TONE.mine };
-  const theirs = { key: "theirs", git: gitSideOf(kind, "theirs"), tone: SIDE_TONE.theirs };
+  const mine = { key: "mine", git: gitSideOf(kind, "mine"), icon: SIDE_ICON.mine };
+  const theirs = { key: "theirs", git: gitSideOf(kind, "theirs"), icon: SIDE_ICON.theirs };
   const branch = f?.branch ?? null;
   const stepWords = f?.step ? t("work-conflict-sides-commit", { done: f.step.done, total: f.step.total }) : null;
   switch (kind) {

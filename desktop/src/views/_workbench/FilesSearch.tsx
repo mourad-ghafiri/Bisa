@@ -16,7 +16,7 @@ import { usePathIndex } from "../../shell/pathIndexStore";
 import { useViewState } from "../../shell/viewMemoryStore";
 import { flagValue, textValue, wordOf } from "../../shell/viewValuesModel.mjs";
 import type { FileScope, SearchHit, SearchSummary } from "../../types";
-import { Button, ICON, SegmentedControl, TextInput, VirtualList, cn, requestReveal, useTokenPx } from "../../ui";
+import { Button, ICON, SegmentedControl, TextInput, VirtualList, failureText, cn, requestReveal, useTokenPx } from "../../ui";
 import { groupHits, nameResults, nextOpenable, parseQuery, resultRows, searchStatus, splitHit } from "./fileSearchModel.mjs";
 import type { ResultRow } from "./fileSearchModel.mjs";
 import { idePlace } from "./idePlacesModel.mjs";
@@ -123,7 +123,7 @@ export function FilesSearch({
         })
         .catch((e: unknown) => {
           if (ac.signal.aborted) return;
-          setError(e instanceof Error ? e.message : String(e));
+          setError(failureText("workbench", "files-search-failed", e));
           setLive(false);
         });
     }, DEBOUNCE_MS);
@@ -180,7 +180,8 @@ export function FilesSearch({
       aria-pressed={on}
       title={title}
       onClick={() => set(!on)}
-      className={cn("anim rounded-control border px-1 font-mono text-3xs leading-tight", on ? "border-accent/60 bg-accent-soft text-accent-ink" : "border-border text-text-dim hover:text-text")}
+      // Pressed is where the search stands, not a summons: the neutral `selected` fill.
+      className={cn("anim inline-flex h-6 min-w-6 items-center justify-center rounded-control border px-1 font-mono text-2xs leading-none", on ? "border-text/35 bg-selected text-text" : "border-border text-text-dim hover:bg-surface hover:text-text")}
     >
       {label}
     </button>
@@ -223,7 +224,7 @@ export function FilesSearch({
           items={rows}
           rowHeight={rowHeight}
           keyOf={(r) => r.key}
-          className="max-h-64 rounded-control border border-border bg-surface"
+          className="max-h-64 rounded-control bg-surface"
           scrollToIndex={cursor}
           scrollNonce={scrollNonce}
           render={(row, i) => {
@@ -233,7 +234,7 @@ export function FilesSearch({
             }
             if (row.kind === "file") {
               return (
-                <button type="button" tabIndex={-1} onClick={() => open(row, true)} className={cn("flex h-full w-full items-center gap-1.5 px-2 text-left text-2xs hover:bg-surface-2", at && "bg-accent-soft")}>
+                <button type="button" tabIndex={-1} onClick={() => open(row, true)} className={cn("flex h-full w-full items-center gap-1.5 px-2 text-left text-2xs hover:bg-surface-2", at && "bg-selected")}>
                   <ICON.file size={11} aria-hidden className="shrink-0 text-text-dim" />
                   <span className="shrink-0 font-mono text-text">{basename(row.path)}</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-text-dim">{row.path}</span>
@@ -243,7 +244,7 @@ export function FilesSearch({
             }
             const [before, match, after] = splitHit(row.text, row.column, regex ? 0 : query.needle.length);
             return (
-              <button type="button" tabIndex={-1} onClick={() => open(row, true)} className={cn("flex h-full w-full items-center gap-2 pl-6 pr-2 text-left text-2xs hover:bg-surface-2", at && "bg-accent-soft")}>
+              <button type="button" tabIndex={-1} onClick={() => open(row, true)} className={cn("flex h-full w-full items-center gap-2 pl-6 pr-2 text-left text-2xs hover:bg-surface-2", at && "bg-selected")}>
                 <span className="tnum w-8 shrink-0 text-right text-text-dim">{row.line}</span>
                 <span className="min-w-0 flex-1 truncate font-mono">
                   <span className="text-text-dim">{before}</span>

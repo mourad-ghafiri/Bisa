@@ -55,6 +55,7 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   useReactFlow,
+  type AriaLabelConfig,
   type Connection,
   type Edge,
   type Node,
@@ -69,6 +70,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "./cn";
 import { reconcileEdges, reconcileNodes } from "./flowMirrorModel.mjs";
+import { t } from "../i18n/l10n.mjs";
 
 export type FlowPosition = { x: number; y: number };
 
@@ -104,6 +106,8 @@ export interface FlowEdge {
   kind?: "then" | "on_fail" | "boundary";
   loop?: boolean;
   animated?: boolean;
+  /** The flow a running process came along to where it stands now — drawn moving toward it (`theme/flow.css`, `.is-live`). */
+  live?: boolean;
 }
 
 /** What a node measured at, reported once xyflow knows. */
@@ -145,6 +149,29 @@ export interface FlowCanvasProps<D extends Record<string, unknown>> {
   reveal?: { id: string; nonce: number } | null;
   className?: string;
   children?: ReactNode;
+  /** The canvas's accessible name; the catalog's *Flow canvas* when the caller names none. */
+  label?: string;
+}
+
+/**
+ * xyflow's own words — its controls, the minimap, a handle, and what a
+ * keyboard on a step or a flow can do — from the catalog, not the library's
+ * English. "Fit view" is not among the controls: the designer has its own Fit.
+ */
+function ariaLabels(): Partial<AriaLabelConfig> {
+  return {
+    "node.a11yDescription.default": t("ui-flow-canvas-node-keys"),
+    "node.a11yDescription.keyboardDisabled": t("ui-flow-canvas-node-keys-move"),
+    "node.a11yDescription.ariaLiveMessage": ({ direction, x, y }) => t("ui-flow-canvas-node-moved", { direction, x, y }),
+    "edge.a11yDescription.default": t("ui-flow-canvas-edge-keys"),
+    "controls.ariaLabel": t("ui-flow-canvas-controls"),
+    "controls.zoomIn.ariaLabel": t("ui-flow-canvas-zoom-in"),
+    "controls.zoomOut.ariaLabel": t("ui-flow-canvas-zoom-out"),
+    "controls.fitView.ariaLabel": t("ui-flow-canvas-fit"),
+    "controls.interactive.ariaLabel": t("ui-flow-canvas-interactive"),
+    "minimap.ariaLabel": t("ui-flow-canvas-minimap"),
+    "handle.ariaLabel": t("ui-flow-canvas-handle"),
+  };
 }
 
 /**
@@ -197,7 +224,7 @@ function toEdge(e: FlowEdge): Edge {
     targetHandle: e.targetHandle ?? undefined,
     label: e.label,
     animated: e.animated,
-    className: cn(`tone-${e.tone ?? "default"}`, `kind-${e.kind ?? "then"}`, e.loop && "kind-loop"),
+    className: cn(`tone-${e.tone ?? "default"}`, `kind-${e.kind ?? "then"}`, e.loop && "kind-loop", e.live && "is-live"),
     // Every flow is a smooth step from its handle to the other's; a loop and
     // an on_fail leave from a side handle and come around.
     type: "smoothstep",
@@ -229,8 +256,10 @@ function Inner<D extends Record<string, unknown>>({
   reveal,
   className,
   children,
+  label,
 }: FlowCanvasProps<D>) {
   const flow = useReactFlow();
+  const aria = useMemo(ariaLabels, []);
   // The view it opens on, and the fit key it opened with: a canvas handed a
   // place opens there and fits only when the key moves; one handed none
   // fits at once, as it always did.
@@ -363,6 +392,8 @@ function Inner<D extends Record<string, unknown>>({
   return (
     <div
       className={cn("bisa-flow h-full w-full outline-none", className)}
+      role="group"
+      aria-label={label ?? t("ui-flow-canvas-label")}
       tabIndex={0}
       onKeyDown={onKeyDown}
       onDragOver={onDragOver}
@@ -395,10 +426,11 @@ function Inner<D extends Record<string, unknown>>({
         minZoom={0.25}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
+        ariaLabelConfig={aria}
         defaultEdgeOptions={{ type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 } }}
       >
         <Background variant={BackgroundVariant.Dots} gap={grid} size={1} />
-        <Controls showInteractive={false} position="bottom-left" />
+        <Controls showInteractive={false} showFitView={false} position="bottom-left" />
         {minimap && <MiniMap pannable zoomable position="bottom-right" />}
         {children}
       </ReactFlow>

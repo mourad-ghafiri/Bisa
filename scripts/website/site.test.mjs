@@ -163,7 +163,9 @@ test("every image is described and sized, and every screenshot of the manifest h
     }
   }
   const readme = read("README.md");
-  for (const name of ["overview", "screenshots", "ide"]) {
+  // The overview under the slogan is required; the gallery and the IDE blocks are checked only where the README carries them.
+  assert.ok(readme.includes("<!-- website:overview"), "README: the overview block under the slogan");
+  for (const name of ["overview", "screenshots", "ide"].filter((n) => readme.includes(`<!-- website:${n}`))) {
     const block = readme.split(`<!-- website:${name}`)[1].split(`<!-- /website:${name} -->`)[0];
     assert.match(block, /<img src="/, `README: the ${name} block holds its screenshots`);
     for (const [, src] of block.matchAll(/<img src="([^"]+)"/g)) assert.ok(existsSync(join(root, src)), `README: ${src} is there — never a broken image`);

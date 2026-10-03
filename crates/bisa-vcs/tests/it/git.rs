@@ -305,6 +305,49 @@ fn the_paths_two_commits_differ_by_are_listed_and_bounded() {
 }
 
 #[test]
+fn a_branch_diff_is_what_the_branch_changed_since_it_left_its_base() {
+    let fx = Fixture::new();
+    raw_git(&fx.repo, &["checkout", "-q", "-b", "topic"]);
+    std::fs::write(fx.repo.join("cart.txt"), "total\n").unwrap();
+    git::add_all(&fx.repo).expect("add");
+    git::commit(&fx.repo, "add the cart total", false).expect("commit");
+    // The base moves on after the branch left it: that is not the branch's change.
+    raw_git(&fx.repo, &["checkout", "-q", &fx.branch]);
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nagain\n").unwrap();
+    git::add_all(&fx.repo).expect("add");
+    git::commit(&fx.repo, "the base moves on", false).expect("commit");
+    raw_git(&fx.repo, &["checkout", "-q", "topic"]);
+    // Nor is what is not committed yet.
+    std::fs::write(fx.repo.join("scratch.txt"), "draft\n").unwrap();
+
+    let diff = git::branch_diff(&fx.repo, &fx.branch).expect("branch diff");
+    assert!(
+        diff.contains("cart.txt") && diff.contains("+total"),
+        "{diff}"
+    );
+    assert!(
+        !diff.contains("README.md"),
+        "the base's own commit is not the branch undoing it: {diff}"
+    );
+    assert!(
+        !diff.contains("scratch.txt"),
+        "the working tree is not read: {diff}"
+    );
+    assert!(
+        git::branch_diff(&fx.repo, "topic").unwrap().is_empty(),
+        "a branch against itself changed nothing"
+    );
+    assert!(
+        git::branch_diff(&fx.repo, "--output=x").is_err(),
+        "an option never reaches git"
+    );
+    assert!(
+        git::branch_diff(&fx.repo, "a..b").is_err(),
+        "a range is not a base"
+    );
+}
+
+#[test]
 fn a_plain_directory_is_not_a_repository() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path();

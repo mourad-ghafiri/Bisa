@@ -22,7 +22,7 @@
 
 import { useEffect, useState } from "react";
 import type { ConnectorOperationDef, ConnectorParamDef, InputDef, Step } from "../../../types";
-import { Chip, Field, ICON, Select, Switch, TextArea, TextInput } from "../../../ui";
+import { Button, Chip, Field, ICON, Labelled, Select, Switch, TextArea, TextInput } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
 import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
@@ -96,7 +96,7 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xs:grid-cols-2">
         <Field label={t("workflow-step-kinds-connector")} hint={connectors.rows.length === 0 ? t("workflow-connector-step-form-nothing-installed-here-yet-settings-connectors") : t("workflow-connector-step-form-connector-installed-here-slug")}>
           <Select
             className="font-mono"
@@ -167,7 +167,7 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
           )}
         </Select>
       </Field>
-      <Field label={t("workflow-connector-step-form-parameters")} hint={declared.length === 0 ? t("workflow-connector-step-form-operation-takes-no-parameters") : t("workflow-connector-step-form-one-template-per-parameter-required-one", { TEMPLATE_HINT })}>
+      <Labelled label={t("workflow-connector-step-form-parameters")} hint={declared.length === 0 ? t("workflow-connector-step-form-operation-takes-no-parameters") : t("workflow-connector-step-form-one-template-per-parameter-required-one", { TEMPLATE_HINT })}>
         <div className="flex flex-col gap-2">
           {declared.map((p) => (
             <div key={p.name} className="flex flex-col gap-0.5">
@@ -184,19 +184,19 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
                 ariaLabel={t("workflow-connector-step-form-parameter-named", { name: p.name })}
                 onCommit={(v) => setParam(p.name, v)}
               />
-              {p.kind === "file" && <span className="text-3xs text-text-dim">{t("workflow-connector-step-form-file-path-inside-checkout")}</span>}
-              {p.doc && <span className="text-3xs text-text-dim">{p.doc}</span>}
+              {p.kind === "file" && <span className="text-2xs text-text-dim">{t("workflow-connector-step-form-file-path-inside-checkout")}</span>}
+              {p.doc && <span className="text-2xs text-text-dim">{p.doc}</span>}
             </div>
           ))}
           {stray.map((name) => (
             <div key={name} className="flex items-center gap-1.5">
               <code className="font-mono text-2xs text-danger">{name}</code>
               <span className="text-2xs text-text-dim">{t("workflow-connector-step-form-not-parameter-operation")}</span>
-              <button type="button" className="text-2xs text-accent-ink underline underline-offset-2" disabled={disabled} onClick={() => setParam(name, "")}>{t("workflow-connector-step-form-remove")}</button>
+              <Button size="sm" variant="ghost" disabled={disabled} onClick={() => setParam(name, "")}>{t("workflow-connector-step-form-remove")}</Button>
             </div>
           ))}
         </div>
-      </Field>
+      </Labelled>
       {operation && (
         <p className="text-2xs text-text-dim">
           {operation.output?.select

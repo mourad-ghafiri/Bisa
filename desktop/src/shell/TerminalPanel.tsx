@@ -81,6 +81,7 @@ import {
   terminalTitle,
   harnessOf,
 } from "./terminalsModel.mjs";
+import { terminalChipName } from "./terminalChipModel.mjs";
 import { requestCloseOthers, requestCloseTerminal } from "./terminalCloseGuard";
 import {
   closeExitedTerminalTabs,
@@ -229,7 +230,7 @@ export function TerminalPanel() {
       restart: () => restartTerminalTab(key),
       "send-to-agent": () => {
         const lines = terminalTail(key);
-        if (lines) attachContext(terminalChip(`${harnessOf(s) ?? "shell"} · ${key}`, lines));
+        if (lines) attachContext(terminalChip(terminalChipName(s, sessions), lines));
         showRightPanel("agents", `${s.scope}:${s.id}`);
       },
       "show-agents": () => showRightPanel("agents", `${s.scope}:${s.id}`),

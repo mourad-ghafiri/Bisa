@@ -143,7 +143,7 @@ export function ResizeHandle({
         e.preventDefault();
       }}
       className={`group relative z-10 shrink-0 ${axis.bar} ${
-        dragging ? "bg-accent/60" : "bg-transparent hover:bg-accent/30"
+        dragging ? "bg-text/35" : "bg-transparent hover:bg-text/20"
       } anim`}
     >
       <span className={axis.hit} />

@@ -44,9 +44,12 @@ draw-library-sticky-violet = Sticky note, violet
 draw-library-sticky-yellow = Sticky note, yellow
 draw-library-title-banner = Title banner
 draw-library-warning = Warning
-draw-overlay-close = Close the drawings
-draw-overlay-could-not-create = could not create the drawing
-draw-overlay-could-not-load = could not load the drawings
+draw-overlay-clear-search = Clear the search
+draw-overlay-close = Close drawings
+draw-overlay-could-not-create = The drawing could not be created. The diagnostic log has the detail.
+draw-overlay-could-not-delete = The drawing could not be deleted.
+draw-overlay-delete-drawing = Delete “{ $title }”
+draw-overlay-could-not-load = The drawings could not be read. The diagnostic log has the detail.
 draw-overlay-elements = { $count ->
     [one] 1 element
    *[other] { $count } elements
@@ -56,6 +59,7 @@ draw-overlay-new = New
 draw-overlay-new-drawing = New drawing
 draw-overlay-no-channel-drawing-yet = No drawing about a channel yet.
 draw-overlay-no-drawing-named-so = No drawing is named so.
+draw-overlay-no-drawings-yet = No drawings yet
 draw-overlay-no-goal-drawing-yet = No drawing about a goal yet.
 draw-overlay-no-node-drawing-yet = No drawing about this node yet.
 draw-overlay-no-project-drawing-yet = No drawing about a project yet.
@@ -180,7 +184,7 @@ draw-tpl-beta = Beta
 draw-tpl-launch = Launch
 draw-tpl-review = Review
 
-## Save and Delete (`draw/DrawEditor.tsx`).
+## Save and Delete (`draw/DrawEditor.tsx`); a list row's Delete asks in the same words (`draw/DrawOverlay.tsx`).
 draw-editor-save = Save
 draw-editor-delete-title = Delete “{ $title }”?
 draw-editor-delete-body = The drawing, its snapshot and its conversations are gone. The drawings repository records the deletion at your next commit.

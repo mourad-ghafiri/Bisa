@@ -7,7 +7,7 @@
  */
 
 import type { Step } from "../../../types";
-import { Field, TextInput } from "../../../ui";
+import { Field, Labelled, TextInput } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { ExactFieldsEditor } from "./ExactFieldsEditor";
 import { validSignalName } from "./startForm.mjs";
@@ -25,7 +25,7 @@ export function EmitStepForm({ step, onChange, disabled }: { step: Emit; onChang
       <Field label={t("workflow-signal-filter-fields-name")} hint={bad ? t("workflow-signal-filter-fields-name-not-dotted-words") : t("workflow-emit-step-form-signal-hint", { TEMPLATE_HINT })}>
         <TextInput className="font-mono" value={step.signal} /* for the machine */ placeholder="report.ready" disabled={disabled} onChange={(e) => set({ signal: e.target.value })} />
       </Field>
-      <Field label={t("workflow-emit-step-form-payload")} hint={t("workflow-emit-step-form-payload-hint", { TEMPLATE_HINT })}>
+      <Labelled label={t("workflow-emit-step-form-payload")} hint={t("workflow-emit-step-form-payload-hint", { TEMPLATE_HINT })}>
         <ExactFieldsEditor
           value={step.payload}
           disabled={disabled}
@@ -38,7 +38,7 @@ export function EmitStepForm({ step, onChange, disabled }: { step: Emit; onChang
             }
           }}
         />
-      </Field>
+      </Labelled>
       <p className="text-2xs text-text-dim">{t("workflow-emit-step-form-heard-by", { step: step.id })}</p>
     </div>
   );

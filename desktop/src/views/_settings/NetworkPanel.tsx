@@ -24,7 +24,7 @@ import { useEngineEvents } from "../../bus";
 import { refreshNetwork, useNetwork } from "../../shell/networkStore";
 import { useResolvedSettingsRead, useSettingsRegistry } from "../../shell/settingsStore";
 import type { NetworkCheck, ProxyMode, SettingDef } from "../../types";
-import { Button, Card, Chip, Dot, ErrorNote, Field, Pending, ReadLine, Section, SegmentedControl, TextInput, Tooltip, useToast } from "../../ui";
+import { Button, Card, Chip, Dot, ErrorNote, Field, Pending, ReadLine, Section, SegmentedControl, TextInput, useToast } from "../../ui";
 import { attempt, useAsync } from "../_work/useAsync";
 import { firstFailure, pendingRows, phaseOf, readWords } from "./loadModel.mjs";
 import {
@@ -46,19 +46,22 @@ import {
   vpnWords,
 } from "./networkModel.mjs";
 import { RegistryPanel } from "./RegistryPanel";
+import { SavedNote, useSavedNote } from "./SavedNote";
 import { SettingControl } from "./SettingControl";
 import { t as tr } from "../../i18n/l10n.mjs";
 import { OriginBadge } from "./OriginBadge";
 
 export function NetworkPanel() {
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <Section title={tr("settings-network-panel-mac")}>
         <ThisMac />
       </Section>
       <Section title={tr("settings-network-panel-how-platform-reaches-internet")}>
-        <ProxyCard />
-        <RegistryPanel group="network" only={[KEYS.http1Only]} />
+        <div className="flex flex-col gap-3">
+          <ProxyCard />
+          <RegistryPanel group="network" only={[KEYS.http1Only]} />
+        </div>
       </Section>
     </div>
   );
@@ -68,7 +71,7 @@ export function NetworkPanel() {
 function Rows({ rows }: { rows: readonly { label: string; value: string }[] }) {
   if (rows.length === 0) return null;
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-control border border-border bg-surface-2 p-2 text-2xs">
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-control bg-surface-2/50 p-2 text-2xs">
       {rows.map((row, i) => (
         <div key={`${row.label}-${i}`} className="contents">
           <dt className="text-text-dim">{row.label}</dt>
@@ -108,11 +111,8 @@ function ThisMac() {
         <div className="flex flex-wrap items-center gap-2">
           <Dot tone={net.tone} title={net.label} />
           <span className="text-xs font-medium">{tr("settings-network-panel-internet")}</span>
-          <Tooltip label={net.sentence}>
-            <span>
-              <Chip tone={net.tone}>{net.label}</Chip>
-            </span>
-          </Tooltip>
+          {/* The sentence is the line under the row, not a tooltip a keyboard never reaches. */}
+          <Chip tone={net.tone}>{net.label}</Chip>
           <span className="flex-1" />
           <ReadLine words={line} busy={busy} onReload={again} reloadLabel={tr("settings-code-host-panel-check-again")} />
         </div>
@@ -120,7 +120,7 @@ function ThisMac() {
         {!facts && error && <ErrorNote error={error} retry={again} />}
         {facts && (
           <>
-            <p className={net.tone === "danger" ? "text-2xs text-danger" : "text-2xs text-text-dim"}>{net.sentence}</p>
+            <p className={net.tone === "danger" ? "max-w-measure text-2xs leading-relaxed text-danger" : "max-w-measure text-2xs leading-relaxed text-text-dim"}>{net.sentence}</p>
             {net.kind === "up" && <Rows rows={internetRows(facts)} />}
           </>
         )}
@@ -131,13 +131,9 @@ function ThisMac() {
           <div className="flex flex-wrap items-center gap-2">
             <Dot tone={vpn.tone} title={vpn.label} />
             <span className="text-xs font-medium">{tr("settings-network-panel-vpn")}</span>
-            <Tooltip label={vpn.sentence}>
-              <span>
-                <Chip tone={vpn.tone}>{vpn.label}</Chip>
-              </span>
-            </Tooltip>
+            <Chip tone={vpn.tone}>{vpn.label}</Chip>
           </div>
-          <p className="text-2xs text-text-dim">{vpn.sentence}</p>
+          <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{vpn.sentence}</p>
           {facts.vpn.tunnels
             .filter((t) => t.up)
             .map((t) => (
@@ -149,7 +145,7 @@ function ThisMac() {
         <Card className="flex flex-col gap-2">
           <span className="text-xs font-medium">{tr("settings-network-panel-interfaces")}</span>
           {interfaces.length > 0 ? <Rows rows={interfaces} /> : <p className="text-2xs text-text-dim">{tr("settings-network-panel-interface-up")}</p>}
-          <p className="text-2xs text-text-dim">
+          <p className="text-2xs leading-relaxed text-text-dim">
             <span className="font-medium text-text">{tr("settings-network-panel-default-route")}</span> {routeWords(facts)}{" "}
             <span className="font-medium text-text">{tr("settings-network-panel-dns")}</span> {dnsWords(facts)}
           </p>
@@ -181,7 +177,7 @@ function MacProxyCard({ sentence, values }: { sentence: string; values: Record<s
           </Button>
         )}
       </div>
-      <p className="text-2xs text-text-dim">{sentence}</p>
+      <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{sentence}</p>
       {values && <p className="text-2xs text-text-dim">{tr("settings-network-panel-copies-into-platform-s-own-settings")}</p>}
     </Card>
   );
@@ -200,15 +196,15 @@ function ProxyCard() {
   });
   const defs = useMemo(() => new Map((registry.data?.settings ?? []).map((d) => [d.key, d])), [registry.data]);
   const values = useMemo(() => new Map((resolved.data?.settings ?? []).map((r) => [r.key, r])), [resolved.data]);
-  const [busy, setBusy] = useState(false);
+  const [savedAt, markSaved] = useSavedNote();
 
+  // Never disabled under its own write: a box that greys out between keystrokes loses the caret.
   const write = async (patch: Record<string, unknown>) => {
-    setBusy(true);
     await attempt(() => api.setSettings("machine", patch), toast.error, () => {
+      markSaved();
       resolved.reload();
       status.reload();
     });
-    setBusy(false);
   };
 
   // Both reads gate the switch: a mode drawn before the values land would be a lie for a beat.
@@ -241,7 +237,10 @@ function ProxyCard() {
           <span className="mt-1 block text-2xs text-text-dim">{modeWords(mode)}</span>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <OriginBadge origin={origin} />
+          <div className="flex items-center gap-1.5">
+            <SavedNote at={savedAt} />
+            <OriginBadge origin={origin} />
+          </div>
           <span className="text-2xs text-text-dim">{tr("settings-network-panel-set-machine")}</span>
         </div>
       </div>
@@ -252,12 +251,12 @@ function ProxyCard() {
           if (!def) return null;
           return (
             <Field key={key} label={def.label} hint={def.help}>
-              <SettingControl def={def} value={values.get(key)?.value ?? ""} onChange={(v) => void write({ [key]: v })} disabled={busy} />
+              <SettingControl def={def} value={values.get(key)?.value ?? ""} onChange={(v) => void write({ [key]: v })} disabled={false} />
             </Field>
           );
         })}
 
-      <div className="flex flex-col gap-1 rounded-control border border-border bg-surface-2 p-2">
+      <div className="flex flex-col gap-1 rounded-control bg-surface-2/50 p-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-2xs font-medium">{tr("settings-network-panel-force")}</span>
           {inForce && <Chip tone={inForce.tone}>{inForce.label}</Chip>}
@@ -266,7 +265,7 @@ function ProxyCard() {
         </div>
         {!status.data && !status.error && <Pending what={tr("settings-network-panel-proxy-2")} rows={1} />}
         {!status.data && status.error && <ErrorNote error={status.error} retry={status.reload} />}
-        {inForce && <p className="text-2xs text-text-dim">{inForce.sentence}</p>}
+        {inForce && <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{inForce.sentence}</p>}
         {status.data?.problems.map((p) => (
           <p key={p} className="text-2xs text-warn" role="alert">
             {p}
