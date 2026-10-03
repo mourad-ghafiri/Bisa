@@ -2,7 +2,7 @@
   "id": "calculator",
   "name": "Calculator",
   "description": "Four functions, a backspace and a keyboard, for the arithmetic between two thoughts — left to right, as typed.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

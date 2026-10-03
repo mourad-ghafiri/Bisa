@@ -183,19 +183,19 @@ declare; a folder of your own imports there with nothing granted until you say s
 
 | Addon | Slug | For | Version | Window | Permissions | Tags |
 |---|---|---|---|---|---|---|
-| **Calculator** | `calculator` | Four functions, a backspace and a keyboard, for the arithmetic between two thoughts — left to right, as typed. | 0.1.0 | 220×300 | — | `tool` |
-| **Clock** | `clock` | The time on one face — analog with a sweeping second hand, or digital — 12 or 24 hours, the date if you like; the settings behind a gear. | 0.1.0 | 200×200 | `storage` | `time` |
-| **CPU** | `cpu` | The machine's processor load as a sparkline, at the footer's cadence. | 0.1.0 | 160×64 | `system_load` | `load` `system` |
-| **Disk** | `disk` | The volume the platform's data lives on: used against total, and what the workspace itself weighs. | 0.1.0 | 160×64 | `system_load` | `load` `system` |
-| **GPU** | `gpu` | The accelerator's load as a sparkline, where the machine reports one. | 0.1.0 | 160×64 | `system_load` | `load` `system` |
-| **Memory** | `memory` | Memory in use against what the machine has, as a bar and a number. | 0.1.0 | 160×64 | `system_load` | `load` `system` |
-| **Needs you** | `needs-you` | How many things wait on you, are under review, or are running — a click goes to them. | 0.1.0 | 200×88 | `workspace_summary`, `navigate` | `attention` `workspace` |
-| **Pomodoro** | `pomodoro` | Twenty-five minutes on, five off, a ring that empties and a notice at each turn; the lengths are yours to set. | 0.1.0 | 200×150 | `notify`, `storage` | `focus` `time` |
-| **Sticky note** | `sticky-note` | As many notes as you like on one pad — a dot per note, six papers, bold, italic, underline and lists — each remembered as you type. | 0.1.0 | 220×180 | `storage`, `clipboard_write` | `notes` `tool` |
-| **Stopwatch** | `stopwatch` | Start, lap, reset — time as it passes, with every lap numbered. | 0.1.0 | 200×110 | — | `time` `tool` |
-| **Tic-tac-toe** | `tic-tac-toe` | You against the machine — easy or unbeatable — or two players at one board, with a tally per mode; a break that fits in a corner. | 0.1.0 | 220×270 | `storage` | `break` `game` |
-| **Unit converter** | `unit-converter` | Length, mass and temperature, either way — swap the pair in one click; the last pair remembered. | 0.1.0 | 240×210 | `storage` | `tool` |
-| **Weather** | `weather` | Current conditions for a city you type, from Open-Meteo, refreshed every fifteen minutes. | 0.1.0 | 240×150 | `network`, `storage` | `outside` `weather` |
+| **Calculator** | `calculator` | Four functions, a backspace and a keyboard, for the arithmetic between two thoughts — left to right, as typed. | 0.2.0 | 220×300 | — | `tool` |
+| **Clock** | `clock` | The time on one face — analog with a sweeping second hand, or digital — 12 or 24 hours, the date if you like; the settings behind a gear. | 0.2.0 | 200×200 | `storage` | `time` |
+| **CPU** | `cpu` | The machine's processor load as a sparkline, at the footer's cadence. | 0.2.0 | 160×64 | `system_load` | `load` `system` |
+| **Disk** | `disk` | The volume the platform's data lives on: used against total, and what the workspace itself weighs. | 0.2.0 | 160×64 | `system_load` | `load` `system` |
+| **GPU** | `gpu` | The accelerator's load as a sparkline, where the machine reports one. | 0.2.0 | 160×64 | `system_load` | `load` `system` |
+| **Memory** | `memory` | Memory in use against what the machine has, as a bar and a number. | 0.2.0 | 160×64 | `system_load` | `load` `system` |
+| **Needs you** | `needs-you` | How many things wait on you, are under review, or are running — a click goes to them. | 0.2.0 | 200×88 | `workspace_summary`, `navigate` | `attention` `workspace` |
+| **Pomodoro** | `pomodoro` | Twenty-five minutes on, five off, a ring that empties and a notice at each turn; the lengths are yours to set. | 0.2.0 | 200×150 | `notify`, `storage` | `focus` `time` |
+| **Sticky note** | `sticky-note` | As many notes as you like on one pad — a dot per note, six papers, bold, italic, underline and lists — each remembered as you type. | 0.2.0 | 220×180 | `storage`, `clipboard_write` | `notes` `tool` |
+| **Stopwatch** | `stopwatch` | Start, lap, reset — time as it passes, with every lap numbered. | 0.2.0 | 200×110 | — | `time` `tool` |
+| **Tic-tac-toe** | `tic-tac-toe` | You against the machine — easy or unbeatable — or two players at one board, with a tally per mode; a break that fits in a corner. | 0.2.0 | 220×270 | `storage` | `break` `game` |
+| **Unit converter** | `unit-converter` | Length, mass and temperature, either way — swap the pair in one click; the last pair remembered. | 0.2.0 | 240×210 | `storage` | `tool` |
+| **Weather** | `weather` | Current conditions for a city you type, from Open-Meteo, refreshed every fifteen minutes. | 0.2.0 | 240×150 | `network`, `storage` | `outside` `weather` |
 
 ## Pets (9)
 

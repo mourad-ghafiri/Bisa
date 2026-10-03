@@ -29,7 +29,7 @@ serde_json = { workspace = true }
 schemars = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-bisa-deps = { version = "0.1", path = "../bisa-deps" }
+bisa-deps = { version = "0.2", path = "../bisa-deps" }
 
 [[test]]
 name = "it"

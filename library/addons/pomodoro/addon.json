@@ -2,7 +2,7 @@
   "id": "pomodoro",
   "name": "Pomodoro",
   "description": "Twenty-five minutes on, five off, a ring that empties and a notice at each turn; the lengths are yours to set.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

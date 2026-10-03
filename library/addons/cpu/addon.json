@@ -2,7 +2,7 @@
   "id": "cpu",
   "name": "CPU",
   "description": "The machine's processor load as a sparkline, at the footer's cadence.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

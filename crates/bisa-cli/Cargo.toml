@@ -69,7 +69,7 @@ hex = { workspace = true }
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
-bisa-deps = { version = "0.1", path = "../bisa-deps" }
+bisa-deps = { version = "0.2", path = "../bisa-deps" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

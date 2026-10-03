@@ -2,7 +2,7 @@
   "id": "weather",
   "name": "Weather",
   "description": "Current conditions for a city you type, from Open-Meteo, refreshed every fifteen minutes.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

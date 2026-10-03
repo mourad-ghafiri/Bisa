@@ -23,7 +23,7 @@ url = { workspace = true }
 bisa-netrules = { workspace = true }
 # Line diffs and three-way merges for a review of an agent's changes: pure, no I/O.
 similar = "3"
-bisa-deps = { version = "0.1", path = "../bisa-deps" }
+bisa-deps = { version = "0.2", path = "../bisa-deps" }
 
 [dev-dependencies]
 proptest = { workspace = true }
