@@ -104,6 +104,14 @@
   --spacing-row-lg: calc(var(--type-rem) * 2.75); /* 44px — inbox rows */
   --spacing-chrome: calc(var(--type-rem) * 2.5); /* 40px — the top chrome strip */
 
+  /* ---- Measure ----------------------------------------------------------
+     The longest line prose is set to (`max-w-measure`), in the text's own
+     em so it holds at every size: 36em is about 70 characters of this face
+     at any of the scale's steps. Tailwind's `max-w-prose` is 65ch, and `ch`
+     is a digit's width, so prose set to it ran past 85 characters.
+  */
+  --container-measure: 36em;
+
   /* ---- The theme-owned roles ------------------------------------------
      Everything between the two markers is what a theme file must supply, all
      of it, every time. `roles.test.mjs` reads these markers and checks each
@@ -136,6 +144,49 @@
   --material-blur: 0px;
   --material-saturate: 1;
   /* @roles:end */
+
+  /* ---- Derived from the roles, never supplied by a theme -----------------
+     Two quiet layers every family gets for free, mixed from its own `text`
+     so they lean the way its neutrals lean and need no contrast promise of
+     their own (no word is ever drawn *in* them):
+
+     - `selected` is where you are — the current row, the open tab's ground,
+       the pressed segment. It is a neutral on purpose: the accent means your
+       attention (see above), and the row you are standing on is not asking
+       for anything. A selected row that wore the accent would read as one
+       more thing waiting on you.
+     - `hairline` is a divider inside a surface — between rows, under a
+       toolbar — lighter than `border`, which stays the edge of a thing.
+  */
+  --color-selected: color-mix(in oklch, var(--color-text) 9%, transparent);
+  --color-hairline: color-mix(in oklch, var(--color-border) 65%, transparent);
+
+  /* ---- The step families' inks -----------------------------------------
+     A workflow is four families of step — what happens (events), what
+     routes (gateways), what repeats (loops), what works (tasks) — and a
+     graph scans by family when each wears its own quiet ink on its glyph,
+     beside the shape that already tells them apart (a ring, a diamond, the
+     plain card). Never on a card's ground or edge, never as text: a glyph's
+     colour, nothing more.
+
+     They are tinted neutrals, not colours: a chroma of 0.07 against the
+     0.12 and more of every accent and status, so a kind never reads as a
+     summons or a state. The hues sit in the widest gaps the palette leaves
+     — at least 30° from the three status hues (danger 22, warn 90, ok 155)
+     and from every family's own accent (58, 240, 250, 265, 350): an event's
+     steel cyan, a gateway's dusty mauve, a loop's sage. Tasks, the family
+     most steps belong to, take a near-neutral slate, so the structure
+     (where a run begins, branches and repeats) is what the eye finds first.
+     An accent overlay that would land near one (violet, teal) moves that
+     ink aside below. The dark side's inks are below the block, keyed like
+     the accent overlays (`theme/accents.css`). Each holds 3:1 against a card
+     on its side, the floor for a glyph; `stepInks.test.mjs` holds the
+     distances and the chroma.
+  */
+  --color-step-event: oklch(0.5 0.07 197);
+  --color-step-gateway: oklch(0.5 0.07 307);
+  --color-step-loop: oklch(0.5 0.07 122);
+  --color-step-task: oklch(0.5 0.02 255);
 
   /* ---- Elevation is the theme's -----------------------------------------
      Tailwind's shadow utilities resolve to these, so `shadow-sm` on a card
@@ -182,4 +233,52 @@
     --motion-base: 1ms;
     --motion-slow: 1ms;
   }
+}
+
+/*
+ * The step families' inks on a dark side: lighter and a touch less chroma,
+ * so a glyph holds the same 3:1 on a dark card. The side is decided as the
+ * accent overlays decide it — `data-scheme` once `shell/theme.ts` has
+ * resolved the mounted theme, the media query before any script has run.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-scheme="light"]) {
+    --color-step-event: oklch(0.78 0.065 197);
+    --color-step-gateway: oklch(0.78 0.065 307);
+    --color-step-loop: oklch(0.78 0.065 122);
+    --color-step-task: oklch(0.78 0.02 255);
+  }
+}
+:root[data-scheme="dark"] {
+  --color-step-event: oklch(0.78 0.065 197);
+  --color-step-gateway: oklch(0.78 0.065 307);
+  --color-step-loop: oklch(0.78 0.065 122);
+  --color-step-task: oklch(0.78 0.02 255);
+}
+
+/*
+ * An accent overlay that lands near a family's ink moves the ink, never the
+ * accent: teal (190) sits by an event's steel cyan, violet (295) by a
+ * gateway's mauve. Each moves 30° or more clear of the chosen accent, on
+ * both sides; the lightness and chroma stay the family's.
+ */
+:root[data-accent="teal"] {
+  --color-step-event: oklch(0.5 0.07 222);
+}
+:root[data-accent="violet"] {
+  --color-step-gateway: oklch(0.5 0.07 328);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-accent="teal"]:not([data-scheme="light"]) {
+    --color-step-event: oklch(0.78 0.065 222);
+  }
+  :root[data-accent="violet"]:not([data-scheme="light"]) {
+    --color-step-gateway: oklch(0.78 0.065 328);
+  }
+}
+:root[data-accent="teal"][data-scheme="dark"] {
+  --color-step-event: oklch(0.78 0.065 222);
+}
+:root[data-accent="violet"][data-scheme="dark"] {
+  --color-step-gateway: oklch(0.78 0.065 328);
 }

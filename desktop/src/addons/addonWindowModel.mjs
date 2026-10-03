@@ -103,13 +103,17 @@ export function defaultPlacement(dock, index = 0) {
 
 /**
  * Whether a window's box overlaps a native layer that is showing — a
- * browser tab paints above every DOM element, so the window hides while
- * they meet and hears it (ide/18).
+ * browser tab paints above every DOM element, so where the platform cannot
+ * cut around the window it hides while they meet and hears it (ide/18).
+ * Where the browser layer leaves a hole for it (`cutsAround`, macOS), it
+ * never hides: it shows and takes its own clicks over the live page.
  * @param {{left: number, top: number}} box
  * @param {{width: number, height: number}} size
  * @param {ReadonlyArray<{visible: boolean, layer: string | null, rect: {left: number, top: number, width: number, height: number} | null}>} slots
+ * @param {boolean} [cutsAround]
  */
-export function hiddenByLayer(box, size, slots) {
+export function hiddenByLayer(box, size, slots, cutsAround = false) {
+  if (cutsAround) return false;
   return slots.some((slot) => {
     if (!slot.visible || slot.layer !== "browser" || !slot.rect) return false;
     const r = slot.rect;

@@ -8,7 +8,8 @@ export interface Side {
   git: "ours" | "theirs";
   name: string;
   role: string;
-  tone: string;
+  /** The `ICON` the side's name wears — the sides are told apart by mark and name, never by colour. */
+  icon: "person" | "branch";
 }
 export interface Sides {
   mine: Side;
@@ -25,7 +26,7 @@ export interface KindChoice {
   danger: boolean;
 }
 
-export declare const SIDE_TONE: { readonly mine: string; readonly theirs: string };
+export declare const SIDE_ICON: { readonly mine: "person"; readonly theirs: "branch" };
 export declare function gitSideOf(inProgress: GitInProgress | null | undefined, side: "mine" | "theirs"): "ours" | "theirs";
 export declare function isSwapped(inProgress: GitInProgress | null | undefined): boolean;
 export declare function sidesOf(inProgress: GitInProgress | null | undefined, facts: GitOperationFacts | null | undefined): Sides;

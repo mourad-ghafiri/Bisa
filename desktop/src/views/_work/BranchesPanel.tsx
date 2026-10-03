@@ -3,7 +3,7 @@
  * consented operation wrote before it ran (ide/04 §The Branches view).
  *
  * Four sections, every one open with its count. A branch row shows where it
- * stands — `↑2 ↓1` against its upstream, *merged* when the default branch
+ * stands — ahead and behind its upstream, *merged* when the default branch
  * has it — one verb on hover, *Switch*, and the rest behind its `⋮`
  * (`branchActionsModel.mjs`): merge into the current branch, rebase the
  * current onto it, cherry-pick from it, its upstream, a workstream, rename,
@@ -25,14 +25,15 @@ import { textValue } from "../../shell/viewValuesModel.mjs";
 import { NEW_WORKSTREAM, fire } from "../../shell/shortcuts";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import type { BranchInfo, GitRecoveryRef, GitStatusInfo, RemoteBranchInfo } from "../../types";
-import { Button, Chip, ConfirmDialog, CopyText, EmptyState, ErrorNote, ICON, MoreMenu, PromptDialog, RelativeTime, SectionHeader, SkeletonRows, TextInput, Tooltip, copyText, useToast } from "../../ui";
+import { Button, Chip, ConfirmDialog, EmptyState, ErrorNote, ICON, MoreMenu, PromptDialog, RelativeTime, SectionHeader, SkeletonRows, TextInput, Tooltip, failureText, copyText, useToast } from "../../ui";
 import type { MenuItem } from "../../ui";
 import { branchActions, branchFilter, branchOrder, consentWords, doneWords, localNameFor, standingWords } from "./branchActionsModel.mjs";
 import type { BranchAction, BranchConsentKind } from "./branchActionsModel.mjs";
 import { CherryPickDialog } from "./CherryPickDialog";
 import { refNameProblem } from "./commitActionsModel.mjs";
 import { DeleteBranchDialog } from "./DeleteBranchDialog";
-import { recoveryWords, shortRef } from "./gitDiscardModel.mjs";
+import { recoveryOpWords, recoveryWords, shortRef } from "./gitDiscardModel.mjs";
+import { AheadBehind } from "./AheadBehind";
 import * as ops from "./gitOps";
 import { readsFor } from "./gitChangeModel.mjs";
 import { useGitSession } from "./gitPanelStore";
@@ -191,7 +192,7 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
             remoteBranches.reload();
             branches.reload();
           })
-          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+          .catch((e: unknown) => toast.error(failureText("work", "branches-panel-failed", e)));
       case "delete_remote":
         return setPending({ kind: "delete_remote", name: b.name, remote: b.remote });
       case "workstream":
@@ -220,11 +221,13 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
       }));
     const standing = standingWords(b);
     return (
-      <li className={`group flex h-row-sm items-center gap-2 rounded-control px-1 text-2xs ${b.current ? "bg-surface-2" : ""}`}>
-        <span className={`w-3 shrink-0 text-center ${b.current ? "text-accent-ink" : "text-transparent"}`} aria-hidden>
-          ●
+      <li className={`anim group flex h-row-sm items-center gap-2 rounded-control px-2 text-2xs ${b.current ? "bg-selected" : "hover:bg-surface-2"}`}>
+        {/* Where HEAD is: a neutral mark — the current branch is where you stand, not something asking for you. */}
+        <span className="flex w-3 shrink-0 justify-center" aria-hidden>
+          {b.current && <span className="h-1.5 w-1.5 rounded-full bg-text" />}
         </span>
-        <span className={`min-w-0 truncate font-mono ${b.current ? "text-text" : "text-text-dim"}`} title={b.subject}>
+        {/* The whole name in the tooltip — a long branch truncates here — with its tip's subject. */}
+        <span className={`min-w-0 truncate font-mono ${b.current ? "text-text" : "text-text-dim"}`} title={b.subject ? `${b.name} — ${b.subject}` : b.name}>
           {b.name}
         </span>
         {b.current && <span className="shrink-0 text-text-dim">{tr("work-branches-panel-current")}</span>}
@@ -235,7 +238,17 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
         )}
         {b.upstream && (
           <Tooltip label={standing ? tr("work-branches-panel-against", { standing, upstream: b.upstream }) : tr("work-branches-panel-step", { upstream: b.upstream })}>
-            <span className="tnum shrink-0 text-text-dim">{standing || "↑ " + b.upstream}</span>
+            {standing ? (
+              <span className="inline-flex shrink-0 text-text-dim">
+                <AheadBehind ahead={b.ahead} behind={b.behind} words={tr("work-branches-panel-against", { standing, upstream: b.upstream })} />
+              </span>
+            ) : (
+              <span className="inline-flex min-w-0 items-center gap-1 text-text-dim">
+                <ICON.check size={11} aria-hidden className="shrink-0" />
+                <span className="sr-only">{tr("work-branches-panel-step", { upstream: b.upstream })}</span>
+                <span aria-hidden className="min-w-0 truncate font-mono">{b.upstream}</span>
+              </span>
+            )}
           </Tooltip>
         )}
         <RelativeTime at={b.timestamp} className="shrink-0 text-text-dim" />
@@ -264,7 +277,7 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
   const cur = currentName ?? "HEAD";
 
   return (
-    <div className="mt-2 flex min-w-0 flex-col gap-3">
+    <div className="mt-2 flex min-w-0 flex-col gap-5">
       <div>
         <SectionHeader
           title={tr("work-branches-panel-branches")}
@@ -277,7 +290,7 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
           }
         />
         {all.length > 6 && (
-          <div className="px-1 pb-1">
+          <div className="px-2 pb-1">
             <TextInput value={filter} placeholder={tr("work-branches-panel-filter-branches")} aria-label={tr("work-branches-panel-filter-branches-name-upstream")} className="h-6 text-2xs" onChange={(e) => setFilter(e.target.value)} />
           </div>
         )}
@@ -305,8 +318,12 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
         {tags.data && tags.data.tags.length === 0 && <EmptyState icon={ICON.tag} title={tr("work-branches-panel-no-tags")} hint={tr("work-branches-panel-tag-name-commit")} className="py-3" action={null} />}
         <ul className="flex flex-col">
           {tags.data?.tags.map((t) => (
-            <li key={t.name} className="group flex h-row-sm items-center gap-2 px-1 text-2xs">
-              <span className="font-mono text-warn">{t.name}</span>
+            <li key={t.name} className="anim group flex h-row-sm items-center gap-2 rounded-control px-2 text-2xs hover:bg-surface-2">
+              {/* A tag is a name, not a state: neutral ink, said by its glyph. */}
+              <span className="inline-flex min-w-0 shrink-0 items-center gap-1 font-mono text-text">
+                <ICON.tag size={11} aria-hidden className="shrink-0 text-text-dim" />
+                <span className="truncate" title={t.name}>{t.name}</span>
+              </span>
               <span className="min-w-0 truncate text-text-dim" title={t.target}>
                 {t.subject}
               </span>
@@ -347,8 +364,8 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
         {recovery.loading && !recovery.data && <SkeletonRows rows={2} />}
         <ul className="flex flex-col">
           {recovery.data?.recovery.map((r) => (
-            <li key={r.ref_name} className="group flex h-row-sm items-center gap-2 px-1 text-2xs">
-              <span className="font-mono text-text">{r.op.replaceAll("_", " ")}</span>
+            <li key={r.ref_name} className="anim group flex h-row-sm items-center gap-2 rounded-control px-2 text-2xs hover:bg-surface-2">
+              <span className="text-text">{recoveryOpWords(r.op)}</span>
               {r.branch && <span className="font-mono text-text-dim">{tr("work-branches-panel-words", { branch: r.branch })}</span>}
               <span className="text-text-dim">{recoveryWords(r.kind)}</span>
               <RelativeTime at={r.at} className="text-text-dim" />
@@ -371,10 +388,7 @@ export function BranchesPanel({ pid, wid, status, defaultBranch = null, onChange
             action={null}
           />
         )}
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-2xs text-text-dim">
-          <span>{tr("work-branches-panel-pruning-person-s-job")}</span>
-          <CopyText value="just prune-recovery-refs" />
-        </div>
+        <p className="mt-1 max-w-measure px-2 text-2xs text-text-dim">{tr("work-branches-panel-recovery-points-kept")}</p>
       </div>
 
       {/* The plain confirmations — a switch, a remote checkout, a tag's or a

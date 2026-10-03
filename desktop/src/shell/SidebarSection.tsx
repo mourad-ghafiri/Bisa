@@ -28,7 +28,7 @@
 
 import { motion } from "motion/react";
 import { type KeyboardEvent, type ReactNode } from "react";
-import { SectionHeader, cn, useCollapsed, useMotionTiming, type LucideIcon, type SortableHandle } from "../ui";
+import { ICON, SectionHeader, cn, useCollapsed, useMotionTiming, type LucideIcon, type SortableHandle } from "../ui";
 
 // `useCollapsed` used to live here. It moved into the kit beside
 // `SectionHeader` when the Goals screen needed it: a view may not import
@@ -59,7 +59,13 @@ export function onArrowKeys(e: KeyboardEvent<HTMLElement>): void {
   items[next]?.focus();
 }
 
-/** The travelling highlight. One per document — that is what makes it travel. */
+/**
+ * The travelling highlight. One per document — that is what makes it travel.
+ * It is the neutral `selected`, never the accent: the row you stand on is
+ * where you are, and the accent in this sidebar is kept for what waits on
+ * you — the Inbox's count, an agent writing — so it is never lost among
+ * the places.
+ */
 const ACTIVE_LAYOUT_ID = "sidebar-active";
 
 function ActiveMarker() {
@@ -74,7 +80,7 @@ function ActiveMarker() {
       layout="position"
       transition={timing}
       aria-hidden
-      className="absolute inset-0 rounded-control bg-accent-soft"
+      className="absolute inset-0 rounded-control bg-selected"
     />
   );
 }
@@ -87,7 +93,6 @@ export function SidebarRow({
   label,
   sub,
   trailing,
-  muted,
   prominent,
   title,
   handle,
@@ -100,7 +105,6 @@ export function SidebarRow({
   label: ReactNode;
   sub?: ReactNode;
   trailing?: ReactNode;
-  muted?: boolean;
   /**
    * A destination rather than a thing inside one. Primary nav sits at full
    * text weight so the eight places you can go do not read as eight more
@@ -132,12 +136,10 @@ export function SidebarRow({
         prominent && "font-medium",
         handle?.dragging && "cursor-grabbing",
         active
-          ? "font-medium text-accent-ink"
-          : muted
-            ? "text-text-dim/60 hover:bg-surface-2 hover:text-text"
-            : prominent
-              ? "text-text hover:bg-surface-2"
-              : "text-text-dim hover:bg-surface-2 hover:text-text",
+          ? "font-medium text-text"
+          : prominent
+            ? "text-text hover:bg-surface-2"
+            : "text-text-dim hover:bg-surface-2 hover:text-text",
       )}
     >
       {active && <ActiveMarker />}
@@ -145,7 +147,7 @@ export function SidebarRow({
       {leading && <span className="relative flex shrink-0 items-center">{leading}</span>}
       <span className="relative min-w-0 flex-1 truncate">
         {label}
-        {sub && <span className="ml-1 text-2xs text-text-dim/70">{sub}</span>}
+        {sub && <span className="ml-1 text-2xs text-text-dim">{sub}</span>}
       </span>
       {trailing && <span className="relative flex shrink-0 items-center gap-1.5">{trailing}</span>}
     </a>
@@ -177,7 +179,7 @@ export function SidebarSection({
   const [collapsed, toggle] = useCollapsed(id);
   const isEmpty = Array.isArray(children) ? children.length === 0 : !children;
   return (
-    <section className="mt-3" onKeyDown={onArrowKeys}>
+    <section className="mt-4" onKeyDown={onArrowKeys}>
       <SectionHeader
         title={title}
         count={count}
@@ -187,10 +189,34 @@ export function SidebarSection({
       />
       {!collapsed && (
         <div className="mt-0.5 flex flex-col">
-          {isEmpty && empty ? <div className="px-2 py-1">{empty}</div> : children}
+          {isEmpty && empty ? <div className="px-0.5">{empty}</div> : children}
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * A section's empty door: the one verb that fills it, drawn as a quiet row
+ * with a "+" so it stands where the first row will — the same height, the
+ * same inset — rather than as a link in the accent, which in this sidebar
+ * means something is waiting on you. A door that goes somewhere rather than
+ * adds wears that place's glyph, and a `note` beneath says why the section
+ * is empty.
+ */
+export function EmptyDoor({ onClick, label, icon: Icon = ICON.add, note }: { onClick: () => void; label: string; icon?: LucideIcon; note?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="anim flex min-h-row w-full items-center gap-2 rounded-control px-1.5 py-1 text-left text-xs text-text-dim hover:bg-surface-2 hover:text-text"
+    >
+      <Icon size={14} aria-hidden className="shrink-0" />
+      <span className="flex min-w-0 flex-col">
+        <span className="min-w-0 truncate">{label}</span>
+        {note && <span className="text-2xs text-text-dim">{note}</span>}
+      </span>
+    </button>
   );
 }
 

@@ -103,7 +103,7 @@ export function ResourceOverlay({ metric, close }: { metric: Metric; close: () =
               <>
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="min-w-0 truncate text-2xs text-text">{r.label}</span>
-                  {r.sub && <span className="min-w-0 truncate text-3xs text-text-dim">{r.sub}</span>}
+                  {r.sub && <span className="min-w-0 truncate text-2xs text-text-dim">{r.sub}</span>}
                 </span>
                 <Meter percent={rowPercent(r, folded.rows)} tone="quiet" width="w-12" />
                 <span className="tnum w-16 shrink-0 text-right text-2xs text-text">{valueWords(metric, r.value)}</span>
@@ -120,10 +120,10 @@ export function ResourceOverlay({ metric, close }: { metric: Metric; close: () =
               </div>
             );
           })}
-          {folded.more && <p className="px-1.5 pt-1 text-3xs text-text-dim">{moreWords(metric, folded.more)}</p>}
+          {folded.more && <p className="px-1.5 pt-1 text-2xs text-text-dim">{moreWords(metric, folded.more)}</p>}
         </div>
       )}
-      <p className="px-1 text-3xs text-text-dim">{footnote(metric, statsPoll(), metric === "disk" ? disk?.read_ms : readMs, intervalSecs)}</p>
+      <p className="px-1 text-2xs text-text-dim">{footnote(metric, statsPoll(), metric === "disk" ? disk?.read_ms : readMs, intervalSecs)}</p>
     </div>
   );
 }

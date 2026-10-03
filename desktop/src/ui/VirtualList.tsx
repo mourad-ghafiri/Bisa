@@ -362,7 +362,8 @@ export function VirtualList<T>({
   const showEmpty = items.length === 0 && empty !== undefined && empty !== null;
 
   return (
-    <div ref={setNode} onScroll={unbounded ? undefined : onScroll} data-scroll-keep={unbounded ? undefined : keepScroll} className={`${unbounded ? "overflow-visible" : "overflow-y-auto"} ${className}`}>
+    // `data-dock-room`: a scrollport, so it keeps room at its end for a floating dock over it (`dockClearance.ts`).
+    <div ref={setNode} onScroll={unbounded ? undefined : onScroll} data-scroll-keep={unbounded ? undefined : keepScroll} data-dock-room={unbounded ? undefined : ""} className={`${unbounded ? "overflow-visible" : "overflow-y-auto"} ${className}`}>
       {showEmpty ? (
         empty
       ) : (

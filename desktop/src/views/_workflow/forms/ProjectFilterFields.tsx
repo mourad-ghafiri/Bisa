@@ -52,7 +52,7 @@ export function ProjectFilterFields<F extends ProjectFilter>({
           </Select>
         )}
       </ValueRefField>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xs:grid-cols-2">
         <Field label={t("workflow-project-filter-fields-change")}>
           <Select value={change} disabled={disabled} onChange={(e) => set({ change: e.target.value as ProjectChange })}>
             {PROJECT_CHANGES.map((c) => (

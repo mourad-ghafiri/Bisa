@@ -23,7 +23,7 @@ import { attachDeviceShot, copyDeviceShot, saveDeviceShot, takeDeviceShot } from
 import { mobileDevelopmentRunSession } from "../../shell/terminalsModel.mjs";
 import { openTerminalIn, useTerminals, writeToTerminalTab } from "../../shell/useTerminals";
 import { useVisible } from "../../shell/visibility";
-import { Button, EmptyState, ICON, Menu, Pending, Tooltip, cn, useToast } from "../../ui";
+import { Button, EmptyState, ICON, Menu, Pending, Tooltip, failureText, cn, useToast } from "../../ui";
 import type { MenuItem } from "../../ui";
 import { CaptureNoteBox, CaptureTray } from "./CaptureTray";
 import { ERROR_MS, bootDoorWords, markCss, markFromDrag, mirrorCadence } from "./deviceMirrorModel.mjs";
@@ -47,7 +47,7 @@ export function DeviceDoc({ wid, pid, deviceId }: { wid: string; pid: string | n
     if (e.payload.type === "mobile_development_changed") void refreshDevices();
   });
 
-  const say = (e: unknown) => toast.error(e instanceof Error ? e.message : String(e));
+  const say = (e: unknown) => toast.error(failureText("workbench", "device-doc-failed", e));
   const write = (data: string) => {
     if (!run) return;
     void writeToTerminalTab(run.key, data).catch(say);
@@ -102,7 +102,7 @@ export function DeviceDoc({ wid, pid, deviceId }: { wid: string; pid: string | n
 
   return (
     <div data-device-doc tabIndex={-1} className="flex h-full min-h-0 flex-col outline-none">
-      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1 text-2xs" role="toolbar" aria-label={t("workbench-device-doc-device")}>
+      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-hairline px-2 py-1 text-2xs" role="toolbar" aria-label={t("workbench-device-doc-device")}>
         <span className="mr-1 inline-flex min-w-0 items-center gap-1.5 text-text" title={device ? deviceTitle(device) : deviceId}>
           <ICON.simulator size={12} aria-hidden className="text-text-dim" />
           <span className="truncate">{label}</span>
@@ -152,7 +152,7 @@ export function DeviceDoc({ wid, pid, deviceId }: { wid: string; pid: string | n
         />
         <Tooltip label={up ? (capture.inspecting ? t("workbench-device-doc-stop-marking-screen") : t("workbench-device-doc-mark-spot-screen-agent")) : t("workbench-device-doc-boot-device-mark-screen")}>
           <span className="inline-flex">
-            <Button size="sm" variant={capture.inspecting ? "primary" : "ghost"} disabled={!up} onClick={() => capture.setInspecting(!capture.inspecting)} aria-label={t("workbench-device-doc-mark-screen-agent")} aria-pressed={capture.inspecting}>
+            <Button size="sm" variant="ghost" className={cn(capture.inspecting && "bg-selected text-text")} disabled={!up} onClick={() => capture.setInspecting(!capture.inspecting)} aria-label={t("workbench-device-doc-mark-screen-agent")} aria-pressed={capture.inspecting}>
               <ICON.annotate size={12} aria-hidden />
               {capture.draft.captures.length > 0 && <span className="tnum">{capture.draft.captures.length}</span>}
             </Button>

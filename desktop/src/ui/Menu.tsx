@@ -81,7 +81,7 @@ export function Menu({
         >
           {items.map((item, i) => (
             <div key={`${i}:${item.label}`}>
-              {item.separatorBefore && <M.Separator className="my-1 h-px bg-border" />}
+              {item.separatorBefore && <M.Separator className="my-1 h-px bg-hairline" />}
               <M.Item
                 disabled={item.disabled}
                 onSelect={() => chosen.select(item)}

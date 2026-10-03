@@ -33,6 +33,18 @@ export function handoverElapsed(settledAt, now, graceMs = SEND_HANDOVER_GRACE_MS
 }
 
 /**
+ * Why *Send* is off, in the words the button is described by. Each reason
+ * says its own way out: an empty box asks for words, an upload asks for a
+ * moment, a context over its budget asks for a chip to go.
+ * @param {"empty" | "uploading" | "over-budget"} why
+ */
+function whyWords(why) {
+  if (why === "over-budget") return t("ui-composer-button-over-context-budget-remove-chip-send");
+  if (why === "uploading") return t("ui-composer-button-wait-upload-to-finish");
+  return t("ui-composer-button-type-message-to-send");
+}
+
+/**
  * The button the slot draws.
  * @param {{ busy: boolean, stop: { label?: string } | null | undefined, sendable: boolean, disabled: boolean }} state
  * @returns {{ kind: "send" | "sending" | "stop", label: string, hint: string, enabled: boolean }}
@@ -43,7 +55,21 @@ export function composerButton({ busy, stop, sendable, disabled }) {
   return {
     kind: "send",
     label: t("ui-composer-button-send"),
-    hint: sendable ? t("ui-composer-button-send-enter-enter") : disabled ? "" : t("ui-composer-button-over-context-budget-remove-chip-send"),
+    hint: sendable ? t("ui-composer-button-send-enter-enter") : disabled ? "" : whyWords("empty"),
     enabled: sendable && !disabled,
   };
+}
+
+/**
+ * The slot, with the reason *Send* is off when it is: a *Send* the person
+ * cannot press says why — and a closed box, or any other shape, is left as
+ * it is.
+ * @template {{ kind: "send" | "sending" | "stop", label: string, hint: string, enabled: boolean }} B
+ * @param {B} button
+ * @param {"empty" | "uploading" | "over-budget"} why
+ * @returns {B}
+ */
+export function explainOff(button, why) {
+  if (button.kind !== "send" || button.enabled || button.hint === "") return button;
+  return { ...button, hint: whyWords(why) };
 }

@@ -3,7 +3,7 @@
 workflow-agent-step-form-actionable-fresh-session-no-memory-conversation = Actionable by a fresh session with no memory of this conversation. Say what the step produces; its shape is the output schema below. { $TEMPLATE_HINT }
 workflow-agent-step-form-assignee = Assignee
 workflow-agent-step-form-comma-separated-fallback-order-blank-means = Comma-separated fallback order. Blank means the agent's own.
-workflow-agent-step-form-exec = exec
+workflow-agent-step-form-exec = Read, write and run commands
 workflow-agent-step-form-fixed-value = A fixed value
 workflow-agent-step-form-from-input = From input { $i }
 workflow-agent-step-form-goal-s-own-folder = The goal's own folder
@@ -13,13 +13,13 @@ workflow-agent-step-form-json-schema-result-must-satisfy-shown = JSON Schema the
 workflow-agent-step-form-model = Model
 workflow-agent-step-form-most-session-may-do = The most a session may do.
 workflow-agent-step-form-output-schema = Output schema
-workflow-agent-step-form-pin-never-substituted-unavailable-pin-fails = A pin. Never substituted: an unavailable pin fails the step.
+workflow-agent-step-form-pin-never-substituted-unavailable-pin-fails = Runs on this exact model. If it is unavailable, the step fails; no other model stands in.
 workflow-agent-step-form-project = Project
-workflow-agent-step-form-read = read
-workflow-agent-step-form-tool-tier = Tool tier
+workflow-agent-step-form-read = Read
+workflow-agent-step-form-tool-tier = What it may do
 workflow-agent-step-form-where-work-happens-must-attached-goal = Where the work happens. Must be attached to the goal at run time.
 workflow-agent-step-form-who-runs-blank-falls-back-goal = Who runs it. Blank falls back to the goal's own assignees.
-workflow-agent-step-form-write = write
+workflow-agent-step-form-write = Read and write
 workflow-approval-step-form-prompt = Prompt
 workflow-approval-step-form-what-being-approved-declined-failure-step = What is being approved. Declined is a failure of the step, so put it before anything irreversible. { $TEMPLATE_HINT }
 workflow-check-step-form-command = Command
@@ -98,16 +98,15 @@ workflow-designer-panel-resize = Resize the panel
 workflow-designer-panel-runs = Runs
 workflow-designer-redo = Redo
 workflow-designer-redo-mod-shift-z = Redo (Mod+Shift+Z)
-workflow-designer-session-conflict-somebody-saved-first = conflict — somebody saved first
-workflow-designer-session-not-saved-node-could-not-read = not saved — the node could not read this design: { $failure }
-workflow-designer-session-saved = saved
-workflow-designer-session-saving = saving…
+workflow-designer-session-conflict-somebody-saved-first = Conflict — somebody saved first
+workflow-designer-session-not-saved-node-could-not-read = Not saved — the node could not read this design: { $failure }
+workflow-designer-session-saved = Saved
+workflow-designer-session-saving = Saving…
 workflow-designer-session-unknown-error = unknown error
-workflow-designer-session-unsaved-edits = unsaved edits
-workflow-designer-step-has-already-run = that step has already run
-workflow-designer-step-has-already-run-stays-ran = a step that has already run stays as it ran
-workflow-designer-step-has-already-run-stays-where = a step that has already run stays where it ran
-workflow-designer-step-has-already-run-stays-where-2 = A step that has already run stays where it ran
+workflow-designer-session-unsaved-edits = Unsaved edits
+workflow-designer-step-has-already-run = That step has already run.
+workflow-designer-step-has-already-run-stays-ran = A step that has already run stays as it ran.
+workflow-designer-step-has-already-run-stays-where = A step that has already run stays where it ran.
 workflow-designer-tidy = Tidy
 workflow-designer-tidy-lay-every-step-out-again = Tidy: lay every step out again, top to bottom
 workflow-designer-undo = Undo
@@ -169,7 +168,6 @@ workflow-input-defs-editor-options-comma-separated = options, comma-separated
 workflow-input-defs-editor-remove-input = Remove input
 workflow-input-defs-editor-required = Required
 workflow-input-defs-editor-steps-read-inputs-name-renaming-renames = Steps read it as {"{"}inputs.<name>{"}"}; renaming it renames every place that reads it.
-workflow-input-defs-editor-z-0-9-starts-letter-32 = a–z, 0–9, - and _; starts with a letter; 32 at most; not another input's.
 workflow-inputs-form-no-account-on-machine = This machine holds no account of { $connector } yet — add one under Settings › Capabilities › Connectors.
 workflow-inputs-form-pick-account = Pick an account…
 workflow-inputs-form-pick-project = Pick a project…
@@ -212,6 +210,7 @@ workflow-notify-step-form-speaks = Speaks as
 workflow-notify-step-form-where = Where
 workflow-notify-step-form-who-woken-none-wakes-nobody-notice = Who is woken. None wakes nobody — a notice, not a request.
 workflow-palette-drag-onto-canvas-press-enter-add = { $explain } Drag onto the canvas, or press Enter to add.
+workflow-palette-named-drag-onto-canvas = { $label }: { $explain } Drag onto the canvas, or press Enter to add.
 workflow-palette-step-kinds = Step kinds
 workflow-problems-list-no-problems-can-run = No problems — it can run.
 workflow-problems-list-no-problems-last-design-read = No problems in the last design it read.
@@ -258,7 +257,7 @@ workflow-run-workflow-dialog-run-has-started = The run has started.
 workflow-run-workflow-dialog-runs-in-workspace = It runs in the workspace, with no goal — at once, beside any other run of it.
 workflow-run-workflow-dialog-starting = Starting…
 workflow-run-workflow-dialog-statement = Statement
-workflow-runs-pane-no-runs-yet = No run yet. Run… starts one in the workspace.
+workflow-runs-pane-no-runs-yet = Run… starts one in the workspace.
 workflow-runs-pane-older-hidden = { $n ->
     [one] One older run is not shown.
    *[other] { $n } older runs are not shown.
@@ -343,7 +342,7 @@ workflow-step-common-form-another-step-has-id = Another step has this id.
 workflow-step-common-form-failed-attempts-re-run-before-failure = Failed attempts re-run before On failure applies.
 workflow-step-common-form-failure = On failure
 workflow-step-common-form-how-many-times-loop-may-enter = How many times a loop may enter this step. { $DEFAULT_MAX_VISITS } by default; at least one.
-workflow-step-common-form-how-several-incoming-flows-meet-irrelevant = How several incoming flows meet. Irrelevant with one.
+workflow-step-common-form-how-several-incoming-flows-meet-irrelevant = When several flows lead into this step, which of them it waits for. With one flow in, any choice reads the same.
 workflow-step-common-form-id = Id
 workflow-step-common-form-join = Join
 workflow-step-common-form-max-visits = Max visits
@@ -354,7 +353,7 @@ workflow-step-common-form-remediation-step-only-edge-taken-failure = The remedia
 workflow-step-common-form-retries = Retries
 workflow-step-common-form-route-failures = Route failures to
 workflow-step-common-form-what-canvas-shows = What the canvas shows.
-workflow-step-common-form-z-0-9-starts-letter-32 = a–z, 0–9, - and _; starts with a letter; 32 at most.
+workflow-step-common-form-z-0-9-starts-letter-32 = Use a–z, 0–9, - and _, starting with a letter; 32 at most.
 workflow-step-kinds-agent = Agent
 workflow-step-kinds-agent-does-work-yields-result = An agent does the work and yields a result.
 workflow-step-kinds-all-these-hold = all of these hold
@@ -610,7 +609,7 @@ workflow-connector-step-form-operation-option = { $id } — { $name }{ $writes -
 workflow-judge-step-form-minimum-confidence-hint = How sure the pick must be to be taken. Left blank, the node's own decisions.confidence.act applies.
 workflow-problems-list-node-could-not-read-design = The node could not read this design: <detail/>
 workflow-run-overlay-live-steps = live: <steps/>
-workflow-designer-session-not-saved = not saved: { $failure }
+workflow-designer-session-not-saved = Not saved: { $failure }
 workflow-graph-branches-fixed = a { $kind } step's branches are fixed: { $branches }
 
 ## Events and gateways — the designer's vocabulary (`stepKinds.mjs`): the four families, the kinds start, emit and parallel, the closed sets the forms choose from, the problems.
@@ -738,16 +737,20 @@ workflow-start-step-form-maps-undeclared-input = maps onto an input the workflow
 workflow-start-step-form-guard = Guard
 workflow-start-step-form-overlap = While a run it started is still going
 workflow-start-step-form-at-most-at-once = How many at once
-workflow-start-step-form-debounce = debounce, in seconds
-workflow-start-step-form-debounce-seconds = Debounce in seconds
+workflow-start-step-form-debounce = Drop repeats within
+workflow-start-step-form-debounce-seconds = Seconds within which a repeat is dropped
+workflow-start-step-form-seconds = seconds
 workflow-start-step-form-local-call = Called on this machine, under the control-plane token: POST { $path }
 workflow-start-step-form-local-call-once-saved = Its local call is shown once the design is saved.
 workflow-start-step-form-public = May be called from outside
 workflow-start-step-form-public-hint = Off, only this machine calls it. On, a caller outside posts to its public path with its secret — while Settings › Automation › Events allows public hooks.
 workflow-start-step-form-public-call = Called from outside: POST { $path }
 workflow-start-step-form-public-once-listening = Its public path and its secret are made when it begins listening; the secret is shown once, then.
-workflow-start-step-form-secret-minted = secret minted
-workflow-start-step-form-no-secret-yet = no secret yet
+workflow-start-step-form-secret-minted = A secret is set
+workflow-start-step-form-no-secret-yet = No secret yet
+workflow-start-step-form-rotate-title = Replace this hook's secret?
+workflow-start-step-form-rotate-body = Callers using the current secret will be refused until they get the new one. The new secret is shown once.
+workflow-start-step-form-rotate-confirm = Replace the secret
 workflow-start-step-form-rotate = Rotate
 workflow-start-step-form-poll-reads-only = One of the connector's reads: a poll never writes.
 workflow-start-step-form-poll-params-hint = One template per parameter, over the inputs given when it was turned on. Every item its answer lists that an earlier poll did not begins a run; the first poll only learns what is there.
@@ -975,3 +978,40 @@ workflow-start-step-form-id = id
 
 ## A connector start's operation picker: a write the definition names, where only a read goes (`views/_workflow/forms/connectorStepModel.mjs`).
 workflow-connector-step-form-writes-poll-only-reads = { $operation } (writes — a poll only reads)
+
+## An input's kind in words, a refused id or name said where it was typed (`workflowForm.mjs`, `forms/InputDefsEditor.tsx`, `forms/StepCommonForm.tsx`).
+workflow-workflow-form-kind-text = Text
+workflow-workflow-form-kind-number = Number
+workflow-workflow-form-kind-bool = Yes or no
+workflow-workflow-form-kind-choice = Choice
+workflow-workflow-form-kind-assignee = Assignee
+workflow-workflow-form-kind-project = Project
+workflow-workflow-form-kind-account = Connector account
+workflow-input-defs-editor-another-input-has-name = Another input has this name.
+workflow-workflow-form-kept = { $why } Kept “{ $kept }”.
+
+## The inspector's Then — flows drawn from the keyboard — and its Flow and failure fold (`forms/ThenField.tsx`, `Inspector.tsx`).
+workflow-then-field-then = Then
+workflow-then-field-hint = The steps this one flows into — what a flow drawn from its bottom handle does.
+workflow-then-field-branches-hint = Where each branch goes — what a flow drawn from the branch's handle does.
+workflow-then-field-branch-goes-to = Where { $branch } goes
+workflow-then-field-nowhere-yet = Nowhere yet
+workflow-then-field-next-steps = Next steps
+workflow-inspector-flow-and-failure = Flow and failure
+workflow-designer-canvas = Workflow canvas
+
+## A goal's drawing: saving and discarding it (`GoalWorkflowTab.tsx`).
+workflow-goal-workflow-tab-checking-steps = Checking the steps…
+workflow-goal-workflow-tab-discard-changes = Discard changes
+workflow-goal-workflow-tab-discard-your-changes = Discard your changes to the steps?
+workflow-goal-workflow-tab-discard-body = The steps go back to the saved workflow, and undo cannot bring the changes back.
+
+## Stopping one run asks first (`StopRunDialog.tsx`), and a pane with no runs (`WorkflowRunsPane.tsx`).
+workflow-stop-run-dialog-title = Stop this run?
+workflow-stop-run-dialog-body = The run is cancelled and its sessions end. Restart begins a new run with the same inputs.
+workflow-stop-run-dialog-confirm = Stop the run
+workflow-runs-pane-no-runs-title = No runs yet
+
+## A template being installed or opened (`TemplateCard.tsx`).
+workflow-template-card-opening = Opening…
+workflow-template-card-installing = Installing…

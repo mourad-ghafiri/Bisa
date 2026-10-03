@@ -45,7 +45,7 @@ export function LoggingPanel() {
   };
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       {logs.data?.latest_crash && latestWords && (
         <Section title={t("settings-logging-panel-last-crash")}>
           <LatestCrash
@@ -58,7 +58,7 @@ export function LoggingPanel() {
 
       <Section title={t("settings-logging-panel-machine")}>
         <Card>
-          <p className="text-2xs text-text-dim">{LOCAL_ONLY}</p>
+          <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{LOCAL_ONLY}</p>
           {logs.error && <ErrorNote error={logs.error} retry={logs.reload} />}
           {!logs.data && !logs.error && <Pending what={t("settings-load-log-files")} rows={pendingRows(t("settings-load-log-files"))} className="mt-2" />}
           {logs.data && (
@@ -73,7 +73,7 @@ export function LoggingPanel() {
                 )}
               </div>
               {families.map((family) => (
-                <div key={family.process} className="mt-3">
+                <div key={family.process} className="mt-4">
                   <div className="flex items-center gap-2">
                     <span className="text-2xs font-medium text-text">
                       {rich("settings-logging-panel-family-whose", { process: <span className="font-mono">{family.process}/</span> }, { whose: family.whose })}
@@ -93,7 +93,7 @@ export function LoggingPanel() {
                         </thead>
                         <tbody>
                           {family.files.map((r) => (
-                            <tr key={r.name} className="border-t border-border">
+                            <tr key={r.name} className="border-t border-hairline">
                               <td className="py-1 pr-3 font-mono">{r.name}</td>
                               <td className="py-1 pr-3">{r.period}</td>
                               <td className="py-1 pr-3">{r.size}</td>
@@ -107,7 +107,7 @@ export function LoggingPanel() {
                 </div>
               ))}
               {crashes.length > 0 && (
-                <div className="mt-3">
+                <div className="mt-4">
                   <div className="flex items-center gap-2">
                     <span className="text-2xs font-medium text-text">
                       {rich("settings-logging-panel-crashes-folder", { code: (inner) => <span className="font-mono">{inner}</span> })}
@@ -130,7 +130,7 @@ export function LoggingPanel() {
                       </thead>
                       <tbody>
                         {crashes.map((r) => (
-                          <tr key={r.name} className="border-t border-border">
+                          <tr key={r.name} className="border-t border-hairline">
                             <td className="py-1 pr-3 font-mono">{r.name}</td>
                             <td className="py-1 pr-3">{r.family}</td>
                             <td className="py-1 pr-3">{r.at}</td>

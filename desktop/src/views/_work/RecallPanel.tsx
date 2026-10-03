@@ -17,12 +17,12 @@ import { t } from "../../i18n/l10n.mjs";
 function Record({ r, known }: { r: RecallRecord; known: Set<string> }) {
   const [open, setOpen] = useState(false);
   return (
-    <li className="border-b border-border/60 py-1.5 last:border-0">
+    <li className="border-b border-hairline py-1.5 last:border-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 text-left"
+        className="anim flex w-full items-center gap-2 rounded-sm text-left hover:bg-surface-2"
       >
         <ICON.collapsed
           size={11}
@@ -35,7 +35,7 @@ function Record({ r, known }: { r: RecallRecord; known: Set<string> }) {
       </button>
       {open && (
         <div className="mt-1 pl-5">
-          <pre className="max-h-56 overflow-auto rounded-control border border-border bg-surface-2 p-2 font-mono text-2xs whitespace-pre-wrap">
+          <pre className="max-h-56 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-2xs whitespace-pre-wrap">
             {r.value}
           </pre>
           {r.links.length > 0 && (
@@ -98,7 +98,7 @@ export function RecallPanel({ agent }: { agent: string }) {
           {/* `SectionHeader` has no tone; the wrapper recolours its label so
               an orphan list still reads as the warning it is. */}
           <div className="[&_span]:text-warn">
-            <SectionHeader title={t("work-recall-panel-orphans")} count={orphans.length} />
+            <SectionHeader flush title={t("work-recall-panel-orphans")} count={orphans.length} />
           </div>
           <p className="mb-1 text-2xs text-text-dim">{t("work-recall-panel-nothing-links-these-they-kept-until")}</p>
           <ul>

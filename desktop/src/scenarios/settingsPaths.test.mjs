@@ -140,7 +140,7 @@ test("the rail is one model: every panel has a group, a label and a line, the pa
   // The screen holds no structure of its own: groups, panels, labels and lines are the model's; it adds a glyph per panel.
   const screen = read("views/Settings.tsx");
   assert.ok(screen.includes("{SETTINGS_GROUPS.map((g) => (") && screen.includes("SETTINGS_GROUPS.flatMap((g) => g.panels)"), "the rail and the panel list are read off the model");
-  assert.ok(screen.includes("const GLYPH: Record<SettingsTab, LucideIcon> = {"), "a glyph for every panel id, or the compiler refuses");
+  assert.ok(screen.includes("const GLYPH: Record<SettingsTab, LucideIcon | Mark> = {"), "a glyph (or a tool's mark) for every panel id, or the compiler refuses");
   assert.ok(!/\blabel: t\(/.test(screen) && !/\bblurb:/.test(screen), "no label or line is spelt in the screen");
   for (const id of SETTINGS_TABS) assert.ok(screen.includes(`panel.id === "${id}" &&`), `${id} draws a panel`);
 

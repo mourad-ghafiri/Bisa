@@ -10,7 +10,7 @@
 
 import { api } from "../../../api";
 import type { InputDef, Step } from "../../../types";
-import { Checkbox, Chip, ErrorNote, Field, TextArea, TextInput } from "../../../ui";
+import { Button, Checkbox, Chip, ErrorNote, Field, Labelled, TextArea, TextInput } from "../../../ui";
 import { AssigneePicker } from "../../_work/AssigneePicker";
 import { useAsync } from "../../_work/useAsync";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
@@ -50,7 +50,7 @@ export function SpawnStepForm({ step, inputs, onChange, disabled }: { step: Spaw
         />
       </Field>
       {workflow && (
-        <Field label={t("workflow-spawn-step-form-what-child-is-given")} hint={t("workflow-spawn-step-form-what-child-is-given-hint", { TEMPLATE_HINT })}>
+        <Labelled label={t("workflow-spawn-step-form-what-child-is-given")} hint={t("workflow-spawn-step-form-what-child-is-given-hint", { TEMPLATE_HINT })}>
           <div className="flex flex-col gap-1.5">
             {child.error && <ErrorNote error={t("workflow-spawn-step-form-could-not-read-workflow", { why: child.error })} retry={child.reload} />}
             {child.data && rows.length === 0 && <p className="text-2xs text-text-dim">{t("workflow-inputs-form-workflow-takes-no-inputs")}</p>}
@@ -75,19 +75,19 @@ export function SpawnStepForm({ step, inputs, onChange, disabled }: { step: Spaw
               <div key={name} className="flex items-center gap-1.5 text-2xs">
                 <code className="font-mono text-danger">{name}</code>
                 <span className="text-text-dim">{t("workflow-spawn-step-form-child-does-not-ask")}</span>
-                <button type="button" className="text-accent-ink underline underline-offset-2" disabled={disabled} onClick={() => onChange(give(step, name, null))}>
+                <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(give(step, name, null))}>
                   {t("workflow-connector-step-form-remove")}
-                </button>
+                </Button>
               </div>
             ))}
           </div>
-        </Field>
+        </Labelled>
       )}
-      <Field label={t("workflow-spawn-step-form-assignees")} hint={t("workflow-spawn-step-form-who-carries-child")}>
+      <Labelled label={t("workflow-spawn-step-form-assignees")} hint={t("workflow-spawn-step-form-who-carries-child")}>
         <AssigneePicker value={fixedWords(step.assignees)} disabled={disabled} onChange={(next) => set({ assignees: withFixed(step.assignees, next) })} />
-      </Field>
+      </Labelled>
       {assigneeInputs.length > 0 && (
-        <Field label={t("workflow-spawn-step-form-also-from-inputs")} hint={t("workflow-spawn-step-form-assignee-input-run-started-carries-child")}>
+        <Labelled label={t("workflow-spawn-step-form-also-from-inputs")} hint={t("workflow-spawn-step-form-assignee-input-run-started-carries-child")}>
           <div className="flex flex-wrap gap-1.5">
             {assigneeInputs.map((i) => {
               const on = fromInputs.includes(i.name);
@@ -97,7 +97,8 @@ export function SpawnStepForm({ step, inputs, onChange, disabled }: { step: Spaw
                   type="button"
                   aria-pressed={on}
                   disabled={disabled}
-                  className={`rounded-control border px-2 py-0.5 text-2xs ${on ? "border-accent bg-accent-soft text-text" : "border-border text-text-dim"}`}
+                  // The same pressed pill as Notify's: a chosen input is selected, not a summons.
+                  className={`anim rounded-full border px-2 py-0.5 text-2xs disabled:opacity-45 ${on ? "border-text/35 bg-selected text-text" : "border-border text-text-dim hover:bg-surface-2 hover:text-text"}`}
                   onClick={() => set({ assignees: toggleInput(step.assignees, i.name) })}
                 >
                   {i.name}
@@ -105,7 +106,7 @@ export function SpawnStepForm({ step, inputs, onChange, disabled }: { step: Spaw
               );
             })}
           </div>
-        </Field>
+        </Labelled>
       )}
       <Checkbox label={t("workflow-spawn-step-form-wait-child-s-run-finish")} hint={t("workflow-spawn-step-form-off-step-done-moment-child-exists")} checked={step.wait !== false} disabled={disabled} onChange={(wait) => set({ wait })} />
     </div>

@@ -37,7 +37,8 @@ import { BOUNDARY_ACT_ICON, BOUNDARY_ON_ICON, Chip, StepStateChip, cn, stepKindI
 import { FlowHandle, type FlowNodeProps } from "../../ui/flow";
 import { chipOf, ownOffsets } from "./forms/boundaryModel.mjs";
 import { eventPhrase } from "./forms/startForm.mjs";
-import { branchHandle, DEFAULT_MAX_VISITS, familyOf } from "./stepKinds.mjs";
+import { branchHandle, DEFAULT_MAX_VISITS, familyOf, kindLabel } from "./stepKinds.mjs";
+import { familyFrame, familyInk } from "./familyInk";
 import { t } from "../../i18n/l10n.mjs";
 
 export interface StepNodeData extends Record<string, unknown> {
@@ -51,30 +52,37 @@ export interface StepNodeData extends Record<string, unknown> {
   fired?: string | null;
   /** In an amendment: whether this step may still change. */
   editable?: boolean;
+  /** In run mode: the step is waiting on the person — an answer, a decision, a release. */
+  yours?: boolean;
 }
 
 /** The handle ids every step shares. */
 export const HANDLE = Object.freeze({ in: "in", out: "out", fail: "fail", loopOut: "loop-out", loopIn: "loop-in" });
 
-/** The glyph, framed as its family draws it: a ring for an event, a diamond for a gateway, bare for the rest. */
+/**
+ * The glyph, framed as its family draws it: a ring for an event, a diamond
+ * for a gateway, bare for the rest — and in its family's ink (`familyInk.ts`),
+ * so a graph scans by kind before a name is read. The shape says it too: the
+ * colour is never the only sign.
+ */
 function KindGlyph({ step }: { step: Step }) {
   const Icon = stepKindIcon(step.kind);
   const family = familyOf(step.kind);
   if (family === "event") {
     return (
-      <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-text-dim" aria-hidden>
+      <span className={cn("inline-flex size-5 shrink-0 items-center justify-center rounded-full border", familyFrame(step.kind))} aria-hidden>
         <Icon size={11} />
       </span>
     );
   }
   if (family === "gateway") {
     return (
-      <span className="inline-flex size-4 shrink-0 rotate-45 items-center justify-center rounded-sm border border-border text-text-dim" aria-hidden>
+      <span className={cn("inline-flex size-4 shrink-0 rotate-45 items-center justify-center rounded-sm border", familyFrame(step.kind))} aria-hidden>
         <Icon size={10} className="-rotate-45" />
       </span>
     );
   }
-  return <Icon size={14} aria-hidden className="shrink-0 text-text-dim" />;
+  return <Icon size={14} aria-hidden className={cn("shrink-0", familyInk(step.kind))} />;
 }
 
 /** One boundary event, as a chip on the card's lower edge: a divert solid with its path's handle, an act dashed. */
@@ -86,9 +94,10 @@ function BoundaryChip({ boundary, lit }: { boundary: Boundary; lit: boolean }) {
     <span
       title={chip.diverts ? t("workflow-step-node-boundary-diverts", { name: chip.name, words: chip.words }) : t("workflow-step-node-boundary-acts", { name: chip.name, words: chip.words })}
       className={cn(
-        "relative inline-flex h-5 max-w-[7.5rem] items-center gap-0.5 rounded-full border bg-surface px-1.5 text-3xs whitespace-nowrap",
+        "relative inline-flex h-5 max-w-[7.5rem] items-center gap-0.5 rounded-full border bg-surface px-1.5 text-2xs whitespace-nowrap",
         chip.diverts ? "border-warn/70 text-warn" : "border-dashed border-border text-text-dim",
-        lit && "bg-warn-soft ring-2 ring-accent",
+        // A boundary that fired is a fact of the run, not a summons: it rings in its own warn ink.
+        lit && "bg-warn-soft ring-2 ring-warn",
       )}
     >
       <OnIcon size={10} aria-hidden className="shrink-0" />
@@ -101,7 +110,7 @@ function BoundaryChip({ boundary, lit }: { boundary: Boundary; lit: boolean }) {
 }
 
 function StepNodeInner({ data, selected }: FlowNodeProps<StepNodeData>) {
-  const { step, problems, state, tone, label, fired, editable } = data;
+  const { step, problems, state, tone, label, fired, editable, yours } = data;
   const family = familyOf(step.kind);
   const own = ownOffsets(step);
   const ring = tone ? { boxShadow: `0 0 0 2px var(--color-${tone})` } : undefined;
@@ -112,14 +121,21 @@ function StepNodeInner({ data, selected }: FlowNodeProps<StepNodeData>) {
   const begins = step.kind === "start";
   const ends = step.kind === "end";
   // A start says the event it begins on where another step says its kind.
-  const second = step.kind === "start" ? eventPhrase(step.on) : step.kind;
+  const second = step.kind === "start" ? eventPhrase(step.on) : kindLabel(step.kind);
   return (
     <div
+      // The run's state and whose move it is, for the live map's motion
+      // (`theme/flow.css`, `.step-card`): a running step breathes, a step
+      // waiting on you calls once, and every change of ring is a morph.
+      data-run-state={state?.state}
+      data-yours={yours || undefined}
       className={cn(
-        "relative w-[220px] border border-border bg-surface px-3 py-2 text-left",
-        family === "event" ? "rounded-[2.25rem] px-4" : "rounded-card",
+        "step-card relative w-[220px] border border-border bg-surface px-3 py-2 text-left",
+        // An event's pill says its radius to the live map's ring (`--step-radius`, theme/flow.css).
+        family === "event" ? "rounded-[2.25rem] px-4 [--step-radius:2.25rem]" : "rounded-card",
         frozen && "opacity-70",
-        selected && "border-accent",
+        // Where you are, not what waits on you: the edge takes the neutral ink of the canvas's selection ring.
+        selected && "border-text/60",
       )}
       style={ring}
     >
@@ -130,7 +146,8 @@ function StepNodeInner({ data, selected }: FlowNodeProps<StepNodeData>) {
       {!begins && <FlowHandle kind="target" id={HANDLE.loopIn} side="right" offset={35} connectable={false} />}
       <div className="flex items-center gap-2">
         <KindGlyph step={step} />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">{step.name || step.id}</span>
+        {/* A step size up from the dense rows: the canvas is read zoomed out. Width and handles are the layout's, untouched. */}
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{step.name || step.id}</span>
         {problems > 0 && (
           <Chip tone="danger" title={t("workflow-step-node-problem-problems", { problems })}>
             {problems}

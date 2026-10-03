@@ -16,13 +16,18 @@
  * where it lives, the shapes it runs, the goals it serves, then Pulse: what
  * happened. The order a person sees is theirs (`navOrderStore.ts`).
  *
- * Counts come from {@link useWorkspace} and only from there. The Inbox badge
- * is everything not yet dealt with — the rows not read and the ones that need
- * the person, one number, accented while any is owed (`sidebarModel.inboxBadge`)
- * — and it is the *only* place that total appears in the nav: repeating it on
- * Goals would show the same attention twice and make clearing one look like
- * it failed to clear the other. Rows carry their own unread because that is
- * a different fact.
+ * Counts come from {@link useWorkspace} and only from there. The Inbox carries
+ * two counts, never one sum (`sidebarModel.inboxBadge`): what needs the
+ * person, in the accent — the one colour that means *your attention* — and
+ * beside it what is merely unread, neutral. It is the *only* place those
+ * appear in the nav: repeating them on Goals would show the same attention
+ * twice and make clearing one look like it failed to clear the other. Rows
+ * carry their own unread because that is a different fact, and it is neutral
+ * too: an unread channel is news, not a summons.
+ *
+ * While the node is away, or a list could not be read, a section offers no
+ * door to fill it (`workspaceLoadModel.listUnread`): an empty list that was
+ * never read is not an empty list, and a create made then would fail.
  *
  * The destinations stand in **the person's order**: a row dragged to a new
  * place — here, or an icon in the rail — is remembered per viewer
@@ -36,20 +41,22 @@
  * the Inbox count in its icon's corner, so the count is never out of sight.
  */
 
-import { href, section, useRoute } from "../router";
-import { Avatar, CountBadge, ICON, SortableList, WorkingDot, navRowDrag } from "../ui";
+import { href, navigate, section, useRoute } from "../router";
+import { Avatar, CountBadge, ICON, SortableList, WorkingDot, navRowDrag, useArrivals } from "../ui";
 import type { SortableHandle } from "../ui";
 import type { ReactNode } from "react";
 import type { NavEntry } from "./nav";
 import { placeNav, usePrimaryNav } from "./navOrderStore";
 import { useSectionHref } from "./sectionDoor";
-import { AddButton, SidebarRow, SidebarSection, onArrowKeys } from "./SidebarSection";
+import { AddButton, EmptyDoor, SidebarRow, SidebarSection, onArrowKeys } from "./SidebarSection";
 import { useWorkspace } from "./useWorkspaceData";
 import { audiencePrincipals } from "../types";
 import { NEW_CHANNEL, NEW_MESSAGE, fire } from "./shortcuts";
 import { hostedNameOf, isMember, orderSections, sectionTitle, stateWords, unreadOf } from "./hostedModel.mjs";
 import { SidebarRail } from "./SidebarRail";
 import { inboxBadge } from "./sidebarModel.mjs";
+import { listUnread } from "./workspaceLoadModel.mjs";
+import { settingsPath, settingsSearch } from "../views/_settings/settingsLink.mjs";
 import { sortChannels, sortDms } from "../views/_studio/channelListModel.mjs";
 import type { SidebarMode } from "./sidebarModel.mjs";
 import { t } from "../i18n/l10n.mjs";
@@ -70,13 +77,15 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
   const here = "id" in route ? route.id : null;
   const ws = useWorkspace();
   const inbox = inboxBadge(ws.inbox);
+  // Something new waiting on you: the owed count arrives once, never on a re-read — and never for what is merely unread.
+  const arrivals = useArrivals(inbox.needs);
   const nav = usePrimaryNav();
 
   if (mode === "collapsed") return <SidebarRail />;
 
   return (
     <div data-pane className="flex h-full min-h-0 flex-col bg-surface">
-      <nav aria-label={t("shell-sidebar-workspace")} className="min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-2">
+      <nav aria-label={t("shell-sidebar-workspace")} className="min-h-0 flex-1 overflow-y-auto px-2 pt-2.5 pb-3">
         <div className="flex flex-col gap-0.5" onKeyDown={onArrowKeys}>
           <SortableList<{ id: string; entry: NavEntry }>
             items={nav.map((entry) => ({ id: entry.key, entry }))}
@@ -89,7 +98,18 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
                 entry={entry}
                 active={active === entry.key}
                 handle={handle}
-                trailing={entry.key === "inbox" ? <CountBadge count={inbox.count} tone={inbox.tone} title={inbox.title ?? undefined} /> : undefined}
+                trailing={
+                  entry.key === "inbox" && (inbox.needs > 0 || inbox.unread > 0) ? (
+                    <>
+                      {inbox.needs > 0 && (
+                        <span key={arrivals} className={arrivals > 0 ? "motion-pop inline-flex" : "inline-flex"}>
+                          <CountBadge count={inbox.needs} tone="accent" title={inbox.needsTitle ?? undefined} />
+                        </span>
+                      )}
+                      <CountBadge count={inbox.unread} tone="neutral" title={inbox.unreadTitle ?? undefined} />
+                    </>
+                  ) : undefined
+                }
               />
             )}
           </SortableList>
@@ -100,13 +120,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
           title={t("shell-sidebar-channels")}
           count={ws.channels.length}
           action={<AddButton label={t("shell-omnibox-new-channel")} icon={ICON.add} onClick={() => fire(NEW_CHANNEL)} />}
-          empty={
-            <button
-              type="button"
-              onClick={() => fire(NEW_CHANNEL)}
-              className="text-2xs text-accent-ink underline underline-offset-2"
-            >{t("shell-sidebar-create-channel")}</button>
-          }
+          empty={!ws.ready || listUnread(ws.degraded, ws.offline, "channels") ? undefined : <EmptyDoor onClick={() => fire(NEW_CHANNEL)} label={t("shell-sidebar-create-channel")} />}
         >
           {/* One order here and on the Channels page: `general` first, then creation — a message never reshuffles the rooms. */}
           {sortChannels(ws.channels).map(({ channel }) => {
@@ -123,7 +137,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
                 trailing={
                   <>
                     {busy && <WorkingDot title={t("shell-sidebar-agent-writing-here")} />}
-                    <CountBadge count={unread} />
+                    <CountBadge count={unread} tone="neutral" />
                   </>
                 }
               />
@@ -138,13 +152,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
           action={
             <AddButton label={t("shell-omnibox-new-message")} icon={ICON.add} onClick={() => fire(NEW_MESSAGE)} />
           }
-          empty={
-            <button
-              type="button"
-              onClick={() => fire(NEW_MESSAGE)}
-              className="text-2xs text-accent-ink underline underline-offset-2"
-            >{t("shell-sidebar-message-someone-agent")}</button>
-          }
+          empty={!ws.ready || listUnread(ws.degraded, ws.offline, "dms") ? undefined : <EmptyDoor onClick={() => fire(NEW_MESSAGE)} label={t("shell-sidebar-message-someone-agent")} />}
         >
           {/* A recency list, here and on the Messages page: the direct channel that moved last first. */}
           {sortDms(ws.dms).map(({ channel }) => {
@@ -172,7 +180,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
                 trailing={
                   <>
                     {busy && <WorkingDot title={t("shell-sidebar-is-writing", { name: agent?.name ?? t("shell-sidebar-an-agent") })} />}
-                    <CountBadge count={unread} />
+                    <CountBadge count={unread} tone="neutral" />
                   </>
                 }
               />
@@ -183,7 +191,9 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
         {/* The workspaces this node is a guest of (14-collaboration): one
             section per host, its channels and direct channels as the host
             relays them. No add button — a channel there is the host's to
-            make; a direct message is asked for from a hosted channel. */}
+            make; a direct message is asked for from a hosted channel. An
+            empty one is a door to where the membership is kept, with its
+            standing beneath. */}
         {orderSections(ws.hosted).map((section) => {
           const key = section.host.host.pubkey;
           const state = stateWords(section.host);
@@ -194,9 +204,12 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
               title={sectionTitle(section.host)}
               count={isMember(section.host) ? unreadOf(section) : undefined}
               empty={
-                <span className="text-2xs text-text-dim">
-                  {state ?? t("shell-sidebar-channel-reaches-yet-ask-host-put")}
-                </span>
+                <EmptyDoor
+                  icon={ICON.members}
+                  onClick={() => navigate({ name: "settings" }, settingsSearch("people"))}
+                  label={settingsPath("people")}
+                  note={state ? t("shell-sidebar-hosted-membership", { state }) : t("shell-sidebar-channel-reaches-yet-ask-host-put")}
+                />
               }
             >
               {isMember(section.host) &&
@@ -208,7 +221,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
                     icon={ICON.channel}
                     label={channel.name}
                     title={channel.topic ?? channel.name}
-                    trailing={<CountBadge count={unread_count} />}
+                    trailing={<CountBadge count={unread_count} tone="neutral" />}
                   />
                 ))}
               {isMember(section.host) &&
@@ -223,7 +236,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
                       leading={<Avatar id={others[0] ?? channel.id} name={label} size={18} />}
                       label={label}
                       title={label}
-                      trailing={<CountBadge count={unread_count} />}
+                      trailing={<CountBadge count={unread_count} tone="neutral" />}
                     />
                   );
                 })}
@@ -242,17 +255,18 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
  * the one thing that explains every empty list above it at once. Nothing
  * else lives here — the person's own destinations (Identity, Settings,
  * About) are the top chrome's profile menu, out of the work's way — so with
- * the node reachable the sidebar ends with its last section.
+ * the node reachable the sidebar ends with its last section. A status: a
+ * screen reader hears it once, when the node goes away.
  */
 function SidebarFooter() {
   const ws = useWorkspace();
   if (!ws.offline) return null;
   return (
-    <div className="shrink-0 border-t border-border p-2">
-      <div className="rounded-control border border-border bg-danger-soft px-2 py-1.5">
+    <div className="shrink-0 border-t border-hairline p-2">
+      <div role="status" className="rounded-control border border-border bg-danger-soft px-2 py-1.5">
         <p className="flex items-center gap-1.5 text-2xs font-medium text-danger">
           <ICON.warn size={11} aria-hidden />{t("shell-sidebar-node-unreachable")}</p>
-        <p className="mt-0.5 text-2xs text-danger/80">{ws.offline}</p>
+        <p className="mt-0.5 text-2xs text-danger">{ws.offline}</p>
       </div>
     </div>
   );

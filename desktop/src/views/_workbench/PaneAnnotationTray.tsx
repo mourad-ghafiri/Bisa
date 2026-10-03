@@ -38,7 +38,7 @@ export function PaneAnnotationTray({ page, draft, lost, onDraft, onDone }: { pag
   };
 
   return (
-    <section aria-label={t("workbench-pane-annotation-tray-annotations")} className="flex shrink-0 flex-col gap-1.5 border-t border-border px-3 py-2 text-2xs">
+    <section aria-label={t("workbench-pane-annotation-tray-annotations")} className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-3 py-2 text-2xs">
       <AnnotationRows draft={draft} lost={lost} onDraft={onDraft} />
       <div className="flex flex-wrap items-center gap-2">
         <Tooltip label={door.hint}>

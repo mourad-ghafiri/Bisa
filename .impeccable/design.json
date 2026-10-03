@@ -1,0 +1,876 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-03T12:00:00+00:00",
+  "title": "Design System: Bisa",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Glass Clear Blue",
+        "canonical": "oklch(0.52 0.17 240)",
+        "tonalRamp": [
+          "oklch(0.15 0.17 240)",
+          "oklch(0.26 0.17 240)",
+          "oklch(0.38 0.17 240)",
+          "oklch(0.50 0.17 240)",
+          "oklch(0.62 0.17 240)",
+          "oklch(0.74 0.17 240)",
+          "oklch(0.85 0.17 240)",
+          "oklch(0.95 0.17 240)"
+        ],
+        "families": {
+          "glass": "oklch(0.52 0.17 240) / dark oklch(0.75 0.13 240)",
+          "harbor": "oklch(0.54 0.16 58) / dark oklch(0.76 0.14 58)",
+          "orchard": "oklch(0.54 0.18 350) / dark oklch(0.76 0.14 350)",
+          "dune": "oklch(0.52 0.19 265) / dark oklch(0.74 0.14 265)",
+          "suede": "oklch(0.5 0.17 250) / dark oklch(0.72 0.13 250)"
+        }
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Accent Ink",
+        "canonical": "oklch(0.46 0.16 240)",
+        "tonalRamp": [
+          "oklch(0.15 0.16 240)",
+          "oklch(0.26 0.16 240)",
+          "oklch(0.38 0.16 240)",
+          "oklch(0.50 0.16 240)",
+          "oklch(0.62 0.16 240)",
+          "oklch(0.74 0.16 240)",
+          "oklch(0.85 0.16 240)",
+          "oklch(0.95 0.16 240)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Accent Wash",
+        "canonical": "oklch(0.94 0.035 240)",
+        "tonalRamp": [
+          "oklch(0.15 0.035 240)",
+          "oklch(0.26 0.035 240)",
+          "oklch(0.38 0.035 240)",
+          "oklch(0.50 0.035 240)",
+          "oklch(0.62 0.035 240)",
+          "oklch(0.74 0.035 240)",
+          "oklch(0.85 0.035 240)",
+          "oklch(0.95 0.035 240)"
+        ]
+      },
+      "accent-contrast": {
+        "role": "primary",
+        "displayName": "Accent Contrast",
+        "canonical": "oklch(1 0 0)",
+        "tonalRamp": [
+          "oklch(0.15 0 0)",
+          "oklch(0.26 0 0)",
+          "oklch(0.38 0 0)",
+          "oklch(0.50 0 0)",
+          "oklch(0.62 0 0)",
+          "oklch(0.74 0 0)",
+          "oklch(0.85 0 0)",
+          "oklch(0.95 0 0)"
+        ]
+      },
+      "harbor-amber": {
+        "role": "primary",
+        "displayName": "Harbor Amber",
+        "canonical": "oklch(0.54 0.16 58)",
+        "tonalRamp": [
+          "oklch(0.15 0.16 58)",
+          "oklch(0.26 0.16 58)",
+          "oklch(0.38 0.16 58)",
+          "oklch(0.50 0.16 58)",
+          "oklch(0.62 0.16 58)",
+          "oklch(0.74 0.16 58)",
+          "oklch(0.85 0.16 58)",
+          "oklch(0.95 0.16 58)"
+        ]
+      },
+      "orchard-blossom": {
+        "role": "primary",
+        "displayName": "Orchard Blossom",
+        "canonical": "oklch(0.54 0.18 350)",
+        "tonalRamp": [
+          "oklch(0.15 0.18 350)",
+          "oklch(0.26 0.18 350)",
+          "oklch(0.38 0.18 350)",
+          "oklch(0.50 0.18 350)",
+          "oklch(0.62 0.18 350)",
+          "oklch(0.74 0.18 350)",
+          "oklch(0.85 0.18 350)",
+          "oklch(0.95 0.18 350)"
+        ]
+      },
+      "dune-indigo": {
+        "role": "primary",
+        "displayName": "Dune Twilight Indigo",
+        "canonical": "oklch(0.52 0.19 265)",
+        "tonalRamp": [
+          "oklch(0.15 0.19 265)",
+          "oklch(0.26 0.19 265)",
+          "oklch(0.38 0.19 265)",
+          "oklch(0.50 0.19 265)",
+          "oklch(0.62 0.19 265)",
+          "oklch(0.74 0.19 265)",
+          "oklch(0.85 0.19 265)",
+          "oklch(0.95 0.19 265)"
+        ]
+      },
+      "suede-cobalt": {
+        "role": "primary",
+        "displayName": "Suede Cobalt",
+        "canonical": "oklch(0.5 0.17 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.17 250)",
+          "oklch(0.26 0.17 250)",
+          "oklch(0.38 0.17 250)",
+          "oklch(0.50 0.17 250)",
+          "oklch(0.62 0.17 250)",
+          "oklch(0.74 0.17 250)",
+          "oklch(0.85 0.17 250)",
+          "oklch(0.95 0.17 250)"
+        ]
+      },
+      "overlay-violet": {
+        "role": "primary",
+        "displayName": "Violet overlay",
+        "canonical": "oklch(0.53 0.21 295)",
+        "tonalRamp": [
+          "oklch(0.15 0.21 295)",
+          "oklch(0.26 0.21 295)",
+          "oklch(0.38 0.21 295)",
+          "oklch(0.50 0.21 295)",
+          "oklch(0.62 0.21 295)",
+          "oklch(0.74 0.21 295)",
+          "oklch(0.85 0.21 295)",
+          "oklch(0.95 0.21 295)"
+        ]
+      },
+      "overlay-teal": {
+        "role": "primary",
+        "displayName": "Teal overlay",
+        "canonical": "oklch(0.52 0.11 190)",
+        "tonalRamp": [
+          "oklch(0.15 0.11 190)",
+          "oklch(0.26 0.11 190)",
+          "oklch(0.38 0.11 190)",
+          "oklch(0.50 0.11 190)",
+          "oklch(0.62 0.11 190)",
+          "oklch(0.74 0.11 190)",
+          "oklch(0.85 0.11 190)",
+          "oklch(0.95 0.11 190)"
+        ]
+      },
+      "overlay-rose": {
+        "role": "primary",
+        "displayName": "Rose overlay",
+        "canonical": "oklch(0.53 0.19 12)",
+        "tonalRamp": [
+          "oklch(0.15 0.19 12)",
+          "oklch(0.26 0.19 12)",
+          "oklch(0.38 0.19 12)",
+          "oklch(0.50 0.19 12)",
+          "oklch(0.62 0.19 12)",
+          "oklch(0.74 0.19 12)",
+          "oklch(0.85 0.19 12)",
+          "oklch(0.95 0.19 12)"
+        ]
+      },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Frosted Page",
+        "canonical": "oklch(0.965 0.006 235 / 0.86)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 235)",
+          "oklch(0.26 0.006 235)",
+          "oklch(0.38 0.006 235)",
+          "oklch(0.50 0.006 235)",
+          "oklch(0.62 0.006 235)",
+          "oklch(0.74 0.006 235)",
+          "oklch(0.85 0.006 235)",
+          "oklch(0.95 0.006 235)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Frosted Pane",
+        "canonical": "oklch(0.995 0.003 235 / 0.72)",
+        "tonalRamp": [
+          "oklch(0.15 0.003 235)",
+          "oklch(0.26 0.003 235)",
+          "oklch(0.38 0.003 235)",
+          "oklch(0.50 0.003 235)",
+          "oklch(0.62 0.003 235)",
+          "oklch(0.74 0.003 235)",
+          "oklch(0.85 0.003 235)",
+          "oklch(0.95 0.003 235)"
+        ]
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Pressed Step",
+        "canonical": "oklch(0.865 0.012 235 / 0.92)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 235)",
+          "oklch(0.26 0.012 235)",
+          "oklch(0.38 0.012 235)",
+          "oklch(0.50 0.012 235)",
+          "oklch(0.62 0.012 235)",
+          "oklch(0.74 0.012 235)",
+          "oklch(0.85 0.012 235)",
+          "oklch(0.95 0.012 235)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Edge",
+        "canonical": "oklch(0.55 0.02 235 / 0.28)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 235)",
+          "oklch(0.26 0.02 235)",
+          "oklch(0.38 0.02 235)",
+          "oklch(0.50 0.02 235)",
+          "oklch(0.62 0.02 235)",
+          "oklch(0.74 0.02 235)",
+          "oklch(0.85 0.02 235)",
+          "oklch(0.95 0.02 235)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.22 0.015 235)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 235)",
+          "oklch(0.26 0.015 235)",
+          "oklch(0.38 0.015 235)",
+          "oklch(0.50 0.015 235)",
+          "oklch(0.62 0.015 235)",
+          "oklch(0.74 0.015 235)",
+          "oklch(0.85 0.015 235)",
+          "oklch(0.95 0.015 235)"
+        ]
+      },
+      "text-dim": {
+        "role": "neutral",
+        "displayName": "Secondary Ink",
+        "canonical": "oklch(0.42 0.02 235)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 235)",
+          "oklch(0.26 0.02 235)",
+          "oklch(0.38 0.02 235)",
+          "oklch(0.50 0.02 235)",
+          "oklch(0.62 0.02 235)",
+          "oklch(0.74 0.02 235)",
+          "oklch(0.85 0.02 235)",
+          "oklch(0.95 0.02 235)"
+        ]
+      },
+      "selected": {
+        "role": "neutral",
+        "displayName": "Selected",
+        "canonical": "color-mix(in oklch, oklch(0.22 0.015 235) 9%, transparent)",
+        "note": "Derived in theme/tokens.css from the mounted family's roles; no ramp of its own."
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "color-mix(in oklch, oklch(0.55 0.02 235 / 0.28) 65%, transparent)",
+        "note": "Derived in theme/tokens.css from the mounted family's roles; no ramp of its own."
+      },
+      "overlay": {
+        "role": "neutral",
+        "displayName": "Scrim",
+        "canonical": "oklch(0.2 0.02 235 / 0.35)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 235)",
+          "oklch(0.26 0.02 235)",
+          "oklch(0.38 0.02 235)",
+          "oklch(0.50 0.02 235)",
+          "oklch(0.62 0.02 235)",
+          "oklch(0.74 0.02 235)",
+          "oklch(0.85 0.02 235)",
+          "oklch(0.95 0.02 235)"
+        ]
+      },
+      "warn": {
+        "role": "status",
+        "displayName": "Warn",
+        "canonical": "oklch(0.56 0.13 90)",
+        "tonalRamp": [
+          "oklch(0.15 0.13 90)",
+          "oklch(0.26 0.13 90)",
+          "oklch(0.38 0.13 90)",
+          "oklch(0.50 0.13 90)",
+          "oklch(0.62 0.13 90)",
+          "oklch(0.74 0.13 90)",
+          "oklch(0.85 0.13 90)",
+          "oklch(0.95 0.13 90)"
+        ]
+      },
+      "warn-soft": {
+        "role": "status",
+        "displayName": "Warn Wash",
+        "canonical": "oklch(0.95 0.045 90)",
+        "tonalRamp": [
+          "oklch(0.15 0.045 90)",
+          "oklch(0.26 0.045 90)",
+          "oklch(0.38 0.045 90)",
+          "oklch(0.50 0.045 90)",
+          "oklch(0.62 0.045 90)",
+          "oklch(0.74 0.045 90)",
+          "oklch(0.85 0.045 90)",
+          "oklch(0.95 0.045 90)"
+        ]
+      },
+      "danger": {
+        "role": "status",
+        "displayName": "Danger",
+        "canonical": "oklch(0.49 0.2 22)",
+        "tonalRamp": [
+          "oklch(0.15 0.2 22)",
+          "oklch(0.26 0.2 22)",
+          "oklch(0.38 0.2 22)",
+          "oklch(0.50 0.2 22)",
+          "oklch(0.62 0.2 22)",
+          "oklch(0.74 0.2 22)",
+          "oklch(0.85 0.2 22)",
+          "oklch(0.95 0.2 22)"
+        ]
+      },
+      "danger-soft": {
+        "role": "status",
+        "displayName": "Danger Wash",
+        "canonical": "oklch(0.955 0.045 22)",
+        "tonalRamp": [
+          "oklch(0.15 0.045 22)",
+          "oklch(0.26 0.045 22)",
+          "oklch(0.38 0.045 22)",
+          "oklch(0.50 0.045 22)",
+          "oklch(0.62 0.045 22)",
+          "oklch(0.74 0.045 22)",
+          "oklch(0.85 0.045 22)",
+          "oklch(0.95 0.045 22)"
+        ]
+      },
+      "ok": {
+        "role": "status",
+        "displayName": "OK",
+        "canonical": "oklch(0.53 0.13 155)",
+        "tonalRamp": [
+          "oklch(0.15 0.13 155)",
+          "oklch(0.26 0.13 155)",
+          "oklch(0.38 0.13 155)",
+          "oklch(0.50 0.13 155)",
+          "oklch(0.62 0.13 155)",
+          "oklch(0.74 0.13 155)",
+          "oklch(0.85 0.13 155)",
+          "oklch(0.95 0.13 155)"
+        ]
+      },
+      "ok-soft": {
+        "role": "status",
+        "displayName": "OK Wash",
+        "canonical": "oklch(0.95 0.04 155)",
+        "tonalRamp": [
+          "oklch(0.15 0.04 155)",
+          "oklch(0.26 0.04 155)",
+          "oklch(0.38 0.04 155)",
+          "oklch(0.50 0.04 155)",
+          "oklch(0.62 0.04 155)",
+          "oklch(0.74 0.04 155)",
+          "oklch(0.85 0.04 155)",
+          "oklch(0.95 0.04 155)"
+        ]
+      },
+      "step-event": {
+        "role": "step-family",
+        "displayName": "Steel Cyan (events)",
+        "canonical": "oklch(0.5 0.07 197)",
+        "dark": "oklch(0.78 0.065 197)",
+        "tonalRamp": [
+          "oklch(0.15 0.07 197)",
+          "oklch(0.26 0.07 197)",
+          "oklch(0.38 0.07 197)",
+          "oklch(0.50 0.07 197)",
+          "oklch(0.62 0.07 197)",
+          "oklch(0.74 0.07 197)",
+          "oklch(0.85 0.07 197)",
+          "oklch(0.95 0.07 197)"
+        ],
+        "note": "Glyph ink only (familyInk.ts); shared by every family; held by theme/stepInks.test.mjs.",
+        "accentOverlayMoves": {
+          "teal": "oklch(0.5 0.07 222) / dark oklch(0.78 0.065 222)"
+        }
+      },
+      "step-gateway": {
+        "role": "step-family",
+        "displayName": "Dusty Mauve (gateways)",
+        "canonical": "oklch(0.5 0.07 307)",
+        "dark": "oklch(0.78 0.065 307)",
+        "tonalRamp": [
+          "oklch(0.15 0.07 307)",
+          "oklch(0.26 0.07 307)",
+          "oklch(0.38 0.07 307)",
+          "oklch(0.50 0.07 307)",
+          "oklch(0.62 0.07 307)",
+          "oklch(0.74 0.07 307)",
+          "oklch(0.85 0.07 307)",
+          "oklch(0.95 0.07 307)"
+        ],
+        "note": "Glyph ink only (familyInk.ts); shared by every family; held by theme/stepInks.test.mjs.",
+        "accentOverlayMoves": {
+          "violet": "oklch(0.5 0.07 328) / dark oklch(0.78 0.065 328)"
+        }
+      },
+      "step-loop": {
+        "role": "step-family",
+        "displayName": "Sage (loops)",
+        "canonical": "oklch(0.5 0.07 122)",
+        "dark": "oklch(0.78 0.065 122)",
+        "tonalRamp": [
+          "oklch(0.15 0.07 122)",
+          "oklch(0.26 0.07 122)",
+          "oklch(0.38 0.07 122)",
+          "oklch(0.50 0.07 122)",
+          "oklch(0.62 0.07 122)",
+          "oklch(0.74 0.07 122)",
+          "oklch(0.85 0.07 122)",
+          "oklch(0.95 0.07 122)"
+        ],
+        "note": "Glyph ink only (familyInk.ts); shared by every family; held by theme/stepInks.test.mjs."
+      },
+      "step-task": {
+        "role": "step-family",
+        "displayName": "Slate (tasks)",
+        "canonical": "oklch(0.5 0.02 255)",
+        "dark": "oklch(0.78 0.02 255)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 255)",
+          "oklch(0.26 0.02 255)",
+          "oklch(0.38 0.02 255)",
+          "oklch(0.50 0.02 255)",
+          "oklch(0.62 0.02 255)",
+          "oklch(0.74 0.02 255)",
+          "oklch(0.85 0.02 255)",
+          "oklch(0.95 0.02 255)"
+        ],
+        "note": "Glyph ink only (familyInk.ts); shared by every family; held by theme/stepInks.test.mjs."
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "The thing a detail is about (PageHeader): a goal, a team, a run."
+      },
+      "bar-title": {
+        "displayName": "Bar title",
+        "purpose": "The top bar's screen name; the page's only h1 (PageHeader level h1)."
+      },
+      "dialog-title": {
+        "displayName": "Dialog title",
+        "purpose": "Dialog and alert headers."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Document default."
+      },
+      "prose-body": {
+        "displayName": "Document",
+        "purpose": "Rendered Markdown (ui/Markdown.tsx), leading-relaxed; ThinkingBlock passes 13px through textClass."
+      },
+      "prose-h1": {
+        "displayName": "Document heading 1",
+        "purpose": ".prose-i h1, balanced wrap."
+      },
+      "prose-h2": {
+        "displayName": "Document heading 2",
+        "purpose": ".prose-i h2, balanced wrap."
+      },
+      "prose-h3": {
+        "displayName": "Document heading 3",
+        "purpose": ".prose-i h3, balanced wrap."
+      },
+      "row": {
+        "displayName": "Row",
+        "purpose": "Dense rows, sidebar rows, menu rows, inputs, tabs, empty-state hints."
+      },
+      "heading-group": {
+        "displayName": "Content heading",
+        "purpose": "The one heading tier inside content: Section titles (ui/Card.tsx) and view h2/h3, 14px semibold full ink."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Group and section labels in panes and lists, in text-dim."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Counts, timestamps, hints, explanatory paragraphs. The most used step."
+      },
+      "badge": {
+        "displayName": "Badge",
+        "purpose": "Badges, glyph labels and status-bar stat labels only; never running text."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Code, ids, paths, terminals."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-raised (glass)",
+        "value": "inset 0 1px 0 0 oklch(1 0 0 / 0.55), 0 1px 2px 0 oklch(0.2 0.02 235 / 0.06)",
+        "purpose": "Buttons, cards, the pressed segment on Glass light (shadow-sm)."
+      },
+      {
+        "name": "shadow-floating (glass)",
+        "value": "inset 0 1px 0 0 oklch(1 0 0 / 0.6), 0 12px 32px -8px oklch(0.2 0.02 235 / 0.28), 0 2px 6px -2px oklch(0.2 0.02 235 / 0.1)",
+        "purpose": "Menus, popovers, tooltips, dialogs on Glass light (shadow-lg, shadow-xl)."
+      },
+      {
+        "name": "shadow-raised (harbor, orchard, dune)",
+        "value": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+        "purpose": "Raised on the opaque families."
+      },
+      {
+        "name": "shadow-floating (harbor, orchard, dune)",
+        "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "purpose": "Floating on the opaque families."
+      },
+      {
+        "name": "shadow-raised (suede)",
+        "value": "none",
+        "purpose": "Matte: a card is a card by tone and border."
+      },
+      {
+        "name": "shadow-floating (suede)",
+        "value": "0 16px 40px -12px oklch(0.27 0.014 60 / 0.22)",
+        "purpose": "A wide soft bloom under dialogs and menus (dark: oklch(0 0 0 / 0.5))."
+      },
+      {
+        "name": "material (glass)",
+        "value": "backdrop-filter: blur(18px) saturate(1.35)",
+        "purpose": "Frost on [data-pane] elements and body; saturate 1.2 on Glass dark. Opaque families answer 0px and 1."
+      }
+    ],
+    "motion": [
+      {
+        "name": "motion-fast",
+        "value": "120ms",
+        "purpose": "Hover, colour and border changes (.anim), overlay fades, popover entry, all exits."
+      },
+      {
+        "name": "motion-base",
+        "value": "160ms",
+        "purpose": "Dialog panel entry."
+      },
+      {
+        "name": "motion-slow",
+        "value": "240ms",
+        "purpose": "One-shot arrival pops on session marks; step-card ring morphs on the run canvas."
+      },
+      {
+        "name": "motion-ease",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "The one easing for every transition and animation."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "durations 1ms; pulse, spin, breathe, nudge, pop, shake and lift stop; the canvas live flow turns solid and step rings stop",
+        "purpose": "Honoured at the token so new components inherit it."
+      },
+      {
+        "name": "flow-along",
+        "value": "stroke-dasharray 7 5; dashoffset -12 over 900ms linear infinite",
+        "purpose": "The run canvas's live edge (.is-live), moving toward the step the run stands on."
+      },
+      {
+        "name": "step-breathe",
+        "value": "--ring 2px to 7px, opacity 0.5 to 0 by 55%, rest; 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite",
+        "purpose": "A running step's accent ring: a one-way ripple with a rest."
+      },
+      {
+        "name": "step-call",
+        "value": "--ring 2px to 10px, opacity 0.9 to 0; 1.4s cubic-bezier(0.16, 1, 0.3, 1), twice",
+        "purpose": "A step waiting on the person (data-yours) calls twice, then rests on its static accent ring."
+      },
+      {
+        "name": "arrival",
+        "value": "motion-pop, replayed by useArrivals / useCleared (ui/useArrival.ts)",
+        "purpose": "Inbox count pops only when it rises; EmptyState cleared tile pops once into ok."
+      }
+    ],
+    "density": {
+      "comfortable": {
+        "row-sm": "28px",
+        "row": "36px",
+        "row-lg": "44px",
+        "chrome": "40px"
+      },
+      "compact": {
+        "row-sm": "28px",
+        "row": "32px",
+        "row-lg": "38px",
+        "chrome": "36px"
+      },
+      "note": "All heights are multiples of --type-rem (1rem x --type-scale); data-density=compact overrides three of them."
+    },
+    "radiiByFamily": {
+      "glass": {
+        "control": "12px",
+        "card": "16px"
+      },
+      "harbor": {
+        "control": "10px",
+        "card": "14px"
+      },
+      "orchard": {
+        "control": "10px",
+        "card": "14px"
+      },
+      "dune": {
+        "control": "10px",
+        "card": "14px"
+      },
+      "suede": {
+        "control": "12px",
+        "card": "16px"
+      }
+    },
+    "focus": {
+      "ring": "outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px",
+      "fields": "border-color: var(--color-accent); no outline, no box-shadow",
+      "selection": "color-mix(in oklch, var(--color-accent) 26%, transparent)",
+      "caret": "var(--color-accent)"
+    },
+    "dockClearance": {
+      "source": "desktop/src/ui/dockClearance.ts + styles.css [data-dock-clear] rule",
+      "gap": "8px",
+      "variable": "--dock-clear-bottom"
+    },
+    "themeDials": [
+      "data-theme",
+      "data-accent",
+      "data-density",
+      "data-font-ui",
+      "data-font-mono",
+      "--type-scale"
+    ],
+    "liveRunMap": {
+      "source": "theme/flow.css, ui/FlowCanvas.tsx (live), views/_workflow/Designer.tsx (yours, live)",
+      "taken": "stroke color-mix(in oklch, var(--color-text) 72%, transparent); width 2",
+      "skipped": "stroke color-mix(in oklch, var(--color-text-dim) 45%, transparent); dashed 4 4",
+      "selected": "stroke var(--color-text); width 3.5",
+      "live": "stroke var(--color-accent); width 2.5; round caps; dashed 7 5, moving",
+      "ring": "@property --ring <length>, initial 2px; ::after 2px accent border at inset -var(--ring), radius card radius (or --step-radius) + var(--ring)",
+      "nodeSelected": "box-shadow 0 0 0 2px color-mix(in oklch, var(--color-text) 60%, transparent)"
+    },
+    "measure": {
+      "token": "--container-measure",
+      "value": "36em",
+      "utility": "max-w-measure"
+    },
+    "containerQueries": {
+      "agents-teams-list-detail": "@2xl",
+      "appearance-tiles": "@xl / @2xl",
+      "inspector-forms": "@xs / @sm / @lg under the Inspector's @container root",
+      "dialog-body": "@container (ui/dialogLayout.mjs BODY)",
+      "inbox-list-width": "clamp(16rem, 38%, 22rem)"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single action a region asks for; accent fill, raised.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Create goal</button>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border:1px solid;border-radius:var(--radius-control);font:500 14px/1.5 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1),border-color 120ms cubic-bezier(0.2,0,0,1),color 120ms cubic-bezier(0.2,0,0,1),opacity 120ms cubic-bezier(0.2,0,0,1)}.ds-btn-primary{border-color:var(--color-accent);background:var(--color-accent);color:var(--color-accent-contrast);box-shadow:var(--shadow-raised)}.ds-btn-primary:hover{opacity:.9}.ds-btn-primary:active{opacity:.8}.ds-btn:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}.ds-btn:disabled{opacity:.45;pointer-events:none}"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Every other action; surface with an edge, raised.",
+      "html": "<button class=\"ds-btn2\">Open</button>",
+      "css": ".ds-btn2{display:inline-flex;align-items:center;height:32px;padding:0 12px;border:1px solid var(--color-border);border-radius:var(--radius-control);background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-raised);font:500 14px/1.5 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1)}.ds-btn2:hover{background:var(--color-surface-2)}.ds-btn2:active{background:color-mix(in oklch, var(--color-text) 9%, transparent)}.ds-btn2:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "An action inside a row that should not compete with its content.",
+      "html": "<button class=\"ds-btn3\">Edit</button>",
+      "css": ".ds-btn3{display:inline-flex;align-items:center;height:28px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-control);background:transparent;color:var(--color-text-dim);font:500 13px/1.45 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1),color 120ms cubic-bezier(0.2,0,0,1)}.ds-btn3:hover{background:var(--color-surface-2);color:var(--color-text)}.ds-btn3:active{background:color-mix(in oklch, var(--color-text) 9%, transparent)}.ds-btn3:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Anything that destroys; a quiet outline beside other verbs. What cannot be taken back confirms in a danger ConfirmDialog with one solid danger button.",
+      "html": "<button class=\"ds-btn4\">Delete</button>",
+      "css": ".ds-btn4{display:inline-flex;align-items:center;height:32px;padding:0 12px;border:1px solid var(--color-border);border-radius:var(--radius-control);background:transparent;color:var(--color-danger);font:500 14px/1.5 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1)}.ds-btn4:hover,.ds-btn4:active{background:var(--color-danger-soft)}.ds-btn4:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Native control; focus turns the border accent with no ring. Hint and error sit outside the label, tied by aria-describedby; an error is danger text with role=alert and marks the control aria-invalid.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Name</span><input class=\"ds-input\" placeholder=\"A short name\"></label>",
+      "css": ".ds-field{display:block;width:240px}.ds-field-label{display:block;margin-bottom:4px;font:500 12px/1.4 var(--font-sans,system-ui);color:var(--color-text-dim)}.ds-input{width:100%;padding:6px 10px;border:1px solid var(--color-border);border-radius:var(--radius-control);background:var(--color-surface);color:var(--color-text);font:400 13px/1.45 var(--font-sans,system-ui);transition:border-color 120ms cubic-bezier(0.2,0,0,1)}.ds-input::placeholder{color:var(--color-text-dim)}.ds-input:hover{border-color:color-mix(in oklch,var(--color-text-dim) 40%,transparent)}.ds-input:focus,.ds-input:focus-visible{border-color:var(--color-accent);outline:none;box-shadow:none}"
+    },
+    {
+      "name": "Sidebar Rows",
+      "kind": "nav",
+      "refersTo": "nav-row",
+      "description": "Row-height nav; the active row is a neutral selected wash. The Inbox door shows the needs-you count in the accent and unread as a separate neutral count; channel and DM unread are neutral.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-row\" href=\"#\">Inbox<span class=\"ds-wait\"><i></i>Waiting on you</span></a><a class=\"ds-nav-row ds-on\" href=\"#\" aria-current=\"page\">Projects</a><a class=\"ds-nav-row\" href=\"#\">Goals</a></nav>",
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:2px;width:220px;padding:10px 8px;background:var(--color-surface)}.ds-nav-row{display:flex;align-items:center;justify-content:space-between;gap:8px;height:36px;padding:0 8px;border-radius:var(--radius-control);color:var(--color-text-dim);font:400 13px/1.45 var(--font-sans,system-ui);text-decoration:none;transition:background-color 120ms cubic-bezier(0.2,0,0,1),color 120ms cubic-bezier(0.2,0,0,1)}.ds-nav-row:hover{background:var(--color-surface-2);color:var(--color-text)}.ds-nav-row.ds-on{background:color-mix(in oklch, var(--color-text) 9%, transparent);color:var(--color-text);font-weight:500}.ds-nav-row:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}.ds-wait{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px 0 6px;border-radius:9999px;background:var(--color-accent-soft);color:var(--color-accent-ink);font:600 12px/1.4 var(--font-sans,system-ui)}.ds-wait i{width:6px;height:6px;border-radius:9999px;background:var(--color-accent)}"
+    },
+    {
+      "name": "Chips",
+      "kind": "chip",
+      "refersTo": "chip-neutral",
+      "description": "Neutral borderless tags, quiet outlined not-yet states, accent only for running work.",
+      "html": "<div class=\"ds-chips\"><span class=\"ds-chip\">frontend</span><span class=\"ds-chip ds-quiet\">pending</span><span class=\"ds-chip ds-acc\">running</span><span class=\"ds-chip ds-ok\">done</span><span class=\"ds-chip ds-danger\">failed</span></div>",
+      "css": ".ds-chips{display:flex;flex-wrap:wrap;gap:4px}.ds-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border:1px solid transparent;border-radius:9999px;background:color-mix(in oklch,var(--color-surface-2) 70%,transparent);color:var(--color-text-dim);font:500 12px/1.4 var(--font-sans,system-ui);white-space:nowrap}.ds-quiet{background:transparent;border-color:var(--color-border)}.ds-acc{background:var(--color-accent-soft);color:var(--color-accent-ink)}.ds-ok{background:var(--color-ok-soft);color:var(--color-ok)}.ds-danger{background:var(--color-danger-soft);color:var(--color-danger)}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A bounded surface, raised by the family's shadow.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-t\">Ship the importer</h3><p class=\"ds-card-m\">2 steps left · updated 4 min ago</p></div>",
+      "css": ".ds-card{width:280px;padding:12px;border:1px solid var(--color-border);border-radius:var(--radius-card);background:var(--color-surface);box-shadow:var(--shadow-raised);transition:background-color 120ms cubic-bezier(0.2,0,0,1),border-color 120ms cubic-bezier(0.2,0,0,1)}.ds-card:hover{background:var(--color-surface-2)}.ds-card-t{margin:0;font:500 14px/1.5 var(--font-sans,system-ui);color:var(--color-text)}.ds-card-m{margin:4px 0 0;font:400 12px/1.4 var(--font-sans,system-ui);color:var(--color-text-dim)}"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "description": "Two to four options; the pressed segment lifts to surface, neutral.",
+      "html": "<div class=\"ds-seg\" role=\"group\"><button class=\"ds-seg-i ds-on\">Recent</button><button class=\"ds-seg-i\">Name</button><button class=\"ds-seg-i\">Status</button></div>",
+      "css": ".ds-seg{display:inline-flex;gap:2px;padding:2px;border:1px solid color-mix(in oklch,var(--color-border) 65%,transparent);border-radius:var(--radius-control);background:color-mix(in oklch,var(--color-surface-2) 70%,transparent)}.ds-seg-i{height:24px;padding:0 10px;border:0;border-radius:var(--radius-control);background:transparent;color:var(--color-text-dim);font:500 13px/1.45 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1),color 120ms cubic-bezier(0.2,0,0,1)}.ds-seg-i:hover{color:var(--color-text)}.ds-seg-i.ds-on{background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-raised)}.ds-seg-i:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}"
+    },
+    {
+      "name": "Empty State",
+      "kind": "custom",
+      "description": "Open, never boxed; a soft glyph tile, a title, a hint and its door.",
+      "html": "<div class=\"ds-empty\"><span class=\"ds-empty-i\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 12h-6l-2 3h-4l-2-3H2\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/></svg></span><p class=\"ds-empty-t\">Nothing waits on you</p><p class=\"ds-empty-h\">Decisions and questions from agents land here.</p><button class=\"ds-btn2\">Start a goal</button></div>",
+      "css": ".ds-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:40px 24px;text-align:center}.ds-empty-i{display:flex;align-items:center;justify-content:center;width:36px;height:36px;margin-bottom:6px;border-radius:var(--radius-control);background:color-mix(in oklch,var(--color-surface-2) 70%,transparent);color:var(--color-text-dim)}.ds-empty-t{margin:0;font:600 14px/1.5 var(--font-sans,system-ui);color:var(--color-text)}.ds-empty-h{margin:0 0 10px;max-width:24rem;font:400 13px/1.45 var(--font-sans,system-ui);color:var(--color-text-dim)}.ds-btn2{display:inline-flex;align-items:center;height:32px;padding:0 12px;border:1px solid var(--color-border);border-radius:var(--radius-control);background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-raised);font:500 14px/1.5 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1)}.ds-btn2:hover{background:var(--color-surface-2)}.ds-btn2:active{background:color-mix(in oklch, var(--color-text) 9%, transparent)}.ds-btn2:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "One Light On The Desk",
+    "overview": "Bisa is an Operate surface: a window a developer sits in for hours, running several coding harnesses beside terminals, an editor and an embedded browser. The system is built so that exactly one thing in the window glows, and that thing is whatever waits on the person. Everything else (the place you stand, the tab you are on, the chosen option, the identity of an agent) is drawn in neutrals that lean toward the family's hue. The accent is a summons, never decoration.\n\nThe visual world is a role contract, not a stylesheet (`desktop/src/theme/tokens.css`). Components ask for `surface`, `text-dim` or `danger-soft`, and whichever of the five families is mounted answers. Glass is the default and owns bare `:root`: cool translucent panes frosted over the desktop behind the window. Harbor, Orchard and Dune are opaque siblings that differ by the hue of their neutrals; Suede is the matte family with no drop shadows. Six orthogonal dials compose on `<html>`: theme, accent, density, UI font, mono font and type scale. Every family is held to a contrast promise and the role contract by tests (`theme/themes.test.mjs`, `theme/roles.test.mjs`).\n\nDensity is calm rather than packed: a 14px body, 12px as the reading floor, a 4px grid, three structural row heights that the Compact setting moves, sentence-case labels and open empty states. Motion is short, flat and skippable, and reduced motion is honoured at the token, so a component written next year inherits it.",
+    "keyCharacteristics": [
+      "One accent per family, spent only on what asks for the person's attention.",
+      "Neutral \"you are here\": selection, active tabs and pressed toggles use the derived `selected` wash, never the accent.",
+      "Five families, light and dark each, swapped as data on the same role names.",
+      "Elevation is two theme-owned roles (`shadow-raised`, `shadow-floating`); components never name a shadow of their own.",
+      "System UI font stack by default; Inter or Atkinson Hyperlegible and JetBrains Mono or IBM Plex Mono as bundled, offline dials.",
+      "Doors, not prose: empty states are open (no box) and carry their next action.",
+      "A workflow scans by family: each step kind's glyph wears a quiet tinted-neutral ink beside the shape that already tells it apart.",
+      "A run's canvas is a live map: one moving accent flow toward where the run stands, a breathing ring on running work, a twice-called ring on a step waiting on you."
+    ],
+    "rules": [
+      {
+        "name": "The One Summons Rule",
+        "body": "The accent means your attention. It appears on primary buttons, waiting-on-you badges and the needs-you count, \"new\" markers, an \"on\" Switch and a checked Checkbox (a decided state the person set), live/working dots and running states (a run canvas's live flow and step rings included), banners that ask for a decision now, focus rings and the caret, drag-and-drop target feedback, find matches and links in running prose. Nothing else wears it. Unread is news, not a summons: unread counts are neutral, and Inbox's source-tab counts are `quiet`. The sides of a conflict are neutral and told apart by glyph; tag names are neutral.",
+        "section": "colors"
+      },
+      {
+        "name": "The Neutral Here Rule",
+        "body": "The place you stand is not asking for anything. Selection, active tabs, pressed toggles, chosen options and identity chips use `selected`, `text`, or neutral tones; active indicator bars and tab underlines are drawn in `text` (at 70% on rails).",
+        "section": "colors"
+      },
+      {
+        "name": "The Waiting-On-You Rule",
+        "body": "\"Waiting on you\" is unified on the accent: the goal strip's holder tones are `you` = accent and `agents` = text (`views/_goals/goalStripModel.mjs`); Inbox and Pulse map the activity `wait` tone to accent ink; the NeedsAction, AskCard, YourMoveBand and StepActions treatments are accent-tinted. Warn stays for genuine caution.",
+        "section": "colors"
+      },
+      {
+        "name": "The Quiet Kind Rule",
+        "body": "A step's kind is never a summons or a state. Its ink is a tinted neutral (chroma at most 0.08, against the 0.12 and more of every accent and status), keeps at least 30° from the three status hues and from every family's accent and chosen overlay, and holds 3:1 against a card on its side. It goes on the glyph only, never on a card's ground, edge or text, and always beside the shape (ring, diamond, plain card) that already tells the families apart. `theme/stepInks.test.mjs` holds all of it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Words Stay Solid Rule",
+        "body": "On Glass, `bg`, `surface`, `surface-2` and `border` carry alpha; text, the accent and status colours never do, and every contrast bar is measured over the composite on both white and black.",
+        "section": "colors"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "Labels and headings are sentence case with no `uppercase` and no wide tracking; lowercase data (a kind, a tag, a step family) gets `capitalize`. A chip that stands alone at the head of its row (the goal holder chip, `views/_goals/HolderBadge.tsx`) capitalises only its first letter (`first-letter:uppercase`), while the model keeps the word as it reads mid-sentence. No eyebrows or kickers above headings, and no section numbers.",
+        "section": "typography"
+      },
+      {
+        "name": "The Twelve Floor Rule",
+        "body": "12px (`text-2xs`) is the floor for anything a person reads; 11px is reserved for badges and glyph labels.",
+        "section": "typography"
+      },
+      {
+        "name": "The Measure Rule",
+        "body": "Running text is held to `max-w-measure` (`--container-measure: 36em`, about 70 characters of the face at any scale step), never Tailwind's `max-w-prose` (65ch ran past 85 characters). Every `h1` to `h3` wraps balanced and every `p` wraps pretty (`styles.css`); in a document, paragraphs, list items and quotes hold the measure while tables and code keep their width.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Timestamps, counters, ids and code use tabular numerals (`.tnum`, `time`, `code`).",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Shadows Rule",
+        "body": "Raised or floating, from the family; nothing else. Interaction-specific lifts (the Board card in flight, the tree's nest ring) live as named classes in `styles.css`, not in components.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Panes Frost Rule",
+        "body": "Only panes frost. A dialog over a right panel stacks two blurs, which is the most there is; a surface read for minutes (the notes overlay) lays its own near-opaque ground. Code and terminals stay solid.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Irreversible Asks Rule",
+        "body": "What cannot be taken back is asked first, in a danger `ConfirmDialog` with one solid danger confirm that names what will go. What can be undone, or an untouched draft, goes at once.",
+        "section": "components"
+      },
+      {
+        "name": "The Live Page Rule",
+        "body": "A browser tab is a native view that paints over every DOM element, so the app decides what may stand over it. A *surface* — a dialog, a menu, a popover, the palette, a maximized Notes or Draw panel — makes the page step aside while it is open (`ui/openSurfaces.ts`). A *floating overlay* — the Notes and Draw panels while floating, their docks, the pet, an addon window — never does: it says its painted box (`shell/browserClear.ts`), and the browser layer cuts a hole for it (`browser.rs`, `BisaBrowserLayer`: a Core Animation mask for what shows, `hitTest:` for what is clicked), so the overlay shows and takes its own clicks while the page stays full size and live around it. Never freeze a page into a picture or shrink it to make room for an overlay. Off macOS the layer cannot cut yet; an addon window still hides by intersection there.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** ask for roles (`surface`, `text-dim`, `accent-ink`, `danger-soft`), never a colour; a new theme is a data change.",
+      "**Do** spend the accent only on a summons: primary buttons, waiting-on-you and the needs-you count, \"new\" markers, an on Switch or checked Checkbox, live and running, decision banners, focus, drop targets, find matches, links in prose. Unread counts are neutral.",
+      "**Do** ask before anything that cannot be taken back, in a danger `ConfirmDialog` that names what will go (The Irreversible Asks Rule).",
+      "**Do** give a disabled button its reason with `disabledReason`, and a refused value its reason with `Field`'s `error`.",
+      "**Do** draw where-you-are with `selected` and full ink, and indicator bars in `text` (70% on rails).",
+      "**Do** keep one `primary` per region: a dialog's confirm, a form's submit, a screen's main create action, an empty state's door. Per-row and per-card actions are `default` or `ghost`.",
+      "**Do** use `border` for the edge of a thing and `hairline` for dividers inside it.",
+      "**Do** build lists on `row-sm` / `row` / `row-lg` so Compact keeps working.",
+      "**Do** use `shadow-sm` for raised and `shadow-lg` for floating, and mark floating panes `data-pane`.",
+      "**Do** keep 12px (`text-2xs`) as the reading floor and sentence case everywhere.",
+      "**Do** take durations from `--motion-*`, so reduced motion is honoured for free.",
+      "**Do** give every empty state an action, and let the content make room for a floating dock rather than moving the dock.",
+      "**Do** colour a step's kind only through `familyInk` / `familyFrame` / `familyColor`, on its glyph, beside its shape.",
+      "**Do** hold running text to `max-w-measure`, and use one content-heading tier (14px semibold `text`).",
+      "**Do** lay out by container (`@container` with `@xs` to `@2xl`) so a component reads the same in a dialog, a pane or a screen.",
+      "**Do** publish a floating overlay's box with `useBrowserClear` so a browser tab is cut around it, and keep the page live (The Live Page Rule).",
+      "**Do** wear the Git mark where git is the tool, and a kit glyph for a git concept."
+    ],
+    "donts": [
+      "**Don't** put the accent on a selected row, an active tab, a pressed toggle, an identity or kind chip, or an informational banner that asks nothing; those use `selected`, neutral chips, or `surface-2/70` with an edge.",
+      "**Don't** use `warn` for \"waiting on you\"; warn is caution, and the summons is the accent.",
+      "**Don't** give text, the accent or status colours alpha on a glass family.",
+      "**Don't** name a shadow, a glow or a pixel radius in a component (`rounded-[12px]` is test-forbidden).",
+      "**Don't** nest a bordered card inside a bordered card, or box an empty state in a dashed frame.",
+      "**Don't** add `uppercase` or wide tracking to labels, or eyebrows and section numbers above headings.",
+      "**Don't** stand a unicode glyph in for an icon in markup; use the kit's `ICON.*`.",
+      "**Don't** add coloured side stripes thicker than 1px to cards, rows or callouts.",
+      "**Don't** let `danger` sit beside an accent fill as a bare fill; it arrives as `danger-soft` behind `danger` text.",
+      "**Don't** put a step-family ink on a card's ground, edge or words, or let it stand in for a state; goal step chips keep the state colour.",
+      "**Don't** move anything else on a run's canvas: the live flow is the one moving thing and the one accent flow.",
+      "**Don't** show a person a raw error string, or an empty state for a list that failed to read; use a catalog sentence and `ErrorNote` with Retry.",
+      "**Don't** wrap a group of controls or a copy button in `Field`; use `Labelled`."
+    ]
+  }
+}

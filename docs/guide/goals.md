@@ -100,9 +100,7 @@ take — a publish, a guard's ask — is withdrawn with a line saying where to a
 and is drawn as a goal with no run; the diagnostic log names the file. The header names the goal by its words — the title with the statement under it, or the
 sentence alone when it has no title, never its id — with an arrow at its left back to the Goals list,
 then the holder and the run as a large strip with *n of m steps*; the run's verbs — *Start run…*, *Adopt and start…* or *New
-run…* (queued behind a live run), and *Stop* while a run is live or queued — the **Browser**
-button (the embedded browser beside the goal: the tabs its agents opened, a dot while one is
-browsing, the pane shown or hidden — [the desktop](the-desktop.md#the-browser-pane)), the
+run…* (queued behind a live run), and *Stop* while a run is live or queued — the
 details toggle, and a menu (*Conversations about this goal*, *Choose workflow…*, *Promote to
 library* on a goal with its own design, *Assign…*, *Projects…*, *Restart* on a goal that ran, and
 the closing and retiring items). *Close goal…* asks two things, both optional: **why** — a word kept

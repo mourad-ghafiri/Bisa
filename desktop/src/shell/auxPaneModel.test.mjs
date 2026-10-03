@@ -3,7 +3,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AUX_DEFAULT_WIDTH, AUX_MAX_SHARE, AUX_MIN_WIDTH, AUX_WIDTH_KEY, auxBounds, shownWidth, toggledAux } from "./auxPaneModel.mjs";
+import { AUX_DEFAULT_WIDTH, AUX_MAX_SHARE, AUX_MIN_WIDTH, AUX_WIDTH_KEY, SCREEN_MIN_WIDTH, auxBounds, shownWidth, toggledAux } from "./auxPaneModel.mjs";
 
 test("the same occupant closes the pane — with no tab in mind, or with the tab it shows; another tab switches; another occupant opens", () => {
   assert.equal(toggledAux({ kind: "browser", id: "b3" }, "browser"), null, "⌘⇧L on a pane opened on a tab closes it at once");
@@ -14,11 +14,14 @@ test("the same occupant closes the pane — with no tab in mind, or with the tab
   assert.deepEqual(toggledAux({ kind: null, id: null }, "browser", "b1"), { aux: "browser", auxId: "b1" }, "a closed pane opens on the tab");
 });
 
-test("the pane may take seven tenths of the room, never less than its floor", () => {
+test("the pane may take seven tenths of the room and what leaves the screen beside it its least, never less than its floor", () => {
   assert.equal(AUX_MAX_SHARE, 0.7);
-  assert.deepEqual(auxBounds(1000), { min: 300, max: 700 });
-  assert.deepEqual(auxBounds(1440), { min: 300, max: 1008 });
-  assert.deepEqual(auxBounds(1001), { min: 300, max: 700 }, "whole pixels");
+  assert.equal(SCREEN_MIN_WIDTH, 420);
+  assert.deepEqual(auxBounds(1440), { min: 300, max: 1008 }, "a wide room: the share is the bound");
+  assert.deepEqual(auxBounds(2000), { min: 300, max: 1400 });
+  assert.deepEqual(auxBounds(1000), { min: 300, max: 580 }, "a narrower room: the screen beside keeps its 420");
+  assert.deepEqual(auxBounds(1000.6), { min: 300, max: 580 }, "whole pixels");
+  assert.deepEqual(auxBounds(744), { min: 300, max: 324 }, "a 1024px window: the default pane gives way so a goal's steps keep their names");
   assert.deepEqual(auxBounds(400), { min: 300, max: 300 }, "a narrow column: the floor twice, so the handle keeps a range");
   assert.equal(AUX_MIN_WIDTH, 300);
   assert.equal(AUX_DEFAULT_WIDTH, 380);
@@ -37,7 +40,7 @@ test("a column not yet measured bounds nothing above the floor", () => {
 test("what is drawn is the chosen width held within the room, the choice itself untouched", () => {
   const b = auxBounds(1000);
   assert.equal(shownWidth(500, b), 500);
-  assert.equal(shownWidth(900, b), 700, "past the room: drawn at the bound");
+  assert.equal(shownWidth(900, b), 580, "past the room: drawn at the bound");
   assert.equal(shownWidth(120, b), 300, "under the floor: drawn at the floor");
   assert.equal(shownWidth(900, auxBounds(2000)), 900, "the room grown back: the choice returns");
 });

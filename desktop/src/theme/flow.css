@@ -14,7 +14,7 @@
   --xy-background-color: var(--color-bg);
   --xy-background-pattern-color: color-mix(in oklch, var(--color-border) 70%, transparent);
   --xy-edge-stroke: var(--color-text-dim);
-  --xy-edge-stroke-selected: var(--color-accent);
+  --xy-edge-stroke-selected: var(--color-text);
   --xy-edge-stroke-width: 1.5;
   --xy-edge-label-background-color: var(--color-surface);
   --xy-edge-label-color: var(--color-text-dim);
@@ -39,15 +39,17 @@
   --xy-node-border: 1px solid var(--color-border);
   --xy-node-background-color: var(--color-surface);
   --xy-node-boxshadow-hover: none;
-  --xy-node-boxshadow-selected: 0 0 0 2px var(--color-accent);
-  --xy-selection-background-color: color-mix(in oklch, var(--color-accent) 12%, transparent);
-  --xy-selection-border: 1px dashed var(--color-accent);
+  --xy-node-boxshadow-selected: 0 0 0 2px color-mix(in oklch, var(--color-text) 60%, transparent);
+  --xy-selection-background-color: color-mix(in oklch, var(--color-text) 6%, transparent);
+  --xy-selection-border: 1px dashed color-mix(in oklch, var(--color-text) 45%, transparent);
   --xy-resize-background-color: var(--color-accent);
 }
 
-/* Edge tones: a taken flow reads as the accent, a skipped one recedes. */
+/* Edge tones: a taken flow is the way the run went — drawn firm in the
+   text's ink, the record of the path — and a skipped one recedes. The
+   accent is kept for where the run stands now (`.is-live`, below). */
 .bisa-flow .react-flow__edge.tone-taken .react-flow__edge-path {
-  stroke: var(--color-accent);
+  stroke: color-mix(in oklch, var(--color-text) 72%, transparent);
   stroke-width: 2;
 }
 .bisa-flow .react-flow__edge.tone-skipped .react-flow__edge-path {
@@ -76,7 +78,7 @@
 }
 /* Taken — the boundary fired and the run went this way — it reads as any taken flow. */
 .bisa-flow .react-flow__edge.kind-boundary.tone-taken .react-flow__edge-path {
-  stroke: var(--color-accent);
+  stroke: color-mix(in oklch, var(--color-text) 72%, transparent);
   stroke-width: 2;
 }
 .bisa-flow .react-flow__arrowhead polyline {
@@ -88,8 +90,114 @@
   stroke: var(--color-danger);
 }
 .bisa-flow .react-flow__edge.tone-taken .react-flow__arrowhead polyline {
+  fill: color-mix(in oklch, var(--color-text) 72%, transparent);
+  stroke: color-mix(in oklch, var(--color-text) 72%, transparent);
+}
+
+/* A selected flow is firmer and wider than a taken one (full ink at 3.5
+   against 72% at 2), so on a run's canvas a selection is never read as the
+   route. */
+.bisa-flow .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 3.5;
+}
+
+/* ---------------------------------------------------------------------------
+   The live map: a run's canvas shows where the run stands, not only where it
+   has been. Three motions, each a state and nothing else:
+
+   - The flow the run came along to the step it stands on moves toward it —
+     the one moving thing on the canvas, and the one flow in the accent.
+   - A running step breathes: a ring that swells and fades, slow and small,
+     so a canvas of work in progress reads as alive, not busy.
+   - A step waiting on you calls: the ring goes out twice when it arrives
+     (or when you open the run), then rests on the accent's static ring.
+
+   A step's ring itself is a morph, never a cut: pending to running to done is
+   one ring changing colour. Under reduced motion nothing moves — the flow is
+   solid, the rings are still — and the rings and the flow's colour still say
+   all three.
+--------------------------------------------------------------------------- */
+.bisa-flow .react-flow__edge.is-live .react-flow__edge-path {
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 7 5;
+  animation: bisa-flow-along 900ms linear infinite;
+}
+.bisa-flow .react-flow__edge.is-live .react-flow__arrowhead polyline {
   fill: var(--color-accent);
   stroke: var(--color-accent);
+}
+@keyframes bisa-flow-along {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+.bisa-flow .step-card {
+  transition:
+    box-shadow var(--motion-slow) var(--motion-ease),
+    border-color var(--motion-slow) var(--motion-ease),
+    opacity var(--motion-slow) var(--motion-ease);
+}
+/* The ring's distance from the card, as one animatable length: it drives the
+   inset and the radius together, so a ring that grows stays concentric with
+   its card — a radius left at the card's would square the outer corners. A
+   card's radius is the family's card radius unless it says its own
+   (`--step-radius`, an event's pill). */
+@property --ring {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 2px;
+}
+.bisa-flow .step-card::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--ring));
+  border: 2px solid var(--color-accent);
+  border-radius: calc(var(--step-radius, var(--radius-card)) + var(--ring));
+  opacity: 0;
+  pointer-events: none;
+}
+/* Both rings grow by their distance (`--ring`), never by a scale: a scale
+   stretches a 220px card's ring far more across than up and down, and
+   bends its corners. The breathe is a ripple that goes out and rests, not a pulse
+   that snaps back; the call is the same ripple, wider, twice. */
+.bisa-flow .step-card[data-run-state="running"]::after {
+  animation: bisa-step-breathe 2.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+.bisa-flow .step-card[data-yours]::after {
+  animation: bisa-step-call 1.4s cubic-bezier(0.16, 1, 0.3, 1) 2;
+}
+@keyframes bisa-step-breathe {
+  0% {
+    --ring: 2px;
+    opacity: 0.5;
+  }
+  55%,
+  100% {
+    --ring: 7px;
+    opacity: 0;
+  }
+}
+@keyframes bisa-step-call {
+  from {
+    --ring: 2px;
+    opacity: 0.9;
+  }
+  to {
+    --ring: 10px;
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bisa-flow .react-flow__edge.is-live .react-flow__edge-path {
+    animation: none;
+    stroke-dasharray: none;
+  }
+  .bisa-flow .step-card::after {
+    animation: none;
+  }
 }
 /* The step node is a kit surface, not xyflow's default box. */
 .bisa-flow .react-flow__node {
@@ -98,10 +206,27 @@
   box-shadow: none;
   border-radius: var(--radius-card);
 }
+/* Selection is where you are, so it is drawn in the text role, never the
+   accent: on this canvas the accent is where the run stands — the flow moving
+   into the live step — and a step waiting on you, and a selected node in the
+   same colour would read as one. */
 .bisa-flow .react-flow__node.selected > * {
-  box-shadow: 0 0 0 2px var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-text) 60%, transparent);
 }
 .bisa-flow .react-flow__handle {
   width: 8px;
   height: 8px;
+}
+/* A keyboard that tabs onto a step sees where it stands. xyflow drops a
+   node's own outline (`.react-flow__node.selectable:focus-visible { outline:
+   none }`), so the kit's one ring is drawn on the card itself: the accent,
+   2px wide and 2px off, following the card's own radius — the card's, or an
+   event's pill. */
+.bisa-flow .react-flow__node:focus-visible > * {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+/* A flow's label is read like any meta: the reading floor, not xyflow's 10px. */
+.bisa-flow .react-flow__edge-text {
+  font-size: var(--text-2xs);
 }

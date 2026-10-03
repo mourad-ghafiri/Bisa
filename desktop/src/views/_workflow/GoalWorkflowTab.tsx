@@ -34,7 +34,7 @@ import { setSearch, useSearchValue } from "../../router";
 import { placeOf, useViewState } from "../../shell/viewMemoryStore";
 import { idValue } from "../../shell/viewValuesModel.mjs";
 import type { GoalView, ListenerView, NewWorkflowBody, Problem, Workflow, WorkflowRun } from "../../types";
-import { Button, Chip, ErrorNote, ICON, LinkedText, SkeletonRows, useToast } from "../../ui";
+import { Button, Chip, ConfirmDialog, ErrorNote, ICON, LinkedText, SkeletonRows, failureText, cn, useToast } from "../../ui";
 import { readKey } from "../_work/keptReadsModel.mjs";
 import { attempt, useAsync } from "../_work/useAsync";
 import { Designer } from "./Designer";
@@ -56,7 +56,9 @@ import { startInputs as askedAtStart } from "./forms/startForm.mjs";
 import { blankWorkflow } from "./stepKinds.mjs";
 import { useDesignDraft } from "./designDraftStore";
 import { canRedo, canUndo, create, push, redo, undo } from "./history.mjs";
+import { draftChanged } from "./designDraftModel.mjs";
 import { addStep } from "./workflowGraph.mjs";
+import { fitColumns } from "../_workbench/ideColumnsModel.mjs";
 import { useDesignerSettings } from "./useDesignerSettings";
 import { useLiveValidation } from "./useLiveValidation";
 import { failedStep } from "./runView.mjs";
@@ -67,6 +69,10 @@ import { t } from "../../i18n/l10n.mjs";
 // frame while the Workflow Agent designs, so a literal here was a loop.
 const NO_PROBLEMS: readonly Problem[] = Object.freeze([]);
 const NO_LISTENERS: readonly ListenerView[] = Object.freeze([]);
+/** The palette's column with its words (`w-40`), and the inspector's width and its least. */
+const PALETTE_WIDTH = 160;
+const INSPECTOR_WIDTH = 320;
+const INSPECTOR_MIN = 240;
 
 export function GoalWorkflowTab({
   view,
@@ -82,6 +88,18 @@ export function GoalWorkflowTab({
   const toast = useToast();
   const settings = useDesignerSettings();
   const { goal, run, runs, pending_gates, guidance } = view;
+  // The palette, the canvas and the inspector share the row as the designer's
+  // do (`ideColumnsModel.fitColumns`): the inspector gives way to its least,
+  // then the palette folds to its glyphs; the canvas is the work.
+  const [rowEl, setRowEl] = useState<HTMLDivElement | null>(null);
+  const [rowWidth, setRowWidth] = useState(0);
+  useEffect(() => {
+    if (!rowEl) return;
+    setRowWidth(rowEl.getBoundingClientRect().width);
+    const ro = new ResizeObserver((entries) => setRowWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(rowEl);
+    return () => ro.disconnect();
+  }, [rowEl]);
   // What the tab was left on is kept under the goal's place.
   const place = placeOf({ name: "goal", id: goal.id });
   // A run-strip chip elsewhere lands here with `?step=<id>` — that step opens selected.
@@ -104,6 +122,8 @@ export function GoalWorkflowTab({
   // discard what was drawn.
   const [draft, setDraft] = useDesignDraft(goal.id);
   const [serverProblems, setServerProblems] = useState<Problem[]>([]);
+  // *Discard changes* asks first once the drawing holds an edit.
+  const [discarding, setDiscarding] = useState(false);
   // Leaving the window with edits to undo asks first: the drawing as it
   // stands is kept, the way back through it is not.
   useEffect(() => {
@@ -241,7 +261,7 @@ export function GoalWorkflowTab({
     } catch (e) {
       const problems = e instanceof ApiError ? problemsFromErrorBody(e.body) : [];
       if (problems.length > 0) setServerProblems(problems);
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("workflow", "goal-workflow-tab-failed", e));
     }
   };
 
@@ -269,17 +289,32 @@ export function GoalWorkflowTab({
   const record = selected && activeRun ? activeRun.steps[selected] : null;
   const step = selected ? value.steps.find((s) => s.id === selected) : undefined;
   const canSave = !!draft && draftProblems.length === 0 && !live.validating;
+  const discardDraft = () => {
+    setDraft(null);
+    setServerProblems([]);
+  };
   // The name and inputs the start dialog and the bar read: the stored
   // workflow's, or the drawing's on a blank canvas.
   const shownName = workflow?.name ?? value.name;
   // Starting by listening asks only what its events do not supply.
   const startInputs = askedAtStart(workflow ?? value, listen);
 
+  const fit = fitColumns({ total: rowWidth, fixed: 0, rail: PALETTE_WIDTH, railMin: PALETTE_WIDTH, railOpen: draft !== null, right: INSPECTOR_WIDTH, rightMin: INSPECTOR_MIN, rightOpen: true });
+  const paletteCompact = fit.railFolded;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {workflow && workflow.origin.origin === "goal" && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent-soft px-3 py-1.5 text-2xs text-accent-ink">
-          <ICON.coreAgent size={13} aria-hidden />
+        // The accent only while the strip asks something of the person — a
+        // proposal to review and adopt; "designed for this goal" and a run's
+        // own copy are facts, and wear the neutral ground.
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2 border-b px-3 py-1.5 text-2xs",
+            proposed && !activeRun ? "border-accent/40 bg-accent-soft text-accent-ink" : "border-hairline bg-surface-2/70 text-text",
+          )}
+        >
+          <ICON.coreAgent size={13} aria-hidden className={proposed && !activeRun ? undefined : "text-text-dim"} />
           <span className="font-medium">{proposed ? t("workflow-goal-workflow-tab-proposed-by-workflow-agent") : t("workflow-goal-workflow-tab-designed-for-goal")}</span>
           <span className="text-text-dim">
             {activeRun
@@ -293,7 +328,7 @@ export function GoalWorkflowTab({
       {activeRun ? (
         <RunOverlay run={activeRun} runs={runs} onPickRun={setViewingRun} />
       ) : (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-2xs">
+        <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-1.5 text-2xs">
           <ICON.workflow size={13} aria-hidden className="text-text-dim" />
           <span className="font-medium">{shownName || t("workflow-goal-workflow-tab-untitled-workflow")}</span>
           {workflow ? <Chip tone="quiet">{t("workflow-goal-workflow-tab-rev", { revision: workflow.revision })}</Chip> : <Chip tone="quiet">{t("workflow-goal-workflow-tab-not-saved-yet")}</Chip>}
@@ -311,8 +346,9 @@ export function GoalWorkflowTab({
         )}
         {!closed && !unfinished && (
           <>
+            {/* While a drawing is open its Save is the one ask; Start steps back. */}
             {offer && workflow && (
-              <Button size="sm" variant="primary" onClick={() => setStarting(true)}>
+              <Button size="sm" variant={draft ? "default" : "primary"} onClick={() => setStarting(true)}>
                 {offer.listen ? <ICON.signal size={12} aria-hidden /> : <ICON.run size={12} aria-hidden />}
                 {offer.label}
               </Button>
@@ -355,25 +391,38 @@ export function GoalWorkflowTab({
                 {t("workflow-goal-workflow-tab-problems-count", { n: draftProblems.length })}
               </Chip>
             )}
-            <Button size="sm" variant="primary" disabled={!canSave} title={canSave ? undefined : t("workflow-goal-workflow-tab-fix-problems-first")} onClick={() => void saveDesign()}>{t("workflow-goal-workflow-tab-save-changes")}</Button>
             <Button
               size="sm"
-              variant="ghost"
-              onClick={() => {
-                setDraft(null);
-                setServerProblems([]);
-              }}
-            >{t("workflow-goal-workflow-tab-cancel")}</Button>
+              variant="primary"
+              disabled={!canSave}
+              disabledReason={draftProblems.length > 0 ? t("workflow-goal-workflow-tab-fix-problems-first") : t("workflow-goal-workflow-tab-checking-steps")}
+              onClick={() => void saveDesign()}
+            >{t("workflow-goal-workflow-tab-save-changes")}</Button>
+            {/* An untouched drawing closes at once; one that differs from the stored workflow asks, since nothing brings it back — a draft restored after a restart included (`draftChanged`). */}
+            <Button size="sm" variant="ghost" onClick={() => (draftChanged(draft?.present, stored_body, !!draft && canUndo(draft)) ? setDiscarding(true) : discardDraft())}>{t("workflow-goal-workflow-tab-discard-changes")}</Button>
           </>
         )}
+        <ConfirmDialog
+          open={discarding}
+          onClose={() => setDiscarding(false)}
+          title={t("workflow-goal-workflow-tab-discard-your-changes")}
+          body={t("workflow-goal-workflow-tab-discard-body")}
+          confirmLabel={t("workflow-goal-workflow-tab-discard-changes")}
+          danger
+          onConfirm={() => {
+            setDiscarding(false);
+            discardDraft();
+          }}
+        />
       </div>
 
       {/* The goal's thread is its Conversation tab; this tab is the canvas. */}
-      <div className="flex min-h-0 flex-1">
+      <div ref={setRowEl} className="flex min-h-0 flex-1">
         {draft && (
-          <aside data-scroll-keep="workflow:palette" className="w-40 shrink-0 overflow-y-auto border-r border-border p-2">
-            <h3 className="mb-1 px-2 text-2xs font-semibold tracking-wide text-text-dim uppercase">{t("workflow-goal-workflow-tab-steps-2")}</h3>
+          <aside data-scroll-keep="workflow:palette" className={cn("shrink-0 overflow-y-auto border-r border-border", paletteCompact ? "w-12 px-1.5 py-2" : "w-40 p-2")}>
+            <h3 className={paletteCompact ? "sr-only" : "mb-2 px-2 pt-1 text-sm font-semibold text-text"}>{t("workflow-goal-workflow-tab-steps-2")}</h3>
             <Palette
+              compact={paletteCompact}
               onAdd={(kind) => {
                 const { wf, id } = addStep(draft.present, kind);
                 draftEdit(wf);
@@ -381,10 +430,10 @@ export function GoalWorkflowTab({
                 revealStep(id);
               }}
             />
-            <p className="mt-3 px-2 text-2xs text-text-dim">{t("workflow-goal-workflow-tab-new-steps-part-plan-will-start")}</p>
+            {!paletteCompact && <p className="mt-5 px-2 text-2xs leading-relaxed text-text-dim">{t("workflow-goal-workflow-tab-new-steps-part-plan-will-start")}</p>}
           </aside>
         )}
-        <main className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1">
           <Designer
             value={value}
             problems={draftProblems}
@@ -404,24 +453,24 @@ export function GoalWorkflowTab({
             startViewport={startViewport}
             onViewport={keepViewport}
           />
-        </main>
-        <aside data-scroll-keep="workflow:inspector" className="w-80 shrink-0 overflow-y-auto border-l border-border">
+        </div>
+        <aside data-scroll-keep="workflow:inspector" className="shrink-0 overflow-y-auto border-l border-border" style={{ width: fit.right ?? INSPECTOR_WIDTH }}>
           {draft && (
-            <div className="border-b border-border p-3">
-              <h3 className="mb-1 text-2xs font-semibold tracking-wide text-text-dim uppercase">{t("workflow-goal-workflow-tab-problems")}</h3>
+            <div className="border-b border-hairline px-4 py-3">
+              <h3 className="mb-1.5 text-2xs font-semibold text-text-dim">{t("workflow-goal-workflow-tab-problems")}</h3>
               <ProblemsList problems={draftProblems} unreadable={live.error} onSelect={setSelected} />
             </div>
           )}
           {step && activeRun && !draft && (
-            <div className="p-3">
+            <div className="px-4 py-3">
               <StepActions run={activeRun.id} step={step} record={record} onChanged={onChanged} onOpenItem={onOpenItem} onDecide={onGoToGate} />
             </div>
           )}
           {step && activeRun && !draft && (
-            <div className="border-t border-border px-3 py-2 text-2xs text-text-dim">
+            <div className="border-t border-hairline px-4 py-2 text-2xs text-text-dim">
               {record?.error && <p className="text-danger">{record.error}</p>}
               {record?.output !== undefined && record?.output !== null && (
-                <LinkedText as="pre" className="mt-1 max-h-64 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-3xs" text={JSON.stringify(record.output, null, 2)} />
+                <LinkedText as="pre" className="mt-1 max-h-64 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-2xs" text={JSON.stringify(record.output, null, 2)} />
               )}
             </div>
           )}

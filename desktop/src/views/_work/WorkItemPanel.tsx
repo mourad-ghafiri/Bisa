@@ -7,6 +7,7 @@
  * long run streams in rather than refetching from the top.
  */
 
+import { Fragment } from "react";
 import { api } from "../../api";
 import type { WorkItemSpec } from "../../types";
 import {
@@ -70,12 +71,17 @@ export function WorkItemPanel({
   const item = data.item;
 
   return (
-    <div className="flex flex-col gap-4 p-3">
+    <div className="flex flex-col gap-5 p-3">
       <div className="flex flex-wrap items-center gap-1.5">
         <WorkItemStateChip state={item.state} />
         {item.harness_candidates.length > 0 && (
           <Chip tone="quiet" icon={ICON.harness}>
-            {item.harness_candidates.join(" → ")}
+            {item.harness_candidates.map((h, i) => (
+              <Fragment key={`${i}:${h}`}>
+                {i > 0 && <ICON.forward size={10} aria-hidden className="shrink-0" />}
+                {h}
+              </Fragment>
+            ))}
           </Chip>
         )}
         {/* Where its files are, and where a terminal can be opened on them —
@@ -106,16 +112,16 @@ export function WorkItemPanel({
       */}
       <section className="grid gap-2 sm:grid-cols-2">
         <div>
-          <SectionHeader title={t("work-work-item-panel-requested")} />
+          <SectionHeader flush title={t("work-work-item-panel-requested")} />
           <AssigneeTags
             value={(item.assignees ?? []).map(assigneeWire)}
             empty={t("work-work-item-panel-nobody-particular-follows-goal-s-own")}
           />
         </div>
         <div>
-          <SectionHeader title={t("work-work-item-panel-running")} />
+          <SectionHeader flush title={t("work-work-item-panel-running")} />
           {item.agent ? (
-            <Chip tone="accent" icon={ICON.agent}>
+            <Chip tone="neutral" icon={ICON.agent}>
               {item.agent}
             </Chip>
           ) : (
@@ -128,8 +134,8 @@ export function WorkItemPanel({
           backticks, the occasional table — and a monospace-free wall of it was
           the last place in the app still showing the source. */}
       <section>
-        <SectionHeader title={t("work-work-item-panel-instructions")} />
-        <div className="rounded-control border border-border bg-surface-2 p-2">
+        <SectionHeader flush title={t("work-work-item-panel-instructions")} />
+        <div className="rounded-control bg-surface-2 p-2">
           <Markdown text={item.instructions} />
         </div>
       </section>
@@ -148,11 +154,11 @@ export function WorkItemPanel({
       )}
 
       <section>
-        <SectionHeader title={t("work-work-item-panel-result")} />
+        <SectionHeader flush title={t("work-work-item-panel-result")} />
         {data.result ? (
           <LinkedText
             as="pre"
-            className="max-h-56 overflow-auto rounded-control border border-border bg-surface-2 p-2 font-mono text-2xs"
+            className="max-h-56 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-2xs"
             text={JSON.stringify(data.result, null, 2)}
           />
         ) : (
@@ -160,7 +166,7 @@ export function WorkItemPanel({
         )}
         {data.has_result && (
           <a
-            className="anim mt-2 inline-flex items-center gap-1.5 text-2xs text-accent-ink underline underline-offset-2"
+            className="anim mt-2 inline-flex items-center gap-1.5 rounded-sm text-2xs text-text underline decoration-text-dim/50 underline-offset-2 hover:decoration-text"
             href={api.resultUrl(item.id)}
             download={`${item.id}.patch`}
           >
@@ -169,7 +175,7 @@ export function WorkItemPanel({
       </section>
 
       <section>
-        <SectionHeader title={t("work-work-item-panel-session-transcript")} />
+        <SectionHeader flush title={t("work-work-item-panel-session-transcript")} />
         <SessionTranscript session={item.id} live={isLive(item)} />
       </section>
     </div>

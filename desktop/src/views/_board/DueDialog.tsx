@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../../api";
-import { Button, DateInput, Dialog, Field, useToast } from "../../ui";
+import { Button, DateInput, Dialog, Field, failureText, useToast } from "../../ui";
 import { dueTone, todayKey } from "./boardModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -39,7 +39,7 @@ export function DueDialog({
       onSaved();
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("board", "due-dialog-failed", e));
     } finally {
       setBusy(false);
     }

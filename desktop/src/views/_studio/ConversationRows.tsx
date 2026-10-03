@@ -175,7 +175,8 @@ export function ConversationRows({
                 className={cn(
                   "anim flex min-w-0 flex-1 flex-col gap-0.5 rounded-control px-2 text-left hover:bg-surface-2",
                   dense ? "py-1" : "py-1.5",
-                  active && "bg-surface-2",
+                  // The picked row is the selected ground, distinct from a hover.
+                  active && "bg-selected",
                 )}
               >
                 <span className="flex min-w-0 items-center gap-1.5">

@@ -88,7 +88,7 @@ export function SecretTextArea({ value, onChange, stored = false, what = t("ui-s
           type="button"
           disabled={disabled}
           aria-label={view.shows === "draft" ? t("ui-secret-input-hidden-press-type", { what }) : view.placeholder || t("ui-secret-input-what-stored", { what })}
-          className={cn("anim w-full rounded-control border border-border bg-surface px-2 py-1.5 pr-8 text-left font-mono text-2xs", view.shows === "empty" ? "text-text-dim" : "text-text-dim")}
+          className={cn("anim w-full rounded-control border border-border bg-surface px-2 py-1.5 pr-8 text-left font-mono text-2xs hover:border-text-dim/40 disabled:cursor-not-allowed disabled:opacity-60", view.shows === "empty" ? "text-text-dim" : "text-text-dim")}
           onClick={() => setRevealed(true)}
         >
           {view.shows === "draft" ? foldedWords(value) : view.shows === "stored" ? view.value : view.placeholder}

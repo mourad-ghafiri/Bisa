@@ -52,7 +52,7 @@ export function DocumentsCard({ goal, readOnly = false, onOpenFiles }: { goal: s
 
   return (
     <section>
-      <SectionHeader
+      <SectionHeader flush
         title={t("work-documents-card-documents")}
         count={rows.length}
         action={

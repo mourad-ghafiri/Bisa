@@ -108,6 +108,24 @@ export function safeCssValue(value) {
   return v;
 }
 
+/**
+ * A colour with its alpha taken off. The overlay is drawn inside a page that
+ * has no frost behind it, so glass's translucent `surface` would let the
+ * page's own words read through the note box: its ground is the same colour,
+ * solid. An opaque family's value, a keyword or anything nested
+ * (`color-mix(…)`, `var(…)`) passes as it is.
+ * @param {string} value a colour as the theme spells it
+ */
+export function opaque(value) {
+  const m = /^(oklch|oklab|lch|lab|rgba?|hsla?|hwb|color)\((.*)\)$/i.exec(value.trim());
+  if (!m || m[2].includes("(")) return value;
+  const fn = m[1].toLowerCase();
+  let body = m[2].trim();
+  if (body.includes("/")) body = body.slice(0, body.lastIndexOf("/")).trim();
+  else if (fn === "rgba" || fn === "hsla") body = body.split(",").slice(0, 3).join(",").trim();
+  return `${fn === "rgba" || fn === "hsla" ? fn.slice(0, 3) : fn}(${body})`;
+}
+
 /** A px length from a probe's number, or the fallback at scale 1. */
 function px(n, fallback) {
   return `${Number.isFinite(n) && n > 0 ? Math.round(n) : fallback}px`;
@@ -125,7 +143,8 @@ export function inspectorTheme(resolved, scheme, sizes = {}) {
   return Object.freeze({
     scheme: side,
     color: Object.freeze({
-      surface: role("--color-surface"),
+      // Solid: nothing frosts behind a box drawn inside a page.
+      surface: opaque(role("--color-surface")),
       surface2: role("--color-surface-2"),
       border: role("--color-border"),
       text: role("--color-text"),
@@ -170,6 +189,8 @@ export const STYLE_PARTS = Object.freeze([
   "box-row",
   "input",
   "input:focus",
+  "box-foot",
+  "box-hint",
   "add",
   "add:hover",
 ]);
@@ -190,28 +211,40 @@ export function inspectorStyles(t) {
   const ease = (...props) => `transition:${props.map((p) => `${p} ${t.motion.fast} ${t.motion.ease}`).join(",")}`;
   const ui = (weight, size) => `font:${weight ? `${weight} ` : ""}${size}/1.4 ${t.font.ui}`;
   const mono = (size) => `font:${size}/1.5 ${t.font.mono}`;
-  const crumb = `all:initial;cursor:pointer;padding:0 6px;border-radius:${t.radius.control};background:${c.surface2};${mono(t.font.small)};color:${c.textDim};${ease("background", "color")}`;
-  const close = `all:initial;cursor:pointer;flex:0 0 auto;width:20px;height:20px;border-radius:${t.radius.control};text-align:center;font:14px/20px ${t.font.ui};color:${c.textDim};${ease("background", "color")}`;
-  const input = `all:initial;box-sizing:border-box;flex:1 1 auto;min-width:0;padding:6px 8px;border:1px solid ${c.border};border-radius:${t.radius.control};background:${c.surface};${ui("", t.font.size)};color:${c.text};${ease("border-color", "box-shadow")}`;
-  const add = `all:initial;cursor:pointer;flex:0 0 auto;padding:5px 10px;border-radius:${t.radius.control};background:${c.accent};color:${c.accentContrast};${ui(600, t.font.size)};${ease("filter")}`;
+  // The box speaks the kit's language: a floating surface (card radius, edge, floating shadow), a
+  // quiet path of where the element sits, a ghost close drawn as two strokes in the text's own
+  // colour, a field as the kit draws one, and the one primary button at the foot.
+  const crumb = `all:initial;cursor:pointer;flex:0 4 auto;min-width:1.5em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 4px;border-radius:${t.radius.control};${mono(t.font.small)};color:${c.textDim};${ease("background-color", "color")}`;
+  const stroke = (deg) => `linear-gradient(${deg}deg,transparent calc(50% - 0.75px),currentColor calc(50% - 0.75px),currentColor calc(50% + 0.75px),transparent calc(50% + 0.75px))`;
+  const close = `all:initial;cursor:pointer;flex:0 0 auto;width:24px;height:24px;border-radius:${t.radius.control};color:${c.textDim};background-image:${stroke(45)},${stroke(-45)};background-size:10px 10px;background-position:center;background-repeat:no-repeat;${ease("background-color", "color")}`;
+  const input = `all:initial;box-sizing:border-box;display:block;width:100%;margin-top:10px;padding:6px 10px;border:1px solid ${c.border};border-radius:${t.radius.control};background:${c.surface};${ui("", t.font.size)};color:${c.text};${ease("border-color", "box-shadow")}`;
+  const add = `all:initial;box-sizing:border-box;cursor:pointer;flex:0 0 auto;height:28px;padding:0 12px;border-radius:${t.radius.control};background:${c.accent};color:${c.accentContrast};${ui(500, t.font.size)};line-height:28px;box-shadow:${t.shadow.raised};${ease("filter")}`;
   return {
-    outline: `all:initial;position:fixed;pointer-events:none;${TOP};display:none;box-sizing:border-box;border:2px solid ${c.accent};background:${c.accentSoft};border-radius:${t.radius.control};${ease("top", "left", "width", "height")}`,
+    // An outline, never a fill: what you point at must stay readable under it. The thin ring
+    // in the surface colour keeps the accent edge visible on a page of the same colour.
+    outline: `all:initial;position:fixed;pointer-events:none;${TOP};display:none;box-sizing:border-box;border:2px solid ${c.accent};background:transparent;box-shadow:0 0 0 1px ${c.surface};border-radius:${t.radius.control};${ease("top", "left", "width", "height")}`,
     label: `all:initial;position:fixed;pointer-events:none;${TOP};display:none;box-sizing:border-box;max-width:60vw;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:1px 6px;${mono(t.font.small)};color:${c.accentContrast};background:${c.accent};border-radius:${t.radius.control};box-shadow:${t.shadow.raised}`,
     badges: `all:initial;position:fixed;top:0;left:0;pointer-events:none;${TOP}`,
-    badge: `all:initial;position:fixed;box-sizing:border-box;min-width:18px;height:18px;padding:0 5px;text-align:center;border-radius:999px;background:${c.accent};color:${c.accentContrast};font:600 ${t.font.small}/18px ${t.font.ui};box-shadow:0 0 0 2px ${c.surface},${t.shadow.raised}`,
-    box: `all:initial;position:fixed;${TOP};display:none;box-sizing:border-box;width:${BOX_WIDTH}px;max-width:calc(100vw - 16px);padding:10px 12px;border:1px solid ${c.border};border-radius:${t.radius.card};background:${c.surface};color:${c.text};color-scheme:${t.scheme};${ui("", t.font.size)};box-shadow:${t.shadow.floating};pointer-events:auto`,
-    "box-head": "all:initial;display:flex;align-items:center;gap:6px;font:inherit;color:inherit",
-    crumbs: `all:initial;display:flex;flex:1 1 auto;min-width:0;flex-wrap:wrap;align-items:center;gap:3px;${mono(t.font.small)};color:${c.textDim}`,
+    // `all:initial` resets pointer-events to auto, so a badge says it again: it marks, never catches.
+    badge: `all:initial;position:fixed;pointer-events:none;box-sizing:border-box;min-width:18px;height:18px;padding:0 5px;text-align:center;border-radius:999px;background:${c.accent};color:${c.accentContrast};font:600 ${t.font.small}/18px ${t.font.ui};box-shadow:0 0 0 2px ${c.surface},${t.shadow.raised}`,
+    // The ground is the surface made solid (`opaque`): nothing frosts behind a box drawn in a page.
+    box: `all:initial;position:fixed;${TOP};display:none;box-sizing:border-box;width:${BOX_WIDTH}px;max-width:calc(100vw - 16px);padding:12px 14px;border:1px solid ${c.border};border-radius:${t.radius.card};background:${c.surface};color:${c.text};color-scheme:${t.scheme};${ui("", t.font.size)};box-shadow:${t.shadow.floating};pointer-events:auto`,
+    "box-head": "all:initial;display:flex;align-items:center;gap:6px;margin:-4px -6px 0 0;font:inherit;color:inherit",
+    // One line: the nearest of the element's parents, the element last; a parent's crumb gives way (an ellipsis) before the element's does.
+    crumbs: `all:initial;display:flex;flex:1 1 auto;min-width:0;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;align-items:center;gap:1px;${mono(t.font.small)};color:${c.textDim}`,
     crumb,
-    "crumb:hover": `${crumb};background:${c.border};color:${c.text}`,
-    "crumb-sep": `all:initial;font:inherit;color:${c.textDim};opacity:0.7`,
-    "crumb-current": `all:initial;padding:0 6px;border-radius:${t.radius.control};background:${c.accentSoft};${mono(t.font.small)};font-weight:600;color:${c.accentInk}`,
+    "crumb:hover": `${crumb};background-color:${c.surface2};color:${c.text}`,
+    "crumb-sep": `all:initial;flex:0 0 auto;font:inherit;color:${c.textDim};opacity:0.6`,
+    // Where you stand is neutral, never the accent: the element in full ink on the pressed step.
+    "crumb-current": `all:initial;flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:1px 6px;border-radius:${t.radius.control};background:${c.surface2};${mono(t.font.small)};font-weight:600;color:${c.text}`,
     close,
-    "close:hover": `${close};background:${c.surface2};color:${c.text}`,
-    "box-text": `all:initial;display:block;margin:8px 0 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;${ui("", t.font.size)};color:${c.textDim}`,
-    "box-row": "all:initial;display:flex;align-items:center;gap:6px;margin-top:8px;font:inherit",
+    "close:hover": `${close};background-color:${c.surface2};color:${c.text}`,
+    "box-text": `all:initial;display:block;margin:8px 0 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;${ui("", t.font.small)};color:${c.textDim}`,
+    "box-row": "all:initial;display:block;font:inherit",
     input,
     "input:focus": `${input};border-color:${c.accent};box-shadow:0 0 0 1px ${c.accent}`,
+    "box-foot": "all:initial;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;font:inherit",
+    "box-hint": `all:initial;flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;${ui("", t.font.small)};color:${c.textDim}`,
     add,
     "add:hover": `${add};filter:brightness(0.92)`,
   };

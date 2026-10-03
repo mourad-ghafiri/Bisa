@@ -46,7 +46,7 @@
 
 import { filterByTagsAndWords } from "../ui/tagSearchModel.mjs";
 import { useReloadOnReconnect } from "../ui/useReloadOnReconnect";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { useEngineEvents } from "../bus";
 import { href, navigate, useSearchValue } from "../router";
@@ -61,7 +61,7 @@ import { coreLine, movesStatus } from "./_settings/decisionsModel.mjs";
 import type { AgentDef, SessionRow } from "../types";
 import { isCoreAgent, planSummary } from "../types";
 import { coreAgents, rosterable } from "./_studio/addressModel.mjs";
-import { attachedTo, respondsTo } from "./rosterModel.mjs";
+import { answerOf, attachedTo, detailStacked, respondsTo } from "./rosterModel.mjs";
 import {
   AnimatedList,
   Avatar,
@@ -73,16 +73,16 @@ import {
   EmptyState,
   ErrorNote,
   ICON,
-  Menu,
+  MoreMenu,
   NO_TAG_FILTER,
   RelativeTime,
   Section,
-  ExternalLink,
   SessionMark,
   SessionStateChip,
   sessionState,
   SkeletonRows,
   Spinner,
+  ScreenBar,
   Tabs,
   TagChips,
   TagFilterBar,
@@ -147,13 +147,14 @@ function AgentCard({
   onDelete?: () => void;
 }) {
   return (
-    <Card className={selected ? "border-accent/60" : ""}>
+    // The open card is where you are, not something asking for you: a neutral edge, never the accent.
+    <Card className={selected ? "border-text/35" : ""}>
       <div className="mb-2 flex items-start gap-2">
-        <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+        <button type="button" onClick={onOpen} className="group flex min-w-0 flex-1 items-start gap-2 text-left">
           <Avatar id={a.pubkey} name={a.name} photo={a.photo} size={28} />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
-              <span className="truncate text-xs font-medium">{a.name}</span>
+              <span className="truncate text-sm font-medium underline-offset-2 group-hover:underline">{a.name}</span>
               <OriginChip origin={a.origin} id={a.id} />
               {!a.enabled && <Chip tone="warn">{t("screens-agents-disabled")}</Chip>}
             </span>
@@ -162,13 +163,9 @@ function AgentCard({
             </span>
           </span>
         </button>
-        <Menu
+        <MoreMenu
+          vertical
           label={t("screens-agents-actions", { a: a.name })}
-          trigger={
-            <span className="anim flex h-6 w-6 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
-              <ICON.more size={14} aria-hidden />
-            </span>
-          }
           items={[
             { label: t("screens-inbox-open"), icon: ICON.forward, onSelect: onOpen },
             { label: t("screens-agents-message"), icon: ICON.dm, onSelect: onMessage },
@@ -188,17 +185,24 @@ function AgentCard({
         />
       </div>
 
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        <Chip tone="accent">{a.harness}</Chip>
-        <Chip tone="quiet">{planSummary(a.models)}</Chip>
+      {/* The harness is the agent's identity, so it keeps a (neutral) chip;
+          the model chain and the counts are meta, read as plain words. */}
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Chip>{a.harness}</Chip>
+        <span className="min-w-0 truncate font-mono text-2xs text-text-dim">{planSummary(a.models)}</span>
         {a.skills.length > 0 && (
-          <Chip tone="quiet">{t("screens-agents-skill-count", { skills: a.skills.length })}</Chip>
+          <span className="text-2xs text-text-dim">{t("screens-agents-skill-count", { skills: a.skills.length })}</span>
         )}
-        {a.mcps.length > 0 && <Chip tone="quiet">{t("screens-agents-mcp", { mcps: a.mcps.length })}</Chip>}
+        {a.mcps.length > 0 && <span className="text-2xs text-text-dim">{t("screens-agents-mcp", { mcps: a.mcps.length })}</span>}
         <TagChips tags={a.tags ?? []} max={3} />
       </div>
 
-      <Button size="sm" variant="primary" className="w-full" onClick={onMessage}>{t("screens-agents-message")}</Button>
+      {/* A per-card action, so it is a default button: a primary in every card
+          of a list is a screen of loud bars with no single ask among them. */}
+      <Button size="sm" onClick={onMessage}>
+        <ICON.dm size={13} aria-hidden />
+        {t("screens-agents-message")}
+      </Button>
     </Card>
   );
 }
@@ -227,20 +231,21 @@ function DecisionMakingAgentCard() {
       <button
         type="button"
         onClick={() => navigate({ name: "settings" }, settingsSearch("decision-making"))}
-        className="flex w-full min-w-0 items-start gap-2 text-left"
+        className="group flex w-full min-w-0 items-start gap-2 text-left"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text-dim">
           <ICON.decisions size={14} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="truncate text-xs font-medium">{status.data?.agent.name ?? t("screens-agents-decision-making-agent")}</span>
-            <Chip tone="accent">{t("work-origin-platform-agent")}</Chip>
+            <span className="truncate text-sm font-medium underline-offset-2 group-hover:underline">{status.data?.agent.name ?? t("screens-agents-decision-making-agent")}</span>
+            <Chip>{t("work-origin-platform-agent")}</Chip>
           </span>
           <span className="mt-0.5 line-clamp-2 block text-2xs text-text-dim">
             {status.data?.agent.description ?? t("screens-agents-model-judges-place-place-s-own")}
           </span>
-          <span className="mt-1 block text-2xs text-text-dim">{coreLine(status.data, status.error) || t("screens-agents-reading")}</span>
+          {/* One line, the model id never broken at its hyphen; the whole line in the tooltip when a narrow column cuts it. */}
+          <span className="mt-1 block truncate text-2xs text-text-dim" title={coreLine(status.data, status.error) || undefined}>{coreLine(status.data, status.error) || t("screens-agents-reading")}</span>
         </span>
       </button>
     </Card>
@@ -279,19 +284,19 @@ function ModelPlanSummary({ a }: { a: AgentDef }) {
         {rich("screens-agents-label-explain", { label: <span className="font-medium">{t("screens-agents-effort")}</span> }, { explain: effortOf(null, null).hint })}
       </p>
       {models.length === 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5 rounded-control border border-dashed border-border px-2 py-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 rounded-control bg-surface-2/50 px-2 py-1.5">
           <span className="font-mono text-2xs text-text-dim">{t("screens-agents-default", { harness: a.harness })}</span>
           <ModelHealthBadges row={healthOf(rows, a.harness, null)} />
           <span className="text-2xs text-text-dim">{t("screens-agents-no-models-pinned-so-there-nothing")}</span>
         </div>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col divide-y divide-hairline rounded-control border border-border">
           {models.map((m, i) => {
             const effort = effortOf(m.model, m.effort);
             return (
               <li
                 key={m.model}
-                className="flex flex-wrap items-center gap-1.5 rounded-control border border-border px-2 py-1"
+                className="flex flex-wrap items-center gap-1.5 px-2 py-1"
               >
                 <span className="tnum w-5 shrink-0 text-right text-2xs text-text-dim">{i + 1}.</span>
                 <span
@@ -301,13 +306,13 @@ function ModelPlanSummary({ a }: { a: AgentDef }) {
                 >
                   {m.model}
                 </span>
-                {strategy === "weighted" && <Chip tone="quiet">{weightWords(m.weight)}</Chip>}
+                {strategy === "weighted" && <Chip>{weightWords(m.weight)}</Chip>}
                 {strategy === "auto_route" && m.suited_for && (
-                  <Chip tone="quiet">{t("screens-agents-best", { suited_for: m.suited_for })}</Chip>
+                  <Chip>{t("screens-agents-best", { suited_for: m.suited_for })}</Chip>
                 )}
                 {/* The level this model runs at, or Auto; the sentence that says who decided on hover. */}
                 {effort.label && (
-                  <Chip tone="quiet" title={effort.hint}>
+                  <Chip title={effort.hint}>
                     {effort.label}
                   </Chip>
                 )}
@@ -432,7 +437,7 @@ function AgentDetail({
           <Avatar id={a.pubkey} name={a.name} photo={a.photo} size={32} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <h2 className="truncate text-sm font-semibold">{a.name}</h2>
+              <h2 className="truncate text-lg font-semibold tracking-tight">{a.name}</h2>
               <OriginChip origin={a.origin} id={a.id} />
             </div>
             <p className="mt-0.5 text-2xs text-text-dim">{respondsTo(a)}</p>
@@ -452,7 +457,9 @@ function AgentDetail({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* The card's one verb wears its glyph, so it reads as a button and never as a heading. */}
           <Button size="sm" variant="ghost" onClick={onEdit}>
+            <ICON.edit size={12} aria-hidden />
             {core ? t("screens-agents-harness-models") : t("screens-agents-edit-definition")}
           </Button>
           {/* No Delete and no Disable on the core agent, and neither of them
@@ -467,7 +474,7 @@ function AgentDetail({
         {core && <p className="mt-2 text-2xs text-text-dim">{CORE_AGENT_PERMANENT}</p>}
       </Card>
 
-      <Section title={t("screens-agents-model-plan")} action={<Chip tone="accent">{a.harness}</Chip>}>
+      <Section title={t("screens-agents-model-plan")} action={<Chip>{a.harness}</Chip>}>
         <ModelPlanSummary a={a} />
       </Section>
 
@@ -516,6 +523,10 @@ function Sessions() {
   // The roster is the presence store's: seeded once, moved by `session_state`.
   const sessions = sessionState.sortRows(useSessions());
   const [aborting, setAborting] = useState<SessionRow | null>(null);
+  // A goal a session works on reads by its title, from the goals the window already holds.
+  const { goals } = useWorkspace();
+  const titles = useMemo(() => new Map(goals.map((g) => [g.id, g.title] as const)), [goals]);
+  const titleOf = (goal: string) => titles.get(goal);
 
   if (sessions.length === 0) {
     return (
@@ -539,25 +550,30 @@ function Sessions() {
         items={sessions}
         keyOf={(s) => s.id}
         render={(s) => {
-          const at = attachedTo(s);
+          const at = attachedTo(s, titleOf);
           const link = at.route ? href(at.route) : null;
+          // The rail's rule: only a gate is an ask, answered on the Inbox row it lives under.
+          const ask = answerOf(s);
           return (
             <div className="flex flex-col gap-1 rounded-control border border-border px-2 py-1.5">
               <div className="flex items-center gap-2">
                 <SessionMark state={s.state} />
                 <SessionStateChip state={s.state} />
-                <Chip tone="quiet">{s.agent ?? s.harness}</Chip>
-                <Chip tone="quiet">{s.kind}</Chip>
+                <Chip>{s.agent ?? s.harness}</Chip>
+                <span className="text-2xs text-text-dim">{s.kind}</span>
                 {link ? (
-                  <ExternalLink href={link} className="truncate text-2xs text-accent-ink underline underline-offset-2">
+                  // A place in this app, so an ordinary link — as Teams' goal rows are — never a door out of the window.
+                  <a href={link} className="min-w-0 truncate text-2xs text-text underline decoration-text-dim underline-offset-2 hover:decoration-text">
                     {at.label}
-                  </ExternalLink>
+                  </a>
                 ) : (
-                  <span className="truncate text-2xs text-text-dim">{at.label}</span>
+                  <span className="min-w-0 truncate text-2xs text-text-dim">{at.label}</span>
                 )}
-                <RelativeTime at={s.since} className="ml-auto" />
+                <RelativeTime at={s.since} className="ml-auto shrink-0" />
+                {/* A per-row action: default, so a list of waiting sessions is not a column of primaries. */}
+                {/* Every session waiting on the person keeps its door; a gate opens its own Inbox row. */}
                 {s.state.state === "waiting" && s.state.on.on !== "auth" && (
-                  <Button size="sm" variant="primary" onClick={() => navigate({ name: "inbox" })}>{t("screens-agents-answer")}</Button>
+                  <Button size="sm" onClick={() => navigate({ name: "inbox" }, ask?.item ? { item: ask.item } : undefined)}>{t("screens-agents-answer")}</Button>
                 )}
                 {sessionState.isStoppable(s.state) && (
                   <Button size="sm" variant="danger" onClick={() => setAborting(s)}>{t("screens-agents-abort")}</Button>
@@ -567,7 +583,7 @@ function Sessions() {
                 <ul className="flex flex-col gap-0.5 pl-5 text-2xs">
                   {s.children.map((c) => (
                     <li key={c.id} className="flex items-center gap-2">
-                      <span className="font-mono text-text-dim">↳</span>
+                      <ICON.subagent size={11} aria-hidden className="shrink-0 text-text-dim" />
                       <SessionMark state={c.state} />
                       <span>{c.name}</span>
                       <span className="text-text-dim">{sessionState.label(c.state)}</span>
@@ -628,6 +644,21 @@ export default function Agents({ id }: { id?: string }) {
 
   const selected = id ? (agents.find((a) => a.id === id) ?? null) : null;
 
+  // A pick in a narrow screen: the detail is stacked under the roster, out of
+  // sight, so it is brought into view — the nearest edge, the least movement.
+  // Beside the roster it is already in view and nothing moves. Only a pick
+  // moves it: the place the screen opens on is `useViewScroll`'s to put back.
+  const rosterCol = useRef<HTMLDivElement>(null);
+  const detailCol = useRef<HTMLDivElement>(null);
+  const picked = useRef(id);
+  useEffect(() => {
+    if (picked.current === id) return;
+    picked.current = id;
+    const detail = detailCol.current;
+    if (!id || !detail) return;
+    if (detailStacked(rosterCol.current?.getBoundingClientRect(), detail.getBoundingClientRect())) detail.scrollIntoView({ block: "nearest" });
+  }, [id]);
+
   // The core agents are lifted out of the roster before either control sees
   // them, which is the only way to guarantee no filter can hide one. Checking
   // it inside the predicate would work until somebody added a second condition.
@@ -668,18 +699,52 @@ export default function Agents({ id }: { id?: string }) {
     <div ref={root} className="flex h-full flex-col">
       {/* No <h1>: the shell's top chrome already names the screen, and a
           second title on the page is the thing this wave is removing. */}
-      <header className="flex flex-col gap-2 border-b border-border px-6 pt-3">
-        <Tabs
-          tabs={[
-            { id: "agents", label: t("screens-agents-definitions") },
-            { id: "sessions", label: t("screens-agents-running") },
-          ]}
-          active={tab}
-          onChange={setTab}
-        />
-      </header>
+      <ScreenBar
+        tabs={
+          <Tabs
+            bare
+            tabs={[
+              { id: "agents", label: t("screens-agents-definitions") },
+              { id: "sessions", label: t("screens-agents-running") },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
+        }
+        end={
+          tab === "agents" && ready && !offline && rest.length > 0 ? (
+            <>
+              <span className="tnum text-2xs text-text-dim">{t("screens-agents-words", { roster: roster.length, rest: rest.length })}</span>
+              <Tooltip label={t("screens-agents-re-read-roster")}>
+                <Button size="icon" variant="ghost" onClick={refresh} aria-label={t("screens-agents-refresh-roster")}>
+                  <ICON.refresh size={14} aria-hidden />
+                </Button>
+              </Tooltip>
+              {/* The catalog's agents, ready to install — Settings › Library › Agents — beside the screen's one primary. */}
+              <Tooltip label={t("screens-agents-catalog-hint")}>
+                <Button size="sm" onClick={() => navigate({ name: "settings" }, settingsSearch("catalog-agent"))}>
+                  <ICON.catalog size={12} aria-hidden />
+                  {t("screens-agents-catalog")}
+                </Button>
+              </Tooltip>
+              <Button size="sm" variant="primary" onClick={() => setCreating(true)}>{t("screens-agents-new-agent")}</Button>
+            </>
+          ) : null
+        }
+      >
+        {tab === "agents" && ready && !offline && rest.length > 0 && (
+          <TextInput
+            value={query}
+            placeholder={t("screens-agents-search-roster")}
+            aria-label={t("screens-agents-search-roster-2")}
+            className="h-7 w-full max-w-64 py-0"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        )}
+      </ScreenBar>
 
-      <div data-scroll-keep={`tab:${tab}`} className="min-h-0 flex-1 overflow-y-auto p-6">
+      {/* A size container, as on Teams: list and detail split by this screen's room, not the window's. */}
+      <div data-scroll-keep={`tab:${tab}`} className="@container min-h-0 flex-1 overflow-y-auto p-6">
         {tab === "sessions" ? (
           <Sessions />
         ) : !ready ? (
@@ -687,10 +752,11 @@ export default function Agents({ id }: { id?: string }) {
         ) : offline ? (
           <ErrorNote error={offline} retry={refresh} />
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
-            <div className="flex min-w-0 flex-col gap-2">
+          <div className="grid gap-6 @2xl:grid-cols-[1.3fr_1fr]">
+            {/* A size container, as on Teams: the roster splits by this column's width. */}
+            <div ref={rosterCol} className="@container flex min-w-0 flex-col gap-2">
               {cores.length > 0 && (
-                <div className="flex flex-col gap-1">
+                <div className="mb-4 flex flex-col gap-2">
                   {cores.map((core) => (
                     <AgentCard
                       key={core.id}
@@ -704,7 +770,7 @@ export default function Agents({ id }: { id?: string }) {
                     />
                   ))}
                   <DecisionMakingAgentCard />
-                  <p className="text-2xs text-text-dim">{t("screens-agents-three-core-agents-pinned-above-filters")}</p>
+                  <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{t("screens-agents-three-core-agents-pinned-above-filters")}</p>
                 </div>
               )}
 
@@ -712,7 +778,7 @@ export default function Agents({ id }: { id?: string }) {
                 <EmptyState
                   icon={ICON.agent}
                   title={t("screens-agents-no-other-agents-yet")}
-                  hint={t("screens-agents-twenty-seven-agent-definitions-catalog-installing")}
+                  hint={t("screens-agents-agent-definitions-catalog-installing")}
                   action={
                     <div className="flex flex-wrap justify-center gap-2">
                       <Button
@@ -727,28 +793,6 @@ export default function Agents({ id }: { id?: string }) {
                 />
               ) : (
                 <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <TextInput
-                      value={query}
-                      placeholder={t("screens-agents-search-roster")}
-                      aria-label={t("screens-agents-search-roster-2")}
-                      className="h-7 max-w-64 py-0"
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
-                    <span className="text-2xs text-text-dim">{t("screens-agents-words", { roster: roster.length, rest: rest.length })}</span>
-                    <Tooltip label={t("screens-agents-re-read-roster")}>
-                      <button
-                        type="button"
-                        onClick={refresh}
-                        aria-label={t("screens-agents-refresh-roster")}
-                        className="anim ml-auto flex h-7 w-7 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
-                      >
-                        <ICON.refresh size={14} aria-hidden />
-                      </button>
-                    </Tooltip>
-                    <Button size="sm" variant="primary" onClick={() => setCreating(true)}>{t("screens-agents-new-agent")}</Button>
-                  </div>
-
                   <TagFilterBar
                     items={rest}
                     tagsOf={tagsOfAgent}
@@ -772,7 +816,7 @@ export default function Agents({ id }: { id?: string }) {
                     />
                   ) : (
                     <AnimatedList
-                      className="grid gap-2 md:grid-cols-2"
+                      className="grid gap-2 @xl:grid-cols-2"
                       items={roster}
                       keyOf={(a) => a.id}
                       render={(a) => (
@@ -793,7 +837,11 @@ export default function Agents({ id }: { id?: string }) {
               )}
             </div>
 
-            <div className="min-w-0">
+            {/* Beside the roster the detail stays in view as the roster scrolls — the
+                list ran past two screens while the detail fit in a third of one —
+                with a scroll of its own when it is the taller. Stacked under a
+                narrow roster it scrolls with the page, as before. */}
+            <div ref={detailCol} className="min-w-0 @2xl:sticky @2xl:top-0 @2xl:max-h-[calc(100vh-11rem)] @2xl:self-start @2xl:overflow-y-auto">
               {selected ? (
                 <AgentDetail
                   a={selected}
@@ -815,14 +863,15 @@ export default function Agents({ id }: { id?: string }) {
                     <Card>
                       <p className="text-xs font-medium">{t("screens-agents-agent-not-here")}</p>
                       <p className="mt-1 text-2xs text-text-dim">{rich("screens-agents-nothing-answers-to-id", { id: <code className="font-mono">{id}</code> })}</p>
+                      <div className="mt-2">
+                        <Button size="sm" onClick={() => navigate({ name: "agents" })}>{t("screens-teams-back-list")}</Button>
+                      </div>
                     </Card>
                   }
                 />
               ) : (
-                <Card>
-                  <p className="text-xs font-medium">{t("screens-agents-pick-agent")}</p>
-                  <p className="mt-1 text-2xs text-text-dim">{t("screens-agents-definition-skills-servers-references-memory-show")}</p>
-                </Card>
+                // Nothing picked yet: an open door, never a box — the roster beside it is the action.
+                <EmptyState icon={ICON.agent} title={t("screens-agents-pick-agent")} hint={t("screens-agents-definition-skills-servers-references-memory-show")} action={null} className="py-16" />
               )}
             </div>
           </div>

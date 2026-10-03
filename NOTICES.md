@@ -9,7 +9,7 @@ and npm package the shipped binaries carry, with their licence texts and notices
 
 The platform's own mark — `logo/logo.svg`, a blue glass squircle holding the split B, shown in the app by `desktop/src/ui/PlatformMark.tsx` and rasterised into the OS icon set under `desktop/src-tauri/icons/` by `just app-icon` — is original work of this project, from no set and no other mark. It carries the repository's licence (MIT, `LICENSE`).
 
-The desktop draws each coding harness's own mark (`desktop/src/ui/harnessMarks.tsx`) from two free icon sets. The marks are the harnesses' trademarks, used only to identify the harness they name.
+The desktop draws each coding harness's own mark (`desktop/src/ui/harnessMarks.tsx`) from two free icon sets. The marks are the harnesses' trademarks, used only to identify the harness they name. It also draws git's own mark wherever git is the tool (`desktop/src/ui/GitMark.tsx`), credited below.
 
 ## LobeHub icons — MIT
 
@@ -44,6 +44,15 @@ The pi mark is pi's own logo (https://pi.dev, `badlogic/pi-mono`, MIT), in the s
 ## Simple Icons — CC0 1.0
 
 The OpenCode and Cursor marks are the SVG paths of Simple Icons (https://simpleicons.org), released under CC0 1.0 Universal. Simple Icons asks that its icons be used to identify the brand they depict, and nothing else.
+
+## The Git logo — CC BY 3.0
+
+The Git mark is adapted from the icon-only Git logo published by the Git project
+(https://git-scm.com/community/logos, `Git-Icon-Black.svg`): redrawn as an outline in the icon set's
+stroke — the same rounded square on its corner and the same branch of three nodes, at the logo's
+proportions — and drawn in the surrounding text colour. Git Logo by Jason Long is licensed under the
+Creative Commons Attribution 3.0 Unported License (https://creativecommons.org/licenses/by/3.0/). It is
+used only to identify git.
 
 ## Fonts — SIL Open Font License 1.1, and one MIT
 

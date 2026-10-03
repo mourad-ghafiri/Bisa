@@ -11,7 +11,7 @@ studio-address-tray-they-will-see = they will see this
 studio-address-tray-will-see = { $agent } will see this
 studio-address-tray-writing = { $agent } is writing
 studio-ask-card-back = Back
-studio-ask-card-could-not-answer = could not answer
+studio-ask-card-could-not-answer = Could not answer.
 studio-ask-card-deny = Deny
 studio-ask-card-note-agent-optional = A note for the agent (optional)
 studio-attachment-not-machine = { $size } · not on this machine
@@ -25,6 +25,7 @@ studio-changed-files-attach = Attach
 studio-changed-files-bar-attach-changes-chips-next-message-hunks = Attach the changes as chips on the next message — hunks you can read and remove
 studio-changed-files-by = by { $who }
 studio-changed-files-review = Review
+studio-changed-files-undo-all-body = Each file goes back to how it was before it was changed in this conversation.
 studio-chat-agent = agent
 studio-chat-dot-working = working
 studio-chat-dot-writing = writing
@@ -32,8 +33,10 @@ studio-chat-ask-peer = { $file } — ask a peer for it
 studio-chat-asking = asking…
 studio-chat-clipboard-refused = The clipboard refused.
 studio-chat-copy = Copy
-studio-chat-could-not = could not { $what }
-studio-chat-could-not-send = could not send
+studio-chat-could-not-react = Could not add the reaction.
+studio-chat-could-not-retract = Could not retract the message.
+studio-chat-could-not-send = Could not send the message.
+studio-chat-could-not-unreact = Could not remove the reaction.
 studio-chat-every-file-turn-any-later-turn = Every file this turn — and any later turn's overlap on the same lines — is undone. Messages stay.
 studio-chat-link-copied = Link copied.
 studio-chat-load-older = Load older
@@ -44,13 +47,14 @@ studio-chat-new = New
 studio-chat-no-messages-yet = No messages yet
 studio-chat-react = React { $e }
 studio-chat-react-message = React to this message
-studio-chat-remove-reaction = remove the reaction
 studio-chat-replied = { $name } replied
 studio-chat-replying-to = replying to { $name }: { $words }
 studio-chat-reply = Reply
 studio-chat-request = Request
 studio-chat-restore = Restore
 studio-chat-restore-before-message = Restore to before this message
+studio-chat-retract-body = The message is taken back for everyone here, and a line saying it was retracted takes its place.
+studio-chat-retract-title = Retract this message?
 studio-chat-retracted-message = { $name } retracted a message
 studio-chat-running = running { $working }
 studio-chat-runs = { $agent } runs on { $harness } · { $models }
@@ -263,7 +267,7 @@ studio-turn-changes-review = to review
 studio-turn-changes-undone = undone
 studio-use-file-settle-also-edited-someone-else = Also edited by someone else
 studio-use-file-settle-change-undone-then-posted-conversation-message = The change is undone, then this is posted to the conversation as a message.
-studio-use-file-settle-could-not-post-note = could not post the note
+studio-use-file-settle-could-not-post-note = Could not post the note.
 studio-use-file-settle-left-alone = Left alone: { $words }
 studio-use-file-settle-note = Note
 studio-use-file-settle-say-why-what-try-instead = Say why, or what to try instead…
@@ -283,6 +287,31 @@ studio-changed-files-file-files-changed = { $rows } { $rows ->
     [one] file
    *[other] files
   } changed { $who } · +{ $added } −{ $removed }
+studio-changed-files-undo-all-title = Undo { $agents ->
+    [one] the agent's
+   *[other] the agents'
+  } changes to { $files } { $files ->
+    [one] file
+   *[other] files
+  }?
+studio-changed-files-undo-all-overlapped = { $overlapped } { $overlapped ->
+    [one] file was
+   *[other] files were
+  } also edited by someone else since, and { $overlapped ->
+    [one] stays
+   *[other] stay
+  } as { $overlapped ->
+    [one] it is.
+   *[other] they are.
+  }
+studio-changed-files-kept-all = Kept the changes to { $files } { $files ->
+    [one] file
+   *[other] files
+  }.
+studio-changed-files-undid-all = Undid the changes to { $files } { $files ->
+    [one] file
+   *[other] files
+  }.
 studio-participants-everyone-channel-s-roster-agent-agents = everyone on this channel's roster — { $roster } { $roster ->
     [one] agent
    *[other] agents

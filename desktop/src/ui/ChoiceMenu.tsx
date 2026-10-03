@@ -69,7 +69,7 @@ export function ChoiceMenu<T extends string>({
                   {c.icon && <c.icon size={14} aria-hidden className="shrink-0 opacity-70" />}
                   <span className="min-w-0 flex-1 truncate font-medium">{c.label}</span>
                   <M.ItemIndicator>
-                    <ICON.check size={12} aria-hidden className="shrink-0 text-accent-ink" />
+                    <ICON.check size={12} aria-hidden className="shrink-0 text-text" />
                   </M.ItemIndicator>
                 </span>
                 {c.disabled && c.hint ? <span className="pl-5 text-2xs text-warn">{c.hint}</span> : c.description ? <span className="pl-5 text-2xs text-text-dim">{c.description}</span> : null}

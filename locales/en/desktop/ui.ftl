@@ -32,6 +32,10 @@ ui-artifact-versions = { $count } versions
 ui-artifact-video = Video
 ui-artifact-view-bytes-not-machine-yet = The bytes are not on this machine yet.
 ui-artifact-view-copy-text = Copy the text
+ui-artifact-view-could-not-open = The file could not be opened.
+ui-artifact-view-could-not-request = The file could not be requested.
+ui-artifact-view-could-not-reveal = The file could not be shown in its folder.
+ui-artifact-view-could-not-save = The file could not be saved.
 ui-artifact-view-more = More
 ui-artifact-view-open-browser = Open in the browser
 ui-artifact-view-open-default-app = Open with the default app
@@ -53,6 +57,9 @@ ui-composer-attach-file-selection-terminal-s-last = Attach — a file, the selec
 ui-composer-attach-files = Attach files
 ui-composer-button-over-context-budget-remove-chip-send = Over the context budget — remove a chip to send
 ui-composer-button-send-enter-enter = Send (Enter · ⌘Enter)
+ui-composer-button-type-message-to-send = Type a message to send it
+ui-composer-button-wait-upload-to-finish = Sending waits for the upload to finish
+ui-composer-message = Message
 ui-composer-button-stop-session-working-here-message-typed = Stop the session working here (the message you typed stays)
 ui-composer-files-attached-context = Files — attached as context
 ui-composer-files-from-disk = Files from disk…
@@ -62,9 +69,18 @@ ui-composer-shared-looked-rendered-where-read-click = Shared to be looked at —
 ui-composer-write-message = Write a message…
 ui-dialog-close = Close
 ui-dialog-name-needed = A name is needed.
+ui-document-view-could-not-show = The document could not be shown.
 ui-document-view-reading-document = reading the document…
 ui-drag-data-hunk = { $basename } · hunk
 ui-drag-data-items = { $all } items
+# An act failed: what failed leads ($what, a whole sentence), then the node's own reason ($reason, a whole sentence).
+ui-failure-node-said = { $what } { $reason }
+# The reason slot of a sentence that already names what failed, when the error had no words for a person.
+ui-failure-reason-in-log = see the diagnostic log
+# An act failed and its reason is no sentence for a person: what failed leads, then where the detail went.
+ui-failure-see-log = { $what } The diagnostic log has the detail.
+# A failure where nothing names what failed, when the error had no words for a person: alone in a toast, or a sentence's reason.
+ui-failure-unexpected = Something unexpected stopped it. The diagnostic log has the detail.
 ui-field-copied = Copied.
 ui-field-copy = Copy
 ui-file-clipboard-already-there = Already there.
@@ -131,6 +147,7 @@ ui-file-tree-refresh-listing = Refresh this listing
 ui-file-tree-search-files = Search files
 ui-file-tree-search-files-name-content = Search files by name or content
 ui-file-tree-unsaved-changes = unsaved changes
+ui-file-view-could-not-read = The file could not be read.
 ui-file-view-how-show-file = How to show this file
 ui-file-view-reading = reading…
 ui-file-view-rendered = Rendered
@@ -152,6 +169,7 @@ ui-media-view-unknown-type = of an unknown type
 ui-mermaid-mermaid-could-parse-diagram = Mermaid could not parse this diagram.
 ui-mermaid-view-clipboard-refused = The clipboard refused.
 ui-mermaid-view-copy-svg = Copy SVG
+ui-mermaid-view-could-not-save = The diagram could not be saved as a picture.
 ui-mermaid-view-last-good-render = last good render
 ui-mermaid-view-png = PNG
 ui-mermaid-view-rendering = rendering…
@@ -161,9 +179,25 @@ ui-mermaid-view-svg-copied = SVG copied.
 ui-os-paste-into-root = into the root
 ui-os-paste-nothing-paste-copy-files-here-file = Nothing to paste — copy files here or in the file manager, or a picture, first.
 ui-os-paste-pasted-items = Pasted { $pasted } items { $where }
+# The note box drawn inside an annotated page: its one button, while the element has no note yet.
+ui-page-inspector-add = Add
+# The note box's name, for a screen reader: the element it is about, as its tag reads.
+ui-page-inspector-annotate = Annotate <{ $tag }>
+# A parent's crumb in the note box: picking it annotates that parent instead.
+ui-page-inspector-annotate-instead = Annotate <{ $tag }> instead
+# The note box's button when the element already has a note.
+ui-page-inspector-change = Change
+# The note box's foot: how the keys answer in it.
+ui-page-inspector-keys = Enter adds it · Esc closes
+# The note box's close: no note, the box goes.
+ui-page-inspector-never-mind = Never mind
 ui-page-inspector-page-refused = the page refused
+ui-page-inspector-what-should-change = What should change here?
+# The note box's path of parents, for a screen reader.
+ui-page-inspector-where = Where the element is in the page
 ui-pane-divider-resize-panes = Resize panes
 ui-pasted-image-picture-s-name-does-start-dot = A picture's name does not start with a dot.
+ui-pdf-view-could-not-show = The PDF could not be shown.
 ui-pdf-view-opening-pdf = opening the PDF…
 ui-pdf-view-page = Page { $page } of { $numPages }
 ui-pdf-view-page-2 = Page { $number }
@@ -171,6 +205,7 @@ ui-pending-files-remove = Remove { $f }
 ui-pending-files-uploading = uploading…
 ui-photo-field-change-photo = Change photo
 ui-photo-field-choose-photo = Choose a photo
+ui-photo-field-could-not-add = The photo could not be added.
 ui-photo-field-remove = Remove
 ui-photo-field-uploading = Uploading…
 ui-photo-picture-could-read-may-damaged-what = The picture could not be read — it may be damaged, or not what its name says.
@@ -192,18 +227,25 @@ ui-session-state-waiting-permission = waiting on you — permission: { $tool }
 ui-session-state-waiting-sign = waiting on you — sign in to { $provider }
 ui-sheet-sheet-1 = Sheet 1
 ui-sheet-sheets = { $sheets } sheets
+ui-sheet-view-could-not-show = The spreadsheet could not be shown.
 ui-sheet-view-reading-sheet = reading the sheet…
 ui-skeleton-reading = reading { $what }…
+ui-slides-view-could-not-show = The slides could not be shown.
 ui-slides-view-outline-deck-slides-their-words-pictures = An outline of the deck — its slides as their words and pictures. Open it with the default app to see it as designed.
 ui-slides-view-reading-deck = reading the deck…
-ui-tags-clear = clear
+ui-tags-clear = Clear
 ui-tags-engineering-product = engineering, product…
-ui-tags-match = match { $match }
+ui-tags-match = Match { $match }
 ui-tags-showing-anything-one-selected-tags-switch = Showing anything with one of the selected tags. Switch to all.
 ui-tags-showing-only-what-carries-every-selected = Showing only what carries every selected tag. Switch to any.
 ui-use-pasted-images-file-name = File name
 ui-use-pasted-images-name-conversation-agents-see-under = The name the conversation and the agents see it under.
 ui-use-pasted-images-name-picture = Name the picture
+ui-use-tree-mutations-could-not-create = It could not be created.
+ui-use-tree-mutations-could-not-finish = Could not finish: { $verb }
+ui-use-tree-mutations-could-not-paste = The paste did not finish.
+ui-use-tree-mutations-could-not-rename = It could not be renamed.
+ui-use-tree-mutations-could-not-reveal = The file could not be shown in its folder.
 ui-use-tree-mutations-folder-s-place-machine-known-yet = The folder's place on this machine is not known yet.
 ui-use-tree-mutations-renamed = Renamed to { $to }.
 
@@ -308,9 +350,11 @@ ui-session-state-running-tool = running { $tool }
 ui-session-state-starting = starting
 ui-session-state-thinking = thinking
 ui-stacked-bar-band = { $label } · { $words }
-ui-tags-add = add…
+ui-tags-add = Add a tag…
 ui-tags-not-tag = "{ $raw }" is not a tag: letters, digits and separators only.
-ui-tags-remove = Remove
+ui-tags-remove = Remove { $tag }
+ui-tags-add-named = Add { $tag }
+ui-tags-more-suggestions = { $count } more
 ui-use-pasted-images-attach = Attach
 ui-use-tree-mutations-created = { $kind ->
     [file] File
@@ -356,3 +400,17 @@ ui-media-view-this-kind-cannot-play = This { $kind ->
 
 ## A deck's slide with no title (`ui/artifact/SlidesView.tsx`) — words moved out of the markup.
 ui-slides-view-untitled-slide = Untitled slide
+
+## The flow canvas's name and xyflow's own words — its controls, the minimap, a handle, a keyboard on a step or a flow (`ui/FlowCanvas.tsx`).
+ui-flow-canvas-label = Canvas
+ui-flow-canvas-node-keys = Press Enter or Space to select a step. Delete removes it; Escape lets it go.
+ui-flow-canvas-node-keys-move = Press Enter or Space to select a step, then the arrow keys to move it. Delete removes it; Escape lets it go.
+ui-flow-canvas-node-moved = Moved the step { $direction }. It is now at x { $x }, y { $y }.
+ui-flow-canvas-edge-keys = Press Enter or Space to select a flow, then Delete to remove it or Escape to let it go.
+ui-flow-canvas-controls = Canvas controls
+ui-flow-canvas-zoom-in = Zoom in
+ui-flow-canvas-zoom-out = Zoom out
+ui-flow-canvas-fit = Fit the whole flow
+ui-flow-canvas-interactive = Lock or unlock the canvas
+ui-flow-canvas-minimap = Overview map
+ui-flow-canvas-handle = Connection point

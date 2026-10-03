@@ -14,6 +14,10 @@
  * list was scrolled are the screen's memory (`shell/viewMemoryStore`), so
  * the list comes back as it was left — after a goal was opened, and after a
  * restart.
+ *
+ * An empty list is only *nothing in flight* when the goals were read: with
+ * the node away or the read failed, the screen says so and offers the read
+ * again (`listUnread`), never a door to the first goal.
  */
 
 import { useMemo, useRef } from "react";
@@ -22,8 +26,10 @@ import type { GoalRow } from "../types";
 import {
   Button,
   EmptyState,
+  ErrorNote,
   ICON,
   NO_TAG_FILTER,
+  ScreenBar,
   SkeletonRows,
   TagFilterBar,
   parseTagFilter,
@@ -34,6 +40,7 @@ import { useEffect, useState } from "react";
 import { NEW_GOAL, onDoor } from "../shell/shortcuts";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
+import { listUnread } from "../shell/workspaceLoadModel.mjs";
 import { placeOf, useViewState } from "../shell/viewMemoryStore";
 import { NewGoalDialog } from "./_work/NewGoalDialog";
 import { GoalCard } from "./_goals/GoalCard";
@@ -93,6 +100,16 @@ export default function Goals() {
     );
   }
 
+  if (ws.goals.length === 0 && listUnread(ws.degraded, ws.offline, "goals")) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="max-w-3xl">
+          <ErrorNote error={t("screens-goals-could-not-read")} retry={ws.refresh} />
+        </div>
+      </div>
+    );
+  }
+
   if (ws.goals.length === 0) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -111,11 +128,17 @@ export default function Goals() {
 
   return (
     <div ref={root} className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-6 py-2">
+      {/* The screen's band (`ui/ScreenBar.tsx`): the filters wrap among themselves; the count and the screen's one primary keep the right edge. */}
+      <ScreenBar
+        end={
+          <>
+            <span className="tnum text-2xs text-text-dim">{t("screens-goals-words", { shown: shown.length, rows: rows.length })}</span>
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>{t("screens-goals-new-goal")}</Button>
+          </>
+        }
+      >
         <GoalsFilters filters={filters} facets={facets} onChange={setFilters} />
-        <span className="tnum text-2xs text-text-dim">{t("screens-goals-words", { shown: shown.length, rows: rows.length })}</span>
-        <Button size="sm" variant="primary" className="ml-auto" onClick={() => setCreating(true)}>{t("screens-goals-new-goal")}</Button>
-      </div>
+      </ScreenBar>
 
       <div data-scroll-keep="list" className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         <div className="min-w-0">

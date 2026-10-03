@@ -4,7 +4,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { SEND_HANDOVER_GRACE_MS, composerButton, handoverElapsed } from "./composerButtonModel.mjs";
+import { SEND_HANDOVER_GRACE_MS, composerButton, explainOff, handoverElapsed } from "./composerButtonModel.mjs";
 
 test("a stoppable session is Stop, whatever else is true", () => {
   for (const busy of [false, true]) {
@@ -30,8 +30,18 @@ test("at rest the slot is Send, enabled only with something to send and sending 
   const empty = composerButton({ busy: false, stop: null, sendable: false, disabled: false });
   assert.equal(empty.kind, "send");
   assert.equal(empty.enabled, false);
-  assert.match(empty.hint, /remove a chip/);
+  assert.match(empty.hint, /Type a message/, "an empty box asks for words, never blames the budget");
   assert.equal(composerButton({ busy: false, stop: null, sendable: true, disabled: true }).enabled, false);
+});
+
+test("a Send that is off says its own reason", () => {
+  const off = (why) => explainOff(composerButton({ busy: false, stop: null, sendable: false, disabled: false }), why).hint;
+  assert.match(off("over-budget"), /remove a chip/);
+  assert.match(off("uploading"), /upload/);
+  assert.match(off("empty"), /Type a message/);
+  assert.equal(explainOff(composerButton({ busy: false, stop: null, sendable: false, disabled: true }), "over-budget").hint, "", "a closed box explains nothing");
+  const ready = composerButton({ busy: false, stop: null, sendable: true, disabled: false });
+  assert.equal(explainOff(ready, "over-budget"), ready, "a Send that can be pressed keeps its own words");
 });
 
 test("the handover lapses after the grace, never before, and never while posting", () => {

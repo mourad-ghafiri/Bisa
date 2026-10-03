@@ -35,9 +35,11 @@ import {
   Chip,
   Dialog,
   ErrorNote,
+  ICON,
   SkeletonRows,
   TagChips,
   TextInput,
+  failureText,
   useToast,
 } from "../../ui";
 import { OriginChip } from "./Origin";
@@ -185,8 +187,10 @@ export function AttachedRefs({
       {entries.map((e) => (
         <li
           key={e.id}
-          className={`flex items-start gap-2 rounded-control border px-2 py-1.5 ${
-            e.known ? "border-border" : "border-dashed border-danger/50"
+          // No edge of its own — the list sits in a fieldset or a section that
+          // has one; an unresolved id is washed in danger beside its chip.
+          className={`flex items-start gap-2 rounded-control px-2 py-1.5 ${
+            e.known ? "bg-surface-2/50" : "bg-danger-soft/50"
           }`}
         >
           <span className="min-w-0 flex-1">
@@ -325,16 +329,16 @@ export function RefPicker({
                     aria-pressed={on}
                     onClick={() => toggle(e.id)}
                     className={`anim flex w-full items-start gap-2 rounded-control border px-2 py-1.5 text-left disabled:opacity-45 ${
-                      on ? "border-accent/60 bg-accent-soft" : "border-border hover:bg-surface-2"
+                      on ? "border-text/35 bg-selected text-text" : "border-transparent hover:bg-surface-2"
                     }`}
                   >
                     <span
                       aria-hidden
-                      className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-3xs ${
-                        on ? "border-accent bg-accent text-white" : "border-border text-transparent"
+                      className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+                        on ? "border-text bg-text text-surface" : "border-border text-transparent"
                       }`}
                     >
-                      ✓
+                      <ICON.check size={10} strokeWidth={3} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-1.5">
@@ -468,7 +472,7 @@ export function useUsage(kind: UsageKind, id: string | null): Usage {
         return {
           id,
           refs: null as Reference[] | null,
-          error: e instanceof Error ? e.message : String(e),
+          error: failureText("work", "library-refs-failed", e),
         };
       }
     },
@@ -512,13 +516,13 @@ function UsageRows({ usage }: { usage: Reference[] }) {
         return (
           <li key={`${r.kind}:${r.id}:${i}`}>
             {to === null ? (
-              <div className="flex items-center gap-2 rounded-control border border-border px-2 py-1.5">
+              <div className="flex items-center gap-2 rounded-control bg-surface-2/50 px-2 py-1.5">
                 {body}
               </div>
             ) : (
               <a
                 href={to}
-                className="anim flex items-center gap-2 rounded-control border border-border px-2 py-1.5 hover:bg-surface-2"
+                className="anim flex items-center gap-2 rounded-control bg-surface-2/50 px-2 py-1.5 hover:bg-surface-2"
               >
                 {body}
               </a>

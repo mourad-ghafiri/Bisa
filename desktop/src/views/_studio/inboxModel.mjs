@@ -717,13 +717,16 @@ export function isNewestRead(asked, newest) {
  * What a key does on the list, or nothing. `j`/`k` move, `Enter` and `o`
  * open, `a` focuses the ask, `e` marks read, `u` marks unread, `Escape`
  * clears the selection. Nothing while typing, nothing inside an ask's own
- * controls, nothing with a modifier held.
+ * controls, nothing with a modifier held — and nothing while focus stands on
+ * a control outside the list (`onControl`): a tab, a filter, a menu, a
+ * button in the detail. The list's keys belong to the list, or to the page
+ * when nothing holds focus; an Escape that closes a menu clears nothing.
  * @param {string} key the `KeyboardEvent.key`
- * @param {{inInput: boolean, inAsk: boolean, modifier: boolean, hasSelection: boolean}} ctx
+ * @param {{inInput: boolean, inAsk: boolean, modifier: boolean, hasSelection: boolean, onControl?: boolean}} ctx
  * @returns {"next" | "prev" | "open" | "focus_ask" | "mark_read" | "mark_unread" | "clear" | null}
  */
 export function keyAction(key, ctx) {
-  if (ctx.inInput || ctx.inAsk || ctx.modifier) return null;
+  if (ctx.inInput || ctx.inAsk || ctx.modifier || ctx.onControl) return null;
   switch (key) {
     case "j":
       return "next";

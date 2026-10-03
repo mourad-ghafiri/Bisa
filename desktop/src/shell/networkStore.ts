@@ -22,6 +22,7 @@ import { api } from "../api";
 import type { NetworkStatus } from "../types";
 import { networkFacts, type NetworkFacts } from "./networkApi";
 import { isHidden, onVisibilityChange } from "./visibility";
+import { failureReason } from "../ui/failure";
 
 let pollMs = 30_000;
 
@@ -94,7 +95,7 @@ async function tick(): Promise<void> {
     const [read, status] = await Promise.all([
       networkFacts(publicIpUrl).then(
         (facts) => ({ facts, error: null as string | null }),
-        (e: unknown) => ({ facts: null, error: e instanceof Error ? e.message : String(e) }),
+        (e: unknown) => ({ facts: null, error: failureReason("network", "the network facts could not be read", e) }), // for the log
       ),
       api.network().catch(() => null),
     ]);

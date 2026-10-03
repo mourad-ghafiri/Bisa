@@ -55,7 +55,7 @@ test("two views, Yours first; a stray view falls to the remembered one, then to 
       ["available", "Not yet installed"],
     ],
   );
-  assert.deepEqual(statusSegments("yours").map((s) => s.label), ["All", "Runs", "On", "Has problems", "In use"]);
+  assert.deepEqual(statusSegments("yours").map((s) => s.label), ["All", "Ready to run", "On", "Has problems", "In use"]);
 });
 
 test("the filters round-trip the address: a default writes nothing, the remembered view stands in when the address names none", () => {

@@ -70,6 +70,28 @@ export function connectApplies(auth) {
   return schemeWord(auth) === "oauth2";
 }
 
+/**
+ * The verbs of one account row: the one it shows — *Connect* while an OAuth
+ * account holds no token, *Check* otherwise — and the rest, in the order the
+ * row's menu lists them. A row of five buttons read as a toolbar; one verb
+ * and a menu reads as a row.
+ * @param {{ default: boolean, secrets_set: readonly string[] }} account
+ * @param {boolean} oauth
+ * @returns {{ main: "connect" | "check", more: ("connect" | "secrets" | "check" | "default" | "forget")[] }}
+ */
+export function accountVerbs(account, oauth) {
+  const connected = account.secrets_set.includes("access_token");
+  const main = oauth && !connected ? "connect" : "check";
+  /** @type {("connect" | "secrets" | "check" | "default" | "forget")[]} */
+  const more = [];
+  if (oauth && connected) more.push("connect");
+  more.push("secrets");
+  if (main !== "check") more.push("check");
+  if (!account.default) more.push("default");
+  more.push("forget");
+  return { main, more };
+}
+
 /** The redirect URI a person registers at the platform, for a port. */
 export function redirectUri(port) {
   return `http://127.0.0.1:${port}/connectors/oauth/callback`;

@@ -9,10 +9,11 @@ shell-about-dialog-mark = The { $PRODUCT } mark
 shell-about-dialog-runs-goals-through-coding-harnesses-already = { $PRODUCT } runs your goals through the coding harnesses you already have — Claude Code, Codex, pi, Oh My Pi, OpenCode, GitHub Copilot CLI, Grok Build and any ACP agent — on your own machine, with your own keys.
 shell-about-node-desktop-restart-desktop-so-both = The node is { $node } and this desktop { $app } — restart the desktop so both are one version.
 shell-about-licence = Licence
-shell-about-marks-notices = The { $product } mark is our own. The harness marks are their owners'; the licences they came under are in NOTICES.md beside the source.
+shell-about-marks-notices = The { $product } mark is our own. The harness marks are their owners', and the Git logo is Jason Long's (CC BY 3.0); the licences they came under are in NOTICES.md beside the source.
 shell-about-source = Source
 shell-about-third-party-notices = Third-party notices
 shell-about-website = Website
+shell-artifact-pane-could-not-read = The artifact's message could not be read.
 shell-artifact-pane-expand = Expand
 shell-artifact-pane-fill-window-esc-come-back = Fill the window (Esc to come back)
 shell-artifact-pane-here = not here
@@ -35,6 +36,7 @@ shell-browser-bar-annotate-page-agent = Annotate the page for an agent
 shell-browser-bar-annotations = { $wand } annotations
 shell-browser-bar-back = Back
 shell-browser-bar-copy-screenshot-what-agent-s-browser = Copy a screenshot — what an agent's browser_screenshot sees
+shell-browser-bar-could-not-shoot = The screenshot could not be taken.
 shell-browser-bar-forward = Forward
 shell-browser-bar-open-page-machine-s-browser = Open this page in the machine's browser
 shell-browser-bar-open-tab-project-ide-where-home = Open this tab in the Project IDE, where its home is
@@ -80,6 +82,8 @@ shell-browser-door-close-tab = Close the tab
 shell-browser-door-embedded-browser-beside-screen-agents-tabs = The embedded browser beside this screen — agents' tabs and yours (⌘⇧L)
 shell-browser-door-hide-browser-pane-l = Hide the Browser pane (⌘⇧L)
 shell-browser-doors-browser-tab-could-open = No browser tab could open.
+shell-browser-doors-could-not-open-page = The page could not be opened in the browser.
+shell-browser-launcher-could-not-stop = The server could not be stopped.
 shell-browser-launcher-open-serve-browser = Open or serve in the browser
 shell-browser-overlay-beside-screen-browser-pane = Beside this screen, in the Browser pane
 shell-browser-overlay-close = Close { $r }
@@ -143,6 +147,9 @@ shell-close-guard-running-harness = a running harness
 shell-close-guard-switch-question-off-under = Switch this question off under
 shell-close-guard-switch-these-questions-off-under = Switch these questions off under
 shell-close-guard-terminate-harness = Terminate this harness?
+shell-device-launcher-could-not-boot = The device could not be started.
+shell-device-launcher-could-not-shut-down = The device could not be shut down.
+shell-device-launcher-could-not-stop = The run could not be stopped.
 shell-device-launcher-run-device-boot-one-check-setup = Run on a device, boot one, or check the setup
 shell-device-launcher-shut-down = { $after } is shut down
 shell-device-launcher-up = { $after } is up
@@ -417,7 +424,7 @@ shell-omnibox-goals = Goals
 shell-omnibox-index-stops-cap-type-narrow = …the index stops at its cap; type to narrow
 shell-omnibox-install-agents-skills-teams-library = install agents skills teams library
 shell-omnibox-just = Just you
-shell-omnibox-language-server-file = No language server for this file
+shell-omnibox-language-server-file = No language server answered for this file. The diagnostic log has the detail.
 shell-omnibox-line-number = Line number…
 shell-omnibox-mode-every-workstream-card = { $board } Mode: every workstream as a card
 shell-omnibox-new-channel = New channel
@@ -503,6 +510,7 @@ shell-resource-terminal = not in a terminal
 shell-resource-terminal-scrollback = Terminal scrollback
 shell-resource-window-s-process-renderer-runs-under = this window's process; its renderer runs under WebKit and is counted there
 shell-resource-workflow = on no workflow
+shell-serve-doors-could-not-serve = The folder could not be served.
 shell-serve-folder-dialog-cancel = Cancel
 shell-serve-folder-dialog-checkout-could-listed-root-can-still = The checkout could not be listed — { $error }. Root can still be served.
 shell-serve-folder-dialog-choose-root-folder-under = Choose the root, or a folder under it.
@@ -522,8 +530,8 @@ shell-setup-gate-check-again = Check again
 shell-setup-gate-clipboard-refused = The clipboard refused.
 shell-setup-gate-copied = Copied.
 shell-setup-gate-copy = Copy
-shell-setup-gate-could = could not { $f }
-shell-setup-gate-could-read-what-platform-needs = could not read what the platform needs
+shell-setup-gate-could = “{ $f }” did not go through. The diagnostic log has the detail.
+shell-setup-gate-could-read-what-platform-needs = What the platform needs could not be read. The diagnostic log has the detail.
 shell-setup-gate-done = { $f } — done.
 shell-setup-gate-open-official-docs = Open official docs
 shell-setup-gate-platform-needs-git-one-coding-harness = The platform needs git, one coding harness and its three core agents — the General Agent, the Workflow Agent and the Decision-Making Agent — to work. Install and set up what is missing below — every line is the official one, copied, never run for you — and this closes on its own.
@@ -549,6 +557,7 @@ shell-sidebar-need = { $needs } need you
 shell-sidebar-node-unreachable = Node unreachable
 shell-sidebar-nothing-needs = Nothing needs you
 shell-sidebar-rail-node-unreachable = Node unreachable — { $offline }
+shell-sidebar-hosted-membership = Membership: { $state }
 shell-sidebar-unread = { $unread } unread
 shell-sidebar-workspace = Workspace
 shell-status-bar-document-s-language-editor-sees = The document's language, as the editor sees it
@@ -557,19 +566,39 @@ shell-status-bar-hide-notes-button = Hide the notes button
 shell-status-bar-ln-col = Ln { $line }, Col { $column }
 shell-status-bar-no-open-ports = No open ports.
 shell-status-bar-nowhere-open-session-runs-checkout = Nowhere to open: this session runs in no checkout
-shell-status-bar-open-browser = Open in the browser
+shell-status-bar-open-browser = Open :{ $port } in the machine's browser
 shell-status-bar-open-machine-s-browser = Open in the machine's browser
-shell-status-bar-open-ports = Open ports
-shell-status-bar-open-terminals = Open terminals
+shell-status-bar-open-ports = { $count ->
+    [one] { $count } open port
+   *[other] { $count } open ports
+  }
+shell-status-bar-open-terminals = { $count ->
+    [one] { $count } open terminal
+   *[other] { $count } open terminals
+  }
 shell-status-bar-pid = pid { $pid }
 shell-status-bar-plain-text = plain text
-shell-status-bar-running-harnesses = Running harnesses
+shell-status-bar-running-harnesses = { $count ->
+    [one] { $count } running harness
+   *[other] { $count } running harnesses
+  }
 shell-status-bar-show-notes-button = Show the notes button
 shell-status-bar-stop = Stop it
 shell-status-bar-stop-process = Stop the process
 shell-status-bar-stop-process-2 = Stop the process on :{ $port }?
 shell-status-bar-terminal-open = No terminal is open.
 shell-status-bar-words = { $title }{ $kept }
+shell-status-bar-stop-port = Stop the process on :{ $port }
+shell-status-bar-could-not-stop = The process on :{ $port } did not stop. The diagnostic log has the detail.
+shell-status-bar-a-session = A harness session
+shell-status-bar-shell = Shell
+shell-status-bar-session = Harness session
+shell-status-bar-port-owner-goal = Goal
+shell-status-bar-port-owner-project = Project
+shell-status-bar-port-owner-workstream = Workstream
+shell-status-bar-port-owner-work-item = Work item
+shell-status-bar-port-owner-shell = Shell
+shell-status-bar-port-owner-harness = Harness
 shell-terminal-launcher-fresh-session = { $h } — fresh session
 shell-terminal-launcher-goal-s-folder = this goal's folder
 shell-terminal-launcher-home-directory = your home directory
@@ -633,8 +662,8 @@ shell-theme-whatever-os-reads-fastest-paint = Whatever your OS reads in — the 
 shell-top-chrome-1-agent-writing = 1 agent writing
 shell-top-chrome-agents-writing = { $busy } agents writing
 shell-top-chrome-engine-paused-nothing-will-start = The engine is paused; nothing will start.
-shell-top-chrome-node-unreachable = node unreachable
-shell-top-chrome-paused = paused
+shell-top-chrome-node-unreachable = Node unreachable
+shell-top-chrome-paused = Paused
 shell-top-chrome-search-jump = Search or jump to…
 shell-top-chrome-see-what-happening = See what is happening
 shell-transcript-pane-nothing-show-address-names-session = Nothing to show — the address names no session.
@@ -796,6 +825,9 @@ shell-terminal-launcher-open-terminal-in = Open a terminal in { $where }
 shell-terminal-launcher-show-terminal-in = Show the terminal in { $where }
 shell-terminal-launcher-what-to-open-in = What to open in { $where }
 shell-terminal-strip-controls-new-shell-in = New shell in { $title }
+shell-terminal-strip-controls-nothing-to-send = Nothing to send yet — this terminal hasn't printed anything.
+# A terminal's attached lines, when two tabs read alike: the tab's words and its place along the strip.
+shell-terminal-chip-nth = { $label } ({ $n })
 shell-browser-door-agent-browsing-aside = {" "}— an agent is browsing
 shell-browser-door-unseen = unseen
 shell-browser-overlay-segment = { $label } { $percent }
@@ -839,8 +871,8 @@ shell-words-paste = Paste
 shell-words-quit-bisa = Quit Bisa
 shell-words-select-all = Select All
 shell-words-show-in-dock = Show in Dock
-shell-status-bar-lang = lang
-shell-status-bar-pos = pos
+shell-status-bar-lang = Language
+shell-status-bar-pos = Position
 shell-resource-part-desktop = desktop
 shell-resource-part-harnesses = harnesses
 shell-resource-part-node = node
@@ -856,7 +888,7 @@ shell-addons-overlay-machine-off = Addons are switched off on this machine — S
 shell-addons-overlay-on = { $name } on
 shell-addons-overlay-show-window = Show { $name }
 shell-addons-overlay-put-away = Put { $name } away
-shell-addons-overlay-could-not-switch = { $name } could not be switched
+shell-addons-overlay-could-not-switch = { $name } could not be switched. The diagnostic log has the detail.
 shell-addons-overlay-reset-positions = Reset positions
 shell-keymap-show-hide-addons = Show or hide the addons
 shell-keymap-show-hide-draw-panel = Show or hide the drawings
@@ -924,7 +956,10 @@ shell-artifact-pane-in-this-conversation = In this conversation
 shell-browser-launcher-browser = Browser
 
 ## The footer's browser read-out (`shell/BrowserStat.tsx`) — words moved out of the markup.
-shell-browser-stat-browser-value = browser { $value }
+shell-browser-stat-browser-value = { $count ->
+    [one] { $count } browser tab
+   *[other] { $count } browser tabs
+  }
 
 ## The device launcher's button (`shell/DeviceLauncher.tsx`) — words moved out of the markup.
 shell-device-launcher-devices = Devices

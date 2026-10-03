@@ -8,11 +8,13 @@ import type { InboxRow } from "../types";
 import type { Route } from "../router";
 
 export type SidebarMode = "expanded" | "collapsed";
+/** Two counts, never one sum: what needs the person (the accent's) and what is merely unread (neutral). */
 export interface InboxBadge {
-  count: number;
   needs: number;
   unread: number;
-  tone: "accent" | "neutral";
+  needsTitle: string | null;
+  unreadTitle: string | null;
+  /** Both counts' words, for a tooltip that names the whole. */
   title: string | null;
 }
 export interface RailBadge {
@@ -25,6 +27,10 @@ export interface RailDoor {
   label: string;
   route: Route;
   badge: RailBadge | null;
+  /** A neutral dot beside an accent count: something is unread besides what is owed. */
+  unreadDot: boolean;
+  /** The count whose rise replays the arrival. */
+  arrival: number;
   live: string | null;
   note: string | null;
 }

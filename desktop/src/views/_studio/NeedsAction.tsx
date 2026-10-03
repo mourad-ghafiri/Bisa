@@ -1,7 +1,7 @@
 /**
  * The one thing the Inbox exists for: something is waiting on a human.
  *
- * This file is chrome. The header line, the warn-tinted card and the glyph are
+ * This file is chrome. The header line, the accent-tinted card and the glyph are
  * what a pending ask wears; every control inside it comes from
  * {@link AskControls}. The goal page's *Your move* band mounts this same card
  * — there used to be a second chrome, `GateBar`, drawing the same
@@ -49,12 +49,12 @@ export function NeedsActionCard({
   const proposalGoal = action.home.home === "goal" ? action.home.goal : null;
 
   return (
-    <div className="rounded-card border border-warn/40 bg-warn-soft/40 p-3">
+    <div className="rounded-card border border-accent/40 bg-accent-soft/40 p-3">
       <div className="mb-2 flex items-center gap-2">
         {/* `question` is its own glyph rather than a clock or an at-sign: a
             question is a person waiting on an answer, not a duration and not
             an address. The gate keeps its own kind's symbol. */}
-        <Chip tone="warn" icon={isQuestion ? ICON.question : GATE_ICON[action.gate_kind]}>
+        <Chip tone="accent" icon={isQuestion ? ICON.question : GATE_ICON[action.gate_kind]}>
           {askTitle(action, isQuestion)}
         </Chip>
         {action.durable && (

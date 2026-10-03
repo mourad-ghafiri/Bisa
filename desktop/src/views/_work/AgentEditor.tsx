@@ -159,7 +159,7 @@ export function AgentEditor({
     >
       <div className="flex flex-col gap-3">
         {core && (
-          <p className="rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5 text-2xs text-accent-ink">
+          <p className="rounded-control border border-border bg-surface-2/70 px-3 py-2 text-2xs leading-relaxed text-text">
             {CORE_AGENT_PURPOSE} {t("work-agent-editor-harness-model-plan-decision-making-switch-editable")}
           </p>
         )}
@@ -240,8 +240,8 @@ export function AgentEditor({
           {choices.length === 0 && <p className="mt-1 text-2xs text-warn">{t("work-agent-editor-no-harness-installed")}</p>}
         </Field>
 
-        <fieldset className="rounded-control border border-border p-2">
-          <legend className="px-1 text-2xs font-medium text-text-dim">{t("work-agent-editor-model-plan")}</legend>
+        <fieldset className="rounded-control border border-hairline p-3">
+          <legend className="px-1 text-2xs font-semibold text-text-dim">{t("work-agent-editor-model-plan")}</legend>
           {/* A plan is of a harness's models: there is none to pick from until a harness is. */}
           {d.harness !== null && <ModelPlanEditor harness={d.harness} plan={d.plan} onChange={(plan) => set({ plan })} />}
         </fieldset>
@@ -279,8 +279,8 @@ export function AgentEditor({
 
         {/* The two references side by side: a skill from the library, a server from the registry — each a search box with chips, each with its door to Settings. */}
         <div className="grid gap-3 md:grid-cols-2">
-          <fieldset className="rounded-control border border-border p-2">
-            <legend className="px-1 text-2xs font-medium text-text-dim">
+          <fieldset className="rounded-control border border-hairline p-3">
+            <legend className="px-1 text-2xs font-semibold text-text-dim">
               {t("work-agent-editor-skills-count", { n: d.skills.length })}
             </legend>
             <div className="flex flex-col gap-2">
@@ -321,8 +321,8 @@ export function AgentEditor({
             </div>
           </fieldset>
 
-          <fieldset className="rounded-control border border-border p-2">
-            <legend className="px-1 text-2xs font-medium text-text-dim">
+          <fieldset className="rounded-control border border-hairline p-3">
+            <legend className="px-1 text-2xs font-semibold text-text-dim">
               {t("work-agent-editor-mcp-servers-count", { n: d.mcps.length })}
             </legend>
             {core ? (

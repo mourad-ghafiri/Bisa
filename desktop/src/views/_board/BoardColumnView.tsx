@@ -53,9 +53,10 @@ export function BoardColumnView({
   return (
     <section
       aria-label={COLUMN_LABEL[column]}
-      className={cn("flex min-h-0 flex-col rounded-card border border-border bg-surface-2/60", folded ? "w-10 shrink-0" : "w-72 shrink-0")}
+      // A quiet well with no edge of its own: the cards in it are the raised, bordered things.
+      className={cn("flex min-h-0 flex-col rounded-card bg-surface-2/60", folded ? "w-10 shrink-0" : "w-72 shrink-0")}
     >
-      <header className={cn("flex shrink-0 items-center gap-1.5 px-2 py-1.5", folded && "flex-col py-2")}>
+      <header className={cn("flex shrink-0 items-center gap-1.5 px-2 py-2", folded && "flex-col")}>
         <button
           type="button"
           onClick={onToggleFold}
@@ -65,7 +66,7 @@ export function BoardColumnView({
           {folded ? <ICON.collapsed size={12} aria-hidden /> : <ICON.expanded size={12} aria-hidden />}
         </button>
         <Tooltip label={COLUMN_HINT[column]}>
-          <h3 className={cn("min-w-0 truncate text-2xs font-semibold tracking-wide text-text-dim uppercase", folded && "[writing-mode:vertical-rl]")}>
+          <h3 className={cn("min-w-0 truncate text-xs font-semibold text-text", folded && "[writing-mode:vertical-rl]")}>
             {COLUMN_LABEL[column]}
           </h3>
         </Tooltip>

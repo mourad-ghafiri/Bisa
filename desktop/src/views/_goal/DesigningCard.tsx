@@ -79,7 +79,7 @@ export function DesigningCard({ view, onChanged }: { view: GoalView; onChanged: 
           <Chip tone={v.tone}>{kindWord(v.kind)}</Chip>
           {v.elapsed && <span className="tnum text-2xs text-text-dim">{v.elapsed}</span>}
         </div>
-        {v.hint && <p className="text-xs text-text-dim">{v.hint}</p>}
+        {v.hint && <p className="max-w-measure text-xs leading-relaxed text-text-dim">{v.hint}</p>}
         {v.activity && (
           <p className="flex items-center gap-1.5 text-2xs text-text-dim">
             <ICON.working size={12} aria-hidden />
@@ -105,7 +105,7 @@ export function DesigningCard({ view, onChanged }: { view: GoalView; onChanged: 
           )}
         </div>
         {v.offerPick && (
-          <div className="flex flex-col gap-1 border-t border-border pt-3">
+          <div className="flex flex-col gap-1 border-t border-hairline pt-3">
             <span className="text-2xs text-text-dim">
               {v.primary === "pick" ? tr("goal-designing-card-pick-workflow") : tr("goal-designing-card-pick-workflow-yourself-instead")}
             </span>

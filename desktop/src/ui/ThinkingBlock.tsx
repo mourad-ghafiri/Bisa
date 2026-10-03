@@ -71,7 +71,7 @@ export function ThinkingBlock({
       </button>
       {open ? (
         <div className="mt-0.5 border-l-2 border-border pl-2 text-2xs text-text-dim">
-          <StreamedMarkdown text={text} />
+          <StreamedMarkdown text={text} textClass="text-xs" />
           {live && <StreamCaret />}
         </div>
       ) : (

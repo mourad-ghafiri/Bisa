@@ -23,7 +23,7 @@ import { api } from "../../../api";
 import { errorFields, log } from "../../../log";
 import type { InputDef, Step } from "../../../types";
 import { useWorkspace } from "../../../shell/useWorkspaceData";
-import { Field, Select, TextArea, TextInput } from "../../../ui";
+import { Field, Labelled, Select, TextArea, TextInput } from "../../../ui";
 import { AssigneePicker } from "../../_work/AssigneePicker";
 import { EffortPicker } from "../../_work/EffortPicker";
 import { effortOptions, withEffort } from "../../_work/effortModel.mjs";
@@ -59,12 +59,14 @@ export function ValueRefField({
 }) {
   const candidates = inputs.filter((i) => i.kind === kind);
   const asInput = value && typeof value === "object" ? value.input : null;
+  // A select and a picker are two controls: one caption over them, not one `<label>` round both.
   return (
-    <Field label={label} hint={hint}>
+    <Labelled label={label} hint={hint}>
       <div className="flex flex-col gap-1.5">
         {candidates.length > 0 && (
           <Select
             value={asInput ?? ""}
+            aria-label={label}
             disabled={disabled}
             onChange={(e) => onChange(e.target.value ? { input: e.target.value } : null)}
           >
@@ -76,7 +78,7 @@ export function ValueRefField({
         )}
         {!asInput && children(typeof value === "string" ? value : "", (v) => onChange(v || null))}
       </div>
-    </Field>
+    </Labelled>
   );
 }
 
@@ -166,7 +168,7 @@ export function AgentStepForm({
           </Select>
         )}
       </ValueRefField>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xs:grid-cols-2">
         <Field label={t("workflow-agent-step-form-harness")} hint={t("workflow-agent-step-form-comma-separated-fallback-order-blank-means")}>
           <TextInput
             className="font-mono"

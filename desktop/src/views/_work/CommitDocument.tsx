@@ -88,11 +88,11 @@ export function CommitDocument({ wid, sha }: { wid: string; sha: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2 text-2xs">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-4 py-2 text-2xs">
         <ICON.checkout size={14} aria-hidden className="shrink-0 text-text-dim" />
         <Tooltip label={t("work-commit-document-copy-full-id")}>
           <span className="inline-flex">
-            <button type="button" className="font-mono text-accent-ink hover:underline" onClick={() => actions.start("copy_sha", target)}>
+            <button type="button" className="anim font-mono font-medium text-text hover:underline" onClick={() => actions.start("copy_sha", target)}>
               {commit.short}
             </button>
           </span>
@@ -122,8 +122,8 @@ export function CommitDocument({ wid, sha }: { wid: string; sha: string }) {
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
         <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-          <p className="text-sm font-medium text-text">{commit.subject}</p>
-          {commit.body && <pre className="whitespace-pre-wrap font-sans text-xs text-text-dim">{commit.body}</pre>}
+          <p className="text-lg font-semibold tracking-tight text-text">{commit.subject}</p>
+          {commit.body && <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-text-dim">{commit.body}</pre>}
           {commit.files.length > 0 && (
             <div className="flex flex-col gap-1">
               <p className="text-2xs text-text-dim">
@@ -133,10 +133,10 @@ export function CommitDocument({ wid, sha }: { wid: string; sha: string }) {
                 {commit.files.map((f) => {
                   const selected = isFocused(focus, f.path);
                   return (
-                    <li key={f.path} role="option" aria-selected={selected} className="border-b border-border last:border-b-0">
+                    <li key={f.path} role="option" aria-selected={selected} className="border-b border-hairline last:border-b-0">
                       <button
                         type="button"
-                        className={cn("flex w-full items-baseline gap-2 px-2 py-1 text-left font-mono hover:bg-surface-2", selected && "bg-accent-soft")}
+                        className={cn("anim flex w-full items-baseline gap-2 px-2 py-1 text-left font-mono hover:bg-surface-2", selected && "bg-selected")}
                         onClick={() => setChosen(chooseFile(chosen, f.path, view))}
                       >
                         <span className="w-3 shrink-0 text-text-dim" title={f.kind}>

@@ -4,7 +4,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SIDE_TONE, agentQuestion, gitSideOf, isSwapped, isWholeFileKind, kindChoices, kindWords, sideByGit, sidesOf, tookWords, whatIsAConflict } from "./conflictSidesModel.mjs";
+import { SIDE_ICON, agentQuestion, gitSideOf, isSwapped, isWholeFileKind, kindChoices, kindWords, sideByGit, sidesOf, tookWords, whatIsAConflict } from "./conflictSidesModel.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const merge = { kind: "merge", branch: "main", ours: { role: "branch", name: "main", commit: null, subject: null }, theirs: { role: "branch", name: "feature/login", commit: SHA, subject: "Add login" }, step: null };
@@ -20,10 +20,17 @@ test("mine is git's ours — except under a rebase, where the person's commit is
   assert.ok(isSwapped("rebase") && !isSwapped("cherry_pick"));
 });
 
+test("the two sides are identities, not states: no colour of their own, told apart by a mark and a name", () => {
+  const s = sidesOf("merge", merge);
+  assert.notEqual(SIDE_ICON.mine, SIDE_ICON.theirs, "each side wears its own mark");
+  assert.ok(!("tone" in s.mine) && !("tone" in s.theirs), "no side carries a tone — the accent is the summons, ok is done");
+  assert.equal(sidesOf("rebase", rebase).mine.icon, SIDE_ICON.mine, "the mark follows the person's side through the swap");
+});
+
 test("a merge names your branch and the branch merged in — a pull the remote — and says what is happening", () => {
   const s = sidesOf("merge", merge);
-  assert.deepEqual([s.mine.name, s.mine.git, s.mine.tone], ["main", "ours", SIDE_TONE.mine]);
-  assert.deepEqual([s.theirs.name, s.theirs.git, s.theirs.tone], ["feature/login", "theirs", SIDE_TONE.theirs]);
+  assert.deepEqual([s.mine.name, s.mine.git, s.mine.icon], ["main", "ours", SIDE_ICON.mine]);
+  assert.deepEqual([s.theirs.name, s.theirs.git, s.theirs.icon], ["feature/login", "theirs", SIDE_ICON.theirs]);
   assert.match(s.mine.role, /your branch/);
   assert.match(s.theirs.role, /incoming/);
   assert.equal(s.title, "Merging feature/login into main");

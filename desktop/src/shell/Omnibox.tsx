@@ -62,7 +62,9 @@ import { terminalTail } from "../terminal/tails";
 import { attachContext } from "../views/_workbench/agentPaneStore";
 import { openPanelView, showRightPanel } from "../views/_workbench/rightPanelStore";
 import { fileChip, selectionChip, terminalChip, workItemChip } from "../views/_workbench/contextChips.mjs";
+import { terminalChipName } from "./terminalChipModel.mjs";
 import { toWorkspaceSymbols } from "../views/_workbench/lspModel.mjs";
+import { stateLabel } from "../views/_work/workstreamCardModel.mjs";
 import type { FileScope } from "../types";
 import { canOpenTerminal, focusTerminalTab, openTerminalIn, useTerminals } from "./useTerminals";
 import type { TerminalScope } from "../terminal/session";
@@ -177,8 +179,10 @@ export function Omnibox({
       })
       .catch((e: unknown) => {
         if (!alive) return;
+        // What the server said is the log's; the palette says it in words a person reads.
+        log.warn("omnibox", "the language server could not be asked for symbols", { path: ed.path, ...errorFields(e) });
         setSymbols([]);
-        setSymbolNote(e instanceof Error ? e.message : tr("shell-omnibox-language-server-file"));
+        setSymbolNote(tr("shell-omnibox-language-server-file"));
       });
     return () => {
       alive = false;
@@ -418,7 +422,7 @@ export function Omnibox({
           label: branch ?? tr("shell-omnibox-copy-id", { id: w.workstream.id.slice(-6) }),
           // The project's name, because a branch on its own does not say which
           // repository it is in and two projects may both have a `work/fix-…`.
-          hint: [w.project_name, w.workstream.state.state, w.exists ? null : tr("shell-omnibox-checkout")]
+          hint: [w.project_name, stateLabel(w.workstream.state), w.exists ? null : tr("shell-omnibox-checkout")]
             .filter(Boolean)
             .join(" · "),
           group: tr("shell-omnibox-workstreams"),
@@ -486,7 +490,8 @@ export function Omnibox({
         attach(tr("shell-omnibox-attach-active-terminal-s-last-lines"), "terminal", () => {
           const lines = terminalTail(activeTerminal);
           const s = terminalSessions.find((t) => t.key === activeTerminal);
-          return lines ? terminalChip(s ? `${harnessOf(s) ?? "shell"} · ${activeTerminal}` : activeTerminal, lines) : null;
+          // The tab's own words, as every other Send-to-agent door names it (`terminalChipModel`).
+          return lines ? terminalChip(s ? terminalChipName(s, terminalSessions) : activeTerminal, lines) : null;
         });
       }
       if (root.scope === "work_item") attach(tr("shell-omnibox-attach-work-item"), "work-item", () => workItemChip(root.id));
@@ -710,7 +715,7 @@ export function Omnibox({
     // typing — "dark", "teal", "compact", "inter", "larger" — and invisible otherwise.
     if (needle || prefix === ">" || mode === "commands") {
       const on = (yes: boolean) =>
-        yes ? <ICON.check size={13} aria-hidden className="text-accent-ink" /> : undefined;
+        yes ? <ICON.check size={13} aria-hidden className="text-text" /> : undefined;
       for (const t of THEMES) {
         push({
           key: `t:${t.id}`,
@@ -1002,7 +1007,7 @@ export function Omnibox({
         )}
         {groups.map(([group, bucket]) => (
           <div key={group} className="mb-1">
-            <p className="px-2 py-1 text-2xs font-semibold tracking-wide text-text-dim uppercase">
+            <p className="px-2 pb-1 pt-2 text-2xs font-semibold text-text-dim">
               {group}
             </p>
             {bucket.map((it) => {
@@ -1022,10 +1027,10 @@ export function Omnibox({
                   onClick={it.run}
                   className={cn(
                     "anim flex h-row w-full items-center gap-2 rounded-control px-2 text-left text-xs",
-                    selected ? "bg-accent-soft text-accent-ink" : "text-text hover:bg-surface-2",
+                    selected ? "bg-selected text-text" : "text-text hover:bg-surface-2",
                   )}
                 >
-                  {it.leading && <span className="flex shrink-0 items-center">{it.leading}</span>}
+                  {it.leading && <span className="flex shrink-0 items-center text-text-dim">{it.leading}</span>}
                   <span className="min-w-0 flex-1 truncate">{it.label}</span>
                   {it.hint && (
                     <span className="max-w-48 truncate text-2xs text-text-dim">{it.hint}</span>

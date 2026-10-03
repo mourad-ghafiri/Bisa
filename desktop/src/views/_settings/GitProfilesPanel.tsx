@@ -14,7 +14,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import type { GitProfileView, ProfileSpec } from "../../types";
-import { Button, Card, Chip, ConfirmDialog, Dialog, ErrorNote, Field, ICON, Pending, ReadLine, Select, TextInput, useToast } from "../../ui";
+import { Button, Card, Chip, ConfirmDialog, Dialog, ErrorNote, Field, ICON, Pending, ReadLine, Section, Select, TextInput, useToast } from "../../ui";
 import { KINDS } from "../_work/codeHostWords.mjs";
 import { attempt, useAsync } from "../_work/useAsync";
 import { pendingRows, readWords } from "./loadModel.mjs";
@@ -70,94 +70,100 @@ export function GitProfilesPanel() {
   };
 
   return (
-    <Card className="flex flex-col gap-3 p-3">
-      {sideWords.map((w, n) => (
-        <ReadLine key={n} words={w.words} onReload={w.reload} />
-      ))}
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-xs font-semibold">{t("settings-git-profiles-panel-profiles-organization")}</h3>
-        <Chip tone={data.profiles.length > 0 ? "ok" : "quiet"} icon={ICON.organization}>
-          {data.profiles.length === 0 ? t("settings-git-profiles-panel-none") : `${data.profiles.length}`}
-        </Chip>
-        <span className="flex-1" />
-        <Button size="sm" variant="primary" disabled={!data.hasconfig_supported} onClick={() => setEditing({ slug: null, spec: emptySpec() })}>{t("settings-git-profiles-panel-new-profile")}</Button>
-      </div>
-      <p className="text-2xs text-text-dim">{rich("settings-git-profiles-panel-profile-who-you-are")}</p>
-      {note && (
-        <p className="rounded-control border border-warn/40 bg-warn/10 px-2 py-1 text-2xs text-warn" role="alert">
-          {note}
-        </p>
-      )}
-      {data.profiles.length > 0 && (
-        <ul className="flex flex-col gap-2" aria-label={t("settings-git-profiles-panel-profiles")}>
-          {data.profiles.map((p) => {
-            const row = profileRow(p);
-            return (
-              <li key={p.slug} className="rounded-control border border-border bg-surface-2 p-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <ICON.organization size={13} aria-hidden className="shrink-0 text-text-dim" />
-                  <span className="text-xs font-medium">{row.title}</span>
-                  <span className="font-mono text-2xs text-text-dim">{row.where}</span>
-                  <span className="flex-1" />
-                  <Button size="sm" variant="ghost" onClick={() => setEditing({ slug: p.slug, spec: specOf(p) })}>{t("settings-connectors-panel-edit")}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setRemoving(p)}>{t("settings-git-profiles-panel-remove")}</Button>
-                </div>
-                <p className="mt-1 flex flex-wrap gap-x-3 text-2xs text-text-dim">
-                  <span className="font-mono">{row.who}</span>
-                  {row.key && (
-                    <span>{rich("settings-git-profiles-panel-key-slot", { key: <span className="font-mono">{row.key}</span> })}</span>
-                  )}
-                  {row.account && (
-                    <span>{rich("settings-git-profiles-panel-account-slot", { account: <span className="font-mono">{row.account}</span> })}</span>
-                  )}
-                </p>
-                <p className="mt-0.5 text-3xs text-text-dim">{row.matches}</p>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {data.foreign_includes.length > 0 && (
-        <div className="text-2xs text-text-dim">
-          <p>{t("settings-git-profiles-panel-global-git-config-also-includes-own")}</p>
-          <ul className="mt-1 flex flex-col gap-0.5 font-mono text-3xs">
-            {data.foreign_includes.map((f) => (
-              <li key={`${f.condition}:${String(f.path)}`}>{foreignWords({ ...f, path: String(f.path) })}</li>
-            ))}
-          </ul>
+    <Section
+      title={
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold text-text">{t("settings-git-profiles-panel-profiles-organization")}</h2>
+          <Chip tone={data.profiles.length > 0 ? "ok" : "quiet"} icon={ICON.organization}>
+            {data.profiles.length === 0 ? t("settings-git-profiles-panel-none") : `${data.profiles.length}`}
+          </Chip>
         </div>
-      )}
-      {editing && (
-        <ProfileDialog
-          slug={editing.slug}
-          initial={editing.spec}
-          keys={keyPaths}
-          logins={logins}
-          onClose={() => setEditing(null)}
-          onSaved={(p) => {
-            toast.ok(savedWords(p));
-            setEditing(null);
-            view.reload();
+      }
+      action={
+        <Button size="sm" variant="primary" disabled={!data.hasconfig_supported} onClick={() => setEditing({ slug: null, spec: emptySpec() })}>{t("settings-git-profiles-panel-new-profile")}</Button>
+      }
+    >
+      <Card className="flex flex-col gap-3">
+        {sideWords.map((w, n) => (
+          <ReadLine key={n} words={w.words} onReload={w.reload} />
+        ))}
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-git-profiles-panel-profile-who-you-are")}</p>
+        {note && (
+          <p className="rounded-control border border-warn/40 bg-warn/10 px-2 py-1 text-2xs text-warn" role="alert">
+            {note}
+          </p>
+        )}
+        {data.profiles.length > 0 && (
+          <ul className="flex flex-col gap-2" aria-label={t("settings-git-profiles-panel-profiles")}>
+            {data.profiles.map((p) => {
+              const row = profileRow(p);
+              return (
+                <li key={p.slug} className="rounded-control bg-surface-2/50 p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ICON.organization size={13} aria-hidden className="shrink-0 text-text-dim" />
+                    <span className="text-xs font-medium">{row.title}</span>
+                    <span className="font-mono text-2xs text-text-dim">{row.where}</span>
+                    <span className="flex-1" />
+                    <Button size="sm" variant="ghost" onClick={() => setEditing({ slug: p.slug, spec: specOf(p) })}>{t("settings-connectors-panel-edit")}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setRemoving(p)}>{t("settings-git-profiles-panel-remove")}</Button>
+                  </div>
+                  <p className="mt-1 flex flex-wrap gap-x-3 text-2xs text-text-dim">
+                    <span className="font-mono">{row.who}</span>
+                    {row.key && (
+                      <span>{rich("settings-git-profiles-panel-key-slot", { key: <span className="font-mono">{row.key}</span> })}</span>
+                    )}
+                    {row.account && (
+                      <span>{rich("settings-git-profiles-panel-account-slot", { account: <span className="font-mono">{row.account}</span> })}</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-2xs text-text-dim">{row.matches}</p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {data.foreign_includes.length > 0 && (
+          <div className="text-2xs text-text-dim">
+            <p className="max-w-measure leading-relaxed">{t("settings-git-profiles-panel-global-git-config-also-includes-own")}</p>
+            <ul className="mt-1 flex flex-col gap-0.5 font-mono text-2xs">
+              {data.foreign_includes.map((f) => (
+                <li key={`${f.condition}:${String(f.path)}`}>{foreignWords({ ...f, path: String(f.path) })}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {editing && (
+          <ProfileDialog
+            slug={editing.slug}
+            initial={editing.spec}
+            keys={keyPaths}
+            logins={logins}
+            onClose={() => setEditing(null)}
+            onSaved={(p) => {
+              toast.ok(savedWords(p));
+              setEditing(null);
+              view.reload();
+            }}
+            onError={toast.error}
+          />
+        )}
+        <ConfirmDialog
+          open={removing !== null}
+          onClose={() => setRemoving(null)}
+          onConfirm={() => {
+            const p = removing;
+            setRemoving(null);
+            if (p) void remove(p);
           }}
-          onError={toast.error}
+          title={t("settings-git-profiles-panel-remove-profile", { removing: removing?.label ?? "" })}
+          body={
+            <>{rich("settings-git-profiles-panel-remove-body", { under: <span className="font-mono">{removing?.host}/{removing?.owner}</span> })}</>
+          }
+          confirmLabel={t("settings-git-profiles-panel-remove-2")}
+          danger
         />
-      )}
-      <ConfirmDialog
-        open={removing !== null}
-        onClose={() => setRemoving(null)}
-        onConfirm={() => {
-          const p = removing;
-          setRemoving(null);
-          if (p) void remove(p);
-        }}
-        title={t("settings-git-profiles-panel-remove-profile", { removing: removing?.label ?? "" })}
-        body={
-          <>{rich("settings-git-profiles-panel-remove-body", { under: <span className="font-mono">{removing?.host}/{removing?.owner}</span> })}</>
-        }
-        confirmLabel={t("settings-git-profiles-panel-remove-2")}
-        danger
-      />
-    </Card>
+      </Card>
+    </Section>
   );
 }
 

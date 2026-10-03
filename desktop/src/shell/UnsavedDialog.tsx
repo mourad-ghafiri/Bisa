@@ -47,7 +47,7 @@ export function UnsavedDialog({
         </>
       }
     >
-      <p className="text-2xs text-text-dim">{words?.note}</p>
+      <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{words?.note}</p>
     </Dialog>
   );
 }

@@ -220,6 +220,33 @@ export function moveRule(list, i, dir) {
   return out;
 }
 
+/*
+ * A row's key for React, stable across edits. A rule's id follows its label
+ * while the label is typed, and its index moves with Up and Down — either,
+ * as a key, would remount the row under the person's hands and the box being
+ * typed in would lose its caret. So the key rides on the rule object, and an
+ * edit that makes a new object hands it on (`keepRowKey`).
+ */
+const ROW_KEYS = new WeakMap();
+let rowKeys = 0;
+
+/** The row key of `rule`, minted the first time it is asked for. @param {object} rule */
+export function rowKey(rule) {
+  let key = ROW_KEYS.get(rule);
+  if (key === undefined) {
+    rowKeys += 1;
+    key = `rule-${rowKeys}`;
+    ROW_KEYS.set(rule, key);
+  }
+  return key;
+}
+
+/** `next`, under the row key `prev` had — an edit of a rule is the same row. @template T @param {object} prev @param {T} next @returns {T} */
+export function keepRowKey(prev, next) {
+  ROW_KEYS.set(next, rowKey(prev));
+  return next;
+}
+
 /** Toggle a built-in's id in the `builtins_off` list. */
 export function toggleBuiltin(off, id, enabled) {
   const set = new Set(off);

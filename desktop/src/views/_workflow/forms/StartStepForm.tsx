@@ -19,7 +19,7 @@ import { useState } from "react";
 import { api } from "../../../api";
 import { useWorkspace } from "../../../shell/useWorkspaceData";
 import type { HookSecret, InputDef, ListenerView, StartOn, Step } from "../../../types";
-import { Button, Checkbox, Chip, Field, ICON, NumberInput, Select, TextInput, useToast } from "../../../ui";
+import { Button, Checkbox, Chip, ConfirmDialog, Field, ICON, Labelled, NumberInput, Select, TextInput, useToast } from "../../../ui";
 import { attempt } from "../../_work/useAsync";
 import { FIRE_ON, OVERLAPS, START_EVENTS } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
@@ -59,7 +59,7 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
   const notARead = strayOperation(on.operation, reads, def ? def.operations : null);
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 @xs:grid-cols-2">
         <Field label={t("workflow-step-kinds-connector")} hint={connectors.rows.length === 0 ? t("workflow-connector-step-form-nothing-installed-here-yet-settings-connectors") : t("workflow-connector-step-form-connector-installed-here-slug")}>
           <Select className="font-mono" value={on.connector ?? ""} disabled={disabled} onChange={(e) => onChange(withConnector(on, e.target.value))}>
             <option value="">{t("workflow-connector-step-form-pick-connector")}</option>
@@ -105,7 +105,7 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
         </Select>
       </Field>
       {(operation?.params ?? []).length > 0 && (
-        <Field label={t("workflow-connector-step-form-parameters")} hint={t("workflow-start-step-form-poll-params-hint")}>
+        <Labelled label={t("workflow-connector-step-form-parameters")} hint={t("workflow-start-step-form-poll-params-hint")}>
           <div className="flex flex-col gap-2">
             {(operation?.params ?? []).map((p) => (
               <div key={p.name} className="flex flex-col gap-0.5">
@@ -124,7 +124,7 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
               </div>
             ))}
           </div>
-        </Field>
+        </Labelled>
       )}
       <Field label={t("workflow-start-step-form-key")} hint={t("workflow-start-step-form-key-hint")}>
         <TextInput className="font-mono" value={on.key ?? ""} placeholder={t("workflow-start-step-form-id")} disabled={disabled} onChange={(e) => onChange({ ...on, key: e.target.value.trim() || null })} />
@@ -186,8 +186,11 @@ function HookFields({ step, on, host, listener, onChange, disabled }: { step: St
   const toast = useToast();
   const [shown, setShown] = useState<HookSecret | null>(null);
   const [rotating, setRotating] = useState(false);
+  // A secret callers already hold is replaced only once the person says so.
+  const [asking, setAsking] = useState(false);
   // The secret this form shows is the one minted for this very hook, and for no other step.
   const mine = shownFor(shown, step.id);
+  const hasSecret = Boolean(listener?.public_hook?.has_secret || mine);
   const rotate = async () => {
     const goal = host?.goal ?? null;
     const workflow = host?.workflow ?? null;
@@ -216,17 +219,29 @@ function HookFields({ step, on, host, listener, onChange, disabled }: { step: St
         <div className="flex flex-col gap-1.5 text-2xs">
           <p className="text-text-dim">{t("workflow-start-step-form-public-call", { path: listener.public_hook.path })}</p>
           <div className="flex items-center gap-2">
-            <Chip tone={listener.public_hook.has_secret || mine ? "ok" : "warn"} icon={ICON.key}>
-              {listener.public_hook.has_secret || mine ? t("workflow-start-step-form-secret-minted") : t("workflow-start-step-form-no-secret-yet")}
+            <Chip tone={hasSecret ? "ok" : "warn"} icon={ICON.key}>
+              {hasSecret ? t("workflow-start-step-form-secret-minted") : t("workflow-start-step-form-no-secret-yet")}
             </Chip>
-            {/* A new secret is the host's, not an edit of the design: a read-only design rotates too. */}
-            <Button size="sm" variant="ghost" disabled={rotating} onClick={() => void rotate()}>
+            {/* A new secret is the host's, not an edit of the design: a read-only design rotates too. The first one replaces nothing, so it asks nothing. */}
+            <Button size="sm" variant="ghost" disabled={rotating} onClick={() => (hasSecret ? setAsking(true) : void rotate())}>
               <ICON.restart size={12} aria-hidden />
               {t("workflow-start-step-form-rotate")}
             </Button>
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={asking}
+        onClose={() => setAsking(false)}
+        title={t("workflow-start-step-form-rotate-title")}
+        body={t("workflow-start-step-form-rotate-body")}
+        confirmLabel={t("workflow-start-step-form-rotate-confirm")}
+        danger
+        onConfirm={() => {
+          setAsking(false);
+          void rotate();
+        }}
+      />
       {on.public && !listener?.public_hook && <p className="text-2xs text-text-dim">{t("workflow-start-step-form-public-once-listening")}</p>}
       {mine && <HookSecretNote secret={mine} />}
     </div>
@@ -307,7 +322,7 @@ export function StartStepForm({
       )}
       {event !== MANUAL && (
         <>
-          <Field label={t("workflow-start-step-form-inputs-from-event")} hint={t("workflow-start-step-form-inputs-from-event-hint")}>
+          <Labelled label={t("workflow-start-step-form-inputs-from-event")} hint={t("workflow-start-step-form-inputs-from-event-hint")}>
             <div className="flex flex-col gap-1.5">
               {rows.length === 0 && <p className="text-2xs text-text-dim">{t("workflow-inputs-form-workflow-takes-no-inputs")}</p>}
               {rows.map((r) => (
@@ -338,14 +353,14 @@ export function StartStepForm({
                 <div key={name} className="flex items-center gap-1.5 text-2xs">
                   <code className="font-mono text-danger">{name}</code>
                   <span className="text-text-dim">{t("workflow-start-step-form-maps-undeclared-input")}</span>
-                  <button type="button" className="text-accent-ink underline underline-offset-2" disabled={disabled} onClick={() => onChange(setMapping(step, name, null))}>
+                  <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(setMapping(step, name, null))}>
                     {t("workflow-connector-step-form-remove")}
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
-          </Field>
-          <Field label={t("workflow-start-step-form-guard")} hint={guardWords(step)}>
+          </Labelled>
+          <Labelled label={t("workflow-start-step-form-guard")} hint={guardWords(step)}>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={guard.overlap} disabled={disabled} aria-label={t("workflow-start-step-form-overlap")} onChange={(e) => onChange(setGuard(step, { ...guard, overlap: e.target.value as typeof guard.overlap }))}>
                 {OVERLAPS.map((o) => (
@@ -358,9 +373,10 @@ export function StartStepForm({
                 <NumberInput className="w-20" value={guard.max} min={1} disabled={disabled} aria-label={t("workflow-start-step-form-at-most-at-once")} onCommit={(max) => onChange(setGuard(step, { ...guard, max }))} />
               )}
               <span className="text-2xs text-text-dim">{t("workflow-start-step-form-debounce")}</span>
-              <NumberInput className="w-24" value={guard.debounce} min={0} disabled={disabled} aria-label={t("workflow-start-step-form-debounce-seconds")} onCommit={(debounce) => onChange(setGuard(step, { ...guard, debounce }))} />
+              <NumberInput className="w-20" value={guard.debounce} min={0} disabled={disabled} aria-label={t("workflow-start-step-form-debounce-seconds")} onCommit={(debounce) => onChange(setGuard(step, { ...guard, debounce }))} />
+              <span className="text-2xs text-text-dim">{t("workflow-start-step-form-seconds")}</span>
             </div>
-          </Field>
+          </Labelled>
         </>
       )}
     </div>

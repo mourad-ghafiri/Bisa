@@ -19,7 +19,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { ICON, Menu, Tooltip, cn, useToast } from "../ui";
+import { ICON, Menu, Tooltip, cn, sayFailure, useToast } from "../ui";
 import type { MenuItem } from "../ui";
 import { chordHint } from "../ui/keymapHints";
 import { portUrl } from "../views/_workbench/portsModel.mjs";
@@ -42,6 +42,7 @@ export function BrowserLauncher({
   rootLabel,
   disabledReason,
   className,
+  wordClassName,
 }: {
   scope: "goal" | "workstream" | "work_item";
   id: string;
@@ -49,6 +50,8 @@ export function BrowserLauncher({
   rootLabel: string;
   disabledReason?: string | null;
   className?: string;
+  /** Classes for the word beside the glyph — `TerminalLauncher`'s, for a host that folds to glyphs. */
+  wordClassName?: string;
 }) {
   const toast = useToast();
   const wid = scope === "workstream" ? id : null;
@@ -96,7 +99,7 @@ export function BrowserLauncher({
       toast.ok(stoppedWords(r.stopped));
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(sayFailure("browser", t("shell-browser-launcher-could-not-stop"), e));
     } finally {
       setStarting(false);
     }
@@ -152,18 +155,18 @@ export function BrowserLauncher({
           <button
             type="button"
             onClick={() => open(menu.main.url)}
-            className="anim inline-flex h-6 items-center gap-1.5 rounded-l-control border border-r-0 border-border px-2 text-2xs text-text-dim hover:bg-surface-2 hover:text-text"
+            className="anim inline-flex h-7 items-center gap-1.5 rounded-l-control border border-r-0 border-border px-2 text-xs text-text-dim hover:bg-surface-2 hover:text-text"
           >
             <ICON.page size={12} aria-hidden />
-            {t("shell-browser-launcher-browser")}
-            {here.length > 0 && <span className="tnum text-accent-ink">{here.length}</span>}
+            <span className={wordClassName}>{t("shell-browser-launcher-browser")}</span>
+            {here.length > 0 && <span className="tnum text-text">{here.length}</span>}
           </button>
         </Tooltip>
         <Menu
           label={t("shell-browser-launcher-open-serve-browser")}
           items={items}
           trigger={
-            <span className="anim inline-flex h-6 items-center rounded-r-control border border-border px-1 text-text-dim hover:bg-surface-2 hover:text-text">
+            <span className="anim inline-flex h-7 items-center rounded-r-control border border-border px-1 text-text-dim hover:bg-surface-2 hover:text-text">
               <ICON.expanded size={12} aria-hidden />
             </span>
           }

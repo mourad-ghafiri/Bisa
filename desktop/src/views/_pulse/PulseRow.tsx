@@ -13,7 +13,7 @@
 
 import type { DetailField, Tone } from "../../activity";
 import type { PulseSource } from "../../types";
-import { Avatar, ICON, LinkedText, RelativeTime, type LucideIcon } from "../../ui";
+import { Avatar, ICON, LinkedText, RelativeTime, type LucideIcon, type Mark } from "../../ui";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -28,15 +28,20 @@ export interface PulseItem {
   source: PulseSource;
   author?: string;
   title?: string;
-  icon?: LucideIcon;
+  /** A kit glyph, or a tool's mark (git). */
+  icon?: LucideIcon | Mark;
   detail?: DetailField[];
 }
 
+// The routine spine (a step started, a step done) recedes so a line that
+// asks something — waiting, failed — is what the eye lands on in a busy feed;
+// the row's heading keeps full ink, so every row still says what it is about.
+// Receding is the secondary ink, never alpha: words on glass stay solid.
 const TONE_CLASS: Record<Tone, string> = {
-  spine: "text-text",
+  spine: "text-text-dim",
   dim: "text-text-dim",
   fail: "text-danger",
-  wait: "text-warn",
+  wait: "text-accent-ink",
   warn: "text-warn",
   danger: "text-danger",
 };
@@ -64,8 +69,9 @@ export function PulseRow({
   const Chevron = expanded ? ICON.expanded : ICON.collapsed;
   return (
     <div className="rounded-control">
-      <div className="flex h-[36px] w-full items-center gap-2 px-2 text-xs">
-        {item.author ? <Avatar id={item.author} photo={ws.photoOf(item.author)} size={16} /> : <span aria-hidden className="w-4 shrink-0" />}
+      <div className="flex h-row w-full items-center gap-2 px-2 text-xs">
+        {/* The author's initials come from their name, never their key: a hex pair is no one's face. */}
+        {item.author ? <Avatar id={item.author} name={name} photo={ws.photoOf(item.author)} size={16} /> : <span aria-hidden className="w-4 shrink-0" />}
         <span aria-hidden className="flex w-3.5 shrink-0 justify-center text-text-dim">{Glyph && <Glyph size={13} />}</span>
         <button
           type="button"
@@ -78,7 +84,7 @@ export function PulseRow({
               letters; a hex string beside it is not a second identifier, it is
               noise the reader has to skip on every row. */}
           {name && <span className="shrink-0 text-text-dim">{name}</span>}
-          <span className={`min-w-0 flex-1 truncate ${TONE_CLASS[item.tone]}`}>{item.text}</span>
+          <span title={item.text} className={`min-w-0 flex-1 truncate ${TONE_CLASS[item.tone]}`}>{item.text}</span>
         </button>
         {item.detail && (
           <button
@@ -94,10 +100,10 @@ export function PulseRow({
         <RelativeTime at={item.at} />
       </div>
       {expanded && item.detail && (
-        <dl className="mr-2 mb-1 ml-[46px] space-y-1.5 rounded-control border border-border bg-surface px-3 py-2">
+        <dl className="mr-2 mb-1 ml-11.5 space-y-1.5 rounded-control border border-border bg-surface px-3 py-2">
           {item.detail.map((f) => (
             <div key={f.label}>
-              <dt className="text-2xs font-medium tracking-wide text-text-dim uppercase">{f.label}</dt>
+              <dt className="text-2xs font-semibold text-text-dim">{f.label}</dt>
               {/* `pre-wrap`, because evidence and a rejected result's output
                   are the two things here that were written with newlines in
                   them and mean less without. */}

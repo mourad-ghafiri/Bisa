@@ -13,7 +13,7 @@
 import { useEffect, useState } from "react";
 import type { Boundary, InputDef, Step } from "../../../types";
 import { AssigneePicker } from "../../_work/AssigneePicker";
-import { BOUNDARY_ON_ICON, Button, Field, ICON, NumberInput, Select, TextArea, TextInput } from "../../../ui";
+import { BOUNDARY_ON_ICON, Button, Field, ICON, Labelled, NumberInput, Select, TextArea, TextInput } from "../../../ui";
 import { BOUNDARY_ACTS, BOUNDARY_EVENTS, TEMPLATE_HINT, mayCarryBoundaries } from "../stepKinds.mjs";
 import { DEFAULT_REMINDERS, actsFor, addBoundary, consequence, removeBoundaryOn, renameBoundaryOn, replaceBoundary, setAct, setEvent, type BoundaryActName, type BoundaryEvent } from "./boundaryModel.mjs";
 import { ExactFieldsEditor } from "./ExactFieldsEditor";
@@ -77,7 +77,7 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
   const put = (next: Boundary) => onChange(replaceBoundary(step, boundary.name, next));
   const acts = actsFor(event);
   return (
-    <div className="flex flex-col gap-2 rounded-control border border-border p-2">
+    <div className="flex flex-col gap-2 rounded-control bg-surface-2/50 p-2">
       <div className="flex items-center gap-2">
         <Icon size={13} aria-hidden className="shrink-0 text-text-dim" />
         <BoundaryName step={step} name={boundary.name} disabled={disabled} onChange={onChange} />
@@ -85,7 +85,7 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
           <ICON.delete size={12} aria-hidden />
         </Button>
       </div>
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 @xs:grid-cols-2">
         <Select value={event} disabled={disabled} aria-label={t("workflow-boundary-events-editor-listens-for")} onChange={(e) => onChange(setEvent(step, boundary.name, e.target.value as BoundaryEvent))}>
           {BOUNDARY_EVENTS.map((b) => (
             <option key={b.event} value={b.event}>
@@ -107,7 +107,7 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
         </Field>
       )}
       {on.event === "every" && (
-        <div className="grid gap-2 md:grid-cols-2">
+        <div className="grid gap-2 @xs:grid-cols-2">
           <Field label={t("workflow-boundary-events-editor-every")} hint={t("workflow-boundary-events-editor-every-hint")}>
             <Seconds secs={on.secs} inputs={inputs} disabled={disabled} onChange={(secs) => put({ ...boundary, on: { ...on, secs } })} />
           </Field>
@@ -123,13 +123,13 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
           <Field label={t("workflow-notify-step-form-message")} hint={t("workflow-boundary-events-editor-post-hint", { TEMPLATE_HINT })}>
             <TextArea rows={2} value={boundary.template} disabled={disabled} onChange={(e) => put({ ...boundary, template: e.target.value })} />
           </Field>
-          <Field label={t("workflow-notify-step-form-mention")} hint={t("workflow-notify-step-form-who-woken-none-wakes-nobody-notice")}>
+          <Labelled label={t("workflow-notify-step-form-mention")} hint={t("workflow-notify-step-form-who-woken-none-wakes-nobody-notice")}>
             <AssigneePicker
               value={fixedWords(boundary.mentions)}
               disabled={disabled}
               onChange={(next) => put({ ...boundary, mentions: withFixed(boundary.mentions, next) })}
             />
-          </Field>
+          </Labelled>
         </>
       )}
       {boundary.act === "emit" && (
@@ -137,9 +137,9 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
           <Field label={t("workflow-signal-filter-fields-name")} hint={t("workflow-boundary-events-editor-emit-hint")}>
             <TextInput className="font-mono" value={boundary.signal} /* for the machine */ placeholder="review.waiting" disabled={disabled} onChange={(e) => put({ ...boundary, signal: e.target.value })} />
           </Field>
-          <Field label={t("workflow-emit-step-form-payload")} hint={t("workflow-emit-step-form-payload-hint", { TEMPLATE_HINT })}>
+          <Labelled label={t("workflow-emit-step-form-payload")} hint={t("workflow-emit-step-form-payload-hint", { TEMPLATE_HINT })}>
             <ExactFieldsEditor value={boundary.payload} disabled={disabled} onChange={(payload) => put({ ...boundary, payload })} />
-          </Field>
+          </Labelled>
         </>
       )}
       <p className="text-2xs text-text-dim">{consequence(step, boundary)}</p>

@@ -42,6 +42,8 @@ export interface StepChip extends StripStepLike {
 
 export declare const HOLDERS: readonly HolderWord[];
 export declare const HOLDER_LABEL: Record<HolderWord, string>;
+/** The holder's word as a filter option — sentence case. */
+export declare const HOLDER_FILTER_LABEL: Record<HolderWord, string>;
 export declare const HOLDER_TONE: Record<HolderWord, string>;
 export declare const KIND_LABEL: Record<string, string>;
 export declare function finishedTone(strip: StripLike | null | undefined): "ok" | "danger";

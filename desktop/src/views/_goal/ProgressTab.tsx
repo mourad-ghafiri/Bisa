@@ -51,7 +51,8 @@ export function ProgressTab({
   if (proposal?.proposal) {
     return (
       <div className="mx-auto w-full max-w-2xl p-6">
-        <div className="rounded-card border border-warn/40 bg-warn-soft/40 p-3">
+        {/* A tinted ground, no edge of its own: one bordered thing at a time — the card inside is it. */}
+        <div className="rounded-card bg-accent-soft/40 p-3">
           <ProposalCard
             goal={goal.id}
             action={proposal}
@@ -72,7 +73,8 @@ export function ProgressTab({
   const { finished } = runStanding(run);
   const queued = runIsQueued(run);
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 px-4 py-3">
+    // On the page's edge, under the header and the tabs, never a centred column of its own; capped so a step's state stays near its name.
+    <div className="flex w-full max-w-4xl flex-col gap-2 px-4 py-3">
       {queued && (
         <p className="flex items-center gap-2 px-3 py-1 text-2xs text-text-dim">
           <ICON.queued size={12} aria-hidden />{t("goal-progress-tab-queued-starts-when-live-run-finishes")}</p>

@@ -49,7 +49,7 @@ export function RailShellRow({
         <span className="min-w-0 flex-1 truncate">{harness ? (harnessLabels[harness] ?? harness) : shellWord()}</span>
         {/* A shell says only whether it is alive; what runs in it is a
             roster row of its own when it reports, and nothing when it cannot. */}
-        <span className="flex shrink-0 items-center gap-1.5 text-3xs">
+        <span className="flex shrink-0 items-center gap-1.5 text-2xs">
           {/* The liveness word is the terminals model's — the strip, the footer and this row say one thing. */}
           {live && <span>{livenessWord(row.liveness)}</span>}
           {row.liveness.status === "exited" && <span className={cn("tnum", row.liveness.code && "text-danger")}>{livenessWord(row.liveness)}</span>}

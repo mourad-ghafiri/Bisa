@@ -63,7 +63,7 @@ export function ConditionEditor({
         ))}
       </Select>
       {isGroup(value) && (
-        <div className="flex flex-col gap-1.5 border-l-2 border-border pl-2">
+        <div className="flex flex-col gap-1.5 border-l border-border pl-2">
           {value.of.map((child, i) => (
             <div key={i} className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
@@ -100,7 +100,7 @@ export function ConditionEditor({
         </div>
       )}
       {value.condition === "not" && (
-        <div className="border-l-2 border-border pl-2">
+        <div className="border-l border-border pl-2">
           <ConditionEditor
             value={(value as Not).of}
             upstream={upstream}
@@ -112,7 +112,7 @@ export function ConditionEditor({
         </div>
       )}
       {value.condition === "input_equals" && (
-        <div className="grid gap-1.5 md:grid-cols-2">
+        <div className="grid gap-1.5 @xs:grid-cols-2">
           <Select value={value.input} aria-label={t("workflow-condition-editor-label-input")} disabled={disabled} onChange={(e) => onChange({ ...value, input: e.target.value })}>
             <option value="">{t("workflow-condition-editor-pick-input")}</option>
             {inputs.map((i) => (
@@ -125,7 +125,7 @@ export function ConditionEditor({
         </div>
       )}
       {(value.condition === "output_equals" || value.condition === "output_matches") && (
-        <div className="grid gap-1.5 md:grid-cols-3">
+        <div className="grid gap-1.5 @sm:grid-cols-3">
           {stepSelect(value.step, undefined, (step) => onChange({ ...value, step }))}
           <TextInput className="font-mono" value={value.path} placeholder={t("workflow-condition-editor-path-dotted")} aria-label={t("workflow-condition-editor-path-dotted")} disabled={disabled} onChange={(e) => onChange({ ...value, path: e.target.value })} />
           {value.condition === "output_equals" ? (
@@ -136,13 +136,13 @@ export function ConditionEditor({
         </div>
       )}
       {value.condition === "answered" && (
-        <div className="grid gap-1.5 md:grid-cols-2">
+        <div className="grid gap-1.5 @xs:grid-cols-2">
           {stepSelect(value.step, (s) => s.kind === "human", (step) => onChange({ ...value, step }))}
           <TextInput className="font-mono" value={value.option} placeholder={t("workflow-condition-editor-option-id")} aria-label={t("workflow-condition-editor-option-id")} disabled={disabled} onChange={(e) => onChange({ ...value, option: e.target.value })} />
         </div>
       )}
       {value.condition === "outcome" && (
-        <div className="grid gap-1.5 md:grid-cols-2">
+        <div className="grid gap-1.5 @xs:grid-cols-2">
           {stepSelect(value.step, (s) => s.kind === "check" || s.kind === "approval", (step) => onChange({ ...value, step }))}
           <Select value={value.passed ? "passed" : "failed"} aria-label={t("workflow-condition-editor-label-outcome")} disabled={disabled} onChange={(e) => onChange({ ...value, passed: e.target.value === "passed" })}>
             <option value="passed">{t("workflow-condition-editor-passed")}</option>

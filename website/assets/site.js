@@ -83,9 +83,9 @@ function progress(scrollTop, scrollHeight, viewport) {
 /**
  * bisa.dev's few behaviours (website/README.md). Every page reads whole
  * without them; they add what a script can: the tour's rail, shown once the
- * reader is past the opening and following them, the opening's slideshow, the reading line, arrows
- * for the IDE's panels, the asks' filter, Moonrice waking near its step, and links that
- * open a page's own file when the site is read straight from the disk. The
+ * reader is past the opening and following them, the opening's slideshow, the reading line,
+ * the asks' filter, the small screen's menu closing as a menu should, Moonrice waking near its
+ * step, and links that open a page's own file when the site is read straight from the disk. The
  * rules live in railModel.mjs, with no DOM in them; `build.mjs` bundles the
  * two into `website/assets/site.js`, one plain script that also runs from a
  * `file:` address.
@@ -128,25 +128,21 @@ function followTheRun() {
   paint();
 }
 
-/** Arrows beside a track that scrolls sideways, one card at a time. */
-function trackArrows() {
-  for (const track of document.querySelectorAll(".ide-track")) {
-    const bar = document.createElement("div");
-    bar.className = "wrap track-arrows";
-    for (const [label, sign, glyph] of [["Previous panel", -1, "←"], ["Next panel", 1, "→"]]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.setAttribute("aria-label", label);
-      button.textContent = glyph;
-      button.addEventListener("click", () => {
-        const card = track.querySelector(".ide-card");
-        const step = card ? card.getBoundingClientRect().width + 20 : track.clientWidth * 0.8;
-        track.scrollBy({ left: sign * step, behavior: reduced.matches ? "auto" : "smooth" });
-      });
-      bar.append(button);
-    }
-    track.after(bar);
-  }
+/** The small screen's menu closes on Escape, on a click outside it, and once the window is wide enough to show the site's nav. */
+function closeTheMenu() {
+  const menu = document.querySelector("details.menu");
+  if (!menu) return;
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !menu.open) return;
+    menu.open = false;
+    menu.querySelector("summary").focus();
+  });
+  document.addEventListener("click", (e) => {
+    if (menu.open && !menu.contains(e.target)) menu.open = false;
+  });
+  window.matchMedia("(min-width: 821px)").addEventListener("change", (e) => {
+    if (e.matches) menu.open = false;
+  });
 }
 
 /** The hundred asks, shown by what they need. */
@@ -198,16 +194,25 @@ function linksOnDisk() {
 
 /**
  * The opening's slideshow: it moves on to the next screen by itself every few seconds, round and
- * round — unless motion is reduced or the page is hidden. Two arrows, shown while the pointer is over
- * it (and always where there is no pointer to hover), go back and on; the clock starts again from
- * there. Without this it is a strip of screens to swipe.
+ * round — unless motion is reduced or the page is hidden, and never while the pointer rests on it,
+ * something inside it holds the focus, or it is scrolled out of sight. Two arrows, shown while the
+ * pointer is over it (and always where there is no pointer to hover), go back and on; the first press
+ * of one, or the first swipe, hands the slideshow to the visitor for good. Without this it is a strip
+ * of screens to swipe.
  */
 function playSlides() {
-  const track = document.querySelector("[data-slides] .slides-track");
+  const box = document.querySelector("[data-slides]");
+  const track = box?.querySelector(".slides-track");
   const count = track ? track.children.length : 0;
   if (count < 2) return;
   let at = 0;
   let last = Date.now();
+  let hovered = false;
+  let seen = true;
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+  };
   const go = (i) => {
     at = i;
     last = Date.now();
@@ -222,9 +227,26 @@ function playSlides() {
     button.className = `slides-arrow ${side}`;
     button.setAttribute("aria-label", label);
     button.textContent = glyph;
-    button.addEventListener("click", () => go(to()));
-    track.parentElement.append(button);
+    button.addEventListener("click", () => {
+      stop();
+      go(to());
+    });
+    box.append(button);
   }
+  box.addEventListener("mouseenter", () => {
+    hovered = true;
+  });
+  box.addEventListener("mouseleave", () => {
+    hovered = false;
+    last = Date.now();
+  });
+  // A swipe: a touch or a pen on the strip, a sideways scroll of a trackpad, or the arrow keys on it.
+  track.addEventListener("pointerdown", (e) => e.pointerType !== "mouse" && stop(), { passive: true });
+  track.addEventListener("wheel", (e) => Math.abs(e.deltaX) > Math.abs(e.deltaY) && stop(), { passive: true });
+  track.addEventListener("keydown", (e) => /^Arrow(Left|Right)$/.test(e.key) && stop());
+  new IntersectionObserver(([e]) => {
+    seen = e.isIntersecting;
+  }).observe(box);
   let pending = false;
   track.addEventListener(
     "scroll",
@@ -239,7 +261,7 @@ function playSlides() {
     { passive: true },
   );
   setInterval(() => {
-    if (reduced.matches || document.hidden || Date.now() - last < 5500) return;
+    if (stopped || hovered || !seen || box.matches(":focus-within") || reduced.matches || document.hidden || Date.now() - last < 5500) return;
     go(nextSlide(at, count));
   }, 6000);
 }
@@ -247,7 +269,7 @@ function playSlides() {
 linksOnDisk();
 playSlides();
 followTheRun();
-trackArrows();
+closeTheMenu();
 filterAsks();
 wakeThePet();
 })();

@@ -37,31 +37,31 @@ export function CheckoutView({ pid, wid }: { pid: string; wid: string }) {
   const git = status.data.status.git === true && status.data.status.exists === true;
   const problem = Object.values(draft.problems)[0] ?? null;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       {git && <SettingsToolbar count={draft.count} valid={draft.valid} saving={draft.saving} problem={problem} whole={draft.whole} onSave={() => void draft.save()} onDiscard={draft.discard} />}
       {git && draft.error && <ErrorNote error={draft.error} retry={draft.reload} />}
       {git ? (
         <>
           <section>
-            <SectionHeader title={t("work-checkout-view-connection")} />
+            <SectionHeader flush title={t("work-checkout-view-connection")} />
             <ConnectionCard wid={wid} draft={draft} />
           </section>
           <section>
-            <SectionHeader title={t("work-checkout-view-repository")} />
+            <SectionHeader flush title={t("work-checkout-view-repository")} />
             <GitFacts status={status.data.status} defaultBranch={status.data.default_branch} />
           </section>
           <section>
-            <SectionHeader title={t("work-checkout-view-remotes")} />
+            <SectionHeader flush title={t("work-checkout-view-remotes")} />
             <RemoteCard wid={wid} onChanged={changed} />
           </section>
           <section>
-            <SectionHeader title={t("work-checkout-view-git-config")} />
+            <SectionHeader flush title={t("work-checkout-view-git-config")} />
             <GitConfigCard draft={draft} />
           </section>
         </>
       ) : (
         <section>
-          <SectionHeader title={t("work-checkout-view-repository")} />
+          <SectionHeader flush title={t("work-checkout-view-repository")} />
           {status.data.status.exists ? <InitRepositoryCard pid={pid} adopted={draft.project?.project.root.type === "external"} path={draft.project?.path ?? status.data.path} onDone={changed} /> : <GitFacts status={status.data.status} defaultBranch={status.data.default_branch} />}
         </section>
       )}

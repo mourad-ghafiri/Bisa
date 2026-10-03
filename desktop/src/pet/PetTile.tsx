@@ -46,7 +46,7 @@ export function PetTile({
           <PetSprite pet={pet.id} def={pet} state="idle" height={small ? 44 : 80} className="block" />
           {!small && (
             <span className="absolute right-1.5 top-1.5">
-              <Chip tone={pet.origin === "catalog" ? "quiet" : "accent"}>{originWords(pet.origin)}</Chip>
+              <Chip tone={pet.origin === "catalog" ? "quiet" : "neutral"}>{originWords(pet.origin)}</Chip>
             </span>
           )}
         </>

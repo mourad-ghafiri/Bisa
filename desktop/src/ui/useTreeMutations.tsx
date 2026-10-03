@@ -39,6 +39,7 @@ import { refreshOsClipboard, useOsClipboard } from "./osClipboardStore";
 import { pasteDestination, pasteRefusal, pasteSource, pasteWords } from "./osPasteModel.mjs";
 import { imageNameError, pastedImageName, withExtension } from "./pastedImageModel.mjs";
 import { chordHint } from "./keymapHints";
+import { failureReason, sayFailure } from "./failure";
 import { useToast } from "./Toast";
 import {
   basename,
@@ -58,9 +59,6 @@ import { t as tr } from "../i18n/l10n.mjs";
 /** Computed once: the platform does not change while the app runs. */
 const REVEAL_LABEL = revealLabel(typeof navigator === "undefined" ? "" : navigator.userAgent);
 
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 /**
  * An in-tree draft being named: a new file or folder (an empty field), or
@@ -164,7 +162,6 @@ export function useTreeMutations({
     setRenaming(null);
   }, [rootKey]);
 
-  const fail = (e: unknown) => toast.error(message(e));
 
   /**
    * The same call for each target in turn, stopping at the first refusal: the
@@ -179,7 +176,7 @@ export function useTreeMutations({
         await each(t);
         done.push(t.path);
       } catch (e) {
-        failed = { path: t.path, reason: message(e) };
+        failed = { path: t.path, reason: failureReason("files", tr("ui-use-tree-mutations-could-not-finish", { verb }), e) };
         break;
       }
     }
@@ -241,7 +238,7 @@ export function useTreeMutations({
       refresh();
     } catch (e) {
       // The refusal — the node's, or the shell's — stays under the field, like a rename's does.
-      setCreating((c) => (c ? { ...c, error: e instanceof Error ? e.message : String(e) } : c));
+      setCreating((c) => (c ? { ...c, error: sayFailure("files", tr("ui-use-tree-mutations-could-not-create"), e) } : c));
     } finally {
       setBusy(false);
     }
@@ -309,7 +306,7 @@ export function useTreeMutations({
     } catch (e) {
       // The node's refusal stays under the row rather than in a toast: the
       // field is still open and the words belong beside it.
-      setRenaming({ path: renaming.path, error: e instanceof Error ? e.message : String(e) });
+      setRenaming({ path: renaming.path, error: sayFailure("files", tr("ui-use-tree-mutations-could-not-rename"), e) });
     } finally {
       setBusy(false);
     }
@@ -389,7 +386,7 @@ export function useTreeMutations({
       else toast.error(words.text);
       refresh();
     } catch (e) {
-      toast.error(message(e));
+      toast.error(sayFailure("files", tr("ui-use-tree-mutations-could-not-paste"), e));
     } finally {
       setBusy(false);
     }
@@ -412,7 +409,7 @@ export function useTreeMutations({
     try {
       await revealPath(joinPath(root, path));
     } catch (e) {
-      fail(e);
+      toast.error(sayFailure("files", tr("ui-use-tree-mutations-could-not-reveal"), e));
     }
   };
 

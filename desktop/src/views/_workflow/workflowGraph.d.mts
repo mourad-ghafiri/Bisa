@@ -63,6 +63,23 @@ export declare function connect<D extends Definition>(
   branch?: string | null,
 ): ConnectResult<D>;
 export declare function disconnect<D extends Definition>(wf: D, from: string, to: string, branch?: string | null): D;
+/** A step a flow may go to, and whether a plain flow already does. */
+export interface ThenTarget {
+  id: string;
+  label: string;
+  on: boolean;
+}
+/** Where a step's flows may go: plain targets, or a branching kind's branches with where each goes. */
+export interface ThenChoices {
+  branching: boolean;
+  targets: ThenTarget[];
+  branches: { branch: string; to: string | null }[];
+}
+export declare function thenChoices(wf: Definition, id: string): ThenChoices;
+/** One plain flow on or off, through `connect`'s refusals. */
+export declare function setThen<D extends Definition>(wf: D, from: string, to: string, on: boolean): ConnectResult<D>;
+/** A branch pointed at a step, or at nothing (`null`). */
+export declare function setBranchTarget<D extends Definition>(wf: D, from: string, branch: string, to: string | null): ConnectResult<D>;
 export declare function renameStep<D extends Definition>(wf: D, from: string, to: string): D;
 export declare function renameInput<D extends Definition>(wf: D, from: string, to: string): D;
 /** The steps a failure may be routed to: every other step something may flow into — never a start. */

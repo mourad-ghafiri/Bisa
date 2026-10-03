@@ -28,7 +28,7 @@ import { errorFields, log } from "../log";
 import { navigate } from "../router";
 import { browserViewBack, browserViewForward, browserViewReload, browserViewStop, navigateBrowserView } from "../browser/session";
 import type { ServedFolder } from "../types";
-import { Button, ICON, TextInput, Tooltip, useToast } from "../ui";
+import { Button, ICON, TextInput, Tooltip, sayFailure, useToast } from "../ui";
 import { servedWords } from "../views/_workbench/serversModel.mjs";
 import { openBrowserPane } from "./browserDoors";
 import { chromeOf, loadWords, wandWords } from "./browserChromeModel.mjs";
@@ -66,7 +66,7 @@ function BarButton({ verb, label, onClick, children }: { verb: BarVerb; label: s
   );
 }
 
-export function BrowserBar({ session, server = null, inIde, wand }: { session: BrowserSession; server?: ServedFolder | null; inIde: boolean; wand: BarWand }) {
+export function BrowserBar({ session, server = null, inIde, wand = null }: { session: BrowserSession; server?: ServedFolder | null; inIde: boolean; /** The wand, where annotating is offered — the Project IDE alone; none draws no wand. */ wand?: BarWand | null }) {
   const toast = useToast();
   const key = session.key;
   const blank = session.url === BLANK_URL;
@@ -80,9 +80,9 @@ export function BrowserBar({ session, server = null, inIde, wand }: { session: B
 
   // The tab's home in the IDE: where its strip is.
   const home = workbenchHomeOf(session);
-  const chrome = chromeOf({ blank, loading: session.loading, canBack: session.canBack, canForward: session.canForward, inIde, atWorkbenchHome: home !== null, annotatable: wand.enabled, whyNot: wand.whyNot });
+  const chrome = chromeOf({ blank, loading: session.loading, canBack: session.canBack, canForward: session.canForward, inIde, atWorkbenchHome: home !== null, annotatable: wand?.enabled ?? false, whyNot: wand?.whyNot ?? null });
 
-  const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : String(e));
+  const fail = (e: unknown) => toast.error(sayFailure("browser", t("shell-browser-bar-could-not-shoot"), e));
   const go = () => {
     const norm = normalizeUrl(field);
     if ("error" in norm) {
@@ -170,7 +170,7 @@ export function BrowserBar({ session, server = null, inIde, wand }: { session: B
   }, [key, inIde, chrome.back.enabled, chrome.forward.enabled, chrome.load.enabled, chrome.load.verb, session.home]);
 
   return (
-    <div data-browser-bar className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5 text-2xs">
+    <div data-browser-bar className="flex h-9 shrink-0 items-center gap-1 border-b border-hairline px-1.5 text-2xs">
       <BarButton verb={chrome.back} label={t("shell-browser-bar-back")} onClick={back}>
         <ICON.back size={14} aria-hidden />
       </BarButton>
@@ -214,18 +214,20 @@ export function BrowserBar({ session, server = null, inIde, wand }: { session: B
       {server && !blank && (
         <span className="shrink-0 text-text-dim" title={t("shell-browser-bar-served-by-node-from", { from: servedWords(server) })}>{t("shell-browser-bar-served")}</span>
       )}
-      <Tooltip label={wandWords(chrome.wand, wand.inspecting)}>
-        <span className="inline-flex">
-          <Button size="icon" className="relative h-7 w-7" variant={wand.inspecting ? "primary" : "ghost"} aria-pressed={wand.inspecting} aria-label={t("shell-browser-bar-annotate-page-agent")} disabled={!chrome.wand.enabled} onClick={wand.onToggle}>
-            <ICON.annotate size={14} aria-hidden />
-            {wand.count > 0 && (
-              <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold text-accent-contrast" aria-label={t("shell-browser-bar-annotations", { wand: wand.count })}>
-                {wand.count}
-              </span>
-            )}
-          </Button>
-        </span>
-      </Tooltip>
+      {wand && (
+        <Tooltip label={wandWords(chrome.wand, wand.inspecting)}>
+          <span className="inline-flex">
+            <Button size="icon" className={wand.inspecting ? "relative h-7 w-7 bg-selected text-text" : "relative h-7 w-7"} variant="ghost" aria-pressed={wand.inspecting} aria-label={t("shell-browser-bar-annotate-page-agent")} disabled={!chrome.wand.enabled} onClick={wand.onToggle}>
+              <ICON.annotate size={14} aria-hidden />
+              {wand.count > 0 && (
+                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-3xs font-semibold text-accent-contrast" aria-label={t("shell-browser-bar-annotations", { wand: wand.count })}>
+                  {wand.count}
+                </span>
+              )}
+            </Button>
+          </span>
+        </Tooltip>
+      )}
       <BarButton verb={camera} label={t("shell-browser-bar-copy-screenshot-what-agent-s-browser")} onClick={() => void shoot("copy")}>
         <ICON.camera size={14} aria-hidden />
       </BarButton>

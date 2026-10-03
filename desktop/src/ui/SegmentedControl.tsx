@@ -67,7 +67,7 @@ export function SegmentedControl<T extends string>({
       // no-op, not a way to choose nothing.
       onValueChange={(next) => next && onChange(next as T)}
       className={cn(
-        "items-center gap-0.5 rounded-control border border-border bg-surface-2 p-0.5",
+        "items-center gap-0.5 rounded-control border border-hairline bg-surface-2/70 p-0.5",
         stretch ? "flex w-full flex-wrap" : "inline-flex",
         className,
       )}

@@ -45,7 +45,7 @@ export function useReadiness(): ReadinessRead {
         if (ctrl.signal.aborted) return;
         // The gate never blocks on what it does not know; the log says why it does not, and the read is tried again.
         log.warn("setup", "the checks could not be read", errorFields(e));
-        setState((was) => afterRead(was, { ok: false, error: e instanceof Error ? e.message : t("shell-setup-gate-could-read-what-platform-needs") }));
+        setState((was) => afterRead(was, { ok: false, error: t("shell-setup-gate-could-read-what-platform-needs") }));
       })
       .finally(() => {
         if (!ctrl.signal.aborted) setChecking(false);

@@ -79,7 +79,7 @@ export function CherryPickDialog({
           <ul className="flex max-h-72 flex-col overflow-y-auto rounded-control border border-border" role="listbox" aria-label={t("work-cherry-pick-dialog-commits-pick")} aria-multiselectable>
             {listed.map((c) => (
               <li key={c.id} role="option" aria-selected={picked.has(c.id)}>
-                <label className={`flex cursor-pointer items-center gap-2 px-2 py-1 text-2xs hover:bg-surface-2 ${picked.has(c.id) ? "bg-accent-soft/40" : ""}`}>
+                <label className={`flex cursor-pointer items-center gap-2 px-2 py-1 text-2xs hover:bg-surface-2 ${picked.has(c.id) ? "bg-selected" : ""}`}>
                   <input type="checkbox" checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
                   <span className="font-mono text-text-dim">{c.short}</span>
                   <span className="min-w-0 flex-1 truncate text-text">{c.subject}</span>

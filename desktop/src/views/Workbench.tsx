@@ -25,7 +25,7 @@
  * the active document is a place (`?doc=`), the set of open tabs is furniture.
  */
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { api, droppedPaths, pickFiles, revealPath } from "../api";
 import { isFileDrop, pathsForDrop } from "./_workbench/dropModel.mjs";
 import { useEngineEvents } from "../bus";
@@ -73,6 +73,7 @@ import {
   ResizeHandle,
   SegmentedControl,
   SkeletonRows,
+  failureText,
   focusComposer,
   Tooltip,
   requestReveal,
@@ -124,7 +125,8 @@ import { boolOf, choiceOf } from "../shell/settingsModel.mjs";
 import { BOARD_DEFAULTS, BOARD_ENABLED_KEY } from "./_board/boardSettings.mjs";
 import { useResolvedSettings } from "../shell/useResolvedSettings";
 import { ProjectRailToggle, RightPanelToggle } from "./_workbench/PanelDoors";
-import { useProjectRail } from "./_workbench/projectRailStore";
+import { setProjectRailFolded, useProjectRail } from "./_workbench/projectRailStore";
+import { fitColumns } from "./_workbench/ideColumnsModel.mjs";
 import { boardLabel } from "./_work/types";
 import { useAsync } from "./_work/useAsync";
 import {
@@ -193,6 +195,8 @@ const RAIL_KEY = "bisa.ide.rail.width";
 const RAIL_DEFAULT = 380; // room for the rail's tabs with their badges; a narrower rail folds them to their glyphs one at a time, Workflows first
 const RAIL_MIN = 220;
 const RAIL_MAX = 480;
+/** A header word that folds to its glyph below the header's `@5xl`: off the line, still the button's name. */
+const FOLDED_WORD = "sr-only @5xl:not-sr-only";
 
 const SCOPE_NOUN: Record<WorkbenchScope, string> = {
   workstream: tr("screens-workbench-workstream-2"),
@@ -686,7 +690,7 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
     },
     revealInFinder: () => {
       if (active?.kind !== "file" || !placement.data?.path) return;
-      void revealPath(joinPath(placement.data.path, active.path)).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+      void revealPath(joinPath(placement.data.path, active.path)).catch((e: unknown) => toast.error(failureText("view", "workbench-failed", e)));
     },
     newDocument: openUntitled,
     // ⌘O: the OS's open dialog, then the same door a drop takes.
@@ -858,8 +862,25 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
   // The project rail's open flag is a store (`projectRailStore`): the chord
   // and the top bar's toggle both move it.
   const railOpen = useProjectRail().open;
+  // The columns share the row's measured width (`ideColumnsModel`): the side
+  // columns give way to the centre — the right panel first, then the rail,
+  // which folds when even its least leaves the centre too little.
+  const row = useRef<HTMLDivElement>(null);
+  const [rowWidth, setRowWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    setRowWidth(el.getBoundingClientRect().width);
+    const ro = new ResizeObserver((entries) => setRowWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // The occupant rail's column (`IconRail`, w-10) never moves.
+  const fit = fitColumns({ total: rowWidth, fixed: 40, rail: railWidth, railMin: RAIL_MIN, railOpen, right: rightWidth, rightMin: RIGHT_MIN, rightOpen: right.open });
+  useEffect(() => setProjectRailFolded(fit.railFolded), [fit.railFolded]);
+  useEffect(() => () => setProjectRailFolded(false), []);
   // The rail and the right panel move the centre without resizing the window.
-  useEffect(() => notifyLayoutChanged(), [railOpen, railWidth, right.open, rightWidth]);
+  useEffect(() => notifyLayoutChanged(), [fit.rail, fit.right]);
 
   const renderDoc = (tab: WorkbenchTab) => {
     // A PDF, a picture, a recording, a sheet, a document, a deck: drawn as
@@ -877,7 +898,7 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
           }}
           onReveal={(p) => {
             if (!placement.data?.path) return;
-            void revealPath(joinPath(placement.data.path, p)).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+            void revealPath(joinPath(placement.data.path, p)).catch((e: unknown) => toast.error(failureText("view", "workbench-failed", e)));
           }}
           className="h-full"
         />
@@ -934,7 +955,7 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
           }}
           onReveal={(p) => {
             if (!placement.data?.path) return;
-            void revealPath(joinPath(placement.data.path, p)).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+            void revealPath(joinPath(placement.data.path, p)).catch((e: unknown) => toast.error(failureText("view", "workbench-failed", e)));
           }}
           className="h-full"
         />
@@ -999,9 +1020,12 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
   return (
     <div className="flex h-full min-h-0 flex-col" onDragOver={onFileDragOver} onDrop={onFileDrop}>
       {/* The root, what it is, and the things you do to it from anywhere. */}
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+      {/* An `@container`: below `@5xl` the mode, Quick open and the launchers
+          fold to their glyphs (their words stay their names), so the root's
+          name keeps its room on a narrow window. */}
+      <header className="@container flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-3">
         {/* The project rail's toggle first, on the side it moves; then the root. */}
-        <ProjectRailToggle open={railOpen} />
+        <ProjectRailToggle open={railOpen && !fit.railFolded} />
         {scope === "workstream" && project ? (
           <Avatar
             id={project}
@@ -1015,15 +1039,21 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
         {scope === "workstream" && detail.data && !isPrimary && (
           <>
             <span className="min-w-0 truncate text-xs text-text-dim">{detail.data.project.name}</span>
-            <span className="text-text-dim">›</span>
+            <ICON.collapsed size={12} aria-hidden className="shrink-0 text-text-dim" />
           </>
         )}
-        <h2 className="min-w-0 truncate text-xs font-semibold">{rootLabel}</h2>
-        {scope === "workstream" && detail.data?.branch && <Chip tone="quiet">{detail.data.branch}</Chip>}
+        {/* The root's name holds a third of the line before it truncates: the
+            project's name, the branch and the chips give way first. */}
+        <h2 className="max-w-1/3 shrink-0 truncate text-xs font-semibold" title={rootLabel}>{rootLabel}</h2>
+        {scope === "workstream" && detail.data?.branch && (
+          <Chip title={detail.data.branch} className="min-w-0 max-w-48">
+            <span className="min-w-0 truncate">{detail.data.branch}</span>
+          </Chip>
+        )}
         {scope === "workstream" && owner.data && (
           <Tooltip label={tr("screens-workbench-attached-more-open-goal", { owner: goals.find((g) => g.id === owner.data)?.label ?? tr("screens-workbench-goal"), attachedCount: attachedCount - 1, flag: (attachedCount > 1) ? "yes" : "no" })}>
             <a href={`#/goals/${owner.data}`} className="inline-flex min-w-0">
-              <Chip tone="quiet" icon={ICON.goal}>
+              <Chip icon={ICON.goal} className="anim hover:bg-selected hover:text-text">
                 <span className="max-w-40 truncate">{goals.find((g) => g.id === owner.data)?.label ?? tr("screens-workbench-goal-chip")}</span>
               </Chip>
             </a>
@@ -1032,7 +1062,7 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
         {isPrimary && (
           <Tooltip label={tr("screens-workbench-primary-workstream-project-s-own-root")}>
             <span>
-              <Chip tone="quiet">{tr("screens-workbench-primary")}</Chip>
+              <Chip>{tr("screens-workbench-primary")}</Chip>
             </span>
           </Tooltip>
         )}
@@ -1040,7 +1070,7 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
           <Tooltip label={identity.data?.suggested ? tr("screens-workbench-nobody-set-commit-repository-about-checkout", { login: identity.data.suggested.login }) : tr("screens-workbench-nobody-set-commit-repository-set-who")}>
             <button
               type="button"
-              className="inline-flex"
+              className="anim inline-flex hover:opacity-80"
               onClick={() => {
                 openPanelView("about", "checkout", key);
               }}
@@ -1053,7 +1083,7 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
           <Tooltip label={firstCaution(connection.data) ?? tr("screens-workbench-connection-has-caution-see-about-checkout")}>
             <button
               type="button"
-              className="inline-flex"
+              className="anim inline-flex hover:opacity-80"
               onClick={() => {
                 openPanelView("about", "checkout", key);
               }}
@@ -1067,18 +1097,35 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
         <span className="flex-1" />
         {/* The centre's mode — a value, not a place: Project (documents and
             terminals), Agent (the conversation) or Board (every workstream's
-            card). Remembered per root; the Board offered while its setting is on. */}
+            card). Remembered per root; the Board offered while its setting is on.
+            Two drawings of one value: the words from `@5xl`, the glyphs below
+            it (each word its glyph's name and tooltip). The one not shown is
+            `display: none`, so a screen reader meets one group. */}
         {scope === "workstream" && project && (
-          <SegmentedControl
-            label={tr("screens-workbench-centre-s-mode")}
-            size="sm"
-            value={mode}
-            onChange={(v) => setIdeMode(key, v as IdeMode)}
-            options={modeSegments(boardEnabled).map((s) => ({ id: s.id, label: s.label, icon: ICON[s.icon] }))}
-          />
+          <>
+            <SegmentedControl
+              label={tr("screens-workbench-centre-s-mode")}
+              size="sm"
+              className="hidden @5xl:inline-flex"
+              value={mode}
+              onChange={(v) => setIdeMode(key, v as IdeMode)}
+              options={modeSegments(boardEnabled).map((s) => ({ id: s.id, label: s.label, icon: ICON[s.icon] }))}
+            />
+            <SegmentedControl
+              label={tr("screens-workbench-centre-s-mode")}
+              size="sm"
+              iconOnly
+              className="@5xl:hidden"
+              value={mode}
+              onChange={(v) => setIdeMode(key, v as IdeMode)}
+              options={modeSegments(boardEnabled).map((s) => ({ id: s.id, label: s.label, icon: ICON[s.icon] }))}
+            />
+          </>
         )}
         <Button size="sm" onClick={openPlaces}>
-          <ICON.search size={12} aria-hidden />{tr("screens-workbench-quick-open")}<CommandHint id="quick_open" />
+          <ICON.search size={12} aria-hidden />
+          <span className={FOLDED_WORD}>{tr("screens-workbench-quick-open")}</span>
+          <CommandHint id="quick_open" />
         </Button>
         <TerminalLauncher
           scope={scope}
@@ -1086,25 +1133,26 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
           project={scope === "workstream" ? project : null}
           label={rootLabel}
           disabledReason={placement.loading || exists ? null : tr("screens-workbench-folder-not-disk-yet")}
+          wordClassName={FOLDED_WORD}
         />
         {/* Browser (ide/18): a tab here; its menu runs or serves the checkout. */}
-        <BrowserLauncher scope={scope} id={id} rootLabel={rootLabel} disabledReason={scope === "workstream" && !(placement.loading || exists) ? tr("screens-workbench-folder-not-disk-yet") : null} />
+        <BrowserLauncher scope={scope} id={id} rootLabel={rootLabel} wordClassName={FOLDED_WORD} disabledReason={scope === "workstream" && !(placement.loading || exists) ? tr("screens-workbench-folder-not-disk-yet") : null} />
         {/* Devices (ide/19): a Flutter app on a simulator, an emulator or a phone, beside the code — a checkout's alone. */}
         {scope === "workstream" && (
-          <DeviceLauncher wid={id} label={rootLabel} openDevices={docs.filter((t) => t.kind === "device").map((t) => t.id)} onOpenDevice={openDeviceDocument} disabledReason={placement.loading || exists ? null : tr("screens-workbench-folder-not-disk-yet")} />
+          <DeviceLauncher wid={id} label={rootLabel} wordClassName={FOLDED_WORD} openDevices={docs.filter((t) => t.kind === "device").map((t) => t.id)} onOpenDevice={openDeviceDocument} disabledReason={placement.loading || exists ? null : tr("screens-workbench-folder-not-disk-yet")} />
         )}
         {/* The right panel's toggle last, over its rail's column; every
             occupant is a tab on that rail. */}
         <RightPanelToggle open={right.open} />
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        {railOpen && (
+      <div ref={row} className="flex min-h-0 flex-1">
+        {fit.rail !== null && (
           <>
-            <aside className="flex min-h-0 shrink-0 flex-col border-r border-border" style={{ width: railWidth }} aria-label={tr("screens-workbench-projects")}>
+            <aside className="flex min-h-0 shrink-0 flex-col border-r border-border" style={{ width: fit.rail }} aria-label={tr("screens-workbench-projects")}>
               <ProjectRail current={{ scope, id }} />
             </aside>
-            <ResizeHandle side="right" size={railWidth} min={RAIL_MIN} max={RAIL_MAX} defaultSize={RAIL_DEFAULT} onSize={setRailWidth} label={tr("screens-workbench-resize-rail")} />
+            <ResizeHandle side="right" size={fit.rail} min={RAIL_MIN} max={RAIL_MAX} defaultSize={RAIL_DEFAULT} onSize={setRailWidth} label={tr("screens-workbench-resize-rail")} />
           </>
         )}
 
@@ -1169,10 +1217,10 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
         />
         )}
 
-        {right.open && (
+        {fit.right !== null && (
           <>
-            <ResizeHandle side="left" size={rightWidth} min={RIGHT_MIN} max={RIGHT_MAX} defaultSize={RIGHT_DEFAULT} onSize={setRightWidth} label={tr("screens-workbench-resize-right-panel")} />
-            <div className="flex min-h-0 shrink-0 flex-col border-l border-border" style={{ width: rightWidth }}>
+            <ResizeHandle side="left" size={fit.right} min={RIGHT_MIN} max={RIGHT_MAX} defaultSize={RIGHT_DEFAULT} onSize={setRightWidth} label={tr("screens-workbench-resize-right-panel")} />
+            <div className="flex min-h-0 shrink-0 flex-col border-l border-border" style={{ width: fit.right }}>
               <RightPanel
                 occupant={shown}
                 scope={scope}
@@ -1276,9 +1324,9 @@ export function ProjectsHome() {
         <ProjectRail current={null} />
       </aside>
       <ResizeHandle side="right" size={railWidth} min={RAIL_MIN} max={RAIL_MAX} defaultSize={RAIL_DEFAULT} onSize={setRailWidth} label={tr("screens-workbench-resize-rail")} />
-      <main className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1">
         <EmptyIdeLanding onNewProject={() => setCreating(true)} />
-      </main>
+      </div>
       {/* The rail's `+` and menus fire `NEW_WORKSTREAM` here as on the workbench. */}
       <NewWorkstreamDoor defaultPid={null} />
       <NewProjectDialog

@@ -68,3 +68,32 @@ export function changeKindTone(kind) {
 export function barWords() {
   return { keepAll: t("studio-turn-changes-card-keep-all"), undoAll: t("studio-turn-changes-card-undo-all"), review: t("studio-changed-files-review"), attach: t("studio-changed-files-attach") };
 }
+
+/**
+ * The question *Undo all* asks first: how many files, whose changes, and —
+ * when some were also edited by someone else since — that those stay as they
+ * are (an undo without `force` leaves an overlapped file alone).
+ * @param {object} view
+ */
+export function undoAllConfirmWords(view) {
+  const rows = changedFileRows(view);
+  const agents = changedByAgents(view).length;
+  const overlapped = rows.filter((f) => f.overlapped).length;
+  const body = t("studio-changed-files-undo-all-body");
+  return {
+    title: t("studio-changed-files-undo-all-title", { files: rows.length, agents }),
+    body: overlapped > 0 ? `${body} ${t("studio-changed-files-undo-all-overlapped", { overlapped })}` : body,
+    confirm: t("studio-turn-changes-card-undo-all"),
+  };
+}
+
+/**
+ * The toast once a bulk word landed — how many files it reached; `null` when
+ * it reached none (everything was left alone, which the skipped line says).
+ * @param {"keep" | "undo"} verdict
+ * @param {number} files
+ */
+export function settledAllWords(verdict, files) {
+  if (!(files > 0)) return null;
+  return verdict === "keep" ? t("studio-changed-files-kept-all", { files }) : t("studio-changed-files-undid-all", { files });
+}

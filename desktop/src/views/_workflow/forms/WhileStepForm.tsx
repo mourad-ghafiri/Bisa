@@ -7,7 +7,7 @@
  */
 
 import type { InputDef, Step } from "../../../types";
-import { Field, NumberInput } from "../../../ui";
+import { Field, Labelled, NumberInput } from "../../../ui";
 import { DEFAULT_MAX_ITERATIONS } from "../stepKinds.mjs";
 import { ConditionEditor } from "./ConditionEditor";
 import { t } from "../../../i18n/l10n.mjs";
@@ -29,9 +29,9 @@ export function WhileStepForm({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <Field label={t("workflow-step-kinds-while")} hint={t("workflow-while-step-form-tested-every-entry-holds-loop-flow")}>
+      <Labelled label={t("workflow-step-kinds-while")} hint={t("workflow-while-step-form-tested-every-entry-holds-loop-flow")}>
         <ConditionEditor value={step.when} upstream={upstream} inputs={inputs} disabled={disabled} onChange={(when) => onChange({ ...step, when })} />
-      </Field>
+      </Labelled>
       <Field label={t("workflow-for-each-step-form-max-iterations")} hint={t("workflow-while-step-form-reaching-fails-step-unless-say-otherwise", { DEFAULT_MAX_ITERATIONS })}>
         <NumberInput
           className="w-28"

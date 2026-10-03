@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ErrorNote } from "./Card";
+import { failureReason } from "./failure";
 import { cn } from "./cn";
 import { loadMonaco, loadedMonaco, type Monaco } from "./monaco";
 import { useEditorTypography } from "./useEditorTypography";
@@ -265,7 +266,7 @@ export function CodeEditor({
       };
     });
     void mount.catch((e: unknown) => {
-      if (!disposed) setFailed(e instanceof Error ? e.message : String(e));
+      if (!disposed) setFailed(failureReason("editor", "the editor could not open", e)); // for the log
     });
     return () => {
       disposed = true;

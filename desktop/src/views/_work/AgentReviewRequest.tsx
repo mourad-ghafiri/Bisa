@@ -87,7 +87,7 @@ export function AgentReviewRequest({
   return (
     <div className="flex flex-col gap-1.5">
       <AgentSelect value={agent} onChange={setAgent} disabled={off} />
-      <TextArea value={message} rows={2} disabled={off} placeholder={t("work-agent-review-request-anything-agent-should-look-optional")} onChange={(e) => setMessage(e.target.value)} />
+      <TextArea value={message} rows={2} disabled={off} placeholder={t("work-agent-review-request-anything-agent-should-look-optional")} aria-label={t("work-agent-review-request-message-field")} onChange={(e) => setMessage(e.target.value)} />
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" disabled={off} onClick={() => void ask()}>
           {asking ? t("work-agent-review-request-asking") : askLabel(target, agent)}
@@ -97,7 +97,7 @@ export function AgentReviewRequest({
           <Button size="sm" variant="ghost" onClick={() => setAgain(false)}>{t("work-agent-review-request-keep-review")}</Button>
         )}
       </div>
-      {reason ? <ReasonLine>{reason}</ReasonLine> : <p className="text-3xs text-text-dim">{landsWords(target)}</p>}
+      {reason ? <ReasonLine>{reason}</ReasonLine> : <p className="text-2xs text-text-dim">{landsWords(target)}</p>}
     </div>
   );
 }

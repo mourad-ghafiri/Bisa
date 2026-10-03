@@ -39,6 +39,7 @@ export function SectionHeader({
   action,
   alwaysAction = false,
   trailing,
+  flush = false,
 }: {
   title: string;
   count?: number;
@@ -52,6 +53,13 @@ export function SectionHeader({
   alwaysAction?: boolean;
   /** A fact at the right edge, always visible — a summary, a status word. */
   trailing?: ReactNode;
+  /**
+   * Flush with its content's edge. The header is inset by default to line up
+   * with rows that carry the same inset (a list, a tree, the sidebar); over
+   * prose, a field or a card — an inspector's sections — it stands flush, so
+   * the heading and what it heads share one edge.
+   */
+  flush?: boolean;
 }) {
   // The chevron is the fold's control; a header that does not fold draws none,
   // so a plain section never promises a disclosure it has not got.
@@ -64,14 +72,16 @@ export function SectionHeader({
           className={cn("anim shrink-0 text-text-dim", open && "rotate-90")}
         />
       )}
-      <span className="text-2xs font-semibold tracking-wide text-text-dim uppercase">{title}</span>
+      {/* Sentence case: a group's name, not a label in capitals — forty rows
+          under five shouted headings read as five alarms. */}
+      <span className="text-2xs font-semibold text-text-dim">{title}</span>
       {count !== undefined && (count > 0 || showZero) && (
-        <span className="tnum text-2xs text-text-dim/70">{count}</span>
+        <span className="tnum text-2xs font-normal text-text-dim">{count}</span>
       )}
     </>
   );
   return (
-    <div className="group flex h-6 shrink-0 items-center gap-1.5 px-2">
+    <div className={cn("group flex h-6 shrink-0 items-center gap-1.5", flush ? "px-0" : "px-2")}>
       {onToggle ? (
         <button
           type="button"

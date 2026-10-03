@@ -26,7 +26,11 @@
 
 :root[data-font-ui="inter"] {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-feature-settings: "cv11", "ss01", "tnum" 0;
+  /* No `"tnum" 0` here: a feature setting on the root is inherited and wins
+     over `font-variant-numeric`, so it would turn off the tabular numerals
+     every `.tnum`, `time` and `code` asks for. Inter's numerals are
+     proportional by default; the classes opt in where columns must line up. */
+  font-feature-settings: "cv11", "ss01";
 }
 
 :root[data-font-ui="atkinson"] {

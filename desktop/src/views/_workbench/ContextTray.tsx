@@ -115,7 +115,7 @@ export function ContextTray({
   };
 
   return (
-    <section aria-label={noun[0].toUpperCase() + noun.slice(1)} className="flex shrink-0 flex-col gap-1.5 border-t border-border px-3 py-2 text-2xs">
+    <section aria-label={noun[0].toUpperCase() + noun.slice(1)} className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-3 py-2 text-2xs">
       {rows}
       <div className="flex flex-wrap items-center gap-2">
         <TextInput value={message} placeholder={t("workbench-context-tray-word-agent-optional")} aria-label={t("workbench-context-tray-message-send", { noun })} className="min-w-0 flex-1 text-2xs" onChange={(e) => onMessage(e.target.value)} />

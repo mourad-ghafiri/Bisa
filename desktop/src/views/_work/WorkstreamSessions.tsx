@@ -107,7 +107,7 @@ function SessionGroup({ row, subs, harnessLabels }: { row: WorkstreamSessionRow;
         <ModelAfterName model={row.model} effort={row.effort} />
         <span className="min-w-0 flex-1 truncate text-text-dim">{row.activity}</span>
         {count > 0 && (
-          <span className="tnum shrink-0 rounded-full border border-border px-1.5 text-3xs text-text-dim" title={t("work-workstream-sessions-sub-agents", { n: count })}>
+          <span className="tnum shrink-0 rounded-full bg-surface-2 px-1.5 text-3xs text-text-dim" title={t("work-workstream-sessions-sub-agents", { n: count })}>
             {count}
           </span>
         )}

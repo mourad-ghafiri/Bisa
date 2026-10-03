@@ -101,7 +101,7 @@ export function NodeOverlay({ conn, close }: { conn: ConnState; close: () => voi
             </div>
             {s.sentence && <p className={cn("text-2xs", s.tone === "warn" ? "text-warn" : s.tone === "danger" ? "text-danger" : "text-text-dim")}>{s.sentence}</p>}
             {s.rows.length > 0 && (
-              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-control border border-border bg-surface-2 p-2 text-2xs">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-control bg-surface-2/50 p-2 text-2xs">
                 {s.rows.map((row, i) => (
                   <div key={`${row.label}-${i}`} className="contents">
                     <dt className="text-text-dim">{row.label}</dt>
@@ -113,7 +113,7 @@ export function NodeOverlay({ conn, close }: { conn: ConnState; close: () => voi
           </section>
         ))}
       </div>
-      <p className="px-1 text-3xs text-text-dim">{footnote(read.at ?? null, now)}</p>
+      <p className="px-1 text-2xs text-text-dim">{footnote(read.at ?? null, now)}</p>
     </div>
   );
 }

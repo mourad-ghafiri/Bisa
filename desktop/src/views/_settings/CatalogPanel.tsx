@@ -237,7 +237,7 @@ function PlanLine({ plan }: { plan: InstallPlan }) {
   if (brought.length === 0) return null;
   const already = brought.filter((e) => e.installed).length;
   return (
-    <p className="mt-1 text-2xs text-text-dim">
+    <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">
       {t("settings-catalog-panel-brings-with-it", { brought: summarize(brought) })}
       {already > 0 &&
         ` ${t("settings-catalog-panel-them-those-already-here-will-left", { already, brought: brought.length })}`}
@@ -247,13 +247,13 @@ function PlanLine({ plan }: { plan: InstallPlan }) {
 
 function PlanList({ plan }: { plan: InstallPlan }) {
   return (
-    <ul className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
+    <ul className="mt-2 flex flex-col gap-1 border-t border-hairline pt-2">
       {plan.entries.map((e) => (
         <li
           key={`${e.kind}/${e.slug}`}
-          className="flex flex-wrap items-center gap-1.5 rounded-control border border-border px-2 py-1"
+          className="flex flex-wrap items-center gap-1.5 rounded-control bg-surface-2/50 px-2 py-1"
         >
-          <Chip tone="quiet">{e.kind}</Chip>
+          <Chip tone="neutral">{e.kind}</Chip>
           <span className="truncate text-2xs font-medium">{e.name}</span>
           <code className="truncate font-mono text-2xs text-text-dim">{e.slug}</code>
           <span className="ml-auto shrink-0 text-2xs text-text-dim">
@@ -289,12 +289,12 @@ function CatalogRow({
             type="button"
             onClick={onToggle}
             aria-expanded={expanded}
-            className="anim flex min-w-0 items-center gap-1.5 text-left"
+            className="anim group flex min-w-0 items-center gap-1.5 text-left"
           >
             <ICON.collapsed
               size={11}
               aria-hidden
-              className={`anim shrink-0 text-text-dim ${expanded ? "rotate-90" : ""}`}
+              className={`anim shrink-0 text-text-dim group-hover:text-text ${expanded ? "rotate-90" : ""}`}
             />
             <span className="truncate text-xs font-medium">{e.name}</span>
           </button>
@@ -311,14 +311,14 @@ function CatalogRow({
               title={t("settings-catalog-panel-object-already-answers-id-here-may")}
             >{t("settings-catalog-panel-installed")}</Chip>
           ) : (
-            <Button size="sm" variant="primary" disabled={busy} onClick={onInstall}>
+            <Button size="sm" disabled={busy} onClick={onInstall}>
               {busy ? t("settings-catalog-panel-installing") : t("settings-catalog-panel-install")}
             </Button>
           )}
         </span>
       </div>
 
-      <p className="mt-1 text-2xs text-text-dim">{e.description}</p>
+      <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{e.description}</p>
       <PlanLine plan={plan} />
       {expanded && <PlanList plan={plan} />}
     </Card>
@@ -358,8 +358,9 @@ function InstallReport({
   onDismiss: () => void;
 }) {
   const total = totalCreated(installed);
+  // A receipt asks nothing of you: the neutral ground, not the accent's edge.
   return (
-    <Card className="border-accent/40">
+    <Card className="bg-surface-2/70">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium">
@@ -377,7 +378,7 @@ function InstallReport({
         <ul className="mt-2 flex flex-col gap-1">
           {CREATED_ORDER.filter(([, key]) => installed[key].length > 0).map(([kind, key]) => (
             <li key={kind} className="flex flex-wrap items-start gap-1.5">
-              <Chip tone="quiet">{countPhrase(installed[key].length, kind)}</Chip>
+              <Chip tone="neutral">{countPhrase(installed[key].length, kind)}</Chip>
               <span className="min-w-0 flex-1 font-mono text-2xs text-text-dim">
                 {installed[key].join(", ")}
               </span>
@@ -400,9 +401,10 @@ function InstallReport({
  */
 function FirstRun({ entries }: { entries: CatalogEntry[] }) {
   return (
-    <Card className="border-accent/40">
+    // An introduction asks nothing of you: the card's own edge, never the accent's.
+    <Card>
       <p className="text-xs font-medium">{t("settings-catalog-panel-nobody-works-here-yet")}</p>
-      <p className="mt-1 text-2xs text-text-dim">{t("settings-catalog-panel-workspace-holds-one-agent-nothing-else", { catalog: summarize(entries) })}</p>
+      <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-catalog-panel-workspace-holds-one-agent-nothing-else", { catalog: summarize(entries) })}</p>
     </Card>
   );
 }
@@ -470,9 +472,9 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
   if (error && entries.length === 0) return <ErrorNote error={error} retry={reload} />;
 
   return (
-    <div className="flex max-w-4xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
-        <p className="max-w-3xl text-2xs text-text-dim">
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
           <strong className="font-medium text-text">{t("settings-catalog-panel-nothing-here-exists-workspace-until-install")}</strong>{" "}
           {t("settings-catalog-panel-install-brings-what-entry-needs")}
         </p>
@@ -525,7 +527,7 @@ export default function CatalogPanel({ kind: fixedKind }: { kind?: CatalogKind }
           />
         )}
 
-        <p className="text-2xs text-text-dim">{KIND_BLURB[kind]}</p>
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{KIND_BLURB[kind]}</p>
 
         <TagFilterBar
           items={ofKind}

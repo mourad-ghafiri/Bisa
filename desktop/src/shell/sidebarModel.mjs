@@ -75,9 +75,12 @@ export function needsWords(needs) {
 
 /**
  * The Inbox badge: how many rows need the person and how many they have
- * not read, the one number the badge shows, its tone and its words.
+ * not read — two counts, never one summed number. The accent is spent on
+ * what is owed alone (`needs`); what is merely unread is a neutral count
+ * beside it. Each count has its words, and the badge's whole sentence names
+ * both.
  * @param {readonly import("../types").InboxRow[] | null | undefined} rows
- * @returns {{count: number, needs: number, unread: number, tone: "accent" | "neutral", title: string | null}}
+ * @returns {{needs: number, unread: number, needsTitle: string | null, unreadTitle: string | null, title: string | null}}
  */
 export function inboxBadge(rows) {
   let needs = 0;
@@ -88,10 +91,10 @@ export function inboxBadge(rows) {
     if (state === "waiting") needs += 1;
     else if (state === "unread") unread += 1;
   }
-  const parts = [];
-  if (needs > 0) parts.push(needsWords(needs));
-  if (unread > 0) parts.push(t("shell-sidebar-unread", { unread }));
-  return { count: needs + unread, needs, unread, tone: needs > 0 ? "accent" : "neutral", title: parts.length ? parts.join(" · ") : null };
+  const needsTitle = needs > 0 ? needsWords(needs) : null;
+  const unreadTitle = unread > 0 ? t("shell-sidebar-unread", { unread }) : null;
+  const parts = [needsTitle, unreadTitle].filter(Boolean);
+  return { needs, unread, needsTitle, unreadTitle, title: parts.length ? parts.join(" · ") : null };
 }
 
 /**
@@ -121,20 +124,37 @@ function tally(entries, unreadMap, working) {
  * A hosted workspace's channels are reached by expanding; Channels says so
  * in its tooltip while any is unread. The glyphs are the component's to
  * pick by key: this is a fact, not a drawing.
+ *
+ * The Inbox's corner has room for one count: what needs the person, in the
+ * accent, with a neutral dot beside it while anything is also unread
+ * (`unreadDot`); with nothing owed, the unread count alone, neutral. Its
+ * `arrival` is the count whose rise is announced — what is owed, never the
+ * unread — where every other door announces its unread.
  * @param {{inbox?: readonly object[], channels?: readonly object[], dms?: readonly object[], hosted?: readonly object[], unread?: Readonly<Record<string, number>>, working?: Readonly<Record<string, readonly string[]>>}} ws
  * @param {readonly {key: string, label: string, route: object}[]} nav
- * @returns {{key: string, label: string, route: object, badge: {count: number, tone: "accent" | "neutral", title: string | null} | null, live: string | null, note: string | null}[]}
+ * @returns {{key: string, label: string, route: object, badge: {count: number, tone: "accent" | "neutral", title: string | null} | null, unreadDot: boolean, arrival: number, live: string | null, note: string | null}[]}
  */
 export function railDoors(ws, nav) {
   const inbox = inboxBadge(ws?.inbox);
-  const doors = (nav ?? []).map((entry) => ({
-    key: entry.key,
-    label: entry.label,
-    route: entry.route,
-    badge: entry.key === "inbox" && inbox.count > 0 ? { count: inbox.count, tone: inbox.tone, title: inbox.title } : null,
-    live: null,
-    note: null,
-  }));
+  const inboxMark =
+    inbox.needs > 0
+      ? { count: inbox.needs, tone: "accent", title: inbox.title }
+      : inbox.unread > 0
+        ? { count: inbox.unread, tone: "neutral", title: inbox.title }
+        : null;
+  const doors = (nav ?? []).map((entry) => {
+    const isInbox = entry.key === "inbox";
+    return {
+      key: entry.key,
+      label: entry.label,
+      route: entry.route,
+      badge: isInbox ? inboxMark : null,
+      unreadDot: isInbox && inbox.needs > 0 && inbox.unread > 0,
+      arrival: isInbox ? inbox.needs : 0,
+      live: null,
+      note: null,
+    };
+  });
   const channels = tally(ws?.channels, ws?.unread, ws?.working);
   const dms = tally(ws?.dms, ws?.unread, ws?.working);
   const hostedUnread = (ws?.hosted ?? []).filter((s) => isMember(s?.host)).reduce((n, s) => n + unreadOf(s), 0);
@@ -144,6 +164,8 @@ export function railDoors(ws, nav) {
     label: t("shell-sidebar-channels"),
     route: { name: "channels" },
     badge: mark(channels.unread),
+    unreadDot: false,
+    arrival: channels.unread,
     live: channels.busy ? t("shell-sidebar-agent-writing") : null,
     note: hostedUnread > 0 ? t("shell-sidebar-hosted-unread", { n: hostedUnread }) : null,
   });
@@ -152,6 +174,8 @@ export function railDoors(ws, nav) {
     label: t("shell-sidebar-messages"),
     route: { name: "messages" },
     badge: mark(dms.unread),
+    unreadDot: false,
+    arrival: dms.unread,
     live: dms.busy ? t("shell-sidebar-agent-writing") : null,
     note: null,
   });

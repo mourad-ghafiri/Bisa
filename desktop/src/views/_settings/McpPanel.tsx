@@ -40,6 +40,8 @@ import {
   ErrorNote,
   Field,
   ICON,
+  Labelled,
+  MoreMenu,
   NO_TAG_FILTER,
   Section,
   SegmentedControl,
@@ -53,11 +55,12 @@ import {
   TextArea,
   TextInput,
   Tooltip,
+  failureText,
   passesTagFilter,
   useToast,
   type TagFilterState,
 } from "../../ui";
-import { DeleteButton, DeleteDialog, useUsage } from "../_work/LibraryRefs";
+import { DeleteDialog, useUsage } from "../_work/LibraryRefs";
 import { attempt, useAsync } from "../_work/useAsync";
 import { pendingRows } from "./loadModel.mjs";
 import {
@@ -158,7 +161,7 @@ function ReportView({ report }: { report: McpProbeReport }) {
       {lines.ok && capabilityWords(report.capabilities).length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
           {capabilityWords(report.capabilities).map((c) => (
-            <Chip key={c} tone="quiet">
+            <Chip key={c} tone="neutral">
               {c}
             </Chip>
           ))}
@@ -234,7 +237,7 @@ function McpEditor({ open, server, onClose, onSaved }: { open: boolean; server: 
       onClose();
     } catch (e) {
       setBusy(false);
-      const message = e instanceof Error ? e.message : String(e);
+      const message = failureText("settings", "mcp-panel-failed", e);
       // A 4xx is an answer about an input — the reserved name, a taken id, a
       // URL that is not one — and belongs beside the field rather than in a
       // toast that vanishes. Which field is the refusal's id, never its words.
@@ -257,7 +260,7 @@ function McpEditor({ open, server, onClose, onSaved }: { open: boolean; server: 
       if (probeStillAbout(dialled, version.current)) setReport(r.report);
     } catch (e) {
       if (!probeStillAbout(dialled, version.current)) return;
-      const message = e instanceof Error ? e.message : String(e);
+      const message = failureText("settings", "mcp-panel-failed", e);
       if (e instanceof ApiError && e.status >= 400 && e.status < 500) setErrors({ [fieldForRefusal(e.refusal)]: message });
       else setErrors({ form: message });
     } finally {
@@ -279,8 +282,14 @@ function McpEditor({ open, server, onClose, onSaved }: { open: boolean; server: 
       footer={
         <>
           <Button variant="ghost" disabled={busy || testing} onClick={onClose}>{tr("settings-connectors-panel-cancel")}</Button>
-          <Tooltip label={hasMaskedDraft ? tr("settings-mcp-panel-test-dials-draft-typed-value-still") : tr("settings-mcp-panel-dial-server-configured-here-before-saving")}>
-            <Button variant="default" disabled={busy || testing || hasMaskedDraft} onClick={() => void test()}>
+          {/* Disabled over a masked value, it says why on the button; enabled, the tooltip says what a test does. */}
+          <Tooltip label={hasMaskedDraft ? undefined : tr("settings-mcp-panel-dial-server-configured-here-before-saving")}>
+            <Button
+              variant="default"
+              disabled={busy || testing || hasMaskedDraft}
+              disabledReason={hasMaskedDraft ? tr("settings-mcp-panel-test-dials-draft-typed-value-still") : undefined}
+              onClick={() => void test()}
+            >
               <ICON.inspect size={12} aria-hidden />
               {testing ? tr("settings-mcp-panel-testing") : tr("settings-mcp-panel-test-connection")}
             </Button>
@@ -291,14 +300,15 @@ function McpEditor({ open, server, onClose, onSaved }: { open: boolean; server: 
         </>
       }
     >
-      <div className="flex max-h-[68vh] flex-col gap-3 overflow-y-auto pr-0.5">
+      {/* The dialog's body is the one scrollport, and an @container: the form reads the same in any width. */}
+      <div className="flex flex-col gap-3">
         {errors.form && <div className="rounded-control border border-transparent bg-danger-soft px-3 py-2 text-2xs text-danger">{errors.form}</div>}
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field label={tr("settings-mcp-panel-id")} hint={err("id") ?? (editing ? tr("settings-mcp-panel-fixed-agents-reference-id") : tr("settings-mcp-panel-lowercase-letters-digits-agents-reference-so"))}>
+        <div className="grid gap-3 @lg:grid-cols-2">
+          <Field label={tr("settings-mcp-panel-id")} error={errors.id} hint={editing ? tr("settings-mcp-panel-fixed-agents-reference-id") : tr("settings-mcp-panel-lowercase-letters-digits-agents-reference-so")}>
             <TextInput autoFocus={!editing} disabled={editing} value={d.id} /* for the machine */ placeholder="github" onChange={(e) => set({ id: e.target.value })} className="font-mono" />
           </Field>
-          <Field label={tr("settings-git-profiles-panel-name")} hint={err("name") ?? tr("settings-mcp-panel-what-harness-calls-refused", { RESERVED })}>
+          <Field label={tr("settings-git-profiles-panel-name")} error={errors.name} hint={tr("settings-mcp-panel-what-harness-calls-refused", { RESERVED })}>
             <TextInput autoFocus={editing} value={d.name} /* for the machine */ placeholder="github" onChange={(e) => set({ name: e.target.value })} />
           </Field>
         </div>
@@ -307,12 +317,12 @@ function McpEditor({ open, server, onClose, onSaved }: { open: boolean; server: 
           <TextArea rows={2} value={d.description} placeholder={tr("settings-mcp-panel-issues-pull-requests-code-search-github")} onChange={(e) => set({ description: e.target.value })} />
         </Field>
 
-        <div>
-          <span className="mb-1 block text-2xs font-medium text-text-dim">{tr("settings-mcp-panel-tags")}</span>
+        <Labelled label={tr("settings-mcp-panel-tags")}>
           <TagInput value={d.tags} onChange={(tags) => set({ tags })} suggestions={[...TAG_VOCABULARY]} />
-        </div>
+        </Labelled>
 
-        <Field label={tr("settings-mcp-panel-transport")} hint={kindWords(d.kind).hint}>
+        {/* Three buttons, not one control: a caption over them, never a <label> around them. */}
+        <Labelled label={tr("settings-mcp-panel-transport")} hint={kindWords(d.kind).hint}>
           <SegmentedControl
             label={tr("settings-mcp-panel-transport")}
             size="sm"
@@ -320,35 +330,31 @@ function McpEditor({ open, server, onClose, onSaved }: { open: boolean; server: 
             onChange={(v) => set({ kind: v as McpKind })}
             options={KINDS.map((k) => ({ id: k, label: kindWords(k).label, hint: kindWords(k).hint }))}
           />
-        </Field>
+        </Labelled>
 
         {!remote ? (
           <>
-            <Field label={tr("settings-keymap-panel-command")} hint={err("command") ?? tr("settings-mcp-panel-executable-without-arguments")}>
+            <Field label={tr("settings-keymap-panel-command")} error={errors.command} hint={tr("settings-mcp-panel-executable-without-arguments")}>
               <TextInput value={d.command} /* for the machine */ placeholder="npx" onChange={(e) => set({ command: e.target.value })} className="font-mono" />
             </Field>
             <Field label={tr("settings-mcp-panel-arguments")} hint={tr("settings-mcp-panel-one-per-line-so-quoted-path")}>
               <TextArea rows={3} value={d.args} /* for the machine */ placeholder={"-y\n@modelcontextprotocol/server-github"} onChange={(e) => set({ args: e.target.value })} className="font-mono" />
             </Field>
-            <Field label={tr("settings-mcp-panel-working-directory")} hint={err("cwd") ?? tr("settings-mcp-panel-optional-absolute-left-blank-process-starts")}>
+            <Field label={tr("settings-mcp-panel-working-directory")} error={errors.cwd} hint={tr("settings-mcp-panel-optional-absolute-left-blank-process-starts")}>
               <TextInput value={d.cwd} /* for the machine */ placeholder="/Users/me/servers/github" onChange={(e) => set({ cwd: e.target.value })} className="font-mono" />
             </Field>
-            <div>
-              <span className="mb-1 block text-2xs font-medium text-text-dim">{tr("settings-mcp-panel-environment")}</span>
+            <Labelled label={tr("settings-mcp-panel-environment")} hint={err("env") ?? tr("settings-mcp-panel-kept-machine-never-read-back-saved", { MASK })}>
               <PairEditor value={d.env} onChange={(env) => set({ env })} /* for the machine */ keyPlaceholder="GITHUB_TOKEN" valuePlaceholder={tr("settings-mcp-panel-value-placeholder")} addLabel={tr("settings-mcp-panel-add-variable")} keyLabel={tr("settings-mcp-panel-variable")} />
-              <p className="mt-1 text-2xs text-text-dim">{err("env") ?? tr("settings-mcp-panel-kept-machine-never-read-back-saved", { MASK })}</p>
-            </div>
+            </Labelled>
           </>
         ) : (
           <>
-            <Field label={tr("settings-mcp-panel-url")} hint={err("url") ?? (d.kind === "sse" ? tr("settings-mcp-panel-url-opens-event-stream") : tr("settings-mcp-panel-one-endpoint-harness-calls"))}>
+            <Field label={tr("settings-mcp-panel-url")} error={errors.url} hint={d.kind === "sse" ? tr("settings-mcp-panel-url-opens-event-stream") : tr("settings-mcp-panel-one-endpoint-harness-calls")}>
               <TextInput value={d.url} /* for the machine */ placeholder={d.kind === "sse" ? "https://mcp.example.com/sse" : "https://mcp.example.com/mcp"} onChange={(e) => set({ url: e.target.value })} className="font-mono" />
             </Field>
-            <div>
-              <span className="mb-1 block text-2xs font-medium text-text-dim">{tr("settings-mcp-panel-headers")}</span>
+            <Labelled label={tr("settings-mcp-panel-headers")} hint={err("headers") ?? tr("settings-mcp-panel-sent-every-request-bearer-token-api", { MASK })}>
               <PairEditor value={d.headers} onChange={(headers) => set({ headers })} keyPlaceholder={tr("settings-mcp-panel-authorization")} valuePlaceholder={tr("settings-mcp-panel-bearer")} addLabel={tr("settings-mcp-panel-add-header")} keyLabel={tr("settings-mcp-panel-header")} />
-              <p className="mt-1 text-2xs text-text-dim">{err("headers") ?? tr("settings-mcp-panel-sent-every-request-bearer-token-api", { MASK })}</p>
-            </div>
+            </Labelled>
           </>
         )}
 
@@ -398,7 +404,7 @@ function McpCard({ server, onEdit, reload, checking, onCheck }: { server: McpSer
       <div className="flex flex-wrap items-center gap-2">
         <span className="truncate text-xs font-medium">{server.name}</span>
         <code className="font-mono text-2xs text-text-dim">{server.id}</code>
-        <Chip tone="accent">{server.transport.transport}</Chip>
+        <Chip tone="neutral">{kindWords(server.transport.transport).label}</Chip>
         {enabled && (
           <Tooltip label={[healthWords(health), checkedWords(health.checked_at)].filter(Boolean).join(" · ")}>
             <span className="inline-flex">
@@ -407,27 +413,42 @@ function McpCard({ server, onEdit, reload, checking, onCheck }: { server: McpSer
           </Tooltip>
         )}
         {secrets && (
-          <Chip tone="quiet" title={tr("settings-mcp-panel-kept-machine-never-read-back")}>
+          <Chip tone="neutral" title={tr("settings-mcp-panel-kept-machine-never-read-back")}>
             {secrets}
           </Chip>
         )}
         <TagChips tags={server.tags ?? []} max={4} />
+        {/* The switch is the state, Check the row's one verb; Edit and Delete wait in the menu. */}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Switch checked={enabled} disabled={busy} label={enabled ? tr("settings-mcp-panel-enabled-sessions-mount") : tr("settings-mcp-panel-disabled-sessions-skip")} onChange={(next) => void setEnabled(next)} />
-          <Tooltip label={enabled ? tr("settings-mcp-panel-dial-server-read-what-answers") : tr("settings-mcp-panel-enable-server-check")}>
-            <span className="inline-flex">
-              <Button size="sm" variant="ghost" disabled={checking || !enabled} onClick={onCheck}>
-                <ICON.inspect size={12} aria-hidden />
-                {checking ? tr("settings-mcp-panel-checking-2") : tr("settings-mcp-panel-check")}
-              </Button>
-            </span>
+          <Switch checked={enabled} disabled={busy} label={tr("settings-mcp-panel-server-enabled")} onChange={(next) => void setEnabled(next)} />
+          <Tooltip label={enabled ? tr("settings-mcp-panel-dial-server-read-what-answers") : undefined}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={checking || !enabled}
+              disabledReason={enabled ? undefined : tr("settings-mcp-panel-enable-server-check")}
+              onClick={onCheck}
+            >
+              <ICON.inspect size={12} aria-hidden />
+              {checking ? tr("settings-mcp-panel-checking-2") : tr("settings-mcp-panel-check")}
+            </Button>
           </Tooltip>
-          <Button size="sm" onClick={onEdit}>{tr("settings-connectors-panel-edit")}</Button>
-          <DeleteButton usage={usage} onOpen={() => setConfirming(true)} />
+          <MoreMenu
+            label={tr("settings-mcp-panel-more-server", { server: server.name })}
+            items={[
+              { label: tr("settings-connectors-panel-edit"), onSelect: onEdit },
+              // What the usage check found is the label: still checking, held by N things (the dialog lists them), or free to delete.
+              usage.checking
+                ? { label: tr("work-library-refs-checking-usage"), disabled: true, separatorBefore: true, onSelect: () => undefined }
+                : (usage.refs?.length ?? 0) > 0
+                  ? { label: tr("work-library-refs-in-use-by-things", { n: usage.refs?.length ?? 0 }), separatorBefore: true, onSelect: () => setConfirming(true) }
+                  : { label: tr("work-library-refs-delete"), danger: true, separatorBefore: true, onSelect: () => setConfirming(true) },
+            ]}
+          />
         </div>
       </div>
 
-      {server.description && <p className="mt-1 text-2xs text-text-dim">{server.description}</p>}
+      {server.description && <p className="mt-1 max-w-measure text-2xs leading-relaxed text-text-dim">{server.description}</p>}
 
       <div className="mt-1.5 min-w-0 overflow-x-auto">
         <code className="font-mono text-2xs whitespace-nowrap text-text-dim" title={transportLine(server.transport)}>
@@ -488,7 +509,7 @@ export function McpPanel() {
     try {
       await api.probeMcpById(id);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "mcp-panel-failed", e));
     } finally {
       setChecking((c) => {
         const next = new Set(c);
@@ -530,6 +551,7 @@ export function McpPanel() {
     return (
       <>
         <EmptyState
+          icon={ICON.mcpServer}
           title={tr("settings-mcp-panel-mcp-servers-registered")}
           hint={tr("settings-mcp-panel-nothing-ships-registry-purpose-bundled-entry")}
           action={
@@ -542,9 +564,9 @@ export function McpPanel() {
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <div className="flex items-center gap-2">
-        <p className="max-w-xl text-2xs text-text-dim">{rich("settings-mcp-panel-registry-local-to-machine-never-syncs", { name: <code className="font-mono">{RESERVED}</code> })}</p>
+        <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{rich("settings-mcp-panel-registry-local-to-machine-never-syncs", { name: <code className="font-mono">{RESERVED}</code> })}</p>
         <Button size="sm" className="ml-auto shrink-0" variant="ghost" disabled={on.length === 0 || checking.size > 0} onClick={() => void checkAll()}>
           <ICON.inspect size={12} aria-hidden />
           {checking.size > 0 ? tr("settings-mcp-panel-checking", { checking: checking.size }) : tr("settings-mcp-panel-check-all")}
@@ -570,7 +592,7 @@ export function McpPanel() {
 
       {off.length > 0 && (
         <Section title={tr("settings-mcp-panel-disabled", { off: off.length })}>
-          <p className="mb-2 text-2xs text-text-dim">{tr("settings-mcp-panel-still-registered-skipped-launch-never-dialed")}</p>
+          <p className="mb-2 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("settings-mcp-panel-still-registered-skipped-launch-never-dialed")}</p>
           <div className="flex flex-col gap-2">
             {off.map((m) => (
               <McpCard key={m.id} server={m} onEdit={() => setEditing(m)} reload={reload} checking={false} onCheck={() => undefined} />

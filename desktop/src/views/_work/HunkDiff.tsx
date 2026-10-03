@@ -17,13 +17,13 @@
  * scrolls, and a hunk's lines box scrolls sideways only — a diff never wraps.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { rootKey } from "../_workbench/workbenchModel.mjs";
 import { fileDraftKey, fingerprint } from "./gitPanelModel.mjs";
 import { useSessionDraft } from "./gitPanelStore";
 import { api } from "../../api";
 import type { GitFileRow } from "../../types";
-import { Button, ConfirmDialog, EmptyState, ICON, KeyHint, TextArea, Tooltip, hunkDrag, useDragSource, useToast } from "../../ui";
+import { Button, CURSOR_RING, ConfirmDialog, EmptyState, ICON, KeyHint, TextArea, Tooltip, failureText, hunkDrag, useDragSource, useToast } from "../../ui";
 import type { DragData } from "../../ui";
 import { shortRef } from "./gitDiscardModel.mjs";
 import { VERB, confirmLabel } from "./gitWords.mjs";
@@ -39,7 +39,7 @@ import { t } from "../../i18n/l10n.mjs";
 function HunkHeader({ data, children }: { data: DragData | null; children: ReactNode }) {
   const drag = useDragSource(data);
   return (
-    <header ref={drag.ref} {...drag.props} style={drag.style} className="flex flex-wrap items-center gap-1.5 border-b border-border px-2 py-1 text-2xs">
+    <header ref={drag.ref} {...drag.props} style={drag.style} className="flex flex-wrap items-center gap-1.5 border-b border-hairline px-2 py-1 text-2xs">
       {children}
     </header>
   );
@@ -92,6 +92,9 @@ export function HunkDiff({
   const [working, setWorking] = useState<string | null>(null);
   /** The line the keyboard is on, per hunk — Space picks it, ↑↓ move. */
   const [cursor, setCursor] = useState<Record<number, number>>({});
+  /** The lines' ids, so each hunk's list can name the line its cursor is on (`aria-activedescendant`). */
+  const lineBase = useId();
+  const lineId = (hunk: number, line: number) => `${lineBase}-h${hunk}-l${line}`;
   /** A discard waiting on the person's word: the whole hunk, or only the picked lines. */
   const [discarding, setDiscarding] = useState<{ hunk: Hunk; lines: Set<number> | null } | null>(null);
 
@@ -114,7 +117,7 @@ export function HunkDiff({
       const r = await api.gitStageHunk(wid, patch, staged);
       onApplied(r.files);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "hunk-diff-failed", e));
     } finally {
       setWorking(null);
     }
@@ -133,7 +136,7 @@ export function HunkDiff({
       toast.ok(t("work-hunk-diff-discarded-what-there-saved", { ref_name: shortRef(r.recovery.ref_name) }));
       onApplied(r.files);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "hunk-diff-failed", e));
     } finally {
       setWorking(null);
     }
@@ -158,7 +161,7 @@ export function HunkDiff({
       setComposing(null);
       onNoted();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "hunk-diff-failed", e));
     } finally {
       setWorking(null);
     }
@@ -199,7 +202,7 @@ export function HunkDiff({
           <section key={hunk.index} className="min-w-0 overflow-hidden rounded-control border border-border bg-surface-2" aria-label={t("work-hunk-diff-hunk", { index: hunk.index + 1, total })}>
             <HunkHeader data={wid ? hunkDrag({ path, staged, text: hunk.text, id: `${path}@${hunk.newStart}` }) : null}>
               <Tooltip label={wid ? t("work-hunk-diff-drag-onto-agent-pane-attach-hunk") : ""}>
-                <span className={`min-w-0 flex-1 truncate font-mono text-accent-ink ${wid ? "cursor-grab" : ""}`}>
+                <span className={`min-w-0 flex-1 truncate font-mono text-text-dim ${wid ? "cursor-grab" : ""}`}>
                   <span className="mr-2 text-text-dim">{hunkPosition(hunk.index, total)}</span>
                   {hunk.header}
                 </span>
@@ -208,7 +211,7 @@ export function HunkDiff({
                 <>
                   <Tooltip label={t("work-hunk-diff-only-picked-line-lines-rest-stays", { pickedChanges })}>
                     <span className="inline-flex">
-                      <Button size="sm" variant="primary" disabled={busy || working !== null} onClick={() => void apply(`lines:${hunk.index}`, linesPatch(parsed.header, hunk, picked))}>
+                      <Button size="sm" variant="default" disabled={busy || working !== null} onClick={() => void apply(`lines:${hunk.index}`, linesPatch(parsed.header, hunk, picked))}>
                         {isWorking("lines") ? doing(verb) : t("work-hunk-diff-line-lines", { verb, pickedChanges })}
                       </Button>
                     </span>
@@ -251,6 +254,7 @@ export function HunkDiff({
               role="listbox"
               aria-multiselectable
               aria-label={t("work-hunk-diff-lines-hunk", { index: hunk.index + 1 })}
+              aria-activedescendant={at >= 0 ? lineId(hunk.index, at) : undefined}
               onKeyDown={(e) => {
                 if (e.target !== e.currentTarget || choosable.length === 0) return;
                 const pos = Math.max(0, choosable.indexOf(at));
@@ -273,13 +277,17 @@ export function HunkDiff({
                   return (
                     <div
                       key={i}
+                      id={can ? lineId(hunk.index, i) : undefined}
                       role={can ? "option" : undefined}
                       aria-selected={can ? on : undefined}
                       onClick={can ? () => toggle(hunk.index, i) : undefined}
-                      className={`flex gap-2 ${lineTone(line)} ${can ? "cursor-pointer hover:bg-surface" : ""} ${on ? "bg-accent-soft" : ""} ${at === i ? "ring-1 ring-inset ring-accent/50" : ""}`}
+                      className={`flex gap-2 ${lineTone(line)} ${can ? "cursor-pointer hover:bg-surface" : ""} ${on ? "bg-selected" : ""} ${at === i ? CURSOR_RING : ""}`}
                     >
-                      <span className="tnum select-none text-text-dim/70">{numbers}</span>
-                      <span className="w-3 shrink-0 select-none text-center text-text-dim">{can ? (on ? "●" : "○") : " "}</span>
+                      <span className="tnum select-none text-text-dim">{numbers}</span>
+                      {/* The pick, drawn rather than typed: a filled dot picked, an empty one pickable. */}
+                      <span aria-hidden className="flex w-3 shrink-0 select-none items-center justify-center">
+                        {can && <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-text" : "border border-text-dim/70"}`} />}
+                      </span>
                       <span>{line.text || " "}</span>
                     </div>
                   );
@@ -287,7 +295,7 @@ export function HunkDiff({
               </pre>
             </div>
             {isComposing && (
-              <div className="flex flex-col gap-1.5 border-t border-border p-2">
+              <div className="flex flex-col gap-1.5 border-t border-hairline p-2">
                 <TextArea
                   value={note}
                   rows={2}

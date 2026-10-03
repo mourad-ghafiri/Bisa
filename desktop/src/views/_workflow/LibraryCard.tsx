@@ -77,20 +77,21 @@ export function LibraryCard({
   const Glyph = status ? (ICON[status.icon as keyof typeof ICON] as typeof ICON.workflow | undefined) : undefined;
   const body = (
     <>
-      <span className="block h-32 shrink-0 overflow-hidden border-b border-border bg-gradient-to-b from-surface-2 to-surface p-2" aria-hidden>
+      <span className="block h-32 shrink-0 overflow-hidden border-b border-hairline bg-gradient-to-b from-surface-2 to-surface p-2" aria-hidden>
         <WorkflowThumbnail definition={definition} />
       </span>
       <span className="flex min-h-0 flex-1 flex-col gap-1 p-3">
         <span className="flex items-center gap-2">
           <span className="shrink-0 text-text-dim">{icon}</span>
-          <span className="min-w-0 flex-1 truncate text-xs font-medium">{title}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
         </span>
         {(status || mark) && (
           <span className="flex min-w-0 items-center gap-1.5 text-2xs">
             {status && (
               <span className={cn("flex min-w-0 items-center gap-1.5", WORDS[status.tone])}>
-                <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[status.tone], status.live && "animate-pulse motion-reduce:animate-none")} />
-                {Glyph && <Glyph size={11} aria-hidden className="shrink-0" />}
+                {/* One mark per state: the glyph says what it is; the dot stands only where there is none, or pulses while a goal runs the workflow. */}
+                {(!Glyph || status.live) && <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT[status.tone], status.live && "animate-pulse motion-reduce:animate-none")} />}
+                {Glyph && !status.live && <Glyph size={11} aria-hidden className="shrink-0" />}
                 <span className="min-w-0 truncate">{status.words}</span>
               </span>
             )}
@@ -109,8 +110,9 @@ export function LibraryCard({
     </>
   );
   const cls = cn(
-    "anim flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-border bg-surface",
-    href && cn("hover:border-accent/40 hover:shadow-md", FOCUS_RING),
+    "anim flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-border bg-surface shadow-sm",
+    // A door, not a summons: the edge firms up in the neutral ink, as the kit's clickable `Card` does.
+    href && cn("hover:border-text-dim/30", FOCUS_RING),
     dimmed && "opacity-60",
   );
   return (

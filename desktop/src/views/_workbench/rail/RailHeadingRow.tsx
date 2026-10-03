@@ -1,6 +1,7 @@
 /**
- * A section of the rail — a project group, a goal, a workflow: a small-caps
- * header with its photo or glyph, its label and its count as a quiet badge,
+ * A section of the rail — a project group, a goal, a workflow: a quiet
+ * header in sentence case (the label as the person or the goal wrote it),
+ * with its photo or glyph, its label and its count as a quiet badge,
  * a section's space above it so sections read apart (`headingSpacing`) and
  * a softer hover, since a heading only folds. A real group renames on
  * double-click and carries its `⋯`; a goal's or workflow's heading does not.
@@ -57,7 +58,7 @@ export function RailHeadingRow({
             <ICON.folder size={12} aria-hidden />
           )}
         </RailGlyph>
-        <span className="min-w-0 flex-1 truncate text-3xs font-semibold uppercase tracking-wider">{row.label}</span>
+        <span className="min-w-0 flex-1 truncate text-2xs font-semibold">{row.label}</span>
         {editable && (
           <RailActions>
             <RailMenu items={groupMenu} label={t("workbench-rail-heading-row-actions", { row: row.label })} />

@@ -22,7 +22,7 @@ import { api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import { useResolvedSettingsRead } from "../../shell/settingsStore";
 import type { DeciderStatus, DecisionProviderKind, DecisionResponse, JudgementRecord } from "../../types";
-import { Button, Card, Chip, ErrorNote, Field, Pending, SecretInput, Section, Select, Switch, TextArea, TextInput, useToast } from "../../ui";
+import { Button, Card, Chip, ErrorNote, Field, ICON, Pending, SecretInput, Section, Select, Switch, TextArea, TextInput, useToast } from "../../ui";
 import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
 import { attempt, useAsync, type Async } from "../_work/useAsync";
 import {
@@ -78,11 +78,11 @@ function Header({ status }: { status: Async<DeciderStatus> }) {
           {status.data && (
             <>
               <p className="text-xs font-medium">{status.data.agent.name}</p>
-              <p className="mt-0.5 text-2xs text-text-dim">{status.data.agent.description}</p>
+              <p className="mt-0.5 max-w-measure text-2xs leading-relaxed text-text-dim">{status.data.agent.description}</p>
               <div className="mt-1.5 flex items-center gap-2">
                 <Chip tone={line.tone}>{line.text}</Chip>
               </div>
-              {note && <p className="mt-1.5 text-2xs text-text-dim">{note}</p>}
+              {note && <p className="mt-1.5 max-w-measure text-2xs leading-relaxed text-text-dim">{note}</p>}
             </>
           )}
         </>
@@ -132,24 +132,26 @@ function ProviderCard({ status }: { status: Async<DeciderStatus> }) {
 
   return (
     <Section title={t("settings-decisions-panel-who-answers")}>
-      <RegistryPanel group="decisions" only={[KEYS.provider]} />
-      {fields.length > 0 && <RegistryPanel group="decisions" only={fields} />}
-      {needsKey && (
-        <Field
-          label={t("settings-decisions-panel-api-key")}
-          hint={
-            status.data?.key_stored
-              ? t("settings-decisions-panel-key-stored-kept-machine-never-shown")
-              : t("settings-decisions-panel-key-stored-provider-will-refuse-without")
-          }
-        >
-          <div className="flex items-center gap-2">
-            <SecretInput className="min-w-0 flex-1" what={t("ui-secret-input-what-key")} value={own.typed} stored={status.data?.key_stored} disabled={busy} onChange={(typed) => setBox(keyTyped(box, provider, typed))} />
-            <Button size="sm" disabled={busy || !maySaveKey(box, provider)} onClick={() => void save()}>{t("settings-decisions-panel-save")}</Button>
-            <Button size="sm" variant="ghost" disabled={busy || !mayClearKey(status.data)} onClick={() => void clear()}>{t("settings-decisions-panel-clear")}</Button>
-          </div>
-        </Field>
-      )}
+      <div className="flex flex-col gap-3">
+        <RegistryPanel group="decisions" only={[KEYS.provider]} />
+        {fields.length > 0 && <RegistryPanel group="decisions" only={fields} />}
+        {needsKey && (
+          <Field
+            label={t("settings-decisions-panel-api-key")}
+            hint={
+              status.data?.key_stored
+                ? t("settings-decisions-panel-key-stored-kept-machine-never-shown")
+                : t("settings-decisions-panel-key-stored-provider-will-refuse-without")
+            }
+          >
+            <div className="flex items-center gap-2">
+              <SecretInput className="min-w-0 flex-1" what={t("ui-secret-input-what-key")} value={own.typed} stored={status.data?.key_stored} disabled={busy} onChange={(typed) => setBox(keyTyped(box, provider, typed))} />
+              <Button size="sm" disabled={busy || !maySaveKey(box, provider)} onClick={() => void save()}>{t("settings-decisions-panel-save")}</Button>
+              <Button size="sm" variant="ghost" disabled={busy || !mayClearKey(status.data)} onClick={() => void clear()}>{t("settings-decisions-panel-clear")}</Button>
+            </div>
+          </Field>
+        )}
+      </div>
     </Section>
   );
 }
@@ -185,9 +187,9 @@ function PointsCard({ status }: { status: Async<DeciderStatus> }) {
       {phase(status) === "pending" ? (
         <Pending what={t("settings-decisions-panel-decision-points")} rows={pendingRows(t("settings-decisions-panel-security-status"))} />
       ) : (
-        <div className="mt-2 flex flex-col gap-1">
+        <div className="mt-3 flex flex-col divide-y divide-hairline rounded-card border border-border bg-surface shadow-sm">
           {pointRows(status.data, busy).map((row) => (
-            <div key={row.id} className="rounded-control border border-border px-2 py-1.5">
+            <div key={row.id} className="px-3 py-2">
               <Switch checked={row.on} disabled={row.held} onChange={(v) => void flip(row.id, v)} label={row.label} hint={row.hint} />
             </div>
           ))}
@@ -220,7 +222,7 @@ function TryIt() {
 
   return (
     <Section title={t("settings-decisions-panel-try")}>
-      <p className="mb-1 text-2xs text-text-dim">{t("settings-decisions-panel-nothing-decided-nothing-recorded-request-provider")}</p>
+      <p className="mb-2 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-decisions-panel-nothing-decided-nothing-recorded-request-provider")}</p>
       <div className="flex flex-col gap-2">
         <Field label={t("settings-decisions-panel-state")} hint={t("settings-decisions-panel-what-model-reads-free-text")}>
           <TextArea rows={3} className="font-mono text-2xs" value={form.state} onChange={(e) => set({ state: e.target.value })} placeholder={t("settings-decisions-panel-customer-asked-refund-order-4821")} />
@@ -253,8 +255,8 @@ function TryIt() {
                     aria-label={t("settings-decisions-panel-option-meaning")}
                     onChange={(e) => set({ options: form.options.map((x, j) => (j === i ? { ...x, meaning: e.target.value } : x)) })}
                   />
-                  <Button size="sm" variant="ghost" aria-label={t("settings-decisions-panel-remove-option")} onClick={() => set({ options: form.options.filter((_, j) => j !== i) })}>
-                    ×
+                  <Button size="icon" variant="ghost" aria-label={t("settings-decisions-panel-remove-option")} onClick={() => set({ options: form.options.filter((_, j) => j !== i) })}>
+                    <ICON.close size={12} aria-hidden />
                   </Button>
                 </div>
               ))}
@@ -320,7 +322,7 @@ export function DecisionsPanel() {
   // would otherwise ask the node three times on every mount.
   const status = useDeciderStatus();
   return (
-    <div className="mb-4 flex max-w-3xl flex-col gap-4">
+    <div className="mb-4 flex flex-col gap-6">
       <Header status={status} />
       <ProviderCard status={status} />
       <PointsCard status={status} />

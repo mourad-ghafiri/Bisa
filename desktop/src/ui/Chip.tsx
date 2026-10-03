@@ -23,8 +23,14 @@ import { t as tr } from "../i18n/l10n.mjs";
 
 export type Tone = "neutral" | "accent" | "warn" | "danger" | "ok" | "quiet";
 
+/*
+ * `neutral` is a fill with no edge: a row of tags is read as words, and an
+ * outline on each one turned every tag row into a strip of little buttons.
+ * `quiet` keeps its outline because it is the state that has not happened
+ * yet (pending, skipped) — an empty shape is the honest drawing of that.
+ */
 const TONE: Record<Tone, string> = {
-  neutral: "border-border bg-surface-2 text-text-dim",
+  neutral: "border-transparent bg-surface-2/70 text-text-dim",
   accent: "border-transparent bg-accent-soft text-accent-ink",
   warn: "border-transparent bg-warn-soft text-warn",
   danger: "border-transparent bg-danger-soft text-danger",
@@ -82,6 +88,10 @@ function stepStateWords(state: StepState): string {
 
 export function StepStateChip({ state }: { state: StepState }) {
   const name = state.state;
+  // Pending is the absence of a state, not one: said in dim words, never a
+  // chip, so a column of steps not yet reached is quiet and the states that
+  // happened — running, waiting, failed, done — are what the eye finds.
+  if (name === "pending") return <span className="text-2xs whitespace-nowrap text-text-dim">{stepStateWords(state)}</span>;
   return (
     <Chip tone={STEP_TONE[name] ?? "quiet"} icon={STEP_STATE_ICON[name]}>
       {stepStateWords(state)}
@@ -125,8 +135,11 @@ export function SessionStateChip({ state }: { state: SessionState }) {
  * is for a condition you should know about, not one that is blocking you.
  */
 export function WaitBadge({ count, label }: { count?: number; label?: string }) {
+  // The dot is the summons' own mark — the one the theme tiles preview it
+  // with — so "waiting on you" is recognisable before it is read.
   return (
-    <span className="inline-flex h-5 items-center gap-1 rounded-full bg-accent-soft px-2 text-2xs font-semibold text-accent-ink">
+    <span className="inline-flex h-5 items-center gap-1.5 rounded-full bg-accent-soft pr-2 pl-1.5 text-2xs font-semibold text-accent-ink">
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
       {label ?? tr("ui-chip-waiting")}
       {count !== undefined && count > 1 ? <span className="tnum">{count}</span> : null}
     </span>

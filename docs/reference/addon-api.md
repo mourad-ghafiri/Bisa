@@ -50,7 +50,7 @@ by name, and `bisa.methods()` lists them.
 | `theme` | `{scheme}` | the theme moved between light and dark |
 | `system.load` | `{cpu_percent, load, mem_used, mem_total, swap_used, swap_total, uptime_secs, gpu?, disk?}` — `disk` is `{used, total, mount, workspace_bytes}` or `null` | each sample, while subscribed |
 | `workspace.summary` | `{waiting, review, working}` | the counts moved, when `workspace_summary` is granted |
-| `visibility` | `{visible}` | the window came on screen or left it — put away, under a browser layer, the layer off |
+| `visibility` | `{visible}` | the window came on screen or left it — put away, the layer off, or (off macOS) under a browser tab; on macOS a browser tab is cut around the window, which stays visible |
 
 ## Refusals
 

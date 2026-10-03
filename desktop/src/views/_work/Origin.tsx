@@ -48,7 +48,7 @@ export const CORE_AGENT_PERMANENT = t("work-origin-core-agents-permanent", { age
 export function OriginChip({ origin, id }: { origin: AgentOrigin; id?: string }) {
   if (origin === "core") {
     return (
-      <Chip tone="accent" title={CORE_AGENT_PURPOSE}>{t("work-origin-platform-agent")}</Chip>
+      <Chip tone="neutral" title={CORE_AGENT_PURPOSE}>{t("work-origin-platform-agent")}</Chip>
     );
   }
   const slug = catalogSlug(origin);

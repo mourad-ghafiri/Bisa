@@ -100,7 +100,7 @@ test("the finished banner names the failed step and its reason, newest failure f
 
 test("the count and the duration read as a person would say them", () => {
   assert.equal(progressCount(strip).label, "2 of 4 steps");
-  assert.equal(progressCount({ reached: 0, total: 0 }).label, "no steps yet");
+  assert.equal(progressCount({ reached: 0, total: 0 }).label, "No steps yet");
   // A row says how long its step took in the platform's one way of saying a span (`i18n/format.duration`).
   const took = (secs) => progressRows({ workflow: { steps: [step("a", "agent")] }, steps: { a: { state: { state: "done" }, started_at: 100, finished_at: 100 + secs } } }, { steps: [], current: [] }, 9999)[0].duration;
   assert.deepEqual([5, 125, 7200].map(took), ["5s", "2m", "2h"]);

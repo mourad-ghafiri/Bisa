@@ -17,17 +17,25 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "./cn";
+import { Tooltip } from "./Tooltip";
 
+/*
+ * `primary` and `default` are raised (`shadow-sm`, the family's own
+ * `shadow-raised`: a light edge on glass, nothing on a matte family), so a
+ * button reads as a thing you press and a ghost reads as part of its row.
+ * A press darkens the ground rather than moving the button: in a dense
+ * toolbar a control that shifts under the pointer reads as a layout jump.
+ */
 const button = cva(
-  "anim inline-flex shrink-0 items-center justify-center rounded-control border font-medium disabled:pointer-events-none disabled:opacity-45",
+  "anim inline-flex shrink-0 select-none items-center justify-center rounded-control border font-medium disabled:pointer-events-none disabled:opacity-45",
   {
     variants: {
       variant: {
-        primary: "border-accent bg-accent text-accent-contrast hover:opacity-90",
-        default: "border-border bg-surface text-text hover:bg-surface-2",
+        primary: "border-accent bg-accent text-accent-contrast shadow-sm hover:opacity-90 active:opacity-80",
+        default: "border-border bg-surface text-text shadow-sm hover:bg-surface-2 active:bg-selected",
         ghost:
-          "border-transparent bg-transparent text-text-dim hover:bg-surface-2 hover:text-text",
-        danger: "border-border bg-transparent text-danger hover:bg-danger-soft",
+          "border-transparent bg-transparent text-text-dim hover:bg-surface-2 hover:text-text active:bg-selected",
+        danger: "border-border bg-transparent text-danger hover:bg-danger-soft active:bg-danger-soft",
       },
       size: {
         sm: "h-7 gap-1 px-2 text-xs",
@@ -51,27 +59,48 @@ export interface ButtonProps
    * non-interactive element look clickable.
    */
   asChild?: boolean;
+  /**
+   * Why the button is disabled, while it is. A disabled button takes no
+   * pointer and no focus, so a `title` on it is never seen; the reason goes
+   * on a focusable wrapper instead — a tooltip for the pointer and the
+   * keyboard, and words a screen reader reads beside the button.
+   */
+  disabledReason?: string;
 }
 
-export function Button({
-  variant,
-  size,
-  className,
-  children,
-  asChild = false,
-  ...rest
-}: ButtonProps) {
+export function Button(props: ButtonProps) {
+  const { variant, size, className, children, asChild = false, disabledReason, ...rest } = props;
+  // A caller that passes the prop at all — even as `undefined` while there
+  // is no reason yet — gets the same tree in every state.
+  const reasoned = "disabledReason" in props;
   const Comp = asChild ? Slot : "button";
-  return (
+  const element = (
     <Comp
       // `asChild` hands the type down to whatever the child is; a bare
       // <button> inside a form defaults to submit, which is almost never what
       // a kit button means.
       {...(asChild ? {} : { type: "button" as const })}
+      // Said on the element, so a surface with a rule about its buttons can
+      // read it — an empty state's door is never a ghost (`EmptyState`).
+      data-variant={variant ?? "default"}
       className={cn(button({ variant, size }), className)}
       {...rest}
     >
       {children}
     </Comp>
+  );
+  if (!reasoned || asChild) return element;
+  // The wrapper stands whether or not the button is disabled, so a button
+  // that disables under the keyboard (a Save while it checks) is never
+  // remounted; only the wrapper's tab stop, its tip and its words follow
+  // the state.
+  const explained = Boolean(rest.disabled) && Boolean(disabledReason);
+  return (
+    <Tooltip label={disabledReason} active={explained}>
+      <span tabIndex={explained ? 0 : -1} className="inline-flex shrink-0 rounded-control">
+        {element}
+        {explained && <span className="sr-only">{disabledReason}</span>}
+      </span>
+    </Tooltip>
   );
 }

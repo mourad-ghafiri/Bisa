@@ -59,7 +59,7 @@ export function AgentMenu({
           title={hint}
           className={cn(
             "anim inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border px-1.5 text-2xs",
-            disabled ? "cursor-not-allowed text-text-dim/60" : "text-text-dim hover:text-text",
+            disabled ? "cursor-not-allowed text-text-dim/60" : "text-text-dim hover:bg-surface-2 hover:text-text",
             FOCUS_RING,
           )}
         >

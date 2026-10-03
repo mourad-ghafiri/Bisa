@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../api";
 import type { HookSecret, WorkflowRow } from "../../types";
-import { Button, Dialog, Field, TextInput, useToast } from "../../ui";
+import { Button, Dialog, Field, TextInput, failureText, useToast } from "../../ui";
 import { runRefusal } from "./runDialogModel.mjs";
 import { HookSecretNote } from "./HookSecretNote";
 import { InputsForm } from "./InputsForm";
@@ -59,7 +59,7 @@ export function TurnOnDialog({ open, row, onClose, onDone }: { open: boolean; ro
     } catch (e) {
       // Refused by name — a step reads its goal, a problem appeared: said in
       // words, and the row the switch drew is read again (`runRefusal`).
-      const refusal = runRefusal(e instanceof ApiError ? e.body : undefined, e instanceof Error ? e.message : String(e));
+      const refusal = runRefusal(e instanceof ApiError ? e.body : undefined, failureText("workflow", "turn-on-dialog-failed", e));
       toast.error(refusal.words);
       if (refusal.reread) {
         onDone?.();

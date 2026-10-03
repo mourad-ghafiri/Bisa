@@ -53,6 +53,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <Toaster
         position="bottom-center"
+        // Above the window's footer, whatever its density: sonner's own 24px
+        // put a toast over the status bar's meters.
+        offset={{ bottom: "calc(var(--spacing-chrome) + 0.75rem)" }}
         // Sonner's own light/dark switch reads the OS, which is the wrong
         // source once a theme can be chosen. Unstyled toasts painted from our
         // roles follow whichever theme is mounted, for free.

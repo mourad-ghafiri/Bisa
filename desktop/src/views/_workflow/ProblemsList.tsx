@@ -47,7 +47,8 @@ export function ProblemsList({
   return (
     <div className={className}>
       {notice}
-      <ul className="flex flex-col gap-1">
+      {/* One list, rows divided by a hairline, rather than a stack of red boxes. */}
+      <ul className="flex flex-col divide-y divide-danger/20 rounded-control border border-danger/30 bg-danger-soft/40">
       {problems.map((p, i) => {
         const body = (
           <>
@@ -61,9 +62,9 @@ export function ProblemsList({
           </>
         );
         return (
-          <li key={`${p.step ?? ""}:${p.kind}:${i}`} className="rounded-control border border-danger/30 bg-danger-soft/40 px-2 py-1.5">
+          <li key={`${p.step ?? ""}:${p.kind}:${i}`} className="px-2 py-1.5">
             {p.step && onSelect ? (
-              <button type="button" className="w-full text-left" onClick={() => onSelect(p.step!)}>
+              <button type="button" className="anim w-full text-left hover:opacity-80" onClick={() => onSelect(p.step!)}>
                 {body}
               </button>
             ) : (

@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../api";
 import { scriptRefusal } from "./workstreamScripts.mjs";
-import { Button, Checkbox, Dialog, EmptyState, ErrorNote, Field, ICON, SegmentedControl, Select, SkeletonRows, TextInput, useToast } from "../../ui";
+import { Button, Checkbox, Dialog, EmptyState, ErrorNote, Field, ICON, SegmentedControl, Select, SkeletonRows, TextInput, failureText, useToast } from "../../ui";
 import { openPanelView } from "../_workbench/rightPanelStore";
 import { useAsync } from "../_work/useAsync";
 import { ReasonLine } from "./ReasonLine";
@@ -176,7 +176,7 @@ export function NewWorkstreamDialog({
         const r = scriptRefusal(e);
         setRefused(r.output ? `${r.message}\n\n${r.output}` : r.message);
       } else {
-        setRefused(e instanceof Error ? e.message : String(e));
+        setRefused(failureText("work", "new-workstream-dialog-failed", e));
       }
     } finally {
       setBusy(false);
@@ -187,14 +187,14 @@ export function NewWorkstreamDialog({
     setFetching(true);
     void api
       .gitFetch(pid)
-      .then(() => remotes.reload(), (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))
+      .then(() => remotes.reload(), (e: unknown) => toast.error(failureText("work", "new-workstream-dialog-failed", e)))
       .finally(() => setFetching(false));
   };
 
   const remedyLink = check.ok || check.reason !== "unborn" ? null : (
     <button
       type="button"
-      className="text-accent-ink underline underline-offset-2"
+      className="anim text-accent-ink underline underline-offset-2 hover:text-text"
       onClick={() => {
         openPanelView("git", "changes", `workstream:${pid}`);
         onClose();

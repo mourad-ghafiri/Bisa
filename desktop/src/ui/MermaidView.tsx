@@ -22,6 +22,7 @@ import { cn } from "./cn";
 import { resolvedRoles } from "./cssColor";
 import { ICON } from "./icons";
 import { DIAGRAM_ROLES, exportScale, mermaidTheme, offsetError, themeVariablesFor } from "./mermaidModel.mjs";
+import { sayFailure } from "./failure";
 import { useToast } from "./Toast";
 import { useThemeNonce } from "./useTokenPx";
 import { t as tr } from "../i18n/l10n.mjs";
@@ -135,7 +136,7 @@ export function MermaidView({
       const path = await exportFile(`${exportName}.png`, "image/png", new Uint8Array(await png.arrayBuffer()));
       if (path) toast.ok(tr("ui-mermaid-view-saved", { path }));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(sayFailure("diagram", tr("ui-mermaid-view-could-not-save"), e));
     } finally {
       URL.revokeObjectURL(url);
     }

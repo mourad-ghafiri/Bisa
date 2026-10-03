@@ -61,7 +61,7 @@ export function WaitStepForm({
         </Field>
       )}
       {u.until === "schedule" && (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 @xs:grid-cols-2">
           <Field label={t("workflow-wait-step-form-cron")} hint={t("workflow-wait-step-form-five-fields-0-9-1-5")}>
             <div className="flex flex-col gap-1.5">
               <RefSource value={u.cron} inputs={inputs} kind="text" disabled={disabled} onChange={(r) => set({ ...u, cron: r ?? "0 9 * * 1-5" })} />

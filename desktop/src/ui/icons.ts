@@ -200,7 +200,7 @@ import {
   Columns2,
   Rows2,
   SquareX,
-  FolderGit2,
+  GitCompare,
   CornerDownRight,
   PenTool,
   Shapes,
@@ -370,8 +370,11 @@ export const ICON = {
   pulse: Activity,
   catalog: Library,
   workstream: Hammer,
-  /** A repository as a thing — the Git occupant on the rail. */
-  repository: FolderGit2,
+  /**
+   * Two states of the code side by side — a workstream against its base. Git
+   * as the *tool* is not a glyph here but the Git mark (`ui/GitMark.tsx`).
+   */
+  compare: GitCompare,
   project: FolderKanban,
   /** The Board — the centre's third mode: every workstream a card in its column. */
   board: Kanban,

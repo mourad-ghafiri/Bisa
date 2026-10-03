@@ -267,15 +267,18 @@ browser, and is annotated there too ([18](18-browser-and-servers.md)). A rendere
 
 **Annotate.** On a page in a workstream, the wand on the bar (`ICON.annotate`, in *Rendered* and
 *Split*) turns the rendering into an inspector (`PageAnnotator.tsx` over `annotationModel.mjs`):
-hover outlines the element under the pointer with its tag, as an inspector would, a click opens a
-box over it — *What should change here?* — and the answer becomes annotation *n*: a numbered badge
+hover outlines the element under the pointer — an accent edge, never a fill, so the element stays
+readable — with its tag riding just outside it (above its edge, else under it), a click opens a
+box beside it — *What should change here?* — and the answer becomes annotation *n*: a numbered badge
 on the element and a line in the tray under the page (`AnnotationTray.tsx`). The inspector is in
 one of two modes (`INSPECT_MODES`, said to the frame as `{mode}`): *off*, the page's own, and
 *picking*, the pointer outlines and a click picks. **The box is the frame's own**: the inspector
-core draws it over the clicked element — the crumbs, the element's text, the question, *Add* or
+core draws it next to the clicked element — the crumbs, the element's text, the question, *Add* or
 *Change* when the element already carries a note (the badges ride with their notes) — places it
-above the element when there is room and below it otherwise, clamped to the viewport, and moves it
-with a scroll; the caret lands in it because it is in the page. While it is open the pick is
+above the element when there is room, below it otherwise, beside it (right, then left) when neither
+fits — never on what it is about — and in the view's corner farthest from the element only when the
+element is the size of the view; it moves with a scroll. The marking parts (outline, tag, badges)
+never catch the pointer; the caret lands in it because it is in the page. While it is open the pick is
 **held**, the page's own state: the pointer outlines nothing and a click outside picks nothing (it
 is still swallowed: a link under the box must not navigate while a note is typed) while a click
 inside is the box's own; a crumb re-picks that element in place and keeps the words typed so far.

@@ -75,7 +75,7 @@ export function GitConfigForm({
 }) {
   const rows = form.rows.filter((r) => r.editable && (!only || only.includes(r.key)) && !(omit ?? []).includes(r.key));
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       {rows.map((row, i) => {
         const value = row.key in form.edits ? form.edits[row.key] : (row.value ?? "");
         const problem = form.problems[row.key];
@@ -109,10 +109,9 @@ function ConfigControl({ row, value, autoFocus, onChange }: { row: ConfigRow; va
     case "bool":
       return (
         <div className="flex items-center gap-2">
-          <Switch checked={value === "true"} onChange={(on) => onChange(on ? "true" : "false")} label={value === "" ? t("work-git-config-form-unset") : value} />
-          {value !== "" && (
-            <span className="font-mono text-2xs text-text-dim">{value}</span>
-          )}
+          {/* The switch is named by its row; the one word beside it is git's own value — `true`, `false` — or that nothing is set. */}
+          <Switch checked={value === "true"} onChange={(on) => onChange(on ? "true" : "false")} label={row.label} hideLabel />
+          <span className="font-mono text-2xs text-text-dim">{value === "" ? t("work-git-config-form-unset") : value}</span>
         </div>
       );
     case "choice":

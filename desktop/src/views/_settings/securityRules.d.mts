@@ -22,6 +22,10 @@ export declare function slugOf(label: string): string;
 export declare function redactRuleProblem(rule: RedactRule, taken?: readonly string[]): string | null;
 export declare function guardRuleProblem(rule: GuardRule, taken?: readonly string[]): string | null;
 export declare function moveRule<T>(list: readonly T[], i: number, dir: -1 | 1): T[];
+/** A row's key for React, stable across edits of the rule. */
+export declare function rowKey(rule: object): string;
+/** `next`, under the row key `prev` had. */
+export declare function keepRowKey<T extends object>(prev: object, next: T): T;
 export declare function toggleBuiltin(off: readonly string[], id: string, enabled: boolean): string[];
 export declare function verdictWords(verdict: string): { tone: LineTone; text: string };
 export declare function actionWords(action: string): string;

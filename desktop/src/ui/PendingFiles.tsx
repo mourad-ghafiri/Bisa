@@ -24,7 +24,10 @@ export function PendingFiles({
   onRemove: (key: string) => void;
   /** A control on a ready row, after its size. */
   trailing?: (file: PendingFile) => ReactNode;
-  /** A chip's look beyond its state — the composer marks an artifact. */
+  /**
+   * A chip's look beyond its state — the composer marks an artifact. A chosen
+   * mode, not a call: `accent` draws the neutral chosen wash, as `Tags` does.
+   */
   tone?: (file: PendingFile) => "plain" | "accent";
   className?: string;
 }) {
@@ -38,7 +41,7 @@ export function PendingFiles({
             key={f.key}
             className={cn(
               "inline-flex max-w-72 items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs",
-              f.state === "failed" ? "border-danger/40 bg-danger-soft text-danger" : accent ? "border-accent/40 bg-accent-soft text-text" : "border-border bg-surface-2 text-text-dim",
+              f.state === "failed" ? "border-danger/40 bg-danger-soft text-danger" : accent ? "border-text/25 bg-selected text-text" :"border-border bg-surface-2 text-text-dim",
             )}
           >
             {accent ? <ICON.artifact size={11} aria-hidden className="shrink-0" /> : <ICON.attach size={11} aria-hidden className="shrink-0" />}

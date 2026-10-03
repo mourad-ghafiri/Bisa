@@ -117,7 +117,7 @@ test("switched off, nothing is lost: the menu bar icon, the Dock badge and the I
   ];
   const report = trayReport({ conn: "open", everOpen: true, inbox: rows, sessions: [session({ state: "running", tool: "Edit" })] });
   assert.deepEqual([report.state, report.needs, report.needs_words], ["waiting", 1, "1 needs you"], "the count is what is owed — never the unread");
-  assert.deepEqual([inboxBadge(rows).count, inboxBadge(rows).tone], [2, "accent"], "the sidebar counts both, accented by what is owed");
+  assert.deepEqual([inboxBadge(rows).needs, inboxBadge(rows).unread], [1, 1], "the sidebar counts both — what is owed and what is unread, side by side, never one sum");
   const tray = src("../shell/useTray.ts");
   assert.ok(!tray.includes("notifyPrefs") && !tray.includes("allowed("), "no switch of the notifications' reaches the icon");
 });

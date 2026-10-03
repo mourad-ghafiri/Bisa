@@ -45,6 +45,7 @@ import {
   Field,
   ICON,
   Menu,
+  failureText,
   harnessMark,
   Tabs,
   TextInput,
@@ -165,7 +166,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
   const ports = useMemo(() => attributePorts(scannedPorts, terminals, sessions), [scannedPorts, terminals, sessions]);
   /** What a port chip's verbs do; the rail owns the calls and the confirmation. */
   const portActions = {
-    openPort: (port: number) => void openExternal(portUrl(port)).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e))),
+    openPort: (port: number) => void openExternal(portUrl(port)).catch((e: unknown) => toast.error(failureText("workbench", "project-rail-failed", e))),
     stopPort: (p: WorkstreamPort) => setStoppingPort(p),
   };
   useBus({ stream: "engine" }, (f) => {
@@ -226,7 +227,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
   // not move. Projects, groups and workstreams persist to `rail.order`;
   // shells reorder the session order the rail and the centre strip both read.
   const persistOrder = (next: unknown) => {
-    void api.setSettings("machine", { "rail.order": next }).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+    void api.setSettings("machine", { "rail.order": next }).catch((e: unknown) => toast.error(failureText("workbench", "project-rail-failed", e)));
   };
   const headless = useMemo(() => isHeadless(rows), [rows]);
   const dragOf = (t: RailTreeRow): DragData | null => railDragOf(t.row, { renaming });
@@ -481,7 +482,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
             {
               label: REVEAL_LABEL,
               separatorBefore: true,
-              onSelect: () => void revealPath(row.path).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e))),
+              onSelect: () => void revealPath(row.path).catch((e: unknown) => toast.error(failureText("workbench", "project-rail-failed", e))),
             },
           ]
         : []),
@@ -668,7 +669,8 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
             // A harness in a terminal is answered in that terminal: the row
             // opens its tab. An engine session opens the Agents pane.
             onOpen={() => openHarnessSession({ id: row.parent ?? row.id, workstream: row.workstream, terminalKey: row.terminalKey ?? null })}
-            onAnswer={() => navigate({ name: "inbox" })}
+            // The Inbox on the row the ask lives under — its goal, else its workstream — as the Agents screen's *Answer*.
+            onAnswer={() => navigate({ name: "inbox" }, { item: row.goal ?? row.workstream })}
             onStop={() => {
               if (row.terminalKey) terminateHarness(row.terminalKey);
               else stop(row.id);
@@ -682,7 +684,8 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
 
   const removingAdopted = isAdopted(removing?.project);
   return (
-    <div ref={rail} className="flex h-full min-h-0 flex-col">
+    // An `@container`: a row's model and its durations show by the rail's width, not the window's.
+    <div ref={rail} className="@container flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-1 px-2 pt-1">
         {/* One row at every width: each tab its glyph and its word while they fit; a rail too
             narrow folds Workflows to its glyph first, then Goals, then Workspace (`RAIL_TAB_FOLD`). */}
@@ -734,7 +737,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
         </Tooltip>
       </div>
       <div className="flex shrink-0 items-center gap-2 px-2 py-1">
-        <TextInput value={filter} placeholder={tr("workbench-project-rail-filter-projects-workstreams")} className="h-6 min-w-0 flex-1 text-2xs" onChange={(e) => setFilter(e.target.value)} />
+        <TextInput value={filter} aria-label={tr("workbench-project-rail-filter-projects-workstreams")} placeholder={tr("workbench-project-rail-filter-projects-workstreams")} className="h-6 min-w-0 flex-1 text-2xs" onChange={(e) => setFilter(e.target.value)} />
         <Tooltip label={showArchived ? tr("workbench-project-rail-hide-projects-put-away") : tr("workbench-project-rail-show-projects-put-away")}>
           <span className="inline-flex">
             <Switch checked={showArchived} onChange={setShowArchived} label={tr("workbench-project-rail-archived")} />
@@ -795,7 +798,10 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
               title={tr("workbench-project-rail-no-projects-yet")}
               hint={tr("workbench-project-rail-import-folder-clone-repository-start")}
               action={
-                <Button size="sm" onClick={() => fire(IMPORT_PROJECT)}>{tr("workbench-project-rail-import-project")}</Button>
+                // The landing's own door, its words and its dialog: the centre beside
+                // it wears the one primary, so this one stays default.
+                <Button size="sm" onClick={() => setNewProject(true)}>
+                  <ICON.add size={12} aria-hidden />{tr("workbench-center-landing-new-project")}</Button>
               }
             />
           ) : (

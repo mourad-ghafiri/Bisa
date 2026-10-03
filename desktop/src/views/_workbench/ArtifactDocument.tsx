@@ -9,7 +9,7 @@ import { openArtifactInBrowser } from "../../shell/browserDoors";
 import { canOpenBrowser } from "../../shell/useBrowsers";
 import { api } from "../../api";
 import type { MessageRow } from "../../types";
-import { ArtifactView, EmptyState, ErrorNote, Spinner } from "../../ui";
+import { ArtifactView, EmptyState, ErrorNote, Spinner, failureText } from "../../ui";
 import { useArtifactLibraries } from "../../shell/artifactSettings";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -24,7 +24,7 @@ export function ArtifactDocument({ message: id, ordinal }: { message: string; or
     api
       .message(id, ac.signal)
       .then((r) => setMessage(r.message))
-      .catch((e) => !ac.signal.aborted && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => !ac.signal.aborted && setError(failureText("workbench", "artifact-document-failed", e)));
     return () => ac.abort();
   }, [id]);
   if (error) {

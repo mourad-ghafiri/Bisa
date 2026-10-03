@@ -19,7 +19,7 @@ export function RailTwisty({ open, onToggle }: { open: boolean | null; onToggle?
         onToggle?.();
       }}
       // The square washes in `surface-2` on a rest row and in `surface` on the
-      // current one, so it never vanishes into the accent wash under it.
+      // current one, so it never vanishes into the selected wash under it.
       className={cn("anim flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-dim hover:bg-surface-2/70 hover:text-text group-data-[current]:hover:bg-surface/70")}
     >
       <Glyph size={12} aria-hidden />

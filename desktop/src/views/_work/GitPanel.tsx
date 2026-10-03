@@ -467,7 +467,7 @@ export function GitPanel({
           beside it, and the one reason it is off under it. Stashing is the
           Stashes view's (ide/04 §Stash). The review notes come after it, the
           view's last section. */}
-      <div className="sticky bottom-0 -mx-2 flex flex-col gap-1.5 border-t border-border bg-bg px-2 pt-2 pb-1">
+      <div className="sticky bottom-0 -mx-2 flex flex-col gap-1.5 border-t border-hairline bg-bg px-2 pt-2 pb-1">
         <TextArea
           value={message}
           rows={2}

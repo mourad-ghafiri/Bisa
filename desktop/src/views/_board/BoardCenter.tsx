@@ -44,7 +44,7 @@ import { useWorkspace } from "../../shell/useWorkspaceData";
 import { STATUS_POLL_MS, useWorkstreamStatuses } from "../../shell/workstreamStatusStore";
 import { stopPort } from "../../terminal/session";
 import type { MenuItem } from "../../ui";
-import { Button, ConfirmDialog, Dialog, EmptyState, ICON, Switch, TextInput, Tooltip, harnessMark, useActiveDrag, useDragGhost, useToast } from "../../ui";
+import { Button, ConfirmDialog, Dialog, EmptyState, ICON, Switch, TextInput, Tooltip, failureText, harnessMark, useActiveDrag, useDragGhost, useToast } from "../../ui";
 import type { SortableHandle } from "../../ui";
 import { closeWorkstream } from "../_work/closeWorkstream";
 import { terminationConsent, terminationCounts, terminationWords } from "../_work/closeWorkstreamModel.mjs";
@@ -154,7 +154,7 @@ export function BoardCenter({
         ws.refresh();
       } catch (e) {
         setOverride(null);
-        toast.error(e instanceof Error ? e.message : String(e));
+        toast.error(failureText("board", "board-center-failed", e));
       }
     },
     [columns, laid.columns, ws, toast],
@@ -209,7 +209,7 @@ export function BoardCenter({
       await api.patchWorkstream(row.id, body);
       ws.refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("board", "board-center-failed", e));
     }
   };
 
@@ -220,14 +220,14 @@ export function BoardCenter({
       toast.ok(tr("board-board-center-closed-record-board-under-archived", { title: row.title, ended: ended ? ended[0].toUpperCase() : "", ended2: ended ? ended.slice(1) : "", flag: ended ? "yes" : "no" }));
       ws.refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("board", "board-center-failed", e));
     } finally {
       setClosing(null);
     }
   };
 
   const portActions = {
-    openPort: (port: number) => void openExternal(portUrl(port)).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e))),
+    openPort: (port: number) => void openExternal(portUrl(port)).catch((e: unknown) => toast.error(failureText("board", "board-center-failed", e))),
     stopPort: (p: WorkstreamPort) => setStoppingPort(p),
   };
 
@@ -277,11 +277,12 @@ export function BoardCenter({
   return (
     <section ref={board} aria-label={tr("board-board-center-board")} className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* One bar: the filters, what they leave, and the door to a new card. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-hairline px-4 py-2">
         {/* The scope: what the rail selected, and the door back to All. */}
         <span
           aria-label={tr("board-board-center-board-scope")}
-          className={`inline-flex h-7 max-w-64 items-center gap-1 rounded-control px-2 text-2xs ${scope.all ? "text-text-dim" : "bg-accent-soft text-accent-ink"}`}
+          // A narrowed scope is where you are standing, not something waiting on you: the selected ground.
+          className={`inline-flex h-7 max-w-64 items-center gap-1 rounded-control px-2 text-2xs ${scope.all ? "text-text-dim" : "bg-selected text-text"}`}
           title={scope.all ? tr("board-board-center-every-workstream-pick-project-group-rail") : tr("board-board-center-rail-s-selection-shows-every-workstream")}
         >
           <ICON.project size={12} aria-hidden className="shrink-0" />
@@ -300,13 +301,26 @@ export function BoardCenter({
         <span className="text-2xs text-text-dim" title={tr("board-board-center-card-s-column-yours-branch-still")}>
           {countWords(shownCount, laid.total)}
         </span>
-        <Button size="sm" onClick={openWorkstream} disabled={projects.length === 0}>
-          <ICON.add size={12} aria-hidden />{tr("board-board-center-new-workstream")}<CommandHint id="new_workstream" />
-        </Button>
+        {ws.workstreams.length > 0 && (
+          <Button size="sm" onClick={openWorkstream} disabled={projects.length === 0} disabledReason={tr("board-board-center-add-project-first")}>
+            <ICON.add size={12} aria-hidden />{tr("board-board-center-new-workstream")}<CommandHint id="new_workstream" />
+          </Button>
+        )}
       </div>
 
       {ws.workstreams.length === 0 ? (
-        <EmptyState title={tr("board-board-center-no-workstreams-yet")} hint={tr("board-board-center-project-s-root-first-workstream-open")} action={null} />
+        // The door is the empty board's own, so the bar above draws none while it shows.
+        <EmptyState
+          icon={ICON.board}
+          title={tr("board-board-center-no-workstreams-yet")}
+          hint={tr("board-board-center-project-s-root-first-workstream-open")}
+          action={
+            <Button size="sm" variant="primary" onClick={openWorkstream} disabled={projects.length === 0} disabledReason={tr("board-board-center-add-project-first")}>
+              <ICON.add size={12} aria-hidden />
+              {tr("board-board-center-new-workstream")}
+            </Button>
+          }
+        />
       ) : (
         <div data-scroll-keep="board" className="flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto p-4">
           {shownColumns.map((c) => (
@@ -345,7 +359,7 @@ export function BoardCenter({
         onConfirm={() => {
           const p = stoppingPort;
           setStoppingPort(null);
-          if (p) void stopPort(p.pid, p.port).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+          if (p) void stopPort(p.pid, p.port).catch((e: unknown) => toast.error(failureText("board", "board-center-failed", e)));
         }}
         title={tr("board-board-center-stop-process")}
         body={stoppingPort ? stopPrompt(stoppingPort) : ""}

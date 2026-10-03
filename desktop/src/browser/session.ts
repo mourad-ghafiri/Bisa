@@ -65,6 +65,22 @@ export interface BrowserViewport {
 export function setBrowserViewBounds(key: string, bounds: BrowserBounds, visible: boolean, viewport: BrowserViewport): Promise<BrowserPlaced> {
   return invoke("browser_bounds", { key, bounds, visible, viewport });
 }
+/** One overlay of the main page as the browser layer cuts it out (ide/18): its box in CSS pixels and its corner radius. */
+export interface BrowserClear extends BrowserBounds {
+  radius: number;
+}
+/**
+ * The overlays standing over a showing tab — the layer leaves a hole there,
+ * so each shows and takes its own clicks over a live page. Answers whether
+ * the platform cuts around them (macOS) or cannot.
+ */
+export function setBrowserClears(clears: BrowserClear[], viewport: BrowserViewport): Promise<boolean> {
+  return invoke("browser_clear", { clears, viewport });
+}
+/** Hand the keyboard to the main page — a floating panel that opens over a showing tab asks it. */
+export function focusMainView(): Promise<void> {
+  return invoke("browser_focus_main", {});
+}
 export function closeBrowserView(key: string): Promise<void> {
   return invoke("browser_close", { key });
 }

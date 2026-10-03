@@ -36,6 +36,7 @@ import { STORAGE_KEY_PREFIX } from "./addonBridgeModel.mjs";
 import { manifestWindow, pruneHidden, sameAddon, withEnabled } from "./addonsModel.mjs";
 import { defaultPlacement, sizeBounds, windowPrefFrom } from "./addonWindowModel.mjs";
 import type { Size, WindowPref } from "./addonWindowModel.mjs";
+import { failureReason } from "../ui/failure";
 
 const LAYER_KEY = "bisa.addons.layer";
 const HIDDEN_KEY = "bisa.addons.hidden";
@@ -130,7 +131,7 @@ export async function refreshAddons(signal?: AbortSignal): Promise<void> {
     if (signal?.aborted || !reads.lands(ticket)) return;
     log.warn("addons", "the addons could not be read", errorFields(e));
     // The list stays as it was — read, or not yet — and the refusal is said.
-    set({ ...state, failed: e instanceof Error ? e.message : String(e) });
+    set({ ...state, failed: failureReason("addons", "the addons could not be read", e) }); // for the log
   }
 }
 

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CORE_AGENT_IDS, attachedTo, isImplicitMember, memberFace, respondsTo, rosterLine, storedMembers, withoutMember, KIND_SKILL, KIND_TEAM, absentRecord, skillMoved, teamMoved, teamOptionLine, teamTakesWork } from "./rosterModel.mjs";
+import { CORE_AGENT_IDS, answerOf, attachedTo, detailStacked, isImplicitMember, memberFace, respondsTo, rosterLine, storedMembers, withoutMember, KIND_SKILL, KIND_TEAM, absentRecord, skillMoved, teamMoved, teamOptionLine, teamTakesWork } from "./rosterModel.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -36,6 +36,35 @@ test("a session is attached to its goal first, then its run, then its work item,
   assert.equal(attachedTo({ kind: "conversation" }).label, "a channel or a goal's thread");
   assert.deepEqual(attachedTo({ kind: "run" }), { label: "—", route: null });
   assert.deepEqual(attachedTo(null), { label: "—", route: null });
+});
+
+test("a goal reads by its title when the window knows it, and by its id's tail when it does not", () => {
+  const titles = new Map([["01JGOAL000ABCDEF", "Ship the login page"], ["01JGOAL000BLANK0", "  "]]);
+  const titleOf = (id) => titles.get(id);
+  assert.deepEqual(attachedTo({ goal: "01JGOAL000ABCDEF" }, titleOf), { label: "Ship the login page", route: { name: "goal", id: "01JGOAL000ABCDEF" } });
+  assert.equal(attachedTo({ goal: "01JGOAL000UNREAD" }, titleOf).label, "goal UNREAD", "a goal the window has not read");
+  assert.equal(attachedTo({ goal: "01JGOAL000BLANK0" }, titleOf).label, "goal BLANK0", "a blank title is no title");
+  assert.equal(attachedTo({ run: "01JRUN0000UVWXYZ" }, titleOf).label, "run UVWXYZ", "the resolver names goals only");
+});
+
+test("a session's ask is answered on the Inbox row it lives under, and only a gate is an ask", () => {
+  const waiting = (on) => ({ state: "waiting", on });
+  const gate = waiting({ on: "permission", tool: "Bash", gate_id: "g1" });
+  assert.deepEqual(answerOf({ state: gate, goal: "01G", conversation: "01C", workstream: "01W" }), { item: "01G" });
+  assert.deepEqual(answerOf({ state: gate, conversation: "01C", workstream: "01W" }), { item: "01C" });
+  assert.deepEqual(answerOf({ state: gate, workstream: "01W" }), { item: "01W" });
+  assert.deepEqual(answerOf({ state: gate }), { item: null }, "the Inbox, no row named");
+  assert.equal(answerOf({ state: waiting({ on: "question", text: "which?" }), goal: "01G" }), null, "a question with no gate is answered where it was asked");
+  assert.equal(answerOf({ state: waiting({ on: "auth", provider: "github" }), goal: "01G" }), null, "a sign-in is not the Inbox's");
+  assert.equal(answerOf({ state: "working", goal: "01G" }), null);
+  assert.equal(answerOf(null), null);
+});
+
+test("the detail is stacked when it starts left of the roster's right edge", () => {
+  assert.equal(detailStacked({ right: 600 }, { left: 0 }), true, "under the roster");
+  assert.equal(detailStacked({ right: 600 }, { left: 624 }), false, "beside it, past the gap");
+  assert.equal(detailStacked(null, { left: 0 }), false);
+  assert.equal(detailStacked({ right: 600 }, undefined), false);
 });
 
 test("a roster line counts agents and people with their plurals, and the core agents are never stored", () => {

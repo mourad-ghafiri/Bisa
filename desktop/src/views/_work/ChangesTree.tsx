@@ -28,7 +28,7 @@
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import type { GitFileRow } from "../../types";
-import { Chip, ContextMenu, ICON, MoreMenu, Tooltip, TreeList, cn, fileIcon, useTokenPx } from "../../ui";
+import { CURSOR_RING, Chip, ContextMenu, ICON, MoreMenu, Tooltip, TreeList, cn, fileIcon, useTokenPx } from "../../ui";
 import type { MenuItem, TreeRowState } from "../../ui";
 import type { ChangesLayout } from "../_workbench/rightPanelModel.mjs";
 import type { GitSelection, GitSide, RowAction } from "./gitFiles.mjs";
@@ -126,7 +126,6 @@ function Twisty({ open, onToggle }: { open: boolean | null; onToggle?: () => voi
 const ROW = "group anim relative mr-1 flex h-row-sm items-center gap-1 rounded-control pr-1";
 /** The disclosure column is the tree's: a flat list has no folder to open, so its rows start at the edge. */
 const twistyFor = (layout: ChangesLayout) => (layout === "tree" ? <Twisty open={null} /> : null);
-const CURSOR = "ring-1 ring-inset ring-accent/50";
 
 export function ChangesTree(p: ChangesTreeProps) {
   const rowHeight = useTokenPx("--spacing-row-sm", ROW_HEIGHT_FALLBACK);
@@ -187,7 +186,7 @@ export function ChangesTree(p: ChangesTreeProps) {
     const Glyph = group ? ICON.warn : row.expanded ? ICON.folderOpen : ICON.folder;
     return (
       <ContextMenu items={p.folderMenuFor(row)} className="block" selected={rs.cursor}>
-        <div style={{ marginLeft: rs.indent }} className={cn(ROW, "cursor-pointer hover:bg-surface-2", rs.cursor && CURSOR, group && "text-warn")} onMouseDown={() => p.onCursor(row.id)} onClick={() => toggle(row)} title={dirRowTitle(row)}>
+        <div style={{ marginLeft: rs.indent }} className={cn(ROW, "cursor-pointer hover:bg-surface-2", rs.cursor && CURSOR_RING, group && "text-warn")} onMouseDown={() => p.onCursor(row.id)} onClick={() => toggle(row)} title={dirRowTitle(row)}>
           <Twisty open={row.expanded ?? false} onToggle={() => toggle(row)} />
           <Glyph size={13} aria-hidden className={cn("shrink-0", group ? "text-warn" : "text-text-dim")} />
           {/* The name and the count, with the verbs overlaid on their tail when wanted. */}
@@ -210,7 +209,7 @@ export function ChangesTree(p: ChangesTreeProps) {
     const Glyph = fileIcon(basename(f.path));
     return (
       <ContextMenu items={p.menuFor(row)} className="block" selected={rs.selected}>
-        <div style={{ marginLeft: rs.indent }} className={cn(ROW, rs.cursor && CURSOR)} onMouseDown={() => p.onCursor(row.id)}>
+        <div style={{ marginLeft: rs.indent }} className={cn(ROW, rs.cursor && CURSOR_RING)} onMouseDown={() => p.onCursor(row.id)}>
           {twistyFor(p.layout)}
           {/* The row body opens the primary side's patch; the chips open
               theirs; the trailing controls stage, discard or delete — acts
@@ -219,7 +218,7 @@ export function ChangesTree(p: ChangesTreeProps) {
           {/* The body and, overlaid on its tail when wanted, the verbs — so the
               name has the row's width at rest and the chips never move. */}
           <span className="relative flex h-full min-w-0 flex-1 items-center">
-            <button type="button" tabIndex={-1} onClick={() => p.onSelect(row, row.standing.primary)} aria-pressed={rs.selected} className={cn("anim flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-control px-1 text-left font-mono text-2xs hover:bg-surface-2", rs.selected ? "bg-surface-2 text-text" : "text-text-dim")}>
+            <button type="button" tabIndex={-1} onClick={() => p.onSelect(row, row.standing.primary)} aria-pressed={rs.selected} className={cn("anim flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-control px-1 text-left font-mono text-2xs hover:bg-surface-2", rs.selected ? "bg-selected text-text" : "text-text-dim")}>
               <Glyph size={13} aria-hidden className="shrink-0 text-text-dim" />
               <span className="min-w-0 flex-1 truncate text-text" title={full}>
                 {name}
@@ -236,7 +235,7 @@ export function ChangesTree(p: ChangesTreeProps) {
               const open = isSelected(p.selection, f, chip.side);
               return (
                 <Tooltip key={chip.id} label={`${chip.hint} · ${letterPair(f)}`}>
-                  <button type="button" tabIndex={-1} aria-pressed={open} aria-label={t("work-changes-tree-open-patch", { word: chip.word, side: chip.side })} onClick={() => p.onSelect(row, chip.side)} className={cn("anim rounded-full", open && "ring-1 ring-accent/60")}>
+                  <button type="button" tabIndex={-1} aria-pressed={open} aria-label={t("work-changes-tree-open-patch", { word: chip.word, side: chip.side })} onClick={() => p.onSelect(row, chip.side)} className={cn("anim rounded-full", open && "ring-1 ring-text/50")}>
                     <Chip tone={chip.tone} className="font-sans">
                       {chip.word}
                     </Chip>

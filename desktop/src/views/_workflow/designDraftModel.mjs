@@ -34,3 +34,20 @@ export function draftBody(raw) {
   if (raw.tags !== undefined && !(Array.isArray(raw.tags) && raw.tags.every((tag) => typeof tag === "string"))) return null;
   return raw;
 }
+
+/**
+ * Whether throwing the drawing away loses anything — what *Discard changes*
+ * asks before. An edit made in this window does; so does a drawing read
+ * back after a restart that differs from the stored workflow, since its
+ * history was not kept and `canUndo` alone would call it untouched. A
+ * drawing on a blank canvas is all there is of the design, so it counts.
+ * @param {object | null | undefined} present the drawing as it stands
+ * @param {object | null | undefined} stored the stored workflow's body, `null` on a blank canvas
+ * @param {boolean} undoable whether this window holds an edit to undo
+ */
+export function draftChanged(present, stored, undoable) {
+  if (present == null) return false;
+  if (undoable) return true;
+  if (stored == null) return true;
+  return JSON.stringify(present) !== JSON.stringify(stored);
+}

@@ -12,10 +12,14 @@ import { LIBRARY_GRID } from "./libraryLayout.mjs";
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
-test("the library's cards fill the screen: one grid the library and the gallery share, columns added as the window widens, no centred column", () => {
+test("the library's cards fill the screen: one grid the library and the gallery share, columns added as the room widens, no centred column", () => {
   assert.match(LIBRARY_GRID, /^grid /);
   assert.ok(!/max-w-|mx-auto/.test(LIBRARY_GRID), "the grid caps nothing");
-  assert.deepEqual(LIBRARY_GRID.match(/[a-z0-9]+:grid-cols-\d/g), ["sm:grid-cols-2", "lg:grid-cols-3", "xl:grid-cols-4"], "two, three, then four across");
+  assert.ok(LIBRARY_GRID.includes("grid-cols-[repeat(auto-fill,minmax(13.75rem,1fr))]"), "as many 13.75rem columns as the list's room holds");
+  // The body beside a 280px sidebar, less its 24px gutters and the grid's 12px gaps: 3, 4 and 6 across.
+  const across = (window) => Math.floor((window - 280 - 48 + 12) / (13.75 * 16 + 12));
+  assert.deepEqual([1024, 1440, 1920].map(across), [3, 4, 6]);
+  assert.ok(!/(sm|md|lg|xl|2xl):grid-cols-/.test(LIBRARY_GRID), "read from the room, never the window");
   const screen = read("../Workflows.tsx");
   const gallery = read("./TemplateGallery.tsx");
   assert.ok(screen.includes("className={LIBRARY_GRID}") && gallery.includes("className={LIBRARY_GRID}"), "both draw the one grid");

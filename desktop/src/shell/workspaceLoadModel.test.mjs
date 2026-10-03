@@ -259,3 +259,23 @@ test("the store holds no list of its own", () => {
   assert.ok(store.includes("reloadsWorkspace(p.type)") && !store.includes('"run_started"'));
 });
 
+test("a list that could not be read is unknown, not empty: the node away, or its own read failed — another list's failure is not its", async () => {
+  const { listUnread, failedRead } = await import("./workspaceLoadModel.mjs");
+  const degraded = [failedRead("goals", new Error("500 Internal Server Error")), "Ada's workspace channels: 503"];
+  assert.equal(listUnread(degraded, null, "goals"), true, "the goals' read failed");
+  assert.equal(listUnread(degraded, null, "channels"), false, "a hosted section's channels are not the workspace's");
+  assert.equal(listUnread([], "the node is unreachable", "channels"), true, "the node away: nothing is known");
+  assert.equal(listUnread([], null, "goals"), false);
+  assert.equal(listUnread(null, undefined, "dms"), false);
+  assert.equal(listUnread(["goalsx: no"], null, "goals"), false, "a name is matched whole, with its colon");
+  const goals = readFileSync(new URL("../views/Goals.tsx", import.meta.url), "utf8");
+  assert.ok(goals.includes('listUnread(ws.degraded, ws.offline, "goals")') && goals.includes("retry={ws.refresh}"), "the Goals screen says a failed read, with the way to read again, before it says nothing is in flight");
+  const sidebar = readFileSync(new URL("./Sidebar.tsx", import.meta.url), "utf8");
+  assert.ok(sidebar.includes('listUnread(ws.degraded, ws.offline, "channels")') && sidebar.includes('listUnread(ws.degraded, ws.offline, "dms")'), "the sidebar offers no create door for a list it could not read");
+  assert.ok(sidebar.includes('empty={!ws.ready || listUnread(ws.degraded, ws.offline, "channels")') && sidebar.includes('empty={!ws.ready || listUnread(ws.degraded, ws.offline, "dms")'), "nor for one it has not read yet");
+  // The Channels and Direct messages pages: the list's shape until the workspace answers, a failed read with Retry — never *No channels yet* over a list that was not read.
+  for (const [file, name] of [["../views/Channels.tsx", "channels"], ["../views/Messages.tsx", "dms"]]) {
+    const page = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.ok(page.includes("{!ws.ready ? (") && page.includes(`listUnread(ws.degraded, ws.offline, "${name}")`) && page.includes("retry={ws.refresh}"), `${file}: unread is unknown, never empty`);
+  }
+});

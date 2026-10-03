@@ -165,6 +165,8 @@ export declare function cutBytes(s: string, max: number): string;
 export declare function parseInspectorMessage(data: unknown): InspectorMessage | null;
 /** The app's word to the frame: wear this theme. */
 export declare function themeMessage(theme: InspectorTheme): { type: "bisa:theme"; styles: InspectorStyles };
+/** The words the note box says, from the catalog; `%TAG%` stands where an element's tag goes. */
+export declare function inspectorWords(): Readonly<{ box: string; instead: string; where: string; close: string; ask: string; add: string; change: string; keys: string }>;
 /** The frame's program (ide/03 §Annotate): the core over `postMessage`, dressed in the theme given. */
 export declare function inspectorScript(theme: InspectorTheme): string;
 /** The browser tab's program (ide/18): the same core over the desktop's IPC door, with the driver, relaying the browser chords given, dressed in the theme given. */

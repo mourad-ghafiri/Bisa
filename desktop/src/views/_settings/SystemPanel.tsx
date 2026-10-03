@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, inDesktopShell } from "../../api";
 import { useResolvedSettingsRead, useSettingsRegistry } from "../../shell/settingsStore";
 import type { SettingDef } from "../../types";
-import { Button, Card, Chip, Dot, ErrorNote, ICON, Pending, ReadLine, Tooltip, cn, useToast } from "../../ui";
+import { Button, Card, Chip, Dot, ErrorNote, ICON, Pending, ReadLine, failureText, cn, useToast } from "../../ui";
 import { permissionStatus, requestPermission } from "../../shell/systemPermissions";
 import type { PermissionKind, PermissionReport } from "../../shell/systemPermissions";
 import { attempt, useAsync } from "../_work/useAsync";
@@ -61,7 +61,7 @@ export function SystemPanel() {
   const master = defs.get(MASTER_KEY);
   const categories = CATEGORY_KEYS.map((key) => defs.get(key)).filter((d): d is SettingDef => Boolean(d));
   return (
-    <div className="flex max-w-2xl flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {!desktop && <p className="text-2xs text-text-dim">{unavailableWords("not_desktop")}</p>}
       {master && <NotificationsCard master={master} categories={categories} values={values} desktop={desktop} onWrote={resolved.reload} />}
       {KINDS.map((kind) => {
@@ -108,7 +108,7 @@ function NotificationsCard({ master, categories, values, desktop, onWrote }: { m
       setPermission(permissionOf(false, answer));
       if (answer === "granted") toast.ok(t("settings-notifications-allowed"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "system-panel-failed", e));
     }
   };
   const write = async (def: SettingDef, on: unknown) => {
@@ -123,11 +123,8 @@ function NotificationsCard({ master, categories, values, desktop, onWrote }: { m
         <Dot tone={words.tone === "ok" ? "ok" : words.tone === "warn" ? "warn" : "neutral"} title={words.label} />
         <ICON.notification size={14} aria-hidden className="shrink-0 text-text-dim" />
         <span className="text-xs font-medium">{t("settings-notifications-title")}</span>
-        <Tooltip label={words.sentence}>
-          <span>
-            <Chip tone={words.tone}>{words.label}</Chip>
-          </span>
-        </Tooltip>
+        {/* The sentence is the line under the row, not a tooltip a keyboard never reaches. */}
+        <Chip tone={words.tone}>{words.label}</Chip>
         <span className="flex-1" />
         {verb && (
           <Button size="sm" onClick={() => void allow()}>
@@ -138,7 +135,7 @@ function NotificationsCard({ master, categories, values, desktop, onWrote }: { m
       <p className="text-2xs text-text-dim">{words.sentence}</p>
       <SettingControl def={master} value={enabled} onChange={(v) => void write(master, v)} disabled={writing !== null} />
       <p className="text-2xs text-text-dim">{master.help}</p>
-      <div className={cn("flex flex-col gap-2 border-t border-border pt-2", !enabled && "opacity-60")} aria-disabled={!enabled}>
+      <div className={cn("flex flex-col gap-2 border-t border-hairline pt-2", !enabled && "opacity-60")} aria-disabled={!enabled}>
         {categories.map((def) => (
           <div key={def.key} className="flex flex-col gap-0.5">
             <SettingControl def={def} value={values.get(def.key) ?? def.default} onChange={(v) => void write(def, v)} disabled={writing !== null || !enabled} />
@@ -146,7 +143,7 @@ function NotificationsCard({ master, categories, values, desktop, onWrote }: { m
           </div>
         ))}
       </div>
-      <p className="rounded-control border border-border bg-surface-2 p-2 text-2xs text-text-dim">{iconWords()}</p>
+      <p className="rounded-control bg-surface-2/50 p-2 text-2xs leading-relaxed text-text-dim">{iconWords()}</p>
     </Card>
   );
 }
@@ -198,11 +195,7 @@ function GrantCard({ kind, def, enabled, desktop, onWrote }: { kind: PermissionK
         {asking ? (
           <Chip tone="quiet">{t("settings-system-panel-asking-macos")}</Chip>
         ) : (
-          <Tooltip label={words.sentence}>
-            <span>
-              <Chip tone={words.tone}>{words.label}</Chip>
-            </span>
-          </Tooltip>
+          <Chip tone={words.tone}>{words.label}</Chip>
         )}
         <span className="flex-1" />
         {desktop && <ReadLine words={grant} busy={report.loading || report.refreshing} onReload={report.reload} reloadLabel={t("settings-code-host-panel-check-again")} />}
@@ -216,7 +209,7 @@ function GrantCard({ kind, def, enabled, desktop, onWrote }: { kind: PermissionK
       {report.data?.detail && <p className="text-2xs text-text-dim">{unavailableWords(report.data.detail)}</p>}
       <SettingControl def={def} value={enabled} onChange={(v) => void toggle(v)} disabled={writing} />
       <p className="text-2xs text-text-dim">{def.help}</p>
-      <div className="flex flex-col gap-1 rounded-control border border-border bg-surface-2 p-2 text-2xs text-text-dim">
+      <div className="flex flex-col gap-1 rounded-control bg-surface-2/50 p-2 text-2xs leading-relaxed text-text-dim">
         <p>{rec.why}</p>
         <p>{rec.safety}</p>
         {rec.how && <p>{rec.how}</p>}

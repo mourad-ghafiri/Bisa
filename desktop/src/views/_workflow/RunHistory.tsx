@@ -28,16 +28,16 @@ export function RunHistory({ goal, runs, onChanged }: { goal: string; runs: RunS
   if (all.length === 0) return null;
   return (
     <section className="rounded-card border border-border" aria-label={t("workflow-run-history-runs")}>
-      <h3 className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-2xs font-semibold tracking-wide text-text-dim uppercase">
-        <ICON.run size={12} aria-hidden />
+      <h3 className="flex items-center gap-2 border-b border-hairline px-3 py-2 text-sm font-semibold text-text">
+        <ICON.run size={12} aria-hidden className="text-text-dim" />
         {t("workflow-run-history-runs")}
-        <span className="tnum font-normal normal-case">{all.length}</span>
+        <span className="tnum text-2xs font-normal text-text-dim">{all.length}</span>
       </h3>
       <ul className="flex flex-col">
         {rows.map((r) => {
           const Icon = RUN_STATUS_ICON[r.status] ?? ICON.run;
           return (
-            <li key={r.id} className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-2xs last:border-b-0">
+            <li key={r.id} className="flex min-h-row flex-wrap items-center gap-2 border-b border-hairline px-3 py-1.5 text-2xs last:border-b-0">
               <Icon size={12} aria-hidden style={{ color: `var(--color-${r.words.tone === "quiet" ? "text-dim" : r.words.tone})` }} />
               <span className="font-medium">{t("workflow-run-history-run", { index: r.index })}</span>
               <Chip tone={r.words.tone}>{r.words.word}</Chip>
@@ -67,7 +67,7 @@ export function RunHistory({ goal, runs, onChanged }: { goal: string; runs: RunS
         })}
       </ul>
       {hidden > 0 && (
-        <div className="flex items-center gap-2 border-t border-border px-3 py-1.5 text-2xs text-text-dim">
+        <div className="flex items-center gap-2 border-t border-hairline px-3 py-1.5 text-2xs text-text-dim">
           <span>{t("workflow-runs-pane-older-hidden", { n: hidden })}</span>
           <Button size="sm" variant="ghost" onClick={() => setShown((n) => n + RUNS_SHOWN)}>
             {t("workflow-runs-pane-show-older", { n: more })}

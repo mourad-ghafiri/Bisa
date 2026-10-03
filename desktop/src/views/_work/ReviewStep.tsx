@@ -39,7 +39,7 @@
 import { useState, type ReactNode } from "react";
 import { api } from "../../api";
 import type { CodeHostCapabilities, PullRequest, ReviewSummary, ReviewThread, ReviewThreadComment } from "../../types";
-import { Button, Chip, FoldedText, ICON, SectionHeader, SkeletonRows, TextArea, Tooltip, cn, useCollapsed, useToast } from "../../ui";
+import { Button, Chip, FoldedText, ICON, SectionHeader, SkeletonRows, TextArea, Tooltip, failureText, cn, useCollapsed, useToast } from "../../ui";
 import { DEFAULT_AGENT, FIX_MENU_LABEL, draftKeys, fixAllLabel, fixLabel, reviewButtons, wordsReason } from "./agentReviewModel.mjs";
 import type { ReviewTarget } from "./agentReviewModel.mjs";
 import { AgentMenu } from "./AgentMenu";
@@ -76,7 +76,7 @@ function Row({ n, title, done, children }: { n: number; title: string; done: boo
     <div className="flex flex-col gap-1" data-part={n}>
       <div className="flex items-center gap-1.5">
         {done && <ICON.check size={12} aria-hidden className="shrink-0 text-ok" />}
-        <span className={cn("text-2xs font-semibold tracking-wide uppercase", done ? "text-text-dim" : "text-text")}>{title}</span>
+        <span className={cn("text-2xs font-semibold", done ? "text-text-dim" : "text-text")}>{title}</span>
       </div>
       <div className="flex flex-col gap-1.5">{children}</div>
     </div>
@@ -89,8 +89,9 @@ function ReplyRow({ reply, storeKey }: { reply: ReviewThreadComment; storeKey: s
   return (
     <li className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2">
-        {who.kind === "agent" && <ICON.agent size={11} aria-hidden className="shrink-0 text-accent-ink" />}
-        <span className={cn("font-mono", who.kind === "agent" ? "text-accent-ink" : "text-text-dim")}>{who.kind === "agent" ? who.agent : (who.login ?? t("work-review-step-someone"))}</span>
+        {/* An agent's reply is told by its mark and its id at full ink — an identity, not a summons. */}
+        {who.kind === "agent" && <ICON.agent size={11} aria-hidden className="shrink-0 text-text-dim" />}
+        <span className={cn("font-mono", who.kind === "agent" ? "text-text" : "text-text-dim")}>{who.kind === "agent" ? who.agent : (who.login ?? t("work-review-step-someone"))}</span>
         <When iso={reply.created_at} />
       </div>
       <FoldedText text={replyWords(reply)} storeKey={storeKey} />
@@ -104,7 +105,7 @@ function ReplyBox({ canResolve, sending, onSend, onCancel }: { canResolve: boole
   const empty = body.trim() === "";
   return (
     <div className="mt-1 flex flex-col gap-1.5 pl-6">
-      <TextArea value={body} rows={2} autoFocus placeholder={t("work-review-step-reply-code-host")} onChange={(e) => setBody(e.target.value)} />
+      <TextArea value={body} rows={2} autoFocus placeholder={t("work-review-step-reply-code-host")} aria-label={t("work-review-step-reply-field")} onChange={(e) => setBody(e.target.value)} />
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="primary" disabled={sending || empty} onClick={() => onSend(body.trim(), false)}>
           {sending ? t("work-review-notes-sending") : t("work-review-step-reply")}
@@ -166,7 +167,7 @@ function CommentRow({
     if (went) setReplying(false);
   };
   return (
-    <li className={cn("group rounded-control border px-2 py-1", comment.is_resolved ? "border-border/60" : "border-border")}>
+    <li className="group py-1.5 first:pt-0 last:pb-0">
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -252,7 +253,7 @@ function YourReviewForm({
       setBody("");
       onSubmitted();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "review-step-failed", e));
     } finally {
       setSending(null);
     }
@@ -261,7 +262,7 @@ function YourReviewForm({
   const reason = buttons.map((b) => wordsReason(b.event, body)).find((r) => r !== null) ?? null;
   return (
     <div className="flex flex-col gap-1.5">
-      <TextArea value={body} rows={2} placeholder={t("work-review-step-word-review-optional-approval")} onChange={(e) => setBody(e.target.value)} />
+      <TextArea value={body} rows={2} placeholder={t("work-review-step-word-review-optional-approval")} aria-label={t("work-review-step-review-field")} onChange={(e) => setBody(e.target.value)} />
       <div className="flex flex-wrap items-center gap-2">
         {buttons.map((b) => (
           <Button
@@ -356,7 +357,7 @@ export function ReviewStep({
           />
           {reviewLine}
           {nothing && onOpenChanges && (
-            <button type="button" className="self-start text-2xs text-accent-ink underline underline-offset-2" onClick={onOpenChanges}>{t("work-new-workstream-dialog-open-git-changes")}</button>
+            <button type="button" className="anim self-start text-2xs text-accent-ink underline underline-offset-2 hover:text-text" onClick={onOpenChanges}>{t("work-new-workstream-dialog-open-git-changes")}</button>
           )}
         </Row>
       </section>
@@ -477,9 +478,10 @@ export function ReviewStep({
                         <span className="min-w-0 truncate font-mono text-text-dim" title={words.path}>
                           {words.path}
                         </span>
-                        <span className="shrink-0 text-3xs text-text-dim">{words.count}</span>
+                        <span className="shrink-0 text-2xs text-text-dim">{words.count}</span>
                       </div>
-                      <ul className="flex flex-col gap-1">
+                      {/* Comments on hairlines, not a box each: the file is the group, a comment its row. */}
+                      <ul className="flex flex-col divide-y divide-hairline">
                         {g.comments.map((c) => (
                           <CommentRow
                             key={c.id}

@@ -22,6 +22,7 @@ import { reloadOnReconnect } from "./workspaceLoadModel.mjs";
 import type { ResolvedSetting, SettingDef } from "../types";
 import { EMPTY_ENTRY, keyOf, reading, refused, settled } from "./settingsSnapshotModel.mjs";
 import type { Entry } from "./settingsSnapshotModel.mjs";
+import { failureReason } from "../ui/failure";
 
 /** A read as a panel's phase logic sees it (`loadModel.phase`, `readWords`). */
 export interface SettingsRead<T> {
@@ -61,7 +62,7 @@ function readRegistry(): void {
       registry = settled(registry, r.settings, Math.floor(Date.now() / 1000));
     })
     .catch((e: unknown) => {
-      registry = refused(registry, e instanceof Error ? e.message : String(e));
+      registry = refused(registry, failureReason("settings", "the settings registry could not be read", e)); // for the log
     })
     .finally(() => {
       registryInFlight = false;
@@ -83,7 +84,7 @@ function readResolved(key: string): void {
     })
     .catch((e: unknown) => {
       if (ac.signal.aborted) return;
-      resolved.set(key, refused(entryOf(key), e instanceof Error ? e.message : String(e)));
+      resolved.set(key, refused(entryOf(key), failureReason("settings", "the resolved settings could not be read", e))); // for the log
     })
     .finally(() => {
       if (inFlight.get(key) === ac) inFlight.delete(key);

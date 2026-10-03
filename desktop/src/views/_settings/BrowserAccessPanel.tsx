@@ -23,7 +23,7 @@ import { useBrowserPrefs } from "../../shell/browserPrefsStore";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import { useBrowsers } from "../../shell/useBrowsers";
 import { boolOf, choiceOf, stringOf } from "../../shell/settingsModel.mjs";
-import { Button, Card, Chip, ErrorNote, ICON, Pending, SegmentedControl, Section, Switch, useToast } from "../../ui";
+import { Button, Card, Chip, ErrorNote, ICON, Pending, SegmentedControl, Section, Switch, failureText, useToast } from "../../ui";
 import { AGENTS_KEY, DEFAULT_HEADLESS, DEFAULT_POLICY, DEFAULT_REACH, DEFAULT_SCRIPTS, ENABLED_KEY, HEADLESS_KEY, HEADLESS_MODES, POLICIES, REACH_KEY, SCRIPTS_KEY, SCRIPTS_MODES, headlessSegments, headlessWords, policySegments, policyWords, reachWords, scriptsSegments, scriptsWords, statusWords } from "./browserSettingsModel.mjs";
 import type { BrowserPolicy, HeadlessMode, ScriptsMode } from "./browserSettingsModel.mjs";
 import { pendingRows } from "./loadModel.mjs";
@@ -56,7 +56,7 @@ export function BrowserAccessPanel() {
       await api.setSettings(scope, { [key]: value });
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "browser-access-panel-failed", e));
     } finally {
       setBusy(false);
     }
@@ -67,14 +67,14 @@ export function BrowserAccessPanel() {
       await api.unsetSetting("workspace", key);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "browser-access-panel-failed", e));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <Section title={t("settings-browser-access-panel-embedded-browser")}>
         <Card>
           {!resolved && !error && <Pending what={t("settings-browser-access-panel-resolved-values")} rows={pendingRows(t("settings-browser-access-panel-resolved-values"))} />}
@@ -159,6 +159,6 @@ export function BrowserAccessPanel() {
           )}
         </Card>
       </Section>
-    </>
+    </div>
   );
 }

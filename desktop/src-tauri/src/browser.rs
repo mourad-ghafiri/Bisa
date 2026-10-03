@@ -24,8 +24,11 @@
 
 //! Where a tab's webview goes is said in the main page's own CSS pixels
 //! (`Bounds`) and drawn **anchored on the main webview** (`anchor::Anchor`):
-//! the child and the main `WKWebView` are siblings in one content view, but
-//! the page's `(0, 0)` need not be that view's top-left — a content inset
+//! on macOS every tab stands in the browser layer (`layer`), a view the
+//! content view's size just above the main `WKWebView`, which cuts a hole
+//! wherever one of the main page's floating overlays sits (`clear`,
+//! `browser_clear`) so the overlay shows and takes its clicks over a live
+//! page. The page's `(0, 0)` need not be that view's top-left — a content inset
 //! puts the page lower than the frame, a zoom makes a CSS pixel more than a
 //! point — so the child is placed relative to the main webview's frame and
 //! the page's viewport, read together on the main thread, and its frame is
@@ -69,6 +72,8 @@ pub(crate) fn label_of(key: &str) -> String {
 #[derive(Default)]
 pub struct BrowserRegistry {
     views: Mutex<HashMap<String, Option<anchor::Anchor>>>,
+    /// How many pieces the browser layer cut last (`browser_clear`).
+    holes: Mutex<Option<usize>>,
 }
 
 impl BrowserRegistry {
@@ -91,6 +96,16 @@ impl BrowserRegistry {
             }
             _ => false,
         }
+    }
+
+    /// Note how many pieces the browser layer cut; true when that differs
+    /// from the last count — the one time it is worth a log line.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn note_holes(&self, count: usize) -> bool {
+        let mut last = self.holes.locked();
+        let changed = *last != Some(count);
+        *last = Some(count);
+        changed
     }
 
     fn remove(&self, key: &str) -> bool {
@@ -363,6 +378,14 @@ pub fn browser_open<R: Runtime>(
         )
         .map_err(err)?;
     webview.hide().map_err(err)?;
+    // Into the browser layer at once, still hidden, so an overlay of the main
+    // page is never under it (`layer`).
+    #[cfg(target_os = "macos")]
+    if let Some(main) = app.get_webview("main") {
+        if let Err(why) = place::adopt(&main, &webview) {
+            tracing::warn!(target: "bisa_desktop", key, %why, "a tab stayed out of the browser layer; its first placement adopts it");
+        }
+    }
     let saying = app.clone();
     let saying_key = key.clone();
     door::install(
@@ -704,6 +727,338 @@ pub mod anchor {
     }
 }
 
+/// What of the browser layer is see-through (ide/18): the boxes of the main
+/// page's floating overlays — the Notes and Draw panels, their docks, the
+/// pet, an addon window — said in the page's CSS pixels like a tab's box
+/// (`Bounds`), mapped through the same `Anchor`, and made into **disjoint**
+/// pieces, so one test of a point answers both what is drawn (the mask) and
+/// what is clicked (`hitTest:`). A lone overlay keeps its rounded corners;
+/// overlays that overlap are cut as their union — each one's rounded corners
+/// kept where no other overlay touches them, squared where one does — so no
+/// sliver of page shows where two meet. Pure, so a test needs no window.
+pub mod clear {
+    use super::anchor::{Anchor, Frame};
+    use super::Bounds;
+    use serde::Deserialize;
+
+    /// The most overlays one layer cuts around; more are dropped, never
+    /// drawn wrong.
+    pub const MAX_CLEARS: usize = 16;
+
+    /// One overlay's box, as the main page measures it: CSS pixels from the
+    /// page's top-left, and its corner radius.
+    #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+    pub struct Clear {
+        pub left: f64,
+        pub top: f64,
+        pub width: f64,
+        pub height: f64,
+        #[serde(default)]
+        pub radius: f64,
+    }
+
+    /// An overlay's box in the layer's points (bottom-left origin), with
+    /// its corner radius in points — never more than half its short side.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Hole {
+        pub frame: Frame,
+        pub radius: f64,
+    }
+
+    /// One disjoint piece of what is see-through.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub enum Piece {
+        Rounded(Hole),
+        Rect(Frame),
+        /// A rounded corner of an overlay that meets others, which no other
+        /// overlay touches: the quarter disc about `(cx, cy)` reaching toward
+        /// `(sx, sy)`, each ±1.
+        Corner { cx: f64, cy: f64, radius: f64, sx: f64, sy: f64 },
+    }
+
+    impl Piece {
+        /// A corner piece's square — what of the layer it may cover.
+        fn square(cx: f64, cy: f64, radius: f64, sx: f64, sy: f64) -> Frame {
+            Frame {
+                x: cx.min(cx + sx * radius),
+                y: cy.min(cy + sy * radius),
+                width: radius,
+                height: radius,
+            }
+        }
+    }
+
+    fn usable(c: &Clear) -> bool {
+        [c.left, c.top, c.width, c.height].iter().all(|v| v.is_finite()) && c.width > 0.0 && c.height > 0.0
+    }
+
+    /// The overlays' boxes as holes in the layer: each through the anchor
+    /// a tab's box goes through, empty or non-finite boxes dropped, at most
+    /// `MAX_CLEARS`.
+    pub fn holes(anchor: &Anchor, clears: &[Clear]) -> Vec<Hole> {
+        clears
+            .iter()
+            .filter(|c| usable(c))
+            .take(MAX_CLEARS)
+            .map(|c| {
+                let frame = anchor.frame_for(&Bounds {
+                    left: c.left,
+                    top: c.top,
+                    width: c.width,
+                    height: c.height,
+                });
+                let most = frame.width.min(frame.height) / 2.0;
+                let radius = if c.radius.is_finite() && c.radius > 0.0 {
+                    (c.radius * anchor.zoom).min(most)
+                } else {
+                    0.0
+                };
+                Hole { frame, radius }
+            })
+            .collect()
+    }
+
+    fn overlap(a: &Frame, b: &Frame) -> bool {
+        a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+    }
+
+    fn inside(f: &Frame, x: f64, y: f64) -> bool {
+        x >= f.x && x <= f.x + f.width && y >= f.y && y <= f.y + f.height
+    }
+
+    /// The union of overlapping boxes as disjoint rectangles: the grid of
+    /// their edges, a cell kept when its middle is in a box, the cells of a
+    /// row merged into runs.
+    fn union(frames: &[Frame]) -> Vec<Frame> {
+        let edges = |pick: &dyn Fn(&Frame) -> [f64; 2]| {
+            let mut v: Vec<f64> = frames.iter().flat_map(pick).collect();
+            v.sort_by(f64::total_cmp);
+            v.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+            v
+        };
+        let xs = edges(&|f| [f.x, f.x + f.width]);
+        let ys = edges(&|f| [f.y, f.y + f.height]);
+        let mut out = Vec::new();
+        for row in ys.windows(2) {
+            let (y0, y1) = (row[0], row[1]);
+            let cy = (y0 + y1) / 2.0;
+            let mut run: Option<(f64, f64)> = None;
+            for col in xs.windows(2) {
+                let (x0, x1) = (col[0], col[1]);
+                let cx = (x0 + x1) / 2.0;
+                if frames.iter().any(|f| inside(f, cx, cy)) {
+                    run = Some(run.map_or((x0, x1), |(a, _)| (a, x1)));
+                } else if let Some((a, b)) = run.take() {
+                    out.push(Frame { x: a, y: y0, width: b - a, height: y1 - y0 });
+                }
+            }
+            if let Some((a, b)) = run {
+                out.push(Frame { x: a, y: y0, width: b - a, height: y1 - y0 });
+            }
+        }
+        out
+    }
+
+    /// The holes as disjoint pieces: a hole that meets no other keeps its
+    /// rounded corners; a group that overlaps becomes its union — each
+    /// member's cross (its box less its four corner squares) and the corner
+    /// squares another member touches, as rectangles, and every corner no
+    /// other member touches as a quarter disc, which lies inside no other
+    /// member and so meets no rectangle.
+    pub fn pieces(holes: &[Hole]) -> Vec<Piece> {
+        // Group the holes that overlap, directly or through another.
+        let mut group: Vec<usize> = (0..holes.len()).collect();
+        fn root(group: &mut [usize], mut i: usize) -> usize {
+            while group[i] != i {
+                group[i] = group[group[i]];
+                i = group[i];
+            }
+            i
+        }
+        for i in 0..holes.len() {
+            for j in (i + 1)..holes.len() {
+                if overlap(&holes[i].frame, &holes[j].frame) {
+                    let (a, b) = (root(&mut group, i), root(&mut group, j));
+                    group[a] = b;
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for i in 0..holes.len() {
+            if root(&mut group, i) != i {
+                continue;
+            }
+            let members: Vec<&Hole> = (0..holes.len())
+                .filter(|&j| root(&mut group, j) == i)
+                .map(|j| &holes[j])
+                .collect();
+            if let [only] = members.as_slice() {
+                out.push(Piece::Rounded(**only));
+                continue;
+            }
+            let mut rects = Vec::new();
+            for (k, m) in members.iter().enumerate() {
+                let (f, r) = (m.frame, m.radius);
+                if r <= 0.0 {
+                    rects.push(f);
+                    continue;
+                }
+                rects.push(Frame { x: f.x, y: f.y + r, width: f.width, height: f.height - 2.0 * r });
+                rects.push(Frame { x: f.x + r, y: f.y, width: f.width - 2.0 * r, height: f.height });
+                for (cx, cy, sx, sy) in [
+                    (f.x + r, f.y + r, -1.0, -1.0),
+                    (f.x + f.width - r, f.y + r, 1.0, -1.0),
+                    (f.x + r, f.y + f.height - r, -1.0, 1.0),
+                    (f.x + f.width - r, f.y + f.height - r, 1.0, 1.0),
+                ] {
+                    let square = Piece::square(cx, cy, r, sx, sy);
+                    let touched = members.iter().enumerate().any(|(o, other)| o != k && overlap(&square, &other.frame));
+                    if touched {
+                        rects.push(square);
+                    } else {
+                        out.push(Piece::Corner { cx, cy, radius: r, sx, sy });
+                    }
+                }
+            }
+            rects.retain(|f| f.width > 1e-9 && f.height > 1e-9);
+            out.extend(union(&rects).into_iter().map(Piece::Rect));
+        }
+        out
+    }
+
+    impl Piece {
+        /// Whether a point of the layer is in this piece — a rounded corner's
+        /// outside belongs to the page.
+        pub fn contains(&self, x: f64, y: f64) -> bool {
+            match self {
+                Piece::Rect(f) => inside(f, x, y),
+                Piece::Rounded(Hole { frame: f, radius: r }) => {
+                    if !inside(f, x, y) {
+                        return false;
+                    }
+                    let dx = (f.x + r - x).max(x - (f.x + f.width - r)).max(0.0);
+                    let dy = (f.y + r - y).max(y - (f.y + f.height - r)).max(0.0);
+                    dx * dx + dy * dy <= r * r
+                }
+                Piece::Corner { cx, cy, radius, sx, sy } => {
+                    inside(&Piece::square(*cx, *cy, *radius, *sx, *sy), x, y) && (x - cx).powi(2) + (y - cy).powi(2) <= radius * radius
+                }
+            }
+        }
+    }
+
+    /// Whether a point of the layer is see-through: what the mask leaves
+    /// open is exactly what `hitTest:` hands to the page below.
+    pub fn cleared(pieces: &[Piece], x: f64, y: f64) -> bool {
+        pieces.iter().any(|p| p.contains(x, y))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::super::anchor::{Anchor, Frame};
+        use super::super::Viewport;
+        use super::*;
+
+        fn anchor(main_width: f64, main_height: f64, viewport: Viewport) -> Anchor {
+            Anchor::of(
+                main_height,
+                Frame { x: 0.0, y: 0.0, width: main_width, height: main_height },
+                viewport,
+            )
+        }
+
+        const PAGE: Viewport = Viewport { width: 1000.0, height: 800.0 };
+
+        fn clear(left: f64, top: f64, width: f64, height: f64, radius: f64) -> Clear {
+            Clear { left, top, width, height, radius }
+        }
+
+        #[test]
+        fn an_overlay_is_mapped_through_the_anchor_a_tab_is_placed_by() {
+            let a = anchor(1000.0, 800.0, PAGE);
+            let h = holes(&a, &[clear(100.0, 50.0, 200.0, 100.0, 0.0)]);
+            assert_eq!(h[0].frame, Frame { x: 100.0, y: 800.0 - 50.0 - 100.0, width: 200.0, height: 100.0 });
+            // A zoom of 1.5 and a content inset of 28 points move it as they move a tab.
+            let zoomed = Anchor::of(
+                800.0,
+                Frame { x: 0.0, y: 0.0, width: 1500.0, height: 800.0 },
+                Viewport { width: 1000.0, height: (800.0 - 28.0) / 1.5 },
+            );
+            let z = holes(&zoomed, &[clear(100.0, 50.0, 200.0, 100.0, 12.0)]);
+            assert_eq!(z[0].frame, zoomed.frame_for(&Bounds { left: 100.0, top: 50.0, width: 200.0, height: 100.0 }));
+            assert!((z[0].radius - 18.0).abs() < 1e-9, "the radius scales with the zoom");
+        }
+
+        #[test]
+        fn a_radius_is_never_more_than_half_the_short_side_nor_less_than_nothing() {
+            let a = anchor(1000.0, 800.0, PAGE);
+            assert_eq!(holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, 9999.0)])[0].radius, 24.0, "a round dock: fully round");
+            assert_eq!(holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, -3.0)])[0].radius, 0.0);
+            assert_eq!(holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, f64::NAN)])[0].radius, 0.0);
+        }
+
+        #[test]
+        fn an_empty_or_non_finite_box_clears_nothing_and_the_count_is_capped() {
+            let a = anchor(1000.0, 800.0, PAGE);
+            let junk = [clear(0.0, 0.0, 0.0, 10.0, 0.0), clear(f64::NAN, 0.0, 10.0, 10.0, 0.0), clear(0.0, 0.0, 10.0, f64::INFINITY, 0.0)];
+            assert!(holes(&a, &junk).is_empty());
+            let many: Vec<Clear> = (0..40).map(|i| clear(f64::from(i) * 20.0, 0.0, 10.0, 10.0, 0.0)).collect();
+            assert_eq!(holes(&a, &many).len(), MAX_CLEARS);
+        }
+
+        #[test]
+        fn a_lone_overlay_keeps_its_rounded_corners_and_its_corner_outside_is_the_page() {
+            let a = anchor(1000.0, 800.0, PAGE);
+            let p = pieces(&holes(&a, &[clear(100.0, 100.0, 200.0, 100.0, 16.0)]));
+            assert_eq!(p.len(), 1);
+            assert!(matches!(p[0], Piece::Rounded(_)));
+            let (left, bottom) = (100.0, 800.0 - 100.0 - 100.0);
+            assert!(cleared(&p, left + 100.0, bottom + 50.0), "its middle is see-through");
+            assert!(!cleared(&p, left + 1.0, bottom + 1.0), "the very corner, outside the curve, is the page's");
+            assert!(cleared(&p, left + 16.0, bottom + 1.0), "the edge past the curve is the overlay's");
+            assert!(!cleared(&p, left - 1.0, bottom + 50.0), "a point past its edge is the page's");
+        }
+
+        #[test]
+        fn overlapping_overlays_are_cut_as_their_union_in_disjoint_pieces() {
+            let a = anchor(1000.0, 800.0, PAGE);
+            // A panel, a round dock over its bottom-right, and a dock that touches nothing.
+            let h = holes(&a, &[clear(400.0, 200.0, 560.0, 500.0, 16.0), clear(900.0, 640.0, 48.0, 48.0, 24.0), clear(50.0, 50.0, 48.0, 48.0, 24.0)]);
+            let p = pieces(&h);
+            assert_eq!(p.iter().filter(|x| matches!(x, Piece::Rounded(_))).count(), 1, "the lone dock stays round");
+            let cover = |x: &Piece| match x {
+                Piece::Rect(f) => *f,
+                Piece::Corner { cx, cy, radius, sx, sy } => Piece::square(*cx, *cy, *radius, *sx, *sy),
+                Piece::Rounded(hole) => hole.frame,
+            };
+            for (i, one) in p.iter().enumerate() {
+                for other in &p[i + 1..] {
+                    assert!(!overlap(&cover(one), &cover(other)), "no two pieces overlap: an even-odd mask would show the page where they did — {one:?} {other:?}");
+                }
+            }
+            let (panel, dock) = (h[0], h[1]);
+            let round = |hole: &Hole, x: f64, y: f64| Piece::Rounded(*hole).contains(x, y);
+            // Everything of either shape is cut; the panel's three corners the dock does not touch stay round.
+            let mut x = 380.0;
+            while x < 1000.0 {
+                let mut y = 0.0;
+                while y < 800.0 {
+                    if round(&panel, x, y) || round(&dock, x, y) {
+                        assert!(cleared(&p, x, y), "({x}, {y}) is in an overlay");
+                    }
+                    y += 3.0;
+                }
+                x += 3.0;
+            }
+            let (left, bottom, top) = (panel.frame.x, panel.frame.y, panel.frame.y + panel.frame.height);
+            assert!(!cleared(&p, left + 0.5, top - 0.5), "the panel's free top-left corner is round: its very corner is the page's");
+            assert!(!cleared(&p, left + 0.5, bottom + 0.5), "and so is its free bottom-left one");
+            let (dock_left, dock_top) = (dock.frame.x, dock.frame.y + dock.frame.height);
+            assert!(cleared(&p, dock_left + 24.0, dock_top - 24.0), "the dock's middle is cut");
+        }
+    }
+}
+
 /// Where a tab's webview is and whether it shows — said by the main webview
 /// as the centre moves, the active tab changes, or a surface opens over it.
 /// One placement, then the box actually drawn read back, so the main window
@@ -746,6 +1101,50 @@ pub fn browser_bounds<R: Runtime>(
         }
     }
     Ok(placed)
+}
+
+/// The boxes of the main page's floating overlays that stand over a showing
+/// tab — the Notes and Draw panels, their docks, the pet, addon windows —
+/// in the page's CSS pixels with the page's viewport. The browser layer cuts
+/// them out (`layer`), so they show and take their own clicks over a live
+/// page. `true` where the platform cuts around them (macOS), `false`
+/// elsewhere, where an overlay still stands under a tab.
+#[tauri::command]
+pub fn browser_clear<R: Runtime>(
+    app: AppHandle<R>,
+    registry: State<'_, BrowserRegistry>,
+    clears: Vec<clear::Clear>,
+    viewport: Viewport,
+) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let main = app
+            .get_webview("main")
+            .ok_or_else(|| "no main webview to cut the overlays around".to_string())?;
+        let asked = clears.len();
+        let holes = place::clear(&main, clears, viewport)?;
+        if registry.note_holes(holes) {
+            tracing::debug!(target: "bisa_desktop", overlays = asked, pieces = holes, "browser layer cut");
+        }
+        Ok(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, registry, clears, viewport);
+        Ok(false)
+    }
+}
+
+/// Hand the keyboard to the main page — what a floating overlay asks as it
+/// opens over a showing tab (`BrowserPanel.tsx`): a panel opened by a chord
+/// or a menu while a page held the keyboard would otherwise type into the
+/// page. A click in an overlay's hole does this by itself (`layer`).
+#[tauri::command]
+pub fn browser_focus_main<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.get_webview("main")
+        .ok_or_else(|| "no main webview to hand the keyboard to".to_string())?
+        .set_focus()
+        .map_err(err)
 }
 
 /// Close a tab.
@@ -920,6 +1319,256 @@ mod door {
     pub fn install<R: Runtime>(_webview: &Webview<R>, _say: Box<dyn Fn(String) + Send>) {}
 }
 
+/// The view every tab stands in (ide/18): a `BisaBrowserLayer` the size of
+/// the window's content view, just above the main webview, unflipped like
+/// the content view so a tab's frame there is the frame `anchor` computes.
+/// A native view paints over every DOM element, so the main page's floating
+/// overlays (`clear`) would be covered by a tab; this view is where they are
+/// not: its layer's mask leaves a hole wherever one sits — "fully transparent
+/// pixels block that content" (Apple, `CALayer.mask`), so the main page
+/// shows there — and its `hitTest:` answers nothing for a point in a hole,
+/// so the window's own hit-test goes on to the main webview below and the
+/// overlay gets the click, the scroll and the keys ("you might want to
+/// override it to have a view object hide mouse-down events from its
+/// subviews", Apple, `NSView.hitTest(_:)`). The page itself is untouched:
+/// full size, live, every pixel outside a hole its own. With no hole the
+/// mask is gone, so the common case costs nothing.
+#[cfg(target_os = "macos")]
+mod layer {
+    use super::anchor::Anchor;
+    use super::clear::{self, Clear, Piece};
+    use objc2::rc::Retained;
+    use objc2::runtime::NSObject;
+    use objc2::{define_class, msg_send, DeclaredClass, MainThreadOnly};
+    use objc2_app_kit::{NSAutoresizingMaskOptions, NSResponder, NSView, NSViewLayerContentsRedrawPolicy, NSWindowOrderingMode};
+    use objc2_core_graphics::CGMutablePath;
+    use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize};
+    use objc2_quartz_core::{kCAFillRuleEvenOdd, CALayer, CAShapeLayer, CATransaction};
+    use std::cell::RefCell;
+
+    #[derive(Default)]
+    struct State {
+        clears: Vec<Clear>,
+        anchor: Option<Anchor>,
+        pieces: Vec<Piece>,
+        mask: Option<Retained<CAShapeLayer>>,
+    }
+
+    #[derive(Default)]
+    pub struct Ivars {
+        state: RefCell<State>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSView, NSResponder, NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "BisaBrowserLayer"]
+        #[ivars = Ivars]
+        pub struct BrowserLayer;
+
+        unsafe impl NSObjectProtocol for BrowserLayer {}
+
+        impl BrowserLayer {
+            /// A tab under the point, unless the point is in a hole; never
+            /// this view itself, which is empty glass the size of the window.
+            #[unsafe(method_id(hitTest:))]
+            fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
+                // SAFETY: NSView's own hit-test, on the main thread where AppKit calls this.
+                let hit: Option<Retained<NSView>> = unsafe { msg_send![super(self), hitTest: point] };
+                hit.filter(|view| self.passes_to_page(view, point))
+            }
+
+            /// The layer is ours to configure (`updateLayer`), never drawn into.
+            #[unsafe(method(wantsUpdateLayer))]
+            fn wants_update_layer(&self) -> bool {
+                true
+            }
+
+            /// Sublayers are added in `layout`, as AppKit asks of a layer-backed view.
+            #[unsafe(method(layout))]
+            fn layout(&self) {
+                // SAFETY: NSView's own layout first.
+                let _: () = unsafe { msg_send![super(self), layout] };
+                self.attach_mask();
+            }
+
+            #[unsafe(method(updateLayer))]
+            fn update_layer(&self) {
+                self.draw_mask();
+            }
+
+            #[unsafe(method(setFrameSize:))]
+            fn set_frame_size(&self, size: NSSize) {
+                // SAFETY: NSView's own resize first; the holes follow the new height.
+                let _: () = unsafe { msg_send![super(self), setFrameSize: size] };
+                self.recut();
+            }
+
+            /// A move between displays: the mask is drawn at the new scale.
+            #[unsafe(method(viewDidChangeBackingProperties))]
+            fn backing_changed(&self) {
+                // SAFETY: NSView's own handling first.
+                let _: () = unsafe { msg_send![super(self), viewDidChangeBackingProperties] };
+                self.setNeedsDisplay(true);
+            }
+        }
+    );
+
+    impl BrowserLayer {
+        /// Whether what NSView's hit-test found is the tab's to take: not
+        /// this view's own empty glass, and not a point in a hole.
+        fn passes_to_page(&self, hit: &NSView, point: NSPoint) -> bool {
+            if std::ptr::eq((hit as *const NSView).cast::<u8>(), (self as *const Self).cast::<u8>()) {
+                return false;
+            }
+            // SAFETY: the superview, read on the main thread for the call's duration.
+            let parent = unsafe { self.superview() };
+            let at = self.convertPoint_fromView(point, parent.as_deref());
+            !clear::cleared(&self.ivars().state.borrow().pieces, at.x, at.y)
+        }
+
+        fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(Ivars::default());
+            // SAFETY: `initWithFrame:` on an allocated, ivar-set NSView subclass.
+            unsafe { msg_send![super(this), initWithFrame: frame] }
+        }
+
+        /// Stand a tab in this view — once, as it opens, while it is hidden.
+        pub fn adopt(&self, tab: &NSView) {
+            // SAFETY: the tab's superview, read on the main thread.
+            let home = unsafe { tab.superview() };
+            if home.as_deref().is_some_and(|v| std::ptr::eq(v as *const NSView, (self as *const Self).cast())) {
+                return;
+            }
+            self.addSubview(tab);
+        }
+
+        /// The overlays now over the page, and how many holes they make.
+        pub fn clear(&self, clears: Vec<Clear>, anchor: Anchor) -> usize {
+            {
+                let mut state = self.ivars().state.borrow_mut();
+                state.clears = clears;
+                state.anchor = Some(anchor);
+            }
+            self.recut();
+            self.ivars().state.borrow().pieces.len()
+        }
+
+        /// A placement read the anchor again (a zoom, an inset): the holes follow.
+        pub fn anchor_on(&self, anchor: Anchor) {
+            if self.ivars().state.borrow().anchor == Some(anchor) {
+                return;
+            }
+            self.ivars().state.borrow_mut().anchor = Some(anchor);
+            self.recut();
+        }
+
+        fn recut(&self) {
+            let height = self.bounds().size.height;
+            {
+                let mut state = self.ivars().state.borrow_mut();
+                let pieces = match state.anchor {
+                    Some(mut anchor) if !state.clears.is_empty() => {
+                        // The window may have grown since the anchor was read: the page's top
+                        // is still where it was, so only the parent's height moves.
+                        anchor.parent_height = height;
+                        clear::pieces(&clear::holes(&anchor, &state.clears))
+                    }
+                    _ => Vec::new(),
+                };
+                state.pieces = pieces;
+            }
+            self.setNeedsLayout(true);
+            self.setNeedsDisplay(true);
+        }
+
+        fn attach_mask(&self) {
+            let Some(layer) = self.layer() else { return };
+            let mut state = self.ivars().state.borrow_mut();
+            CATransaction::begin();
+            CATransaction::setDisableActions(true);
+            if state.pieces.is_empty() {
+                if state.mask.take().is_some() {
+                    // SAFETY: clearing the mask of our own layer.
+                    unsafe { layer.setMask(None) };
+                }
+            } else {
+                let mask = state.mask.get_or_insert_with(CAShapeLayer::new);
+                mask.setFrame(layer.bounds());
+                let shape: &CALayer = mask;
+                // SAFETY: our own shape layer, sized to our layer, as its mask.
+                unsafe { layer.setMask(Some(shape)) };
+            }
+            CATransaction::commit();
+        }
+
+        fn draw_mask(&self) {
+            let state = self.ivars().state.borrow();
+            let Some(mask) = state.mask.as_ref() else { return };
+            let path = CGMutablePath::new();
+            // SAFETY: a fresh path, no transform; every corner radius is at most half its side (`clear::holes`).
+            unsafe {
+                CGMutablePath::add_rect(Some(&path), std::ptr::null(), self.bounds());
+                for piece in &state.pieces {
+                    match piece {
+                        Piece::Rect(f) => CGMutablePath::add_rect(Some(&path), std::ptr::null(), rect(f)),
+                        Piece::Rounded(h) if h.radius > 0.0 => {
+                            CGMutablePath::add_rounded_rect(Some(&path), std::ptr::null(), rect(&h.frame), h.radius, h.radius)
+                        }
+                        Piece::Rounded(h) => CGMutablePath::add_rect(Some(&path), std::ptr::null(), rect(&h.frame)),
+                        // A quarter disc: from the centre along one edge, the short arc to the other, closed.
+                        Piece::Corner { cx, cy, radius, sx, sy } => {
+                            let start = 0.0_f64.atan2(*sx);
+                            let end = sy.atan2(0.0);
+                            let mut sweep = end - start;
+                            while sweep > std::f64::consts::PI {
+                                sweep -= std::f64::consts::TAU;
+                            }
+                            while sweep <= -std::f64::consts::PI {
+                                sweep += std::f64::consts::TAU;
+                            }
+                            CGMutablePath::move_to_point(Some(&path), std::ptr::null(), *cx, *cy);
+                            CGMutablePath::add_line_to_point(Some(&path), std::ptr::null(), cx + sx * radius, *cy);
+                            CGMutablePath::add_arc(Some(&path), std::ptr::null(), *cx, *cy, *radius, start, end, sweep < 0.0);
+                            CGMutablePath::close_subpath(Some(&path));
+                        }
+                    }
+                }
+            }
+            let scale = self.window().map_or(2.0, |w| w.backingScaleFactor());
+            CATransaction::begin();
+            CATransaction::setDisableActions(true);
+            mask.setPath(Some(&path));
+            // SAFETY: a constant Core Animation exports.
+            mask.setFillRule(unsafe { kCAFillRuleEvenOdd });
+            mask.setContentsScale(scale);
+            CATransaction::commit();
+        }
+    }
+
+    fn rect(f: &super::anchor::Frame) -> NSRect {
+        NSRect::new(NSPoint::new(f.x, f.y), NSSize::new(f.width, f.height))
+    }
+
+    /// The layer over the main webview — found among its siblings, or made
+    /// and stood just above it, the content view's size, following it.
+    pub fn over(main: &NSView, mtm: MainThreadMarker) -> Option<Retained<BrowserLayer>> {
+        // SAFETY: the main webview's superview, read on the main thread.
+        let parent = unsafe { main.superview() }?;
+        for view in parent.subviews().iter() {
+            if let Ok(layer) = view.downcast::<BrowserLayer>() {
+                return Some(layer);
+            }
+        }
+        let layer = BrowserLayer::new(mtm, parent.bounds());
+        layer.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable);
+        layer.setWantsLayer(true);
+        layer.setLayerContentsRedrawPolicy(NSViewLayerContentsRedrawPolicy::DuringViewResize);
+        parent.addSubview_positioned_relativeTo(&layer, NSWindowOrderingMode::Above, Some(main));
+        Some(layer)
+    }
+}
+
 /// Putting a tab's webview where its box is (ide/18): one closure on the
 /// main thread that reads the content view's height and the main webview's
 /// frame, anchors the box on them with the page's viewport, sets the
@@ -945,6 +1594,64 @@ mod place {
 
     fn ns_rect(f: Frame) -> NSRect {
         NSRect::new(NSPoint::new(f.x, f.y), NSSize::new(f.width, f.height))
+    }
+
+    /// A view's frame in another view's points — the main webview's, read in
+    /// the layer the tabs stand in (the same points while the layer covers
+    /// the content view from its origin, as it does).
+    fn frame_of_in(view: &NSView, home: Option<&NSView>, into: &NSView) -> Frame {
+        let f = into.convertRect_fromView(view.frame(), home);
+        Frame {
+            x: f.origin.x,
+            y: f.origin.y,
+            width: f.size.width,
+            height: f.size.height,
+        }
+    }
+
+    /// Stand a newly opened tab in the browser layer, while it is still
+    /// hidden — WebKit's window callbacks cost nothing on a page not shown.
+    pub fn adopt<R: Runtime>(main: &Webview<R>, tab: &Webview<R>) -> Result<(), String> {
+        let main_ptr = main_view(main)?;
+        tab.with_webview(move |platform| {
+            let Some(mtm) = objc2::MainThreadMarker::new() else {
+                return;
+            };
+            // SAFETY: on the main thread, over the live `WKWebView` (`webkit::view`).
+            let child: &NSView = unsafe { super::webkit::view(&platform) };
+            // SAFETY: the main webview's `WKWebView`, alive while its window is; on the main thread.
+            let main: &NSView = unsafe { &*(main_ptr as *const NSView) };
+            if let Some(layer) = super::layer::over(main, mtm) {
+                layer.adopt(child);
+            }
+        })
+        .map_err(err)
+    }
+
+    /// The overlays' boxes on the browser layer: anchored as a tab is, with
+    /// the page's viewport, and cut out of it. How many holes they make.
+    pub fn clear<R: Runtime>(main: &Webview<R>, clears: Vec<super::clear::Clear>, viewport: Viewport) -> Result<usize, String> {
+        let (tx, rx) = mpsc::channel::<Result<usize, String>>();
+        main.with_webview(move |platform| {
+            let cut = (|| {
+                let mtm = objc2::MainThreadMarker::new()
+                    .ok_or_else(|| "the clear was not asked on the main thread".to_string())?;
+                // SAFETY: on the main thread, over the main `WKWebView` (`webkit::view`).
+                let main: &NSView = unsafe { super::webkit::view(&platform) };
+                let layer = super::layer::over(main, mtm)
+                    .ok_or_else(|| "the main webview stands in no view".to_string())?;
+                // SAFETY: the main webview's superview, read on the main thread.
+                let main_frame = frame_of_in(main, unsafe { main.superview() }.as_deref(), &layer);
+                let anchor = Anchor::of(layer.frame().size.height, main_frame, viewport);
+                Ok(layer.clear(clears, anchor))
+            })();
+            if tx.send(cut).is_err() {
+                tracing::debug!("the asker stopped waiting");
+            }
+        })
+        .map_err(err)?;
+        rx.recv_timeout(PLACEMENT_BUDGET)
+            .map_err(|_| "the overlays were not cut out in time".to_string())?
     }
 
     /// The main webview's `WKWebView`, as a pointer the placement closure
@@ -974,18 +1681,30 @@ mod place {
                 if objc2::MainThreadMarker::new().is_none() {
                     return Err("the placement was not asked on the main thread".to_string());
                 }
+                let mtm = objc2::MainThreadMarker::new()
+                    .ok_or_else(|| "the placement was not asked on the main thread".to_string())?;
                 // SAFETY: on the main thread, over the live `WKWebView` (`webkit::view`).
                 let child: &NSView = unsafe { super::webkit::view(&platform) };
-                // SAFETY: the child was added to the window's content view and stays there.
-                let parent = unsafe { child.superview() }
-                    .ok_or_else(|| "the tab has no parent view".to_string())?;
                 // SAFETY: the main webview's `WKWebView`, alive while its window is; on the main thread.
                 let main: &NSView = unsafe { &*(main_ptr as *const NSView) };
+                // The tab stands in the browser layer (`layer`), which has the content
+                // view's size and orientation: its frame there is the anchor's.
+                let layer = super::layer::over(main, mtm);
+                if let Some(layer) = &layer {
+                    layer.adopt(child);
+                }
+                // SAFETY: the child stands in the layer (or, failing one, the content view) and stays there.
+                let parent = unsafe { child.superview() }
+                    .ok_or_else(|| "the tab has no parent view".to_string())?;
                 let parent_height = parent.frame().size.height;
-                let main_frame = frame_of(main);
+                // SAFETY: the main webview's superview, read on the main thread.
+                let main_frame = frame_of_in(main, unsafe { main.superview() }.as_deref(), &parent);
                 let anchor = Anchor::of(parent_height, main_frame, viewport);
                 child.setFrame(ns_rect(anchor.frame_for(&bounds)));
                 child.setHidden(false);
+                if let Some(layer) = &layer {
+                    layer.anchor_on(anchor);
+                }
                 Ok((anchor.placed_from(&frame_of(child)), anchor, main_frame))
             })();
             if tx.send(placed).is_err() {

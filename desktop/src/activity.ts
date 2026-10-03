@@ -21,7 +21,9 @@ import {
   GOAL_STATUS_ICON,
   STEP_STATE_ICON,
   WORK_ITEM_STATE_ICON,
+  GitMark,
   type LucideIcon,
+  type Mark,
 } from "./ui";
 import {
   appendCapped as appendCappedModel,
@@ -50,8 +52,8 @@ export type { DetailField, Tone };
 
 /** A rendered line: the model's, with its icon name resolved to a component. */
 export interface ActivityLine extends Omit<ModelActivityLine, "icon"> {
-  /** The concept this line is about. Absent when the name has no entry. */
-  icon?: LucideIcon;
+  /** The concept this line is about — a kit glyph, or a tool's mark. Absent when the name has no entry. */
+  icon?: LucideIcon | Mark;
 }
 
 export const truncate = truncateModel;
@@ -72,7 +74,7 @@ export const appendCapped = appendCappedModel as (
  * all: a near-miss symbol here would be the reader's first meeting with it,
  * and the association would be wrong everywhere else in the app.
  */
-function resolveIcon(name: string | undefined): LucideIcon | undefined {
+function resolveIcon(name: string | undefined): LucideIcon | Mark | undefined {
   if (!name) return undefined;
   const sep = name.indexOf(":");
   if (sep < 0) return undefined;
@@ -90,17 +92,20 @@ function resolveIcon(name: string | undefined): LucideIcon | undefined {
         : undefined;
     case "step":
       return key in STEP_STATE_ICON ? STEP_STATE_ICON[key as keyof typeof STEP_STATE_ICON] : undefined;
+    // A tool's own mark: git, wherever git is what happened (a commit, a push).
+    case "mark":
+      return key === "git" ? GitMark : undefined;
     default:
       return undefined;
   }
 }
 
-function resolve<T extends ModelLine>(line: T): Omit<T, "icon"> & { icon?: LucideIcon } {
+function resolve<T extends ModelLine>(line: T): Omit<T, "icon"> & { icon?: LucideIcon | Mark } {
   return { ...line, icon: resolveIcon(line.icon) };
 }
 
 export function payloadLine(payload: JournalPayload): Omit<ModelLine, "icon"> & {
-  icon?: LucideIcon;
+  icon?: LucideIcon | Mark;
 } {
   return resolve(payloadLineModel(payload));
 }

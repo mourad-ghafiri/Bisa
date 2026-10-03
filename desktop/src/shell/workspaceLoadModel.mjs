@@ -67,6 +67,21 @@ export function degradedReads(load, hosted) {
   return [...new Set([...(load ?? []), ...(hosted ?? [])])];
 }
 
+/**
+ * Whether one of the workspace's lists could not be read: the node is away,
+ * or the last load's read of that list failed (`failedRead`'s `name:`). A
+ * list in that state is not empty, only unknown — a screen says so and
+ * offers the read again, never a door to create the first one.
+ * @param {readonly string[] | null | undefined} degraded the reads that did not answer
+ * @param {string | null | undefined} offline the node's absence, when it is away
+ * @param {string} name a read's name (`LOAD_NAMES`): `goals`, `channels`, `dms` …
+ */
+export function listUnread(degraded, offline, name) {
+  if (offline) return true;
+  const prefix = `${name}:`;
+  return (degraded ?? []).some((d) => typeof d === "string" && d.startsWith(prefix));
+}
+
 /** The one sentence a failed read leaves: an error's message, else its text. */
 function messageOf(reason) {
   if (reason instanceof Error) return reason.message;

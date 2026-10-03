@@ -214,10 +214,12 @@ export function localNameFor(branch, locals) {
   return `${branch.remote}-${branch.name}`;
 }
 
-/** *↑2 ↓1* for a branch's standing against its upstream; empty when in step or without one. */
+/**
+ * A branch's standing against its upstream in words — *2 ahead, 1 behind* —
+ * for the row's tooltip and its screen-reader name (the row draws the kit's
+ * glyphs beside the counts); empty when in step or without one.
+ */
 export function standingWords(branch) {
-  const parts = [];
-  if (branch.ahead > 0) parts.push(`↑${branch.ahead}`);
-  if (branch.behind > 0) parts.push(`↓${branch.behind}`);
-  return parts.join(" ");
+  if (branch.ahead <= 0 && branch.behind <= 0) return "";
+  return t("work-branch-actions-standing", { ahead: Math.max(0, branch.ahead), behind: Math.max(0, branch.behind) });
 }

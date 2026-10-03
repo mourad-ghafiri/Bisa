@@ -16,6 +16,8 @@ test("a sentence has a space and letters and starts like one; a class list and a
   assert.ok(isProse("Nothing needs you"));
   assert.ok(isProse("{x} need you"));
   assert.ok(!isProse("flex items-center gap-2"));
+  assert.ok(!isProse("min-h-0 flex-1 @container px-5") && !isProse("@container grid @md:grid-cols-2"), "a class list with a container query");
+  assert.ok(isProse("@alice please review this"), "a mention opens a sentence like any word");
   assert.ok(!isProse("appearance.theme"));
   assert.ok(!isProse("a b"));
   assert.ok(!isProse("  "));

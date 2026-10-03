@@ -29,7 +29,7 @@ import { errorFields, log } from "../../log";
 import { NEW_WORKSTREAM, fire } from "../../shell/shortcuts";
 import { scriptRefusal } from "./workstreamScripts.mjs";
 import { navigate } from "../../router";
-import { Button, Chip, ErrorNote, ICON, Menu, SessionMark, Skeleton, SkeletonRows, Tooltip, WorkingDot, copyText, useToast, type MenuItem } from "../../ui";
+import { Button, Chip, ErrorNote, ICON, Menu, SessionMark, Skeleton, SkeletonRows, Tooltip, WorkingDot, failureText, copyText, useToast, type MenuItem } from "../../ui";
 import { useHarnessLabels } from "../../shell/useHarnesses";
 import { useSessions } from "../../shell/sessionsStore";
 import { useTerminals } from "../../shell/useTerminals";
@@ -139,7 +139,7 @@ export function WorkstreamPanel({
         setCleanProblem(scriptRefusal(e));
         setClosing("tree");
       } else {
-        toast.error(e instanceof Error ? e.message : String(e));
+        toast.error(failureText("work", "workstream-panel-failed", e));
       }
     } finally {
       setBusy(false);
@@ -166,7 +166,7 @@ export function WorkstreamPanel({
   ];
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-5">
       {onBack && (
         <div>
           <Button size="sm" variant="ghost" onClick={onBack}>
@@ -198,7 +198,14 @@ export function WorkstreamPanel({
               </Tooltip>
             </span>
           )}
-          {hasBranch && s?.base && <span className="shrink-0 font-mono text-2xs text-text-dim">→ {s.base}</span>}
+          {/* The base yields too, capped, so a long base never squeezes the
+              workstream's own name down to its first letter. */}
+          {hasBranch && s?.base && (
+            <span className="flex max-w-[45%] min-w-0 items-center gap-1 font-mono text-2xs text-text-dim" title={s.base}>
+              <ICON.forward size={10} aria-hidden className="shrink-0" />
+              <span className="min-w-0 truncate">{s.base}</span>
+            </span>
+          )}
           {(activity.counts.agents > 0 || activity.counts.live > 0) && (
             <SessionMark state={activity.state} title={t("work-workstream-panel-agents-working-shells", { agents: activity.counts.agents, working: activity.counts.working, live: activity.counts.live })} />
           )}

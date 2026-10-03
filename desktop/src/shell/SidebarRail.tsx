@@ -3,11 +3,14 @@
  * sidebar). The seven destinations, then Channels and Messages — the rail
  * has no room for the lists, so each is one door with its unread summed —
  * each an icon with its name and its marks in the tooltip and the accessible
- * name, the Inbox with its count in the icon's corner: everything not yet
- * dealt with, accented while any of it needs the person
- * (`sidebarModel.inboxBadge`) — `9+` past nine, the exact numbers in the
- * tooltip; the mark hangs a few pixels outside the door, into the rail's
- * gutter, which is why the doors' scrollport is the rail's full width. The doors are `railDoors`' facts; this draws.
+ * name, the Inbox with its count in the icon's corner: what needs the
+ * person, in the accent, with a neutral dot beside it while anything is also
+ * unread — the unread count alone, neutral, when nothing is owed; never one
+ * summed number (`sidebarModel.railDoors`) — `9+` past nine, the exact
+ * numbers in the tooltip; the mark hangs a few pixels outside the door, into
+ * the rail's gutter, which is why the doors' scrollport is the rail's full
+ * width. The doors are `railDoors`' facts; this draws. While the node is
+ * away, a marker at the foot says so, and is the door to Settings › Node.
  * The travelling highlight is the expanded sidebar's alone (`SidebarSection`
  * is the one file outside the kit that imports `motion`); the rail marks the
  * active door with a bar, as the occupant rail does. The toggle that expands
@@ -19,8 +22,8 @@
  * Channels and Messages are the rail's own doors and stay where they are.
  */
 
-import { section, useRoute } from "../router";
-import { CountBadge, FOCUS_RING, ICON, SortableList, Tooltip, WorkingDot, cn, navRowDrag } from "../ui";
+import { href, section, useRoute } from "../router";
+import { CountBadge, Dot, FOCUS_RING, ICON, SortableList, Tooltip, WorkingDot, cn, navRowDrag, useArrivals } from "../ui";
 import type { LucideIcon, SortableHandle } from "../ui";
 import type { NavEntry } from "./nav";
 import { placeNav, usePrimaryNav } from "./navOrderStore";
@@ -29,6 +32,7 @@ import { onArrowKeys } from "./SidebarSection";
 import { railDoors, railTooltip } from "./sidebarModel.mjs";
 import type { RailDoor } from "./sidebarModel.mjs";
 import { useWorkspace } from "./useWorkspaceData";
+import { settingsSearch } from "../views/_settings/settingsLink.mjs";
 import { t } from "../i18n/l10n.mjs";
 
 /** The glyph the rail's own two doors wear. */
@@ -38,6 +42,8 @@ function fixedGlyph(key: string): LucideIcon {
 
 function RailDoorLink({ door, active, icon: Icon, handle }: { door: RailDoor; active: boolean; icon: LucideIcon; handle?: SortableHandle }) {
   const words = railTooltip(door);
+  // A count that rose arrives once, as in the expanded sidebar — for the Inbox, only what is owed.
+  const arrivals = useArrivals(door.arrival);
   // Where the person was in the section, not its bare index (`sectionDoor.ts`).
   const to = useSectionHref(door.route);
   return (
@@ -54,16 +60,22 @@ function RailDoorLink({ door, active, icon: Icon, handle }: { door: RailDoor; ac
         className={cn(
           "anim relative flex h-8 w-8 shrink-0 items-center justify-center rounded-control",
           FOCUS_RING,
-          active ? "bg-accent-soft text-accent-ink" : "text-text-dim hover:bg-surface-2 hover:text",
+          active ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text",
           handle?.dragging && "cursor-grabbing",
         )}
       >
         {/* The mark sits on the rail's outer edge — the right — where the sidebar's column ends. */}
-        {active && <span aria-hidden className="absolute inset-y-1.5 -right-1 w-0.5 rounded-full bg-accent" />}
+        {active && <span aria-hidden className="absolute inset-y-1.5 -right-1 w-0.5 rounded-full bg-text/70" />}
         <Icon size={15} aria-hidden />
         {(door.badge || door.live) && (
           <span className="pointer-events-none absolute -right-1 -top-1 inline-flex items-center gap-0.5">
-            {door.badge && <CountBadge count={door.badge.count} tone={door.badge.tone} title={door.badge.title ?? undefined} size="sm" />}
+            {door.badge && (
+              <span key={arrivals} className={arrivals > 0 ? "motion-pop inline-flex" : "inline-flex"}>
+                <CountBadge count={door.badge.count} tone={door.badge.tone} title={door.badge.title ?? undefined} size="sm" />
+              </span>
+            )}
+            {/* Unread besides what is owed: a dot, since the corner has room for one number. Its words are the door's name. */}
+            {door.unreadDot && <Dot tone="neutral" />}
             {door.live && <WorkingDot title={door.live} />}
           </span>
         )}
@@ -101,16 +113,21 @@ export function SidebarRail() {
           )}
         </SortableList>
         {fixed.map((door, i) => (
-          <div key={door.key} className={cn("flex flex-col items-center", i === 0 && "mt-2 border-t border-border pt-2")}>
+          <div key={door.key} className={cn("flex flex-col items-center", i === 0 && "mt-2 border-t border-hairline pt-2")}>
             <RailDoorLink door={door} active={active === door.key} icon={fixedGlyph(door.key)} />
           </div>
         ))}
       </nav>
+      {/* The node away: the reason is the marker's name, and the marker is the door to where the node is seen to. */}
       {ws.offline && (
         <Tooltip label={t("shell-sidebar-rail-node-unreachable", { offline: ws.offline })} side="right">
-          <span className="mb-2 flex h-8 w-8 shrink-0 items-center justify-center text-danger" aria-label={t("shell-sidebar-rail-node-unreachable", { offline: ws.offline })}>
+          <a
+            href={href({ name: "settings" }, settingsSearch("node"))}
+            aria-label={t("shell-sidebar-rail-node-unreachable", { offline: ws.offline })}
+            className={cn("anim mb-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-danger hover:bg-danger-soft", FOCUS_RING)}
+          >
             <ICON.warn size={14} aria-hidden />
-          </span>
+          </a>
         </Tooltip>
       )}
     </div>

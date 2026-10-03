@@ -26,7 +26,7 @@ export function SwitchStepForm({ step, onChange, disabled }: { step: Switch; onC
       <Field label={t("workflow-switch-step-form-cases")} hint={t("workflow-switch-step-form-first-case-whose-value-text-names")}>
         <div className="flex flex-col gap-2">
           {cases.map((c, i) => (
-            <div key={`${c.branch}:${i}`} className="flex flex-wrap items-center gap-2 rounded-control border border-border p-2">
+            <div key={`${c.branch}:${i}`} className="flex flex-wrap items-center gap-2 rounded-control bg-surface-2/50 p-2">
               <Chip tone="quiet">{t("workflow-switch-step-form-case-n", { n: i + 1 })}</Chip>
               <TextInput
                 className="w-36 font-mono"

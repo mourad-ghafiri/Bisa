@@ -40,6 +40,7 @@ import { navigate, useRoute } from "../router";
 import { followWords, followedSession } from "../shell/followedSessionModel.mjs";
 import { workSummary } from "../shell/workSummaryModel.mjs";
 import { openFollowed, useFollowedSession } from "../shell/followedSessionStore";
+import { useBrowserClear } from "../shell/browserClear";
 import { onSessionTransition, useSessions } from "../shell/sessionsStore";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { counts as sessionCounts } from "../ui/sessionState.mjs";
@@ -157,6 +158,9 @@ export function PetCompanion() {
   // Nothing installed, or the chosen one was removed elsewhere: no pet, and no
   // placeholder standing in for one.
   const chosen = active && pets.some((p) => p.id === active) ? active : null;
+  // Over a browser tab the layer leaves a hole for the pet (ide/18) — asked before the early return, as hooks are.
+  const body = useRef<HTMLButtonElement>(null);
+  useBrowserClear("pet", body, Boolean(chosen));
   if (!chosen) return null;
 
   const label = pets.find((p) => p.id === chosen)?.displayName ?? t("pet-pet-companion-pet");
@@ -169,6 +173,7 @@ export function PetCompanion() {
 
   return createPortal(
     <button
+      ref={body}
       type="button"
       aria-label={`${label} — ${saying}`}
       title={`${label} — ${saying}`}

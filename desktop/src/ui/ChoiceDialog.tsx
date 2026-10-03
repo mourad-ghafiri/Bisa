@@ -82,13 +82,13 @@ export function ChoiceDialog({
           }}
         >
           <header className={HEADER}>
-            <A.Title className="text-base font-semibold">{title}</A.Title>
+            <A.Title className="text-base font-semibold tracking-tight">{title}</A.Title>
           </header>
           <div className={BODY}>
             <ImmediateIndicators>
               {body ? (
                 <A.Description asChild>
-                  <div className="mb-3 text-xs text-text-dim">{body}</div>
+                  <div className="mb-4 text-sm text-text-dim">{body}</div>
                 </A.Description>
               ) : (
                 <A.Description className="sr-only">{t("ui-choice-dialog-choose-what-do-cancel")}</A.Description>
@@ -109,7 +109,7 @@ export function ChoiceDialog({
                         onClick={choice.onSelect}
                         className={cn(
                           "anim flex w-full items-center gap-3 rounded-control border border-border px-3 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                          held ? "cursor-not-allowed opacity-60" : danger ? "hover:border-danger hover:bg-danger-soft" : "hover:bg-surface-2",
+                          held ? "cursor-not-allowed opacity-60" : danger ? "hover:border-danger hover:bg-danger-soft" : "hover:bg-surface-2 active:bg-selected",
                         )}
                       >
                         <span className="min-w-0 flex-1">

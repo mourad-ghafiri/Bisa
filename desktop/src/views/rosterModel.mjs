@@ -11,6 +11,7 @@
  */
 
 import { assigneeToWire } from "./_work/assigneeWire.mjs";
+import { gateOf } from "../ui/sessionState.mjs";
 import { t } from "../i18n/l10n.mjs";
 
 /** The two core agents' ids, as `types.hand.ts` spells them. */
@@ -25,21 +26,54 @@ export function respondsTo(agent) {
 
 /**
  * Where a running session is attached — its goal, its run of the workspace,
- * its work item, its conversation — with the id's tail as the label and a
- * route to go there when there is one; a kind's word when it is attached to
- * nothing named.
+ * its work item, its conversation — with a route to go there when there is
+ * one; a kind's word when it is attached to nothing named. A goal reads by
+ * its title when `titleOf` knows it, else — a goal the window has not read,
+ * or one with no title — by its id's tail, as everything else does.
  * @param {{goal?: string | null, run?: string | null, work_item?: string | null, conversation?: string | null, kind?: string} | null | undefined} session
+ * @param {(goal: string) => string | null | undefined} [titleOf]
  * @returns {{label: string, route: {name: string, id: string} | null}}
  */
-export function attachedTo(session) {
+export function attachedTo(session, titleOf) {
   const s = session ?? {};
-  if (s.goal) return { label: t("screens-roster-goal-tail", { tail: s.goal.slice(-6) }), route: { name: "goal", id: s.goal } };
+  if (s.goal) {
+    const title = titleOf?.(s.goal)?.trim();
+    return { label: title || t("screens-roster-goal-tail", { tail: s.goal.slice(-6) }), route: { name: "goal", id: s.goal } };
+  }
   // A run of the workspace's worker: no goal holds it, its run's page does.
   if (s.run) return { label: t("screens-roster-run-tail", { tail: s.run.slice(-6) }), route: { name: "run", id: s.run } };
   if (s.work_item) return { label: t("screens-roster-work-item", { work_item: s.work_item.slice(-6) }), route: null };
   if (s.conversation) return { label: t("screens-roster-a-conversation"), route: { name: "conversation", id: s.conversation } };
   const word = { conversation: t("screens-roster-channel-goal-s-thread"), note: t("screens-roster-a-note"), terminal: t("screens-roster-a-terminal") }[s.kind ?? ""];
   return { label: word ?? "—", route: null };
+}
+
+/**
+ * Where a session's ask is answered, the rail's rule (`gateOf`): only a
+ * session waiting on a gate — a permission, a question, a gate the node
+ * holds — has one, and it is answered in the Inbox, on the row the ask
+ * lives under: its goal, else its conversation, else its workstream. `null`
+ * when nothing waits on you; `{ item: null }` when the ask is the Inbox's
+ * but no row of it is named.
+ * @param {{state?: unknown, goal?: string | null, conversation?: string | null, workstream?: string | null} | null | undefined} session
+ * @returns {{item: string | null} | null}
+ */
+export function answerOf(session) {
+  if (!session || gateOf(session.state) === null) return null;
+  return { item: session.goal || session.conversation || session.workstream || null };
+}
+
+/**
+ * Whether a list-detail screen's detail sits **under** its roster rather
+ * than beside it — the narrow layout, below the split — read from the two
+ * columns' boxes: stacked when the detail starts left of the roster's right
+ * edge. A pick then brings the detail into view; beside the roster it is
+ * already there.
+ * @param {{right: number} | null | undefined} roster @param {{left: number} | null | undefined} detail
+ */
+export function detailStacked(roster, detail) {
+  if (!roster || !detail) return false;
+  return detail.left < roster.right;
 }
 
 /** @param {object} m an assignee */

@@ -10,7 +10,9 @@
  * **The width.** The pane's edge drags between a floor of `AUX_MIN_WIDTH`
  * and **seven tenths of the room** beside the sidebar — the content column
  * `App.tsx` measures — never a fixed number of pixels: 720 px was a third
- * of a wide window, and the browser lives here. The width a person chose is
+ * of a wide window, and the browser lives here. Nor past what leaves the
+ * screen beside it `SCREEN_MIN_WIDTH`: on a 1024px window the default pane
+ * left a goal's page 364px, and its steps lost their names. The width a person chose is
  * kept as they chose it (`bisa.aux.width`); what is *drawn* is that width
  * held within the room's bounds (`shownWidth`), so a window made narrower
  * narrows the pane and a window made wider gives the chosen width back. A
@@ -27,6 +29,8 @@ export const AUX_DEFAULT_WIDTH = 380;
 export const AUX_MIN_WIDTH = 300;
 /** The widest, as a share of the room beside the sidebar. */
 export const AUX_MAX_SHARE = 0.7;
+/** The least the screen beside the pane keeps: a page's title, its tabs and a row's name. */
+export const SCREEN_MIN_WIDTH = 420;
 
 /**
  * The pane's bounds in a column `available` pixels wide: the floor, and
@@ -40,7 +44,8 @@ export function auxBounds(available) {
   const room = Number(available);
   if (!Number.isFinite(room) || room <= 0) return { min: AUX_MIN_WIDTH, max: Number.POSITIVE_INFINITY };
   // Whole pixels; the share is read a hair above itself so 1440 × 0.7 is 1008, not 1007.999.
-  return { min: AUX_MIN_WIDTH, max: Math.max(AUX_MIN_WIDTH, Math.floor(room * AUX_MAX_SHARE + 1e-6)) };
+  const share = Math.floor(room * AUX_MAX_SHARE + 1e-6);
+  return { min: AUX_MIN_WIDTH, max: Math.max(AUX_MIN_WIDTH, Math.min(share, Math.floor(room) - SCREEN_MIN_WIDTH)) };
 }
 
 /**

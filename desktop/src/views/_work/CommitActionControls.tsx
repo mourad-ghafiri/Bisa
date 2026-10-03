@@ -12,8 +12,9 @@ import { refActions } from "./commitActionsModel.mjs";
 import type { ActionContext, CommitAction } from "./commitActionsModel.mjs";
 import type { ActionRef, ActionTarget, CommitActions } from "./useCommitActions";
 
+// HEAD is where you stand, not a summons: full ink, never the accent.
 const CHIP_TONE: Record<string, string> = {
-  head: "border-accent text-accent-ink",
+  head: "border-text/40 text-text",
   tag: "border-warn/60 text-warn",
   remote: "border-border text-text-dim",
 };
@@ -31,11 +32,11 @@ export function RefChip({ commit, refName, actions, ctx }: { commit: ActionTarge
   if (items.length === 0) {
     // A ref with nothing to do to it — HEAD — is a fact, drawn as a plain
     // label so it does not read as a menu beside the chips that are.
-    return <span className="shrink-0 font-mono text-3xs leading-tight text-accent-ink">{refName.name}</span>;
+    return <span className="shrink-0 font-mono text-3xs leading-tight font-semibold text-text">{refName.name}</span>;
   }
   const tone = CHIP_TONE[refName.kind] ?? "border-ok/60 text-ok";
   const chip = (
-    <span className={`shrink-0 rounded border px-1 font-mono text-3xs leading-tight ${tone}`}>
+    <span className={`anim shrink-0 rounded border px-1 font-mono text-3xs leading-tight hover:bg-surface-2 ${tone}`}>
       {refName.name}
       <ICON.collapsed size={9} aria-hidden className="ml-0.5 inline rotate-90 opacity-70" />
     </span>

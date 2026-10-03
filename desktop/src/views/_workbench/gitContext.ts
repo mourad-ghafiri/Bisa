@@ -12,7 +12,7 @@
  */
 
 import { api } from "../../api";
-import { toaster } from "../../ui";
+import { failureText, toaster } from "../../ui";
 import { standingOf } from "../_work/gitFiles.mjs";
 import { contextFor, setContext } from "./agentPaneStore";
 import { attachWithin, attachedWords, changeChips, type FilePatches } from "./gitContextModel.mjs";
@@ -50,6 +50,6 @@ export async function attachGitChanges(wid: string, scope: string, paths?: reado
     if (leftOut > 0) toaster.info(words);
     else toaster.ok(words);
   } catch (e) {
-    toaster.error(e instanceof Error ? e.message : String(e));
+    toaster.error(failureText("workbench", "git-context-failed", e));
   }
 }

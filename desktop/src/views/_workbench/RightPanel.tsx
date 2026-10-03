@@ -30,6 +30,7 @@ import { useGitChanges } from "../_work/useGitChanges";
 import { useWorkstreamStatus } from "../../shell/workstreamStatusStore";
 import { ProjectDetail } from "../_work/ProjectDetail";
 import { CheckoutView } from "../_work/CheckoutView";
+import { FolderMissing } from "../_work/FolderMissing";
 import { InitRepositoryCard } from "../_work/InitRepositoryCard";
 import { ProjectSettingsView } from "../_work/ProjectSettingsView";
 import { WorkItemPanel } from "../_work/WorkItemPanel";
@@ -139,10 +140,7 @@ export function RightPanel({
               // A directory the workspace has not laid down is not this panel's
               // to create — the checkout is the workstream's. Say whose it is
               // and offer the way there rather than a dead end.
-              <div className="flex flex-col gap-2 px-1 py-2 text-2xs text-text-dim">
-                <p>{rich("workbench-right-panel-nothing-at-path-yet", { path: <span className="font-mono">{path ?? t("workbench-right-panel-that-path")}</span> })}</p>
-                <button type="button" onClick={() => onOpenWorkstream(id)} className="self-start underline underline-offset-2 hover:text-text">{t("workbench-right-panel-open-workstream-s-panel")}</button>
-              </div>
+              <FolderMissing path={path} onOpen={() => onOpenWorkstream(id)} />
             ) : (
               <>
                 {search.open && <FilesSearch scope={scope} id={id} focusNonce={search.nonce} onOpen={onOpenAt} onClose={() => closeExplorerSearch(key)} />}
@@ -205,7 +203,7 @@ export function RightPanel({
             {aboutBody({ scope, hasProject: project !== null }) === "project" && project ? (
               <AboutTab pid={project} wid={id} view={panel.views.about} goals={goals} onLeft={onLeft} />
             ) : (
-              <SectionHeader title={OCCUPANT_LABEL.about} />
+              <SectionHeader flush title={OCCUPANT_LABEL.about} />
             )}
             {scope === "work_item" && <WorkItemPanel itemId={id} inWorkbench />}
             {scope === "goal" && (
@@ -235,7 +233,7 @@ function AboutTab({ pid, wid, view, goals, onLeft }: { pid: string; wid: string;
   return (
     <>
       <div className="sticky top-0 z-20 -mx-2 -mt-2 flex items-center gap-2 bg-surface px-2 pt-2">
-        <SectionHeader title={OCCUPANT_LABEL.about} />
+        <SectionHeader flush title={OCCUPANT_LABEL.about} />
         <span className="flex-1" />
         <SegmentedControl
           label={t("workbench-right-panel-about-view")}
@@ -319,7 +317,8 @@ function GitTab({
   });
   if (status.error) return <ErrorNote error={status.error} retry={status.reload} />;
   if (!status.data || !detail.data) return <SkeletonRows rows={6} className="p-3" />;
-  if (!status.data.status.exists) return <p className="p-3 text-xs text-danger">{t("workbench-right-panel-folder-not-disk")}</p>;
+  // The same door as Files: the folder is the workstream's to lay down, not a fault of this view.
+  if (!status.data.status.exists) return <FolderMissing path={rootPath} />;
   if (!status.data.status.git) {
     // The one offer a plain folder gets (ide/04): the sentence and the button.
     const project = detail.data.project;
@@ -369,7 +368,7 @@ function GitTab({
         <span className="flex-1" />
         {!isPrimary && onOpenDiff && (
           <Button size="sm" variant="ghost" onClick={onOpenDiff}>
-            <ICON.workstream size={12} aria-hidden />{t("workbench-right-panel-diff-against-base")}</Button>
+            <ICON.compare size={12} aria-hidden />{t("workbench-right-panel-diff-against-base")}</Button>
         )}
       </div>
       <GitViewBody

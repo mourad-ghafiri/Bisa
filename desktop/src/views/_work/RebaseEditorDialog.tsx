@@ -89,9 +89,10 @@ export function RebaseEditorDialog({
         ) : rows.length === 0 ? (
           <EmptyState title={tr("work-rebase-editor-dialog-nothing-rebase")} hint={tr("work-rebase-editor-dialog-has-no-commits-since", { current, target: target || tr("work-rebase-editor-dialog-target") })} className="py-3" action={null} />
         ) : (
-          <ol className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto" aria-label={tr("work-rebase-editor-dialog-plan-oldest-first")}>
+          // One list on hairlines, not a box per commit: the plan reads as one thing in order.
+          <ol className="flex max-h-[50vh] flex-col divide-y divide-hairline overflow-y-auto rounded-control border border-border" aria-label={tr("work-rebase-editor-dialog-plan-oldest-first")}>
             {rows.map((r, i) => (
-              <li key={r.id} className="flex flex-col gap-1 rounded-control border border-border px-2 py-1.5 text-2xs">
+              <li key={r.id} className="flex flex-col gap-1 px-2 py-1.5 text-2xs">
                 <div className="flex items-center gap-2">
                   <span className="tnum w-5 shrink-0 text-text-dim/70">{i + 1}</span>
                   <Select value={r.action} onChange={(e) => setRows(setAction(rows, i, e.target.value as GitRebaseAction))} className="h-6 w-24 text-2xs" aria-label={tr("work-rebase-editor-dialog-action", { short: r.short })}>

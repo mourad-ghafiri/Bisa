@@ -32,8 +32,8 @@ import { t } from "../../i18n/l10n.mjs";
 /** The three ways a project comes into existence, as the dialog offers them. */
 export const PROVENANCE = ["new", "clone", "import"];
 
-/** Where an imported folder ends up living. */
-export const PLACEMENT = ["copy", "link"];
+/** Where an imported folder ends up living, in the order the dialog offers them: linked in place (the default), then copied in. */
+export const PLACEMENT = ["link", "copy"];
 
 /**
  * The wire `kind` for a provenance and (for `import`) a placement.
@@ -202,6 +202,18 @@ export function refusalPlace(failure, provenance) {
 export function primaryLabel(provenance, placement) {
   if (provenance !== "import") return t("work-agent-editor-create");
   return placement === "copy" ? t("work-new-project-dialog-copy") : t("work-new-project-dialog-link-place");
+}
+
+/**
+ * What the dialog says while the node works — the commit button's own verb,
+ * going on: a clone, a copy and a link take very different times, and
+ * *Working…* says none of them.
+ * @param {"new" | "clone" | "import"} provenance @param {"copy" | "link"} placement
+ */
+export function busyLabel(provenance, placement) {
+  if (provenance === "clone") return t("work-new-project-dialog-cloning");
+  if (provenance === "import") return placement === "copy" ? t("work-new-project-dialog-copying") : t("work-new-project-dialog-linking");
+  return t("work-new-project-dialog-creating");
 }
 
 /**

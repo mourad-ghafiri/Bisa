@@ -28,7 +28,7 @@
  *   member instead of the roster quietly losing it.
  *
  * Nothing ships into a workspace: a fresh one has no teams at all, and the
- * nine bundled ones are catalog entries until somebody installs one. So the
+ * bundled ones are catalog entries until somebody installs one. So the
  * empty state is a door to the Catalog rather than an apology.
  *
  * The search, the tags picked and where the page was scrolled are the
@@ -42,15 +42,13 @@ import { filterByTagsAndWords } from "../ui/tagSearchModel.mjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { useConversationEvents } from "../bus";
-import { href, navigate, useSearchValue } from "../router";
-import { NEW_GOAL, fire } from "../shell/shortcuts";
+import { navigate, useSearchValue } from "../router";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf, useViewState } from "../shell/viewMemoryStore";
 import { textValue } from "../shell/viewValuesModel.mjs";
 import { settingsSearch } from "./_settings/settingsLink.mjs";
 import type { AgentDef, Assignee, AttachmentRef, TeamDef } from "../types";
-import { CurrentStepPill } from "./_goals/CurrentStepPill";
 import {
   AnimatedList,
   Avatar,
@@ -63,7 +61,7 @@ import {
   Field,
   ICON,
   Labelled,
-  Menu,
+  MoreMenu,
   NO_TAG_FILTER,
   PhotoField,
   Section,
@@ -73,6 +71,7 @@ import {
   TagFilterBar,
   TagInput,
   TextArea,
+  ScreenBar,
   TextInput,
   Tooltip,
   parseTagFilter,
@@ -82,10 +81,9 @@ import {
 import { AssigneePicker, useAssigneeOptions } from "./_work/AssigneePicker";
 import { requireWire } from "./_work/assigneeWire.mjs";
 import { DeleteButton, DeleteDialog, useUsage } from "./_work/LibraryRefs";
-import { setPendingTeam } from "./_work/NewGoalDialog";
 import { OriginChip } from "./_work/Origin";
 import { TEAM_EFFECT, teamApi } from "./_work/teamRelation";
-import { isImplicitMember, memberFace, rosterLine, storedMembers, teamMoved, withoutMember } from "./rosterModel.mjs";
+import { detailStacked, isImplicitMember, memberFace, rosterLine, storedMembers, teamMoved, withoutMember } from "./rosterModel.mjs";
 import { AbsentRecord } from "./_work/AbsentRecord";
 import { assigneeWire } from "./_work/types";
 import { readKey } from "./_work/keptReadsModel.mjs";
@@ -273,7 +271,6 @@ function TeamCard({
   selected,
   onOpen,
   onEdit,
-  onNewGoal,
   onDelete,
 }: {
   t: TeamDef;
@@ -282,7 +279,6 @@ function TeamCard({
   selected: boolean;
   onOpen: () => void;
   onEdit: () => void;
-  onNewGoal: () => void;
   onDelete: () => void;
 }) {
   const ws = useWorkspace();
@@ -292,30 +288,26 @@ function TeamCard({
   return (
     // A div rather than a clickable Card: this one holds its own controls, and
     // nesting a button inside a button hands the outer one every click.
-    <Card className={selected ? "border-accent/60" : ""}>
+    // The open team is where you are, not something asking for you: a neutral edge.
+    <Card className={selected ? "border-text/35" : ""}>
       <div className="flex items-start gap-2">
-        <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+        <button type="button" onClick={onOpen} className="group flex min-w-0 flex-1 items-start gap-2 text-left">
           <Avatar id={t.id} name={t.name} photo={t.photo} size={28} />
           <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="truncate text-xs font-medium">{t.name}</span>
+            <span className="truncate text-sm font-medium underline-offset-2 group-hover:underline">{t.name}</span>
             <OriginChip origin={t.origin} id={t.id} />
             {stored.length === 0 && <Chip tone="warn">{tr("screens-teams-not-staffed")}</Chip>}
           </span>
           <span className="mt-0.5 block text-2xs text-text-dim">{rosterLine(t.members)}</span>
           </span>
         </button>
-        <Menu
+        <MoreMenu
+          vertical
           label={tr("screens-teams-actions", { t: t.name })}
-          trigger={
-            <span className="anim flex h-6 w-6 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text">
-              <ICON.more size={14} aria-hidden />
-            </span>
-          }
           items={[
             { label: tr("screens-inbox-open"), icon: ICON.forward, onSelect: onOpen },
             { label: tr("screens-teams-edit-team"), icon: ICON.edit, onSelect: onEdit },
-            { label: tr("screens-teams-new-goal-team"), icon: ICON.goal, onSelect: onNewGoal },
             {
               label: tr("screens-agents-delete-2"),
               icon: ICON.delete,
@@ -335,11 +327,13 @@ function TeamCard({
         </div>
       )}
 
-      <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {/* Who is on it, as a line of faces and names rather than a cloud of
+          pills: the same six and the same "+N", read as one quiet fact. */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {t.members.slice(0, 6).map((m, i) => (
           <span
             key={`${assigneeWire(m)}:${i}`}
-            className="inline-flex items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-2xs"
+            className="inline-flex items-center gap-1 text-2xs text-text-dim"
             title={face(m).label}
           >
             <Avatar id={face(m).avatarId} name={face(m).label} photo={face(m).photo} size={14} />
@@ -373,14 +367,12 @@ function TeamPane({
   team,
   usage,
   onEdit,
-  onNewGoal,
   onDelete,
   onChanged,
 }: {
   team: TeamDef;
   usage: ReturnType<typeof useUsage>;
   onEdit: () => void;
-  onNewGoal: () => void;
   onDelete: () => void;
   /** A write landed; the roster on the left is now behind. */
   onChanged: () => void;
@@ -393,7 +385,6 @@ function TeamPane({
   // The list's copy is a frame behind a rename; the detail route's is the one
   // that was just written.
   const current = data?.team ?? team;
-  const goals = data?.goals ?? [];
   const stored = storedMembers(current);
 
   /**
@@ -426,7 +417,7 @@ function TeamPane({
 
       <Card>
         <div className="flex items-center gap-1.5">
-          <h2 className="truncate text-sm font-semibold">{current.name}</h2>
+          <h2 className="truncate text-lg font-semibold tracking-tight">{current.name}</h2>
           <OriginChip origin={current.origin} id={current.id} />
         </div>
         <p className="mt-0.5 text-2xs text-text-dim">{rosterLine(current.members)}</p>
@@ -438,13 +429,13 @@ function TeamPane({
         )}
 
         {current.purpose && (
-          <p className="mt-2 whitespace-pre-wrap text-2xs text-text-dim">{current.purpose}</p>
+          <p className="mt-2 max-w-measure whitespace-pre-wrap text-xs leading-relaxed text-text-dim">{current.purpose}</p>
         )}
 
-        <p className="mt-2 text-2xs text-text-dim">{TEAM_EFFECT}</p>
+        <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">{TEAM_EFFECT}</p>
 
+        {/* The pane's own actions: the screen's one primary is New team, up in the toolbar. */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="primary" onClick={onNewGoal}>{tr("screens-teams-new-goal-team")}</Button>
           <Button size="sm" variant="ghost" onClick={onEdit}>{tr("screens-teams-edit-team")}</Button>
           <DeleteButton usage={usage} onOpen={onDelete} />
         </div>
@@ -458,14 +449,14 @@ function TeamPane({
             icon={ICON.team}
             title={tr("screens-teams-nobody-has-been-put-team")}
             hint={tr("screens-teams-carries-no-work-until-has-members")}
-            action={
-              <Button variant="primary" onClick={onEdit}>{tr("screens-teams-add-members")}</Button>
-            }
+            // The pane's door, not the screen's ask: the one primary is New team, up in the toolbar.
+            action={<Button onClick={onEdit}>{tr("screens-teams-add-members")}</Button>}
           />
         )}
 
+        {/* One list, rows divided by a hairline, rather than a stack of boxes. */}
         <AnimatedList
-          className="mt-1.5 flex flex-col gap-1"
+          className="mt-1.5 flex flex-col divide-y divide-hairline rounded-control border border-border"
           items={current.members}
           keyOf={(m, i) => `${assigneeWire(m)}:${i}`}
           render={(m) => {
@@ -475,22 +466,23 @@ function TeamPane({
             const implicit = isImplicitMember(m);
             return (
               <div
-                className={`flex items-center gap-2 rounded-control border px-2 py-1.5 ${
-                  implicit ? "border-dashed border-accent/50" : "border-border"
+                className={`flex min-h-row-lg items-center gap-2.5 px-2.5 py-1.5 ${
+                  implicit ? "bg-surface-2/50" : ""
                 }`}
               >
                 <Avatar id={o.avatar} name={o.name} photo={o.photo} size={20} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-2xs">{o.name}</span>
+                  <span className="block truncate text-xs">{o.name}</span>
                   <span className="block truncate text-2xs text-text-dim">{o.sub}</span>
                 </span>
-                <Chip tone={o.kind === "agent" ? "accent" : o.kind === "team" ? "warn" : "quiet"}>
+                {/* A member's kind is identity, not a summons: neutral. A team inside a team is the anomaly, so it keeps warn. */}
+                <Chip tone={o.kind === "team" ? "warn" : "neutral"}>
                   {o.kind === "human" ? tr("screens-teams-person") : o.kind === "agent" ? tr("screens-teams-kind-agent") : tr("screens-teams-kind-team")}
                 </Chip>
                 {implicit ? (
                   <Tooltip label={tr("screens-teams-member-every-team-stored-none-them")}>
                     <span>
-                      <Chip tone="accent">{tr("screens-teams-implicit")}</Chip>
+                      <Chip>{tr("screens-teams-implicit")}</Chip>
                     </span>
                   </Tooltip>
                 ) : (
@@ -507,38 +499,10 @@ function TeamPane({
         />
 
         {current.members.some(isImplicitMember) && (
-          <p className="mt-1.5 text-2xs text-text-dim">{tr("screens-teams-platform-own-agent-belongs-every-team")}</p>
+          <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">{tr("screens-teams-platform-own-agent-belongs-every-team")}</p>
         )}
       </Section>
 
-      <Section title={tr("screens-teams-carrying", { goals: goals.length })}>
-        {goals.length === 0 ? (
-          <EmptyState
-            icon={ICON.goal}
-            title={tr("screens-teams-not-carrying-anything")}
-            hint={tr("screens-teams-assign-team-goal-agents-pick-up")}
-            action={
-              <Button variant="primary" onClick={onNewGoal}>{tr("screens-teams-new-goal-team")}</Button>
-            }
-          />
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {goals.map((i) => (
-              <li key={i.id}>
-                <a
-                  href={href({ name: "goal", id: i.id })}
-                  className="anim flex items-center gap-2 rounded-control border border-border px-2 py-1.5 hover:bg-surface-2"
-                >
-                  <span className="min-w-0 flex-1 truncate text-2xs">
-                    {i.title ?? tr("screens-teams-goal", { i: i.id.slice(-6) })}
-                  </span>
-                  <CurrentStepPill row={i} />
-                </a>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
     </div>
   );
 }
@@ -580,6 +544,21 @@ export default function Teams() {
     [teams, selectedId],
   );
 
+  // A pick in a narrow screen: the team opens stacked under the list, out of
+  // sight, so it is brought into view — the nearest edge, the least movement.
+  // Beside the list it is already in view and nothing moves; the place the
+  // screen opens on stays `useViewScroll`'s to put back.
+  const rosterCol = useRef<HTMLDivElement>(null);
+  const detailCol = useRef<HTMLDivElement>(null);
+  const picked = useRef(selectedId);
+  useEffect(() => {
+    if (picked.current === selectedId) return;
+    picked.current = selectedId;
+    const detail = detailCol.current;
+    if (!selectedId || !detail) return;
+    if (detailStacked(rosterCol.current?.getBoundingClientRect(), detail.getBoundingClientRect())) detail.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
+
   // Asked at the screen so the detail pane's control and the dialog read the
   // same answer instead of running the question twice.
   const usage = useUsage("team", selected?.id ?? null);
@@ -591,11 +570,6 @@ export default function Teams() {
     () => filterByTagsAndWords(teams, tagFilter, query, (t) => t.tags, (t) => [t.name, t.id, t.purpose]),
     [teams, query, tagFilter],
   );
-
-  const newGoalFor = (t: TeamDef) => {
-    setPendingTeam(t.id);
-    fire(NEW_GOAL);
-  };
 
   const dialogs = (
     <>
@@ -656,7 +630,7 @@ export default function Teams() {
         <EmptyState
           icon={ICON.team}
           title={tr("screens-teams-no-teams-yet")}
-          hint={tr("screens-teams-nine-teams-catalog-discovery-engineering-launch", { TEAM_EFFECT })}
+          hint={tr("screens-teams-teams-catalog-installing", { TEAM_EFFECT })}
           action={
             <div className="flex flex-wrap justify-center gap-2">
               <Button
@@ -675,33 +649,46 @@ export default function Teams() {
   }
 
   return (
-    // The root the page's scroll is kept from; it draws no box of its own.
-    <div ref={root} className="contents">
-    <div data-scroll-keep={`page:${selectedId ?? ""}`} className="min-h-0 flex-1 overflow-y-auto p-6">
-      <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
-        <div className="flex min-w-0 flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <TextInput
-              value={query}
-              placeholder={tr("screens-teams-search-teams")}
-              aria-label={tr("screens-teams-search-teams-2")}
-              className="h-7 max-w-64 py-0"
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <span className="text-2xs text-text-dim">{tr("screens-teams-words", { shown: shown.length, teams: teams.length })}</span>
-            <Tooltip label={tr("screens-teams-re-read-list")}>
-              <button
-                type="button"
-                onClick={reload}
-                aria-label={tr("screens-teams-refresh-teams")}
-                className="anim ml-auto flex h-7 w-7 items-center justify-center rounded-control text-text-dim hover:bg-surface-2 hover:text-text"
-              >
-                <ICON.refresh size={14} aria-hidden />
-              </button>
-            </Tooltip>
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>{tr("screens-teams-new-team")}</Button>
-          </div>
-
+    // The root the page's scroll is kept from: the screen's band, then the scroll under it.
+    <div ref={root} className="flex h-full min-h-0 flex-col">
+    {/* The screen's band (`ui/ScreenBar.tsx`): the search narrows the list; the count, the re-read and *New team* last, as on every index screen. */}
+    <ScreenBar
+      end={
+        <>
+          <span className="tnum text-2xs text-text-dim">{tr("screens-teams-words", { shown: shown.length, teams: teams.length })}</span>
+          <Tooltip label={tr("screens-teams-re-read-list")}>
+            <Button size="icon" variant="ghost" onClick={reload} aria-label={tr("screens-teams-refresh-teams")}>
+              <ICON.refresh size={14} aria-hidden />
+            </Button>
+          </Tooltip>
+          {/* The catalog's teams, ready to install — Settings › Library › Teams — beside the screen's one primary. */}
+          <Tooltip label={tr("screens-teams-catalog-hint")}>
+            <Button size="sm" onClick={() => navigate({ name: "settings" }, settingsSearch("catalog-team"))}>
+              <ICON.catalog size={12} aria-hidden />
+              {tr("screens-agents-catalog")}
+            </Button>
+          </Tooltip>
+          <Button size="sm" variant="primary" onClick={() => setCreating(true)}>{tr("screens-teams-new-team")}</Button>
+        </>
+      }
+    >
+      <TextInput
+        value={query}
+        placeholder={tr("screens-teams-search-teams")}
+        aria-label={tr("screens-teams-search-teams-2")}
+        className="h-7 w-full max-w-64 py-0"
+        onChange={(e) => setQuery(e.target.value)}
+      />
+    </ScreenBar>
+    {/* A size container: list and detail split by the room this screen has —
+        the window, less the sidebar and any pane beside it — never by the
+        window alone, which split a screen squeezed to 360px by an open pane. */}
+    <div data-scroll-keep={`page:${selectedId ?? ""}`} className="@container min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="grid gap-6 @2xl:grid-cols-[1.3fr_1fr]">
+        {/* A size container: the cards split into two columns by this column's
+            width, not the window's, so a narrow window beside the detail pane
+            never squeezes a team's name to its first letter. */}
+        <div ref={rosterCol} className="@container flex min-w-0 flex-col gap-2">
           <TagFilterBar
             items={teams}
             tagsOf={tagsOfTeam}
@@ -725,7 +712,7 @@ export default function Teams() {
             />
           ) : (
             <AnimatedList
-              className="grid gap-2 md:grid-cols-2"
+              className="grid gap-2 @xl:grid-cols-2"
               items={shown}
               keyOf={(t) => t.id}
               render={(t) => (
@@ -735,7 +722,6 @@ export default function Teams() {
                   selected={t.id === selectedId}
                   onOpen={() => select(t.id === selectedId ? null : t.id)}
                   onEdit={() => setEditing(t)}
-                  onNewGoal={() => newGoalFor(t)}
                   onDelete={() => {
                     // Selecting first is what puts the usage check on this
                     // team; the dialog opens on its "checking" body and fills
@@ -749,14 +735,17 @@ export default function Teams() {
           )}
         </div>
 
-        <div className="min-w-0">
+        {/* Beside the roster the detail stays in view as the roster scrolls — the
+            list ran past two screens while the detail fit in a third of one —
+            with a scroll of its own when it is the taller. Stacked under a
+            narrow roster it scrolls with the page, as before. */}
+        <div ref={detailCol} className="min-w-0 @2xl:sticky @2xl:top-0 @2xl:max-h-[calc(100vh-11rem)] @2xl:self-start @2xl:overflow-y-auto">
           {selected ? (
             <TeamPane
               key={selected.id}
               team={selected}
               usage={usage}
               onEdit={() => setEditing(selected)}
-              onNewGoal={() => newGoalFor(selected)}
               onDelete={() => setDeleting(true)}
               onChanged={reload}
             />
@@ -781,10 +770,8 @@ export default function Teams() {
               }
             />
           ) : (
-            <Card>
-              <p className="text-xs font-medium">{tr("screens-teams-pick-team")}</p>
-              <p className="mt-1 text-2xs text-text-dim">{tr("screens-teams-who-what-carrying-how-files-show", { TEAM_EFFECT })}</p>
-            </Card>
+            // Nothing picked yet: an open door, never a box — the list beside it is the action.
+            <EmptyState icon={ICON.team} title={tr("screens-teams-pick-team")} hint={tr("screens-teams-who-what-carrying-how-files-show", { TEAM_EFFECT })} action={null} className="py-16" />
           )}
         </div>
       </div>

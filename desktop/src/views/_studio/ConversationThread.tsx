@@ -19,12 +19,11 @@ import { useMemo } from "react";
 import { openDrawing } from "../../draw/drawStore";
 import { openNote } from "../../notes/notesStore";
 import { href } from "../../router";
-import { BrowserDoor } from "../../shell/BrowserDoor";
 import { stopSession, useSessions } from "../../shell/sessionsStore";
 import { stopWords } from "../../shell/sessionRosterModel.mjs";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import type { ConversationOrigin, ConversationView } from "../../types";
-import { Button, Chip, ICON, Menu, useToast } from "../../ui";
+import { Button, Chip, ICON, Menu, failureText, useToast } from "../../ui";
 import { addressee } from "../_workbench/agentRailModel.mjs";
 import { sessionsOf, turnSummary } from "../_workbench/conversationPaneModel.mjs";
 import { GENERAL_AGENT } from "../_workbench/editorAgentModel.mjs";
@@ -104,7 +103,7 @@ export function ConversationThread({
         onStop: () =>
           void stopSession(stoppable.id).then(
             (how) => toast.ok(stopWords(how, t("studio-conversation-thread-turn-stopped"))),
-            (e: unknown) => toast.error(e instanceof Error ? e.message : String(e)),
+            (e: unknown) => toast.error(failureText("studio", "conversation-thread-failed", e)),
           ),
       }
     : null;
@@ -138,7 +137,7 @@ export function ConversationThread({
                 <OriginDoor origin={row.origin} />
                 {working.length > 0 && <Chip tone="ok">{t("studio-conversation-thread-agent-writing")}</Chip>}
                 {row.agents.map((a) => (
-                  <Chip key={a} tone="quiet" icon={ICON.agent}>
+                  <Chip key={a} tone="neutral" icon={ICON.agent}>
                     {ws.agents.find((x) => x.id === a)?.name ?? a}
                   </Chip>
                 ))}
@@ -146,7 +145,6 @@ export function ConversationThread({
             }
             actions={
               <>
-                <BrowserDoor home={{ scope: "conversation", id: row.id }} />
                 {home.route.name === "workbench" && (
                   <Button asChild size="sm">
                     <a href={href(home.route as Parameters<typeof href>[0], home.search ?? undefined)}>

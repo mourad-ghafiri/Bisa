@@ -16,11 +16,11 @@ export function FooterToggle({ icon: Icon, on, label, onClick, disabled = false 
         disabled={disabled}
         onClick={onClick}
         className={cn(
-          "anim flex h-6 w-6 shrink-0 items-center justify-center rounded-control disabled:opacity-40",
-          on ? "bg-accent-soft text-accent-ink" : "text-text-dim hover:bg-surface-2 hover:text-text",
+          "anim flex h-6 w-6 shrink-0 items-center justify-center rounded-control disabled:opacity-45",
+          on ? "bg-selected text-text" : "text-text-dim hover:bg-surface-2 hover:text-text",
         )}
       >
-        <Icon size={14} aria-hidden />
+        <Icon size={13} aria-hidden />
       </button>
     </Tooltip>
   );

@@ -7,6 +7,8 @@ export declare const BOX_WIDTH: number;
 export declare const INSPECTOR_ROLES: readonly string[];
 export declare const FALLBACK_SIZES: Readonly<{ size: number; small: number }>;
 export declare const STYLE_PARTS: readonly string[];
+/** A colour with its alpha taken off; anything else as it is. */
+export declare function opaque(value: string): string;
 
 /** The overlay's theme: the role tokens, resolved, on one side. */
 export interface InspectorTheme {

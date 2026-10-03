@@ -29,7 +29,10 @@
 
 import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
+import { useRef } from "react";
 import { DOCK_SIZE, dockBox, dockStyle, useDockDrag, useDockViewport } from "../ui/Dock";
+import { useBrowserClear } from "../shell/browserClear";
+import { useDockFootprint } from "../ui/dockClearance";
 import { moveDock, toggleNotes, useNotesOverlay } from "./notesStore";
 import { t } from "../i18n/l10n.mjs";
 
@@ -51,9 +54,18 @@ export function NoteDock({
   // inside it. The drag starts from it, so a clamped dock does not jump.
   const box = dockBox(dock, viewport);
   const drag = useDockDrag(box, viewport, moveDock);
+  // Where it is painted, so the content keeps room around it (`ui/dockClearance.ts`).
+  useDockFootprint("notes", box, DOCK_SIZE);
+  // Over a browser tab the layer leaves a round hole for the dock (ide/18), and one for
+  // the count badge on its corner, so neither is ever under the page.
+  const button = useRef<HTMLButtonElement>(null);
+  const badge = useRef<HTMLSpanElement>(null);
+  useBrowserClear("notes-dock", button, true);
+  useBrowserClear("notes-dock-count", badge, showCount && Boolean(count));
 
   return (
     <button
+      ref={button}
       type="button"
       aria-label={count ? t("notes-note-dock-notes-2", { count }) : t("notes-note-dock-notes")}
       aria-keyshortcuts="Alt+N"
@@ -83,6 +95,7 @@ export function NoteDock({
       <ICON.note size={20} strokeWidth={2} aria-hidden />
       {showCount && Boolean(count) && (
         <span
+          ref={badge}
           aria-hidden
           // Reads against the button's own fill, not the page's — it sits on
           // `surface-2` now, so the old `surface-2` badge would have vanished

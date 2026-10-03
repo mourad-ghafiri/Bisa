@@ -20,7 +20,7 @@ import type { MobileDevelopmentStatus } from "../../types";
 import { refreshDevices, useDevices } from "../../shell/devicesStore";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import { boolOf, choiceOf } from "../../shell/settingsModel.mjs";
-import { Button, Card, Chip, CopyText, Dialog, ErrorNote, ExternalLink, Field, ICON, Pending, ReadLine, SegmentedControl, Section, Select, Switch, TextInput, Tooltip, isMac, useToast } from "../../ui";
+import { Button, Card, Chip, CopyText, Dialog, ErrorNote, ExternalLink, Field, ICON, Pending, ReadLine, SegmentedControl, Section, Select, Switch, TextInput, Tooltip, failureText, isMac, useToast } from "../../ui";
 import { attempt, useAsync } from "../_work/useAsync";
 import { pendingRows, readWords } from "./loadModel.mjs";
 import {
@@ -97,7 +97,7 @@ export function MobileDevelopmentPanel() {
       await api.setSettings(scope, { [key]: value });
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "mobile-development-panel-failed", e));
     } finally {
       setBusy(false);
     }
@@ -108,7 +108,7 @@ export function MobileDevelopmentPanel() {
       await api.unsetSetting("workspace", AGENTS_KEY);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "mobile-development-panel-failed", e));
     } finally {
       setBusy(false);
     }
@@ -117,7 +117,7 @@ export function MobileDevelopmentPanel() {
   const policyOptions = policySegments().map((s) => ({ id: s.id, label: s.label, icon: ICON[s.icon as keyof typeof ICON] }));
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <Section title={tr("settings-mobile-development-panel-mobile-development")}>
         <Card>
           {!resolved && !error && <Pending what={tr("settings-browser-access-panel-resolved-values")} rows={pendingRows(tr("settings-browser-access-panel-resolved-values"))} />}
@@ -160,7 +160,7 @@ export function MobileDevelopmentPanel() {
                 <span>{rich("settings-mobile-development-panel-components-blurb")}</span>
                 <span className="shrink-0">{checkedWords(status.data.checked_at)}</span>
               </div>
-              <ul className="flex flex-col divide-y divide-border" aria-label={tr("settings-mobile-development-panel-setup")}>
+              <ul className="flex flex-col divide-y divide-hairline" aria-label={tr("settings-mobile-development-panel-setup")}>
                 {rows.map((r) => (
                   <li key={r.id} className="flex flex-col gap-1 py-2">
                     <div className="flex items-center gap-2">
@@ -182,7 +182,7 @@ export function MobileDevelopmentPanel() {
               </ul>
               {doctor.length > 0 && (
                 <div>
-                  <span className="mb-1 block font-medium text-text-dim">{tr("settings-mobile-development-panel-flutter-s-own-doctor")}</span>
+                  <span className="mb-1 block font-semibold text-text-dim">{tr("settings-mobile-development-panel-flutter-s-own-doctor")}</span>
                   <ul className="flex flex-col gap-0.5" aria-label={tr("settings-mobile-development-panel-flutter-doctor")}>
                     {doctor.map((d, i) => (
                       <li key={i} className="flex items-center gap-2">
@@ -221,7 +221,7 @@ export function MobileDevelopmentPanel() {
           )}
         </Card>
       </Section>
-    </>
+    </div>
   );
 }
 
@@ -246,7 +246,7 @@ function DevicesSection({ platforms, status }: { platforms: Platforms; status: M
       if (verb === "shutdown") toast.ok(tr("settings-mobile-development-panel-shut-down-2", { after: after.name }));
       await refreshDevices();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "mobile-development-panel-failed", e));
     } finally {
       setBusy(null);
     }
@@ -271,7 +271,7 @@ function DevicesSection({ platforms, status }: { platforms: Platforms; status: M
         {read && error && <ErrorNote error={error} retry={() => void refreshDevices()} />}
         {read && !error && rows.length === 0 && <p className="text-2xs text-text-dim">{tr("settings-mobile-development-panel-simulator-emulator-phone-here-make-simulator")}</p>}
         {read && !error && rows.length > 0 && (
-          <ul className="flex flex-col divide-y divide-border text-2xs" aria-label={tr("settings-mobile-development-panel-devices")}>
+          <ul className="flex flex-col divide-y divide-hairline text-2xs" aria-label={tr("settings-mobile-development-panel-devices")}>
             {rows.map((r) => (
               <li key={r.id} className="flex items-center gap-2 py-1.5">
                 <ICON.simulator size={12} aria-hidden className="text-text-dim" />

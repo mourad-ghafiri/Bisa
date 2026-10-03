@@ -9,7 +9,7 @@ import { ICON, Menu, Tooltip, cn } from "../../../ui";
 import type { MenuItem } from "../../../ui";
 import { t } from "../../../i18n/l10n.mjs";
 
-/** The square: it washes in `surface-2` on a rest row and in `surface` on the current one, so it never vanishes into the accent wash. */
+/** The square: it washes in `surface-2` on a rest row and in `surface` on the current one, so it never vanishes into the selected wash. */
 const SQUARE = "anim flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-dim hover:bg-surface-2/70 hover:text-text group-data-[current]:hover:bg-surface/70";
 
 export function RailActions({ children, always = false }: { children: ReactNode; always?: boolean }) {

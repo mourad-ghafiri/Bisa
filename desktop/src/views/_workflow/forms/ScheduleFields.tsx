@@ -45,7 +45,7 @@ export function ScheduleFields<S extends Cadence>({
           </div>
         </Field>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 @xs:grid-cols-2">
           <Field label={t("workflow-wait-step-form-cron")} hint={t("workflow-wait-step-form-five-fields-0-9-1-5")}>
             <div className="flex flex-col gap-1.5">
               <RefSource value={value.cron} inputs={inputs} kind="text" disabled={disabled} onChange={(r) => onChange({ ...value, cron: r ?? DEFAULT_CRON })} />

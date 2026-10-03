@@ -52,10 +52,11 @@ function useTemplateInstall(onInstalled?: () => void) {
 export function TemplateGallery({ entries, onInstalled }: { entries: readonly CatalogEntry[]; onInstalled?: () => void }) {
   const { busy, use } = useTemplateInstall(onInstalled);
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       {groupByDomain(entries, (e) => e.tags).map(([domain, list]) => (
         <section key={domain}>
-          <h3 className="mb-2 text-2xs font-semibold tracking-wide text-text-dim uppercase">{domainLabel(domain)}</h3>
+          {/* A domain is a tag — lowercase data — so it is capitalised here, never shouted. */}
+          <h2 className="mb-2 text-sm font-semibold text-text capitalize">{domainLabel(domain)}</h2>
           <div className={LIBRARY_GRID}>
             {list.map((e) => (
               <TemplateCard key={e.slug} entry={e} busy={busy === e.slug} onUse={() => void use(e.slug)} />

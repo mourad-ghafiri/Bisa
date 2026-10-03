@@ -37,12 +37,11 @@ import { pulseLine } from "../activity";
 import { errorFields, log } from "../log";
 import { navigate, useSearchValue } from "../router";
 import { useWorkspace } from "../shell/useWorkspaceData";
-import { BrowserDoor } from "../shell/BrowserDoor";
 import { NEW_GOAL, fire } from "../shell/shortcuts";
 import { placeOf, useViewState, viewState } from "../shell/viewMemoryStore";
 import { wordsOf } from "../shell/viewValuesModel.mjs";
 import type { PulseCursor, PulseRow as PulseRowDto } from "../types";
-import { Button, DayDivider, EmptyState, ErrorNote, ICON, SkeletonRows, Tabs, Tooltip, VirtualList } from "../ui";
+import { Button, DayDivider, EmptyState, ErrorNote, ICON, ScreenBar, SkeletonRows, Tabs, Tooltip, VirtualList, useTokenPx } from "../ui";
 import { parseAnchor, type Anchor } from "../ui/anchorModel.mjs";
 import { PulseRow, type PulseItem } from "./_pulse/PulseRow";
 import { CONCEPTS, NUDGE_MS, PAGE, conceptOfFact, conceptWords, cursorOf, depthOf, heldFeed, itemOf, joinHead, linkOf, mergePage, parseConcept, parseDepth, wantsDepth, wantsMore, wantsNudge, withDividers } from "./_pulse/pulseModel.mjs";
@@ -79,6 +78,8 @@ const depthName = (concept: Concept): string => `depth:${concept}`;
 const anchorName = (concept: Concept): string => `anchor:${concept}`;
 
 export default function Pulse() {
+  // A row is the density token's height (`--spacing-row`), so the Compact setting tightens the feed like every other list.
+  const rowPx = useTokenPx("--spacing-row", 36);
   const ws = useWorkspace();
   const [rawConcept, setRawConcept] = useSearchValue("concept");
   const concept: Concept = parseConcept(rawConcept);
@@ -245,19 +246,21 @@ export default function Pulse() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-4 pt-1">
-        <Tabs className="min-w-0 flex-1" tabs={tabs} active={concept} onChange={(id) => setRawConcept(id === "all" ? null : id)} />
-        {/* The embedded browser beside the workspace's home, as beside every screen (ide/18). */}
-        <BrowserDoor />
-        <Tooltip label={t("screens-pulse-read-again-from-node")}>
-          <Button size="icon" variant="ghost" aria-label={t("screens-pulse-refresh")} onClick={() => void loadHead()}>
-            <ICON.refresh size={14} aria-hidden />
-          </Button>
-        </Tooltip>
-      </div>
+      <ScreenBar
+        tabs={<Tabs bare className="flex-1" tabs={tabs} active={concept} onChange={(id) => setRawConcept(id === "all" ? null : id)} />}
+        end={
+          <>
+            <Tooltip label={t("screens-pulse-read-again-from-node")}>
+              <Button size="icon" variant="ghost" aria-label={t("screens-pulse-refresh")} onClick={() => void loadHead()}>
+                <ICON.refresh size={14} aria-hidden />
+              </Button>
+            </Tooltip>
+          </>
+        }
+      />
 
       {error && (
-        <div className="px-4 pt-3">
+        <div className="px-6 pt-3">
           <ErrorNote error={error} retry={() => void loadHead()} />
         </div>
       )}
@@ -265,7 +268,7 @@ export default function Pulse() {
       {loading ? (
         // Collapsed rows are all the same height, so the placeholder can
         // promise the real shape rather than an indeterminate spin.
-        <SkeletonRows rows={12} className="p-2" />
+        <SkeletonRows rows={12} className="px-6 py-2" />
       ) : (
         <VirtualList
           // Keyed by the concept: another tab is another list, with its own place.
@@ -274,26 +277,31 @@ export default function Pulse() {
           items={slots}
           // The estimate, not a contract: an open row is as tall as what it
           // has to say, and `measure` is what lets the list know.
-          rowHeight={36}
+          rowHeight={rowPx}
           measure
-          className="min-h-0 flex-1 px-2"
+          className="min-h-0 flex-1 px-4"
           keyOf={(s) => (s.slot === "day" ? s.key : s.item.key)}
           onRange={onRange}
+          // While a read failed and nothing was ever drawn, the error above is
+          // the whole story: an empty state beside it would say *nothing
+          // happened*, which nobody knows.
           empty={
-            <div className="p-4">
-              <EmptyState
-                icon={(ICON as Record<string, typeof ICON.file>)[words.icon] ?? ICON.pulse}
-                title={words.empty}
-                hint={words.hint}
-                action={
-                  concept === "all" ? (
-                    <Button variant="primary" onClick={() => fire(NEW_GOAL)}>{t("screens-goals-new-goal")}</Button>
-                  ) : (
-                    <Button variant="ghost" onClick={() => setRawConcept(null)}>{t("screens-inbox-show-everything")}</Button>
-                  )
-                }
-              />
-            </div>
+            error ? null : (
+              <div className="p-4">
+                <EmptyState
+                  icon={(ICON as Record<string, typeof ICON.file>)[words.icon] ?? ICON.pulse}
+                  title={words.empty}
+                  hint={words.hint}
+                  action={
+                    concept === "all" ? (
+                      <Button variant="primary" onClick={() => fire(NEW_GOAL)}>{t("screens-goals-new-goal")}</Button>
+                    ) : (
+                      <Button variant="ghost" onClick={() => setRawConcept(null)}>{t("screens-inbox-show-everything")}</Button>
+                    )
+                  }
+                />
+              </div>
+            )
           }
           render={(slot) =>
             slot.slot === "day" ? (

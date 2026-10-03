@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { Lru } from "../../shell/lru.mjs";
-import { MAX_DRAFTS, draftBody } from "./designDraftModel.mjs";
+import { MAX_DRAFTS, draftBody, draftChanged } from "./designDraftModel.mjs";
 import { canUndo, create, push } from "./history.mjs";
 import { blankWorkflow } from "./stepKinds.mjs";
 
@@ -102,4 +102,15 @@ test("the window holds the newest designs with their undo history; one past the 
   assert.ok(store.includes("const drafts = new Lru<Draft>(MAX_DRAFTS);"), "the store holds its histories in the bounded map");
   assert.ok(!/new Map<string, Draft>/.test(store), "and in no map that grows for the life of the window");
   assert.ok(store.includes("docViews.keepQuietly(placeOfGoal(goal), DRAWING, next ? next.present : null);"), "the drawing as it stands is in the memory from its first edit");
+});
+
+test("discarding asks whenever the drawing holds something the stored workflow does not — a restored draft too", () => {
+  const stored = { name: "Fix", steps: [{ id: "a", kind: "agent" }] };
+  const same = JSON.parse(JSON.stringify(stored));
+  const edited = { name: "Fix", steps: [{ id: "a", kind: "agent" }, { id: "b", kind: "end" }] };
+  assert.equal(draftChanged(null, stored, false), false, "no drawing, nothing to lose");
+  assert.equal(draftChanged(same, stored, false), false, "an untouched drawing closes at once");
+  assert.equal(draftChanged(edited, stored, false), true, "a draft read back after a restart has no history, and still differs");
+  assert.equal(draftChanged(same, stored, true), true, "an edit made here counts, even one undone back to the same shape");
+  assert.equal(draftChanged(same, null, false), true, "on a blank canvas the drawing is the whole design");
 });

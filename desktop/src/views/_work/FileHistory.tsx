@@ -23,10 +23,10 @@ export function FileHistory({ wid, path, onOpenCommit }: { wid: string; path: st
   }
   return (
     <div className="flex flex-col gap-1">
-      <ol className="flex flex-col divide-y divide-border rounded-control border border-border">
+      <ol className="flex flex-col divide-y divide-hairline rounded-control border border-border">
         {commits.map((c) => (
-          <li key={c.id} className="group flex items-center gap-2 px-2 py-1 text-2xs">
-            <span className="shrink-0 font-mono text-accent-ink">{c.short}</span>
+          <li key={c.id} className="anim group flex items-center gap-2 px-2 py-1 text-2xs hover:bg-surface-2">
+            <span className="shrink-0 font-mono text-text-dim">{c.short}</span>
             <span className="min-w-0 flex-1 truncate text-text" title={c.subject}>
               {c.subject}
             </span>

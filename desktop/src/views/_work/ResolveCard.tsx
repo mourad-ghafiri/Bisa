@@ -29,11 +29,16 @@ import { t } from "../../i18n/l10n.mjs";
 
 type Verb = "continue" | "skip" | "abort";
 
-/** One side's swatch and name, as the legend and the conflict document draw it. */
+/**
+ * One side's mark and name, as the legend and the conflict document draw it.
+ * The sides are identities, so the mark is a neutral glyph (`SIDE_ICON`), not
+ * a colour: the accent stays for what waits on the person.
+ */
 export function SideSwatch({ side, dim = false }: { side: Side; dim?: boolean }) {
+  const Mark = ICON[side.icon];
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5" title={side.role}>
-      <span aria-hidden className={`h-2.5 w-2.5 shrink-0 rounded-full ${side.tone === "accent" ? "bg-accent" : "bg-ok"}`} />
+      <Mark size={12} aria-hidden className="shrink-0 text-text-dim" />
       <span className={`min-w-0 truncate ${dim ? "text-text-dim" : "font-medium text-text"}`}>{side.name}</span>
       <span className="shrink-0 text-text-dim">— {side.key === "mine" ? t("work-resolve-card-mine") : t("work-resolve-card-theirs")}</span>
     </span>
@@ -88,7 +93,7 @@ export function ResolveCard({ wid, status, onOpenPath }: { wid: string; status: 
         </button>
       </div>
       {explaining && (
-        <ul className="flex flex-col gap-1 rounded-control border border-border bg-surface px-2.5 py-2 text-text-dim">
+        <ul className="flex flex-col gap-1 rounded-control bg-surface-2/50 px-2.5 py-2 leading-relaxed text-text-dim">
           {whatIsAConflict(inProgress).map((s) => (
             <li key={s}>{s}</li>
           ))}

@@ -64,18 +64,19 @@ export function RailAgentRow({
         <RailGlyph className={row.parent ? "text-text-dim" : undefined}>{row.parent ? <ICON.subagent size={12} aria-hidden /> : <Glyph size={12} aria-hidden />}</RailGlyph>
         <span className="min-w-0 truncate font-medium">{row.label}</span>
         {model && (
-          <span className="hidden min-w-0 shrink truncate text-text-dim/80 lg:inline" title={model.full}>
+          // The rail's own width decides (its root is an `@container`), not the window's.
+          <span className="hidden min-w-0 shrink truncate text-text-dim @xs:inline" title={model.full}>
             {model.short}
           </span>
         )}
         {foldable && <CountBadge count={row.childCount ?? 0} tone="neutral" title={t("workbench-rail-agent-row-sub-agents", { n: row.childCount ?? 0 })} />}
         <span className={cn("min-w-0 flex-1 truncate", attention && (stateOf(row.state) === "waiting" ? "text-accent-ink" : "text-danger"))}>{row.activity}</span>
         {row.started !== null ? (
-          <span className="tnum hidden shrink-0 text-3xs text-text-dim xl:inline" title={t("workbench-rail-agent-row-started-at", { at: absolute(row.started) })}>
+          <span className="tnum hidden shrink-0 text-2xs text-text-dim @sm:inline" title={t("workbench-rail-agent-row-started-at", { at: absolute(row.started) })}>
             {isLive(row.state) ? <LiveDuration since={row.started} /> : row.since > row.started ? durationPrecise(row.since - row.started) : relative(row.since)}
           </span>
         ) : (
-          <RelativeTime at={row.since} className="hidden shrink-0 text-3xs xl:inline" />
+          <RelativeTime at={row.since} className="hidden shrink-0 text-2xs @sm:inline" />
         )}
         {row.gateId && !row.terminalKey && (
           <button

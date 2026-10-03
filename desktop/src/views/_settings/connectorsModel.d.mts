@@ -10,6 +10,8 @@ export declare function secretFields(auth: string | AuthScheme | null | undefine
 export declare function isMultilineSecret(field: string): boolean;
 export declare function needsAccount(auth: string | AuthScheme | null | undefined): boolean;
 export declare function connectApplies(auth: string | AuthScheme | null | undefined): boolean;
+/** The verb an account row shows, and the rest its menu lists. */
+export declare function accountVerbs(account: { default: boolean; secrets_set: readonly string[] }, oauth: boolean): { main: "connect" | "check"; more: ("connect" | "secrets" | "check" | "default" | "forget")[] };
 export declare function redirectUri(port: number | string): string;
 /** Whether a connector is the person's own definition (`"local"`), not the catalog's. */
 export declare function isYours(origin: Origin | null | undefined): boolean;

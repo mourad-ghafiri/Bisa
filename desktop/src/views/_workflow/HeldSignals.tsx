@@ -66,10 +66,11 @@ export function HeldSignals({ host: of, listening, onChanged }: { host: Listenin
       }
     >
       <div className="flex flex-col gap-2 p-3 text-2xs" data-held-signals={held.length}>
-        <p className="text-text-dim">{t("workflow-held-signals-note")}</p>
-        <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+        <p className="leading-relaxed text-text-dim">{t("workflow-held-signals-note")}</p>
+        {/* Rows divided by a hairline inside the popover, not boxes inside its box. */}
+        <ul className="flex max-h-72 flex-col divide-y divide-hairline overflow-y-auto">
           {held.map((h) => (
-            <li key={h.id} className="flex flex-col gap-1 rounded-control border border-border p-2">
+            <li key={h.id} className="flex flex-col gap-1 py-2">
               <span className="flex flex-wrap items-center gap-x-2">
                 <span className="font-medium">{t("workflow-held-signals-row", { source: h.source, step: h.step })}</span>
                 <span className="text-text-dim">
@@ -78,7 +79,7 @@ export function HeldSignals({ host: of, listening, onChanged }: { host: Listenin
               </span>
               <span className="text-text-dim">{h.why}</span>
               <span>
-                <Button size="sm" variant="primary" disabled={inFlight(drawn, h.id)} onClick={() => void letThrough(h.id)}>
+                <Button size="sm" variant="default" disabled={inFlight(drawn, h.id)} onClick={() => void letThrough(h.id)}>
                   {t("workflow-held-signals-let-through")}
                 </Button>
               </span>

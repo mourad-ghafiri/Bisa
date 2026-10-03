@@ -11,7 +11,9 @@
  *
  * Two surfaces draw it. `UsageLine` is the paint alone, over an entry the
  * caller reads — the footer's stat (compact: one line, windows only) and its
- * picker. `HarnessUsageLine` is the folded line Settings › Harnesses shows,
+ * picker. Where the line sits inside a control of its own — the footer's
+ * trigger, a picker row — it draws no refresh (`refresh={false}`): a button
+ * is never nested in a button, and the caller sets `RefreshUsage` beside it. `HarnessUsageLine` is the folded line Settings › Harnesses shows,
  * with `UsageToggle`, the gauge that shows or hides it per harness there. A
  * harness row in the rail or the Workstreams panel carries none: the footer
  * is where a harness's account is read (ide/07).
@@ -54,7 +56,7 @@ export function UsageToggle({ harness, className }: { harness: string; className
 }
 
 /** The refresh door: ask the harness's source again, now. */
-function RefreshUsage({ harness, loading }: { harness: string; loading: boolean }) {
+export function RefreshUsage({ harness, loading }: { harness: string; loading: boolean }) {
   return (
     <Tooltip label={t("shell-harness-usage-line-read-harness-s-usage-again")}>
       <button
@@ -65,7 +67,7 @@ function RefreshUsage({ harness, loading }: { harness: string; loading: boolean 
           e.stopPropagation();
           refreshHarnessUsage(harness);
         }}
-        className="anim flex h-4 w-4 shrink-0 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-50"
+        className="anim flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
       >
         <ICON.refresh size={10} aria-hidden className={loading ? "motion-safe:animate-spin" : undefined} />
       </button>
@@ -89,25 +91,27 @@ function MeterChip({ meter }: { meter: MeterWords }) {
  * line of windows that truncates — the footer's width — where the full line
  * wraps and adds the credit balance.
  */
-export function UsageLine({ harness, entry, compact = false, className }: { harness: string; entry: HarnessUsageEntry; compact?: boolean; className?: string }) {
+export function UsageLine({ harness, entry, compact = false, refresh = true, className }: { harness: string; entry: HarnessUsageEntry; compact?: boolean; /** Draw the refresh door; off where the line is inside a control. */ refresh?: boolean; className?: string }) {
   const words = usageWords(entry.state);
   const report = entry.state?.state === "report" ? entry.state.report : null;
   const title = report ? usageTitle(report, Date.now() / 1000, entry.stale) : undefined;
   return (
-    <span className={cn("flex min-w-0 items-center gap-2", compact ? "text-2xs" : "text-3xs", entry.stale && "opacity-60", className)} title={title} role="group" aria-label={t("shell-harness-usage-line-usage")}>
+    <span className={cn("flex min-w-0 items-center gap-2", "text-2xs", entry.stale && "opacity-60", className)} title={title} role="group" aria-label={t("shell-harness-usage-line-usage")}>
       {words.note ? (
         <span className={cn("min-w-0 flex-1 truncate", words.tone === "warn" ? "text-warn" : "text-text-dim")}>{words.note}</span>
       ) : (
         <span className={cn("flex min-w-0 flex-1 items-center gap-x-2.5", compact ? "overflow-hidden whitespace-nowrap" : "flex-wrap gap-y-0.5")}>
           {words.meters.map((m, i) => (
-            <span key={m.id} className="inline-flex shrink-0 items-center gap-1.5">
+            // The reset note is what gives way on a narrow line: it truncates first, so every
+            // meter keeps its whole percentage rather than the last one being cut mid-number.
+            <span key={m.id} className={cn("inline-flex items-center gap-1.5", i === 0 && words.inline ? "min-w-0" : "shrink-0")}>
               <MeterChip meter={m} />
-              {i === 0 && words.inline && <span className="text-text-dim">{t("shell-harness-usage-line-inline-note", { inline: words.inline })}</span>}
+              {i === 0 && words.inline && <span className="min-w-0 truncate text-text-dim">{t("shell-harness-usage-line-inline-note", { inline: words.inline })}</span>}
             </span>
           ))}
           {!compact && words.extras.length > 0 && (
             <>
-              <span aria-hidden className="h-3 w-px shrink-0 bg-border" />
+              <span aria-hidden className="h-3 w-px shrink-0 bg-hairline" />
               {words.extras.map((m) => (
                 <MeterChip key={m.id} meter={m} />
               ))}
@@ -115,7 +119,7 @@ export function UsageLine({ harness, entry, compact = false, className }: { harn
           )}
         </span>
       )}
-      <RefreshUsage harness={harness} loading={entry.loading} />
+      {refresh && <RefreshUsage harness={harness} loading={entry.loading} />}
     </span>
   );
 }

@@ -42,5 +42,5 @@ export function clampSize(size: Size, bounds: SizeBounds): Size;
 export function sizeFrom(start: Size, dx: number, dy: number, bounds: SizeBounds): Size;
 export function placementAfterResize(placement: Placement, before: Size, after: Size): Placement;
 export function defaultPlacement(dock: AddonDockCorner | string | undefined, index?: number): Placement;
-export function hiddenByLayer(box: { left: number; top: number }, size: Size, slots: readonly SlotLike[]): boolean;
+export function hiddenByLayer(box: { left: number; top: number }, size: Size, slots: readonly SlotLike[], cutsAround?: boolean): boolean;
 export function windowPrefFrom(raw: unknown, opening: Size, fallbackDock: Placement, bounds: SizeBounds): WindowPref;

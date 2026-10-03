@@ -26,7 +26,7 @@ export function RunOverlay({ run, runs, onPickRun }: { run: WorkflowRun; runs: R
     onSelect: () => onPickRun?.(r.id),
   }));
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 text-2xs">
+    <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-1.5 text-2xs">
       <ICON.run size={13} aria-hidden className="text-text-dim" />
       <span className="font-medium">
         {t("workflow-run-overlay-which", {
@@ -38,7 +38,8 @@ export function RunOverlay({ run, runs, onPickRun }: { run: WorkflowRun; runs: R
       {!facts.queued && (
         <>
           <div className="h-1.5 w-32 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={facts.percent} aria-valuemin={0} aria-valuemax={100}>
-            <div className="h-full bg-accent" style={{ width: `${facts.percent}%` }} />
+            {/* The fill wears the run's own tone, as its chip does: the accent only while it runs. */}
+            <div className="h-full" style={{ width: `${facts.percent}%`, background: `var(--color-${facts.tone === "quiet" ? "text-dim" : facts.tone})` }} />
           </div>
           <span className="tnum text-text-dim">{percent(facts.percent / 100)}</span>
         </>

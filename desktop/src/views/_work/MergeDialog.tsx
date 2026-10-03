@@ -72,7 +72,7 @@ export function MergeDialog({
       <div className="flex flex-col gap-3">
         <fieldset className="flex flex-col gap-1.5" aria-label={t("work-merge-dialog-how-merge-lands")}>
           {MERGE_MODES.map((m) => (
-            <label key={m} className={`flex cursor-pointer items-start gap-2 rounded-control border px-2 py-1.5 ${mode === m ? "border-accent bg-accent-soft/40" : "border-border hover:bg-surface-2"}`}>
+            <label key={m} className={`flex cursor-pointer items-start gap-2 rounded-control border px-2 py-1.5 ${mode === m ? "border-text/35 bg-selected text-text" : "border-border hover:bg-surface-2"}`}>
               <input type="radio" name="merge-mode" value={m} checked={mode === m} onChange={() => setMode(m)} className="mt-0.5" />
               <span className="flex flex-col">
                 <span className="text-xs text-text">{MERGE_MODE_WORDS[m].label}</span>

@@ -30,6 +30,7 @@ import { reloadOnReconnect } from "../../shell/workspaceLoadModel.mjs";
 import type { GitFileRow, WorkstreamGitFiles } from "../../types";
 import { rootKey } from "../_workbench/workbenchModel.mjs";
 import { GIT_COALESCE_MS, kindsOf, readsFor } from "./gitChangeModel.mjs";
+import { failureText } from "../../ui";
 
 /** The frames after which every shown root is read again: something may have written into the tree. */
 const WRITE_FRAMES = new Set(["execution_ended", "result_accepted", "workstream_committed"]);
@@ -96,7 +97,7 @@ async function read(scope: string): Promise<void> {
     e.data = await api.gitFiles(widOf(scope));
     e.error = null;
   } catch (err) {
-    e.error = err instanceof Error ? err.message : String(err);
+    e.error = failureText("work", "git-files-store-failed", err);
   } finally {
     e.inFlight = false;
     e.loading = false;

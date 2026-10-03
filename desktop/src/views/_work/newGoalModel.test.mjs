@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { readFileSync } from "node:fs";
 
-import { attachRefusedWords, canSubmit, captureAssignees, captureLabel, captureToast, documentsHint, goalBody } from "./newGoalModel.mjs";
+import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody } from "./newGoalModel.mjs";
 
 const brief = { sha256: "ab".repeat(32), name: "brief.pdf", mime: "application/pdf", size: 1234 };
 
@@ -58,11 +58,12 @@ test("the words around the documents and after the capture", () => {
   assert.match(captureToast("manual"), /Workflow tab/);
 });
 
-test("a capture is handed to the team the Teams screen handed over, or to nobody — in the wire's word", () => {
-  assert.deepEqual(captureAssignees("01TEAM"), ["team:01TEAM"]);
-  for (const nobody of [null, undefined, ""]) assert.deepEqual(captureAssignees(nobody), []);
-  assert.deepEqual(goalBody({ statement: "Ship", mode: "auto", assignees: captureAssignees("01TEAM"), tags: [], documents: [] }).assignees, ["team:01TEAM"]);
-  assert.equal("assignees" in goalBody({ statement: "Ship", mode: "auto", assignees: captureAssignees(null), tags: [], documents: [] }), false, "nobody is absence on the wire");
+test("assignees a body names travel in the wire's word, and nobody is absence on the wire", () => {
+  assert.deepEqual(goalBody({ statement: "Ship", mode: "auto", assignees: ["team:01TEAM"], tags: [], documents: [] }).assignees, ["team:01TEAM"]);
+  assert.equal("assignees" in goalBody({ statement: "Ship", mode: "auto", assignees: [], tags: [], documents: [] }), false, "nobody is absence on the wire");
+  // The dialog hands a capture to nobody: the Teams screen's door to it is gone.
+  const dialog = readFileSync(new URL("./NewGoalDialog.tsx", import.meta.url), "utf8");
+  assert.ok(dialog.includes("assignees: [],") && !dialog.includes("pendingTeam"), "no team rides in from elsewhere");
 });
 
 test("projects that could not be attached are said once, counted, with the first reason — and the goal stands", () => {

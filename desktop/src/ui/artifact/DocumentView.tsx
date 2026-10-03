@@ -6,7 +6,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Spinner } from "../Card";
+import { ErrorNote, Spinner } from "../Card";
+import { sayFailure } from "../failure";
 import { cn } from "../cn";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -27,12 +28,17 @@ export function DocumentView({ bytes, className }: { bytes: Uint8Array; classNam
         });
         if (live) setHtml(clean);
       })
-      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => live && setError(sayFailure("artifact", t("ui-document-view-could-not-show"), e)));
     return () => {
       live = false;
     };
   }, [bytes]);
-  if (error) return <p className={cn("p-3 text-2xs text-danger", className)}>{error}</p>;
+  if (error)
+    return (
+      <div className={cn("p-3", className)}>
+        <ErrorNote error={error} />
+      </div>
+    );
   if (html === null) {
     return (
       <div className={cn("p-3", className)}>

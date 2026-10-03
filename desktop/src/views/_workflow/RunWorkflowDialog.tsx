@@ -22,7 +22,7 @@ import { useEffect, useState } from "react";
 import { ApiError, api } from "../../api";
 import { navigate } from "../../router";
 import type { WorkflowRow } from "../../types";
-import { Button, Dialog, Field, Select, TextArea, useToast } from "../../ui";
+import { Button, Dialog, Field, Select, TextArea, failureText, useToast } from "../../ui";
 import { InputsForm } from "./InputsForm";
 import { BY_HAND, askedInputs, entryStart, firstEntry, runEntries, runRefusal, runRequest, sampleText } from "./runDialogModel.mjs";
 import { initialValues, type InputValues } from "./workflowForm.mjs";
@@ -75,7 +75,7 @@ export function RunWorkflowDialog({ open, row, onClose, onDone }: { open: boolea
       navigate({ name: "run", id: made.run.id });
       onClose();
     } catch (e) {
-      const refusal = runRefusal(e instanceof ApiError ? e.body : undefined, e instanceof Error ? e.message : String(e));
+      const refusal = runRefusal(e instanceof ApiError ? e.body : undefined, failureText("workflow", "run-workflow-dialog-failed", e));
       toast.error(refusal.words);
       // The row the card drew was older than the workflow: read it again, and nothing here can start.
       if (refusal.reread) {

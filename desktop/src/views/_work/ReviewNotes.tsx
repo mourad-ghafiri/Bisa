@@ -19,7 +19,7 @@ import { fingerprint } from "./gitPanelModel.mjs";
 import { useSessionDraft } from "./gitPanelStore";
 import { ApiError, api } from "../../api";
 import type { ReviewNote } from "../../types";
-import { Button, Checkbox, ConfirmDialog, EmptyState, ErrorNote, ICON, RelativeTime, SectionHeader, SkeletonRows, TextArea, Tooltip, useToast } from "../../ui";
+import { Button, Checkbox, ConfirmDialog, EmptyState, ErrorNote, ICON, RelativeTime, SectionHeader, SkeletonRows, TextArea, Tooltip, failureText, useToast } from "../../ui";
 import { confirmLabel } from "./gitWords.mjs";
 import { reviewNoteGone, scopeLabel, unsentNotes } from "./hunkModel.mjs";
 import { useAsync } from "./useAsync";
@@ -50,7 +50,7 @@ function NoteRow({
   const resolved = note.resolved_at != null;
   const verb = "row-actions anim";
   return (
-    <li className={`group flex flex-col gap-1 rounded-control border border-border px-2 py-1.5 ${resolved ? "opacity-70" : ""}`}>
+    <li className={`group flex flex-col gap-1 py-1.5 first:pt-0 last:pb-0 ${resolved ? "opacity-70" : ""}`}>
       <div className="flex flex-wrap items-center gap-2 text-2xs">
         <Tooltip label={t("work-review-notes-show-file-s-patch")}>
           <button type="button" onClick={onOpen} className="min-w-0 truncate font-mono text-text hover:underline">
@@ -71,7 +71,7 @@ function NoteRow({
           <span className="text-warn">{t("work-review-notes-not-sent")}</span>
         )}
         {note.hunk && (
-          <Button size="sm" variant="ghost" className={verb} aria-pressed={showHunk} onClick={() => setShowHunk((v) => !v)}>
+          <Button size="sm" variant="ghost" className={`${verb} aria-pressed:bg-selected aria-pressed:text-text`} aria-pressed={showHunk} onClick={() => setShowHunk((v) => !v)}>
             <ICON.note size={12} aria-hidden />
             {showHunk ? t("work-review-notes-hide-hunk") : t("work-review-notes-hunk")}
           </Button>
@@ -135,7 +135,7 @@ export function ReviewNotes({
       if (done) toast.ok(done);
       notes.reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "review-notes-failed", e));
       // A note that is gone (the node's 404) is a row this list should no longer show: said in the node's words, then read again.
       if (e instanceof ApiError && reviewNoteGone(e.status)) notes.reload();
     } finally {
@@ -186,7 +186,8 @@ export function ReviewNotes({
           action={null}
         />
       ) : (
-        <ul className="flex flex-col gap-1.5">
+        // One list on hairlines, not a box per note: the note's words are the content, not its frame.
+        <ul className="flex flex-col divide-y divide-hairline">
           {list.map((n) => (
             <NoteRow
               key={n.id}

@@ -75,7 +75,8 @@ export function NotifyStepForm({ step, inputs, onChange, disabled }: { step: Not
                   aria-pressed={on}
                   disabled={disabled}
                   onClick={() => set({ mentions: toggleInput(step.mentions, i.name) })}
-                  className={`anim rounded-full border px-2 py-0.5 text-2xs ${on ? "border-accent bg-accent-soft text-accent-ink" : "border-border text-text-dim hover:bg-surface-2"}`}
+                  // A chosen input is a pressed option, not a summons: the neutral selected ground.
+                  className={`anim rounded-full border px-2 py-0.5 text-2xs disabled:opacity-45 ${on ? "border-text/35 bg-selected text-text" : "border-border text-text-dim hover:bg-surface-2 hover:text-text"}`}
                 >
                   {i.name}
                 </button>

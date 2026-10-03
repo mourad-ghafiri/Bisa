@@ -44,7 +44,7 @@ test("Settings writes the workspace and this machine, narrowest first, and never
   assert.deepEqual(writableScopes({ scopes: ["project"] }), []);
   assert.equal(defaultTarget({ scopes: ["machine", "workspace"] }), "workspace");
   assert.equal(defaultTarget({ scopes: ["machine"] }), "machine");
-  assert.equal(setAtWords("machine"), "set at machine");
+  assert.equal(setAtWords("machine"), "Saves to the machine");
 });
 
 test("Reset removes the value where the row writes; a value held nearer than the row's scope is said to win", () => {

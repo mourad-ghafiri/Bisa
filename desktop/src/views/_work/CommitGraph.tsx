@@ -29,11 +29,11 @@
  * list and the lanes, never the place a commit is read.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { errorFields, log } from "../../log";
 import type { GitInProgress, GraphMatches, GraphRow, GraphWindow } from "../../types";
-import { Button, ContextMenu, EmptyState, ErrorNote, ICON, Menu, MoreMenu, RelativeTime, Skeleton, TextInput, Tooltip, VirtualList, WorkingDot, useTokenPx } from "../../ui";
+import { Button, CURSOR_RING, ContextMenu, EmptyState, ErrorNote, ICON, MoreMenu, RelativeTime, Skeleton, TextInput, Tooltip, VirtualList, WorkingDot, failureText, useTokenPx } from "../../ui";
 import type { MenuItem } from "../../ui";
 import { SEARCH_HISTORY, onDoor } from "../../shell/shortcuts";
 import { useViewState } from "../../shell/viewMemoryStore";
@@ -156,6 +156,9 @@ export function CommitGraph({
   const setRefs = (next: GraphRefScope) => patchSession(scope, { graphRefs: next });
   // A search kept from the last visit shows its line.
   const [searching, setSearching] = useState(() => query.trim() !== "");
+  /** The rows' ids, so the list can name the row the cursor is on (`aria-activedescendant`). */
+  const optionBase = useId();
+  const optionId = (i: number) => `${optionBase}-row-${i}`;
 
   /** Fetch one window and lay it into the sparse rows. */
   const load = useCallback(
@@ -174,7 +177,7 @@ export function CommitGraph({
         setMeta({ total: w.total, done: w.done, stale: w.stale });
         setRows((prev) => mergeWindow(prev, w));
       } catch (e) {
-        if (!signal.aborted) setError(e instanceof Error ? e.message : String(e));
+        if (!signal.aborted) setError(failureText("work", "commit-graph-failed", e));
       } finally {
         inflight.current.delete(from);
       }
@@ -363,15 +366,7 @@ export function CommitGraph({
           </span>
         )}
         <span className="flex-1" />
-        <Menu
-          label={tr("work-commit-graph-search-filter-lay-out")}
-          items={menu}
-          trigger={
-            <span className="anim flex h-7 w-7 items-center justify-center rounded-control border border-border text-text-dim hover:bg-surface-2 hover:text-text" aria-label={tr("work-commit-graph-search-filter-lay-out")}>
-              <ICON.more size={14} aria-hidden />
-            </span>
-          }
-        />
+        <MoreMenu label={tr("work-commit-graph-search-filter-lay-out")} items={menu} className="h-7 w-7 rounded-control border border-border hover:bg-surface-2" />
       </div>
       {searching && (
         <div className="flex shrink-0 items-center gap-1.5 text-2xs text-text-dim">
@@ -428,6 +423,7 @@ export function CommitGraph({
         role="listbox"
         tabIndex={0}
         aria-label={tr("work-commit-graph-commit-history")}
+        aria-activedescendant={cursor >= 0 && rows[cursor] ? optionId(cursor) : undefined}
         className="min-h-0 flex-1 overflow-hidden rounded-control border border-border bg-surface-2 focus:outline-none"
         onFocus={(e) => {
           if (e.target === e.currentTarget && cursor < 0) moveCursor(0);
@@ -473,6 +469,7 @@ export function CommitGraph({
             return (
               <ContextMenu items={menuFor(row, actions, ctx)} className="group block" selected={isOpen}>
                 <div
+                  id={optionId(i)}
                   role="option"
                   aria-selected={atCursor}
                   data-cursor={atCursor || undefined}
@@ -484,12 +481,14 @@ export function CommitGraph({
                   // list positions by — a fixed class here is what kept the
                   // compact density from compacting.
                   style={{ height: rowHeight }}
-                  className={`flex min-w-0 items-center gap-2 pr-2 text-2xs ${isOpen ? "bg-accent-soft" : "hover:bg-surface"} ${hit ? "" : "opacity-35"} ${
-                    atCursor ? "ring-1 ring-inset ring-accent/50" : ""
+                  // The open row is where you are (neutral); the cursor ring is the
+                  // keyboard's place and where `n`/`N` land a search hit.
+                  className={`flex min-w-0 items-center gap-2 pr-2 text-2xs ${isOpen ? "bg-selected" : "hover:bg-surface"} ${hit ? "" : "opacity-35"} ${
+                    atCursor ? CURSOR_RING : ""
                   }`}
                 >
                   <Lanes row={row} prev={i > 0 ? (rows[i - 1] ?? null) : null} width={width} height={rowHeight} />
-                  <span className="shrink-0 font-mono text-accent-ink">{row.short}</span>
+                  <span className="shrink-0 font-mono text-text-dim">{row.short}</span>
                   {row.refs.map((r) => (
                     <RefChip key={`${r.kind}:${r.name}`} commit={row} refName={r} actions={actions} ctx={ctx} />
                   ))}

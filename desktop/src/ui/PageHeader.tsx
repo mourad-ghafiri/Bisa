@@ -64,10 +64,16 @@ export function PageHeader({
         )}
         {Icon && <Icon size={18} aria-hidden className="mt-0.5 shrink-0 text-text-dim" />}
         <div className="min-w-0">
-          <Heading className="truncate text-lg leading-tight font-semibold text-text">
+          {/* The top bar's h1 names the screen and steps back a size, so the
+              thing the screen shows — a goal, a team, a run, at text-lg —
+              leads; two 18px titles stacked forty pixels apart read as one. */}
+          <Heading className={cn("truncate leading-tight font-semibold tracking-tight text-text", level === "h1" ? "text-base" : "text-lg")}>
             {title}
           </Heading>
-          {subtitle && <p className="mt-0.5 text-2xs text-text-dim">{subtitle}</p>}
+          {/* No measure cap: a subtitle can be a row that fits itself to the
+              header (a channel's topic, then its roster, truncating) and needs
+              the header's whole width to decide what it can show. */}
+          {subtitle && <p className="mt-1 text-xs text-text-dim">{subtitle}</p>}
           {meta && <div className="mt-1.5 flex flex-wrap items-center gap-1.5">{meta}</div>}
         </div>
       </div>

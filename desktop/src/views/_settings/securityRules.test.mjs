@@ -9,7 +9,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { ACTIONS, KEYS, REMEMBERED_REASON, SCALARS, actionWords, blankGuardRule, blankRedactRule, classifierFieldsFor, detectorWords, envDetectorWords, guardRuleProblem, harnessGuardWords, judgeWords, matcherWords, moveRule, offWords, problemLines, readinessLine, redactRuleProblem, slugOf, toggleBuiltin, verdictWords, draftOf, withDraft, withoutDraft } from "./securityRules.mjs";
+import { ACTIONS, KEYS, REMEMBERED_REASON, SCALARS, actionWords, blankGuardRule, blankRedactRule, classifierFieldsFor, detectorWords, envDetectorWords, guardRuleProblem, harnessGuardWords, judgeWords, matcherWords, moveRule, offWords, problemLines, readinessLine, redactRuleProblem, slugOf, toggleBuiltin, verdictWords, draftOf, withDraft, withoutDraft, rowKey, keepRowKey } from "./securityRules.mjs";
 
 test("the keys are the registry's twenty, and each panel shows its own scalars", () => {
   const all = [
@@ -173,6 +173,21 @@ test("a rule list's draft is of its scope: the picker moving shows the other sco
   assert.ok(rules.includes("const { rules: draft, dirty } = draftOf(drafts, scope, rules);"));
   assert.ok(rules.includes("const at = scope;") && rules.includes("const list = draft;") && rules.includes("api.setSettings(at, { [settingKey]: list })"));
   assert.ok(!rules.includes("useEffect("), "no effect copies a scope's rules into a draft that is another scope's");
-  assert.ok(panel.includes("onClick={() => setDrafts((all) => withoutDraft(all, scope))}"), "Discard");
+  assert.ok(panel.includes("onDiscard={() => setDrafts((all) => withoutDraft(all, scope))}"), "Discard, in the footer every explicit-save form shares");
+});
+
+test("a rule row keeps its key while its label, id and place move — the box being typed in keeps its caret", () => {
+  const a = { id: "a", label: "A" };
+  const b = { id: "b", label: "B" };
+  assert.equal(rowKey(a), rowKey(a), "asked twice, one key");
+  assert.notEqual(rowKey(a), rowKey(b), "two rules, two rows");
+  const typed = keepRowKey(a, { ...a, id: "ab", label: "AB" });
+  assert.equal(rowKey(typed), rowKey(a), "the label and the id it follows changed; the row did not");
+  const moved = moveRule([a, b], 0, 1);
+  assert.deepEqual(moved.map(rowKey), [rowKey(b), rowKey(a)], "Up and Down move rows, not keys");
+  assert.equal(rowKey(blankRedactRule()) === rowKey(blankRedactRule()), false, "every new rule is its own row");
+  const panel = readFileSync(new URL("./SecurityPanels.tsx", import.meta.url), "utf8");
+  assert.ok(panel.includes("key={rowKey(r)}") && !panel.includes("key={i}"), "rows are keyed by the rule, never the index");
+  assert.ok(!panel.includes('label=""'), "every switch has a name");
 });
 

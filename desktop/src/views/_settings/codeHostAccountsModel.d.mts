@@ -13,6 +13,8 @@ export declare function helpersLine(health: CodeHostHealth | null | undefined): 
 export declare function defaultLine(health: CodeHostHealth | null | undefined): string;
 export declare function storeHint(health: CodeHostHealth | null | undefined): string;
 export declare function tokenWords(kind: string): { placeholder: string; needsLogin: boolean; scopes: string };
+/** Why *Add account* cannot be pressed yet, or `null` when it can. */
+export declare function addBlockedWords(form: { ready: boolean; token: string; sent: string | null; needsLogin: boolean; login: string }): string | null;
 export declare function loginWords(plan: LoginPlan | null | undefined): { button: string; blurb: string; opens: "terminal" | "install" | "token" | null };
 export declare function addedWords(login: string, connection: CodeHostConnection | null | undefined, label?: string): string;
 export declare function defaultWords(login: string | null): string;

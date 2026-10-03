@@ -25,6 +25,7 @@ import {
   artifactVersions,
   kindWords,
   parseArtifactKey,
+  sayFailure,
   useCollapsed,
   versionLabel,
   versionWords,
@@ -56,7 +57,7 @@ export function ArtifactPane({ artifactKey: key }: { artifactKey: string | null 
     api
       .message(at.message, ac.signal)
       .then((r) => setMessage(r.message))
-      .catch((e) => !ac.signal.aborted && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => !ac.signal.aborted && setError(sayFailure("artifact", t("shell-artifact-pane-could-not-read"), e)));
     return () => ac.abort();
   }, [at]);
 
@@ -100,22 +101,22 @@ export function ArtifactPane({ artifactKey: key }: { artifactKey: string | null 
     setSearch({ aux: "artifact", auxId: artifactKey(row.message_id, ordinal) });
   };
 
-  if (!at) return <p className="p-3 text-2xs text-text-dim">{t("shell-artifact-pane-nothing-show-address-names-artifact")}</p>;
+  if (!at) return <p className="p-4 text-2xs text-text-dim">{t("shell-artifact-pane-nothing-show-address-names-artifact")}</p>;
   if (error) {
     return (
-      <div className="p-3">
+      <div className="p-4">
         <ErrorNote error={error} />
       </div>
     );
   }
   if (!message) {
     return (
-      <div className="p-3">
+      <div className="p-4">
         <Spinner label={t("shell-artifact-pane-loading")} />
       </div>
     );
   }
-  if (!artifact) return <p className="p-3 text-2xs text-text-dim">{t("shell-artifact-pane-message-carries-such-artifact")}</p>;
+  if (!artifact) return <p className="p-4 text-2xs text-text-dim">{t("shell-artifact-pane-message-carries-such-artifact")}</p>;
 
   const author = ws.nameOf(message.author);
 
@@ -145,27 +146,27 @@ export function ArtifactPane({ artifactKey: key }: { artifactKey: string | null 
           </>
         }
       />
-      <p className="shrink-0 border-t border-border px-3 py-1 text-2xs text-text-dim">
+      <p className="shrink-0 border-t border-hairline px-4 py-1.5 text-2xs text-text-dim">
         {author} · <RelativeTime at={message.created_at} />
       </p>
-      <section className="shrink-0 border-t border-border">
+      <section className="shrink-0 border-t border-hairline">
         <button
           type="button"
           onClick={toggleFolded}
           aria-expanded={!folded}
-          className="anim flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-2xs font-semibold text-text hover:bg-surface-2"
+          className="anim flex w-full items-center gap-1.5 px-4 py-2 text-left text-2xs font-semibold text-text hover:bg-surface-2"
         >
           {folded ? <ICON.collapsed size={12} aria-hidden /> : <ICON.expanded size={12} aria-hidden />}
           {t("shell-artifact-pane-in-this-conversation")}
           <span className="tnum font-normal text-text-dim">{gallery.length}</span>
         </button>
         {!folded && (
-          <ul className="max-h-56 overflow-auto px-2 pb-2">
+          <ul className="max-h-56 overflow-auto px-3 pb-2">
             {groups.map((g) => (
               <li key={g.title} className="py-1">
                 <GalleryRow row={g.latest} count={g.versions.length} current={artifact} onOpen={() => go(g.latest)} />
                 {g.versions.length > 1 && (
-                  <ul className="ml-5 border-l border-border pl-2">
+                  <ul className="ml-5 border-l border-hairline pl-2">
                     {g.versions.map((v, i) => (
                       <li key={`${v.message_id}:${v.sha256}`}>
                         <button

@@ -7,7 +7,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../Button";
-import { Spinner } from "../Card";
+import { ErrorNote, Spinner } from "../Card";
+import { sayFailure } from "../failure";
 import { cn } from "../cn";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -55,14 +56,19 @@ export function PdfView({ bytes, className, onFacts }: { bytes: Uint8Array; clas
         setDoc(opened);
         onFacts?.(`${d.numPages} ${d.numPages === 1 ? "page" : "pages"}`);
       })
-      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => live && setError(sayFailure("artifact", t("ui-pdf-view-could-not-show"), e)));
     return () => {
       live = false;
       void opened?.destroy();
     };
   }, [bytes, onFacts]);
 
-  if (error) return <p className={cn("p-3 text-2xs text-danger", className)}>{error}</p>;
+  if (error)
+    return (
+      <div className={cn("p-3", className)}>
+        <ErrorNote error={error} />
+      </div>
+    );
   if (!doc) {
     return (
       <div className={cn("p-3", className)}>
@@ -72,7 +78,7 @@ export function PdfView({ bytes, className, onFacts }: { bytes: Uint8Array; clas
   }
   return (
     <div className={cn("flex h-full flex-col", className)}>
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2 text-2xs text-text-dim">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-hairline px-2 text-2xs text-text-dim">
         <span className="tnum">{t("ui-pdf-view-page", { page, numPages: doc.numPages })}</span>
         <span className="flex-1" />
         <Button size="sm" variant="ghost" onClick={() => setScale((s) => SCALES[Math.max(0, SCALES.indexOf(s) - 1)] ?? s)} disabled={scale === SCALES[0]}>

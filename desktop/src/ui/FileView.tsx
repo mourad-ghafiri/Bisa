@@ -30,7 +30,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../api";
 import type { WorkbenchScope } from "../routeModel.mjs";
 import type { FileContent } from "../types";
-import { Spinner } from "./Card";
+import { ErrorNote, Spinner } from "./Card";
+import { sayFailure } from "./failure";
 import { cn } from "./cn";
 import { ICON } from "./icons";
 import { LinkRoots } from "./linkContext";
@@ -42,9 +43,6 @@ import { isMarkdown, resolveDocLink } from "../views/_workbench/docLink.mjs";
 import { binaryWords } from "../views/_workbench/fileDocModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 export function FileView({
   scope,
@@ -80,7 +78,7 @@ export function FileView({
       .file(scope, id, path, ac.signal)
       .then((c) => setContent(c))
       .catch((e) => {
-        if (!ac.signal.aborted) setError(message(e));
+        if (!ac.signal.aborted) setError(sayFailure("files", t("ui-file-view-could-not-read"), e));
       });
     return () => ac.abort();
   }, [scope, id, path, nonce]);
@@ -92,7 +90,7 @@ export function FileView({
 
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-col rounded-control border border-border", className)}>
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-hairline px-2">
         <ICON.file size={11} aria-hidden className="shrink-0 text-text-dim" />
         <Tooltip label={path}>
           <span className="min-w-0 flex-1 truncate font-mono text-2xs">{path}</span>
@@ -116,7 +114,9 @@ export function FileView({
       </div>
 
       {error ? (
-        <p className="px-2 py-1.5 text-2xs text-danger">{error}</p>
+        <div className="px-2 py-1.5">
+          <ErrorNote error={error} />
+        </div>
       ) : !content ? (
         <div className="px-2 py-1.5">
           <Spinner label={t("ui-file-view-reading")} />
@@ -126,7 +126,7 @@ export function FileView({
       ) : (
         <>
           {content.truncated && (
-            <p className="shrink-0 border-b border-border bg-warn-soft px-2 py-1 text-2xs text-warn">
+            <p className="shrink-0 border-b border-hairline bg-warn-soft px-2 py-1 text-2xs text-warn">
               {t("ui-file-view-first-part-only", { size: formatSize(content.size) })}
             </p>
           )}

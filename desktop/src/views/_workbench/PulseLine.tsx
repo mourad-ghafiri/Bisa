@@ -32,7 +32,9 @@ const INK: Record<Pulse["tone"], string> = {
  * each: hover for the number and the process, click to open it, right-click
  * to copy the URL or stop the process. The ports are the workstream's, not a
  * session's, so the row itself wears them — folded or open — and the pulse
- * line under a folded project repeats them.
+ * line under a folded project repeats them. A port is a fact about the
+ * workstream, not a summons: the chip is neutral, the accent left to what
+ * waits on you.
  */
 export function PortChips({
   ports,
@@ -60,7 +62,7 @@ export function PortChips({
           <Tooltip label={portTitle(p, harnessLabels)}>
             <button
               type="button"
-              className="anim flex shrink-0 items-center gap-0.5 rounded border border-border px-1 text-3xs leading-tight text-accent-ink hover:bg-accent-soft"
+              className="anim flex shrink-0 items-center gap-0.5 rounded border border-border px-1 text-3xs leading-tight text-text-dim hover:border-text/35 hover:text-text"
               onClick={(e) => {
                 e.stopPropagation();
                 openPort(p.port);

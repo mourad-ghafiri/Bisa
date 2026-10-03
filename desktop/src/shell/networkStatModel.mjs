@@ -46,6 +46,17 @@ export function statWords(facts, status, online) {
 }
 
 /**
+ * The word the bar draws beside the glyph: only *VPN*, the one fact a dot
+ * cannot say. Up and down are the dot's tone (ok, danger) and the dash is
+ * its quiet; every value stays the accessible name and the tooltip's head.
+ * @param {{ value: string }} words what `statWords` answered
+ * @returns {string | null}
+ */
+export function barWord(words) {
+  return words.value === "VPN" ? words.value : null;
+}
+
+/**
  * The overlay's sections, in order: the internet, the VPN, every interface
  * that is up, this Mac's route and resolver, the proxy System Settings
  * names, and what the platform leaves through. Off the shell and before a

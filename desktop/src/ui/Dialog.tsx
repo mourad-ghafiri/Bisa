@@ -87,9 +87,9 @@ export function Dialog({
         >
           <header className={cn(HEADER, "flex items-start gap-3")}>
             <div className="min-w-0 flex-1">
-              <D.Title className="text-base font-semibold">{title}</D.Title>
+              <D.Title className="text-base font-semibold tracking-tight">{title}</D.Title>
               {description && (
-                <D.Description className="mt-0.5 text-2xs text-text-dim">
+                <D.Description className="mt-1 text-xs text-text-dim">
                   {description}
                 </D.Description>
               )}
@@ -144,10 +144,10 @@ export function ConfirmDialog({
         <A.Overlay className={OVERLAY} />
         <A.Content data-pane className={cn(PANEL, "max-w-md")}>
           <header className={HEADER}>
-            <A.Title className="text-base font-semibold">{title}</A.Title>
+            <A.Title className="text-base font-semibold tracking-tight">{title}</A.Title>
           </header>
           <A.Description asChild>
-            <div className={cn(BODY, "text-xs text-text-dim")}>
+            <div className={cn(BODY, "text-sm text-text-dim")}>
               <ImmediateIndicators>{body}</ImmediateIndicators>
             </div>
           </A.Description>

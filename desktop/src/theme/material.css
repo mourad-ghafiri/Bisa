@@ -45,10 +45,16 @@
 }
 
 /* The page's own ground frosts the window's backdrop; `bg` is translucent
-   on a glass family, so `body`'s colour alone would show the desktop raw. */
-:root:not([data-theme]) body,
-:root[data-theme="glass"] body,
-:root[data-theme="glass-dark"] body {
+   on a glass family, so `body`'s colour alone would show the desktop raw.
+   The frost rides a layer under the content (`body::before`, laid in
+   `styles.css`), never `body` itself: an element with a backdrop-filter is
+   the Backdrop Root of everything inside it (drafts.csswg.org/filter-effects-2,
+   "Backdrop Root"), and a pane under a frosted `body` would sample only
+   what lies between it and `body` — its own blur gone, the page's words
+   reading straight through a dialog. */
+:root:not([data-theme]) body::before,
+:root[data-theme="glass"] body::before,
+:root[data-theme="glass-dark"] body::before {
   -webkit-backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
   backdrop-filter: blur(var(--material-blur)) saturate(var(--material-saturate));
 }

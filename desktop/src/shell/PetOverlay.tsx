@@ -7,7 +7,7 @@
  * `pet/PetCompanion.tsx`, floating over the app.
  */
 
-import { href } from "../router";
+import { navigate } from "../router";
 import { Button, Slider, Switch } from "../ui";
 import { PET_SIZE_MAX, PET_SIZE_MIN, PET_SIZE_STEP } from "../pet/petModel.mjs";
 import { petMoved, resetPetPosition, setActivePet, setPetSize, togglePet, usePet } from "../pet/petStore";
@@ -45,10 +45,17 @@ export function PetOverlay({ close }: { close: () => void }) {
         <span className="text-2xs text-text-dim">{positionWords(moved)}</span>
         <span className="flex items-center gap-1">
           <Button size="sm" variant="ghost" disabled={!moved} onClick={resetPetPosition}>{t("shell-pet-overlay-reset-position")}</Button>
-          <a href={href({ name: "settings" }, settingsSearch("pet"))} onClick={close} className="anim rounded-control px-2 py-1 text-2xs text-accent-ink hover:bg-surface-2">{settingsPath("pet")}</a>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              navigate({ name: "settings" }, settingsSearch("pet"));
+              close();
+            }}
+          >{settingsPath("pet")}</Button>
         </span>
       </div>
-      <p className="px-1 text-3xs text-text-dim">{t("shell-pet-overlay-drag-the-pet-anywhere")}</p>
+      <p className="max-w-measure px-1 text-2xs leading-relaxed text-text-dim">{t("shell-pet-overlay-drag-the-pet-anywhere")}</p>
     </div>
   );
 }

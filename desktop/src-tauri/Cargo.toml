@@ -72,12 +72,19 @@ codegen-units = 1
 # (`permissions.rs`): `AVCaptureDevice` through the Objective-C runtime and a
 # completion block — and a tab's screenshot (`browser.rs`): `WKWebView`'s own
 # snapshot, encoded as PNG by AppKit, so no screen-recording grant is asked.
+# The browser layer (`browser.rs`, `layer`): the view the tabs stand in,
+# which cuts a see-through hole where an overlay of the main page sits — a
+# Core Animation mask (`CAShapeLayer` over a `CGPath`) — and hands the clicks
+# in it down to that page (`hitTest:`).
 # The versions the lock file already resolves for tauri; the features are
-# what wry leaves off.
+# what wry leaves off. `objc2-quartz-core` and `objc2-core-graphics` are in
+# the lock already, under objc2-app-kit: named here for the features only.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSString", "NSURL", "NSUserDefaults", "NSValue", "objc2-core-foundation"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSResponder", "NSView"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSBitmapImageRep", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSView", "NSWindow", "objc2-quartz-core"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer", "CAShapeLayer", "CATransaction"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "objc2", "CGPath"] }
 objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKWebViewConfiguration", "WKUserContentController", "WKScriptMessage", "WKScriptMessageHandler", "WKSnapshotConfiguration", "block2", "objc2-app-kit"] }
 block2 = "0.6"
 

@@ -23,13 +23,13 @@ export const PANEL =
   "motion-panel fixed top-[8vh] left-1/2 z-50 flex max-h-[84vh] w-[calc(100vw-3rem)] -translate-x-1/2 flex-col overflow-hidden rounded-card border border-border bg-surface shadow-xl outline-none";
 
 /** The header keeps its height whatever the body holds. */
-export const HEADER = "shrink-0 border-b border-border px-4 py-3";
+export const HEADER = "shrink-0 border-b border-hairline px-5 pt-4 pb-3";
 
 /** The body is the one scrollport. */
-export const BODY = "min-h-0 flex-1 overflow-y-auto px-4 py-3";
+export const BODY = "min-h-0 flex-1 overflow-y-auto @container px-5 py-4";
 
 /** The footer keeps its height, aligns its actions right, and wraps a row that cannot fit. */
-export const FOOTER = "flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-4 py-3";
+export const FOOTER = "flex shrink-0 flex-wrap justify-end gap-2 border-t border-hairline bg-surface-2/40 px-5 py-3";
 
 /**
  * A destructive confirmation's action, filled: the kit's `danger` button is

@@ -88,7 +88,7 @@ function Leading({ c, size }: { c: AgentCandidate; size: number }) {
     return (
       <span
         aria-hidden
-        className="flex shrink-0 items-center justify-center rounded-full bg-accent-soft text-2xs font-semibold text-accent-ink"
+        className="flex shrink-0 items-center justify-center rounded-full bg-surface-2 text-2xs font-semibold text-text-dim"
         style={{ width: size, height: size }}
       >
         #
@@ -159,7 +159,8 @@ export function AgentRow({
       }}
       className={cn(
         "anim flex w-full items-start gap-2 rounded-control px-2 py-1.5 text-left",
-        active ? "bg-accent-soft text-accent-ink" : "text-text hover:bg-surface-2",
+        // The cursor is where you are, not a call: the neutral wash, never the accent.
+        active ? "bg-selected text-text" : "text-text hover:bg-surface-2",
         c.blocked && "opacity-55",
       )}
     >
@@ -415,7 +416,7 @@ export function AgentPicker({
             groups.map((g) => (
               <div key={g.label} className="mb-1 last:mb-0">
                 {g.label && (
-                  <p className="px-2 py-1 text-2xs font-semibold tracking-wide text-text-dim uppercase">
+                  <p className="px-2 pt-1.5 pb-1 text-2xs font-semibold text-text-dim">
                     {g.label}
                   </p>
                 )}

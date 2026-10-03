@@ -29,7 +29,5 @@ export declare function canSubmit(s: { statement: string; busy: boolean; uploadi
 export declare function captureLabel(s: { busy: boolean; uploading: boolean }): string;
 export declare function documentsHint(count: number): string;
 
-/** Who a capture is handed to, on the wire: the team handed over, or nobody. */
-export declare function captureAssignees(team: string | null | undefined): string[];
 /** What is said when projects handed over with a capture could not be attached; `null` when every one was. */
 export declare function attachRefusedWords(refused: readonly { project: string; reason: string }[]): string | null;

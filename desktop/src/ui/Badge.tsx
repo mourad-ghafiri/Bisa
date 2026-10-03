@@ -49,9 +49,10 @@ export function CountBadge({
     <span
       title={title}
       aria-label={title}
+      role={title ? "img" : undefined}
       className={cn(
         "tnum inline-flex items-center justify-center rounded-full font-semibold",
-        size === "sm" ? "h-3.5 min-w-3.5 px-0.5 text-[10px] leading-none" : "h-4 min-w-4 px-1 text-2xs",
+        size === "sm" ? "h-3.5 min-w-3.5 px-0.5 text-3xs leading-none" : "h-4 min-w-4 px-1 text-2xs",
         TONE[tone],
       )}
     >
@@ -70,7 +71,15 @@ const DOT_TONE: Record<Tone | "ok" | "warn", string> = {
 };
 
 export function Dot({ tone = "accent", title }: { tone?: Tone | "ok" | "warn"; title?: string }) {
-  return <span title={title} className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", DOT_TONE[tone])} />;
+  return (
+    <span
+      title={title}
+      role={title ? "img" : undefined}
+      aria-label={title}
+      aria-hidden={title ? undefined : true}
+      className={cn("inline-block h-1.5 w-1.5 shrink-0 rounded-full", DOT_TONE[tone])}
+    />
+  );
 }
 
 /**
@@ -83,7 +92,7 @@ export function Dot({ tone = "accent", title }: { tone?: Tone | "ok" | "warn"; t
  */
 export function WorkingDot({ title = t("ui-badge-writing") }: { title?: string }) {
   return (
-    <span title={title} className="relative inline-flex h-2 w-2 shrink-0" aria-label={title}>
+    <span title={title} role="img" className="relative inline-flex h-2 w-2 shrink-0" aria-label={title}>
       <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60 motion-safe:animate-ping" />
       <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
     </span>

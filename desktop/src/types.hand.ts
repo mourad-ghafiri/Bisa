@@ -1393,6 +1393,24 @@ export interface SuggestedCommitMessage {
  */
 export type SuggestedNotesMessage = Omit<SuggestedCommitMessage, "workstream">;
 
+/**
+ * `POST /workstreams/{wid}/pr/suggest` — a pull request's title and body,
+ * drafted by the core agent from the branch's commits and its diff against
+ * the base. The same contract as {@link SuggestedCommitMessage}: always 200,
+ * `suggested: false` with an `error` when nothing was drafted (read by
+ * `prFormModel.prSuggestionOutcome`), and the session that drafts it cannot
+ * push or open anything.
+ */
+export interface SuggestedPullRequest {
+  workstream: string;
+  suggested: boolean;
+  title: string;
+  body: string;
+  /** The core agent's id — the same one every time, named rather than implied. */
+  agent: string;
+  error: string | null;
+}
+
 /** `POST /projects` and `POST /goals/{id}/projects` */
 export interface ProjectCreated {
   project: Project;

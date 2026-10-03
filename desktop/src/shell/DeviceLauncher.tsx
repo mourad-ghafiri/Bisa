@@ -15,7 +15,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { useEngineEvents } from "../bus";
 import { navigate } from "../router";
-import { ICON, Menu, Tooltip, cn, useToast } from "../ui";
+import { ICON, Menu, Tooltip, cn, sayFailure, useToast } from "../ui";
 import type { MenuItem } from "../ui";
 import { useAsync } from "../views/_work/useAsync";
 import { deviceById, deviceMenu, isUp } from "../views/_workbench/devicesModel.mjs";
@@ -35,6 +35,7 @@ export function DeviceLauncher({
   onOpenDevice,
   disabledReason,
   className,
+  wordClassName,
 }: {
   wid: string;
   label?: string | null;
@@ -44,6 +45,8 @@ export function DeviceLauncher({
   onOpenDevice: (deviceId: string) => void;
   disabledReason?: string | null;
   className?: string;
+  /** Classes for the word beside the glyph — `TerminalLauncher`'s, for a host that folds to glyphs. */
+  wordClassName?: string;
 }) {
   const toast = useToast();
   const { resolved } = useResolvedSettings(null);
@@ -85,7 +88,7 @@ export function DeviceLauncher({
       onOpenDevice(device.id);
     } else if (verb === "stop") {
       const run = mobileDevelopmentRunSession(sessions, wid, device.id);
-      if (run) await writeToTerminalTab(run.key, "q").catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)));
+      if (run) await writeToTerminalTab(run.key, "q").catch((e: unknown) => toast.error(sayFailure("devices", t("shell-device-launcher-could-not-stop"), e)));
     } else if (verb === "boot" || verb === "shutdown") {
       setBusy(true);
       try {
@@ -94,7 +97,7 @@ export function DeviceLauncher({
         await refreshDevices();
         if (verb === "boot") onOpenDevice(device.id);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e));
+        toast.error(sayFailure("devices", verb === "boot" ? t("shell-device-launcher-could-not-boot") : t("shell-device-launcher-could-not-shut-down"), e));
       } finally {
         setBusy(false);
       }
@@ -120,18 +123,18 @@ export function DeviceLauncher({
           disabled={menu.main.disabled}
           onClick={() => void act(menu.main.id)}
           aria-label={label ? t("shell-device-launcher-main-with-device", { main: menu.main.label, label }) : menu.main.label}
-          className="anim inline-flex h-6 items-center gap-1.5 rounded-l-control border border-r-0 border-border px-2 text-2xs text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-60"
+          className="anim inline-flex h-7 items-center gap-1.5 rounded-l-control border border-r-0 border-border px-2 text-xs text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"
         >
           <ICON.simulator size={12} aria-hidden />
-          {t("shell-device-launcher-devices")}
-          {upCount > 0 && <span className="tnum text-accent-ink">{upCount}</span>}
+          <span className={wordClassName}>{t("shell-device-launcher-devices")}</span>
+          {upCount > 0 && <span className="tnum text-text">{upCount}</span>}
         </button>
       </Tooltip>
       <Menu
         label={t("shell-device-launcher-run-device-boot-one-check-setup")}
         items={items}
         trigger={
-          <span className="anim inline-flex h-6 items-center rounded-r-control border border-border px-1 text-text-dim hover:bg-surface-2 hover:text-text">
+          <span className="anim inline-flex h-7 items-center rounded-r-control border border-border px-1 text-text-dim hover:bg-surface-2 hover:text-text">
             <ICON.expanded size={12} aria-hidden />
           </span>
         }

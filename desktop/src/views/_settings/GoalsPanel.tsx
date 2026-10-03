@@ -18,7 +18,7 @@ import { api } from "../../api";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import { choiceOf } from "../../shell/settingsModel.mjs";
 import type { GoalMode } from "../../types";
-import { Button, Card, ErrorNote, ICON, Pending, SegmentedControl, Section, useToast } from "../../ui";
+import { Button, Card, ErrorNote, ICON, Pending, SegmentedControl, Section, failureText, useToast } from "../../ui";
 import { AUTO_PERMISSIONS, AUTO_PERMISSIONS_KEY, AUTO_PERMISSIONS_LABEL, AUTO_PERMISSIONS_MEANING, DEFAULT_AUTO_PERMISSIONS, DEFAULT_MODE, DEFAULT_MODE_KEY, GOAL_MODES, MODE_MEANING, modeSegments } from "../_goal/goalMode.mjs";
 import type { AutoPermissions } from "../_goal/goalMode.mjs";
 import { pendingRows } from "./loadModel.mjs";
@@ -42,7 +42,7 @@ export function GoalsPanel() {
       await api.setSettings("workspace", { [DEFAULT_MODE_KEY]: next });
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "goals-panel-failed", e));
     } finally {
       setBusy(false);
     }
@@ -54,7 +54,7 @@ export function GoalsPanel() {
       await api.setSettings("workspace", { [AUTO_PERMISSIONS_KEY]: next });
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "goals-panel-failed", e));
     } finally {
       setBusy(false);
     }
@@ -65,7 +65,7 @@ export function GoalsPanel() {
       await api.unsetSetting("workspace", DEFAULT_MODE_KEY);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("settings", "goals-panel-failed", e));
     } finally {
       setBusy(false);
     }

@@ -22,7 +22,7 @@ import { useEffect, useState } from "react";
 import { ApiError, api } from "../../api";
 import { navigate } from "../../router";
 import type { PullMode } from "../../types";
-import { Button, Checkbox, Dialog, ICON, useToast } from "../../ui";
+import { Button, Checkbox, Dialog, ICON, failureText, useToast } from "../../ui";
 import { rootKey } from "../_workbench/workbenchModel.mjs";
 import { openPanelView } from "../_workbench/rightPanelStore";
 import { afterMergePlan, stepsToRun, summaryOf, toggleStep } from "./afterMergeModel.mjs";
@@ -125,7 +125,7 @@ export function AfterMergeDialog({
             } catch (e) {
               // The checkout is gone and the branch is on the code host; a local
               // branch that would not go is said, not fatal.
-              setError(t("work-after-merge-dialog-local-branch-stayed", { branch, error: e instanceof Error ? e.message : String(e) }));
+              setError(t("work-after-merge-dialog-local-branch-stayed", { branch, error: failureText("work", "after-merge-dialog-failed", e) }));
             }
           }
           got.delete = "done";
@@ -134,7 +134,7 @@ export function AfterMergeDialog({
         }
       } catch (e) {
         if (id === "pull") {
-          const message = e instanceof Error ? e.message : String(e);
+          const message = failureText("work", "after-merge-dialog-failed", e);
           const banner = afterPull({ err: e instanceof ApiError ? { status: e.status, code: e.code, message, detail: e.detail } : { status: 0, message } });
           if (banner.kind === "conflict") {
             got.pull = "conflict";
@@ -147,7 +147,7 @@ export function AfterMergeDialog({
           stop = true;
         } else {
           got[id] = "failed";
-          setError(e instanceof Error ? e.message : String(e));
+          setError(failureText("work", "after-merge-dialog-failed", e));
           stop = true;
         }
       }
@@ -176,7 +176,7 @@ export function AfterMergeDialog({
 
   const mark = (id: StepId) => {
     const o = outcomes[id];
-    if (running === id) return <ICON.refresh size={12} aria-hidden className="animate-spin text-text-dim" />;
+    if (running === id) return <ICON.refresh size={12} aria-hidden className="motion-safe:animate-spin text-text-dim" />;
     if (o === "done") return <ICON.check size={12} aria-hidden className="text-ok" />;
     if (o === "conflict" || o === "failed") return <ICON.warn size={12} aria-hidden className="text-warn" />;
     return null;

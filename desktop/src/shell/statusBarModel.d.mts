@@ -4,3 +4,5 @@ export declare function gpuLabel(gpu: { util_percent: number } | null | undefine
 export declare function diskLabel(bytes: number | null | undefined): string;
 export declare function caretLabel(status: { line: number; column: number } | null | undefined): string;
 export declare function languageLabel(status: { language: string | null } | null | undefined): string;
+export declare function countWords(what: "terminals" | "harnesses" | "ports", count: number): string;
+export declare function portOwnerWord(kind: string | null | undefined): string;

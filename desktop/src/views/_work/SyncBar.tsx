@@ -200,10 +200,10 @@ function PullOutcomeBanner({
     case "moved":
       return frame("border-transparent bg-ok-soft text-ok", <p className="font-semibold">{words.title}</p>);
     case "current":
-      return frame("border-border bg-surface-2 text-text", <p>{words.title}</p>);
+      return frame("border-border bg-surface-2/70 text-text", <p>{words.title}</p>);
     case "not_fast_forward":
       return frame(
-        "border-border bg-surface-2 text-text",
+        "border-border bg-surface-2/70 text-text",
         <>
           <p className="font-semibold">{words.title}</p>
           <p className="mt-0.5 text-text-dim">{words.body}</p>
@@ -233,7 +233,7 @@ function PullOutcomeBanner({
       );
     case "in_progress":
       return frame(
-        "border-border bg-surface-2 text-text",
+        "border-border bg-surface-2/70 text-text",
         <>
           <p className="font-semibold">{words.title}</p>
           <p className="mt-0.5 text-text-dim">{words.body}</p>

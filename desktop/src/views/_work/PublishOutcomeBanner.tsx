@@ -11,7 +11,7 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../../api";
 import { navigate } from "../../router";
-import { Button, CopyText, ExternalLink, ICON } from "../../ui";
+import { Button, CopyText, ExternalLink, ICON, failureText } from "../../ui";
 import { refusalOf } from "./publishOutcome.mjs";
 import type { RefusalKind } from "./publishOutcome.mjs";
 import { t } from "../../i18n/l10n.mjs";
@@ -31,7 +31,7 @@ export type Publish =
 
 /** The banner for a failed request: what the node named, or its sentence. */
 export function refused(e: unknown): Publish {
-  const message = e instanceof Error ? e.message : String(e);
+  const message = failureText("work", "publish-outcome-banner-failed", e);
   return e instanceof ApiError ? refusalOf({ status: e.status, code: e.code, message }) : { kind: "error", detail: message };
 }
 
@@ -57,7 +57,7 @@ export function PublishBanner({
   if (publish.kind === "none") return null;
 
   const changePolicy = onOpenAbout && (
-    <Button size="sm" variant="primary" onClick={() => onOpenAbout("settings")}>
+    <Button size="sm" onClick={() => onOpenAbout("settings")}>
       <ICON.settings size={12} aria-hidden />{t("work-publish-outcome-banner-change-policy")}</Button>
   );
 
@@ -79,6 +79,8 @@ export function PublishBanner({
 
   switch (publish.kind) {
     case "gate":
+      // The one banner that keeps the accent: a decision now waits on someone,
+      // and its door — *Decide in Inbox* — is the act the banner asks for.
       return frame(
         "border-accent/40 bg-accent-soft text-accent-ink",
         <>
@@ -113,7 +115,7 @@ export function PublishBanner({
       );
     case "manual":
       return frame(
-        "border-border bg-surface-2 text-text",
+        "border-border bg-surface-2/70 text-text",
         <>
           <p className="font-semibold">{t("work-publish-outcome-banner-project-does-not-publish-from-here")}</p>
           <p className="mt-0.5 text-text-dim">{rich("work-publish-outcome-banner-manual-policy-blurb")}</p>
@@ -123,7 +125,7 @@ export function PublishBanner({
       );
     case "no_goal":
       return frame(
-        "border-border bg-surface-2 text-text",
+        "border-border bg-surface-2/70 text-text",
         <>
           <p className="font-semibold">{t("work-publish-outcome-banner-nobody-ask")}</p>
           <p className="mt-0.5 text-text-dim">{rich("work-publish-outcome-banner-gated-no-goal-blurb")}</p>
@@ -133,7 +135,7 @@ export function PublishBanner({
       );
     case "not_ready":
       return frame(
-        "border-border bg-surface-2 text-text",
+        "border-border bg-surface-2/70 text-text",
         <>
           <p className="font-semibold">{t("work-publish-outcome-banner-nothing-publish-yet")}</p>
           <p className="mt-0.5 text-text-dim">{t("work-publish-outcome-banner-no-commits-beyond-base-blurb")}</p>
@@ -142,7 +144,7 @@ export function PublishBanner({
       );
     case "state":
       return frame(
-        "border-border bg-surface-2 text-text",
+        "border-border bg-surface-2/70 text-text",
         <>
           <p className="font-semibold">{t("work-publish-outcome-banner-state-does-not-allow")}</p>
           <p className="mt-0.5 text-text-dim">{publish.detail}</p>

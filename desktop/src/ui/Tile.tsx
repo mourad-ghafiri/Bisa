@@ -59,11 +59,11 @@ export function Tile({
       onClick={onSelect}
       className={cn("anim group flex min-w-0 flex-col items-stretch gap-1.5 text-left outline-none disabled:opacity-60", className)}
     >
-      <span className={cn("anim relative overflow-hidden rounded-card border", previewClass, active ? "border-accent ring-2 ring-accent/40" : "border-border group-hover:border-accent/40 group-focus-visible:border-accent")}>
+      <span className={cn("anim relative overflow-hidden rounded-card border", previewClass, active ? "border-accent ring-2 ring-accent/40" : "border-border group-hover:border-text-dim/40 group-focus-visible:border-accent")}>
         {preview}
       </span>
       <span className="flex min-w-0 items-center gap-1 text-2xs">
-        {active && <ICON.check size={12} aria-hidden className="shrink-0 text-accent" />}
+        {active && <ICON.check size={12} aria-hidden className="shrink-0 text-text" />}
         <span className={cn("truncate", active ? "font-medium text-text" : "text-text-dim")}>{name}</span>
       </span>
       {blurb && <span className="line-clamp-2 text-2xs text-text-dim">{blurb}</span>}

@@ -49,7 +49,7 @@ export function NotesPanel() {
   const moved = dockMoved(dock);
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <Section title={t("settings-notes-panel-screen")}>
         <Card>
           <div className="flex flex-col gap-3">
@@ -116,7 +116,7 @@ export function NotesPanel() {
       <Section title={t("settings-notes-panel-layout")}>
         <Card>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-2xs text-text-dim">
+            <p className="max-w-measure text-2xs leading-relaxed text-text-dim">
               {moved
                 ? t("settings-notes-panel-dock-has-been-dragged-from-corner")
                 : t("settings-notes-panel-dock-where-started")}{" "}
@@ -126,6 +126,6 @@ export function NotesPanel() {
           </div>
         </Card>
       </Section>
-    </>
+    </div>
   );
 }

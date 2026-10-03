@@ -12,7 +12,7 @@
 
 import { ApiError, api } from "../../api";
 import type { Disposal, GitDone, GitFileRow, GitInProgress, GitMergeMode, GitRebasePlan, GitResolution, GitStash, GitStashPush, MergeStrategy, PrOutcome, PullMode, PushOutcome, WorkstreamStaged } from "../../types";
-import { toaster } from "../../ui";
+import { failureText, toaster } from "../../ui";
 import { conflictWords } from "./commitActionsModel.mjs";
 import { deletedWords, discardedWords, shortRef } from "./gitDiscardModel.mjs";
 import { suggestionOutcome } from "./gitFiles.mjs";
@@ -30,7 +30,7 @@ import { appliedWords, droppedWords, poppedWords, stashRefusal, stashedWords } f
 import { IN_PROGRESS_LABEL, afterPull } from "./syncModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
-const words = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const words = (e: unknown) => (failureText("work", "git-ops-failed", e));
 
 /** A write's answer: the rows shown, the selection kept, mounted readers told. */
 function landed(scope: string, files: readonly GitFileRow[]): void {

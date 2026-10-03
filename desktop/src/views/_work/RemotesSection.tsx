@@ -23,7 +23,7 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, openExternal } from "../../api";
 import type { BranchInfo, RemoteBranchInfo, RemoteInfo } from "../../types";
-import { Button, Chip, ConfirmDialog, CopyText, Dialog, Field, ICON, MoreMenu, RelativeTime, SectionHeader, SegmentedControl, TextInput, Tooltip, TreeList, cn, copyText, useCollapsed, useCollapsedUnder, useToast, useTokenPx } from "../../ui";
+import { Button, CURSOR_RING, Chip, ConfirmDialog, CopyText, Dialog, Field, ICON, MoreMenu, RelativeTime, SectionHeader, SegmentedControl, TextInput, Tooltip, TreeList, failureText, cn, copyText, useCollapsed, useCollapsedUnder, useToast, useTokenPx } from "../../ui";
 import type { MenuItem, TreeRowState } from "../../ui";
 import { setCollapsed } from "../../ui/collapsedStore";
 import { REMOTE_LAYOUTS, REMOTE_LAYOUT_LABEL } from "../_workbench/rightPanelModel.mjs";
@@ -47,7 +47,6 @@ const LAYOUT_ICON = { tree: ICON.tree, list: ICON.list } as const;
 const INDENT = 14;
 const ROW_HEIGHT_FALLBACK = 28;
 const ROW = "group anim relative mr-1 flex h-row-sm items-center gap-1 rounded-control pr-1";
-const CURSOR = "ring-1 ring-inset ring-accent/50";
 
 type Actionable<Id extends string> = readonly { id: Id; label: string; icon: keyof typeof ICON; hover: boolean; danger: boolean; disabled: boolean; reason: string | null; separatorBefore?: boolean }[];
 
@@ -111,7 +110,7 @@ export function RemotesSection({
         await api.gitFetch(wid, name);
         results.push({ name, ok: true });
       } catch (e) {
-        results.push({ name, ok: false, error: e instanceof Error ? e.message : String(e) });
+        results.push({ name, ok: false, error: failureText("work", "remotes-section-failed", e) });
       }
     }
     setWorking(null);
@@ -133,7 +132,7 @@ export function RemotesSection({
       toast.ok(`${name} → ${remoteSummary(url)}.`);
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "remotes-section-failed", e));
     } finally {
       setWorking(null);
     }
@@ -148,7 +147,7 @@ export function RemotesSection({
       toast.ok(deleteRemoteWords(remote).done);
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toast.error(failureText("work", "remotes-section-failed", e));
     } finally {
       setWorking(null);
     }
@@ -164,7 +163,7 @@ export function RemotesSection({
         return void copyText(remote.url).then((ok) => ok && toast.ok(t("work-remotes-section-copied-url")));
       case "open_host": {
         const page = hostPage(remote.url);
-        return page ? void openExternal(page).catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e))) : undefined;
+        return page ? void openExternal(page).catch((e: unknown) => toast.error(failureText("work", "remotes-section-failed", e))) : undefined;
       }
       case "delete":
         return setDeleting(remote);
@@ -355,7 +354,7 @@ function RemoteGroupRows({
   const renderDir = (row: RemoteDirRow, rs: TreeRowState) => {
     const Glyph = row.expanded ? ICON.folderOpen : ICON.folder;
     return (
-      <div style={{ marginLeft: rs.indent }} className={cn(ROW, "cursor-pointer hover:bg-surface-2", rs.cursor && CURSOR)} onMouseDown={() => setCursor(row.id)} onClick={() => fold(row.id, !row.expanded)} title={`${row.path}/ — ${countWords(row.count)}`}>
+      <div style={{ marginLeft: rs.indent }} className={cn(ROW, "cursor-pointer hover:bg-surface-2", rs.cursor && CURSOR_RING)} onMouseDown={() => setCursor(row.id)} onClick={() => fold(row.id, !row.expanded)} title={`${row.path}/ — ${countWords(row.count)}`}>
         <span className="flex h-4 w-4 shrink-0 items-center justify-center text-text-dim">
           {row.expanded ? <ICON.expanded size={12} aria-hidden /> : <ICON.collapsed size={12} aria-hidden />}
         </span>
@@ -371,14 +370,14 @@ function RemoteGroupRows({
     const acts = remoteBranchActions(b, branchCtx);
     const door = acts.find((a) => a.hover) ?? null;
     return (
-      <div style={{ marginLeft: rs.indent }} className={cn(ROW, "text-2xs", rs.cursor && CURSOR)} onMouseDown={() => setCursor(row.id)} title={row.title}>
+      <div style={{ marginLeft: rs.indent }} className={cn(ROW, "text-2xs", rs.cursor && CURSOR_RING)} onMouseDown={() => setCursor(row.id)} title={row.title}>
         <span aria-hidden className="w-4 shrink-0" />
         <ICON.branch size={12} aria-hidden className="shrink-0 text-text-dim" />
         <span className="min-w-0 flex-1 truncate font-mono text-text">{row.label}</span>
         {row.standing.isDefault && (
           <Tooltip label={t("work-remotes-section-project-s-default-branch")}>
             <span className="inline-flex">
-              <Chip tone="accent">{t("work-remotes-section-default")}</Chip>
+              <Chip tone="neutral">{t("work-remotes-section-default")}</Chip>
             </span>
           </Tooltip>
         )}
@@ -408,7 +407,7 @@ function RemoteGroupRows({
   return (
     <li className="flex flex-col">
       <div className="group flex h-row-sm items-center gap-2 rounded-control px-1 text-2xs">
-        <button type="button" onClick={toggle} aria-expanded={!folded} aria-label={t("work-remotes-section-show-hide-branches", { flag: (folded) ? "yes" : "no", r: r.name })} className="flex w-4 shrink-0 items-center justify-center text-text-dim">
+        <button type="button" onClick={toggle} aria-expanded={!folded} aria-label={t("work-remotes-section-show-hide-branches", { flag: (folded) ? "yes" : "no", r: r.name })} className="anim flex w-4 shrink-0 items-center justify-center rounded-sm text-text-dim hover:text-text">
           <ICON.collapsed size={11} aria-hidden className={`anim ${folded ? "" : "rotate-90"}`} />
         </button>
         <Tooltip label={remoteTitle(r)}>

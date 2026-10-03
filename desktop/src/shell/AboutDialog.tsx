@@ -37,23 +37,23 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
       open={open}
       onClose={onClose}
       title={t("shell-about-dialog-about", { PRODUCT })}
-      description={health.loading && open ? t("shell-about-dialog-asking-node", { PRODUCT, app }) : versionLine(app, node)}
       width="max-w-md"
       footer={
-        <Button size="sm" variant="primary" onClick={onClose}>{t("shell-about-dialog-close")}</Button>
+        <Button onClick={onClose}>{t("shell-about-dialog-close")}</Button>
       }
     >
-      <div className="flex flex-col gap-2 text-2xs">
+      <div className="flex flex-col gap-4 text-2xs">
         {/* The platform's own mark beside its name — the one place the app
             shows it at rest besides the empty landing. */}
         <div className="flex items-center gap-3">
           <PlatformMark size={40} className="shrink-0" title={t("shell-about-dialog-mark", { PRODUCT })} />
           <div className="flex min-w-0 flex-col">
             <span className="text-sm font-semibold text-text">{PRODUCT}</span>
-            <span className="text-text-dim">{versionLine(app, node)}</span>
+            {/* Said once, beside the mark: the versions, or that the node is being asked. */}
+            <span className="text-text-dim">{health.loading && open ? t("shell-about-dialog-asking-node", { PRODUCT, app }) : versionLine(app, node)}</span>
           </div>
         </div>
-        <p className="text-text-dim">{t("shell-about-dialog-runs-goals-through-coding-harnesses-already", { PRODUCT })}</p>
+        <p className="max-w-measure leading-relaxed text-text-dim">{t("shell-about-dialog-runs-goals-through-coding-harnesses-already", { PRODUCT })}</p>
         {caution && (
           <p className="flex items-start gap-1.5 text-warn">
             <ICON.warn size={12} aria-hidden className="mt-0.5 shrink-0" />
@@ -71,7 +71,7 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
           ))}
         </dl>
         {(links.length > 0 || files.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="-mx-2 flex flex-wrap items-center gap-1">
             {links.map((l) => (
               <Button key={l.id} size="sm" variant="ghost" title={l.url} onClick={() => void openExternal(l.url)}>
                 <ICON.open size={12} aria-hidden />
@@ -86,7 +86,7 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
             ))}
           </div>
         )}
-        <p className="text-3xs text-text-dim">{marksWords()}</p>
+        <p className="max-w-measure leading-relaxed text-text-dim">{marksWords()}</p>
       </div>
     </Dialog>
   );
