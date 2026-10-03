@@ -626,8 +626,10 @@ p {
   align-items: start;
 }
 
+/* The column the download tiles measure (`.platforms`): beside the slideshow it is narrower than the viewport says. */
 .hero-copy {
   padding-top: 8px;
+  container-type: inline-size;
 }
 
 .hero-title {
@@ -660,6 +662,112 @@ p {
 
 .hero-copy .lede + .lede {
   margin-top: 0.9rem;
+}
+
+/* The three systems as three tiles of one shape, read like a store badge: a glyph, a small line saying
+   what is on offer, the system's name. macOS is the download, on the accent; Linux and Windows hold
+   their place, dashed and quiet, a badge where the offer would be. */
+.platforms {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 34rem;
+  margin: 1.6rem 0 1rem;
+}
+
+/* Too narrow for three: the download takes the row, the two on their way share the next; then one column. */
+@container (max-width: 479px) {
+  .platforms {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .platforms > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (max-width: 299px) {
+  .platforms {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.button.platform {
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 14px;
+  text-align: left;
+}
+
+.platform-glyph {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.platform-words {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* The small line and the badge take the same height, so the three names sit on one line. */
+.platform-note,
+.platform-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.platform-name {
+  font-size: 1.06rem;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+/* The download lifts off the page, and its arrow drops toward the tray under the pointer. */
+.button.primary.platform {
+  box-shadow: var(--shadow-raised), 0 6px 16px -8px color-mix(in oklch, var(--color-accent) 70%, transparent);
+}
+
+.platform-arrow {
+  transition: transform var(--motion-base) var(--motion-ease);
+}
+
+.button.primary.platform:hover .platform-arrow {
+  transform: translateY(1.5px);
+}
+
+/* A system on its way: disabled, dashed, the dim ink — a place held, never a broken link. */
+.button.platform.soon {
+  background: color-mix(in oklch, var(--color-surface) 50%, transparent);
+  color: var(--color-text-dim);
+  border: 1px dashed color-mix(in oklch, var(--color-text-dim) 40%, transparent);
+  box-shadow: none;
+  cursor: default;
+}
+
+.button.platform.soon:active {
+  filter: none;
+}
+
+.platform-badge {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-ink);
+  font-weight: 600;
 }
 
 .hero-visual {

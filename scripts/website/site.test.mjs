@@ -233,7 +233,15 @@ test("the slogan opens the home page, names it, and closes every page — and th
   for (const [where, words] of [...PAGES.map((p) => [p.path, text(p.html)]), ["README.md", read("README.md")]]) {
     assert.ok(!/Bisa can\b|in Indonesian|Whatever you want/i.test(words), `${where}: the name is explained, or the old tagline is back`);
   }
-  assert.ok(text(html).includes("Linux and Windows coming soon"), "where it runs today, and what comes next");
+  // Where it runs today, and what comes next: three tiles of one shape — the macOS download, then Linux and Windows as disabled buttons wearing a badge.
+  const platforms = /<div class="platforms">([\s\S]*?)<\/div>/.exec(html)?.[1] ?? "";
+  const tiles = [...platforms.matchAll(/<(a|button) class="button ([^"]*)"([^>]*)>([\s\S]*?)<\/\1>/g)].map(([, tag, cls, attrs, inner]) => ({ tag, cls, attrs, inner, said: text(inner).trim() }));
+  assert.deepEqual(tiles.map((t) => t.said), ["Download for macOS", "Coming soon to Linux", "Coming soon to Windows"], "each tile says what it offers, and a screen reader hears it whole");
+  const [mac, ...soon] = tiles;
+  assert.ok(mac.tag === "a" && mac.cls === "primary platform" && /href="[^"]*download\/"/.test(mac.attrs), "the one download");
+  for (const t of soon) {
+    assert.ok(t.tag === "button" && t.cls === "platform soon" && /type="button" disabled/.test(t.attrs) && t.inner.includes('<span class="platform-badge">Coming soon</span>'), `${t.said}: a disabled button wearing a badge`);
+  }
 });
 
 test("the tour follows the app's sidebar, and its rail names every stop in that order", () => {
