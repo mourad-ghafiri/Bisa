@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { readFileSync } from "node:fs";
 
-import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody } from "./newGoalModel.mjs";
+import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody, staffHint, staffNotOffered } from "./newGoalModel.mjs";
 
 const brief = { sha256: "ab".repeat(32), name: "brief.pdf", mime: "application/pdf", size: 1234 };
 
@@ -59,11 +59,30 @@ test("the words around the documents and after the capture", () => {
 });
 
 test("assignees a body names travel in the wire's word, and nobody is absence on the wire", () => {
-  assert.deepEqual(goalBody({ statement: "Ship", mode: "auto", assignees: ["team:01TEAM"], tags: [], documents: [] }).assignees, ["team:01TEAM"]);
+  assert.deepEqual(goalBody({ statement: "Ship", mode: "auto", assignees: ["team:01TEAM", "agent:developer"], tags: [], documents: [] }).assignees, ["team:01TEAM", "agent:developer"]);
   assert.equal("assignees" in goalBody({ statement: "Ship", mode: "auto", assignees: [], tags: [], documents: [] }), false, "nobody is absence on the wire");
-  // The dialog hands a capture to nobody: the Teams screen's door to it is gone.
+  // Who carries it is the person's own pick in the dialog — agents and teams — and no team rides in from the Teams screen.
   const dialog = readFileSync(new URL("./NewGoalDialog.tsx", import.meta.url), "utf8");
-  assert.ok(dialog.includes("assignees: [],") && !dialog.includes("pendingTeam"), "no team rides in from elsewhere");
+  assert.ok(dialog.includes("assignees: staff,") && !dialog.includes("pendingTeam"), "the dialog's own pick, and nothing handed over");
+  assert.ok(dialog.includes('const STAFF_KINDS: AssigneeKind[] = ["agent", "team"];'), "agents and teams carry steps; people decide gates elsewhere");
+  assert.ok(dialog.includes("exclude={notOffered}") && dialog.includes("staffNotOffered(ws.agents)"), "the core and the disabled agents are never offered");
+  assert.ok(dialog.includes("setStaff([]);") && dialog.includes("setStaffOpen(false);"), "a closed or captured dialog forgets the pick");
+});
+
+test("who carries it: never the platform's own agents or a disabled one, and the hint says what nobody picked means", () => {
+  const agents = [
+    { id: "developer", origin: "local", enabled: true },
+    { id: "general-agent", origin: "core", enabled: true },
+    { id: "workflow-agent", origin: "core", enabled: true },
+    { id: "retired", origin: { catalog: { slug: "retired" } }, enabled: false },
+    { id: "reviewer", origin: { catalog: { slug: "code-reviewer" } }, enabled: true },
+  ];
+  assert.deepEqual(staffNotOffered(agents), ["general-agent", "workflow-agent", "retired"]);
+  assert.deepEqual(staffNotOffered([]), []);
+  assert.deepEqual(staffNotOffered(undefined), []);
+  assert.match(staffHint(0), /^Optional\. With nobody picked, the Workflow Agent staffs every step from the agents and teams that are enabled\.$/);
+  assert.match(staffHint(2), /from these alone/);
+  assert.equal(staffHint(1), staffHint(5), "one sentence for any pick");
 });
 
 test("projects that could not be attached are said once, counted, with the first reason — and the goal stands", () => {

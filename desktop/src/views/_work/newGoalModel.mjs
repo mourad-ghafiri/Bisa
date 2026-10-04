@@ -5,9 +5,11 @@
  * sends (the statement and the mode, and only what was set beside them),
  * whether *Capture* may be pressed (not while a document is still uploading
  * — the goal would be captured without it), and what the toast says after.
- * Who carries the goal and which workflow it runs are not asked here: the
- * Workflow Agent assigns every step from the enabled staff, and a manual
- * goal's person designs on the Workflow tab.
+ * Which workflow it runs is not asked here: the Workflow Agent designs it,
+ * or a manual goal's person does on the Workflow tab. Who carries it is
+ * optional: the agents and teams picked become the goal's assignees, and the
+ * Workflow Agent staffs every step from them alone — from the whole enabled
+ * staff when none is picked (`staffHint`, `staffNotOffered`).
  */
 
 import { t } from "../../i18n/l10n.mjs";
@@ -27,8 +29,8 @@ export function attachRefusedWords(refused) {
 
 /**
  * The `POST /goals` body for what the dialog holds. Only what was set
- * travels: an empty list is absence on the wire. `assignees` is a team
- * handed over by the Teams screen, never a choice made here.
+ * travels: an empty list is absence on the wire. `assignees` is who carries
+ * the goal — the agents and teams the person picked, in the wire's word.
  *
  * @param {{
  *   statement: string,
@@ -87,4 +89,24 @@ export function captureLabel(s) {
 export function documentsHint(count) {
   if (count === 0) return t("work-new-goal-optional-brief-spec-screenshot-spreadsheet-kept");
   return count === 1 ? t("work-new-goal-1-document-goes-goal") : t("work-new-goal-documents-go-goal", { count });
+}
+
+/**
+ * The agents *Who carries it* never offers: the platform's own — they run
+ * the platform and are never given a step — and the disabled ones, which no
+ * design may name. Teams stood down are the picker's own rule.
+ * @param {readonly {id: string, origin: unknown, enabled: boolean}[]} agents
+ * @returns {string[]}
+ */
+export function staffNotOffered(agents) {
+  return (agents ?? []).filter((a) => a.origin === "core" || !a.enabled).map((a) => a.id);
+}
+
+/**
+ * What *Who carries it* says under itself: that it is optional and what
+ * nobody picked means, or what the picked ones are for.
+ * @param {number} count how many agents and teams are picked
+ */
+export function staffHint(count) {
+  return count === 0 ? t("work-new-goal-dialog-staff-hint-none") : t("work-new-goal-dialog-staff-hint-some");
 }

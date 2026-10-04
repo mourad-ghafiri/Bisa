@@ -77,6 +77,9 @@ pub struct Goal {
     pub mode: GoalMode,
     /// Who carries this goal: agents take the work, humans may decide the
     /// gates, teams expand to both. Descendants inherit through `origin`.
+    /// The agents and teams named here are also the staff the Workflow
+    /// Agent designs from — a team whole or one of its members — and when
+    /// none is named, the nearest ancestor's, else every enabled one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assignees: Vec<Assignee>,
     #[serde(default, skip_serializing_if = "Tags::is_empty")]

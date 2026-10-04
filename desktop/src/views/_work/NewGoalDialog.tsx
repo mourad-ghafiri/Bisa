@@ -7,32 +7,40 @@
  * the designer for you to draw it, with the agent on request. The choice
  * starts on the workspace's `goals.default_mode`.
  *
- * Nothing here asks who carries the goal or which workflow it runs: the
- * Workflow Agent assigns every step from the enabled staff, and a manual
- * goal's person designs. The extra controls are the ones no agent can decide
- * for you: the **documents** the work starts from — a brief, a spec, a
- * screenshot, kept in the goal's `documents/` folder and read by whoever
- * works on it — and the **tags** it files under. A document is uploaded the
+ * Nothing here asks which workflow it runs: the Workflow Agent designs it,
+ * and a manual goal's person does. The extra controls are the ones no agent
+ * can decide for you: **who carries it** — optional, closed until opened:
+ * the agents and teams picked become the goal's assignees and the Workflow
+ * Agent staffs every step from them alone, a team whole or one of its
+ * members, and from every enabled agent and team when nobody is picked — the
+ * **documents** the work starts from — a brief, a spec, a screenshot, kept
+ * in the goal's `documents/` folder and read by whoever works on it — and
+ * the **tags** it files under. A document is uploaded the
  * moment it is chosen (`useUploads`); *Capture* waits for the last upload, so
  * a goal is never captured without its context. The decisions live in
  * `newGoalModel.mjs` and `goalMode.mjs`.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { errorFields, log } from "../../log";
 import { navigate } from "../../router";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
+import { useWorkspace } from "../../shell/useWorkspaceData";
 import { choiceOf } from "../../shell/settingsModel.mjs";
 import type { GoalMode } from "../../types";
 import { Button, Dialog, ICON, Labelled, PendingFiles, SegmentedControl, TAG_VOCABULARY, TagInput, TextArea, failureText, usePastedImages, useToast, useUploads, type Segment } from "../../ui";
 import { DEFAULT_MODE, DEFAULT_MODE_KEY, GOAL_MODES, MODE_MEANING, afterCapture, captureHint, modeSegments } from "../_goal/goalMode.mjs";
 import { showHookSecrets } from "../_workflow/hookSecretsStore";
-import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody } from "./newGoalModel.mjs";
+import { AssigneePicker, type AssigneeKind } from "./AssigneePicker";
+import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody, staffHint, staffNotOffered } from "./newGoalModel.mjs";
 import { attempt } from "./useAsync";
 import { t } from "../../i18n/l10n.mjs";
 
 const MODES: readonly Segment<GoalMode>[] = modeSegments().map((s) => ({ id: s.id, label: s.label, icon: ICON[s.icon] }));
+
+/** Who may carry a goal's steps: agents and teams. People decide gates, from the goal's own page. */
+const STAFF_KINDS: AssigneeKind[] = ["agent", "team"];
 
 /**
  * Projects chosen elsewhere ("New goal from these projects" on the rail) that
@@ -54,6 +62,11 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
   const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [projects, setProjects] = useState<string[]>([]);
+  // Who carries it: the agents and teams picked, and whether the choice is open.
+  const [staff, setStaff] = useState<string[]>([]);
+  const [staffOpen, setStaffOpen] = useState(false);
+  const ws = useWorkspace();
+  const notOffered = useMemo(() => staffNotOffered(ws.agents), [ws.agents]);
   const uploads = useUploads();
   // A paste anywhere in the dialog lands in the Documents well: a picture named first, a file as it is.
   const pasted = usePastedImages(uploads.take);
@@ -79,6 +92,8 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
     setMode(defaultMode);
     setTouched(false);
     setTags([]);
+    setStaff([]);
+    setStaffOpen(false);
     uploads.clear();
   };
 
@@ -89,8 +104,8 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
     const body = goalBody({
       statement,
       mode,
-      // The dialog hands a capture to nobody: who works on it is the goal's own business afterwards.
-      assignees: [],
+      // The agents and teams picked carry it; none picked is absence on the wire — the whole enabled staff.
+      assignees: staff,
       tags,
       documents: uploads.uploaded,
     });
@@ -175,6 +190,27 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
             }}
             label={t("work-new-goal-dialog-how-moves")}
           />
+        </Labelled>
+        <Labelled label={t("work-new-goal-dialog-who-carries")} hint={staffHint(staff.length)}>
+          {staffOpen || staff.length > 0 ? (
+            <AssigneePicker
+              value={staff}
+              onChange={setStaff}
+              kinds={STAFF_KINDS}
+              exclude={notOffered}
+              disabled={busy}
+              placeholder={t("work-new-goal-dialog-search-staff")}
+            />
+          ) : (
+            // Closed until asked: capturing stays one text box, and nobody picked is a choice too.
+            <div className="flex items-center gap-2 text-2xs text-text-dim">
+              <span>{t("work-new-goal-dialog-staff-everyone")}</span>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => setStaffOpen(true)}>
+                <ICON.team size={11} aria-hidden />
+                {t("work-new-goal-dialog-choose-staff")}
+              </Button>
+            </div>
+          )}
         </Labelled>
         <Labelled label={t("work-agent-editor-tags")} hint={t("work-new-goal-dialog-how-files-optional")}>
           <TagInput value={tags} onChange={setTags} suggestions={[...TAG_VOCABULARY]} />

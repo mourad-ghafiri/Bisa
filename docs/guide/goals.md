@@ -144,8 +144,13 @@ bisa runs <goal>                     # newest first: id · status · rev · posi
 
 A goal has a **mode**, chosen when you capture it — the dialog's *Auto · Guided · Manual* switch,
 `--mode` on the CLI — and it starts on the workspace's default, **auto** (Settings › Automation ›
-Goals, `goals.default_mode`). In every mode the Workflow Agent staffs each step from the agents
-and teams that are installed and enabled; the capture asks you for no assignee and no workflow.
+Goals, `goals.default_mode`). The capture asks you for no workflow. **Who carries it** is optional
+and closed until you open it: pick agents and teams there — `--assignee agent:<id>` or
+`--assignee team:<id>` on the CLI, `bisa assign` or the goal's *Assignees* afterwards — and in every
+mode the Workflow Agent staffs each step from them alone, a team whole or one of its members; pick
+nobody and it staffs from every agent and team that is installed and enabled. A goal spawned by
+another inherits its parent's pick until it is given its own. The platform's own agents and a
+disabled agent are never offered.
 
 **Auto** is the goal that runs itself. The Workflow Agent reads the goal, decides for itself where
 the shape is unclear, gives every input a default, starts from the closest template, validates its

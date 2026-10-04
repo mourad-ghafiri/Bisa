@@ -1024,8 +1024,10 @@ fn wake_prompt(
     };
     // Who may be named on a step, and what a step may reach: read once per
     // wake, so the directive and `list_staff` / `list_connectors` cannot
-    // disagree. A roster that cannot be read is said so, not left blank.
-    let roster = match crate::staff::StaffRoster::of(&inner.ws) {
+    // disagree. The staff is the goal's — the agents and teams it names to
+    // carry it, when it names any. A roster that cannot be read is said so,
+    // not left blank.
+    let roster = match crate::staff::StaffRoster::for_goal(&inner.ws, goal.id) {
         Ok(r) => r.render(),
         Err(e) => {
             tracing::warn!(goal = %goal.id, "guided wake: the staff roster is unavailable: {e}");

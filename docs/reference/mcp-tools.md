@@ -104,7 +104,7 @@ agent never calls it.
 | Tool | What it is for |
 |---|---|
 | `workspace_overview` | the whole workspace in one call — agents, teams, channels, skills, MCP servers, what listens (the workflows that are On, the goals that listen and how many are paused, how many starts are armed and when the next comes due), projects, workflows, goals by status, what is running, what is waiting, what the catalog holds |
-| `list_staff` | who is here to take a step: every installed and enabled agent (harness, skills, teams) and every enabled team (members), with how to name them as an assignee — the same roster a design wake carries under `STAFF` |
+| `list_staff` | who is here to take a step: every installed and enabled agent (harness, skills, teams) and every enabled team (members), with how to name them as an assignee — the same roster a design wake carries under `STAFF`. In a goal's design session it is that goal's roster: when the goal names agents or teams to carry it (or its nearest ancestor does), those alone — a team whole, or one of its enabled members |
 | `list_catalog` | what can be installed and what is — every entry of the catalog's seven kinds, or one kind's when `kind` is `agent`, `skill`, `team`, `channel` or `workflow`, the five this tool takes (`connector` and `addon` are refused as a `kind`) |
 
 ## The General Agent only
@@ -122,7 +122,7 @@ agent never calls it.
 | `list_workflow_templates` | the catalog's templates and this workspace's own workflows, with what each is for |
 | `get_workflow` | one workflow by id or catalog slug, as JSON, with its current validation problems |
 | `save_workflow` | write the library workflow this conversation is about — the whole definition, at the `revision` `get_workflow` returned. Validated first: problems come back and nothing is written; a workflow that moved since is refused as moved (read it again, keep the person's change, then yours). Only the conversation's own workflow — the engine names it from the scope and refuses a session in no such conversation; a goal's design is proposed with `propose_workflow`. The person's canvas beside the conversation shows the change |
-| `validate_workflow` | every problem a definition has, by step and kind, without recording it. An unknown placeholder is usually an undoubled brace: a literal brace is `{{` or `}}`, and a result's shape belongs in the step's `output_schema`, not in its instructions; a reader is refused when the field is not in the producer's `required`, the producer's kind yields no output, or the producer is not sure to have run before it — a rework loop's head, an `any` join's arm, a step passed over on failure |
+| `validate_workflow` | every problem a definition has, by step and kind, without recording it — in a goal's design session, its staffing against that goal's roster (`list_staff`). An unknown placeholder is usually an undoubled brace: a literal brace is `{{` or `}}`, and a result's shape belongs in the step's `output_schema`, not in its instructions; a reader is refused when the field is not in the producer's `required`, the producer's kind yields no output, or the producer is not sure to have run before it — a rework loop's head, an `any` join's arm, a step passed over on failure |
 
 There is no removal tool and no adopt tool: a workflow is adopted, started and amended by a person
 through gates, and the one write to a library workflow is the Workflow Agent's in the conversation

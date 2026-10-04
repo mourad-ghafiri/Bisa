@@ -61,10 +61,13 @@ test("capture, in each of the three modes: what is sent, what is said, and where
   assert.deepEqual([said.auto[2], said.guided[2], said.manual[2]], [null, null, { tab: "workflow", edit: "1" }], "a manual goal opens on its designer");
   assert.equal(tabOf(said.manual[2].tab), "workflow");
   assert.equal(tabOf("nowhere"), "progress", "a stale link never lands nowhere");
-  // Assignees a body names travel in the wire's word.
+  // Who carries it — the agents and teams the dialog picked — travels in the wire's word: the Workflow Agent staffs from them alone.
   const forTeam = goalBody({ statement: "Ship", mode: "auto", assignees: ["team:01TEAM"], tags: ["ops"], documents: [] });
   assert.deepEqual(forTeam.assignees, ["team:01TEAM"]);
   assert.deepEqual(fits("NewGoalBody", forTeam), []);
+  const carried = goalBody({ statement: "Ship", mode: "guided", assignees: ["agent:developer", "team:01TEAM"], tags: [], documents: [] });
+  assert.deepEqual(carried.assignees, ["agent:developer", "team:01TEAM"]);
+  assert.deepEqual(fits("NewGoalBody", carried), []);
   // Projects handed over with the capture are attached one by one: a refusal is said once, and the goal stands.
   assert.equal(attachRefusedWords([]), null);
   assert.equal(attachRefusedWords([{ project: PROJECT, reason: "the project is archived" }]), "The goal stands, but 1 project could not be attached to it: the project is archived");

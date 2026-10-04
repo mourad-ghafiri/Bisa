@@ -729,6 +729,80 @@ fn a_disabled_agent_cannot_be_addressed() {
         .contains(&agent.pubkey));
 }
 
+/// The staff a goal's design may name: its own agents and teams, else its
+/// nearest ancestor's that names any — never a wider parent's over a child
+/// given its own — people left out, and nothing when no goal on the chain
+/// names an agent or a team.
+#[test]
+fn a_goals_staff_scope_is_its_own_else_its_nearest_ancestors() {
+    let (_d, ws) = ws();
+    let dev = ws.add_agent(new_agent("Developer")).unwrap().id.to_string();
+    let qa = ws.add_agent(new_agent("QA")).unwrap().id.to_string();
+    let person = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+    let team = ws
+        .create_team(
+            "mobile",
+            None,
+            vec![Assignee::Agent(dev.clone())],
+            Tags::default(),
+        )
+        .unwrap();
+    let spawned = |parent: bisa_core::GoalId, s: &str| NewGoal {
+        origin: bisa_core::GoalOrigin::Spawned { parent },
+        ..NewGoal::captured(s)
+    };
+
+    let unscoped = ws.create_goal(NewGoal::captured("anyone")).unwrap();
+    assert!(
+        ws.staff_scope(unscoped.id).is_empty(),
+        "nobody named: the whole staff"
+    );
+    ws.set_goal_assignees(unscoped.id, vec![Assignee::Human(person.clone())])
+        .unwrap();
+    assert!(
+        ws.staff_scope(unscoped.id).is_empty(),
+        "a person carries no step"
+    );
+
+    let parent = ws.create_goal(NewGoal::captured("the app")).unwrap();
+    ws.set_goal_assignees(
+        parent.id,
+        vec![
+            Assignee::Team(team.id.to_string()),
+            Assignee::Human(person.clone()),
+            Assignee::Agent(qa.clone()),
+            Assignee::Team(team.id.to_string()),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        ws.staff_scope(parent.id),
+        vec![
+            Assignee::Team(team.id.to_string()),
+            Assignee::Agent(qa.clone())
+        ],
+        "its own agents and teams, once each, in its order"
+    );
+
+    let child = ws
+        .create_goal(spawned(parent.id, "the login screen"))
+        .unwrap();
+    let grandchild = ws.create_goal(spawned(child.id, "the button")).unwrap();
+    assert_eq!(
+        ws.staff_scope(grandchild.id),
+        ws.staff_scope(parent.id),
+        "inherited through a chain that names nobody"
+    );
+
+    ws.set_goal_assignees(child.id, vec![Assignee::Agent(dev.clone())])
+        .unwrap();
+    assert_eq!(
+        ws.staff_scope(grandchild.id),
+        vec![Assignee::Agent(dev.clone())],
+        "the nearest goal that names any wins, never widened by the parent's"
+    );
+}
+
 #[test]
 fn team_assignment_is_stored_indexed_and_governing() {
     let (_d, ws) = ws();

@@ -250,7 +250,13 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
         }
         Some("validate_workflow") => {
             assert_eq!(req["agent"], WORKFLOW_AGENT_ID);
-            if req["workflow"]["name"] == "Broken" {
+            // `goal` rides only when the session serves one, and is a goal id then.
+            assert!(req.get("goal").is_none_or(Value::is_string), "{req}");
+            if req["workflow"]["name"] == "Whose roster" {
+                json!({"ok": true, "problems": [
+                    {"kind": "staff", "message": format!("judged against {}", req["goal"].as_str().unwrap_or("the whole staff"))}
+                ]})
+            } else if req["workflow"]["name"] == "Broken" {
                 json!({"ok": true, "problems": [
                     {"step": "a", "kind": "unknown_step", "message": "flows to an unknown step \"nowhere\""},
                     {"kind": "no_start", "message": "no step is without an incoming flow"}
@@ -385,6 +391,13 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
         }
         // -- platform ops (M9). Shapes copied from the wire contract; the
         // asserts are the half of that contract this crate is responsible for.
+        // Who may be named: the goal's roster when the session serves one.
+        Some("list_staff") => {
+            assert!(req.get("goal").is_none_or(Value::is_string), "{req}");
+            let whose = req["goal"].as_str().unwrap_or("the whole staff");
+            json!({"ok": true, "agents": [], "teams": [], "scoped": req.get("goal").is_some(),
+                   "text": format!("STAFF for {whose}")})
+        }
         Some("workspace_overview") => {
             assert!(
                 [CORE_AGENT_ID, WORKFLOW_AGENT_ID].contains(&req["agent"].as_str().unwrap_or("")),
@@ -553,6 +566,42 @@ fn broken_workflow() -> Value {
     ]})
 }
 
+/// A session serving a goal reads the goal's roster: `list_staff` and
+/// `validate_workflow` carry the session's goal to the engine, with no
+/// argument the agent has to remember. A caller with no goal sends none, and
+/// reads the whole staff.
+#[tokio::test]
+async fn reading_the_staff_carries_the_sessions_goal_and_only_then() {
+    let fake = FakeIntake::start();
+    let designer = ToolCore::new(fake.path.clone(), workflow_agent_scope());
+    let staff = designer.list_staff().await.unwrap();
+    assert_eq!(staff, format!("STAFF for {GOAL}"));
+    let whose = json!({"name": "Whose roster", "steps": []});
+    let judged = designer.validate_workflow(whose.clone()).await.unwrap();
+    assert!(
+        judged.contains(&format!("judged against {GOAL}")),
+        "{judged}"
+    );
+
+    let client = IntakeClient::new(fake.path.clone());
+    let whole = client
+        .list_staff(CORE_AGENT_ID, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(whole["scoped"], json!(false));
+    assert_eq!(whole["text"], json!("STAFF for the whole staff"));
+    let problems = client
+        .validate_workflow(WORKFLOW_AGENT_ID, whose, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        problems[0]["message"],
+        json!("judged against the whole staff")
+    );
+}
+
 #[tokio::test]
 async fn submit_ok_and_rejected() {
     let fake = FakeIntake::start();
@@ -714,7 +763,7 @@ async fn goal_ops_roundtrip() {
     assert_eq!(templates["templates"][0]["slug"], "software-feature");
     assert_eq!(
         client
-            .validate_workflow(WORKFLOW_AGENT_ID, broken_workflow())
+            .validate_workflow(WORKFLOW_AGENT_ID, broken_workflow(), None)
             .await
             .unwrap()
             .unwrap()

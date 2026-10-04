@@ -7,9 +7,15 @@
 //! staff (`workflow_validation_ctx`); this is the same population, with the
 //! words a designer needs to choose between them: what each agent does, on
 //! which harness, with which skills, and who is on each team.
+//!
+//! A goal may narrow it: when the goal names agents or teams to carry it —
+//! or its nearest ancestor does (`Workspace::staff_scope`) — its design, its
+//! repairs and its amendments name only those, a team whole or by one of its
+//! members ([`StaffRoster::for_goal`], [`StaffRoster::scoped_to`]). A goal
+//! that names neither reads the whole enabled staff.
 
 use bisa_core::{
-    Agent, AgentId, Assignee, SkillId, Step, StepId, StepKind, Team, TeamId, ValueRef,
+    Agent, AgentId, Assignee, GoalId, SkillId, Step, StepId, StepKind, Team, TeamId, ValueRef,
 };
 use bisa_store::{StoreError, Workspace};
 use serde::Serialize;
@@ -43,6 +49,9 @@ pub struct StaffTeam {
 pub struct StaffRoster {
     pub agents: Vec<StaffAgent>,
     pub teams: Vec<StaffTeam>,
+    /// A goal's roster: the agents and teams the goal names to carry it
+    /// ([`Self::scoped_to`]), not the workspace's whole enabled staff.
+    pub scoped: bool,
 }
 
 impl StaffRoster {
@@ -100,12 +109,91 @@ impl StaffRoster {
         Self {
             agents: agents_out,
             teams: teams_out,
+            scoped: false,
         }
     }
 
     /// The roster of this workspace as it stands.
     pub fn of(ws: &Workspace) -> Result<Self, StoreError> {
         Ok(Self::from_parts(&ws.list_agents()?, &ws.list_teams()?))
+    }
+
+    /// The roster a goal's design reads: the agents and teams the goal names
+    /// to carry it — or its nearest ancestor does ([`Workspace::staff_scope`]) —
+    /// and the whole enabled staff when none does.
+    pub fn for_goal(ws: &Workspace, goal: GoalId) -> Result<Self, StoreError> {
+        Ok(Self::of(ws)?.scoped_to(&ws.staff_scope(goal)))
+    }
+
+    /// Pure. This roster narrowed to `scope`, the agents and teams a goal
+    /// names: each named team that is on the roster, each named agent that
+    /// is, and every agent on a kept team — a team is named whole or by one
+    /// of its members. An agent's `teams` keep only the kept teams. A scope
+    /// that names no agent and no team narrows nothing: the roster comes
+    /// back as it was, unscoped. Names that are not on the roster — a
+    /// disabled agent, a team stood down, one since deleted — drop out.
+    pub fn scoped_to(self, scope: &[Assignee]) -> Self {
+        let named_agents: Vec<&str> = scope.iter().filter_map(Assignee::as_agent).collect();
+        let named_teams: Vec<&str> = scope
+            .iter()
+            .filter_map(|a| match a {
+                Assignee::Team(id) => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        if named_agents.is_empty() && named_teams.is_empty() {
+            return self;
+        }
+        let teams: Vec<StaffTeam> = self
+            .teams
+            .into_iter()
+            .filter(|t| named_teams.contains(&t.id.as_str()))
+            .collect();
+        let agents: Vec<StaffAgent> = self
+            .agents
+            .into_iter()
+            .filter(|a| {
+                named_agents.contains(&a.id.as_str())
+                    || teams.iter().any(|t| t.agents.contains(&a.id))
+            })
+            .map(|mut a| {
+                a.teams.retain(|id| teams.iter().any(|t| &t.id == id));
+                a
+            })
+            .collect();
+        Self {
+            agents,
+            teams,
+            scoped: true,
+        }
+    }
+
+    /// How many may be named, in the words a staffing problem ends on:
+    /// "2 agents and 1 team are enabled here", or, for a goal's roster,
+    /// "… carry this goal".
+    pub fn standing(&self) -> String {
+        let (a, t) = (self.agents.len(), self.teams.len());
+        format!(
+            "{a} agent{} and {t} team{} {}",
+            if a == 1 { "" } else { "s" },
+            if t == 1 { "" } else { "s" },
+            if self.scoped {
+                "carry this goal"
+            } else {
+                "are enabled here"
+            }
+        )
+    }
+
+    /// Who an assignee off this roster is not, for its problem: "not
+    /// installed and enabled here", or, for a goal's roster, "not among the
+    /// agents and teams that carry this goal".
+    pub fn outsider(&self) -> &'static str {
+        if self.scoped {
+            "not among the agents and teams that carry this goal"
+        } else {
+            "not installed and enabled here"
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -126,16 +214,28 @@ impl StaffRoster {
     /// sentence for an empty roster. Descriptions are cut to their first
     /// sentence and 120 characters, because the whole roster rides every wake.
     pub fn render(&self) -> String {
+        if self.is_empty() && self.scoped {
+            return "STAFF — the person named the agents and teams that carry this goal, and \
+                    none of them is enabled here now. Name nobody else: leave agent steps \
+                    unassigned (they run on the step's harness), or declare an input of kind \
+                    `assignee` and name it, and say in the goal's thread that the goal's \
+                    agents and teams need enabling; you cannot install."
+                .to_string();
+        }
         if self.is_empty() {
             return "STAFF — nobody is installed and enabled here besides the platform's own \
                     agents. Leave agent steps unassigned (they run on the step's harness), or \
                     declare an input of kind `assignee` and name it; you cannot install."
                 .to_string();
         }
-        let mut out = String::from(
+        let mut out = String::from(if self.scoped {
+            "STAFF — the person named who carries this goal; name one of these on every agent \
+             step as {\"agent\": \"<id>\"} or {\"team\": \"<id>\"} — a team, or one of its \
+             members. Nobody else may be named, though others are installed.\n"
+        } else {
             "STAFF — installed and enabled here; name one on every agent step as \
-             {\"agent\": \"<id>\"} or {\"team\": \"<id>\"}. Nobody else exists.\n",
-        );
+             {\"agent\": \"<id>\"} or {\"team\": \"<id>\"}. Nobody else exists.\n"
+        });
         out.push_str(&format!("Agents ({}):\n", self.agents.len()));
         for a in &self.agents {
             let mut facts: Vec<String> = vec![a.harness.clone()];
@@ -234,8 +334,9 @@ pub fn unstaffed_steps<'a>(steps: &'a [Step], roster: &StaffRoster) -> Vec<&'a S
 }
 
 /// The agent steps that name an assignee the roster does not hold — a fixed
-/// agent or team that is not installed and enabled here. An input-held
-/// assignee is checked when the run starts, not here.
+/// agent or team that is not installed and enabled here, or, on a goal's
+/// roster, one the goal does not name. An input-held assignee is checked
+/// when the run starts, not here.
 pub fn misstaffed_steps<'a>(steps: &'a [Step], roster: &StaffRoster) -> Vec<(&'a StepId, String)> {
     steps
         .iter()
@@ -436,5 +537,138 @@ mod tests {
         assert_eq!(wrong.len(), 1);
         assert_eq!(wrong[0].0.as_str(), "e");
         assert_eq!(wrong[0].1, "agent:nobody");
+    }
+
+    fn roster() -> StaffRoster {
+        StaffRoster::from_parts(
+            &[
+                agent("developer", true),
+                agent("qa-engineer", true),
+                agent("designer", true),
+                agent("writer", true),
+                agent("archived", false),
+            ],
+            &[
+                team("mobile", &["developer", "qa-engineer"], true),
+                team("brand", &["designer"], true),
+                team("old", &["writer"], false),
+            ],
+        )
+    }
+
+    #[test]
+    fn a_scope_that_names_no_agent_and_no_team_narrows_nothing() {
+        let whole = roster();
+        for scope in [
+            vec![],
+            vec![Assignee::Human(PrincipalId::new("cd".repeat(32)).unwrap())],
+        ] {
+            let same = roster().scoped_to(&scope);
+            assert!(!same.scoped, "{scope:?}");
+            assert_eq!(same.agents.len(), whole.agents.len());
+            assert_eq!(same.teams.len(), whole.teams.len());
+            assert_eq!(
+                same.render(),
+                whole.render(),
+                "the whole staff, word for word"
+            );
+        }
+    }
+
+    #[test]
+    fn a_goals_scope_keeps_its_agents_and_its_teams_with_their_members() {
+        let scoped = roster().scoped_to(&[
+            Assignee::Team("mobile".into()),
+            Assignee::Agent("writer".into()),
+            Assignee::Agent("archived".into()),
+            Assignee::Team("old".into()),
+            Assignee::Agent("nobody".into()),
+        ]);
+        assert!(scoped.scoped);
+        assert_eq!(
+            scoped
+                .teams
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["mobile"],
+            "a team stood down drops out"
+        );
+        assert_eq!(
+            scoped.agents.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["developer", "qa-engineer", "writer"],
+            "the team's members and the named agent — never a disabled or unknown one, never brand's designer"
+        );
+        assert!(scoped.holds(&Assignee::Team("mobile".into())));
+        assert!(
+            scoped.holds(&Assignee::Agent("developer".into())),
+            "a member, named alone"
+        );
+        assert!(
+            !scoped.holds(&Assignee::Agent("designer".into())),
+            "installed, but not this goal's"
+        );
+        assert!(!scoped.holds(&Assignee::Team("brand".into())));
+        let writer = scoped
+            .agents
+            .iter()
+            .find(|a| a.id.as_str() == "writer")
+            .unwrap();
+        assert!(
+            writer.teams.is_empty(),
+            "the old team it was on is not this goal's"
+        );
+        assert_eq!(scoped.standing(), "3 agents and 1 team carry this goal");
+        assert_eq!(
+            scoped.outsider(),
+            "not among the agents and teams that carry this goal"
+        );
+        let text = scoped.render();
+        assert!(
+            text.starts_with("STAFF — the person named who carries this goal"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Nobody else may be named") && !text.contains("designer"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_goals_scope_with_nobody_left_says_so_and_asks_for_nobody_else() {
+        let scoped = roster().scoped_to(&[
+            Assignee::Agent("archived".into()),
+            Assignee::Team("old".into()),
+        ]);
+        assert!(scoped.scoped && scoped.is_empty());
+        let text = scoped.render();
+        assert!(text.contains("none of them is enabled here now"), "{text}");
+        assert!(text.contains("Name nobody else"), "{text}");
+        let steps = vec![
+            agent_step(
+                "a",
+                Some(ValueRef::Fixed(Assignee::Agent("designer".into()))),
+            ),
+            agent_step("b", None),
+        ];
+        assert!(
+            unstaffed_steps(&steps, &scoped).is_empty(),
+            "with nobody to name, an unassigned step is the one that can run"
+        );
+        assert_eq!(
+            misstaffed_steps(&steps, &scoped).len(),
+            1,
+            "but someone the goal does not name is still refused"
+        );
+    }
+
+    #[test]
+    fn the_whole_staffs_words_are_unchanged() {
+        let whole = roster();
+        assert_eq!(whole.standing(), "4 agents and 2 teams are enabled here");
+        assert_eq!(whole.outsider(), "not installed and enabled here");
+        assert!(whole
+            .render()
+            .starts_with("STAFF — installed and enabled here; name one on every agent step"));
     }
 }

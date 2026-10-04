@@ -50,7 +50,9 @@ the *shape* of the work to `@Workflow Agent` rather than designing steps itself.
 **The Workflow Agent** designs. An auto or guided capture wakes it (a manual goal asks it in the
 conversation): it reads the goal, asks you at most one round if the shape is genuinely unclear —
 and nothing at all on an auto goal, where nobody adopts — starts from the closest catalog template, names
-installed agents, reaches outside platforms only through the connectors installed here — its wake
+installed agents — only the agents and teams the goal names to carry it when it names any (*Who
+carries it* in the New Goal dialog, the goal's *Assignees*), a team whole or one of its members —
+reaches outside platforms only through the connectors installed here — its wake
 prompt carries a `CONNECTORS` list beside `STAFF`, and `list_connectors` answers the same to any
 agent: each connector, its operations with their parameters, which read and which write, which
 accounts are connected (any agent may also *read* through one live with `call_connector`, screened

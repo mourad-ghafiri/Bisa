@@ -1698,6 +1698,82 @@ async fn a_design_wake_carries_the_goal_the_staff_the_connectors_and_the_templat
     engine.shutdown().await;
 }
 
+/// A goal captured with the agents and teams that carry it is designed with
+/// them alone: the wake's `STAFF` block is the goal's — the team, its member
+/// and the named agent — and says nobody else may be named, while an
+/// installed agent the goal does not name is left out of it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_design_wake_for_a_goal_that_names_who_carries_it_lists_them_alone() {
+    use bisa_core::{Assignee, Tags};
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "guided-harness");
+    for slug in ["developer", "mobile-developer", "code-reviewer"] {
+        ws.install(CatalogKind::Agent, slug).unwrap();
+    }
+    let team = ws
+        .create_team(
+            "mobile",
+            None,
+            vec![Assignee::Agent("mobile-developer".into())],
+            Tags::default(),
+        )
+        .unwrap();
+    let script = IntakeScript::new(vec![
+        json!({"op": "add_note", "goal": "{{goal}}", "text": "read the prompt, nothing else"}),
+    ]);
+    let adapter = Arc::new(MockAdapter {
+        id: "guided-harness".into(),
+        intake_script: Some(script),
+        ..Default::default()
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&adapter) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let engine = Engine::start(
+        ws,
+        catalog,
+        EngineConfig {
+            guided_wake_timeout_secs: 1,
+            ..guided_config()
+        },
+    )
+    .unwrap();
+
+    engine
+        .submit_goal(SubmitRequest {
+            assignees: vec![
+                Assignee::Team(team.id.to_string()),
+                Assignee::Agent("code-reviewer".into()),
+            ],
+            ..guided("ship the mobile app")
+        })
+        .unwrap();
+    let prompt = until("the prompt", || adapter.prompts().first().cloned()).await;
+    // The block, not the directive's mention of it: the block opens on its own header.
+    let staff = &prompt[prompt.find("STAFF — ").expect("a STAFF block")..];
+    let staff = &staff[..staff.find("CONNECTORS").unwrap_or(staff.len())];
+    assert!(
+        staff.starts_with("STAFF — the person named who carries this goal"),
+        "{staff}"
+    );
+    assert!(staff.contains("Nobody else may be named"), "{staff}");
+    for named in [
+        "- code-reviewer ",
+        "- mobile-developer ",
+        &format!("- {} ", team.id),
+    ] {
+        assert!(
+            staff.lines().any(|l| l.starts_with(named)),
+            "{named} missing from:\n{staff}"
+        );
+    }
+    assert!(
+        !staff.lines().any(|l| l.starts_with("- developer ")),
+        "an installed agent the goal does not name is left out:\n{staff}"
+    );
+    engine.shutdown().await;
+}
+
 /// The prompt is built once per wake: a relaunch after a model wall sends
 /// the same words, byte for byte.
 #[tokio::test(flavor = "multi_thread")]

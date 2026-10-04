@@ -1214,3 +1214,142 @@ async fn an_auto_goals_amendment_applies_without_a_gate() {
     );
     engine.shutdown().await;
 }
+
+/// A goal that names who carries it is staffed from them alone: `list_staff`
+/// and `validate_workflow` for the goal read its roster, a proposal naming
+/// someone else installed here is refused, and a member of a named team,
+/// named alone, lands. Without the goal — and for a goal that names nobody —
+/// the roster is the whole enabled staff, as it always was.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goal_that_names_who_carries_it_is_staffed_from_them_alone() {
+    use bisa_core::{Assignee, Tags};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    for slug in ["developer", "mobile-developer", "code-reviewer"] {
+        ws.install(CatalogKind::Agent, slug).unwrap();
+    }
+    let team = ws
+        .create_team(
+            "mobile",
+            None,
+            vec![Assignee::Agent("mobile-developer".into())],
+            Tags::default(),
+        )
+        .unwrap();
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            assignees: vec![
+                Assignee::Team(team.id.to_string()),
+                Assignee::Agent("code-reviewer".into()),
+            ],
+            ..guided("ship the app")
+        })
+        .unwrap();
+    let anyone = engine.submit_goal(guided("anything")).unwrap();
+    let gid = goal.id.to_string();
+
+    // The goal's roster: its team, the team's member and the named agent — not the developer.
+    let staff = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "list_staff", "agent": DRIVER, "goal": gid}),
+    )
+    .await;
+    assert_eq!(staff["ok"], json!(true), "{staff}");
+    assert_eq!(staff["scoped"], json!(true), "{staff}");
+    let ids: Vec<&str> = staff["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["code-reviewer", "mobile-developer"], "{staff}");
+    assert_eq!(
+        staff["teams"][0]["id"],
+        json!(team.id.to_string()),
+        "{staff}"
+    );
+    let text = staff["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("STAFF — the person named who carries this goal"),
+        "{text}"
+    );
+    assert!(
+        !text.lines().any(|l| l.starts_with("- developer ")),
+        "the developer is not this goal's: {text}"
+    );
+    // Without a goal, or for a goal that names nobody: everyone enabled.
+    for body in [
+        json!({"op": "list_staff", "agent": DRIVER}),
+        json!({"op": "list_staff", "agent": DRIVER, "goal": anyone.id.to_string()}),
+    ] {
+        let whole = intake_roundtrip(engine.socket_path(), body).await;
+        assert_eq!(whole["scoped"], json!(false), "{whole}");
+        assert_eq!(whole["agents"].as_array().unwrap().len(), 3, "{whole}");
+    }
+
+    // Validation for the goal names the outsider; without the goal it passes.
+    let mut outsider = draft("Outsider", "mock");
+    outsider["steps"][0]["assignee"] = json!({"agent": "developer"});
+    let v = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "validate_workflow", "agent": DRIVER, "workflow": outsider, "goal": gid}),
+    )
+    .await;
+    let problem = v["problems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["kind"] == json!("unknown_assignee"))
+        .cloned()
+        .unwrap_or_else(|| panic!("the outsider is named: {v}"));
+    assert!(
+        problem["message"]
+            .as_str()
+            .unwrap()
+            .contains("not among the agents and teams that carry this goal"),
+        "{problem}"
+    );
+    let v = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "validate_workflow", "agent": DRIVER, "workflow": outsider}),
+    )
+    .await;
+    assert_eq!(v["problems"], json!([]), "{v}");
+
+    // A proposal naming the outsider is refused, and nothing is written.
+    let refused = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "propose_workflow", "agent": DRIVER, "goal": gid, "workflow": outsider}),
+    )
+    .await;
+    assert_eq!(refused["ok"], json!(false), "{refused}");
+    assert_eq!(
+        refused["problems"][0]["kind"],
+        json!("unknown_assignee"),
+        "{refused}"
+    );
+    assert!(
+        ws.get_goal(goal.id).unwrap().workflow.is_none(),
+        "nothing was written"
+    );
+
+    // The team's member, named alone, lands — as the team would.
+    let mut member = draft("Member", "mock");
+    member["steps"][0]["assignee"] = json!({"agent": "mobile-developer"});
+    let ok = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "propose_workflow", "agent": DRIVER, "goal": gid, "workflow": member}),
+    )
+    .await;
+    assert_eq!(ok["ok"], json!(true), "{ok}");
+
+    // An unknown goal is refused in words, not read as "no goal".
+    let unknown = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "list_staff", "agent": DRIVER, "goal": "not-a-goal"}),
+    )
+    .await;
+    assert_eq!(unknown["ok"], json!(false), "{unknown}");
+    engine.shutdown().await;
+}

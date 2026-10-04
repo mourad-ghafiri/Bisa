@@ -107,6 +107,8 @@ const READER_VERBS: &[&str] = &[
     "workflow",
     "assignee",
     "assignees",
+    // `staff_scope`: the agents and teams a goal's design may name, read.
+    "staff",
     "attachment",
     // `change_ledger`, `change_blob`, `change_index_file`: what a conversation's
     // agent changed, read; its writers are `write_change_ledger` and

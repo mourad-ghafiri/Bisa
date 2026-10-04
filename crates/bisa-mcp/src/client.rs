@@ -803,10 +803,19 @@ impl IntakeClient {
 
     /// Who may be named on a step: the enabled agents and teams, with what each
     /// does and who is on each team — rendered by the engine as `text`.
-    pub async fn list_staff(&self, agent: &str) -> Result<OpResult<Value>, IntakeError> {
-        let reply = self
-            .call(&json!({"op": "list_staff", "agent": agent}))
-            .await?;
+    /// Who may be named on a step — for `goal`, that goal's roster: the
+    /// agents and teams it names to carry it, when it names any. `goal` rides
+    /// the wire only when there is one.
+    pub async fn list_staff(
+        &self,
+        agent: &str,
+        goal: Option<&str>,
+    ) -> Result<OpResult<Value>, IntakeError> {
+        let mut req = json!({"op": "list_staff", "agent": agent});
+        if let Some(goal) = goal {
+            req["goal"] = json!(goal);
+        }
+        let reply = self.call(&req).await?;
         Ok(Self::op_result(reply))
     }
 
@@ -959,15 +968,19 @@ impl IntakeClient {
         }))
     }
 
-    /// Every problem a definition has, without recording it.
+    /// Every problem a definition has, without recording it — its staffing
+    /// judged against `goal`'s roster when there is one.
     pub async fn validate_workflow(
         &self,
         agent: &str,
         workflow: Value,
+        goal: Option<&str>,
     ) -> Result<OpResult<Vec<Value>>, IntakeError> {
-        let reply = self
-            .call(&json!({"op": "validate_workflow", "agent": agent, "workflow": workflow}))
-            .await?;
+        let mut req = json!({"op": "validate_workflow", "agent": agent, "workflow": workflow});
+        if let Some(goal) = goal {
+            req["goal"] = json!(goal);
+        }
+        let reply = self.call(&req).await?;
         Ok(Self::op_result(reply).map(|r| r["problems"].as_array().cloned().unwrap_or_default()))
     }
 

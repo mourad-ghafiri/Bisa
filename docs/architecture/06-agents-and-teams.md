@@ -157,11 +157,19 @@ and the engine's `dispatch` never wakes it — mentioned or named as the project
 [ide/09](ide/09-agents-in-the-ide.md)). A conversation about a goal, a workflow, the workspace or the
 node keeps it.
 
-**The Workflow Agent staffs its steps from who is here.** Its design and repair wakes carry the
-**staff roster** (`staff.rs`: every installed and enabled agent that is not a core agent, with its
-harness, skills and teams; every enabled team with its members) rendered under a `STAFF` heading —
+**The Workflow Agent staffs its steps from who is here — or from who carries the goal.** Its design
+and repair wakes carry the **staff roster** (`staff.rs`: every installed and enabled agent that is not
+a core agent, with its harness, skills and teams; every enabled team with its members) rendered under
+a `STAFF` heading. A goal that names agents or teams to carry it — its assignees, picked in the New
+Goal dialog's *Who carries it*, `--assignee` or the goal's *Assignees* — narrows it to those
+(`StaffRoster::for_goal` over `Workspace::staff_scope`): each named team and every enabled member of
+it, so a step names a team whole or one of its members, and each named agent; people are left out,
+they decide gates. A goal that names none inherits its nearest ancestor's pick, and with none on the
+chain the roster is the whole enabled staff, as before. A named agent since disabled, or a team
+stood down, drops out; when nobody named is left, `STAFF` says so and asks for nobody else (I63) —
 beside the `GOAL`, `CONNECTORS` and `TEMPLATES` blocks read from the record once per wake — and
-`list_staff` returns the same for a chat wake. When this machine develops for mobile
+`list_staff` returns the same for a chat wake — the goal's roster when the session serves a goal (the
+MCP server passes the session's goal; the answer's `scoped` says which roster it is). When this machine develops for mobile
 ([ide/19](ide/19-mobile-development.md)), the `GOAL` block gains one line — *Mobile: iOS and
 Android · Flutter 3.24 — mobile_development_devices lists the simulators, emulators and phones here* — a fact
 from the last toolchain examination, never a probe and never a rule: the designer stays universal,
@@ -171,8 +179,10 @@ step names an assignee from that list — `{ "agent": id }`, or `{ "team": id }`
 several members' skills — never a core agent, and, when nobody fits, the closest with a word about
 it, or an input of kind `assignee` for the person to fill; it cannot install. The rule is enforced at
 the agent's door, not in core validation: `validate_workflow` reports `unstaffed_step` and
-`unknown_assignee`, and `propose_workflow` and `amend_workflow` refuse an unstaffed agent step while
-staff exists — a hand-drawn design keeps the placement fallback (the goal's assignees, then the
+`unknown_assignee` — against the goal's roster in a session that serves a goal, so an installed agent
+the goal does not name is *not among the agents and teams that carry this goal* — and
+`propose_workflow` and `amend_workflow` refuse an unstaffed agent step while staff exists, and one
+that names somebody off the goal's roster — a hand-drawn design keeps the placement fallback (the goal's assignees, then the
 routing race), and an empty roster refuses nothing. A wake also **speaks in the goal's thread** as
 the Workflow Agent — a greeting, its question, the proposal, a stall — and every move is a
 `Guidance` fact ([03 — Workflows](03-workflows.md#the-goal-and-its-status)).
@@ -316,7 +326,7 @@ graph TB
 | the result protocol, and the step's `output_schema` when it has one | ✅ | — | — | — |
 | the unattended line — decide with defaults, say the assumptions, ask only for what a person alone holds (`executor::UNATTENDED_APPENDIX`) | ✅ on an auto goal | — (the design directive says it) | — | — |
 | the design or repair directive | — | ✅ | — | — |
-| the staff roster — enabled agents and teams, and how to name them | — | ✅ (`STAFF`; `list_staff` for a conversation turn) | — | — |
+| the staff roster — enabled agents and teams, or the goal's own when it names any, and how to name them | — | ✅ (`STAFF`; `list_staff` for a conversation turn) | — | — |
 | project name, root, vcs | when the step names one | — | ✅ | — |
 | **attached goals** | — | — | ✅ **named, 0..n** | — |
 | the goal's documents — the files the person gave it as context, by the folder's absolute path and each name (`documents::note`; `get_goal` lists each with its path, type and size) | ✅ when the goal has any | ✅ when the goal has any | — | — |

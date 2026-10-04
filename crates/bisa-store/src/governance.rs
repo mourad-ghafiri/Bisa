@@ -162,6 +162,46 @@ impl Workspace {
         self.expand_assignees(raw)
     }
 
+    /// The agents and teams a goal's **design** may name — the Workflow
+    /// Agent's staff scope (`bisa-engine`'s `staff.rs`): the goal's own,
+    /// else those of its nearest ancestor that names any, walking the
+    /// `spawned` origin's parent, so a spawned goal inherits the scope its
+    /// parent was given until it is given its own. People are left out:
+    /// they decide gates and carry no step. A team stays a team — the
+    /// roster offers a team and its members both. Empty when no goal on the
+    /// chain names an agent or a team: the design may then name the whole
+    /// enabled staff.
+    ///
+    /// Unlike [`Self::assignees_for`], the nearest goal wins rather than
+    /// every goal on the chain: a scope narrows, and a parent's wider one
+    /// must not widen a child that was given its own. The walk carries the
+    /// same visited set, for the same reason.
+    pub fn staff_scope(&self, goal: bisa_core::GoalId) -> Vec<bisa_core::Assignee> {
+        use bisa_core::Assignee;
+        let mut visited: HashSet<bisa_core::GoalId> = HashSet::new();
+        let mut cursor = Some(goal);
+        while let Some(current) = cursor {
+            if !visited.insert(current) {
+                tracing::warn!("goal {current}: parent chain cycles; stopping the staff walk");
+                break;
+            }
+            let Ok(g) = self.get_goal(current) else {
+                break;
+            };
+            let mut scope: Vec<Assignee> = Vec::new();
+            for a in g.assignees {
+                if matches!(a, Assignee::Agent(_) | Assignee::Team(_)) && !scope.contains(&a) {
+                    scope.push(a);
+                }
+            }
+            if !scope.is_empty() {
+                return scope;
+            }
+            cursor = g.origin.parent();
+        }
+        Vec::new()
+    }
+
     /// Teams expanded to their members, duplicates dropped at their nearest
     /// position. A disabled team expands to nothing.
     pub fn expand_assignees(&self, raw: Vec<bisa_core::Assignee>) -> Vec<bisa_core::Assignee> {

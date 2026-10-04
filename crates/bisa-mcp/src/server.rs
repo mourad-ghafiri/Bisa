@@ -192,21 +192,30 @@ impl ToolCore {
         }
     }
 
-    /// The goal a shaping tool works on: a goal's cycle, or a conversation
-    /// turn the engine launched knowing its goal — the Workflow Agent in the
-    /// goal's thread. The router hands the shaping tools to those two alone,
-    /// and the engine re-checks the caller per op.
-    fn shaping_goal(&self) -> Result<&str, McpError> {
+    /// The goal this session serves, when it serves one: a goal's cycle, or
+    /// a conversation turn the engine launched knowing its goal — the
+    /// Workflow Agent in the goal's thread. A reading tool scopes itself to
+    /// it (`list_staff`, `validate_workflow` read the goal's roster).
+    fn session_goal(&self) -> Option<&str> {
         match &self.scope {
             Scope::Goal { goal, .. }
             | Scope::Conversation {
                 goal: Some(goal), ..
-            } => Ok(goal),
-            Scope::WorkItem(_) | Scope::Conversation { goal: None, .. } => Err(Self::invalid(
+            } => Some(goal),
+            Scope::WorkItem(_) | Scope::Conversation { goal: None, .. } => None,
+        }
+    }
+
+    /// The goal a shaping tool works on: [`Self::session_goal`], required.
+    /// The router hands the shaping tools to those two sessions alone, and
+    /// the engine re-checks the caller per op.
+    fn shaping_goal(&self) -> Result<&str, McpError> {
+        self.session_goal().ok_or_else(|| {
+            Self::invalid(
                 "This tool shapes a goal and is available only to a session driving \
                      one — its design cycle, or the Workflow Agent in the goal's thread.",
-            )),
-        }
+            )
+        })
     }
 
     /// An engine refusal reaches the model as a tool *error*, never as a
@@ -809,7 +818,8 @@ impl ToolCore {
     }
 
     /// Who may be named on a step, as one text: every agent and team installed
-    /// and enabled here, what each does, and who is on each team.
+    /// and enabled here, what each does, and who is on each team — or, in a
+    /// session serving a goal that names who carries it, those alone.
     ///
     /// Read-only. The engine renders the same roster into the Workflow Agent's
     /// guided prompt; this is the door a chat wake reads it through.
@@ -818,7 +828,12 @@ impl ToolCore {
             Ok(a) => a,
             Err(e) => return Err(e),
         };
-        match self.intake.list_staff(agent).await.map_err(intake_err)? {
+        match self
+            .intake
+            .list_staff(agent, self.session_goal())
+            .await
+            .map_err(intake_err)?
+        {
             Ok(v) => Ok(v["text"].as_str().unwrap_or_default().to_string()),
             Err(errors) => Err(Self::refused(errors)),
         }
@@ -1071,7 +1086,7 @@ impl ToolCore {
         };
         match self
             .intake
-            .validate_workflow(agent, workflow)
+            .validate_workflow(agent, workflow, self.session_goal())
             .await
             .map_err(intake_err)?
         {
@@ -3511,7 +3526,7 @@ impl BisaServer {
 
     #[tool(
         name = "list_staff",
-        description = "Who can be named on a step: every agent and team installed and enabled here, with what each does, its harness and skills, and who is on each team. An agent step's assignee is one of these — {\"agent\": id} or {\"team\": id}; a team when the step needs skills several members cover. Read-only; it installs nothing."
+        description = "Who can be named on a step: every agent and team installed and enabled here, with what each does, its harness and skills, and who is on each team — or, while you serve a goal that names the agents and teams carrying it, those alone (a team, or one of its members). An agent step's assignee is one of these — {\"agent\": id} or {\"team\": id}; a team when the step needs skills several members cover. Read-only; it installs nothing."
     )]
     async fn list_staff(&self) -> Result<String, McpError> {
         self.core.list_staff().await
@@ -3553,7 +3568,7 @@ impl BisaServer {
 
     #[tool(
         name = "validate_workflow",
-        description = "Validate a workflow definition without recording it: every problem, by step and kind. Call it before propose_workflow. An unknown placeholder is usually an undoubled brace: a literal brace is written {{ or }}, and a result's shape belongs in the step's output_schema, not in its instructions."
+        description = "Validate a workflow definition without recording it: every problem, by step and kind — while you serve a goal, its staffing against the goal's roster. Call it before propose_workflow. An unknown placeholder is usually an undoubled brace: a literal brace is written {{ or }}, and a result's shape belongs in the step's output_schema, not in its instructions."
     )]
     async fn validate_workflow(
         &self,

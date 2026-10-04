@@ -71,10 +71,13 @@
 //!
 //! ```json
 //! {"op":"workspace_overview","agent":"general-agent"|"workflow-agent"}
-//! {"op":"list_staff","agent":"general-agent"|"workflow-agent"}
 //!   -> {"ok":true,"agents":{...},"teams":[...],"channels":[...],"skills":n,
 //!       "mcp_servers":{...},"listening":{...},"projects":[...],"goals":{...},
 //!       "workflows":{...},"running":[...],"catalog":{...}}
+//! {"op":"list_staff","agent":"general-agent"|"workflow-agent","goal":"<ulid>"|null}
+//!   -> {"ok":true,"agents":[...],"teams":[...],"scoped":bool,"text":"STAFF — …"}
+//!   (`goal`: that goal's roster — the agents and teams it names to carry it,
+//!   when it names any; absent, the whole enabled staff)
 //! {"op":"list_catalog","agent":"...","kind":"agent"|"skill"|"team"|"channel"|"workflow"|null}
 //!   (`null`: every kind of the catalog, connectors and addons among them)
 //!   -> {"ok":true,"entries":[{"kind","slug","name","description","tags",
@@ -94,8 +97,8 @@
 //!       "workflows":[{"id","name","description","steps","origin"}]}
 //! {"op":"get_workflow","agent":"workflow-agent","workflow":"<ulid>"|"<slug>"}
 //!   -> {"ok":true,"workflow":{...},"problems":[...]}
-//! {"op":"validate_workflow","agent":"workflow-agent","workflow":{...}}
-//!   -> {"ok":true,"problems":[...]}
+//! {"op":"validate_workflow","agent":"workflow-agent","workflow":{...},"goal":"<ulid>"|null}
+//!   -> {"ok":true,"problems":[...]}   (staffing judged against `goal`'s roster when given)
 //! {"op":"list_connectors","agent":"<id>"}
 //!   -> {"ok":true,"connectors":[{"id","name","description","auth","accounts","operations"}],
 //!       "text":"CONNECTORS — ..."}
@@ -508,9 +511,12 @@ enum Op {
         agent: String,
     },
     /// Who may be named on a step: every enabled agent and team, with what
-    /// each does and who is on each team.
+    /// each does and who is on each team — or, for a `goal` that names
+    /// agents or teams to carry it, those alone.
     ListStaff {
         agent: String,
+        #[serde(default)]
+        goal: Option<String>,
     },
     /// The connectors installed here, their operations and which have an
     /// account — what a `connector` step or a `call_connector` may name. Any
@@ -597,10 +603,13 @@ enum Op {
         agent: String,
         workflow: String,
     },
-    /// Every problem a definition has, without recording it.
+    /// Every problem a definition has, without recording it — its staffing
+    /// judged against `goal`'s roster when one is given.
     ValidateWorkflow {
         agent: String,
         workflow: NewWorkflow,
+        #[serde(default)]
+        goal: Option<String>,
     },
     /// Write a library workflow — the one the session's conversation is
     /// about (`ConversationOrigin::Workflow`), and no other — as its next
@@ -1511,15 +1520,24 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             }
             workspace_overview(inner)
         }
-        Op::ListStaff { agent } => {
+        Op::ListStaff { agent, goal } => {
             if let Err(e) = core_agent_only(&agent, &AgentId::CORE) {
                 return e;
             }
-            match crate::staff::StaffRoster::of(&inner.ws) {
+            let goal = match goal
+                .as_deref()
+                .map(|g| resolve_goal_scope(inner, g))
+                .transpose()
+            {
+                Ok(g) => g,
+                Err(e) => return e,
+            };
+            match roster_for(inner, goal) {
                 Ok(roster) => json!({
                     "ok": true,
                     "agents": roster.agents,
                     "teams": roster.teams,
+                    "scoped": roster.scoped,
                     "text": roster.render(),
                 }),
                 Err(e) => err(e.to_string()),
@@ -1614,11 +1632,23 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             }
             get_workflow(inner, &workflow)
         }
-        Op::ValidateWorkflow { agent, workflow } => {
+        Op::ValidateWorkflow {
+            agent,
+            workflow,
+            goal,
+        } => {
             if let Err(e) = core_agent_only(&agent, &[AgentId::WORKFLOW]) {
                 return e;
             }
-            validate_workflow(inner, workflow)
+            let goal = match goal
+                .as_deref()
+                .map(|g| resolve_goal_scope(inner, g))
+                .transpose()
+            {
+                Ok(g) => g,
+                Err(e) => return e,
+            };
+            validate_workflow(inner, goal, workflow)
         }
         Op::SaveWorkflow {
             agent,
@@ -2328,9 +2358,14 @@ fn draft_as_workflow(inner: &Arc<Inner>, draft: NewWorkflow) -> Workflow {
     }
 }
 
-/// Every problem a definition has, without recording it.
-fn validate_workflow(inner: &Arc<Inner>, draft: NewWorkflow) -> serde_json::Value {
-    let staffing = staffing_problems(inner, &draft.steps);
+/// Every problem a definition has, without recording it — the staffing
+/// judged against `goal`'s roster when the design is a goal's.
+fn validate_workflow(
+    inner: &Arc<Inner>,
+    goal: Option<GoalId>,
+    draft: NewWorkflow,
+) -> serde_json::Value {
+    let staffing = staffing_problems(inner, goal, &draft.steps);
     let wf = draft_as_workflow(inner, draft);
     match inner.ws.validate_workflow(&wf) {
         Ok(problems) => {
@@ -2403,7 +2438,8 @@ fn save_workflow(
              takes it back out first"
         ));
     }
-    if let Some(refusal) = unstaffed_refusal(inner, &draft) {
+    // A library workflow is no goal's: the whole enabled staff.
+    if let Some(refusal) = unstaffed_refusal(inner, None, &draft) {
         return refusal;
     }
     match ops::revise_workflow(inner, id, draft, revision) {
@@ -2418,14 +2454,33 @@ fn save_workflow(
     }
 }
 
+/// The roster a step may name from: `goal`'s — the agents and teams it names
+/// to carry it, when it names any — else the whole enabled staff. The one
+/// door `list_staff` and the staffing rule read, so the two never disagree.
+fn roster_for(
+    inner: &Arc<Inner>,
+    goal: Option<GoalId>,
+) -> Result<crate::staff::StaffRoster, StoreError> {
+    match goal {
+        Some(goal) => crate::staff::StaffRoster::for_goal(&inner.ws, goal),
+        None => crate::staff::StaffRoster::of(&inner.ws),
+    }
+}
+
 /// The staffing rule at the agent's door: while staff is installed and
 /// enabled, an agent step names one of them — an agent, a team, or an input of
-/// kind `assignee` — and never someone who is not here. Reported in the same
-/// `{step, kind, message}` shape as the validator's problems, so the Workflow
-/// Agent fixes them the same way. Hand-drawn designs are not held to this:
-/// an unassigned step there falls back to the goal's own assignees.
-fn staffing_problems(inner: &Arc<Inner>, steps: &[bisa_core::Step]) -> Vec<serde_json::Value> {
-    let roster = match crate::staff::StaffRoster::of(&inner.ws) {
+/// kind `assignee` — and never someone who is not here; for a goal that names
+/// agents or teams to carry it, never anyone it does not name (`goal`'s
+/// roster, [`roster_for`]). Reported in the same `{step, kind, message}` shape
+/// as the validator's problems, so the Workflow Agent fixes them the same way.
+/// Hand-drawn designs are not held to this: an unassigned step there falls
+/// back to the goal's own assignees.
+fn staffing_problems(
+    inner: &Arc<Inner>,
+    goal: Option<GoalId>,
+    steps: &[bisa_core::Step],
+) -> Vec<serde_json::Value> {
+    let roster = match roster_for(inner, goal) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("cannot read the staff roster for a proposal: {e}");
@@ -2433,13 +2488,7 @@ fn staffing_problems(inner: &Arc<Inner>, steps: &[bisa_core::Step]) -> Vec<serde
         }
     };
     let mut out = Vec::new();
-    let count = format!(
-        "{} agent{} and {} team{} are enabled here",
-        roster.agents.len(),
-        if roster.agents.len() == 1 { "" } else { "s" },
-        roster.teams.len(),
-        if roster.teams.len() == 1 { "" } else { "s" }
-    );
+    let count = roster.standing();
     for step in crate::staff::unstaffed_steps(steps, &roster) {
         out.push(json!({
             "step": step,
@@ -2448,22 +2497,27 @@ fn staffing_problems(inner: &Arc<Inner>, steps: &[bisa_core::Step]) -> Vec<serde
         }));
     }
     for (step, who) in crate::staff::misstaffed_steps(steps, &roster) {
+        let outsider = roster.outsider();
         out.push(json!({
             "step": step,
             "kind": "unknown_assignee",
-            "message": format!("step `{step}` names `{who}`, who is not installed and enabled here; {count}"),
+            "message": format!("step `{step}` names `{who}`, who is {outsider}; {count}"),
         }));
     }
     out
 }
 
-/// A proposal or an amendment whose steps are not staffed: refused in the
-/// shape `problems_or_err` answers, before anything is written — and with
-/// every other problem the definition has beside the staffing ones, so the
-/// session fixes the whole draft in one round rather than one refusal at a
-/// time.
-fn unstaffed_refusal(inner: &Arc<Inner>, draft: &NewWorkflow) -> Option<serde_json::Value> {
-    let mut problems = staffing_problems(inner, &draft.steps);
+/// A proposal or an amendment whose steps are not staffed — against `goal`'s
+/// roster when the design is a goal's: refused in the shape `problems_or_err`
+/// answers, before anything is written — and with every other problem the
+/// definition has beside the staffing ones, so the session fixes the whole
+/// draft in one round rather than one refusal at a time.
+fn unstaffed_refusal(
+    inner: &Arc<Inner>,
+    goal: Option<GoalId>,
+    draft: &NewWorkflow,
+) -> Option<serde_json::Value> {
+    let mut problems = staffing_problems(inner, goal, &draft.steps);
     if problems.is_empty() {
         return None;
     }
@@ -3768,7 +3822,7 @@ fn propose_workflow(
         Ok(x) => x,
         Err(e) => return e,
     };
-    if let Some(refusal) = unstaffed_refusal(inner, &draft) {
+    if let Some(refusal) = unstaffed_refusal(inner, Some(goal_id), &draft) {
         return refusal;
     }
     match ops::propose_workflow(inner, goal_id, draft, Some(agent)) {
@@ -3794,7 +3848,7 @@ fn amend_workflow(
         Ok(x) => x,
         Err(e) => return e,
     };
-    if let Some(refusal) = unstaffed_refusal(inner, &draft) {
+    if let Some(refusal) = unstaffed_refusal(inner, Some(goal_id), &draft) {
         return refusal;
     }
     match ops::propose_amend(inner, goal_id, draft, Some(agent)) {

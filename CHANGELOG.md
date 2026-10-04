@@ -17,11 +17,20 @@ notes (`docs/contributing/release.md`).
 - A Mac terminal's text editing, in a shell and in a harness's prompt: ⌘← and ⌘→ go to the start and
   the end of the line, ⌥← and ⌥→ move a word, ⌘⌫ deletes to the start of the line and ⌥⌦ the next
   word. Each is a terminal command in Settings › Keymap, rebindable and unbindable.
+- The New Goal dialog asks, optionally, **who carries it**: pick agents and teams, and the Workflow
+  Agent designs and repairs the goal's workflow with them alone — a team whole, or one of its
+  members. Pick nobody and it chooses from every enabled agent and team, as before. The picks are
+  the goal's assignees, shown and changed on its Details.
 
 ### Changed
 
 - On a Mac, focus moves between split terminal panes with ⌘⌥+arrows — as in VS Code — so that ⌥← and
   ⌥→ move a word. Windows and Linux keep Alt+arrows, and a chord you set yourself is kept.
+- A goal's agent and team assignees now scope the Workflow Agent: its designs, repairs and
+  amendments name only them (or a member of a named team), and a goal that names none inherits its
+  nearest ancestor's. This includes goals that already name agents or teams; a goal naming nobody,
+  or only people, keeps the whole enabled staff. `list_staff` and `validate_workflow` answer for the
+  goal in its design session, and the intake ops take an optional `goal`.
 
 ### Fixed
 

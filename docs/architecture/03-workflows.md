@@ -943,8 +943,11 @@ workspace's `goals.default_mode` (`auto` unless the workspace says otherwise), a
   person edits and starts it. `POST /goals/{id}/design` refuses a manual goal by name.
 
 In every mode the Workflow Agent **staffs every agent step itself** from the enabled, non-core
-agents and teams (`staff.rs`), and a proposal that names nobody while staff exists is refused; the
-capture asks for no assignee and no workflow.
+agents and teams (`staff.rs`) — or, when the goal names agents or teams to carry it (or its
+nearest ancestor does), from those alone, a team whole or one of its members (I63) — and a
+proposal that names nobody while staff exists is refused. The capture asks for no workflow; who
+carries the goal is an optional pick of agents and teams, and nobody picked leaves the whole
+enabled staff.
 
 A wake's prompt carries what the agent used to fetch — `GOAL` (the title, the statement, the mode,
 the projects attached with their paths, the thread's last posts), `STAFF`, `CONNECTORS` and
