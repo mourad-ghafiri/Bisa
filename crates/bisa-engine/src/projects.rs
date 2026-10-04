@@ -1896,6 +1896,7 @@ pub(crate) fn log_git_failure(workstream: WorkstreamId, operation: &str, error: 
                 | V::Dirty { .. }
                 | V::InProgress(_)
                 | V::NothingToStash
+                | V::NothingToDiscard
                 | V::StashMoved { .. }
                 | V::InvalidArg { .. }
                 | V::IdentityUnset(_)

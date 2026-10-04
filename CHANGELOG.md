@@ -25,6 +25,11 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- Staging, committing, amending, unstaging, discarding and stashing no longer fail when a file in
+  the Changes list was deleted after the list was read — an agent's temporary file, typically. The
+  file that is gone is left out and the rest go through; a discard with nothing left says *nothing
+  to discard*. A failed git command's error now names its first arguments and counts the rest, so
+  git's own reason stays readable.
 - The screen no longer goes blurry while a shell or a harness prints: the Project IDE's centre —
   an open file, the empty landing — and any other screen under where the terminals were last
   drawn. The hidden terminal layer's scrollbar showed through it, and the glass frost came back

@@ -1074,6 +1074,23 @@ async fn consented_git_writes_a_recovery_ref_first() {
     )
     .await;
     assert_eq!(status, 400, "neither patch nor paths");
+    // Paths the index no longer holds — gone since the list was read, or
+    // never tracked: nothing to discard, the tree's state and not a bad
+    // request, and nothing written.
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{pid}/git/discard"),
+        Some(json!({"paths": ["vanished.txt"]})),
+    )
+    .await;
+    assert_eq!(status, 409, "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("nothing to discard")),
+        "{v}"
+    );
 
     // Restore the checkout's recovery: back on main with the typed line.
     let (status, v) = request(

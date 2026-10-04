@@ -134,7 +134,9 @@ and says so.
 
 **Refused before anything is written**, so a refusal leaves no recovery ref behind: a tree with
 nothing git would save under the options asked — clean, only untracked files without *include
-untracked*, paths with no change, no commit yet — is `NothingToStash` (409 `nothing_to_stash`); an
+untracked*, paths with no change, no commit yet, a selection every path of which is gone since the
+list was read — is `NothingToStash` (409 `nothing_to_stash`); a selected path git no longer knows
+is left out of the push rather than refusing it (`Git::still_known`, below); an
 operation half done is `InProgress`; unmerged paths are `Dirty` naming them (git's own *needs merge*
 would otherwise read as a conflict); a stash carrying untracked files whose paths already exist in
 the tree is `Dirty` naming them, because git stops at the first collision and names none.
@@ -733,7 +735,22 @@ modified tracked files alone, `git add -u`'s meaning — *Stage untracked (m)*, 
 and, last and apart, the two throw-aways — *Discard all changes… (j)* over every working-tree
 change and unmerged path, and *Delete all untracked files… (m)* over every file git has never seen,
 through the IDE's disposal, asked first with the count in the question — each off at zero, the
-items `changesBulkModel.bulkMenu`'s and every scope's paths from one place (`stageScopes`). The tree is **the
+items `changesBulkModel.bulkMenu`'s and every scope's paths from one place (`stageScopes`).
+
+**A selection is read as it stands when the verb runs.** Every scope, folder and row verb sends
+the paths of the list as it was last read, and with an agent at work in the checkout a file it
+listed can be gone by the click — while git refuses a whole `add`, `restore --staged`, `checkout`
+or `stash push` for one pathspec that matches nothing. So the vcs crate asks git first which of the
+selected paths it still finds, as the verb about to run reads them (`Git::still_known`, one
+`ls-files` or `diff`: `Reach::Worktree` for a stage — the index and every file not ignored, so a
+tracked file deleted from disk still stages as a deletion — `Reach::Index` for a discard and a
+stash without untracked files, `Reach::Staged` for an unstage), and hands on only those: a path
+that is gone is left out and the rest go through. A stage or an unstage left with nothing is a
+no-op; a discard left with nothing is `NothingToDiscard` (409, *nothing to discard*), before any
+recovery ref is written; a stash left with nothing is `NothingToStash`. A path is still validated
+first — an unsafe one is refused, never dropped as gone. The commit's own staging step is a stage
+(`commit_in`, and an amend with paths), so a commit of a selection one file of which is gone is a
+commit of the rest. The tree is **the
 project's own**: every changed file **once**, in its folder, the folders nested as the explorer
 draws them — no sections, nothing compacted, directories before files at every level in the
 explorer's order (the kit's `pathTree`, [03](03-files-and-editing.md#the-tree)). **Folder rows**
@@ -869,7 +886,9 @@ view's *Discard* for a hunk or for the picked lines (one glyph, `ICON.discard`, 
 (`hunkPatch` / `linesPatch`, the same patches staging uses, applied in reverse to the tree). The
 words — the confirmation, the toast naming the recovery ref — are `gitDiscardModel.mjs`'s. The
 vcs crate reads a discard's paths the way it reads staging's (`literal_pathspecs`, the
-`:(top,literal)` form), so a name with a space that stages discards too.
+`:(top,literal)` form), so a name with a space that stages discards too — and keeps only those the
+index still holds: one gone since the list was read, or never tracked, is left out, and a discard
+left with nothing is `NothingToDiscard` (409), before any recovery ref is written.
 
 ### What survives a switch
 

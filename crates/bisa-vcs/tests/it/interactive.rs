@@ -1915,3 +1915,122 @@ fn a_remote_branch_is_taken_up_as_a_tracking_branch_its_standing_is_read_and_its
         "no tip to pin, nothing asked of the remote"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A selection read a moment ago
+// ---------------------------------------------------------------------------
+
+/// A discard over the Changes list as it was read, one file of which an agent
+/// has since taken out of the index and deleted: the rest is discarded, never
+/// the whole `checkout` refused for the one git no longer knows.
+#[test]
+fn a_discard_with_a_path_gone_since_it_was_listed_discards_the_rest() {
+    let fx = Fixture::new();
+    let c = consent();
+    std::fs::write(fx.repo.join("gone.txt"), "tracked\n").unwrap();
+    git::add_all(&fx.repo).unwrap();
+    git::commit(&fx.repo, "a file the agent will remove", false).unwrap();
+    std::fs::write(fx.repo.join("README.md"), "typed\n").unwrap();
+    std::fs::write(fx.repo.join("gone.txt"), "typed too\n").unwrap();
+    // The list is read; then the agent removes the file from git and disk.
+    raw_git(&fx.repo, &["rm", "--quiet", "-f", "--", "gone.txt"]);
+
+    interactive::ops::discard_paths(&fx.repo, &["README.md", "gone.txt", "never-there.txt"], &c)
+        .expect("the rest is discarded");
+    assert_eq!(read(&fx.repo, "README.md"), "hello\nworld\n");
+    assert!(
+        !fx.repo.join("gone.txt").exists(),
+        "nothing brought back that git no longer holds"
+    );
+}
+
+/// Nothing selected has a change git can put back — gone, or never tracked:
+/// a typed refusal, before any recovery ref is written.
+#[test]
+fn a_discard_of_paths_all_gone_or_untracked_is_nothing_to_discard_and_saves_nothing() {
+    let fx = Fixture::new();
+    let c = consent();
+    std::fs::write(fx.repo.join("untracked.txt"), "never added\n").unwrap();
+    let refused = interactive::ops::discard_paths(&fx.repo, &["untracked.txt", "vanished.txt"], &c);
+    assert!(
+        matches!(refused, Err(VcsError::NothingToDiscard)),
+        "{refused:?}"
+    );
+    assert_eq!(
+        read(&fx.repo, "untracked.txt"),
+        "never added\n",
+        "an untracked file is never touched"
+    );
+    assert_eq!(
+        raw_git(&fx.repo, &["for-each-ref", "refs/bisa/safety"]),
+        "",
+        "no recovery ref left behind"
+    );
+    // An empty request is still the caller's mistake, said as before.
+    assert!(matches!(
+        interactive::ops::discard_paths::<&str>(&fx.repo, &[], &c),
+        Err(VcsError::InvalidArg { .. })
+    ));
+}
+
+/// A stash over a selection one path of which is gone stashes the rest; a
+/// selection that is all gone is nothing to stash, as an empty one is.
+#[test]
+fn a_stash_with_a_path_gone_since_it_was_listed_stashes_the_rest() {
+    use bisa_vcs::interactive::StashPush;
+    let fx = Fixture::new();
+    let c = consent();
+    let g = git::Git::default();
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nchanged\n").unwrap();
+
+    let (_, entry) = interactive::stash_push(
+        &g,
+        &fx.repo,
+        &StashPush {
+            message: Some("the rest".into()),
+            include_untracked: false,
+            keep_index: false,
+            paths: vec!["README.md".into(), "gone.txt".into()],
+        },
+        &c,
+    )
+    .expect("the rest is stashed");
+    assert_eq!(entry.message.as_deref(), Some("the rest"), "{entry:?}");
+    assert_eq!(
+        read(&fx.repo, "README.md"),
+        "hello\nworld\n",
+        "the change went to the stash"
+    );
+
+    // With untracked files asked for, a vanished one is left out too.
+    std::fs::write(fx.repo.join("new.txt"), "fresh\n").unwrap();
+    interactive::stash_push(
+        &g,
+        &fx.repo,
+        &StashPush {
+            message: None,
+            include_untracked: true,
+            keep_index: false,
+            paths: vec!["new.txt".into(), "vanished.txt".into()],
+        },
+        &c,
+    )
+    .expect("the untracked file is stashed");
+    assert!(!fx.repo.join("new.txt").exists());
+
+    let refused = interactive::stash_push(
+        &g,
+        &fx.repo,
+        &StashPush {
+            message: None,
+            include_untracked: false,
+            keep_index: false,
+            paths: vec!["vanished.txt".into()],
+        },
+        &c,
+    );
+    assert!(
+        matches!(refused, Err(VcsError::NothingToStash)),
+        "{refused:?}"
+    );
+}

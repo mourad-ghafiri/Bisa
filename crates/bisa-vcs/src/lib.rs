@@ -186,6 +186,13 @@ pub enum VcsError {
     #[error("nothing to stash")]
     NothingToStash,
 
+    /// A discard whose every selected path has no change git can put back
+    /// any more: gone since the list was read — an agent's file, deleted —
+    /// or never tracked, which a discard does not touch. Refused before any
+    /// recovery ref is written, as [`Self::NothingToStash`] is.
+    #[error("nothing to discard")]
+    NothingToDiscard,
+
     /// `stash@{index}` no longer holds `commit`: the list moved under the
     /// caller — a push or a drop here or in another worktree of the same
     /// repository — and acting by index alone would touch the wrong entry.

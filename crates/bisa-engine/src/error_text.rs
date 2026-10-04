@@ -463,6 +463,7 @@ pub fn vcs(e: &bisa_vcs::VcsError) -> Text {
             bisa_core::text!("error-vcs-in-progress", v0 = format!("{v0:?}"))
         }
         bisa_vcs::VcsError::NothingToStash => bisa_core::text!("error-vcs-nothing-to-stash"),
+        bisa_vcs::VcsError::NothingToDiscard => bisa_core::text!("error-vcs-nothing-to-discard"),
         bisa_vcs::VcsError::StashMoved { index, commit, .. } => bisa_core::text!(
             "error-vcs-stash-moved",
             index = *index,

@@ -2972,3 +2972,152 @@ fn the_remotes_default_branch_is_only_what_origin_head_says() {
         "a clone records origin/HEAD"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A selection read a moment ago
+// ---------------------------------------------------------------------------
+
+/// The Changes list is read, then an agent deletes a file it listed, then the
+/// person stages the list. git refuses a whole `add` for one pathspec that
+/// matches nothing; the file that is gone is left out and the rest stage.
+#[test]
+fn a_selection_with_a_file_gone_since_it_was_listed_stages_the_rest() {
+    let fx = Fixture::new();
+    std::fs::write(fx.repo.join("README.md"), "hello\nedited\n").unwrap();
+    std::fs::write(fx.repo.join("kept.txt"), "kept\n").unwrap();
+    std::fs::create_dir_all(fx.repo.join("test/device")).unwrap();
+    std::fs::write(fx.repo.join("test/device/critique_states.dart"), "x\n").unwrap();
+    let listed: Vec<String> = git::status_files(&fx.repo)
+        .unwrap()
+        .iter()
+        .map(|f| f.path.to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        listed.contains(&"test/device/critique_states.dart".to_string()),
+        "{listed:?}"
+    );
+
+    // The agent's file goes before the click.
+    std::fs::remove_file(fx.repo.join("test/device/critique_states.dart")).unwrap();
+    git::stage(&fx.repo, &listed).expect("the rest stage; the gone one is left out");
+
+    let staged = raw_git(&fx.repo, &["diff", "--cached", "--name-only"]);
+    let staged: Vec<&str> = staged.lines().collect();
+    assert_eq!(staged, vec!["README.md", "kept.txt"], "{staged:?}");
+}
+
+/// A tracked file deleted from disk is still in the index: its deletion is
+/// what staging it means, and it stages as it always did.
+#[test]
+fn a_tracked_file_deleted_from_disk_still_stages_as_a_deletion() {
+    let fx = Fixture::new();
+    std::fs::remove_file(fx.repo.join("README.md")).unwrap();
+    git::stage(&fx.repo, &["README.md"]).expect("stage the deletion");
+    let staged = raw_git(&fx.repo, &["diff", "--cached", "--name-status"]);
+    assert_eq!(staged.trim(), "D\tREADME.md", "{staged}");
+}
+
+/// Nothing of the selection is there any more: nothing to stage, and nothing
+/// said — the list the person reads next is the tree as it is.
+#[test]
+fn a_selection_that_is_all_gone_stages_nothing_and_refuses_nothing() {
+    let fx = Fixture::new();
+    std::fs::write(fx.repo.join("brief.tmp"), "x\n").unwrap();
+    std::fs::remove_file(fx.repo.join("brief.tmp")).unwrap();
+    git::stage(&fx.repo, &["brief.tmp", "never-there.txt"]).expect("a no-op, not a refusal");
+    assert_eq!(
+        raw_git(&fx.repo, &["diff", "--cached", "--name-only"]).trim(),
+        ""
+    );
+}
+
+/// A folder of the selection stages the files under it — the folder's own
+/// entry is never listed by git, only what is in it.
+#[test]
+fn a_folder_in_the_selection_stages_what_is_under_it() {
+    let fx = Fixture::new();
+    std::fs::create_dir_all(fx.repo.join("lib/core")).unwrap();
+    std::fs::write(fx.repo.join("lib/core/a.dart"), "a\n").unwrap();
+    std::fs::write(fx.repo.join("lib/core/b.dart"), "b\n").unwrap();
+    std::fs::write(fx.repo.join("library.txt"), "not under lib/\n").unwrap();
+    git::stage(&fx.repo, &["lib/"]).expect("stage the folder");
+    let staged = raw_git(&fx.repo, &["diff", "--cached", "--name-only"]);
+    assert_eq!(
+        staged.lines().collect::<Vec<_>>(),
+        vec!["lib/core/a.dart", "lib/core/b.dart"],
+        "`lib` is not a prefix of `library.txt`"
+    );
+}
+
+/// An unstage over a selection one path of which git no longer knows —
+/// staged a moment ago, then taken out of the index and deleted by an agent
+/// — unstages the rest instead of failing the whole `restore`.
+#[test]
+fn an_unstage_with_a_path_git_no_longer_knows_unstages_the_rest() {
+    let fx = Fixture::new();
+    std::fs::write(fx.repo.join("README.md"), "hello\nedited\n").unwrap();
+    std::fs::write(fx.repo.join("gone.txt"), "x\n").unwrap();
+    git::stage(&fx.repo, &["README.md", "gone.txt"]).expect("stage both");
+    raw_git(&fx.repo, &["rm", "--cached", "--quiet", "--", "gone.txt"]);
+    std::fs::remove_file(fx.repo.join("gone.txt")).unwrap();
+
+    git::unstage(&fx.repo, &["README.md", "gone.txt"]).expect("the rest unstage");
+    assert_eq!(
+        raw_git(&fx.repo, &["diff", "--cached", "--name-only"]).trim(),
+        "",
+        "nothing is left staged"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.repo.join("README.md")).unwrap(),
+        "hello\nedited\n",
+        "unstaging never writes to the working tree"
+    );
+}
+
+/// Before the first commit there is no HEAD: what is staged is what differs
+/// from the empty tree, and it unstages.
+#[test]
+fn an_unstage_before_the_first_commit_reads_against_the_empty_tree() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("fresh");
+    git::init(&repo).unwrap();
+    set_identity(&repo);
+    std::fs::write(repo.join("first.txt"), "one\n").unwrap();
+    git::stage(&repo, &["first.txt"]).unwrap();
+    git::unstage(&repo, &["first.txt", "never.txt"]).expect("unstage into an unborn HEAD");
+    assert_eq!(
+        raw_git(
+            &repo,
+            &[
+                "diff",
+                "--cached",
+                "--name-only",
+                "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            ]
+        )
+        .trim(),
+        ""
+    );
+}
+
+/// An unsafe path is still refused — never quietly dropped as "gone".
+#[test]
+fn an_unsafe_path_in_a_selection_is_still_refused() {
+    let fx = Fixture::new();
+    for reach in ["-n", ":(glob)*", "/etc/passwd", "a/../../b"] {
+        assert!(
+            matches!(
+                git::stage(&fx.repo, &["README.md", reach]),
+                Err(VcsError::InvalidArg { .. })
+            ),
+            "{reach:?} must be refused"
+        );
+        assert!(
+            matches!(
+                git::unstage(&fx.repo, &[reach]),
+                Err(VcsError::InvalidArg { .. })
+            ),
+            "{reach:?} must be refused by unstage too"
+        );
+    }
+}

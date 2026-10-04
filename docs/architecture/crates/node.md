@@ -109,6 +109,7 @@ concerns, the workflow or the goal a listener that failed belongs to.
 | `EngineError` | `Run`, `GateAlreadyDecided` | 409 |
 | `EngineError` | `NothingToCommit`, `NothingToPublish`, `PublishManual`, `PublishNoGoal`, `PublishDeclined` | 409 with `code` (`nothing_to_commit` · `nothing_to_publish` · `publish_manual` · `publish_no_goal` · `publish_declined`) |
 | `EngineError` | `Vcs(NothingToStash)`, `Vcs(StashMoved { index, commit, now })` | 409 with `code` (`nothing_to_stash` · `stash_moved`, the latter with the three facts in `detail`) |
+| `EngineError` | `Vcs(NothingToDiscard)` — a discard every selected path of which is gone since it was listed, or untracked | 409 with its sentence (*nothing to discard*) |
 | `StoreError` | `Workstream` — the table refused the transition, the primary was asked to finish, a closed workstream | 409 with `code: workstream_state` |
 | `EngineError` | `FileConflict` | 409 with `current_hash` and `current_text` |
 | `EngineError` | `Connector(NotAuthenticated)` · `Connector(NotFound)` · a definition, parameter or OAuth refusal · `Connector(HostRefused)` and `Connector(Refused)` · `Connector(RateLimited)` · `Connector(Open)` — the host's circuit is open — **503** · `Connector(Unreachable)` — no connection was made — **502** · `Connector(Upstream)` and `Connector(Transport)` · `Connector(Timeout)` | 401 · 404 · 400 · 409 · 429 · 502 · 504, each with the scrubbed sentence |

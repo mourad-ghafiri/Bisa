@@ -24,7 +24,14 @@ unrecoverable.
 
 A pathspec reaches git as `:(top,literal)<path>` after `literal_pathspec` refuses a leading `-` or
 `:`, an absolute path and a `..` component; `blame` alone receives the bare validated path, because
-`git blame` reads pathspec magic as a file name.
+`git blame` reads pathspec magic as a file name. A **selection** — the paths a verb is handed from a
+list read a moment ago — is narrowed first to what git still finds (`Git::still_known(path,
+selection, reach)`, one read-only `ls-files` or `diff --cached`: `Reach::Worktree` as `git add`
+reads the tree, `Reach::Index` as `checkout --` and `stash push` do, `Reach::Staged` as `restore
+--staged` does), because git refuses the whole command for one pathspec that matches nothing: a
+path gone since it was listed is left out of `stage`, `unstage`, `discard_paths` and `stash_push`,
+and the rest go through. A path is validated before it is looked for — an unsafe one is refused,
+never dropped as gone.
 
 ---
 
@@ -51,6 +58,8 @@ without touching the process environment; the hardened names are refused.
 | A stash push saves the tree first and lists the entry with its message, branch and untracked flag; nothing to save is refused by name before any recovery ref is written; apply keeps the entry and pop drops it only when the apply succeeded, a conflict keeping it; a dropped or popped stash is pinned as a `.stash` recovery and `restore` puts the entry back without touching the tree; a target whose index moved is refused before anything is captured; apply refuses untracked collisions first, lands the whole stash, and types a conflict; the `_pin` ref is bumped with its main name and parses as its op | `tests/it/interactive.rs` — `stash_push_saves_the_tree_captures_first_and_lists_the_entry_with_its_message_and_branch`, `stash_push_with_nothing_to_save_is_refused_by_name_and_writes_no_stash`, `stash_apply_keeps_the_entry_and_pop_drops_it_only_when_the_apply_succeeded`, `a_dropped_or_popped_stash_is_pinned_as_a_stash_recovery_and_restore_puts_the_entry_back`, `a_stash_target_whose_index_moved_is_refused_before_anything_is_captured`, `apply_refuses_untracked_collisions_first_lands_the_whole_stash_and_types_a_conflict`, `the_pin_ref_is_bumped_with_its_main_name_and_parses_as_its_op`; `parse.rs` unit tests on the stash subject |
 | Every consented op calls `capture` first | `tests/it/interactive.rs` |
 | A remote's credentials are never in an error this crate makes: an invocation is described with the userinfo of every URL among its arguments taken out (`exec::describe` → `scrub_userinfo`, `scheme://***@host`), and git's own output is scrubbed the same way before any of it is kept (`classify`) — git hides a password in some of its messages and not in others, so it is never trusted to; an `scp`-style remote has no `://` and no secret, and is left as it is. The scrubber is exported for whoever logs a remote | `src/exec.rs` unit test, `tests/it/git.rs::a_remotes_credentials_are_never_in_an_error_this_crate_makes` |
+| An error stays readable: an invocation of more than ten arguments — a staging of sixty paths — is described by its first ten and a count (`… (+50 more)`), so git's reason, which follows, is read; a shorter one is described whole | `src/exec.rs` unit test |
+| A selection read a moment ago never sinks a verb: a path gone since it was listed is left out of a stage (a tracked file deleted from disk still stages as a deletion; a folder stages what is under it), an unstage, a discard and a stash, and the rest go through; a stage or unstage left with nothing is a no-op, a discard `NothingToDiscard` with no recovery ref written, a stash `NothingToStash`; an unsafe path is still refused | `tests/it/git.rs` (*a selection read a moment ago*), `tests/it/interactive.rs` (the same) |
 | A commit message of nothing is refused before git is asked (`InvalidArg`), and one that looks like an option is a message: it rides as `-m`'s value and rewrites nothing; another git holding `index.lock` is `RepositoryBusy` with nothing written, and the same call goes through once it is free; writers of this process on one checkout queue and all land; a hunk is staged and unstaged whatever the file's line ends — CRLF, no final newline, a name with a space — with the tree untouched, and a link is staged as the link it is | `tests/it/git.rs` |
 | The plain force flag is never spelled; `--force-with-lease` only | `tests/it/interactive.rs::interactive_never_plain_force` |
 | An amend rewrites HEAD with what is staged and the new message, adds no commit, and pins the old commit as the recovery itself; a blank message or a repository with no commit is refused by name with nothing saved | `tests/it/interactive.rs` — `an_amend_rewrites_head_with_what_is_staged_and_pins_the_old_commit`, `amend_is_refused_by_name_before_any_ref_is_written` |
@@ -72,12 +81,13 @@ without touching the process environment; the hardened names are refused.
 
 `VcsError`: `NotARepository(path)`, `NoRemote`, `NotAuthenticated`, `IdentityUnset`, `Dirty { path,
 details }`, `Conflict { message, paths, in_progress }`, `NotFastForward { ahead, behind }`,
-`InProgress(op)`, `NothingToStash`, `StashMoved { index, commit, now }`, `InvalidArg { what, value }`,
+`InProgress(op)`, `NothingToStash`, `NothingToDiscard`, `StashMoved { index, commit, now }`, `InvalidArg { what, value }`,
 `Command { what, code, stderr }`, and the transport failures. `classify` turns git's words into one
 of these exactly once (a conflict's paths and operation are read from the repository by the
 consented verb that met it); the node renders `Dirty` as **409** with git's sentence, `Conflict`,
 `NotFastForward`, `InProgress`, `NothingToStash` and `StashMoved` as **409** with a `code` and their
-facts in `detail`, the rest as **400**.
+facts in `detail`, `NothingToDiscard` — a discard every selected path of which is gone or untracked —
+as **409** with its sentence, the rest as **400**.
 
 ---
 

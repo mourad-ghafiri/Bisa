@@ -1038,21 +1038,30 @@ pub fn discard_hunk(
 ///
 /// A path is read the way staging reads one (`literal_pathspecs`): the same
 /// rules, the same `:(top,literal)` form, so a name with a space that stages
-/// discards too, and a `*` in a name is that name and not a glob.
+/// discards too, and a `*` in a name is that name and not a glob. Only the
+/// paths the index still holds are handed on (`Git::still_known`): one gone
+/// since the list was read, or never tracked, has nothing to go back to, and
+/// git would refuse the whole `checkout` for it. When none is left the
+/// discard is refused ([`VcsError::NothingToDiscard`]) before any recovery
+/// ref is written.
 pub fn discard_paths<S: AsRef<str>>(
     git: &Git,
     path: &Path,
     pathspecs: &[S],
     _consent: &HumanConsent,
 ) -> VcsResult<Recovery> {
-    let raw: Vec<&str> = pathspecs.iter().map(AsRef::as_ref).collect();
-    let specs = crate::git::literal_pathspecs("pathspec", &raw)?;
-    if specs.is_empty() {
+    let asked: Vec<&str> = pathspecs.iter().map(AsRef::as_ref).collect();
+    if crate::git::literal_pathspecs("pathspec", &asked)?.is_empty() {
         return Err(VcsError::InvalidArg {
             what: "pathspec".into(),
             value: "(none)".into(),
         });
     }
+    let raw = git.still_known(path, &asked, crate::git::Reach::Index)?;
+    if raw.is_empty() {
+        return Err(VcsError::NothingToDiscard);
+    }
+    let specs = crate::git::literal_pathspecs("pathspec", &raw)?;
     let recovery = capture(git, path, "discard_paths", Pin::None)?;
     // A conflicted path has no one index version to go back to; the side git
     // has whole is HEAD, and that is what discarding it means — the way out
@@ -1511,11 +1520,13 @@ fn refuse_busy_tree(git: &Git, path: &Path) -> VcsResult<()> {
 ///
 /// Refused before any recovery ref is written when there is nothing it would
 /// save — a clean tree, only untracked files without `include_untracked`,
-/// paths with no change, no commit yet to stash against
-/// ([`VcsError::NothingToStash`]) — and when an operation is half done or a
-/// path is unmerged. The tree is captured first like every verb: the recovery
-/// ref and the stash hold the same content, and the invariant is not bent for
-/// one verb. Answers the entry the list now starts with.
+/// paths with no change, no commit yet to stash against, a selection every
+/// path of which is gone since it was listed ([`VcsError::NothingToStash`]) —
+/// and when an operation is half done or a path is unmerged. A selected path
+/// git no longer knows is left out of the push rather than refusing it. The
+/// tree is captured first like every verb: the recovery ref and the stash
+/// hold the same content, and the invariant is not bent for one verb.
+/// Answers the entry the list now starts with.
 pub fn stash_push(
     git: &Git,
     path: &Path,
@@ -1550,6 +1561,23 @@ pub fn stash_push(
     if !tracked && !untracked {
         return Err(VcsError::NothingToStash);
     }
+    // The selection as git reads it now: a path gone since the list was read
+    // would refuse the whole push (`Git::still_known`); untracked files count
+    // only when they are to be stashed too.
+    let specs = if what.paths.is_empty() {
+        specs
+    } else {
+        let reach = if what.include_untracked {
+            crate::git::Reach::Worktree
+        } else {
+            crate::git::Reach::Index
+        };
+        let kept = git.still_known(path, &what.paths, reach)?;
+        if kept.is_empty() {
+            return Err(VcsError::NothingToStash);
+        }
+        crate::git::literal_pathspecs("pathspec", &kept)?
+    };
     let recovery = capture(git, path, "stash_push", Pin::None)?;
     let before = git.stash_list(path)?.first().map(|e| e.commit.clone());
     let mut args = vec![s("stash"), s("push")];

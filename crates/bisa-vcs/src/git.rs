@@ -2395,14 +2395,71 @@ impl Git {
         Ok(())
     }
 
+    /// The selected paths git still finds as `reach` reads them, in the
+    /// selection's order; the rest are left out.
+    ///
+    /// A selection is the Changes list as it was last read. With an agent at
+    /// work in the checkout, a file it listed can be gone by the click — and
+    /// git refuses a whole `add`, `restore`, `checkout` or `stash push` for
+    /// one pathspec that matches nothing, so one vanished file would stop
+    /// every other from staging. Each path is validated first, as every
+    /// pathspec is ([`literal_pathspec`]): an unsafe one is refused, never
+    /// quietly dropped. Read-only — one `ls-files` or `diff`.
+    pub(crate) fn still_known<S: AsRef<str>>(
+        &self,
+        path: &Path,
+        selection: &[S],
+        reach: Reach,
+    ) -> VcsResult<Vec<String>> {
+        let specs = literal_pathspecs("pathspec", selection)?;
+        if specs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut args = match reach {
+            Reach::Worktree => vec![
+                s("ls-files"),
+                s("-z"),
+                s("--full-name"),
+                s("--cached"),
+                s("--others"),
+                s("--exclude-standard"),
+            ],
+            Reach::Index => vec![s("ls-files"), s("-z"), s("--full-name"), s("--cached")],
+            Reach::Staged => vec![
+                s("diff"),
+                s("--cached"),
+                s("--name-only"),
+                s("-z"),
+                s("--no-renames"),
+                s(self.baseline(path)?),
+            ],
+        };
+        args.push(s("--"));
+        args.extend(specs.into_iter().map(s));
+        let listed = self.run(Some(path), &args, false)?;
+        let listed = String::from_utf8_lossy(&listed);
+        let entries: Vec<&str> = listed.split('\0').filter(|e| !e.is_empty()).collect();
+        Ok(selection
+            .iter()
+            .map(AsRef::as_ref)
+            .filter(|p| entries.iter().any(|e| covers(p, e)))
+            .map(str::to_string)
+            .collect())
+    }
+
     /// Stage exactly the paths given, and nothing else.
     ///
     /// Index-only: `git add` copies worktree content *into* the index and
     /// never writes into the working tree, so nothing a user typed can be
     /// lost here. An empty list is a no-op rather than "stage everything" —
-    /// the difference between those two is somebody's afternoon.
+    /// the difference between those two is somebody's afternoon. A path that
+    /// has gone since it was listed — never tracked, and no longer on disk —
+    /// has nothing to stage and is left out ([`Self::still_known`]); a
+    /// tracked file deleted from disk is still in the index, and its
+    /// deletion stages.
     pub fn stage<S: AsRef<str>>(&self, path: &Path, pathspecs: &[S]) -> VcsResult<()> {
-        let specs = literal_pathspecs("pathspec", pathspecs)?;
+        let kept = self.still_known(path, pathspecs, Reach::Worktree)?;
+        let specs = literal_pathspecs("pathspec", &kept)?;
         if specs.is_empty() {
             return Ok(());
         }
@@ -2418,9 +2475,13 @@ impl Git {
     /// it overwrites the worktree from the index, which would make this the
     /// one call in the crate that can destroy what somebody typed — see the
     /// invariant in the crate docs. The flag is not a parameter here, so
-    /// there is no call site that could pass the wrong one.
+    /// there is no call site that could pass the wrong one. Only the paths
+    /// with a staged change are handed on ([`Self::still_known`]): any other
+    /// is a no-op to unstage, and one git no longer knows at all — staged a
+    /// moment ago, gone since — would refuse the whole batch.
     pub fn unstage<S: AsRef<str>>(&self, path: &Path, pathspecs: &[S]) -> VcsResult<()> {
-        let specs = literal_pathspecs("pathspec", pathspecs)?;
+        let kept = self.still_known(path, pathspecs, Reach::Staged)?;
+        let specs = literal_pathspecs("pathspec", &kept)?;
         if specs.is_empty() {
             return Ok(());
         }
@@ -3535,6 +3596,34 @@ pub(crate) fn literal_pathspecs<S: AsRef<str>>(what: &str, specs: &[S]) -> VcsRe
         .iter()
         .map(|spec| literal_pathspec(what, spec.as_ref()))
         .collect()
+}
+
+/// What a verb about to write reads of a selection, so that a path the
+/// Changes list showed a moment ago — and an agent has deleted since — is
+/// left out instead of failing the whole batch ([`Git::still_known`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Reach {
+    /// The tree as `git add` reads it: every index entry — a tracked file
+    /// deleted from disk is still one, and its deletion stages — and every
+    /// file on disk git does not ignore.
+    Worktree,
+    /// The index alone, as `git checkout --` and `git stash push` without
+    /// untracked files read it.
+    Index,
+    /// The paths whose index differs from HEAD — the empty tree before a
+    /// first commit — as `git restore --staged` reads them: any other path
+    /// is a no-op to unstage, or git's refusal.
+    Staged,
+}
+
+/// Whether `entry`, a path git listed relative to the top, is `selected`:
+/// the path itself or, for a folder, a path under it.
+fn covers(selected: &str, entry: &str) -> bool {
+    let selected = selected.trim_end_matches('/');
+    entry == selected
+        || entry
+            .strip_prefix(selected)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Make a path absolute without requiring it to exist.

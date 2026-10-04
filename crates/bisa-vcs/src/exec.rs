@@ -71,13 +71,22 @@ pub(crate) fn s(x: impl AsRef<OsStr>) -> OsString {
     x.as_ref().to_os_string()
 }
 
+/// The arguments an invocation is described by before the rest are counted.
+/// A staging of sixty files is named by its verb and its first paths, so the
+/// reason git gave — which an error says after the command — is still read.
+const DESCRIBED_ARGS: usize = 10;
+
 /// Render an argv for error messages. Lossy on purpose: this string is for a
-/// human to read, never for a caller to parse.
+/// human to read, never for a caller to parse. A long argv is cut after
+/// [`DESCRIBED_ARGS`] arguments and the rest counted (`… (+50 more)`).
 pub(crate) fn describe(bin: &OsStr, args: &[OsString]) -> String {
     let mut out = bin.to_string_lossy().into_owned();
-    for a in args {
+    for a in args.iter().take(DESCRIBED_ARGS) {
         out.push(' ');
         out.push_str(&a.to_string_lossy());
+    }
+    if args.len() > DESCRIBED_ARGS {
+        out.push_str(&format!(" … (+{} more)", args.len() - DESCRIBED_ARGS));
     }
     // An invocation is described in every error and timeout it becomes, and a
     // remote named `https://user:token@host/…` is one of its arguments.
@@ -300,6 +309,39 @@ mod tests {
         assert_eq!(
             described,
             "git remote add origin https://***@host.test/r.git"
+        );
+    }
+
+    /// A staging of sixty files is described by its first ten arguments and a
+    /// count, so the reason git gives after it is read; a short one is whole,
+    /// and a credential is scrubbed in either.
+    #[test]
+    fn a_long_argv_is_described_by_its_head_and_a_count() {
+        let mut args = vec![s("add"), s("--")];
+        args.extend((0..60).map(|i| s(format!(":(top,literal)lib/f{i}.dart"))));
+        let described = describe(OsStr::new("git"), &args);
+        assert_eq!(
+            described,
+            "git add -- :(top,literal)lib/f0.dart :(top,literal)lib/f1.dart :(top,literal)lib/f2.dart \
+             :(top,literal)lib/f3.dart :(top,literal)lib/f4.dart :(top,literal)lib/f5.dart \
+             :(top,literal)lib/f6.dart :(top,literal)lib/f7.dart … (+52 more)"
+        );
+        let ten: Vec<OsString> = (0..10).map(|i| s(format!("a{i}"))).collect();
+        assert_eq!(
+            describe(OsStr::new("git"), &ten),
+            "git a0 a1 a2 a3 a4 a5 a6 a7 a8 a9",
+            "ten arguments are described whole"
+        );
+        let mut long_push = vec![s("push"), s("https://mona:hunter2@host.test/r.git")];
+        long_push.extend((0..12).map(|i| s(format!("refs/heads/b{i}"))));
+        let pushed = describe(OsStr::new("git"), &long_push);
+        assert!(
+            pushed.starts_with("git push https://***@host.test/r.git refs/heads/b0"),
+            "{pushed}"
+        );
+        assert!(
+            pushed.ends_with("… (+4 more)") && !pushed.contains("hunter2"),
+            "{pushed}"
         );
     }
 

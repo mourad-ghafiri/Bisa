@@ -385,6 +385,7 @@ error-vcs-conflict = conflict: { $message }
 error-vcs-not-fast-forward = not a fast-forward: { $ahead } ahead and { $behind } behind the upstream
 error-vcs-in-progress = a { $v0 } is in progress; resolve or abort it first
 error-vcs-nothing-to-stash = nothing to stash
+error-vcs-nothing-to-discard = nothing to discard: the selected files have no change left here
 error-vcs-stash-moved = stash@{"{"}{ $index }{"}"} no longer holds { $commit }; the stash list moved — reload it
 error-vcs-no-remote = no usable remote: { $v0 }
 error-vcs-not-authenticated = not authenticated: { $v0 }

@@ -135,6 +135,10 @@ fn code(e: EngineError) -> ApiError {
         )
         .with_detail(json!({"in_progress": GitInProgress::from(*op)})),
         EngineError::Vcs(VcsError::Dirty { .. }) => ApiError::text(StatusCode::CONFLICT, e.text()),
+        // Every selected path is gone, or never tracked: the tree's state, not the request.
+        EngineError::Vcs(VcsError::NothingToDiscard) => {
+            ApiError::text(StatusCode::CONFLICT, e.text())
+        }
         EngineError::Vcs(VcsError::NothingToStash) => ApiError::coded(
             StatusCode::CONFLICT,
             ErrorCode::NothingToStash,
@@ -908,7 +912,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/workstreams/{wid}/git/operation", summary: "The operation git has left half-done, as facts read from its directory — `{kind, branch, ours: {role, name, commit, subject}, theirs: {…}, step: {done, total}}` — so one started in a terminal is described too; `null` when none is. `ours`/`theirs` are git's: under a rebase `ours` is the branch rebased onto and `theirs` the commit replayed." },
     RouteDoc { method: "GET", path: "/workstreams/{wid}/git/merge-preview", summary: "What merging `?source=` into HEAD would do, before anything moves: `{supported, clean, paths}` — the paths that would conflict, from `git merge-tree --write-tree` (objects only; no tree, no index); `supported: false` on a git before 2.38. For a rebase the answer over the two tips is a likelihood, not a promise." },
     RouteDoc { method: "POST", path: "/workstreams/{wid}/git/resolve", summary: "Settle a conflicted path: `{path}` alone stages the merged text already saved (index only, safe); `{path, take: ours | theirs}` takes that side whole — `git checkout --<side> -- <path>`, then staged — and `{path, take: delete}` removes the path (`git rm`), the answer to a side that deleted it; consented, for a binary, a deleted-by-one-side path, or a file too large to edit." },
-    RouteDoc { method: "POST", path: "/workstreams/{wid}/git/discard", summary: "Throw away working-tree changes: `{patch}` for one hunk, or `{paths}`. Consented; what was there is in the recovery ref." },
+    RouteDoc { method: "POST", path: "/workstreams/{wid}/git/discard", summary: "Throw away working-tree changes: `{patch}` for one hunk, or `{paths}`. Consented; what was there is in the recovery ref. A path the index no longer holds — gone since it was listed, or never tracked — is left out; 409 when none is left (nothing to discard), before any recovery ref is written." },
     RouteDoc { method: "GET", path: "/workstreams/{wid}/git/recovery", summary: "Recovery points under `refs/bisa/safety/`, newest first: op, branch, and `kind` — `commit` (a tip), `tree` (the saved index and working tree), `stash` (a dropped or popped stash entry)." },
     RouteDoc { method: "POST", path: "/workstreams/{wid}/git/recovery/restore", summary: "Put back what a recovery `{ref}` saved: a `commit` — HEAD to its branch or commit; a `tree` — the base checked out, the saved index and tree on top; a `stash` — the entry back on the stash list, the tree untouched. Consented and itself recorded." },
     RouteDoc { method: "POST", path: "/workstreams/{wid}/git/stash", summary: "Park the working tree's changes as a stash entry: `{message?, include_untracked?, keep_index?, paths?}` — `include_untracked` is `-u` (never ignored files), `paths` scopes it. Consented; the tree is captured first; answers the entry as `stash`. 409 `nothing_to_stash` when nothing would be saved (a clean tree, untracked files only, no commit yet), 409 `in_progress`, 409 on unmerged paths." },

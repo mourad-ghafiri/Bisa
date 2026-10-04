@@ -3498,6 +3498,50 @@ async fn a_commit_from_the_changes_view_moves_the_record_as_the_workstreams_own_
     engine.shutdown().await;
 }
 
+/// **A selection read a moment ago commits what is still there.** The
+/// Changes list is read, an agent deletes a file it listed, the person
+/// commits the list: the commit is of the rest — never refused whole because
+/// `git add` met one pathspec that matches nothing. A selection that is all
+/// gone is the ordinary *nothing to commit*, never git's error.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_commit_of_a_selection_one_file_of_which_is_gone_commits_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let (_goal, project, root, _origin) =
+        git_project(&engine, "karpachess", PublishPolicy::Manual).await;
+    let inner = engine.inner();
+    let primary = bisa_core::WorkstreamId::primary_of(project.id);
+    std::fs::write(root.join("kept.dart"), "kept\n").unwrap();
+    std::fs::create_dir_all(root.join("test/device")).unwrap();
+    std::fs::write(root.join("test/device/critique_states.dart"), "x\n").unwrap();
+    // The list is read with both; the agent's file goes before the click.
+    std::fs::remove_file(root.join("test/device/critique_states.dart")).unwrap();
+
+    projects::commit_in(
+        inner,
+        primary,
+        "the rest",
+        vec![
+            "kept.dart".into(),
+            "test/device/critique_states.dart".into(),
+        ],
+    )
+    .await
+    .expect("the rest is committed");
+    assert_eq!(
+        raw_git(&root, &["show", "--name-only", "--format=", "HEAD"]),
+        "kept.dart"
+    );
+
+    std::fs::write(root.join("unrelated.txt"), "not chosen\n").unwrap();
+    let refused = projects::commit_in(inner, primary, "nothing", vec!["gone.txt".into()]).await;
+    assert!(
+        matches!(refused, Err(bisa_engine::EngineError::NothingToCommit(_))),
+        "{refused:?}"
+    );
+    engine.shutdown().await;
+}
+
 /// `running_agents` counts the **work** sessions by where they stand, not by
 /// work item — a worker in a worktree counts, a session in a scratch folder
 /// does not, and a conversation's turn standing in the checkout is its
@@ -4635,9 +4679,15 @@ async fn the_status_is_never_stale_after_a_write_to_the_index() {
         .unwrap();
     assert_eq!(counts(&read().await), (1, 0, 1), "and so is an unstage");
 
+    // A path git no longer finds — gone since the list was read — is left
+    // out, not refused, and the next read is still the tree's.
+    projects::stage_in(inner, w.id, vec!["no-such-file.rs".into()])
+        .await
+        .expect("a path that is gone is left out of a stage, never a refusal");
+    assert_eq!(counts(&read().await), (1, 0, 1));
     // A refused write forgets the status too: whatever it did, git is asked again.
     assert!(
-        projects::stage_in(inner, w.id, vec!["no-such-file.rs".into()])
+        projects::stage_in(inner, w.id, vec!["../outside.rs".into()])
             .await
             .is_err()
     );

@@ -1857,6 +1857,7 @@ export const api = {
     put<{ workstream: string; remotes: RemoteInfo[] }>(`/workstreams/${wid}/git/remotes/${encodeURIComponent(name)}`, { url }, s),
   /// Throw away working-tree changes: one hunk of the *unstaged* patch, or
   /// whole paths (restored from the index). What was there is in the recovery.
+  /// A path the index no longer holds is left out; 409 when none is left.
   gitDiscard: (wid: string, what: { patch: string } | { paths: string[] }, s?: AbortSignal) =>
     post<GitDone>(`/workstreams/${wid}/git/discard`, what, s),
   /// Recovery points, newest first.
