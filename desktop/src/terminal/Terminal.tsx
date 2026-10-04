@@ -31,6 +31,8 @@ import type { WorkbenchScope } from "../routeModel.mjs";
 import type { LinkHandler, LinkHit, LinkRootRef } from "../ui";
 import { forgetScrollback, openTerminal, readScrollback, terminalAvailable, writeScrollback } from "./session";
 import { linksAt } from "./terminalLinksModel.mjs";
+import { typedFor } from "./typedKeysModel.mjs";
+import { attachPathInput } from "./pathInput";
 import { armed as armStart, due as startDue, nudgeText, onExit as startOnExit, onInput as startOnInput, onOutput as startOnOutput, pending as startPending, said as startSaid } from "./resumeStartModel.mjs";
 import { failureTally } from "./checkpointModel.mjs";
 import type { StartState } from "./resumeStartModel.mjs";
@@ -156,6 +158,8 @@ interface Live {
   search: SearchAddon | null;
   checkpointTimer: number | null;
   unregisterTail: (() => void) | null;
+  /** Takes a pasted or dropped file as its path (`pathInput.ts`); its teardown. */
+  pathInput: (() => void) | null;
   /** The resume nudge in flight, and its tick — `resumeStartModel`. */
   start: StartState | null;
   startTimer: number | null;
@@ -276,6 +280,7 @@ export function Terminal({
       start: null,
       startTimer: null,
       unregisterTail: null,
+      pathInput: null,
     };
     liveRef.current = live;
     setError(null);
@@ -309,6 +314,8 @@ export function Terminal({
       if (sessionKey) forgotten.delete(sessionKey);
       live.unregisterTail?.();
       live.unregisterTail = null;
+      live.pathInput?.();
+      live.pathInput = null;
       live.resize?.disconnect();
       live.theme?.disconnect();
       if (live.webglRelease !== null) window.clearTimeout(live.webglRelease);
@@ -569,6 +576,9 @@ async function boot(
   });
   live.term = term;
   term.open(host);
+  // A file pasted or dropped here is its path, as a Mac terminal types it;
+  // a screenshot is saved to a file first. Plain text stays xterm's (`pathInput.ts`).
+  live.pathInput = attachPathInput(host, term, () => !live.disposed);
 
   const fit = new FitAddon();
   live.fit = fit;
@@ -616,19 +626,26 @@ async function boot(
     },
   });
 
-  // The app's reserved chords bubble past the shell; the keymap's `find`
-  // chord (⌘F / Ctrl+F by default — a rebinding follows) opens the find bar;
-  // ⌥+arrows bubble to the panel for pane focus. Returning false tells xterm
-  // the keystroke is not its business, and the DOM event goes on up.
+  // A Mac terminal's text editing first: ⌘←/⌘→, ⌥←/⌥→, ⌘⌫, ⌥⌦ type the
+  // keys a line editor reads (`typedKeysModel`; which chord is the keymap's)
+  // through the same door as typing, and the keystroke ends here. Then the
+  // app's reserved chords — a split, pane focus — bubble past the shell; then
+  // the keymap's `find` chord (⌘F / Ctrl+F by default — a rebinding follows)
+  // opens the find bar. Returning false tells xterm the keystroke is not its
+  // business, and the DOM event goes on up.
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== "keydown") return true;
+    const typed = typedFor(currentKeymap(), e, isMac);
+    if (typed !== null) {
+      e.preventDefault();
+      e.stopPropagation();
+      term.input(typed, true);
+      return false;
+    }
     if (refs.reserveKey.current?.(e)) return false;
     const find = chordFor(currentKeymap(), "find");
     if (find && matchesEvent(e, find, isMac)) {
       refs.find.current?.(true);
-      return false;
-    }
-    if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")) {
       return false;
     }
     return true;

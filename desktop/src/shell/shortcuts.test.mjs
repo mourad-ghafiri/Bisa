@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { sourceFiles } from "../testWalk.mjs";
 import { EDIT_VERBS, EDIT_VERB_EVENT, editVerbId } from "./editMenuModel.mjs";
 import { COMMANDS, canonicalChord } from "./keymapModel.mjs";
+import { TYPED } from "../terminal/typedKeysModel.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, "..");
@@ -33,13 +34,20 @@ const HANDLED_ELSEWHERE = Object.freeze({
   cycle_conversation_mode: { file: "views/_workbench/useConversationPane.tsx", proof: '=== "cycle_conversation_mode"' },
 });
 
-test("every command the keymap declares is handled — by the window listener, the focused tree, the strip's nth tab, or a component that resolves through the keymap", () => {
+test("every command the keymap declares is handled — by the window listener, the focused tree, the strip's nth tab, a focused terminal that types it, or a component that resolves through the keymap", () => {
   const explorer = read("ui/explorerStore.ts");
   const explorerIds = [...explorer.matchAll(/^\s+"([a-z_]+)",$/gm)].map((m) => m[1]);
   assert.ok(explorerIds.includes("paste_entry"), "the tree's verbs are read from explorerStore");
   const arms = new Set([...shortcuts.matchAll(/case "([a-z_0-9]+)":/g)].map((m) => m[1]));
-  for (const { id } of COMMANDS) {
+  const terminal = read("terminal/Terminal.tsx");
+  for (const { id, typed } of COMMANDS) {
     if (arms.has(id) || explorerIds.includes(id) || /^tab_[1-9]$/.test(id)) continue;
+    // A typed command is the focused terminal's: it types the command's bytes, the chord resolved through the keymap.
+    if (typed) {
+      assert.ok(Object.prototype.hasOwnProperty.call(TYPED, id), `${id} is typed, and terminal/typedKeysModel.mjs has nothing to type for it`);
+      assert.ok(terminal.includes("typedFor(currentKeymap(), e, isMac)"), `terminal/Terminal.tsx types ${id} through the keymap`);
+      continue;
+    }
     const elsewhere = HANDLED_ELSEWHERE[id];
     assert.ok(elsewhere, `${id} is declared and nothing handles it`);
     const text = read(elsewhere.file);

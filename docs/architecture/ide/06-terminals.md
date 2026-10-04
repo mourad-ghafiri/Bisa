@@ -51,6 +51,30 @@ vocabulary with room for *I do not know* are below.
   (`keymapModel.interceptsInTerminal`): on macOS every ⌘ chord — the PTY never sees ⌘ — and
   elsewhere `Ctrl+Shift+…` and function keys; never copy, paste or find. Those bubble past xterm
   (`reserveKey`) to the app's handler, so ⌘\ splits and ⌘⇧E opens Files from inside a shell.
+- **A Mac terminal's text editing is typed, not intercepted** (`terminal/typedKeysModel.mjs`).
+  xterm sends nothing for ⌘ and an arrow, and for ⌥ and an arrow an escape sequence no line editor
+  reads by default; a Mac terminal types the keys the line editor does read — readline's own, which
+  zsh and bash bind out of the box and a harness's prompt reads too. ⌘← and ⌘→ type Ctrl+A and
+  Ctrl+E (the line's start and end), ⌥← and ⌥→ Alt+B and Alt+F (a word back and forward), ⌘⌫
+  Ctrl+U (to the line's start), ⌥⌦ Alt+D (the next word) — VS Code's mapping on macOS
+  (`terminal.sendSequence.contribution.ts`), and Claude Code's own keys for the same moves. ⌥⌫ is
+  left to xterm, whose Esc+Delete already deletes the previous word. Which chord types which is the
+  keymap's — the six `typed` commands of the `terminal` scope, bound on a Mac only (elsewhere Home,
+  End and Ctrl+arrows already do it), rebindable and unbindable like any chord; the terminal types
+  the bytes through `term.input`, the door typing takes, before the app's reserved chords are asked,
+  and `interceptsInTerminal` never claims one.
+- **A file is its path** (`terminal/pathInput.ts` over `pastedPathsModel.mjs`), as a Mac terminal
+  types it. A file copied in the file manager and pasted with ⌘V, or one or several dragged onto the
+  terminal, is typed as its absolute path, quoted for a shell as Terminal.app quotes a dropped file
+  (each character a shell reads behind a backslash; a control character puts the path in single
+  quotes); Claude Code and the other harnesses read such a path as the file, an image attached. A
+  picture with no file behind it — a screenshot — is written to a file of its own first, under the
+  machine's temporary folder (`bisa-pasted-pictures`, `pasteboard.rs::paste_image_to_temp`), and
+  that path is typed. The web engine gives a paste or a drop a name and never a path, so the shell
+  reads the pasteboard (`pasteboard_holds`, `dropped_paths`); a paste is asked about only when it
+  carries files or no text at all — plain text stays xterm's paste, untouched and never delayed —
+  and what it types is the copied files' paths, else its text, else the picture's path. Everything
+  goes through `term.paste`, bracketed when the program asked for it.
 - **Settings reach open shells**: `terminal.*` is re-read on `settings_changed`, not once.
 - **The centre's rect is not polled**: the layer re-measures on resize, on a finished CSS
   transition, and when the sidebar, the rail or the right panel say they moved
@@ -63,8 +87,10 @@ vocabulary with room for *I do not know* are below.
 The layer holds a pane tree over `ui/SplitPane.tsx`: a binary tree whose leaves hold a tab set,
 owned by `paneTreeModel.mjs` and tested once. Documents do not split ([03](03-files-and-editing.md));
 the tree is the terminals'. Split right, split down, close
-pane, move a tab to a pane. Focus follows the pointer and the keyboard (`⌥←→↑↓` between panes — the `pane_left` … `pane_down` commands of the `terminal` scope, rebindable like any chord and the app's from inside a shell — under
-the default keymap).
+pane, move a tab to a pane. Focus follows the pointer and the keyboard (`⌘⌥←→↑↓` between panes on a
+Mac, `Alt+←→↑↓` elsewhere — VS Code's split, since a Mac's ⌥← and ⌥→ move a word — the `pane_left` …
+`pane_down` commands of the `terminal` scope, rebindable like any chord and the app's from inside a
+shell — under the default keymap).
 
 A terminal tab **reorders and has a menu**: dragged along a split pane's strip it lands
 where the bar shows (`reorderTerminal` moves the leaf's order); on the centre strip it is one

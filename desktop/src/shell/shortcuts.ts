@@ -197,7 +197,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
 // Settings saves them. Module-level so KeyHint and the palette read it too.
 // ---------------------------------------------------------------------------
 
-let keymap: Keymap = resolveKeymap("default", null);
+let keymap: Keymap = resolveKeymap("default", null, isMac);
 const keymapListeners = new Set<() => void>();
 // The kit's menus show chords from here without importing the shell.
 provideChords((id) => chordFor(keymap, id));
@@ -218,9 +218,9 @@ export async function reloadKeymap(): Promise<Keymap> {
   try {
     const r = await api.settingsResolved(null);
     const get = (k: string) => r.settings.find((x) => x.key === k)?.value;
-    keymap = resolveKeymap(get("keymap.preset"), get("keymap.overrides"));
+    keymap = resolveKeymap(get("keymap.preset"), get("keymap.overrides"), isMac);
   } catch {
-    keymap = resolveKeymap("default", null);
+    keymap = resolveKeymap("default", null, isMac);
   }
   provideChords((id) => chordFor(keymap, id));
   for (const l of keymapListeners) l();

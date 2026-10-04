@@ -494,6 +494,7 @@ fn main() {
             pasteboard::pasteboard_image,
             pasteboard::paste_into,
             pasteboard::paste_image_into,
+            pasteboard::paste_image_to_temp,
             set_window_appearance,
             copy_text,
             copy_image,

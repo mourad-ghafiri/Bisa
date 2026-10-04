@@ -56,8 +56,8 @@ test("the default preset has no conflicts, and overrides sit on top", () => {
   assert.equal(chordFor(resolveKeymap("vim", null), "omnibox"), "Mod+K", "vim keeps the app-level chords");
 });
 
-test("the Triggers occupant took its command with it: 86 named commands and the eight numbered tabs, and ⌘⇧Y is nobody's", () => {
-  assert.equal(COMMANDS.length, 94, "86 named commands, and tab_1 … tab_8 from one row");
+test("the Triggers occupant took its command with it: 92 named commands and the eight numbered tabs, and ⌘⇧Y is nobody's", () => {
+  assert.equal(COMMANDS.length, 100, "92 named commands, and tab_1 … tab_8 from one row");
   assert.equal(COMMANDS.filter((c) => /^tab_[1-8]$/.test(c.id)).length, 8);
   assert.ok(!COMMANDS.some((c) => c.id === "panel_triggers"), "no Triggers panel to show");
   const km = resolveKeymap("default", null);
@@ -284,4 +284,62 @@ test("the designer scope holds its panel's chords — the IDE's chords for the s
     "the scope holds the panel's four and nothing else",
   );
   assert.ok(keymapMarkdown().includes("## designer"), "the reference page has the scope's table");
+});
+
+test("a Mac's hands: pane focus is ⌘⌥+arrows and ⌥←/→ is free for a word, in both presets; off a Mac nothing moves", () => {
+  for (const preset of ["default", "vscode", "vim"]) {
+    const mac = resolveKeymap(preset, null, true);
+    const rest = resolveKeymap(preset, null, false);
+    assert.deepEqual(mac.warnings, [], `${preset}: no conflict on a Mac`);
+    assert.deepEqual(rest.warnings, [], `${preset}: none elsewhere`);
+    for (const [id, key] of [["pane_left", "Left"], ["pane_right", "Right"], ["pane_up", "Up"], ["pane_down", "Down"]]) {
+      assert.equal(chordFor(mac, id), `Mod+Alt+${key}`, `${preset}: ${id} on a Mac, as VS Code's ⌥⌘ arrows`);
+      assert.equal(chordFor(rest, id), `Alt+${key}`, `${preset}: ${id} elsewhere, as before`);
+    }
+    const typed = { line_start: "Mod+Left", line_end: "Mod+Right", word_left: "Alt+Left", word_right: "Alt+Right", delete_to_line_start: "Mod+Backspace", delete_word_right: "Alt+Delete" };
+    for (const [id, chord] of Object.entries(typed)) {
+      assert.equal(chordFor(mac, id), chord, `${preset}: ${id} on a Mac`);
+      assert.equal(chordFor(rest, id), null, `${preset}: ${id} unbound elsewhere — the terminal's own Home, End and Ctrl+arrows do it`);
+    }
+  }
+  // The two-argument call is the rest's, exactly as before the platform was a parameter.
+  assert.deepEqual(resolveKeymap("default", null), resolveKeymap("default", null, false));
+});
+
+test("a typed command is the shell's: never intercepted, and the narrowest scope fires it in a Mac terminal", () => {
+  const km = resolveKeymap("default", null, true);
+  const b = (id) => km.bindings.find((x) => x.id === id);
+  const typed = km.bindings.filter((x) => x.typed).map((x) => x.id);
+  assert.deepEqual(typed, ["line_start", "line_end", "word_left", "word_right", "delete_to_line_start", "delete_word_right"]);
+  for (const id of typed) {
+    assert.equal(b(id).when, "terminal", `${id} is live in a terminal only`);
+    assert.equal(interceptsInTerminal(b(id), true), false, `${id} is typed into the shell, never the app's`);
+  }
+  assert.ok(km.bindings.filter((x) => !x.typed).every((x) => x.typed === false), "every other binding says so");
+  assert.ok(interceptsInTerminal(b("pane_left"), true), "pane focus is still the app's from inside a shell");
+  assert.equal(commandForEvent(km, ev("ArrowLeft", { altKey: true }), ["terminal"], true), "word_left");
+  assert.equal(commandForEvent(km, ev("ArrowLeft", { altKey: true, metaKey: true }), ["terminal"], true), "pane_left");
+  assert.equal(commandForEvent(km, ev("ArrowLeft", { metaKey: true }), ["terminal"], true), "line_start");
+  assert.equal(commandForEvent(km, ev("Backspace", { metaKey: true }), ["terminal"], true), "delete_to_line_start");
+  assert.equal(commandForEvent(km, ev("Backspace", { metaKey: true }), ["files"], true), "delete_entry", "⌘⌫ still deletes in the tree");
+  assert.equal(commandForEvent(km, ev("Delete", { altKey: true }), ["terminal"], true), "delete_word_right");
+  assert.equal(commandForEvent(km, ev("ArrowLeft", { altKey: true }), ["workbench"], true), null, "outside a terminal ⌥← is nobody's");
+});
+
+test("a person's own chord wins: pane focus put back on ⌥← keeps it, and the word move is left unbound with a warning", () => {
+  const km = resolveKeymap("default", { pane_left: "Alt+Left" }, true);
+  assert.equal(chordFor(km, "pane_left"), "Alt+Left");
+  assert.equal(chordFor(km, "word_left"), null);
+  assert.equal(km.warnings.length, 1);
+  assert.match(km.warnings[0], /word_left/);
+  assert.equal(chordFor(resolveKeymap("default", { word_left: "" }, true), "word_left"), null, "and a typed command can be unbound like any other");
+});
+
+test("the reference page shows a Mac's chord beside the rest's, and a Mac-only chord alone", () => {
+  const md = keymapMarkdown();
+  const row = (id) => md.split("\n").find((l) => l.startsWith(`| \`${id}\``)) ?? "";
+  assert.match(row("pane_left"), /\| Alt\+Left · macOS: Mod\+Alt\+Left \| Alt\+Left · macOS: Mod\+Alt\+Left \|$/);
+  assert.match(row("line_start"), /\| macOS: Mod\+Left \| macOS: Mod\+Left \|$/);
+  assert.match(row("line_start"), /types Ctrl\+A/, "the note names the key the shell is typed");
+  assert.match(row("split_right"), /\| Mod\+Backslash \| Mod\+Backslash \|$/, "a chord the same everywhere is written once");
 });

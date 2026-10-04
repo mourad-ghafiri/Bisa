@@ -8,6 +8,8 @@ two commands in one scope is refused, and the later binding is dropped with a wa
 live scope wins when two hold one chord: `document`, `editor`, `terminal`, `files` and `browser` over `tabs` over
 `workbench` and `designer` — which are never live together — over `global`.
 
+A chord marked macOS is the one a Mac uses in place of the one beside it; where it stands alone, the command is a Mac's only — elsewhere the terminal's own keys already do it.
+
 ## global
 
 | Command | default | vscode |
@@ -131,10 +133,16 @@ live scope wins when two hold one chord: `document`, `editor`, `terminal`, `file
 |---|---|---|
 | `split_right` — Split the terminal pane to the right | Mod+Backslash | Mod+Backslash |
 | `split_down` — Split the terminal pane downwards | Mod+Shift+Backslash | Mod+Shift+Backslash |
-| `pane_left` — Focus the terminal pane to the left | Alt+Left | Alt+Left |
-| `pane_right` — Focus the terminal pane to the right | Alt+Right | Alt+Right |
-| `pane_up` — Focus the terminal pane above | Alt+Up | Alt+Up |
-| `pane_down` — Focus the terminal pane below | Alt+Down | Alt+Down |
+| `pane_left` — Focus the terminal pane to the left | Alt+Left · macOS: Mod+Alt+Left | Alt+Left · macOS: Mod+Alt+Left |
+| `pane_right` — Focus the terminal pane to the right | Alt+Right · macOS: Mod+Alt+Right | Alt+Right · macOS: Mod+Alt+Right |
+| `pane_up` — Focus the terminal pane above | Alt+Up · macOS: Mod+Alt+Up | Alt+Up · macOS: Mod+Alt+Up |
+| `pane_down` — Focus the terminal pane below | Alt+Down · macOS: Mod+Alt+Down | Alt+Down · macOS: Mod+Alt+Down |
+| `line_start` — Move to the start of the line (types Ctrl+A, the shell's own key) | macOS: Mod+Left | macOS: Mod+Left |
+| `line_end` — Move to the end of the line (types Ctrl+E, the shell's own key) | macOS: Mod+Right | macOS: Mod+Right |
+| `word_left` — Move back a word (types Alt+B, the shell's own key) | macOS: Alt+Left | macOS: Alt+Left |
+| `word_right` — Move forward a word (types Alt+F, the shell's own key) | macOS: Alt+Right | macOS: Alt+Right |
+| `delete_to_line_start` — Delete to the start of the line (types Ctrl+U, the shell's own key) | macOS: Mod+Backspace | macOS: Mod+Backspace |
+| `delete_word_right` — Delete the next word (types Alt+D, the shell's own key) | macOS: Alt+Delete | macOS: Alt+Delete |
 
 ## browser
 

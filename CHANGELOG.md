@@ -8,6 +8,21 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Added
+
+- A file copied in Finder and pasted into a terminal with ⌘V — or dragged onto it, one or several —
+  is typed as its path, quoted as Terminal.app quotes it, in a shell and in a harness alike: Claude
+  Code takes an image's path as the image. A screenshot on the clipboard is saved to a file in the
+  machine's temporary folder, and that path is typed. Plain text pastes as before.
+- A Mac terminal's text editing, in a shell and in a harness's prompt: ⌘← and ⌘→ go to the start and
+  the end of the line, ⌥← and ⌥→ move a word, ⌘⌫ deletes to the start of the line and ⌥⌦ the next
+  word. Each is a terminal command in Settings › Keymap, rebindable and unbindable.
+
+### Changed
+
+- On a Mac, focus moves between split terminal panes with ⌘⌥+arrows — as in VS Code — so that ⌥← and
+  ⌥→ move a word. Windows and Linux keep Alt+arrows, and a chord you set yourself is kept.
+
 ### Fixed
 
 - The screen no longer goes blurry while a shell or a harness prints: the Project IDE's centre —

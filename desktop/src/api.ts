@@ -730,6 +730,23 @@ export async function pasteImageInto(dest: string, name: string): Promise<Pasted
 }
 
 /**
+ * Write the clipboard's picture to a file of its own in the machine's
+ * temporary folder, under `name` (Finder's `name 2` when taken), and answer
+ * its absolute path — what a terminal types for a pasted screenshot (ide/06),
+ * so a shell or a harness opens it as it would a copied file. Needs the
+ * desktop app.
+ */
+export async function pasteImageToTemp(name: string): Promise<string> {
+  if (!isTauri()) throw new ApiError(tr("app-api-pasting-picture-from-clipboard-needs-desktop"), 400, name);
+  const { invoke } = await import("@tauri-apps/api/core");
+  try {
+    return await invoke<string>("paste_image_to_temp", { name });
+  } catch (e) {
+    throw new ApiError(e instanceof Error ? e.message : String(e), 400, name);
+  }
+}
+
+/**
  * Copy files from this machine into a folder of a checkout, by absolute
  * path, in the shell (ide/01: the machine's capability; the node's watcher
  * announces what lands). Answers what was pasted, renamed and left out.

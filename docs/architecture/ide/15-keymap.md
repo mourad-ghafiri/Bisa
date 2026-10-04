@@ -24,6 +24,23 @@ never with two commands on one chord.
 `Ctrl` works everywhere `⌘` does: chords are spelled `Mod+…`, and `Mod` is ⌘ on macOS and Ctrl
 elsewhere.
 
+**Where a Mac's hands differ, a command says so.** A command may carry `mac` — its chords on a Mac,
+per preset, in place of `chords` — and `resolveKeymap(preset, overrides, mac)` takes them there (the
+window listener and Settings pass `isMac`; the two-argument call is the rest's, as it always was).
+Terminal pane focus is the case that needs it: a Mac's ⌥← and ⌥→ move a word, so `pane_left` …
+`pane_down` are `⌘⌥←→↑↓` on a Mac and `Alt+←→↑↓` elsewhere — VS Code's own split. An override is the
+person's on every platform, and a chord they set wins over a later command's in the same scope as
+any conflict does. The reference page writes a Mac's chord beside the other (`macOS: …`), or alone
+where only a Mac has one.
+
+**A `typed` command is a terminal's own text editing.** The six of the `terminal` scope —
+`line_start`, `line_end`, `word_left`, `word_right`, `delete_to_line_start`, `delete_word_right` —
+are bound on a Mac only (`⌘←`, `⌘→`, `⌥←`, `⌥→`, `⌘⌫`, `⌥⌦`), and a focused terminal types each as
+the key a shell's line editor reads (`terminal/typedKeysModel.mjs`: Ctrl+A, Ctrl+E, Alt+B, Alt+F,
+Ctrl+U, Alt+D — [06](06-terminals.md)). They are commands so that a person sees, rebinds and unbinds
+them in Settings › Keymap like any other; `interceptsInTerminal` never claims one, since the
+keystroke is the shell's.
+
 ---
 
 ## The command registry
@@ -88,6 +105,12 @@ pane_left
 pane_right
 pane_up
 pane_down
+line_start
+line_end
+word_left
+word_right
+delete_to_line_start
+delete_word_right
 new_terminal
 new_browser
 open_browser
@@ -189,7 +212,9 @@ resolves — a document's replace, a browser tab's reload — and falls through 
 `replace` open Monaco's own widgets in the editor and the rendering's bar (`DOC_FIND`, answered by
 the document that holds the focus) otherwise, and the terminal's own find bar opens on the same
 `find` chord (`chordFor`, so a rebinding follows; the editor's `save` resolves through
-`commandForEvent` the same way); `Esc` closes the palette, else a pane, else nothing — and never a
+`commandForEvent` the same way); a focused terminal types a `typed` command's key before anything
+else may take the keystroke (`typedFor(currentKeymap(), …)`, then the app's reserved chords, then
+`find`); `Esc` closes the palette, else a pane, else nothing — and never a
 terminal while focus is inside it. The workbench commands act on the current root: `show_terminal`
 focuses the most recent live terminal there or opens one — and, pressed while that terminal is the
 active tab, goes back to the document that was showing; `toggle_right_panel`, `panel_agents`,

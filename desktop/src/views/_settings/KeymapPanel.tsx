@@ -36,14 +36,14 @@ export function KeymapPanel() {
   const get = (k: string) => settings.data?.settings.find((x) => x.key === k)?.value;
   const preset = typeof get("keymap.preset") === "string" ? (get("keymap.preset") as string) : "default";
   const overrides = (get("keymap.overrides") as Record<string, string> | undefined) ?? {};
-  const [keymap, setKeymap] = useState<Keymap>(() => resolveKeymap(preset, overrides));
+  const [keymap, setKeymap] = useState<Keymap>(() => resolveKeymap(preset, overrides, isMac));
   const [recording, setRecording] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
   // `settings.data` is the one fact: `preset` and `overrides` are read out of
   // it each render, and `overrides` is a fresh object while the setting is
   // unset — following it would resolve the keymap on every render.
-  useEffect(() => setKeymap(resolveKeymap(preset, overrides)), [settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setKeymap(resolveKeymap(preset, overrides, isMac)), [settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async (values: Record<string, unknown>, did: string) => {
     if (busy) return;

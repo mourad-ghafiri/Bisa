@@ -6,7 +6,14 @@
  * chord that works.
  *
  * Chords are spelled the way `KeyHint` reads them: `Mod+Shift+P`, `Alt+Left`,
- * `Ctrl+Backquote`. `Mod` is ⌘ on macOS and Ctrl elsewhere.
+ * `Ctrl+Backquote`. `Mod` is ⌘ on macOS and Ctrl elsewhere. Where a Mac's
+ * hands differ from the rest — ⌥← moves a word in a Mac terminal, so pane
+ * focus is ⌘⌥← there, as in VS Code — a command carries `mac`, the chords a
+ * Mac takes in place of `chords` (`resolveKeymap(…, mac)`).
+ *
+ * A `typed` command is a terminal's own text editing: its chord is typed into
+ * the shell as the key the shell's line editor reads (`terminal/typedKeysModel.mjs`)
+ * — never the app's, so a focused shell keeps it (`interceptsInTerminal`).
  */
 
 import { t } from "../i18n/l10n.mjs";
@@ -62,10 +69,18 @@ export const COMMANDS = Object.freeze([
   { id: "rename", label: t("shell-keymap-rename-selected-project-workstream"), when: "workbench", chords: { default: "F2", vscode: "F2" } },
   { id: "split_right", label: t("shell-keymap-split-terminal-pane-right"), when: "terminal", chords: { default: "Mod+Backslash", vscode: "Mod+Backslash" } },
   { id: "split_down", label: t("shell-keymap-split-terminal-pane-downwards"), when: "terminal", chords: { default: "Mod+Shift+Backslash", vscode: "Mod+Shift+Backslash" } },
-  { id: "pane_left", label: t("shell-keymap-focus-terminal-pane-left"), when: "terminal", chords: { default: "Alt+Left", vscode: "Alt+Left" } },
-  { id: "pane_right", label: t("shell-keymap-focus-terminal-pane-right"), when: "terminal", chords: { default: "Alt+Right", vscode: "Alt+Right" } },
-  { id: "pane_up", label: t("shell-keymap-focus-terminal-pane-above"), when: "terminal", chords: { default: "Alt+Up", vscode: "Alt+Up" } },
-  { id: "pane_down", label: t("shell-keymap-focus-terminal-pane-below"), when: "terminal", chords: { default: "Alt+Down", vscode: "Alt+Down" } },
+  // Pane focus is ⌥+arrows off a Mac and ⌘⌥+arrows on one — VS Code's split, since a Mac's ⌥← and ⌥→ move a word.
+  { id: "pane_left", label: t("shell-keymap-focus-terminal-pane-left"), when: "terminal", chords: { default: "Alt+Left", vscode: "Alt+Left" }, mac: { default: "Mod+Alt+Left", vscode: "Mod+Alt+Left" } },
+  { id: "pane_right", label: t("shell-keymap-focus-terminal-pane-right"), when: "terminal", chords: { default: "Alt+Right", vscode: "Alt+Right" }, mac: { default: "Mod+Alt+Right", vscode: "Mod+Alt+Right" } },
+  { id: "pane_up", label: t("shell-keymap-focus-terminal-pane-above"), when: "terminal", chords: { default: "Alt+Up", vscode: "Alt+Up" }, mac: { default: "Mod+Alt+Up", vscode: "Mod+Alt+Up" } },
+  { id: "pane_down", label: t("shell-keymap-focus-terminal-pane-below"), when: "terminal", chords: { default: "Alt+Down", vscode: "Alt+Down" }, mac: { default: "Mod+Alt+Down", vscode: "Mod+Alt+Down" } },
+  // A Mac terminal's text editing, typed into the shell (`terminal/typedKeysModel.mjs`). Off a Mac the terminal's own Home, End and Ctrl+arrows already do it, so nothing is bound there.
+  { id: "line_start", label: t("shell-keymap-move-start-line"), when: "terminal", typed: true, chords: {}, mac: { default: "Mod+Left", vscode: "Mod+Left" }, note: t("shell-keymap-types-key", { key: "Ctrl+A" }) },
+  { id: "line_end", label: t("shell-keymap-move-end-line"), when: "terminal", typed: true, chords: {}, mac: { default: "Mod+Right", vscode: "Mod+Right" }, note: t("shell-keymap-types-key", { key: "Ctrl+E" }) },
+  { id: "word_left", label: t("shell-keymap-move-back-word"), when: "terminal", typed: true, chords: {}, mac: { default: "Alt+Left", vscode: "Alt+Left" }, note: t("shell-keymap-types-key", { key: "Alt+B" }) },
+  { id: "word_right", label: t("shell-keymap-move-forward-word"), when: "terminal", typed: true, chords: {}, mac: { default: "Alt+Right", vscode: "Alt+Right" }, note: t("shell-keymap-types-key", { key: "Alt+F" }) },
+  { id: "delete_to_line_start", label: t("shell-keymap-delete-to-line-start"), when: "terminal", typed: true, chords: {}, mac: { default: "Mod+Backspace", vscode: "Mod+Backspace" }, note: t("shell-keymap-types-key", { key: "Ctrl+U" }) },
+  { id: "delete_word_right", label: t("shell-keymap-delete-next-word"), when: "terminal", typed: true, chords: {}, mac: { default: "Alt+Delete", vscode: "Alt+Delete" }, note: t("shell-keymap-types-key", { key: "Alt+D" }) },
   { id: "new_terminal", label: t("shell-keymap-new-terminal-here"), when: "workbench", chords: { default: "Ctrl+Backquote", vscode: "Ctrl+Backquote" } },
   { id: "new_browser", label: t("shell-keymap-new-browser-tab-here"), when: "workbench", chords: { default: "Ctrl+Shift+Backquote", vscode: "Ctrl+Shift+Backquote" } },
   { id: "open_browser", label: t("shell-omnibox-browser-show-hide-browser-pane"), when: "global", chords: { default: "Mod+Shift+L", vscode: "Mod+Shift+L" } },
@@ -216,12 +231,15 @@ export function chordFromEvent(e, mac) {
 /**
  * The effective keymap: `{bindings: [{id, label, when, chord, source}], warnings: string[]}`.
  * Overrides (command id → chord, `""` to unbind) sit over the preset; the vim
- * preset uses the default app-level chords. A chord held by two commands in
- * the **same scope** is a conflict: the later binding is dropped and named.
+ * preset uses the default app-level chords. On a Mac a command's `mac` chords
+ * stand in for its `chords`; an override is the person's on every platform. A
+ * chord held by two commands in the **same scope** is a conflict: the later
+ * binding is dropped and named.
  * @param {string} preset
  * @param {Record<string, string> | null | undefined} overrides
+ * @param {boolean} [mac] whether the keymap is a Mac's — false, the rest's, when not said
  */
-export function resolveKeymap(preset, overrides) {
+export function resolveKeymap(preset, overrides, mac = false) {
   const pre = PRESETS.includes(preset) ? preset : "default";
   const chordsKey = pre === "vim" ? "default" : pre;
   const warnings = [];
@@ -229,7 +247,8 @@ export function resolveKeymap(preset, overrides) {
   const held = new Map(); // `${when}|${chord}` → id
   const ov = overrides && typeof overrides === "object" ? overrides : {};
   for (const c of COMMANDS) {
-    let chord = c.chords[chordsKey] ?? c.chords.default ?? null;
+    const table = mac && c.mac ? c.mac : c.chords;
+    let chord = table[chordsKey] ?? table.default ?? null;
     let source = "preset";
     if (Object.prototype.hasOwnProperty.call(ov, c.id)) {
       const raw = ov[c.id];
@@ -255,7 +274,7 @@ export function resolveKeymap(preset, overrides) {
         held.set(k, c.id);
       }
     }
-    bindings.push({ id: c.id, label: c.label, when: c.when, chord, source, note: c.note ?? null, always: c.always === true });
+    bindings.push({ id: c.id, label: c.label, when: c.when, chord, source, note: c.note ?? null, always: c.always === true, typed: c.typed === true });
   }
   return { preset: pre, bindings, warnings };
 }
@@ -286,12 +305,16 @@ export function conflictFor(keymap, id, chord) {
  * explicit `Ctrl` on `Tab` or `Backquote` — the strip's cycle, a terminal or a
  * browser tab here — which no PTY means. Copy, paste and find stay with the
  * terminal everywhere: `Mod+C`, `Mod+V`, `Mod+F`, `Ctrl+Shift+C`, `Ctrl+Shift+V`.
- * @param {{chord: string | null, when?: string, always?: boolean} | null | undefined} binding
+ * A `typed` command is the shell's own text editing — the terminal types it
+ * (`terminal/typedKeysModel.mjs`) — so it is never intercepted either.
+ * @param {{chord: string | null, when?: string, always?: boolean, typed?: boolean} | null | undefined} binding
  * @param {boolean} mac
  */
 export function interceptsInTerminal(binding, mac) {
   const parsed = binding?.chord ? parseChord(binding.chord) : null;
   if (!parsed) return false;
+  // The shell's typing, keyed through the keymap: the terminal types it, the app never takes it.
+  if (binding.typed) return false;
   // A command live only in a terminal is the app's there by definition — the
   // pane-focus arrows, a split — whatever its chord.
   if (binding.when === "terminal") return true;
@@ -385,15 +408,22 @@ export function keymapMarkdown() {
     t("shell-keymap-live-scope-wins-when-two-hold"),
     t("shell-keymap-workbench-designer-which-never-live-together"),
     "",
+    t("shell-keymap-macos-chord-stands-on-a-mac"),
+    "",
   ];
+  // One preset's cell: the chord, and a Mac's beside it where a Mac's differs — alone where only a Mac has one.
+  const cell = (c, preset) => {
+    const rest = c.chords[preset] ? canonicalChord(c.chords[preset]) : null;
+    const mac = c.mac?.[preset] ? canonicalChord(c.mac[preset]) : null;
+    const onMac = mac && mac !== rest ? t("shell-keymap-on-macos", { chord: mac }) : null;
+    return [rest, onMac].filter(Boolean).join(" · ") || "—";
+  };
   for (const when of WHENS) {
     const rows = COMMANDS.filter((c) => c.when === when);
     if (rows.length === 0) continue;
     lines.push(`## ${when}`, "", t("shell-keymap-command-default-vscode"), "|---|---|---|");
     for (const c of rows) {
-      const d = c.chords.default ? canonicalChord(c.chords.default) : "—";
-      const v = c.chords.vscode ? canonicalChord(c.chords.vscode) : "—";
-      lines.push(`| \`${c.id}\` — ${c.label}${c.note ? ` (${c.note})` : ""} | ${d} | ${v} |`);
+      lines.push(`| \`${c.id}\` — ${c.label}${c.note ? ` (${c.note})` : ""} | ${cell(c, "default")} | ${cell(c, "vscode")} |`);
     }
     lines.push("");
   }

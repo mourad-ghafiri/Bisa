@@ -4,7 +4,11 @@ export interface Command {
   label: string;
   when: When;
   chords: Partial<Record<"default" | "vscode", string>>;
+  /** The chords a Mac takes in place of `chords`, where its hands differ. */
+  mac?: Partial<Record<"default" | "vscode", string>>;
   always?: boolean;
+  /** The shell's own text editing: the terminal types the chord as a key (`terminal/typedKeysModel.mjs`). */
+  typed?: boolean;
   note?: string;
 }
 export interface Binding {
@@ -15,6 +19,7 @@ export interface Binding {
   source: "preset" | "override";
   note: string | null;
   always: boolean;
+  typed: boolean;
 }
 export interface Keymap {
   preset: string;
@@ -35,10 +40,10 @@ export declare function parseChord(chord: string): { mod: boolean; ctrl: boolean
 export declare function canonicalChord(chord: string): string | null;
 export declare function matchesEvent(e: KeyLike, chord: string, mac: boolean): boolean;
 export declare function chordFromEvent(e: KeyLike, mac: boolean): string | null;
-export declare function resolveKeymap(preset: unknown, overrides: unknown): Keymap;
+export declare function resolveKeymap(preset: unknown, overrides: unknown, mac?: boolean): Keymap;
 export declare function conflictFor(keymap: Keymap, id: string, chord: string): string | null;
 export declare function chordFor(keymap: Keymap, id: string): string | null;
-export declare function interceptsInTerminal(binding: { chord: string | null; when?: string; always?: boolean } | null | undefined, mac: boolean): boolean;
+export declare function interceptsInTerminal(binding: { chord: string | null; when?: string; always?: boolean; typed?: boolean } | null | undefined, mac: boolean): boolean;
 export interface RelayChord {
   key: string;
   shift: boolean;

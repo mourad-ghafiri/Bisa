@@ -1331,8 +1331,19 @@ things without a pointer.
 **Splits.** With a terminal tab active the strip's controls cut the focused pane to the right or
 downwards and open a shell in the new half. Once split, each pane gets its own tab strip; drag a tab
 onto another pane to move it there — it moves, it is not remounted, so the shell keeps running.
-`⌥←→↑↓` moves focus between panes. *Close pane* folds a pane's tabs into its neighbour; nothing is
-terminated.
+`⌘⌥←→↑↓` moves focus between panes on a Mac (`Alt+←→↑↓` on Windows and Linux). *Close pane* folds a
+pane's tabs into its neighbour; nothing is terminated.
+
+**Keys like a Mac terminal.** In a shell and in a harness's prompt alike, `⌘←` and `⌘→` go to the
+start and the end of the line, `⌥←` and `⌥→` move a word back and forward, `⌘⌫` deletes to the start
+of the line, `⌥⌦` deletes the next word and `⌥⌫` the previous one. They are the terminal's commands in
+Settings › Keymap, so you can rebind or unbind any of them.
+
+**A file is its path.** Copy a file in Finder and press `⌘V` in a terminal, or drag one or several
+onto it, and their paths are typed, quoted the way Terminal.app quotes them — a name with spaces
+included. Claude Code and the other harnesses take an image's path as the image itself. A screenshot
+on the clipboard, with no file behind it, is saved to a file in the machine's temporary folder first,
+and that file's path is typed. Plain text pastes as it always has.
 
 **Scrollback that survives a restart.** Two seconds after output stops, on exit, and when a tab goes
 away, the buffer is serialised and kept by the desktop shell at `run/terminals/<key>.scrollback` in

@@ -80,6 +80,39 @@ pub async fn paste_image_into(dest: String, name: String) -> Result<Pasted, Stri
         .map_err(|e| e.to_string())?
 }
 
+/// The folder of the machine's temporary directory a terminal's pasted
+/// pictures are written to.
+const PASTED_PICTURES: &str = "bisa-pasted-pictures";
+
+/// The pasteboard's picture written to a file of its own in the machine's
+/// temporary folder, for a terminal to type the path of (ide/06): a
+/// screenshot is then a file a shell or a harness opens, as a copied one
+/// is. The name is the webview's (`pastedImageModel.pastedImageName`); a
+/// taken one becomes Finder's `name 2`. Answers the file's absolute path.
+/// Nothing in the app keeps the files: the folder is the system's own
+/// temporary one.
+#[tauri::command]
+pub async fn paste_image_to_temp(name: String) -> Result<String, String> {
+    let png = general_pasteboard_png()
+        .ok_or_else(|| "the clipboard no longer holds a picture".to_string())?;
+    let dir = std::env::temp_dir().join(PASTED_PICTURES);
+    tauri::async_runtime::spawn_blocking(move || write_png_free(&dir, &name, &png))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Write `png` into the folder `dir` — made when missing — under `name`, or
+/// Finder's next free name beside what is there, and answer the file's
+/// absolute path. `name` must be a plain file name and the bytes a PNG, the
+/// rules `write_png` holds.
+pub fn write_png_free(dir: &Path, name: &str, png: &[u8]) -> Result<String, String> {
+    let name = plain_name(name)?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let free = free_name(name, &names_in(dir));
+    let pasted = write_png(dir, &free, png)?;
+    Ok(dir.join(pasted.name).to_string_lossy().into_owned())
+}
+
 /// Write `png` as the file `name` in the folder `dest`. `dest` must be an
 /// existing directory; `name` a plain file name — no slash, not `.` or
 /// `..`, no leading dot, no control character, the rule of the store's
@@ -555,6 +588,60 @@ mod tests {
             names(dir.path()),
             Vec::<String>::new(),
             "nothing was written"
+        );
+    }
+
+    #[test]
+    fn a_terminals_picture_lands_in_its_folder_made_when_missing_and_a_taken_name_is_numbered() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("bisa-pasted-pictures");
+        let first = write_png_free(&folder, "pasted-image-20261004T150211Z.png", &png()).unwrap();
+        assert_eq!(
+            first,
+            folder
+                .join("pasted-image-20261004T150211Z.png")
+                .to_string_lossy(),
+            "the absolute path a terminal types"
+        );
+        assert_eq!(std::fs::read(&first).unwrap(), png());
+
+        let second = write_png_free(&folder, "pasted-image-20261004T150211Z.png", &png()).unwrap();
+        assert_eq!(
+            second,
+            folder
+                .join("pasted-image-20261004T150211Z 2.png")
+                .to_string_lossy(),
+            "two pastes in one second: Finder's second name, never a refusal"
+        );
+        assert_eq!(
+            names(&folder),
+            vec![
+                "pasted-image-20261004T150211Z 2.png".to_string(),
+                "pasted-image-20261004T150211Z.png".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_terminals_picture_that_is_not_a_png_or_has_no_plain_name_is_refused_and_nothing_is_made() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("bisa-pasted-pictures");
+        assert_eq!(
+            write_png_free(&folder, "shot.png", b"GIF89a").unwrap_err(),
+            "the clipboard's picture is not a PNG"
+        );
+        assert_eq!(
+            write_png_free(&folder, "a/b.png", &png()).unwrap_err(),
+            "A name has no slash in it."
+        );
+        assert_eq!(
+            write_png_free(&folder, "", &png()).unwrap_err(),
+            "A name is needed."
+        );
+        assert_eq!(
+            names(&folder),
+            Vec::<String>::new(),
+            "no picture was written"
         );
     }
 }
