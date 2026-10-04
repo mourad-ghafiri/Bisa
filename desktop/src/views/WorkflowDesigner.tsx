@@ -471,7 +471,7 @@ export default function WorkflowDesigner({ id }: { id: string }) {
 
       <div ref={setRowEl} className="flex min-h-0 flex-1">
         {/* The root the palette's scroll is kept from; it draws no box of its own. */}
-        <div ref={paletteRoot} className="contents">
+        <div ref={paletteRoot} className="[display:contents]">
         <aside data-scroll-keep="palette" className={cn("shrink-0 overflow-y-auto border-r border-border", paletteCompact ? "w-12 px-1.5 py-2" : "w-40 p-2")}>
             <h3 className={paletteCompact ? "sr-only" : "mb-2 px-2 pt-1 text-sm font-semibold text-text"}>{t("screens-workflow-designer-steps")}</h3>
             <Palette

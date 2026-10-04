@@ -17,4 +17,7 @@ export declare function slotStyle(
   height: number;
   visibility: "visible" | "hidden";
   pointerEvents: "auto" | "none";
+  /** Present only while hidden: a hidden layer paints no frost. */
+  backdropFilter?: "none";
+  WebkitBackdropFilter?: "none";
 };

@@ -315,7 +315,7 @@ export function DrawOverlay() {
     <>
       {open && enabled && (
         // `contents`: no box of its own — it only hands the panel how far beside the Notes panel it stands.
-        <div className="contents" style={{ "--draw-beside": `${beside}px` } as CSSProperties}>
+        <div className="[display:contents]" style={{ "--draw-beside": `${beside}px` } as CSSProperties}>
           <section
             ref={panel}
             aria-label={tr("draw-dock-drawings")}

@@ -8,6 +8,18 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- The screen no longer goes blurry while a shell or a harness prints: the Project IDE's centre —
+  an open file, the empty landing — and any other screen under where the terminals were last
+  drawn. The hidden terminal layer's scrollbar showed through it, and the glass frost came back
+  with it; a hidden layer now paints nothing, frost included, and no small grey bar shows at the
+  centre's edge.
+- A terminal in a background tab or pane no longer shows its scrollbar over the one in front.
+- Editor and terminal scrollbars fade out again instead of vanishing at once.
+- The code editor's suggestions keep their row layout: long labels are cut inside the row.
+- The drawing canvas's chart dialog lays its choices out at their own width.
+
 ## [0.2.0] - 2026-10-03
 
 ### Added

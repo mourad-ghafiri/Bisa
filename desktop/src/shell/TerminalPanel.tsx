@@ -28,7 +28,7 @@
  * PTY, and one import site is the last place that fact is visible before
  * somebody renders one per row.
  *
- * # Why inactive panes are `invisible` and not `hidden`
+ * # Why inactive panes are hidden in place and not `hidden`
  *
  * They must stay mounted, so the only question is how to hide them, and
  * `display: none` is wrong three times over. xterm measures its cell size
@@ -46,6 +46,15 @@
  * `visibility` flip with no reflow at all. The same rule hides the whole layer
  * when no terminal tab is active: it keeps its last box and goes
  * `visibility: hidden` (`slotStyle`), never to a zero size.
+ *
+ * Hidden in place means painting nothing, which takes two more things. The
+ * class is spelled out, `[visibility:hidden]`: xterm's own scrollbar wears
+ * `visible` while it scrolls, so Tailwind's bare `visible` / `invisible` are
+ * never made (`styles.css`) — a `.visible { visibility: visible }` would show
+ * a hidden pane's scrollbar through it. And the hidden layer drops its frost
+ * (`slotStyle`): it is a pane, and WebKit paints a hidden element's backdrop
+ * the moment anything inside it is visible (`theme/material.css`), which blurred
+ * whatever lay under the layer while a shell printed.
  */
 
 import { RESUME_START_DEFAULT, readResumeStart } from "../terminal/resumeStartModel.mjs";
@@ -260,7 +269,7 @@ export function TerminalPanel() {
       >
         {/*
           Every session, always mounted, stacked at full size. See this file's
-          doc for why the inactive ones are `invisible` rather than `hidden`,
+          doc for why the inactive ones are hidden in place rather than `hidden`,
           and why that is not a style preference.
         */}
         {/* Moving between panes is the keymap's (`pane_left` …), not a key
@@ -340,7 +349,7 @@ export function TerminalPanel() {
                 aria-hidden={!showing || undefined}
                 className={cn(
                   "absolute",
-                  !showing && "invisible pointer-events-none",
+                  !showing && "[visibility:hidden] pointer-events-none",
                   manyPanes && leaf && leaf.id === focusedPane && PANE_RING,
                 )}
                 onMouseDown={() => leaf && focusTerminalPane(leaf.id)}

@@ -28,3 +28,21 @@ test("a hidden layer keeps a real box and hides with visibility, never with a ze
   assert.ok(none.width > 0 && none.height > 0);
   assert.equal(slotStyle({ left: 0, top: 0, width: 0, height: 0 }, true).visibility, "hidden");
 });
+
+test("a hidden layer paints no frost; a shown one leaves the frost to the material", () => {
+  // WebKit paints a hidden element's backdrop while anything inside it is
+  // visible, so hidden must also mean no backdrop — however it came to be hidden.
+  const rect = { left: 10, top: 20, width: 300, height: 200 };
+  for (const [why, style] of [
+    ["closed", slotStyle(rect, false)],
+    ["no rect yet", slotStyle(null, true)],
+    ["a zero rect", slotStyle({ left: 0, top: 0, width: 0, height: 0 }, true)],
+  ]) {
+    assert.equal(style.visibility, "hidden", why);
+    assert.equal(style.backdropFilter, "none", `${why}: no backdrop`);
+    assert.equal(style.WebkitBackdropFilter, "none", `${why}: no backdrop, WebKit's spelling`);
+  }
+  const shown = slotStyle(rect, true);
+  assert.equal(shown.visibility, "visible");
+  assert.ok(!("backdropFilter" in shown) && !("WebkitBackdropFilter" in shown), "shown, the layer is a pane like any other and the theme's material decides");
+});

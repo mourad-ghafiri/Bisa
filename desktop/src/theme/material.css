@@ -29,6 +29,19 @@
    one, from the theme's two roles and no number of its own
    (`themes.test.mjs` holds the floor).
 
+   A pane hidden in place frosts nothing. `visibility: hidden` alone does not
+   promise that: WebKit shows a layer's backdrop while the element has
+   visible content **or a visible descendant**
+   (`RenderLayerBacking::updateAfterDescendants` sets the layer's contents
+   visible on either, and `GraphicsLayerCA::updateContentsVisibility` hides
+   the backdrop only when they are not), and a child of a hidden element can
+   be `visibility: visible`. The terminal layer stays mounted, hidden, over the
+   centre's last rect; a scrollbar inside it that showed through brought its
+   frost back over whatever lay there. So a pane kept hidden drops the backdrop
+   with the visibility (`shell/centerSlotModel.mjs`, `slotStyle`), and no
+   utility named like a widget's class can show a child through
+   (`styles.css`, `@source not inline`).
+
    The window behind the page is the desktop shell's (`set_window_appearance`
    in `src-tauri/src/main.rs`): transparent, with the OS's own under-window
    effect behind it for a glass family. Where there is no such effect — a

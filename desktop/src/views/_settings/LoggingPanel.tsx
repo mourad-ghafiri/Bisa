@@ -200,7 +200,7 @@ function CrashDetails({ report }: { report: CrashReportView }) {
     <div className="mt-3 flex flex-col gap-2 text-2xs">
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
         {facts.map(([k, v]) => (
-          <div key={k} className="contents">
+          <div key={k} className="[display:contents]">
             <dt className="text-text-dim">{k}</dt>
             <dd className="font-mono">{v}</dd>
           </div>

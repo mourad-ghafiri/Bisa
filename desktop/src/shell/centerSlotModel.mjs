@@ -11,7 +11,10 @@
  *   the numbers move.
  * - {@link slotStyle}: a hidden layer keeps its last non-zero box and hides
  *   with `visibility`, never with a zero size or `display: none` — xterm
- *   measures its cells from a real layout box, once.
+ *   measures its cells from a real layout box, once. And hidden, it paints
+ *   nothing, not even a backdrop: the layer is a pane, and WebKit paints a
+ *   hidden element's backdrop while anything inside it is visible
+ *   (`theme/material.css`), so the frost is turned off with the visibility.
  */
 
 /** @typedef {{left: number, top: number, width: number, height: number}} Rect */
@@ -38,19 +41,24 @@ export function roundRect(r) {
 }
 
 /**
- * The inline style for the layer.
+ * The inline style for the layer. Shown, the material frosts it as any pane;
+ * hidden, the inline `none` outranks the material's rule, so no visible
+ * descendant can bring the frost back over what lies under the layer.
  * @param {Rect | null | undefined} rect
  * @param {boolean} visible
  */
 export function slotStyle(rect, visible) {
-  const box = rect && rect.width > 0 && rect.height > 0 ? rect : { left: 0, top: 0, width: 640, height: 320 };
+  const placed = !!rect && rect.width > 0 && rect.height > 0;
+  const box = placed ? rect : { left: 0, top: 0, width: 640, height: 320 };
+  const shown = visible && placed;
   return {
     position: "fixed",
     left: box.left,
     top: box.top,
     width: box.width,
     height: box.height,
-    visibility: visible && rect && rect.width > 0 && rect.height > 0 ? "visible" : "hidden",
+    visibility: shown ? "visible" : "hidden",
     pointerEvents: visible ? "auto" : "none",
+    ...(shown ? {} : { backdropFilter: "none", WebkitBackdropFilter: "none" }),
   };
 }

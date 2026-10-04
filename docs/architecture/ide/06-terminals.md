@@ -31,6 +31,15 @@ vocabulary with room for *I do not know* are below.
   the page, taken by the panes on screen — the focused one first — and handed back by a pane that
   has been hidden for two seconds, which draws with the DOM renderer until it is seen again. A lost
   context hands the slot back too. A budget by arrival degraded the pane you were not touching.
+- **A hidden terminal paints nothing.** The layer stays mounted over the centre's last rect, hidden,
+  while a file, the landing or another screen is shown — and a shell or a harness keeps printing into
+  it. Two things keep it from showing through. Inactive panes and the hidden layer hide with
+  `visibility`, and the class is spelled `[visibility:hidden]`: xterm's scrollbar wears `visible`
+  while it scrolls, so Tailwind never makes a global `.visible` that would show it through
+  (`styles.css`, held by `theme/widgetClasses.test.mjs`). And the hidden layer drops its frost
+  (`centerSlotModel.slotStyle`): it is a pane, and WebKit paints a hidden element's backdrop while
+  anything inside it is visible (`theme/material.css`) — which blurred whatever lay under the layer
+  each time a shell printed.
 - **A URL or a path a shell prints is a door** ([17](17-links-and-paths.md)): one link provider
   over `findLinks` finds URLs and paths (`src/main.rs:42` in a compiler's error) on the *logical*
   line a row belongs to — a link the row edge cut in two, folded by xterm or broken by a harness's

@@ -43,11 +43,12 @@ test("every surface that opens onto a read provides the immediate beat, and the 
 
 test("a placeholder holds its place unseen until the beat, then pulses", () => {
   const waiting = placeholderFill(false);
-  assert.equal(waiting, "invisible", "the box is kept, nothing is painted");
+  // Spelled out, never the bare `invisible`: a widget's scrollbar wears that name (`styles.css`).
+  assert.equal(waiting, "[visibility:hidden]", "the box is kept, nothing is painted");
   assert.ok(!waiting.includes("bg-") && !waiting.includes("motion-pulse"), "no fill and no pulse before the beat");
   const due = placeholderFill(true);
   assert.ok(due.includes("motion-pulse") && due.includes("bg-surface-2"), due);
-  assert.ok(!due.includes("invisible"));
+  assert.ok(!due.includes("visibility"));
 });
 
 test("no pending piece of the kit is immediate: every exported one waits the beat, and the immediate fill is the file's own", () => {

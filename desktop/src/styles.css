@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/* Tailwind reads every word in the sources as a class it might make, and a
+   bare utility is a global selector. These four are class names the bundled
+   widgets wear for their own state and layout: xterm's and Monaco's scrollbars
+   toggle `visible` / `invisible` (a `.visible { visibility: visible }` shows a
+   hidden terminal's scrollbar through its hidden layer, and WebKit then paints
+   that layer's frost over the page — `theme/material.css`), Monaco's suggest
+   rows wrap their label in `.contents`, Excalidraw's chart dialog in
+   `.container`. So they are never made; the app spells them out —
+   `[visibility:hidden]`, `[display:contents]` — and `theme/widgetClasses.test.mjs`
+   holds every widget class against the utilities this file makes. */
+@source not inline("{visible,invisible,contents,container}");
+
 /* ---------------------------------------------------------------------------
    The stylesheet is now four things, in this order, and the order is the
    cascade:

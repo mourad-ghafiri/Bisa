@@ -379,7 +379,7 @@ A hybrid, owned per family. Depth is first tonal (`bg` under `surface`, `surface
 ### Named Rules
 **The Two Shadows Rule.** Raised or floating, from the family; nothing else. Interaction-specific lifts (the Board card in flight, the tree's nest ring) live as named classes in `styles.css`, not in components.
 
-**The Panes Frost Rule.** Only panes frost. A dialog over a right panel stacks two blurs, which is the most there is; a surface read for minutes (the notes overlay) lays its own near-opaque ground. Code and terminals stay solid.
+**The Panes Frost Rule.** Only panes frost. A dialog over a right panel stacks two blurs, which is the most there is; a surface read for minutes (the notes overlay) lays its own near-opaque ground. Code and terminals stay solid. A pane hidden in place frosts nothing: WebKit paints a hidden element's backdrop while anything inside it is visible, so a pane kept mounted and hidden — the terminal layer over the centre — drops its backdrop with its visibility (`shell/centerSlotModel.mjs`, `slotStyle`; `theme/material.css`).
 
 **The Live Page Rule.** A browser tab is a native view that paints over every DOM element, so the app decides what may stand over it. A *surface* — a dialog, a menu, a popover, the palette, a maximized Notes or Draw panel — makes the page step aside while it is open (`ui/openSurfaces.ts`). A *floating overlay* — the Notes and Draw panels while floating, their docks, the pet, an addon window — never does: it says its painted box (`shell/browserClear.ts`), and the browser layer cuts a hole for it (`browser.rs`, `BisaBrowserLayer`: a Core Animation mask for what shows, `hitTest:` for what is clicked), so the overlay shows and takes its own clicks while the page stays full size and live around it. Never freeze a page into a picture or shrink it to make room for an overlay. Off macOS the layer cannot cut yet; an addon window still hides by intersection there.
 
@@ -518,3 +518,4 @@ Tokens in `theme/tokens.css`: `motion-fast` 120ms, `motion-base` 160ms, `motion-
 - **Don't** move anything else on a run's canvas: the live flow is the one moving thing and the one accent flow.
 - **Don't** show a person a raw error string, or an empty state for a list that failed to read; use a catalog sentence and `ErrorNote` with Retry.
 - **Don't** wrap a group of controls or a copy button in `Field`; use `Labelled`.
+- **Don't** write `visible`, `invisible`, `contents` or `container` as classes: xterm, Monaco and Excalidraw wear those names, so Tailwind never makes them (`styles.css`). Write `[visibility:hidden]` to hide in place and `[display:contents]` to drop a box (`theme/widgetClasses.test.mjs`).

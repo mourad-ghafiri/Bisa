@@ -103,7 +103,7 @@ export function NodeOverlay({ conn, close }: { conn: ConnState; close: () => voi
             {s.rows.length > 0 && (
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 rounded-control bg-surface-2/50 p-2 text-2xs">
                 {s.rows.map((row, i) => (
-                  <div key={`${row.label}-${i}`} className="contents">
+                  <div key={`${row.label}-${i}`} className="[display:contents]">
                     <dt className="text-text-dim">{row.label}</dt>
                     <dd className="min-w-0 break-words font-mono">{row.value}</dd>
                   </div>

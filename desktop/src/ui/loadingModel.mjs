@@ -43,11 +43,12 @@ export function beatMs(inSurface) {
 
 /**
  * What a placeholder block wears: nothing a person can see until the beat
- * has passed — `invisible`, so the box its call site sized still holds its
- * place and the layout does not jump when the answer, or the pulse, arrives
- * — then the fill and its pulse.
+ * has passed — `[visibility:hidden]`, so the box its call site sized still
+ * holds its place and the layout does not jump when the answer, or the pulse,
+ * arrives — then the fill and its pulse. Spelled out because Tailwind never
+ * makes the bare `invisible` (`styles.css`): a widget's scrollbar wears it.
  * @param {boolean} due whether the beat has passed (`indicatorDue`)
  */
 export function placeholderFill(due) {
-  return due ? "motion-pulse bg-surface-2" : "invisible";
+  return due ? "motion-pulse bg-surface-2" : "[visibility:hidden]";
 }
