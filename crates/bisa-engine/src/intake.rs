@@ -320,13 +320,26 @@ enum Op {
         scope: Option<String>,
     },
     /// Add a block to the end of a note — the named one, else the
-    /// conversation's. Append-only: there is deliberately no op that lets an
-    /// agent rewrite a note, because the one property that makes a shared
-    /// document safe is that the other writer can only add.
+    /// conversation's. Adds under the agent's name and never changes what
+    /// is there: the write for "add this".
     NoteAppend {
         #[serde(default)]
         note: Option<String>,
         text: String,
+        #[serde(default)]
+        agent: Option<String>,
+        #[serde(default)]
+        scope: Option<String>,
+    },
+    /// Rewrite a note's body — the named one, else the conversation's — at
+    /// the hash the agent read (`note_read` answers it): the write for
+    /// "change this". A note that moved since is refused with its current
+    /// hash; the person's unsaved text is the desktop's to keep.
+    NoteWrite {
+        #[serde(default)]
+        note: Option<String>,
+        text: String,
+        base_hash: String,
         #[serde(default)]
         agent: Option<String>,
         #[serde(default)]
@@ -1106,7 +1119,14 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
         Op::NoteRead { note, scope } => match note_of(inner, note.as_deref(), scope.as_deref()) {
             Err(why) => err(why),
             Ok(id) => match inner.ws.get_note(id) {
-                Ok(n) => json!({"ok": true, "title": n.title, "body": n.body}),
+                // The hash beside the body: what a `note_write` states as the
+                // text it rewrites.
+                Ok(n) => json!({
+                    "ok": true,
+                    "title": n.title,
+                    "body": n.body,
+                    "hash": bisa_store::body_hash(&n.body),
+                }),
                 Err(e) => err(e.to_string()),
             },
         },
@@ -1123,15 +1143,64 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             // Attributed the same way an answer is, so a block an agent added
             // unprompted reads exactly like one it was asked for —
             // there is no second format for a person to learn.
-            let author = agent.unwrap_or_else(|| "agent".to_string());
+            let author = agent.clone().unwrap_or_else(|| "agent".to_string());
+            let by = resolve_recall_agent(inner, agent, None);
             let block =
                 crate::notes::attribution_block(&author, crate::notes::now_secs(), text.trim());
             match inner.ws.append_note(id, &block) {
                 Ok(n) => {
                     inner.notes_git.touched(inner);
-                    crate::notes::emit_changed(inner, &n);
+                    crate::notes::emit_written(inner, &n, by);
                     json!({"ok": true, "title": n.title})
                 }
+                Err(e) => err(e.to_string()),
+            }
+        }
+        Op::NoteWrite {
+            note,
+            text,
+            base_hash,
+            agent,
+            scope,
+        } => {
+            let id = match note_of(inner, note.as_deref(), scope.as_deref()) {
+                Ok(id) => id,
+                Err(why) => return err(why),
+            };
+            if text.trim().is_empty() {
+                return err(crate::notes::WRITE_NOTHING);
+            }
+            let current = match inner.ws.get_note(id) {
+                Ok(n) => n,
+                Err(e) => return err(e.to_string()),
+            };
+            // Said here in words before the store refuses it under its lock,
+            // so the agent reads what to do; the store's check is the one
+            // that holds.
+            let current_hash = bisa_store::body_hash(&current.body);
+            if current_hash != base_hash {
+                return err(crate::notes::stale_write_words(&current_hash));
+            }
+            if bisa_store::body_hash(&text) == base_hash {
+                return json!({"ok": true, "title": current.title, "hash": base_hash, "changed": false});
+            }
+            // The agent read a redacted copy (every reply is redacted): writing
+            // it back would store a placeholder over the person's secret.
+            if inner.security.redact(&current.body).count > 0 {
+                return err(crate::notes::WRITE_HOLDS_SECRET);
+            }
+            let by = resolve_recall_agent(inner, agent, None);
+            match crate::notes::write_by_agent(inner, id, &text, &base_hash, by) {
+                Ok(n) => json!({
+                    "ok": true,
+                    "title": n.title,
+                    "hash": bisa_store::body_hash(&n.body),
+                    "changed": true,
+                }),
+                Err(crate::EngineError::Store(bisa_store::StoreError::EditConflict {
+                    current_hash,
+                    ..
+                })) => err(crate::notes::stale_write_words(&current_hash)),
                 Err(e) => err(e.to_string()),
             }
         }

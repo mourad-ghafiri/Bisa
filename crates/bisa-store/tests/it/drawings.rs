@@ -331,6 +331,71 @@ fn deleting_takes_the_file_the_snapshot_and_the_row_and_a_scope_takes_its_drawin
 }
 
 #[test]
+fn a_save_of_the_same_scene_writes_nothing_and_keeps_the_hash() {
+    // A canvas saving what it just adopted, or a bridge saving what the
+    // canvas already saved: the record stands, no new revision, no new hash
+    // — so nothing a reader would have to follow moves.
+    let (_d, ws) = ws();
+    let d = ws
+        .create_drawing(NewDrawing {
+            scope: OwnerScope::Workspace,
+            title: "Same".into(),
+            scene: Some(scene(vec![box_at("a", 0)])),
+        })
+        .unwrap();
+    let hash = scene_hash(&d.scene);
+    let again = ws
+        .update_drawing(
+            d.id,
+            DrawingPatch {
+                scene: Some(d.scene.clone()),
+                ..Default::default()
+            },
+            Some(&hash),
+        )
+        .unwrap();
+    assert_eq!(again, d, "nothing was written");
+    assert_eq!(scene_hash(&again.scene), hash);
+    // A title beside the same scene still writes; the scene's hash holds.
+    let renamed = ws
+        .update_drawing(
+            d.id,
+            DrawingPatch {
+                scene: Some(d.scene.clone()),
+                title: Some(" Renamed ".into()),
+                ..Default::default()
+            },
+            Some(&hash),
+        )
+        .unwrap();
+    assert_eq!(renamed.title, "Renamed");
+    assert_eq!(scene_hash(&renamed.scene), hash);
+    // The same scene at a hash the drawing has moved past is still refused.
+    let moved = ws
+        .update_drawing(
+            d.id,
+            DrawingPatch {
+                scene: Some(scene(vec![box_at("a", 0), box_at("b", 240)])),
+                ..Default::default()
+            },
+            Some(&hash),
+        )
+        .unwrap();
+    assert_ne!(scene_hash(&moved.scene), hash);
+    assert!(matches!(
+        ws.update_drawing(
+            d.id,
+            DrawingPatch {
+                scene: Some(d.scene.clone()),
+                ..Default::default()
+            },
+            Some(&hash),
+        ),
+        Err(StoreError::EditConflict { .. })
+    ));
+}
+
+#[test]
 fn a_peers_drawing_lands_here_indexed_and_drawn_into_the_repository() {
     // The same person on two machines: one draws; the other — opened with
     // the same owner key — ingests the snapshot and has the picture.
@@ -357,12 +422,18 @@ fn a_peers_drawing_lands_here_indexed_and_drawn_into_the_repository() {
         .join(format!("{KIND_DRAWING}-{}.json", d.id));
     let event: nostr::event::Event =
         serde_json::from_slice(&std::fs::read(&snapshot).unwrap()).unwrap();
+    let mut heard = beta.subscribe_store_events();
     let outcome = beta.ingest_remote_event(&event).unwrap();
     assert!(
         !format!("{outcome:?}").to_lowercase().contains("rejected"),
         "{outcome:?}"
     );
     assert_eq!(beta.get_drawing(d.id).unwrap(), d);
+    // Said, so the engine can tell an open canvas what the store now holds.
+    let arrived = std::iter::from_fn(|| heard.try_recv().ok()).any(|ev| {
+        matches!(ev, bisa_store::StoreEvent::RemoteDrawingArrived { drawing } if drawing.id == d.id)
+    });
+    assert!(arrived, "a peer's drawing landing is a store event");
     let listed = beta.list_drawings(OwnerFilter::All).unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].element_count, 2);

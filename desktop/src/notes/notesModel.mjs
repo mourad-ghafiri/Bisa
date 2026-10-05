@@ -320,19 +320,98 @@ export function matchAt(matches, index) {
  *
  * The rule has one job: **your text is never replaced by anything.**
  *
- * - Nothing typed since the last save (`local === confirmed`) → take the
- *   incoming copy. This is the ordinary case: an agent appended while you sat
- *   reading, and the answer should just appear.
- * - Something typed → keep what you have and say so. Merging for you would be
- *   guessing where the paragraph goes; the caller offers the choice.
- * - The incoming copy is what you already have → nothing happened. Returning
- *   `body: local` unchanged matters, because a caller that sets state
- *   unconditionally here re-renders on every frame.
+ * - The incoming copy is what you already have → `same`: nothing happened.
+ *   Returning `body: local` unchanged matters, because a caller that sets
+ *   state unconditionally here re-renders on every frame.
+ * - The incoming copy **extends** what was last saved → `appended`: an agent
+ *   added a block at the end (`note_append`), and the block lands under
+ *   whatever you have typed since — live, with no banner — since nothing of
+ *   yours is in its way. With nothing typed, that is simply the incoming copy.
+ * - Something else arrived — an agent rewrote the note (`note_write`) — over
+ *   a buffer with nothing typed since the last save → `taken`: the rewrite
+ *   shows, and the caller keeps what was confirmed so the person can have
+ *   their version back in one click.
+ * - A rewrite over text you have typed and not saved → `conflict`: keep what
+ *   you have and say so. Merging for you would be guessing; the caller offers
+ *   *Take theirs* and *Keep mine*.
+ * @param {string} local what the buffer holds
+ * @param {string} confirmed what the server last confirmed for this editor
+ * @param {string} incoming what the server holds now
+ * @returns {{body: string, outcome: "same" | "appended" | "taken" | "conflict"}}
  */
 export function adoptIncoming(local, confirmed, incoming) {
-  if (incoming === local) return { body: local, conflict: false };
-  if (local === confirmed) return { body: incoming, conflict: false };
-  return { body: local, conflict: true };
+  if (incoming === local) return { body: local, outcome: "same" };
+  if (incoming.startsWith(confirmed)) return { body: local + incoming.slice(confirmed.length), outcome: "appended" };
+  if (local === confirmed) return { body: incoming, outcome: "taken" };
+  return { body: local, outcome: "conflict" };
+}
+
+/**
+ * A parked draft as the storage holds it: the text, and the hash of the note
+ * it was typed against — so a draft restored later is known to be typed over
+ * a note that has moved since, or not. An older build parked the bare text;
+ * it is read as a draft of unknown base.
+ * @param {string} raw
+ * @returns {{body: string, base_hash: string | null}}
+ */
+export function parseDraft(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.body === "string") {
+      return { body: parsed.body, base_hash: typeof parsed.base_hash === "string" ? parsed.base_hash : null };
+    }
+  } catch {
+    // Not JSON: an older build's bare text.
+  }
+  return { body: raw, base_hash: null };
+}
+
+/**
+ * What the editor opens with when a draft was parked for the note: no draft,
+ * or one that says what the note says, is the note; a draft typed against
+ * **this** text is restored and may save as it is typed into; a draft typed
+ * against another text — or against nobody knows what — is restored as a
+ * conflict, for the person to decide, and never autosaved: a draft from a
+ * window that closed must not erase what an agent wrote since.
+ * @param {{body: string, base_hash: string | null} | null | undefined} draft
+ * @param {{body: string, hash: string}} note
+ * @returns {{body: string, conflict: boolean, restored: boolean}}
+ */
+export function restoredDraft(draft, note) {
+  if (!draft || draft.body === note.body) return { body: note.body, conflict: false, restored: false };
+  if (draft.base_hash === note.hash) return { body: draft.body, conflict: false, restored: true };
+  return { body: draft.body, conflict: true, restored: true };
+}
+
+/**
+ * The newer of two rows of one note: the one the editor's save answered, and
+ * the one a list read brought — the saved row stands unless the read's is
+ * strictly newer. A read asked for before a save and answered after it must
+ * not take the row back; a tie in a seconds clock goes to the save, and the
+ * next frame's read corrects it.
+ * @template {{updated_at: number}} R
+ * @param {R} read @param {R} saved
+ * @returns {R}
+ */
+export function latestNote(read, saved) {
+  return read.updated_at > saved.updated_at ? read : saved;
+}
+
+/**
+ * A list read as it lands beside the saves that landed while it was out: the
+ * rows those saves answered stand where the read's are older
+ * (`latestNote`). The same array back when nothing was saved meanwhile.
+ * @template {{id: string, updated_at: number}} R
+ * @param {readonly R[]} rows what the read answered
+ * @param {ReadonlyMap<string, R>} savedSince the rows saves answered since the read began, by id
+ * @returns {readonly R[]}
+ */
+export function landedNotes(rows, savedSince) {
+  if (savedSince.size === 0) return rows;
+  return rows.map((r) => {
+    const saved = savedSince.get(r.id);
+    return saved ? latestNote(r, saved) : r;
+  });
 }
 
 /**

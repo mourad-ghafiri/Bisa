@@ -20,6 +20,8 @@ export type DrawPlan =
 
 export declare function planDrawRequest(request: DrawRequest): DrawPlan;
 export declare function mergeElements<E extends { id: string }>(current: readonly E[], incoming: readonly E[], replace: boolean): E[];
+/** The hash a bridge save states: the open canvas's record when the shapes landed on it, else the hash the bridge read. */
+export declare function saveBase(live: boolean, recordHash: string | null, readHash: string): string;
 export declare function drawnResult(drawing: string, hash: string, elementCount: number): DrawResult;
 export declare function snapshotResult(drawing: string, snapshot: AttachmentRef, size: { width: number; height: number }): DrawResult;
 export declare function refusedResult(error: string, drawing?: string | null): DrawResult;

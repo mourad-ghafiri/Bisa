@@ -90,12 +90,26 @@ for its undo is dropped) and the two facts of `SceneAppState`. Saving is **compa
 scene's hash, the store's alone: the desktop hands back the `hash` it read with the drawing, never
 one it computes, and a stale one is a 409: saving **freezes**, the bar says somebody drew meanwhile,
 and *Take theirs* adopts the current scene (a drawing has no textual merge; the strokes since the
-last save are the price, said in words). A `drawing_changed` frame for the open drawing whose `hash`
+last save are the price, said in words). A save that changes nothing — the same scene at the right
+hash — writes nothing and answers the record as it stands, so a canvas saving what it just adopted
+moves no hash anyone has to follow. The canvas is **live from its first change**: Excalidraw hands
+its API over before the scene loads and reports nothing while loading, so the first `onChange` is
+the load and the live record (`liveScene.ts`) is made from it, at the hash the drawing was read at —
+never from the empty canvas the API arrived on, which read every drawing as moved and autosaved its
+old elements. The record is the open canvas's: a save through another canvas — the bridge's offscreen
+one, a mount that closed while its flush was in the air — moves nothing of it, and a close forgets
+its own record alone. A `drawing_changed` frame for the open drawing whose `hash`
 is not the one the canvas last saved means somebody else drew: the canvas reloads when it is clean,
-and freezes the same way when it is not. A frame heard **while a save is in the air** waits for that
+and freezes the same way when it is not; the frames reach the editor through the overlay, the one
+subscriber (`heard`), so a frame heard between the detail's read and the editor's mount is judged
+on the mount, and a reload a canvas cannot perform yet — not loaded — is **owed** to its first change
+rather than dropped. A frame heard **while a save is in the air** waits for that
 save's answer — the bus and the PATCH race, and the frame may be the save's own echo outrunning it
-— and is judged then: the echo is nothing, any other hash is somebody else's scene
-(`autosaveModel.reloadDecision` · `frameHeard` · `heardAfterSave`). Beside the autosave, **Save** in the header (and the
+— and is judged then: the echo is nothing — the bridge's too, since it saves through the same record
+(`atStore`) — any other hash is somebody else's scene
+(`autosaveModel.reloadDecision` · `frameHeard` · `heardAfterSave`). When the bus comes back, the
+list is read again and the open drawing's row — its hash — is judged as a frame would be: a clean
+canvas adopts, a dirty one freezes; no read ever swaps the canvas under the pen. Beside the autosave, **Save** in the header (and the
 keymap's `save`, ⌘S) saves now; the editor **holds** the drawing for the panel's leave guard
 (`shell/documentGuard.ts`, [ide/03](ide/03-files-and-editing.md)): leaving with unsaved strokes —
 Back, the panel's ×, the chord, the dock, another drawing opened over it — asks *Save · Don't save ·
@@ -167,14 +181,26 @@ mechanism the browser bridge of [ide/18](ide/18-browser-and-servers.md) parks on
 as `drawing_request`. The desktop hears the frame (and reads `GET /drawings/requests` when it opens
 and every twenty seconds while open, which is how the engine knows a desktop is home), performs the
 request in the **live canvas when the drawing is open** — the person watches the agent's shapes land
-and the view scrolls to them — or in an **offscreen canvas** otherwise, saves through
-`PATCH /drawings/{id}` with the hash it read, and answers `POST /drawings/requests/{id}`. The waiting
-tool call returns; the engine announces `drawing_changed` with the new hash.
+and the view scrolls to them — or in an **offscreen canvas** otherwise (chosen as late as it can be,
+after the shapes are laid out, so a drawing the person opens meanwhile is drawn where they watch),
+saves through `PATCH /drawings/{id}` with the hash it read — the open canvas's record when it drew
+there, two writers saving through one canvas, else the hash of the detail it read
+(`drawRequestModel.saveBase`) — and answers `POST /drawings/requests/{id}`. The waiting tool call
+returns; the engine announces `drawing_changed` with the new hash. A 409 on that save means somebody
+drew meanwhile — an erase the agent made a moment ago, a peer: the store's **scene** is re-read, the
+agent's shapes merged into that scene, drawn again and saved at its hash; a second 409 is answered as
+a refusal that tells the agent to read and draw again. An offscreen save moves no open canvas's
+record: a drawing opened mid-way hears the frame as somebody else's and adopts it.
 
 No desktop heard from within 45 s means **nobody home**, said at once and before anything is parked;
 a desktop that was home and did not answer within 60 s is **silent**, a different sentence with a
-different thing to do about it. Both are one sentence the skill tells the agent to say to the person
-once and stop at.
+different thing to do about it: read the drawing first — the canvas may have saved after the wait —
+then try once more. A save the desktop finished after that wait is still **announced**
+(`drawings::answer`): its answer finds nothing waiting and is a 404 to the desktop, but a result that
+says the canvas drew re-reads the drawing and emits `drawing_changed` all the same, so the canvas
+and the list learn what the store holds. A peer's drawing arriving by sync is announced the same way
+(the store's `RemoteDrawingArrived`, relayed by `drawings::spawn_listener`). Both refusals are one
+sentence the skill tells the agent to say to the person once and stop at.
 
 ### Who may draw
 
@@ -214,7 +240,9 @@ Notes keep their consented fast-forward pull, since a note has no other way to a
 |---|---|
 | A drawing is a signed snapshot of kind 33401 that travels; the `.excalidraw` file is its export and is rewritten by every write and every ingest | `crates/bisa-store/src/drawings.rs`; `crates/bisa-store/tests/it/drawings.rs` |
 | A scene is vector only, under 768 KiB and 4000 elements, every element typed, placed and named; an image is refused by name wherever it is written | `bisa_core::draw` tests; the store's and the node's `drawings` tests |
-| A scene change is compare-and-swap on the store's hash; a stale one answers 409 with the current scene; a title or a pin needs no hash | `Workspace::update_drawing`; `owner::conflict_or` |
+| A scene change is compare-and-swap on the store's hash under the one writer's lock (`drawings_writes`); a stale one answers 409 with the current scene; a title or a pin needs no hash; a write that changes nothing writes nothing and keeps the hash | `Workspace::update_drawing`; `owner::conflict_or`; `crates/bisa-store/tests/it/drawings.rs` (`a_save_of_the_same_scene_writes_nothing_and_keeps_the_hash`) |
+| A late answer after the engine's wait is still announced, and a peer's drawing arriving is announced to the canvas | `drawings::answer`, `drawings::spawn_listener`; `crates/bisa-engine/tests/it/drawings.rs` (`a_late_answer_after_the_wait_is_still_announced`, `a_peers_drawing_arriving_is_announced_to_the_canvas`) |
+| The canvas is live from its first change, never from the API hand-over; the record is the open canvas's and an offscreen save moves none of it; a reload the canvas cannot perform is owed; the bridge re-reads the scene on a 409; the overlay hands the open drawing's frames to its editor | `desktop/src/draw/liveScene.ts`, `autosaveModel.test.mjs`, `drawRequestModel.test.mjs`, `scenarios/draw.test.mjs` |
 | A listing never carries a scene | the `drawings` table's columns; `list_drawings` |
 | Who may draw is checked before anything is read or parked; the skill is the assignment; the General Agent and the Workflow Agent always may | `Access` in `crates/bisa-engine/src/drawings.rs`; `crates/bisa-engine/tests/it/drawings.rs` |
 | Nobody home is said at once; a parked request answered lands with `drawing_changed` and its hash | `parked::Desk`; `crates/bisa-engine/tests/it/drawings.rs`; the journey `crates/bisa-cli/tests/it/e2e/addons_drawings_and_notes.rs` (through the real MCP server, no window open: a reading, a new drawing and an erasure answered, a skeleton refused at once) |

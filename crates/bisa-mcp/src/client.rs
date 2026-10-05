@@ -434,12 +434,13 @@ impl IntakeClient {
         Ok(Self::op_result(reply).map(|_| ()))
     }
 
-    /// Read one note. Returns `(title, body)`.
+    /// Read one note. Returns `(title, body, hash)` — the hash is what a
+    /// `note_write` states as the text it rewrites.
     pub async fn note_read(
         &self,
         scope: &Scope,
         note: Option<&str>,
-    ) -> Result<OpResult<(String, String)>, IntakeError> {
+    ) -> Result<OpResult<(String, String, String)>, IntakeError> {
         let mut req = json!({"op": "note_read"});
         if let Some(id) = note {
             req["note"] = json!(id);
@@ -450,6 +451,32 @@ impl IntakeClient {
             (
                 r["title"].as_str().unwrap_or_default().to_string(),
                 r["body"].as_str().unwrap_or_default().to_string(),
+                r["hash"].as_str().unwrap_or_default().to_string(),
+            )
+        }))
+    }
+
+    /// Rewrite a note's body at the hash read. Returns `(title, hash,
+    /// changed)` — `changed` false when the text already read so and
+    /// nothing was written.
+    pub async fn note_write(
+        &self,
+        scope: &Scope,
+        note: Option<&str>,
+        text: &str,
+        base_hash: &str,
+    ) -> Result<OpResult<(String, String, bool)>, IntakeError> {
+        let mut req = json!({"op": "note_write", "text": text, "base_hash": base_hash});
+        if let Some(id) = note {
+            req["note"] = json!(id);
+        }
+        scope.apply(&mut req);
+        let reply = self.call(&req).await?;
+        Ok(Self::op_result(reply).map(|r| {
+            (
+                r["title"].as_str().unwrap_or_default().to_string(),
+                r["hash"].as_str().unwrap_or_default().to_string(),
+                r["changed"].as_bool().unwrap_or(true),
             )
         }))
     }

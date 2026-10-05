@@ -7,11 +7,15 @@
 //! the note's conversations leave with the note.
 
 use crate::common::{engine_with, intake_roundtrip};
-use bisa_core::{ConversationOrigin, OwnerScope};
+use bisa_core::{ConversationOrigin, OwnerScope, MAX_NOTE_BYTES};
 use bisa_engine::events::EnginePayload;
 use bisa_engine::{framing, notes};
-use bisa_store::{ConversationFilter, NewConversation, NewNote};
+use bisa_store::{body_hash, ConversationFilter, NewConversation, NewNote};
 use serde_json::json;
+use std::time::Duration;
+
+/// A token the redactor knows, as `security.rs` spells it.
+const FAKE_TOKEN: &str = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 
 fn errors_of(reply: &serde_json::Value) -> Vec<String> {
     reply["errors"]
@@ -22,6 +26,169 @@ fn errors_of(reply: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The agent's second write: the body replaced at the hash it read and said
+/// on the bus with the hash and the agent; a note that moved since refused
+/// with the current hash; nothing written for a text that already reads so;
+/// an empty text, a body over the cap and a body holding a secret refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_rewrites_a_note_at_the_hash_it_read_and_a_stale_write_is_refused_with_the_current(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let ws = engine.workspace();
+    let socket = engine.socket_path().to_path_buf();
+    let note = notes::create(
+        engine.inner(),
+        NewNote {
+            scope: OwnerScope::Workspace,
+            title: "The door".into(),
+            body: "Sand it.\n".into(),
+        },
+    )
+    .unwrap();
+    let about = ws
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Note { id: note.id },
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    // The reading answers the hash a write states.
+    let read = intake_roundtrip(&socket, json!({"op": "note_read", "scope": about.id})).await;
+    let hash = read["hash"]
+        .as_str()
+        .expect("the hash beside the body")
+        .to_string();
+    assert_eq!(hash, body_hash("Sand it.\n"));
+    let mut rx = engine.inner().subscribe();
+    let reply = intake_roundtrip(
+        &socket,
+        json!({"op": "note_write", "scope": about.id, "agent": "developer",
+               "text": "Sand it.\nThen prime it.\n", "base_hash": hash}),
+    )
+    .await;
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["changed"], json!(true), "{reply}");
+    let after = ws.get_note(note.id).unwrap();
+    assert_eq!(
+        after.body, "Sand it.\nThen prime it.\n",
+        "replaced whole, with no attribution block"
+    );
+    let new_hash = body_hash(&after.body);
+    assert_eq!(reply["hash"], json!(new_hash));
+    let (heard_hash, heard_by) = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let ev = rx.recv().await.unwrap();
+            if let EnginePayload::NoteChanged {
+                note: id, hash, by, ..
+            } = &ev.payload
+            {
+                if *id == note.id.to_string() {
+                    return (hash.clone(), by.clone());
+                }
+            }
+        }
+    })
+    .await
+    .expect("the editor is told, with the hash and the agent");
+    assert_eq!(heard_hash, new_hash);
+    assert_eq!(
+        heard_by,
+        Some(bisa_core::AgentId::new("developer").unwrap())
+    );
+    // The hash it first read: the note has moved past it.
+    let stale = intake_roundtrip(
+        &socket,
+        json!({"op": "note_write", "scope": about.id, "text": "mine alone\n", "base_hash": hash}),
+    )
+    .await;
+    assert_eq!(stale["ok"], json!(false), "{stale}");
+    assert!(
+        errors_of(&stale)
+            .iter()
+            .any(|e| e.contains("changed since you read it") && e.contains(&new_hash)),
+        "refused with the current hash: {stale}"
+    );
+    assert_eq!(
+        ws.get_note(note.id).unwrap().body,
+        after.body,
+        "nothing moved"
+    );
+    // The same text at the right hash: nothing to write, nothing changed.
+    let same = intake_roundtrip(
+        &socket,
+        json!({"op": "note_write", "scope": about.id, "text": after.body, "base_hash": new_hash}),
+    )
+    .await;
+    assert_eq!(same["ok"], json!(true), "{same}");
+    assert_eq!(same["changed"], json!(false), "{same}");
+    assert_eq!(same["hash"], json!(new_hash));
+    // Nothing, and too much, are refused.
+    let empty = intake_roundtrip(
+        &socket,
+        json!({"op": "note_write", "scope": about.id, "text": "  \n", "base_hash": new_hash}),
+    )
+    .await;
+    assert!(
+        errors_of(&empty)
+            .iter()
+            .any(|e| e.contains("emptied by its owner")),
+        "{empty}"
+    );
+    let huge = intake_roundtrip(
+        &socket,
+        json!({"op": "note_write", "scope": about.id,
+               "text": "x".repeat(MAX_NOTE_BYTES + 1), "base_hash": new_hash}),
+    )
+    .await;
+    assert_eq!(huge["ok"], json!(false), "{huge}");
+    assert_eq!(ws.get_note(note.id).unwrap().body, after.body);
+    // Outside a conversation about a note, a call that names none is refused
+    // with the word to pass.
+    let bare = intake_roundtrip(
+        &socket,
+        json!({"op": "note_write", "text": "x", "base_hash": new_hash}),
+    )
+    .await;
+    assert!(
+        errors_of(&bare).iter().any(|e| e.contains("pass `note`")),
+        "{bare}"
+    );
+    // A body holding a secret: the agent read a placeholder, so writing the
+    // body back would store the placeholder over the person's secret.
+    let secret = notes::create(
+        engine.inner(),
+        NewNote {
+            scope: OwnerScope::Workspace,
+            title: "Keys".into(),
+            body: format!("token {FAKE_TOKEN}\n"),
+        },
+    )
+    .unwrap();
+    assert!(
+        engine.inner().security.redact(&secret.body).count >= 1,
+        "the fixture is a secret the redactor knows"
+    );
+    let read = intake_roundtrip(&socket, json!({"op": "note_read", "note": secret.id})).await;
+    assert!(
+        !read["body"].as_str().unwrap().contains(FAKE_TOKEN),
+        "read redacted: {read}"
+    );
+    let refused = intake_roundtrip(
+        &socket,
+        json!({"op": "note_write", "note": secret.id, "text": "token gone\n", "base_hash": read["hash"]}),
+    )
+    .await;
+    assert!(
+        errors_of(&refused)
+            .iter()
+            .any(|e| e.contains("holds a secret")),
+        "{refused}"
+    );
+    assert_eq!(ws.get_note(secret.id).unwrap().body, secret.body);
+    engine.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

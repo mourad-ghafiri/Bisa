@@ -1,6 +1,12 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { DRAWING_GONE, MERMAID_REFUSED, NOT_A_SKELETON, UNKNOWN_ACTION, drawnResult, mergeElements, planDrawRequest, refusedResult, snapshotName, snapshotResult } from "./drawRequestModel.mjs";
+import { DRAWING_GONE, MERMAID_REFUSED, NOT_A_SKELETON, UNKNOWN_ACTION, drawnResult, mergeElements, planDrawRequest, refusedResult, saveBase, snapshotName, snapshotResult } from "./drawRequestModel.mjs";
+
+test("a bridge save states the open canvas's record when it drew there, else the hash it read", () => {
+  assert.equal(saveBase(true, "record", "read"), "record", "two writers save through the open canvas");
+  assert.equal(saveBase(true, null, "read"), "read", "an open canvas not loaded yet has no record");
+  assert.equal(saveBase(false, "record", "read"), "read", "an offscreen canvas never borrows an open one's record");
+});
 
 test("a request is planned as a draw, a Mermaid or a snapshot, and refused in a sentence otherwise", () => {
   assert.deepEqual(planDrawRequest({ action: "draw", drawing: "01D", elements: [{ type: "rectangle", x: 0, y: 0 }], replace: true }), {
@@ -55,7 +61,17 @@ test("the bridge performs one request at a time, remembers only the latest it to
   assert.equal(kept.has("r0"), false, "the oldest go");
   assert.equal(kept.has(`r${HANDLED_KEPT + 49}`), true);
   assert.equal(kept.has("r50"), true, "the latest are all there: a request still on the parked list is never performed twice");
-  // A save for a drawing with no canvas open moves no record, so none is left behind for it.
+  // A save moves the record only of the canvas it went through: an offscreen
+  // save leaves an open canvas's record alone, and a close forgets its own.
   const live = readFileSync(new URL("./liveScene.ts", import.meta.url), "utf8");
-  assert.ok(live.includes("if (live) scenes.set(drawing, { api: live.api, saved });"), "only an open canvas has a record");
+  assert.ok(live.includes("if (live && live.api === by) scenes.set(drawing, { api: live.api, saved });"), "only the canvas that saved moves its record");
+  assert.ok(live.includes("if (scenes.get(drawing)?.api === api) scenes.delete(drawing);"), "a close never forgets a canvas that took the drawing meanwhile");
+  assert.ok(bridge.includes("noteSaved(detail.id, { hash: drawing.hash, elements }, canvas.api);"), "the bridge names the canvas it saved through");
+  assert.ok(bridge.includes("saveBase(canvas.live, lastSaved(detail.id, canvas.api)?.hash ?? null, read.hash)"), "and states that canvas's hash, else the one it read");
+  // A 409 re-reads the scene, not the hash alone: the agent's shapes join what the store holds.
+  const retry = bridge.slice(bridge.indexOf("e.status === 409 && attempt === 0"), bridge.indexOf("continue;"));
+  assert.ok(retry.includes("read = (await api.drawing(detail.id)).drawing;"), "the store's scene is re-read");
+  assert.ok(retry.includes("current = drawnElements(mod.restoreElements(read.scene.elements"), "and the incoming elements join that scene on the next pass");
+  assert.ok(bridge.indexOf("const canvas = await canvasFor(detail);") > bridge.indexOf("regenerateIds: false"), "the canvas is chosen after the shapes are laid out, as late as it can be");
+  assert.ok(bridge.includes('log.warn("draw", "an answer to a drawing request was not taken'), "a late answer is a warning: the engine announces its save");
 });

@@ -7,18 +7,27 @@
 //! note ([`bisa_core::ConversationOrigin::Note`], 13 — Conversations): the
 //! same thread, streaming and mentions as every conversation, opened in a
 //! drawer beside the note. The agent reads the note with `note_read` and
-//! writes into it only when asked, with `note_append` — the engine chooses
-//! this note for a note tool call that names none, exactly as it chooses a
-//! drawing for the drawing tools. Its reply is the conversation's, never
-//! the note's: nothing lands in the document that a hand did not ask for.
+//! writes into it only when asked — the engine chooses this note for a note
+//! tool call that names none, exactly as it chooses a drawing for the
+//! drawing tools. Its reply is the conversation's, never the note's:
+//! nothing lands in the document that a hand did not ask for.
 //!
-//! # Two writers, one shape of write
+//! # Two writers, two bounded writes
 //!
-//! There is deliberately no op that lets an agent rewrite a note. The one
-//! property that makes a shared document safe is that the other writer can
-//! only add — so `note_append` is the whole of an agent's reach, and every
-//! block it adds wears [`attribution_block`], the same shape whether asked
-//! for or volunteered.
+//! An agent has two writes, each bounded so the shared document stays
+//! safe. `note_append` **adds**: a block at the end wearing
+//! [`attribution_block`], the same shape whether asked for or volunteered,
+//! never touching what is there. `note_write` **replaces** the body — asked
+//! to change the text, the agent rewrites it — but only at the hash it read
+//! (`note_read` answers it): a note that moved since is refused with its
+//! current hash, so a write never lands over a text the agent has not seen.
+//! Neither write empties a note, neither writes over a body the redactor
+//! would change (the agent read a placeholder, and writing it back would
+//! store the placeholder over the person's secret), and what a person is
+//! still typing is the desktop's to keep: the editor never adopts a change
+//! over unsaved text, and offers the previous version back after a rewrite.
+//! Every write — a person's or an agent's — is announced with the body's
+//! hash, so an open editor tells its own save from somebody else's.
 
 use crate::events::{EngineEvent, EnginePayload};
 use crate::{EngineError, Inner};
@@ -70,6 +79,53 @@ pub fn delete(inner: &Arc<Inner>, id: NoteId) -> Result<(), EngineError> {
     Ok(())
 }
 
+/// Said when an agent asks to write nothing: a note is emptied by its owner,
+/// never by an agent.
+pub const WRITE_NOTHING: &str =
+    "Nothing to write — `text` was empty; a note is emptied by its owner, never by an agent";
+
+/// Said when the note holds a secret the platform never hands an agent: the
+/// agent read a placeholder, and writing the body back would store the
+/// placeholder over the person's secret.
+pub const WRITE_HOLDS_SECRET: &str = "this note holds a secret the platform never hands you — \
+rewriting it would store a placeholder over it; add with note_append, or ask the person to make \
+the change";
+
+/// Said when a write states a hash the note has moved past: read again,
+/// write once at the hash read.
+pub fn stale_write_words(current_hash: &str) -> String {
+    format!(
+        "the note changed since you read it (current hash {current_hash}): note_read it again \
+         and write once more at that hash"
+    )
+}
+
+/// Rewrite a note's body as an agent, at the hash it read — the store's
+/// compare-and-swap (`update_note`) refuses a note that moved since — and
+/// announce the change under the agent's name. The checks that read as
+/// words to the agent (an empty text, a secret in the body, the stale hash
+/// said early) are the intake's; this is the write.
+pub fn write_by_agent(
+    inner: &Arc<Inner>,
+    id: NoteId,
+    text: &str,
+    base_hash: &str,
+    by: Option<bisa_core::AgentId>,
+) -> Result<Note, EngineError> {
+    let note = inner.ws.update_note(
+        id,
+        NotePatch {
+            title: None,
+            body: Some(text.to_string()),
+            pinned: None,
+        },
+        Some(base_hash),
+    )?;
+    inner.notes_git.touched(inner);
+    emit_written(inner, &note, by);
+    Ok(note)
+}
+
 /// Say on the bus that a note changed.
 ///
 /// Called by every path that writes one — the HTTP routes and an agent's
@@ -78,10 +134,19 @@ pub fn delete(inner: &Arc<Inner>, id: NoteId) -> Result<(), EngineError> {
 /// fact it is told, and the notes overlay is open on top of whatever screen
 /// you are on rather than being a screen that could reload itself.
 pub fn emit_changed(inner: &Inner, note: &Note) {
+    emit_written(inner, note, None);
+}
+
+/// [`emit_changed`], naming the agent whose tool wrote when one did. The
+/// frame carries the body's hash, so an open editor tells its own save
+/// from somebody else's write without a round trip.
+pub fn emit_written(inner: &Inner, note: &Note, by: Option<bisa_core::AgentId>) {
     inner.emit(EngineEvent::global(EnginePayload::NoteChanged {
         note: note.id.to_string(),
         scope: note.scope.kind().to_string(),
         scope_id: note.scope.id(),
+        hash: bisa_store::body_hash(&note.body),
+        by,
     }));
 }
 

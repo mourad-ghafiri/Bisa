@@ -64,6 +64,8 @@ import {
   NOTE_TAB_LABEL,
   draftKey,
   filterNotes,
+  landedNotes,
+  latestNote,
   noteRefusal,
   noteTargets,
   scopeOfRow,
@@ -197,14 +199,23 @@ export function NoteOverlay() {
   // was and the read of the tab that is answer in whatever order — only the
   // newest asked for is drawn, so one tab never shows another's rows.
   const reads = useRef(createLatest());
+  /**
+   * The rows the editor's saves answered since the list's read began, by
+   * note: a read asked for before a save and answered after it lands
+   * **under** those saves (`landedNotes`), so it never takes a note back to
+   * the text from before the save — which read as an agent's conflict.
+   */
+  const savedSince = useRef(new Map<string, NoteRow>());
   const load = useCallback(
     async (signal?: AbortSignal) => {
       const ticket = reads.current.begin();
+      savedSince.current.clear();
       setLoading(true);
       try {
         const { notes } = await api.notes(tabQuery(tab), signal);
         if (signal?.aborted || !reads.current.lands(ticket)) return;
-        setNotes(notes);
+        setNotes([...landedNotes(notes, savedSince.current)]);
+        savedSince.current.clear();
         // The note that came back from the last window may have gone since.
         settleRestoredNote(notes.map((n) => n.id));
         setError(null);
@@ -244,8 +255,9 @@ export function NoteOverlay() {
     // The repository holds every scope's notes, so its count moves first.
     setRepoTick((t) => t + 1);
     // Only a kind this tab lists: an agent appending to a workspace note while
-    // you read the Goals tab should not redraw what you are looking at.
-    if (!tabAdmits(tab, e.payload.scope)) return;
+    // you read the Goals tab should not redraw what you are looking at — unless
+    // the frame names the note open in the editor, whose words it changes.
+    if (!tabAdmits(tab, e.payload.scope) && e.payload.note !== active) return;
     void load();
   });
   // What was written while the node was away was said by no frame.
@@ -276,7 +288,10 @@ export function NoteOverlay() {
    * refetch here re-fired a save down there.
    */
   const handleSaved = useCallback((next: NoteRow) => {
-    setNotes((prev) => prev.map((n) => (n.id === next.id ? next : n)));
+    // Remembered for a list read in the air, and never over a row that is
+    // strictly newer — one that already holds what an agent wrote since.
+    savedSince.current.set(next.id, next);
+    setNotes((prev) => prev.map((n) => (n.id === next.id ? latestNote(n, next) : n)));
     setRepoTick((t) => t + 1);
   }, []);
 

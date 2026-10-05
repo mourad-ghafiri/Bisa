@@ -33,6 +33,166 @@ fn box_at(id: &str, x: i64) -> serde_json::Value {
     json!({"id": id, "type": "rectangle", "x": x, "y": 40, "width": 160, "height": 80})
 }
 
+fn skeleton(
+    drawing: bisa_core::DrawingId,
+    elements: Vec<serde_json::Value>,
+) -> drawings::DrawRequest {
+    drawings::DrawRequest {
+        action: DrawAction::Draw,
+        drawing: Some(drawing),
+        scope: None,
+        scope_id: None,
+        title: None,
+        elements: Some(elements),
+        text: None,
+        replace: false,
+        ids: vec![],
+    }
+}
+
+/// A `drawing_changed` for one drawing, with its hash, within five seconds.
+async fn heard_changed(
+    rx: &mut tokio::sync::broadcast::Receiver<bisa_engine::events::EngineEvent>,
+    drawing: bisa_core::DrawingId,
+) -> Option<String> {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let ev = rx.recv().await.unwrap();
+            if let EnginePayload::DrawingChanged {
+                drawing: d, hash, ..
+            } = &ev.payload
+            {
+                if *d == drawing.to_string() {
+                    return hash.clone();
+                }
+            }
+        }
+    })
+    .await
+    .ok()
+}
+
+/// The desktop answered after the op gave up waiting — the canvas was said
+/// silent: the answer is nobody's, but the save it carries is announced,
+/// so the open canvas and the list learn what the store holds. A late
+/// refusal announces nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_answer_after_the_wait_is_still_announced() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let inner = engine.inner();
+    let drawing = drawings::create(
+        inner,
+        NewDrawing {
+            scope: OwnerScope::Workspace,
+            title: "Late".into(),
+            scene: None,
+        },
+    )
+    .unwrap();
+    let (id, rx) = drawings::ask(
+        inner,
+        skeleton(drawing.id, vec![box_at("a", 0)]),
+        drawings::DrawScope::default(),
+    );
+    let silent = inner
+        .draw
+        .wait_for(&id, rx, std::time::Duration::from_millis(20), || {
+            DrawResult::refused(drawings::DESKTOP_SILENT)
+        })
+        .await;
+    assert_eq!(silent.error.as_deref(), Some(drawings::DESKTOP_SILENT));
+    assert!(
+        drawings::DESKTOP_SILENT.contains("drawing_read the drawing first"),
+        "a retry reads first, so a save that landed after the wait is not drawn twice"
+    );
+    // The desktop finishes anyway: it saves through the store, then answers.
+    let saved = engine
+        .workspace()
+        .update_drawing(
+            drawing.id,
+            DrawingPatch {
+                scene: Some(Scene {
+                    elements: vec![box_at("a", 0)],
+                    ..Scene::default()
+                }),
+                ..Default::default()
+            },
+            Some(&scene_hash(&drawing.scene)),
+        )
+        .unwrap();
+    let mut events = inner.subscribe();
+    let taken = drawings::answer(
+        inner,
+        &id,
+        DrawResult {
+            ok: true,
+            drawing: Some(drawing.id),
+            hash: Some(scene_hash(&saved.scene)),
+            element_count: Some(1),
+            ..DrawResult::default()
+        },
+    );
+    assert!(!taken, "nobody waits: the op already said silent");
+    assert_eq!(
+        heard_changed(&mut events, drawing.id).await.as_deref(),
+        Some(scene_hash(&saved.scene).as_str()),
+        "announced all the same, with the hash the store holds"
+    );
+    // A late refusal has nothing to announce.
+    let mut events = inner.subscribe();
+    assert!(!drawings::answer(
+        inner,
+        &id,
+        DrawResult::refused("the canvas could not lay it out")
+    ));
+    assert_eq!(heard_changed(&mut events, drawing.id).await, None);
+    engine.shutdown().await;
+}
+
+/// The same person on another machine draws; the record arrives here by
+/// sync: the store adopts it and the engine tells an open canvas with the
+/// hash the store now holds, as it does for an agent's erase.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peers_drawing_arriving_is_announced_to_the_canvas() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let other = tempfile::tempdir().unwrap();
+    let twin = bisa_store::MemoryKeyStore::default();
+    bisa_store::KeyStore::set(
+        &twin,
+        "owner",
+        &engine.workspace().owner_keys().secret_key().to_secret_hex(),
+    )
+    .unwrap();
+    let alpha = bisa_store::Workspace::open_with_keystore(other.path(), Box::new(twin)).unwrap();
+    let d = alpha
+        .create_drawing(NewDrawing {
+            scope: OwnerScope::Workspace,
+            title: "Shared".into(),
+            scene: Some(Scene {
+                elements: vec![box_at("a", 0), box_at("b", 240)],
+                ..Scene::default()
+            }),
+        })
+        .unwrap();
+    let snapshot = alpha
+        .paths()
+        .state_dir(bisa_store::Paths::NS_DRAWINGS)
+        .join(format!("{}-{}.json", bisa_core::kind::KIND_DRAWING, d.id));
+    let event: nostr::event::Event =
+        serde_json::from_slice(&std::fs::read(&snapshot).unwrap()).unwrap();
+    let mut events = engine.inner().subscribe();
+    engine.workspace().ingest_remote_event(&event).unwrap();
+    assert_eq!(
+        heard_changed(&mut events, d.id).await.as_deref(),
+        Some(scene_hash(&d.scene).as_str()),
+        "the canvas is told what the store now holds"
+    );
+    assert_eq!(engine.workspace().get_drawing(d.id).unwrap(), d);
+    engine.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_list_and_a_reading_need_no_desktop_and_a_skeleton_is_parked_and_answered() {
     let dir = tempfile::tempdir().unwrap();

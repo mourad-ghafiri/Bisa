@@ -85,7 +85,7 @@ Where a turn runs and what the agent is told follow the origin, in one table:
 | `workspace` | the workspace as a whole | the agent's scratch | *This conversation is about the workspace as a whole* | reachable | the workspace layer |
 | `node` | this machine's node — its harnesses, setup and settings | the agent's scratch | *This conversation is about this machine's node* | reachable | the workspace layer |
 | `drawing` | a drawing on the canvas ([19](19-drawings.md)) | the agent's scratch | *This conversation is about the drawing …, open on the canvas beside the person; draw with the drawing tools and leave `drawing` out of every call* — the engine chooses this drawing for a drawing tool that names none | never — a picture has no workflow to shape | the workspace layer |
-| `note` | a note in the notes overlay | the agent's scratch | *This conversation is about the note …, open beside the person; read it with `note_read` before answering, write into it only when asked, with `note_append`, and leave `note` out of both* — the engine chooses this note for a note tool that names none; the reply is the conversation's, never the document's | never — a scratchpad is somebody's own | the workspace layer |
+| `note` | a note in the notes overlay | the agent's scratch | *This conversation is about the note …, open beside the person; read it with `note_read` before answering, write into it only when asked — asked to change its text, rewrite it with `note_write` at the hash the read answered; asked to add, `note_append` adds under your name — and leave `note` out of every call; a change is written, never assumed: say what you did only after the tool answered* — the engine chooses this note for a note tool that names none; the reply is the conversation's, never the document's. A harness handed no MCP server (`HarnessCaps::MCP_SERVERS` absent — pi, Oh My Pi, a custom harness) reads instead that it has no platform tools here and cannot read or write the note, so it says so rather than describing a change it never made (`framing::origin_frame_for`); a drawing's frame says the same of the canvas | never — a scratchpad is somebody's own | the workspace layer |
 
 The frame for the last six is `framing::origin_frame(origin, subject)`. The engine's
 `conversation.rs` resolves a scope once into `ScopeFacts { conversation, goal, checkout }`, and
@@ -289,8 +289,8 @@ empty when nothing runs) to a reader that joins mid-turn.
 thinking trimmed, its tail kept within `MAX_THINKING_BYTES` (64 KiB; the end is what led to the
 words), redacted like the words, `None` when the harness thought nothing aloud — removes the live
 turn and emits `AgentReplied { scope, agent, posted, message }`, `message` the id the reply landed
-as (`None` when nothing new was posted: a tool-only turn, a reply already given through
-`post_message`, a note edited in place — or nothing could be posted), so a timeline can hold the
+as (`None` when nothing new was posted: a tool-only turn — a note rewritten with `note_write` and
+nothing else said — a reply already given through `post_message`, or nothing could be posted), so a timeline can hold the
 turn on screen until that very message is in its page. **A reply longer than one message holds**
 (`MAX_TEXT_BYTES`, 256 KiB) is said whole, in as many messages as it takes and in order — cut where
 a paragraph ends, else a line, else between two characters, a code fence open at the cut closed

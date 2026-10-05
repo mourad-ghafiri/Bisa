@@ -28,6 +28,7 @@ use crate::workspace::{mint_ulid, now_secs, EventAudience, StoreEvent, Workspace
 use bisa_core::kind::KIND_DRAWING;
 use bisa_core::{Drawing, DrawingId, DrawingSummary, OwnerScope, Scene};
 use std::path::{Path, PathBuf};
+use std::sync::MutexGuard;
 
 /// The fields a caller supplies. `id`, timestamps and `pinned` are the store's.
 #[derive(Clone, Debug)]
@@ -122,16 +123,35 @@ impl Workspace {
         Ok(def)
     }
 
+    /// The one writer of drawings at a time (`drawings_writes`): the canvas's
+    /// autosave and the bridge's save each read, compare the hash and write.
+    /// A poisoned lock is taken over, as the work items' is.
+    fn drawing_writer(&self) -> MutexGuard<'_, ()> {
+        self.drawings_writes.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!(
+                "the drawings write lock was poisoned; continuing with the drawing as it stands"
+            );
+            poisoned.into_inner()
+        })
+    }
+
     /// Edit a drawing, refusing a scene that did not read the latest one.
     /// `base_hash` is [`scene_hash`] of the scene the caller last read, and
-    /// it is required whenever `scene` is present.
+    /// it is required whenever `scene` is present. Read, checked and written
+    /// under the one writer's lock. **A write that changes nothing writes
+    /// nothing**: the same scene at the right hash, the same title, the same
+    /// pin answer the record as it stands — no new revision, no new hash —
+    /// so a canvas saving what it just adopted, or a bridge saving what the
+    /// canvas already saved, moves nothing a reader would have to follow.
     pub fn update_drawing(
         &self,
         id: DrawingId,
         patch: DrawingPatch,
         base_hash: Option<&str>,
     ) -> Result<Drawing, StoreError> {
+        let _writer = self.drawing_writer();
         let mut def = self.get_drawing(id)?;
+        let mut moved = false;
         if let Some(scene) = patch.scene {
             let current = scene_hash(&def.scene);
             match base_hash {
@@ -144,13 +164,27 @@ impl Workspace {
                     })
                 }
             }
-            def.scene = scene.without_deleted();
+            let next = scene.without_deleted();
+            if scene_hash(&next) != current {
+                def.scene = next;
+                moved = true;
+            }
         }
         if let Some(title) = patch.title {
-            def.title = title.trim().to_string();
+            let title = title.trim().to_string();
+            if title != def.title {
+                def.title = title;
+                moved = true;
+            }
         }
         if let Some(pinned) = patch.pinned {
-            def.pinned = pinned;
+            if pinned != def.pinned {
+                def.pinned = pinned;
+                moved = true;
+            }
+        }
+        if !moved {
+            return Ok(def);
         }
         def.updated_at = now_secs();
         self.write_drawing(&def)?;

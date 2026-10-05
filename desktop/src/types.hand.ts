@@ -551,7 +551,8 @@ export type EnginePayload =
   | { type: "ask_settled"; conversation: string; ask_id: string; allowed: boolean }
   | { type: "project_changed"; project: string }
   | { type: "workstream_edited"; workstream: string; project: string }
-  | { type: "note_changed"; note: string; scope: string; scope_id?: string }
+  /** A note was created, changed or deleted; `hash` (the body's) lets an open editor tell its own save from somebody else's, `by` names the agent whose tool wrote. */
+  | { type: "note_changed"; note: string; scope: string; scope_id?: string; hash: string; by?: string }
   /** A drawing was created, changed or deleted (19 — Drawings); `hash` lets an open canvas tell its own save from somebody else's. */
   | { type: "drawing_changed"; drawing: string; scope: string; scope_id?: string; hash: string }
   /** An agent asked the canvas to draw (19): the desktop performs it in a canvas and answers. */

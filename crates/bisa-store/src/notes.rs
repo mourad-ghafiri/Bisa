@@ -26,6 +26,7 @@ use crate::paths::Paths;
 use crate::workspace::{mint_ulid, now_secs, Workspace};
 use bisa_core::{Note, NoteId, OwnerScope, MAX_NOTE_BYTES};
 use std::path::{Path, PathBuf};
+use std::sync::MutexGuard;
 
 /// The fields a caller supplies. `id`, timestamps and `pinned` are the store's.
 #[derive(Clone, Debug)]
@@ -154,15 +155,31 @@ impl Workspace {
         Ok(out)
     }
 
+    /// The one writer of notes at a time (`notes_writes`): the person's
+    /// editor and an agent's tool each read, check the hash and write, and
+    /// two at once must not each write the body as it was before the other.
+    /// A poisoned lock is taken over, as the work items' is: the note on
+    /// disk is whatever the last write left, and the next write reads it.
+    fn note_writer(&self) -> MutexGuard<'_, ()> {
+        self.notes_writes.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!(
+                "the notes write lock was poisoned; continuing with the note as it stands"
+            );
+            poisoned.into_inner()
+        })
+    }
+
     /// Edit a note, refusing if it changed under you. `base_hash` is
     /// [`body_hash`] of the body the caller last read; `None` is accepted only
-    /// when the body is not being changed.
+    /// when the body is not being changed. Read, checked and written under
+    /// the one writer's lock.
     pub fn update_note(
         &self,
         id: NoteId,
         patch: NotePatch,
         base_hash: Option<&str>,
     ) -> Result<Note, StoreError> {
+        let _writer = self.note_writer();
         let mut def = self.get_note(id)?;
         if let Some(body) = &patch.body {
             let current = body_hash(&def.body);
@@ -189,9 +206,11 @@ impl Workspace {
         Ok(def)
     }
 
-    /// Add a block to the end of a note. Append-only and unguarded: the door
-    /// an agent writes through.
+    /// Add a block to the end of a note. Append-only and unguarded by a
+    /// hash — it adds to whatever is there — but under the one writer's lock,
+    /// so a block never lands on a body another write is replacing.
     pub fn append_note(&self, id: NoteId, block: &str) -> Result<Note, StoreError> {
+        let _writer = self.note_writer();
         let mut def = self.get_note(id)?;
         let block = block.trim_end();
         if block.trim().is_empty() {

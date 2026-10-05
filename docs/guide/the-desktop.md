@@ -628,7 +628,14 @@ project's, this workflow's, this channel's, else the workspace's), and on a tab 
 place it is a menu with that place first, marked *here*. **Ask an agent** (the agent glyph) in a
 note's header opens a conversation beside it — the same thread and composer as everywhere else, started in one click and
 named later from its menu, in a drawer you drag wider or narrower by its edge; the agent reads the
-note first and writes into it only when you ask, with `note_append`.
+note first and writes into it only when you ask — asked to add, it appends a block under its name;
+asked to change the text, it rewrites the note at the text it read, and a note that moved since is
+refused until it reads again. What it adds lands under whatever you are typing, live; a rewrite over
+text you have saved shows at once with **Restore my version** one click away, and one over text you
+have not saved waits for you — *Take theirs* or *Keep mine*. A note you left half-typed in a window
+that closed comes back the same way when an agent wrote to it meanwhile, never saving itself over
+the agent's words. An agent on a harness without the platform's tools says it cannot write here
+instead of describing a change.
 
 A search box above the list narrows it as you type — every word, in a title or a body — and `⌘F`
 over the list lands in it. Inside a note, `⌘F` opens find and `⌘R` find-and-replace, the same bar

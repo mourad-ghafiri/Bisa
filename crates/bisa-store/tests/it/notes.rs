@@ -350,6 +350,37 @@ fn a_note_needs_a_real_scope_a_title_and_a_bounded_body() {
 }
 
 #[test]
+fn two_writers_at_once_lose_nothing() {
+    // The person's editor and an agent's tool each read the note, check it
+    // and write it back: under the one writer's lock neither writes the
+    // body as it was before the other, so every block lands.
+    let (_d, ws) = ws();
+    let n = ws
+        .create_note(note(OwnerScope::Workspace, "Shared", "first\n"))
+        .unwrap();
+    std::thread::scope(|s| {
+        for who in ["a", "b"] {
+            let ws = &ws;
+            s.spawn(move || {
+                for i in 0..20 {
+                    ws.append_note(n.id, &format!("{who}-{i}")).unwrap();
+                }
+            });
+        }
+    });
+    let body = ws.get_note(n.id).unwrap().body;
+    assert!(body.starts_with("first"), "{body}");
+    for who in ["a", "b"] {
+        for i in 0..20 {
+            assert!(
+                body.contains(&format!("{who}-{i}")),
+                "{who}-{i} was lost: {body}"
+            );
+        }
+    }
+}
+
+#[test]
 fn listing_puts_pinned_notes_first_and_the_recently_touched_above_the_rest() {
     let (_dir, ws) = ws();
     let a = ws

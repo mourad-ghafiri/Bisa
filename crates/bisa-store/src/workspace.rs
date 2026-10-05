@@ -156,6 +156,10 @@ pub enum StoreEvent {
         author: bisa_core::PrincipalId,
         role: bisa_core::MemberRole,
     },
+    /// A peer's drawing landed (19 — Drawings): adopted into the index and
+    /// the repository like any other, and said here so the engine may tell
+    /// an open canvas what the store now holds. Never re-published.
+    RemoteDrawingArrived { drawing: bisa_core::Drawing },
     /// A person joined, left or changed role (14-collaboration): the host's
     /// pump tells them and the people they share a room with; the engine
     /// tells the screens.
@@ -224,6 +228,14 @@ pub struct Workspace {
     /// write the list as it was before the other: a verdict lost to a
     /// release, or a released row written back. Held across the three steps.
     pub(crate) held_writes: Mutex<()>,
+    /// A note is written by two hands — the person's editor through the node
+    /// and an agent's tool through the intake — each reading the note,
+    /// checking the hash and writing. Held across the three steps, so two
+    /// writes at once never each write the body as it was before the other.
+    pub(crate) notes_writes: Mutex<()>,
+    /// The same for a drawing: the canvas's autosave and the bridge's save
+    /// each read, compare the hash and write under it.
+    pub(crate) drawings_writes: Mutex<()>,
     /// What the runtime around this store can launch — the harness ids,
     /// which of them take an effort and, per harness, the models it lists.
     /// The engine fills it at boot and again when a model list is refreshed;
@@ -290,6 +302,8 @@ impl Workspace {
             run_writes: Mutex::new(()),
             settings_writes: Mutex::new(()),
             held_writes: Mutex::new(()),
+            notes_writes: Mutex::new(()),
+            drawings_writes: Mutex::new(()),
             known_runtime: RwLock::new(KnownRuntime::default()),
             paths,
             identity,

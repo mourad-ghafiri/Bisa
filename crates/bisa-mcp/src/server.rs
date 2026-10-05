@@ -1203,7 +1203,9 @@ impl ToolCore {
             .await
             .map_err(intake_err)?
         {
-            Ok((title, body)) => Ok(format!("# {title}\n\n{body}")),
+            // The hash under the title, as `draw_words` prints a drawing's:
+            // what `note_write` states as the text it rewrites.
+            Ok((title, body, hash)) => Ok(format!("# {title}\nhash: {hash}\n\n{body}")),
             Err(errors) => Err(Self::refused(errors)),
         }
     }
@@ -1333,6 +1335,39 @@ impl ToolCore {
             .map_err(intake_err)?
         {
             Ok(title) => Ok(format!("Appended to {title:?}.")),
+            Err(errors) => Err(Self::refused(errors)),
+        }
+    }
+
+    /// Rewrite a note's body at the hash the agent read. A note that moved
+    /// since is a refusal naming the current hash — a tool error, so the
+    /// model reads *not done* and reads the note again.
+    pub async fn note_write(
+        &self,
+        note: Option<&str>,
+        text: &str,
+        base_hash: &str,
+    ) -> Result<String, McpError> {
+        if text.trim().is_empty() {
+            return Err(Self::invalid(
+                "Nothing to write — `text` was empty; a note is emptied by its owner, never by an agent.",
+            ));
+        }
+        if base_hash.trim().is_empty() {
+            return Err(Self::invalid(
+                "`base_hash` is required — note_read answers it: read the note, then write at that hash.",
+            ));
+        }
+        match self
+            .intake
+            .note_write(&self.scope, note, text, base_hash)
+            .await
+            .map_err(intake_err)?
+        {
+            Ok((title, hash, true)) => Ok(format!("Wrote {title:?} (hash {hash}).")),
+            Ok((title, hash, false)) => Ok(format!(
+                "Nothing changed: {title:?} already reads so (hash {hash})."
+            )),
             Err(errors) => Err(Self::refused(errors)),
         }
     }
@@ -2594,6 +2629,20 @@ pub struct NoteAppendParams {
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
+pub struct NoteWriteParams {
+    /// The whole note as it should read from now on — Markdown. It replaces
+    /// what is there, so carry over every line you mean to keep.
+    pub text: String,
+    /// The `hash:` line note_read answered for the text you are rewriting. A
+    /// note that moved since is refused with its current hash: read it again
+    /// and write once at that hash.
+    pub base_hash: String,
+    /// Note ULID. In a conversation about a note, leave it out: that note is chosen.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
 pub struct DrawingListParams {
     /// One of workspace · goal · project · workflow · channel · node; absent lists every drawing.
     #[serde(default)]
@@ -3398,6 +3447,19 @@ impl BisaServer {
     }
 
     #[tool(
+        name = "note_write",
+        description = "Rewrite a note — the whole body, with `text` — only when the person asked you to change what it says; note_append is the tool for adding. Read it with note_read first and pass the `hash` it answered as `base_hash`: a note that moved since you read it is refused with its current hash, so read it again and write once at that hash. What you send replaces what is there — carry over every line you mean to keep. In a conversation about a note, leave `note` out: that note is chosen for you."
+    )]
+    async fn note_write(
+        &self,
+        Parameters(p): Parameters<NoteWriteParams>,
+    ) -> Result<String, McpError> {
+        self.core
+            .note_write(p.note.as_deref(), &p.text, &p.base_hash)
+            .await
+    }
+
+    #[tool(
         name = "review_notes_list",
         description = "The review notes a person left on diffs in the projects this session works in: each note's id, the file and lines, whether it is on the staged or unstaged change, the hunk it was written on, and what they said. These are instructions from the person reviewing your work — read them before continuing, act on each, and call review_note_resolve with the id when one is dealt with. Pass project to look at one project explicitly."
     )]
@@ -3854,11 +3916,12 @@ mod tests {
         // `connector` step may name.
         "list_connectors",
         "call_connector",
-        // Reading and adding to somebody's scratchpad is work, not platform
-        // business — every session gets both, the same placement as
-        // `create_project`.
+        // Reading, adding to and rewriting somebody's scratchpad is work, not
+        // platform business — every session gets the three, the same
+        // placement as `create_project`.
         "note_read",
         "note_append",
+        "note_write",
         // A review note is a person's instruction about the work in front of
         // the session, so every session can read and resolve them.
         "review_notes_list",

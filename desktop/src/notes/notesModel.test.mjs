@@ -23,6 +23,10 @@ import {
   SAVE_MAX_MS,
   SAVE_MIN_MS,
   adoptIncoming,
+  landedNotes,
+  latestNote,
+  parseDraft,
+  restoredDraft,
   clampSaveDelay,
   draftKey,
   filterNotes,
@@ -289,22 +293,31 @@ test("the match the bar stands on is the one at its index, or none", () => {
   assert.equal(matchAt(null, 0), null);
 });
 
-test("a server copy is adopted only when there is nothing of yours to lose", () => {
+test("an agent's append lands under whatever you have typed, live — nothing of yours is in its way", () => {
   // The ordinary case: an agent appended while you sat reading, so take it.
-  assert.deepEqual(adoptIncoming("mine", "mine", "mine\n\ntheirs"), {
-    body: "mine\n\ntheirs",
-    conflict: false,
-  });
+  assert.deepEqual(adoptIncoming("mine", "mine", "mine\n\ntheirs"), { body: "mine\n\ntheirs", outcome: "appended" });
+  // And while you were typing: the block lands under your text, no banner,
+  // and the next save carries both at the new hash. Before, this was a
+  // conflict that hid the agent's block until you merged — and the merge
+  // repeated the text you had already saved.
+  assert.deepEqual(adoptIncoming("mine, still typing", "mine", "mine\n\ntheirs"), { body: "mine, still typing\n\ntheirs", outcome: "appended" });
+  assert.deepEqual(adoptIncoming("typed into empty", "", "\n\n---\n\n**agent** · now\n\nhello"), { body: "typed into empty\n\n---\n\n**agent** · now\n\nhello", outcome: "appended" }, "an empty note is extended by anything");
+  // A title that moved alone: the body is what it was, nothing to lay under.
+  assert.deepEqual(adoptIncoming("mine, still typing", "mine", "mine"), { body: "mine, still typing", outcome: "appended" });
 });
 
-test("a server copy never replaces text you have not saved", () => {
+test("an agent's rewrite is taken over a clean buffer, with the way back the caller's, and is a conflict over unsaved text", () => {
+  // Asked to change the note, the agent rewrote it (`note_write`): with
+  // nothing typed since the last save it shows, and the caller keeps what
+  // was confirmed so *Restore my version* can bring it back.
+  assert.deepEqual(adoptIncoming("mine", "mine", "theirs instead"), { body: "theirs instead", outcome: "taken" });
   // This is the bug that made the panel unusable: the editor re-seeded from
   // every incoming copy, so text typed since the last save was replaced by an
   // older version of itself — and the difference was then saved, which
-  // produced the next incoming copy.
-  const r = adoptIncoming("mine, still typing", "mine", "mine\n\ntheirs");
+  // produced the next incoming copy. A rewrite over your typing stays yours.
+  const r = adoptIncoming("mine, still typing", "mine", "theirs instead");
   assert.equal(r.body, "mine, still typing", "the buffer must survive");
-  assert.equal(r.conflict, true, "and the caller has to be told");
+  assert.equal(r.outcome, "conflict", "and the caller has to be told");
 });
 
 test("a copy identical to the buffer is not a change at all", () => {
@@ -314,7 +327,55 @@ test("a copy identical to the buffer is not a change at all", () => {
   const local = "unchanged";
   const r = adoptIncoming(local, "something else entirely", local);
   assert.equal(r.body, local);
-  assert.equal(r.conflict, false, "identical text is never a conflict");
+  assert.equal(r.outcome, "same", "identical text is never a conflict");
+});
+
+test("a parked draft carries the hash it was typed against, and is restored as a conflict when the note moved since", () => {
+  assert.deepEqual(parseDraft(JSON.stringify({ body: "typed", base_hash: "h1" })), { body: "typed", base_hash: "h1" });
+  assert.deepEqual(parseDraft("bare text from an older build"), { body: "bare text from an older build", base_hash: null });
+  assert.deepEqual(parseDraft('{"body": 1}'), { body: '{"body": 1}', base_hash: null }, "not a draft's shape: the raw text");
+  assert.deepEqual(parseDraft("[1]"), { body: "[1]", base_hash: null });
+  const note = { body: "saved", hash: "h1" };
+  assert.deepEqual(restoredDraft(null, note), { body: "saved", conflict: false, restored: false }, "no draft");
+  assert.deepEqual(restoredDraft({ body: "saved", base_hash: "h0" }, note), { body: "saved", conflict: false, restored: false }, "a draft that says what the note says is none");
+  assert.deepEqual(restoredDraft({ body: "typed", base_hash: "h1" }, note), { body: "typed", conflict: false, restored: true }, "typed against this text: restored, saved once typed into");
+  // The window closed with a draft; an agent appended since. Before, the draft
+  // autosaved against the fresh hash and erased the agent's block.
+  assert.deepEqual(restoredDraft({ body: "typed", base_hash: "h0" }, note), { body: "typed", conflict: true, restored: true }, "typed against another text: the person decides");
+  assert.deepEqual(restoredDraft({ body: "typed", base_hash: null }, note), { body: "typed", conflict: true, restored: true }, "an older build's draft is of unknown base: never a silent save");
+});
+
+test("a list read lands under the saves that landed while it was out, and a save never replaces a strictly newer row", () => {
+  const read = { id: "n1", body: "older", updated_at: 10 };
+  const saved = { id: "n1", body: "mine", updated_at: 11 };
+  assert.equal(latestNote(read, saved), saved, "the read is from before the save");
+  assert.equal(latestNote({ ...read, updated_at: 11 }, saved), saved, "a tie in a seconds clock goes to the save");
+  assert.equal(latestNote({ ...read, body: "mine and the agent's block", updated_at: 12 }, saved).body, "mine and the agent's block", "a strictly newer read — the agent wrote since — stands");
+  const rows = [read, { id: "n2", body: "other", updated_at: 5 }];
+  assert.equal(landedNotes(rows, new Map()), rows, "nothing saved meanwhile: the same array");
+  const landed = landedNotes(rows, new Map([["n1", saved]]));
+  assert.deepEqual(landed.map((r) => r.body), ["mine", "other"], "the read from before the save never takes the row back");
+});
+
+test("the editor parks a draft with its hash, saves a restored one only once typed into, keeps the agent's block under the typing, and the overlay lands reads under saves", async () => {
+  const { readFileSync } = await import("node:fs");
+  const editor = readFileSync(new URL("./NoteEditor.tsx", import.meta.url), "utf8");
+  assert.ok(editor.includes("readPref(webStorage(), draftKey(id), parseDraft, null)"), "a draft is read with its hash");
+  assert.ok(editor.includes("writePref(webStorage(), draftKey(id), { body, base_hash });"), "and parked with it");
+  assert.ok(editor.includes("restoredDraft(readDraft(note.id), note)") && editor.includes("restoredDraft(readDraft(note.id), { body: note.body, hash: note.hash })"), "the editor opens as the model says, on the first note and on each it moves to");
+  const park = editor.slice(editor.indexOf("// Park the text and arm the timer."), editor.indexOf("// Flush once, on unmount"));
+  assert.ok(park.includes("if (s.id !== note.id) return;"), "a draft is never parked under another note's key");
+  assert.ok(park.includes("if (conflict || s.abandoned || !s.typed) return;"), "a restored draft is not saved until typed into");
+  const save = editor.slice(editor.indexOf("const save = useCallback(async (): Promise<boolean> => {"), editor.indexOf("/** Save now and say whether the note is clean afterwards"));
+  assert.ok(save.includes("s.conflicted = false;"), "a landed save settles a conflict flagged meanwhile — saving never stops for good in silence");
+  assert.ok(editor.includes('if (outcome === "taken") setRestorable(s.confirmed.body);'), "a rewrite taken keeps the way back");
+  assert.ok(editor.includes("(note.hash === s.hash && note.title === s.confirmed.title)"), "a title that moved alone is heard");
+  for (const key of ["notes-note-editor-take-theirs", "notes-note-editor-keep-mine", "notes-note-editor-restore-my-version", "notes-note-editor-agent-rewrote-note", "notes-note-editor-draft-from-before"]) assert.ok(editor.includes(`t("${key}")`), key);
+  assert.ok(!editor.includes("put-theirs-above-mine"), "the merge that repeated saved text is gone");
+  const overlay = readFileSync(new URL("./NoteOverlay.tsx", import.meta.url), "utf8");
+  assert.ok(overlay.includes("landedNotes(notes, savedSince.current)"), "a read lands under the saves that landed while it was out");
+  assert.ok(overlay.includes("savedSince.current.set(next.id, next);") && overlay.includes("latestNote(n, next)"), "a save is remembered for a read in the air and never replaces a newer row");
+  assert.ok(overlay.includes("e.payload.note !== active"), "a frame naming the open note reloads whatever the tab");
 });
 
 test("draft keys are per note and follow the composer's convention", () => {

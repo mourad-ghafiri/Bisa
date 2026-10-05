@@ -305,11 +305,16 @@ pub enum Close {
 impl Default for MockAdapter {
     fn default() -> Self {
         Self {
+            // The mock reads `spec.mcp_servers`, so it truthfully takes the
+            // platform's tools: a conversation about a note or a drawing
+            // frames them for it. A test wanting the no-tools frame passes
+            // `caps: HarnessCaps::empty()`.
             caps: HarnessCaps::STEER
                 | HarnessCaps::FOLLOW_UP
                 | HarnessCaps::RESUME
                 | HarnessCaps::INPUT_REQUESTS
-                | HarnessCaps::SUBAGENTS,
+                | HarnessCaps::SUBAGENTS
+                | HarnessCaps::MCP_SERVERS,
             usage: None,
             usage_asked: Arc::default(),
             available: true,

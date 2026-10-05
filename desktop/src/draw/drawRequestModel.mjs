@@ -68,6 +68,20 @@ export function mergeElements(current, incoming, replace) {
   return [...kept, ...incoming.filter((e) => !known.has(e.id))];
 }
 
+/**
+ * The hash a bridge save states as the scene it drew on: the open canvas's
+ * record when the agent's shapes landed on it — two writers save through
+ * that canvas, and the record is where its hash stands — else the hash the
+ * bridge read from the store a moment ago, since an offscreen canvas has no
+ * record and must never borrow an open one's.
+ * @param {boolean} live the shapes landed on the open canvas
+ * @param {string | null} recordHash the open canvas's record, when it has one
+ * @param {string} readHash the detail the bridge read
+ */
+export function saveBase(live, recordHash, readHash) {
+  return live && recordHash ? recordHash : readHash;
+}
+
 /** The answer after a draw or a Mermaid: the drawing as it now stands. @param {string} drawing @param {string} hash @param {number} elementCount */
 export function drawnResult(drawing, hash, elementCount) {
   return { ok: true, drawing, hash, element_count: elementCount };

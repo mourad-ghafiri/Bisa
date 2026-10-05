@@ -39,7 +39,6 @@ const EXEMPT = Object.freeze({
   "shell/DeviceLauncher.tsx": "the devices are `devicesStore.useDevices`', which reads again; what it reads by hand goes through `useAsync`",
   "views/_settings/MobileDevelopmentPanel.tsx": "the devices are `devicesStore.useDevices`', which reads again",
   "views/_workbench/DeviceDoc.tsx": "the devices are `devicesStore.useDevices`', which reads again",
-  "draw/DrawEditor.tsx": "a canvas a person draws on: a save states the hash it read, so what was drawn while the node was away is a conflict the editor settles — a read underneath would swap the canvas under the pen",
   "views/_goal/DesigningCard.tsx": "draws the goal page's own read (`guidance`), which reads again; a frame only moves the card ahead of that read",
 });
 

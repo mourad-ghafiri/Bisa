@@ -7,8 +7,8 @@
 //! every workflow that listens to it; validation reads [`TOPICS`].
 
 use bisa_core::{
-    AskKind, Branch, ClosureReason, ConversationId, ConversationOrigin, Gate, GuidancePhase,
-    GuidanceStatus, ListenerHost, ListenerKey, RunOutcome, SessionId, SignalSource,
+    AgentId, AskKind, Branch, ClosureReason, ConversationId, ConversationOrigin, Gate,
+    GuidancePhase, GuidanceStatus, ListenerHost, ListenerKey, RunOutcome, SessionId, SignalSource,
 };
 use bisa_core::{
     AttachmentRef, GoalId, ProjectId, RunId, StepId, WorkItemId, WorkflowId, WorkflowRun,
@@ -371,6 +371,12 @@ pub enum EnginePayload {
         scope: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         scope_id: Option<String>,
+        /// The body's hash after the change (`bisa_store::body_hash`): an
+        /// open editor tells a write of its own from somebody else's by it.
+        hash: String,
+        /// The agent whose tool wrote, when one did — absent for a person's.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        by: Option<AgentId>,
     },
     /// A drawing was created, changed or deleted (19 — Drawings): the Draw
     /// overlay re-reads its list, and an open canvas compares `hash` with

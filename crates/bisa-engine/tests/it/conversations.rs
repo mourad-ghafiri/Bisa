@@ -198,8 +198,22 @@ async fn every_origin_places_its_turn_and_frames_it() {
         )
         .unwrap();
     let scratch = ws.paths().agent(&AgentId::general()).scratch();
+    let note = ws
+        .create_note(bisa_store::NewNote {
+            scope: bisa_core::OwnerScope::Workspace,
+            title: "The door".into(),
+            body: "Sand it.\n".into(),
+        })
+        .unwrap();
 
     let cases: Vec<(ConversationOrigin, std::path::PathBuf, &str)> = vec![
+        // The mock takes the platform's tools, so the note's frame names
+        // them: read first, rewrite at the hash read, add under its name.
+        (
+            ConversationOrigin::Note { id: note.id },
+            scratch.clone(),
+            "This conversation is about the note `The door`, open beside the person in the notes overlay. Read it with note_read",
+        ),
         (
             ConversationOrigin::Project { id: project.id },
             ws.checkout_in(&project, &primary),

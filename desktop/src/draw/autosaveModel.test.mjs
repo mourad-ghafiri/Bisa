@@ -1,7 +1,25 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { abandoned, adopted, changed, frameHeard, heardAfterSave, opened, reloadDecision, saveAsked, saveConflicted, saveFailed, saveLanded } from "./autosaveModel.mjs";
+import { abandoned, adopted, atStore, changed, frameHeard, heardAfterSave, opened, reloadDecision, reloadOwed, saveAsked, saveConflicted, saveFailed, saveLanded } from "./autosaveModel.mjs";
+
+test("the canvas stands at the hash the store last gave through it, whoever saved, and a reload it cannot perform yet is owed", () => {
+  // The bridge drew an agent's shapes on the open canvas and saved through
+  // its record: the frame echoing that save is this canvas's own write.
+  const s = opened("h0");
+  assert.equal(atStore(s, null), s, "no record yet: the hash it opened at");
+  assert.equal(atStore(s, "h0"), s, "the same object when nothing moved");
+  assert.equal(atStore(s, "hB").savedHash, "hB");
+  assert.equal(reloadDecision(atStore(s, "hB"), "hB"), "ignore", "the bridge's echo is ours");
+  assert.equal(reloadDecision(atStore(s, "hB"), "hC"), "reload", "another hash is somebody else's scene");
+  // A frame that arrived before the canvas loaded: not consumed — owed to the first change.
+  assert.equal(s.owed, false);
+  const owed = reloadOwed(s);
+  assert.equal(owed.owed, true);
+  assert.equal(reloadOwed(owed), owed, "idempotent");
+  assert.equal(adopted(owed, "h9").owed, false, "adopting what is there settles it");
+  assert.equal(changed(owed).owed, true, "a stroke does not forgive it");
+});
 
 test("one save in the air at a time; a stroke during it re-arms one after it lands", () => {
   let s = opened("h0");
@@ -87,8 +105,20 @@ test("a frame heard during a save that was not its echo is judged once the save 
 
 test("the editor waits on a frame during a save and judges it when the save answers", () => {
   const editor = readFileSync(new URL("./DrawEditor.tsx", import.meta.url), "utf8");
-  assert.ok(editor.includes('else if (decision === "wait") live.current.auto = frameHeard(live.current.auto, e.payload.hash);'));
+  assert.ok(editor.includes('else if (decision === "wait") live.current.auto = frameHeard(live.current.auto, hash);'));
   const save = editor.slice(editor.indexOf("const save = useCallback(async (): Promise<boolean> => {"), editor.indexOf("/** Save now and say whether the canvas is clean afterwards"));
-  assert.ok(save.includes("const late = heardAfterSave(live.current.auto);"), "once the save answered, whatever it was");
+  assert.ok(save.includes("const late = heardAfterSave(atStore(live.current.auto, lastSaved(live.current.id, api_)?.hash ?? null));"), "once the save answered, whatever it was — at the hash the store last gave through this canvas");
   assert.ok(save.indexOf("heardAfterSave(") > save.indexOf("} finally {"), "after the answer landed, on success and on failure alike");
+});
+
+test("the canvas is live from its first change, never from the API hand-over, and a reload it cannot perform is owed to that change", () => {
+  const editor = readFileSync(new URL("./DrawEditor.tsx", import.meta.url), "utf8");
+  const takeApi = editor.slice(editor.indexOf("const takeApi = useCallback("), editor.indexOf("const renameIfMoved"));
+  assert.ok(!takeApi.includes("registerLiveScene("), "the API arrives on an empty canvas: no record is made from it");
+  const onChange = editor.slice(editor.indexOf("const onChange = useCallback("), editor.indexOf("/** Take what is there"));
+  assert.ok(onChange.includes("registerLiveScene(s.id, api_, { hash: s.auto.savedHash, elements });"), "the first change is the load: the record, at the hash the drawing was read at");
+  assert.ok(onChange.includes("if (s.auto.owed) void adoptRef.current();"), "and a reload owed is done then");
+  const adopt = editor.slice(editor.indexOf("const adopt = useCallback("), editor.indexOf("adoptRef.current = adopt;"));
+  assert.ok(adopt.includes("reloadOwed(live.current.auto)"), "a canvas not loaded owes the reload rather than dropping the frame");
+  assert.ok(editor.includes("if (api_) unregisterLiveScene(id, api_);"), "a close forgets its own record alone");
 });

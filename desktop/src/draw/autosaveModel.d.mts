@@ -7,8 +7,14 @@ export interface Autosave {
   savedHash: string;
   /** The hash of a frame heard while a save was in the air, until that save answers. */
   heard: string | null;
+  /** A reload the canvas could not perform yet — not loaded — done at its first change. */
+  owed: boolean;
 }
 export declare function opened(hash: string): Autosave;
+/** The canvas at the hash the store last gave through it, whoever saved; `null` leaves the hash it opened at. */
+export declare function atStore(s: Autosave, storeHash: string | null | undefined): Autosave;
+/** A reload owed to the canvas's first change, since it could not be performed now. */
+export declare function reloadOwed(s: Autosave): Autosave;
 export declare function changed(s: Autosave): Autosave;
 export declare function saveAsked(s: Autosave): { run: boolean; next: Autosave };
 export declare function saveLanded(s: Autosave, hash: string): Autosave;

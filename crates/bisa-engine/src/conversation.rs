@@ -100,11 +100,26 @@ over as a file goes in attachments instead.";
 /// session is told about the embedded browser (`bisa_core::browser`), so
 /// a conversation and a work item read the same sentence.
 pub fn conversation_framing() -> String {
-    format!(
-        "{CONVERSATION_FRAMING}\n\n{}\n\n{}",
-        bisa_core::browser::BROWSER_NOTE,
-        bisa_core::draw::DRAW_NOTE
-    )
+    conversation_framing_for(true)
+}
+
+/// [`conversation_framing`] for a harness that does or does not take the
+/// platform's MCP tools (`HarnessCaps::MCP_SERVERS`): the drawing note names
+/// seven tools a harness handed no server never has, so it is left out for
+/// one — the origin's frame says what such a harness cannot do instead.
+pub fn conversation_framing_for(platform_tools: bool) -> String {
+    if platform_tools {
+        format!(
+            "{CONVERSATION_FRAMING}\n\n{}\n\n{}",
+            bisa_core::browser::BROWSER_NOTE,
+            bisa_core::draw::DRAW_NOTE
+        )
+    } else {
+        format!(
+            "{CONVERSATION_FRAMING}\n\n{}",
+            bisa_core::browser::BROWSER_NOTE
+        )
+    }
 }
 
 /// How often a turn's words and thinking go out while it runs: the pump
@@ -1420,11 +1435,16 @@ async fn wake_attempt(
         .as_ref()
         .filter(|c| c.origin.is_checkout() && facts.checkout.is_some())
         .map(|c| (c.id, c.mode));
-    let guarded = inner
+    let caps = inner
         .catalog
         .get(&agent.harness)
-        .map(|a| a.caps().contains(bisa_core::HarnessCaps::TOOL_GUARD))
-        .unwrap_or(false);
+        .map(|a| a.caps())
+        .unwrap_or_else(bisa_core::HarnessCaps::empty);
+    let guarded = caps.contains(bisa_core::HarnessCaps::TOOL_GUARD);
+    // Whether the harness takes the platform's MCP tools at all: a note's or a
+    // drawing's frame names them only then, and says what the agent cannot do
+    // otherwise, so it never describes a change it had no tool to make.
+    let platform_tools = caps.contains(bisa_core::HarnessCaps::MCP_SERVERS);
     if let Some((_, mode)) = reviewed {
         if mode.needs_tool_guard() && !guarded {
             refuse_unguarded_plan(inner, scope, &agent);
@@ -1573,7 +1593,11 @@ async fn wake_attempt(
     );
 
     let events = session.subscribe();
-    let mut prompt = format!("{}\n\n{}", agent.system_prompt, conversation_framing());
+    let mut prompt = format!(
+        "{}\n\n{}",
+        agent.system_prompt,
+        conversation_framing_for(platform_tools)
+    );
     prompt.push_str(&crate::framing::mobile_development_note(
         inner,
         facts.project(),
@@ -1593,7 +1617,11 @@ async fn wake_attempt(
         ));
     } else if let Some(conversation) = &facts.conversation {
         let subject = origin_subject(inner, &conversation.origin);
-        let frame = crate::framing::origin_frame(&conversation.origin, subject.as_deref());
+        let frame = crate::framing::origin_frame_for(
+            &conversation.origin,
+            subject.as_deref(),
+            platform_tools,
+        );
         if !frame.is_empty() {
             prompt.push_str("\n\n");
             prompt.push_str(&frame);

@@ -652,6 +652,8 @@ pub struct Engine {
     intake_task: tokio::task::JoinHandle<()>,
     conversation_task: tokio::task::JoinHandle<()>,
     collab_task: tokio::task::JoinHandle<()>,
+    /// A peer's drawing landing here, relayed to the canvas (`drawings::spawn_listener`).
+    drawings_task: tokio::task::JoinHandle<()>,
     /// The listening runtime: the ear, the ticker and the signal worker —
     /// none when `EngineConfig::events_enabled` is off.
     listen_tasks: Vec<tokio::task::JoinHandle<()>>,
@@ -849,6 +851,7 @@ impl Engine {
         let intake_task = tokio::spawn(intake::serve(Arc::clone(&inner), listener));
         let conversation_task = conversation::spawn_listener(&inner);
         let collab_task = collab::spawn_listener(&inner);
+        let drawings_task = drawings::spawn_listener(&inner);
         // The ear hears the bus whether or not the rest runs: a run's waits
         // and boundary events are its, never a person's switch's.
         let mut listen_tasks = vec![listen::ear::spawn(&inner)];
@@ -866,6 +869,7 @@ impl Engine {
             intake_task,
             conversation_task,
             collab_task,
+            drawings_task,
             listen_tasks,
             wait_task,
             sweep_task,
@@ -1858,6 +1862,7 @@ impl Engine {
         self.intake_task.abort();
         self.conversation_task.abort();
         self.collab_task.abort();
+        self.drawings_task.abort();
         for task in &self.listen_tasks {
             task.abort();
         }

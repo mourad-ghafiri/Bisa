@@ -17,12 +17,37 @@
  *   dirty: boolean,
  *   savedHash: string,
  *   heard: string | null,
+ *   owed: boolean,
  * }} Autosave
  */
 
-/** A canvas that just opened on a drawing: clean, at the hash it read, with no frame waiting to be judged. @param {string} hash */
+/** A canvas that just opened on a drawing: clean, at the hash it read, with no frame waiting to be judged and no reload owed. @param {string} hash */
 export function opened(hash) {
-  return { inFlight: false, again: false, conflicted: false, dirty: false, savedHash: hash, heard: null };
+  return { inFlight: false, again: false, conflicted: false, dirty: false, savedHash: hash, heard: null, owed: false };
+}
+
+/**
+ * The canvas stands at the hash the store last gave **through it**, whoever
+ * saved — the person's autosave, or the bridge drawing an agent's shapes on
+ * the same canvas (`liveScene.lastSaved`). Read before a frame is judged, so
+ * the bridge's save echoing on the bus is this canvas's own write and not
+ * somebody else's scene. `null` — no record yet, the canvas not loaded —
+ * leaves the hash the editor opened at.
+ * @param {Autosave} s
+ * @param {string | null | undefined} storeHash
+ */
+export function atStore(s, storeHash) {
+  return storeHash === null || storeHash === undefined || storeHash === s.savedHash ? s : { ...s, savedHash: storeHash };
+}
+
+/**
+ * A reload the canvas could not perform yet — not loaded, or the module not
+ * there: owed, and done the moment the canvas reports its first change. A
+ * frame is never consumed by a canvas that cannot act on it.
+ * @param {Autosave} s
+ */
+export function reloadOwed(s) {
+  return s.owed ? s : { ...s, owed: true };
 }
 
 /** A stroke landed: the scene is dirty. A conflicted canvas stays conflicted. @param {Autosave} s */

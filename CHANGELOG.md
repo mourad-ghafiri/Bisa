@@ -10,6 +10,11 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- An agent asked to change a note can now rewrite it: `note_write` replaces the body at the hash
+  `note_read` answered, and a note that moved since is refused with its current hash, so the agent
+  reads again and writes once. `note_append` still adds under the agent's name. A rewrite never
+  empties a note and never writes over a body holding a secret the platform redacted. In the notes
+  panel an agent's rewrite over a clean editor is taken with **Restore my version** one click away.
 - A file copied in Finder and pasted into a terminal with ⌘V — or dragged onto it, one or several —
   is typed as its path, quoted as Terminal.app quotes it, in a shell and in a harness alike: Claude
   Code takes an image's path as the image. A screenshot on the clipboard is saved to a file in the
@@ -48,6 +53,28 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- An agent's drawing no longer vanishes or reports done with nothing on the canvas. The canvas
+  registered itself before Excalidraw had loaded the scene, so every non-empty drawing read as
+  changed and autosaved its old elements — which could overwrite shapes an agent had just drawn
+  offscreen. The canvas is now live from its first change, an offscreen save never moves an open
+  canvas's record, a conflicting save re-reads the scene instead of resending stale shapes, a
+  reload the canvas could not perform yet is done once it loads, a frame heard before the editor
+  mounted is judged on the mount, and closing a drawing no longer forgets a canvas reopened on it.
+- A save the canvas finished after the engine stopped waiting is announced, and so is a peer's
+  drawing arriving by sync, so an open canvas and the list learn what the store holds.
+- An agent's note append lands under the text you are typing, live, with no banner; before, a dirty
+  editor hid it behind a conflict whose merge repeated text you had already saved. A draft restored
+  from a closed window now carries the hash it was typed against: over a note an agent wrote to
+  since, it is offered as *Take theirs · Keep mine* instead of silently saving over the agent's
+  block. A conflict flag that a landed save never cleared, which made every later save fail without
+  a word, is cleared; a slow list read no longer rolls the editor back to an older text; switching
+  notes no longer parks one note's draft under the other's key; a title that changed alone is taken.
+- A harness handed no MCP server — pi, Oh My Pi, a custom harness — is told in a note's or a
+  drawing's conversation that it has no tools for the document, instead of being asked to use tools
+  it has not got and describing a change it never made. Every agent is told to say what it did only
+  after the tool answered, and to say the refusal if it refused.
+- Notes and drawings are written under one writer's lock each, so two writes at once never lose a
+  block, and a drawing save that changes nothing writes nothing.
 - A harness's raised hand in the Project IDE drops the moment you answer its dialog in the terminal
   — Enter, Escape, a number — rather than when the approved tool finishes or the next prompt comes.
   No hook of Claude Code's, Codex's or Copilot CLI's says how a dialog was answered, only that it

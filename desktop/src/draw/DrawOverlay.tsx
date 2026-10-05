@@ -149,20 +149,31 @@ export function DrawOverlay() {
       setLoading(true);
       try {
         const { drawings } = await api.drawings(drawTabQuery(tab), signal);
-        if (signal?.aborted || !reads.current.lands(ticket)) return;
+        if (signal?.aborted || !reads.current.lands(ticket)) return null;
         setRows(drawings);
         setError(null);
+        return drawings;
       } catch (e) {
-        if (signal?.aborted || !reads.current.lands(ticket)) return;
+        if (signal?.aborted || !reads.current.lands(ticket)) return null;
         // What the node said is the log's; the panel says it in words a person reads.
         log.warn("draw", "the drawings could not be read", { tab, ...errorFields(e) });
         setError(tr("draw-overlay-could-not-load"));
+        return null;
       } finally {
         if (!signal?.aborted && reads.current.lands(ticket)) setLoading(false);
       }
     },
     [tab],
   );
+
+  /**
+   * The latest `drawing_changed` heard for the open drawing, handed to its
+   * editor (`DrawEditor`'s `heard`): the overlay is the one subscriber, so a
+   * frame between the detail's read and the editor's mount is judged on the
+   * mount rather than lost. Cleared as a detail read begins — a frame heard
+   * before that is in the detail.
+   */
+  const [heard, setHeard] = useState<{ drawing: string; hash: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -177,6 +188,7 @@ export function DrawOverlay() {
       setDetail(null);
       return;
     }
+    setHeard(null);
     const ctrl = new AbortController();
     api
       .drawing(active, ctrl.signal)
@@ -202,18 +214,26 @@ export function DrawOverlay() {
     if (open && enabled) void loadExcalidraw().catch((e: unknown) => log.warn("draw", "the canvas could not be loaded", errorFields(e)));
   }, [open, enabled]);
 
-  /** The sole subscriber to `drawing_changed` for the list; the editor hears it for its own drawing. */
+  /** The sole subscriber to `drawing_changed`: the list reloads, and the open drawing's frame goes down to its editor (`heard`). */
   useEngineEvents((e) => {
     if (e.payload.type !== "drawing_changed" || !open) return;
     setRepoTick((n) => n + 1);
+    if (e.payload.drawing === active) setHeard({ drawing: active, hash: e.payload.hash });
     if (!drawTabAdmits(tab, e.payload.scope)) return;
     void load();
   });
-  // What was drawn while the node was away was said by no frame.
+  // What was drawn while the node was away was said by no frame: the list is
+  // read again, and the open drawing's row — its hash — is handed to the
+  // editor as a frame would be, so a clean canvas adopts what the store holds
+  // and a dirty one says somebody drew meanwhile; no read ever swaps the
+  // canvas under the pen.
   useReloadOnReconnect(() => {
     if (!open) return;
     setRepoTick((n) => n + 1);
-    void load();
+    void load().then((rows) => {
+      const row = rows?.find((r) => r.id === active);
+      if (row) setHeard({ drawing: row.id, hash: row.hash });
+    });
   });
 
   const handleSaved = useCallback((next: DrawingDetail) => {
@@ -344,6 +364,7 @@ export function DrawOverlay() {
                     onApi={(api_) => {
                       canvasApi.current = api_;
                     }}
+                    heard={heard}
                   />
                 ) : (
                   <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onListKey}>

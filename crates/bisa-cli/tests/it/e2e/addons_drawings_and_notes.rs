@@ -360,12 +360,17 @@ fn a_drawing_is_read_filed_and_erased_with_no_window_and_what_needs_the_canvas_s
     ws.stop();
 }
 
-/// An agent asked about a note: it reads it and adds to it.
+/// An agent asked about a note: it reads it, rewrites it at the hash it
+/// read — once more at that hash, now stale, which is refused — and adds to
+/// it. The hash is the body's, so the script knows it before the read.
 fn the_note_script() -> Value {
+    let read = bisa_store::body_hash("Sand it.\n");
     json!({ "turns": [{
         "scope": "conversation", "when": "what is missing", "times": 1,
         "tools": [
             { "name": "note_read", "arguments": {} },
+            { "name": "note_write", "arguments": { "text": "Sand it.\nThen prime it.\n", "base_hash": read } },
+            { "name": "note_write", "arguments": { "text": "mine alone\n", "base_hash": read } },
             { "name": "note_append", "arguments": { "text": "Order the hinges." } },
         ],
         "say": ["Added what was missing."],
@@ -419,8 +424,34 @@ fn a_note_is_added_to_never_over_its_repository_is_committed_and_the_pets_are_th
         read_by_the_agent
             .iter()
             .any(|call| call["name"] == "note_read"
-                && call["result"].to_string().contains("Sand it.")),
-        "{read_by_the_agent:#?}"
+                && call["result"].to_string().contains("Sand it.")
+                && call["result"].to_string().contains("hash: ")),
+        "the reading carries the body and its hash: {read_by_the_agent:#?}"
+    );
+    // Rewritten at the hash it read; the same hash a second time is the
+    // stale one, refused with the current hash, and nothing of it landed.
+    assert!(
+        body.contains("Then prime it."),
+        "rewritten whole at the hash read: {body}"
+    );
+    assert!(!body.contains("mine alone"), "{body}");
+    let writes: Vec<&Value> = read_by_the_agent
+        .iter()
+        .filter(|call| call["name"] == "note_write")
+        .collect();
+    assert_eq!(writes.len(), 2, "{read_by_the_agent:#?}");
+    assert!(
+        writes[0]["failed"] != true && writes[0]["result"].to_string().contains("Wrote"),
+        "{:#?}",
+        writes[0]
+    );
+    assert!(
+        writes[1]["failed"] == true
+            && writes[1]["result"]
+                .to_string()
+                .contains("changed since you read it"),
+        "{:#?}",
+        writes[1]
     );
     // The person's editor still holds the note as it was: refused, with
     // what is there now.

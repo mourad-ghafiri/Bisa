@@ -557,11 +557,15 @@ impl Workspace {
                 }
             }
             // A peer's drawing: indexed and drawn into this machine's
-            // repository too (19 — Drawings).
+            // repository too (19 — Drawings) — and said, so an open canvas
+            // hears what the store now holds.
             k if k == kind::KIND_DRAWING => {
                 match serde_json::from_str::<bisa_core::Drawing>(&event.content) {
                     Ok(d) => {
                         self.adopt_drawing(&d);
+                        self.emit_store_event(crate::workspace::StoreEvent::RemoteDrawingArrived {
+                            drawing: d,
+                        });
                         Ok(())
                     }
                     Err(e) => Err(StoreError::Invalid(bisa_core::text!(
@@ -1401,9 +1405,10 @@ mod tests {
                 | StoreEvent::ConversationSnapshot { .. }
                 | StoreEvent::ReadMarkerSet { .. } => {}
                 StoreEvent::RemoteMessageArrived { .. }
+                | StoreEvent::RemoteDrawingArrived { .. }
                 | StoreEvent::PeopleChanged { .. }
                 | StoreEvent::InviteChanged { .. } => {
-                    panic!("a local goal write is not a person's or a remote message")
+                    panic!("a local goal write is not a person's, a remote message or a peer's drawing")
                 }
             }
         }

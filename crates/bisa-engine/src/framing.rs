@@ -48,8 +48,24 @@ pub fn project_frame(slug: &str, goals: &[String], workstream_branch: Option<&st
 /// The placement sentence for a conversation that runs in no checkout: what
 /// it is about, said once. `subject` is the goal's title or the workflow's
 /// name, when the origin names one. A project's or a workstream's
-/// conversation says [`project_frame`] instead.
+/// conversation says [`project_frame`] instead. The frame of a harness that
+/// takes the platform's tools: [`origin_frame_for`] with `platform_tools`.
 pub fn origin_frame(origin: &ConversationOrigin, subject: Option<&str>) -> String {
+    origin_frame_for(origin, subject, true)
+}
+
+/// [`origin_frame`], for a harness that does or does not take the platform's
+/// MCP tools (`HarnessCaps::MCP_SERVERS`). A note's and a drawing's frames
+/// name the tools that read and write the document; a harness handed none —
+/// pi, Oh My Pi, a custom harness — is told so instead, so it says it cannot
+/// rather than describing a change it never made. The other frames read the
+/// same either way: their tools are the goal's and the workflow's, refused
+/// by the engine when absent.
+pub fn origin_frame_for(
+    origin: &ConversationOrigin,
+    subject: Option<&str>,
+    platform_tools: bool,
+) -> String {
     // "the goal `Dark mode`" when the subject is known, "a goal" when not.
     let named = |what: &str| match subject {
         Some(name) => format!("the {what} `{name}`"),
@@ -78,19 +94,37 @@ pub fn origin_frame(origin: &ConversationOrigin, subject: Option<&str>) -> Strin
              out of every call: this workflow is chosen for you.",
             named("workflow")
         ),
+        ConversationOrigin::Drawing { .. } if !platform_tools => format!(
+            "This conversation is about {}, open on the canvas beside the person. This harness \
+             has no platform tools in this conversation: you cannot read the drawing or draw on \
+             it — say so to the person, and never describe a change you did not make.",
+            named("drawing")
+        ),
         ConversationOrigin::Drawing { .. } => format!(
             "This conversation is about {}, open on the canvas beside the person. Draw with \
              the drawing tools — drawing_read first, then drawing_draw or drawing_mermaid — \
              and leave `drawing` out of every call: this drawing is chosen for you. The person \
-             watches each change land; say in a sentence what the picture now shows.",
+             watches each change land; say in a sentence what the picture now shows. A change \
+             is drawn, never assumed: say what the picture shows only after the tool answered, \
+             and say the refusal if it refused.",
             named("drawing")
+        ),
+        ConversationOrigin::Note { .. } if !platform_tools => format!(
+            "This conversation is about {}, open beside the person in the notes overlay. This \
+             harness has no platform tools in this conversation: you cannot read or write the \
+             note — say so to the person, answer from what they tell you, and never describe a \
+             change you did not make.",
+            named("note")
         ),
         ConversationOrigin::Note { .. } => format!(
             "This conversation is about {}, open beside the person in the notes overlay. Read \
              it with note_read before answering, and leave `note` out of every call: this note \
              is chosen for you. Your reply is the conversation's, not the note's — write into \
-             the note only when asked to, with note_append, which adds to its end under your \
-             name and never changes what they wrote.",
+             the note only when asked to. Asked to change its text, rewrite it with note_write \
+             at the hash note_read answered — it replaces the body, so carry over every line \
+             you mean to keep; asked to add, note_append adds to its end under your name and \
+             changes nothing. A change is written, never assumed: say what you did only after \
+             the tool answered, and say the refusal if it refused.",
             named("note")
         ),
         ConversationOrigin::Project { .. } | ConversationOrigin::Workstream { .. } => String::new(),
@@ -318,6 +352,92 @@ mod tests {
             .starts_with("This conversation is about the workflow `Release`: "));
         assert!(
             origin_frame(&workflow, None).starts_with("This conversation is about a workflow: ")
+        );
+    }
+
+    #[test]
+    fn a_notes_frame_says_write_at_the_hash_read_and_speak_only_after_the_tool_answered() {
+        let note = ConversationOrigin::Note {
+            id: bisa_core::NoteId::from_ulid(ulid::Ulid::nil()),
+        };
+        let frame = origin_frame(&note, Some("The door"));
+        assert!(
+            frame.starts_with("This conversation is about the note `The door`, "),
+            "{frame}"
+        );
+        for word in [
+            "note_read",
+            "note_write",
+            "at the hash note_read answered",
+            "note_append",
+            "only when asked",
+            "leave `note` out",
+            "never assumed",
+            "only after the tool answered",
+            "say the refusal",
+        ] {
+            assert!(frame.contains(word), "{word} missing from: {frame}");
+        }
+        let drawing = ConversationOrigin::Drawing {
+            id: bisa_core::DrawingId::from_ulid(ulid::Ulid::nil()),
+        };
+        let frame = origin_frame(&drawing, None);
+        assert!(
+            frame.starts_with("This conversation is about a drawing, "),
+            "{frame}"
+        );
+        for word in [
+            "drawing_read",
+            "drawing_draw",
+            "never assumed",
+            "only after the tool answered",
+            "say the refusal",
+        ] {
+            assert!(frame.contains(word), "{word} missing from: {frame}");
+        }
+    }
+
+    #[test]
+    fn a_frame_for_a_harness_without_platform_tools_names_no_tool_and_says_so() {
+        let note = ConversationOrigin::Note {
+            id: bisa_core::NoteId::from_ulid(ulid::Ulid::nil()),
+        };
+        let frame = origin_frame_for(&note, Some("The door"), false);
+        assert!(
+            frame.contains("no platform tools") && frame.contains("cannot read or write the note"),
+            "{frame}"
+        );
+        for tool in ["note_read", "note_append", "note_write"] {
+            assert!(!frame.contains(tool), "{tool} named in: {frame}");
+        }
+        let drawing = ConversationOrigin::Drawing {
+            id: bisa_core::DrawingId::from_ulid(ulid::Ulid::nil()),
+        };
+        let frame = origin_frame_for(&drawing, None, false);
+        assert!(
+            frame.contains("no platform tools")
+                && frame.contains("cannot read the drawing or draw on it"),
+            "{frame}"
+        );
+        for tool in ["drawing_read", "drawing_draw", "drawing_mermaid"] {
+            assert!(!frame.contains(tool), "{tool} named in: {frame}");
+        }
+        // The other frames read the same either way: their tools are the
+        // goal's and the workflow's, refused by the engine when absent.
+        let goal = ConversationOrigin::Goal {
+            id: bisa_core::GoalId::from_ulid(ulid::Ulid::nil()),
+        };
+        assert_eq!(
+            origin_frame_for(&goal, Some("Dark mode"), false),
+            origin_frame(&goal, Some("Dark mode"))
+        );
+        // And the drawing note every session reads is left out with the tools.
+        assert!(crate::conversation::conversation_framing_for(true).contains("drawing_draw"));
+        assert!(!crate::conversation::conversation_framing_for(false).contains("drawing_draw"));
+        assert!(
+            crate::conversation::conversation_framing_for(false)
+                .contains(bisa_core::browser::BROWSER_NOTE),
+            "the browser's sentence stays"
         );
     }
 

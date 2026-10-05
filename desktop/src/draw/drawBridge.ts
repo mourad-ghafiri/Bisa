@@ -9,8 +9,12 @@
  * same guarded `PATCH` the editor uses, with the hash the store last gave.
  *
  * A 409 on that save means somebody else drew meanwhile: the store's scene
- * is re-read and the save tried once more against its hash; a second 409 is
- * answered as a refusal that tells the agent to read and draw again.
+ * is re-read, the agent's shapes are merged into **that** scene, drawn again
+ * and saved at its hash — so neither an erase the agent made a moment ago nor
+ * a peer's change is written over; a second 409 is answered as a refusal that
+ * tells the agent to read and draw again. An offscreen save moves no open
+ * canvas's record (`liveScene.noteSaved`, by canvas): a drawing the person
+ * opened meanwhile hears the engine's frame as somebody else's and adopts it.
  */
 
 import { ApiError, api } from "../api";
@@ -23,7 +27,7 @@ import { loadExcalidraw, loadMermaidToExcalidraw } from "../ui/excalidraw";
 import { beginDrawWork, endDrawWork } from "./drawActivityStore";
 import { drawnElements, persistedAppState } from "./drawModel.mjs";
 import { drawPrefs } from "./drawPrefsStore";
-import { DRAWING_GONE, DRAWING_MOVED, HANDLED_KEPT, MERMAID_FONT_SIZE, MERMAID_REFUSED, SNAPSHOT_FAILED, drawnResult, mergeElements, planDrawRequest, refusedResult, snapshotName, snapshotResult } from "./drawRequestModel.mjs";
+import { DRAWING_GONE, DRAWING_MOVED, HANDLED_KEPT, MERMAID_FONT_SIZE, MERMAID_REFUSED, SNAPSHOT_FAILED, drawnResult, mergeElements, planDrawRequest, refusedResult, saveBase, snapshotName, snapshotResult } from "./drawRequestModel.mjs";
 import type { DrawPlan } from "./drawRequestModel.mjs";
 import { lastSaved, liveSceneFor, noteSaved } from "./liveScene";
 import { offscreenApi } from "./offscreen";
@@ -66,8 +70,11 @@ async function performOne(pending: DrawingPending): Promise<void> {
   try {
     await api.answerDrawingRequest(pending.id, result);
   } catch (e) {
-    // Answered already, or timed out on the engine: nothing left to say to the agent — a line for the log.
-    log.debug("draw", "an answer to a drawing request was not taken", { id: pending.id, ...errorFields(e) });
+    // Answered already, or the engine gave up waiting and told the agent the
+    // canvas was silent: nothing left to say to the agent. The save landed
+    // all the same, and the engine announces it off this late answer
+    // (`drawings::answer`) — worth a line, since the agent was told otherwise.
+    log.warn("draw", "an answer to a drawing request was not taken; the save landed and the engine announces it", { id: pending.id, ok: result.ok, ...errorFields(e) });
   }
 }
 
@@ -110,10 +117,12 @@ async function perform(plan: Exclude<DrawPlan, { kind: "refuse" }>): Promise<Dra
     return refusedResult(DRAWING_GONE, plan.drawing);
   }
   const mod = await loadExcalidraw();
-  const canvas = await canvasFor(detail);
   switch (plan.kind) {
     case "draw":
     case "mermaid": {
+      // What the agent asked for is laid out before a canvas is chosen: the
+      // choice is made as late as it can be, so a drawing the person opens
+      // meanwhile is drawn on where they watch rather than offscreen.
       let incoming: OrderedExcalidrawElement[];
       try {
         if (plan.kind === "draw") {
@@ -127,17 +136,14 @@ async function perform(plan: Exclude<DrawPlan, { kind: "refuse" }>): Promise<Dra
         const why = e instanceof Error ? e.message : String(e);
         return refusedResult(plan.kind === "mermaid" ? `${MERMAID_REFUSED}: ${why}` : t("draw-bridge-skeleton-could-not-be-laid-out", { why }), plan.drawing);
       }
-      const current = drawnElements(canvas.api.getSceneElements());
-      const merged = mergeElements(current, incoming, plan.replace);
-      canvas.api.updateScene({ elements: merged, captureUpdate: canvas.live ? mod.CaptureUpdateAction.IMMEDIATELY : mod.CaptureUpdateAction.NEVER });
-      await settle();
-      const elements = drawnElements(canvas.api.getSceneElements());
-      const saved = await save(detail, elements, persistedAppState(canvas.api.getAppState()));
+      const canvas = await canvasFor(detail);
+      const saved = await save(detail, incoming, plan.replace, canvas, mod);
       if (!saved.ok) return saved.result;
       if (canvas.live && incoming.length > 0) canvas.api.scrollToContent(incoming, { fitToContent: true, animate: true });
-      return drawnResult(plan.drawing, saved.hash, elements.length);
+      return drawnResult(plan.drawing, saved.hash, saved.count);
     }
     case "snapshot": {
+      const canvas = await canvasFor(detail);
       try {
         const width = drawPrefs().snapshotWidth;
         let size = { width, height: width };
@@ -163,30 +169,49 @@ async function perform(plan: Exclude<DrawPlan, { kind: "refuse" }>): Promise<Dra
 }
 
 /**
- * Save what the canvas holds against the hash the store last gave — the
- * live record's when the drawing is open, the detail's otherwise — trying
- * once more against a fresh hash on a 409.
+ * Draw the incoming elements into the canvas and save what it then holds
+ * against the hash the store last gave — the open canvas's record when the
+ * shapes landed on it (two writers save through it), else the hash just read
+ * (`saveBase`) — trying once more on a 409: the store's scene is **re-read**,
+ * the agent's shapes merged into that scene, drawn again and saved at its
+ * hash, so neither an erase the agent made a moment ago nor a peer's change
+ * is written over. On the open canvas that re-read replaces strokes the
+ * person had not saved — the price of a conflict, as *Take theirs* is. A
+ * second 409 is a refusal that tells the agent to read and draw again. The
+ * record moves only for the canvas that saved (`noteSaved` by canvas): an
+ * offscreen save leaves an open canvas's record alone.
  */
 async function save(
   detail: DrawingDetail,
-  elements: OrderedExcalidrawElement[],
-  app_state: ReturnType<typeof persistedAppState>,
-): Promise<{ ok: true; hash: string } | { ok: false; result: DrawResult }> {
-  // The open canvas's record when the drawing is on screen — two writers save through it — else the hash just read.
-  let base = lastSaved(detail.id)?.hash ?? detail.hash;
+  incoming: OrderedExcalidrawElement[],
+  replace: boolean,
+  canvas: { api: ExcalidrawImperativeAPI; live: boolean },
+  mod: Awaited<ReturnType<typeof loadExcalidraw>>,
+): Promise<{ ok: true; hash: string; count: number } | { ok: false; result: DrawResult }> {
+  let read = detail;
+  let current = drawnElements(canvas.api.getSceneElements());
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    const merged = mergeElements(current, incoming, replace);
+    canvas.api.updateScene({ elements: merged, captureUpdate: canvas.live ? mod.CaptureUpdateAction.IMMEDIATELY : mod.CaptureUpdateAction.NEVER });
+    await settle();
+    const elements = drawnElements(canvas.api.getSceneElements());
+    const app_state = persistedAppState(canvas.api.getAppState());
+    const base = saveBase(canvas.live, lastSaved(detail.id, canvas.api)?.hash ?? null, read.hash);
     try {
       const { drawing } = await api.patchDrawing(detail.id, { scene: { elements, app_state }, base_hash: base });
-      noteSaved(detail.id, { hash: drawing.hash, elements });
-      return { ok: true, hash: drawing.hash };
+      noteSaved(detail.id, { hash: drawing.hash, elements }, canvas.api);
+      return { ok: true, hash: drawing.hash, count: elements.length };
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && attempt === 0) {
         try {
-          base = (await api.drawing(detail.id)).drawing.hash;
-          continue;
+          read = (await api.drawing(detail.id)).drawing;
         } catch {
           return { ok: false, result: refusedResult(DRAWING_GONE, detail.id) };
         }
+        // Somebody drew meanwhile: what the store holds is the scene the agent's shapes join.
+        current = drawnElements(mod.restoreElements(read.scene.elements as Parameters<typeof mod.restoreElements>[0], null, { repairBindings: true }));
+        if (canvas.live) noteSaved(detail.id, { hash: read.hash, elements: current }, canvas.api);
+        continue;
       }
       if (e instanceof ApiError && e.status === 409) return { ok: false, result: refusedResult(DRAWING_MOVED, detail.id) };
       return { ok: false, result: refusedResult(e instanceof ApiError ? e.message : String(e), detail.id) };

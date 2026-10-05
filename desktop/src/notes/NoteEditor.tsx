@@ -59,11 +59,14 @@ import {
   matchAt,
   wrapSelection,
   type MarkKind,
+  type NoteDraft,
   type NoteView,
   noteGoneWords,
   noteRefusal,
   noteStatusWords,
   draftAction,
+  parseDraft,
+  restoredDraft,
 } from "./notesModel.mjs";
 import { forgetPref, readPref, webStorage, writePref } from "../shell/storedPrefModel.mjs";
 import { MaximizeToggle } from "../shell/MaximizeToggle";
@@ -106,8 +109,14 @@ function revealLine(el: HTMLTextAreaElement, at: number) {
   if (!visible) el.scrollTop = Math.max(0, top - el.clientHeight / 2);
 }
 
-function readDraft(id: string): string | null {
-  return readPref(webStorage(), draftKey(id), (raw) => raw, null);
+/** The draft parked for a note — its text and the hash it was typed against — or none. */
+function readDraft(id: string): NoteDraft | null {
+  return readPref(webStorage(), draftKey(id), parseDraft, null);
+}
+
+/** Park a draft with the hash of the note it is typed against, so a restore later knows whether the note moved since. */
+function parkDraft(id: string, body: string, base_hash: string): void {
+  writePref(webStorage(), draftKey(id), { body, base_hash });
 }
 
 export function NoteEditor({
@@ -130,13 +139,20 @@ export function NoteEditor({
   // Writing it back would make an idle click on Read permanent.
   const [view, setView] = useState<View>(defaultView);
   // Seeded once per note id. A draft left by a window that closed mid-sentence
-  // wins over the server's copy, because it is the newer of the two by
-  // definition — it is what had not been sent yet.
+  // is restored — it is what had not been sent yet — but it was typed against
+  // the note as it then stood: typed against this very text, it may save once
+  // typed into; typed against another, it is a conflict for the person to
+  // settle, never a silent save over what an agent wrote since
+  // (`restoredDraft`).
+  const seeded = useRef<ReturnType<typeof restoredDraft> | null>(null);
+  if (seeded.current === null) seeded.current = restoredDraft(readDraft(note.id), note);
   const [title, setTitle] = useState(note.title);
-  const [body, setBody] = useState(() => readDraft(note.id) ?? note.body);
+  const [body, setBody] = useState(seeded.current.body);
   const [saving, setSaving] = useState(false);
-  const [conflict, setConflict] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(seeded.current.conflict ? t("notes-note-editor-draft-from-before") : null);
   const [error, setError] = useState<string | null>(null);
+  /** The body before an agent's rewrite was taken, while the person may still want it back — session memory, gone on typing or leaving. */
+  const [restorable, setRestorable] = useState<string | null>(null);
   /** The note was deleted under the editor (the node's 404): said in the node's words; nothing more is saved, the text stays to copy. */
   const [gone, setGone] = useState<string | null>(null);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -171,7 +187,9 @@ export function NoteEditor({
     inFlight: false,
     /** Typed again while a save was in the air. */
     again: false,
-    conflicted: false,
+    conflicted: seeded.current.conflict,
+    /** The person typed since this note opened: a restored draft is not saved until they do. */
+    typed: false,
     /** Let go of — *Don't save*, or the note is being deleted: nothing more is saved. */
     abandoned: false,
     /** The save in the air, for whoever must wait for it. */
@@ -210,6 +228,10 @@ export function NoteEditor({
         if (s.id !== sending.id) return false;
         s.hash = next.hash;
         s.confirmed = { title: next.title, body: next.body };
+        // A conflict flagged while this save was in the air is settled by it
+        // landing — the flag goes with the banner, or saving would stop for
+        // good with nothing on screen to say so.
+        s.conflicted = false;
         setConflict(null);
         setError(null);
       } catch (e) {
@@ -264,9 +286,15 @@ export function NoteEditor({
   // Park the text and arm the timer. Both keyed on the text itself, so this is
   // the one effect that runs per keystroke — and all it does is set a timeout.
   useEffect(() => {
-    if (draftAction(body, live.current.confirmed.body) === "forget") forgetPref(webStorage(), draftKey(note.id));
-    else writePref(webStorage(), draftKey(note.id), body);
-    if (conflict || live.current.abandoned) return;
+    const s = live.current;
+    // The panel moved on to another note: the effect below re-seeds for it,
+    // and this one runs again for the right note — never parking the note
+    // that was left under the new one's key.
+    if (s.id !== note.id) return;
+    if (draftAction(body, s.confirmed.body) === "forget") forgetPref(webStorage(), draftKey(s.id));
+    else parkDraft(s.id, body, s.hash);
+    // A conflict pauses saving; a restored draft is not saved until typed into.
+    if (conflict || s.abandoned || !s.typed) return;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void save(), saveDelay);
     return () => {
@@ -295,37 +323,45 @@ export function NoteEditor({
     // Whatever was typed in the note being left must go before its state does
     // — unless it was let go of.
     if (!s.abandoned) void save();
+    const restored = restoredDraft(readDraft(note.id), { body: note.body, hash: note.hash });
     s.id = note.id;
     s.confirmed = { title: note.title, body: note.body };
     s.hash = note.hash;
-    s.conflicted = false;
+    s.conflicted = restored.conflict;
+    s.typed = false;
     s.abandoned = false;
     s.again = false;
     setTitle(note.title);
-    setBody(readDraft(note.id) ?? note.body);
-    setConflict(null);
+    setBody(restored.body);
+    setConflict(restored.conflict ? t("notes-note-editor-draft-from-before") : null);
+    setRestorable(null);
     setError(null);
   }, [note.id, note.title, note.body, note.hash, save]);
 
   /**
-   * The same note, changed by somebody else — an agent appending.
-   *
-   * `adoptIncoming` decides, and its whole job is that it never replaces text
-   * you have not saved.
+   * The same note, changed by somebody else — an agent appending, or
+   * rewriting it when asked. `adoptIncoming` decides, and its whole job is
+   * that it never replaces text you have not saved: an append lands under
+   * your typing, live; a rewrite over a clean buffer is taken with the way
+   * back kept (*Restore my version*); a rewrite over your typing is a conflict
+   * you settle. A title that moved alone — the hash is the body's — is taken
+   * when yours was not touched.
    */
   useEffect(() => {
     const s = live.current;
-    if (s.id !== note.id || note.hash === s.hash) return;
-    const { body: next, conflict: clash } = adoptIncoming(s.body, s.confirmed.body, note.body);
-    if (clash) {
+    if (s.id !== note.id || (note.hash === s.hash && note.title === s.confirmed.title)) return;
+    if (s.conflicted) return;
+    const { body: next, outcome } = adoptIncoming(s.body, s.confirmed.body, note.body);
+    if (outcome === "conflict") {
       s.conflicted = true;
       setConflict(t("notes-note-editor-agent-wrote-note-while-editing"));
       return;
     }
+    if (outcome === "taken") setRestorable(s.confirmed.body);
+    if (s.title === s.confirmed.title) setTitle(note.title);
     s.hash = note.hash;
     s.confirmed = { title: note.title, body: note.body };
-    setTitle(note.title);
-    setBody(next);
+    if (next !== s.body) setBody(next);
   }, [note.id, note.hash, note.title, note.body]);
 
   // React owns the value, so the caret has to be restored after the render
@@ -346,20 +382,28 @@ export function NoteEditor({
     if (!el) return;
     const next = wrapSelection(body, el.selectionStart, el.selectionEnd, kind);
     pendingRange.current = { from: next.from, to: next.to };
+    typed();
     setBody(next.text);
   };
 
-  /** Take theirs, keep mine below it — the one resolution that loses nothing. */
-  const merge = async () => {
+  /** The person typed: a restored draft may save now, and a rewrite taken a moment ago is theirs to keep. */
+  const typed = () => {
+    live.current.typed = true;
+    if (restorable !== null) setRestorable(null);
+  };
+
+  /** Take theirs: the store's copy replaces the buffer — a draft typed against another text goes with it — and saving resumes at its hash. */
+  const takeTheirs = async () => {
     try {
       const { note: current } = await api.note(note.id);
       const s = live.current;
-      const mine = s.body;
       s.hash = current.hash;
       s.confirmed = { title: current.title, body: current.body };
       s.conflicted = false;
+      s.typed = false;
+      forgetPref(webStorage(), draftKey(s.id));
       setTitle(current.title);
-      setBody(mine === current.body ? mine : `${current.body.trimEnd()}\n\n${mine.trimEnd()}`);
+      setBody(current.body);
       setConflict(null);
     } catch (e) {
       if (e instanceof ApiError && noteRefusal(e.status) === "gone") {
@@ -367,6 +411,25 @@ export function NoteEditor({
         setGone(noteGoneWords(e.message));
       } else setError(e instanceof ApiError ? e.message : t("notes-note-editor-could-not-re-read"));
     }
+  };
+
+  /** Keep mine: the buffer stands and saves over what is there, at the hash the list holds — the person's decision, said. */
+  const keepMine = () => {
+    const s = live.current;
+    s.hash = note.hash;
+    s.confirmed = { title: note.title, body: note.body };
+    s.conflicted = false;
+    s.typed = true;
+    setConflict(null);
+  };
+
+  /** The body from before an agent's rewrite, back in the buffer — dirty, so the next save makes it the note again. */
+  const restoreMine = () => {
+    const mine = restorable;
+    if (mine === null) return;
+    live.current.typed = true;
+    setRestorable(null);
+    setBody(mine);
   };
 
   // The matches: over the text in Write and Split, over the rendering in Read.
@@ -401,7 +464,10 @@ export function NoteEditor({
   const replaceInBody = (all: boolean) => {
     if (!find || reading) return;
     const next = all ? replaceAll(body, find).text : replaceOne(body, find, findIndex).text;
-    if (next !== body) setBody(next);
+    if (next !== body) {
+      typed();
+      setBody(next);
+    }
   };
   // ⌘F and ⌘R, on the editor's own keydown: the overlay sits outside the
   // workbench, so the app's document chord never reaches it.
@@ -468,7 +534,10 @@ export function NoteEditor({
         <input
           value={title}
           aria-label={t("notes-note-editor-note-title")}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            typed();
+            setTitle(e.target.value);
+          }}
           className="min-w-0 flex-1 bg-transparent text-xs font-medium text-text focus:outline-none"
         />
         <span className="max-w-[8rem] shrink-0 truncate text-2xs text-text-dim" title={scopeName}>
@@ -568,9 +637,22 @@ export function NoteEditor({
       )}
 
       {conflict && (
-        <div className="shrink-0 border-b border-hairline bg-danger-soft px-3 py-1.5 text-2xs text-danger">
-          {t("notes-note-editor-saving-paused")}{" "}
-          <button type="button" onClick={() => void merge()} className="underline">{t("notes-note-editor-put-theirs-above-mine")}</button>
+        <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-danger-soft py-1 pl-3 pr-2 text-2xs text-danger">
+          <span className="min-w-0 flex-1">{t("notes-note-editor-saving-paused")}</span>
+          <Button size="sm" variant="ghost" onClick={() => void takeTheirs()}>
+            {t("notes-note-editor-take-theirs")}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={keepMine}>
+            {t("notes-note-editor-keep-mine")}
+          </Button>
+        </div>
+      )}
+      {restorable !== null && !conflict && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-surface-2 py-1 pl-3 pr-2 text-2xs text-text-dim">
+          <span className="min-w-0 flex-1">{t("notes-note-editor-agent-rewrote-note")}</span>
+          <Button size="sm" variant="ghost" onClick={restoreMine}>
+            {t("notes-note-editor-restore-my-version")}
+          </Button>
         </div>
       )}
 
@@ -585,7 +667,10 @@ export function NoteEditor({
             aria-label={t("notes-note-editor-note-body")}
             spellCheck
             placeholder={t("notes-note-editor-write-anything-nobody-else-sees")}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              typed();
+              setBody(e.target.value);
+            }}
             className={cn(
               "min-h-0 flex-1 resize-none bg-transparent p-3 font-mono text-xs leading-relaxed text-text placeholder:text-text-dim focus:outline-none",
               view === "split" && "border-r border-hairline",

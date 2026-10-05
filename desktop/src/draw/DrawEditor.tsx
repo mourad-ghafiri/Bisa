@@ -19,14 +19,22 @@
  *
  * A `drawing_changed` frame for this drawing whose hash is not the one last
  * saved means somebody else drew: a clean canvas reloads; a dirty one is a
- * conflict, resolved the same way. The bridge saves through the same
- * `liveScene` record, so an agent's stroke landing on the open canvas is
- * never mistaken for somebody else's write.
+ * conflict, resolved the same way. The frames reach the editor through the
+ * overlay (`heard`), the one subscriber, so a frame between the detail's
+ * read and this mount is judged on the mount. The bridge saves through the
+ * same `liveScene` record when it draws on this canvas, so an agent's stroke
+ * landing here is never mistaken for somebody else's write; a save it made
+ * offscreen moves no record of ours and arrives as that frame.
+ *
+ * The canvas is **live from its first change**: Excalidraw hands its API
+ * over before the scene loads and reports nothing while loading, so the
+ * first `onChange` is the load, and the record is made from it — never from
+ * the empty canvas the API arrived on, which read every drawing as moved. A
+ * reload asked before the canvas was there is owed to that first change.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api";
-import { useEngineEvents } from "../bus";
 import { errorFields, log } from "../log";
 import type { DrawingDetail } from "../types";
 import { Button, ConfirmDialog, Tooltip } from "../ui";
@@ -34,7 +42,7 @@ import { cn } from "../ui/cn";
 import { ICON } from "../ui/icons";
 import { loadExcalidraw } from "../ui/excalidraw";
 import type { AppState, ExcalidrawImperativeAPI, OrderedExcalidrawElement } from "../ui/excalidraw";
-import { abandoned, adopted, changed, frameHeard, heardAfterSave, opened, reloadDecision, saveAsked, saveConflicted, saveFailed, saveLanded } from "./autosaveModel.mjs";
+import { abandoned, adopted, atStore, changed, frameHeard, heardAfterSave, opened, reloadDecision, reloadOwed, saveAsked, saveConflicted, saveFailed, saveLanded } from "./autosaveModel.mjs";
 import type { Autosave } from "./autosaveModel.mjs";
 import { canvasAppState, drawStatusWords, drawnElements, persistedAppState, sceneMoved } from "./drawModel.mjs";
 import { ExcalidrawCanvas } from "./ExcalidrawCanvas";
@@ -54,6 +62,7 @@ export function DrawEditor({
   onBack,
   onDeleted,
   onApi,
+  heard,
 }: {
   detail: DrawingDetail;
   /** What the drawing is about, in the words the list's chip uses. */
@@ -63,6 +72,12 @@ export function DrawEditor({
   onDeleted: () => void;
   /** The canvas's API as it mounts, for the panel's Escape rule. */
   onApi: (api: ExcalidrawImperativeAPI | null) => void;
+  /**
+   * The latest `drawing_changed` the overlay heard for this drawing — its
+   * hash — judged here (`reloadDecision`): the overlay is the one subscriber,
+   * so a frame heard before this editor mounted is judged on its mount.
+   */
+  heard: { drawing: string; hash: string } | null;
 }) {
   const { saveDelay, maximized, askOpen } = useDrawOverlay();
   // Read at arm time, through a ref: `save` is made once and re-arms
@@ -101,9 +116,10 @@ export function DrawEditor({
       });
   }, []);
 
-  /** The scene the store last confirmed, so the canvas's next change is measured against it. */
+  /** The scene the store last confirmed through this canvas, so its next change is measured against it. */
   const confirm = useCallback((id: string, hash: string, elements: readonly OrderedExcalidrawElement[]) => {
-    noteSaved(id, { hash, elements });
+    const api_ = canvas.current;
+    if (api_) noteSaved(id, { hash, elements }, api_);
   }, []);
 
   const save = useCallback(async (): Promise<boolean> => {
@@ -118,7 +134,7 @@ export function DrawEditor({
     const app_state = persistedAppState(api_.getAppState());
     const run = (async () => {
       try {
-        const { drawing } = await api.patchDrawing(s.id, { scene: { elements, app_state }, base_hash: lastSaved(s.id)?.hash ?? s.auto.savedHash });
+        const { drawing } = await api.patchDrawing(s.id, { scene: { elements, app_state }, base_hash: atStore(s.auto, lastSaved(s.id, api_)?.hash ?? null).savedHash });
         s.auto = saveLanded(s.auto, drawing.hash);
         s.lastAppState = app_state;
         confirm(s.id, drawing.hash, elements);
@@ -137,9 +153,10 @@ export function DrawEditor({
         running.current = null;
         setSaving(false);
         // A frame heard while this save was in the air is judged now that it
-        // answered: the save's own echo is nothing; any other hash is somebody
-        // else's scene (`heardAfterSave`).
-        const late = heardAfterSave(live.current.auto);
+        // answered: the save's own echo is nothing — and so is the bridge's,
+        // which saves through this canvas's record — any other hash is
+        // somebody else's scene (`heardAfterSave`).
+        const late = heardAfterSave(atStore(live.current.auto, lastSaved(live.current.id, api_)?.hash ?? null));
         live.current.auto = late.next;
         if (late.decision === "reload") void adoptRef.current();
         else if (late.decision === "conflict") {
@@ -182,14 +199,26 @@ export function DrawEditor({
     timer.current = setTimeout(() => void save(), delay.current);
   }, [save]);
 
-  /** Every change the canvas reports: a stroke arms a save; a hover does not. */
+  /** Every change the canvas reports: the first is the load; then a stroke arms a save and a hover does not. */
   const onChange = useCallback(
     (elements: readonly OrderedExcalidrawElement[], appState: AppState) => {
       const s = live.current;
-      const saved = lastSaved(s.id);
+      const api_ = canvas.current;
+      if (!api_) return;
       const app = persistedAppState(appState);
+      const saved = lastSaved(s.id, api_);
+      // The first change the canvas reports is the load — Excalidraw says
+      // nothing while it loads — so the record is made from it, at the hash
+      // the drawing was read at: nothing is dirty, and a reload owed while
+      // the canvas was not there is done now.
+      if (!saved) {
+        registerLiveScene(s.id, api_, { hash: s.auto.savedHash, elements });
+        s.lastAppState = app;
+        if (s.auto.owed) void adoptRef.current();
+        return;
+      }
       const movedApp = app.view_background_color !== s.lastAppState.view_background_color || app.grid !== s.lastAppState.grid;
-      if (!movedApp && saved && !sceneMoved(elements, saved.elements)) return;
+      if (!movedApp && !sceneMoved(elements, saved.elements)) return;
       s.auto = changed(s.auto);
       if (!dirty) setDirty(true);
       arm();
@@ -201,7 +230,12 @@ export function DrawEditor({
   const adopt = useCallback(async () => {
     const api_ = canvas.current;
     const m = mod;
-    if (!api_ || !m) return;
+    if (!api_ || !m || !lastSaved(live.current.id, api_)) {
+      // Not loaded yet: the load would wipe whatever is put on the canvas
+      // now, so the reload is owed to the first change the canvas reports.
+      live.current.auto = reloadOwed(live.current.auto);
+      return;
+    }
     try {
       const { drawing } = await api.drawing(live.current.id);
       const elements = m.restoreElements(drawing.scene.elements as Parameters<typeof m.restoreElements>[0], null, { repairBindings: true });
@@ -222,27 +256,36 @@ export function DrawEditor({
   adoptRef.current = adopt;
 
   // Somebody else drew: reload when clean, conflict when not; our own save's
-  // echo is nothing — and while a save is in the air a frame may be that
-  // echo outrunning the answer, so it waits for it.
-  useEngineEvents((e) => {
-    if (e.payload.type !== "drawing_changed" || e.payload.drawing !== live.current.id) return;
-    const decision = reloadDecision({ ...live.current.auto, savedHash: lastSaved(live.current.id)?.hash ?? live.current.auto.savedHash }, e.payload.hash);
-    if (decision === "reload") void adopt();
-    else if (decision === "wait") live.current.auto = frameHeard(live.current.auto, e.payload.hash);
+  // echo is nothing — the bridge's through this canvas too — and while a save
+  // is in the air a frame may be that echo outrunning the answer, so it waits
+  // for it. The frames come down from the overlay, the one subscriber.
+  const judge = useCallback((hash: string) => {
+    const api_ = canvas.current;
+    const decision = reloadDecision(atStore(live.current.auto, lastSaved(live.current.id, api_ ?? undefined)?.hash ?? null), hash);
+    if (decision === "reload") void adoptRef.current();
+    else if (decision === "wait") live.current.auto = frameHeard(live.current.auto, hash);
     else if (decision === "conflict") {
       live.current.auto = saveConflicted(live.current.auto);
       setConflict(t("draw-editor-somebody-drew-meanwhile"));
     }
-  });
+  }, []);
+  useEffect(() => {
+    if (heard && heard.drawing === live.current.id) judge(heard.hash);
+  }, [heard, judge]);
 
   // Flush once on unmount, and forget the live scene once the flush has
-  // landed — the save reads and writes that record, so it must outlive it.
+  // landed — the save reads and writes that record, so it must outlive it —
+  // this canvas's record alone: a canvas that took the drawing meanwhile
+  // keeps its own.
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
       const id = live.current.id;
+      const api_ = canvas.current;
       const flush = live.current.auto.dirty && !live.current.auto.conflicted ? save() : Promise.resolve(false);
-      void flush.finally(() => unregisterLiveScene(id));
+      void flush.finally(() => {
+        if (api_) unregisterLiveScene(id, api_);
+      });
       onApi(null);
     },
     // Unmount only: following `save` or `onApi` would flush and hand the
@@ -251,13 +294,14 @@ export function DrawEditor({
     [],
   );
 
+  // The API arrives before the scene loads: held, and registered live by the
+  // first change the canvas reports (`onChange`), never from an empty canvas.
   const takeApi = useCallback(
     (api_: ExcalidrawImperativeAPI) => {
       canvas.current = api_;
-      registerLiveScene(detail.id, api_, { hash: detail.hash, elements: api_.getSceneElements() });
       onApi(api_);
     },
-    [detail.id, detail.hash, onApi],
+    [onApi],
   );
 
   const renameIfMoved = async () => {

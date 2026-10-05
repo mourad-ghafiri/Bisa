@@ -187,7 +187,10 @@ async fn answer(
     AxPath(id): AxPath<String>,
     crate::Body(result): crate::Body<DrawResult>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if !state.engine.inner().draw.answer(&id, result) {
+    // A late answer — the op already said the canvas was silent — is still
+    // a 404 to the desktop, but a save it carries is announced all the same
+    // (`drawings::answer`): the canvas and the list learn what the store holds.
+    if !eng::answer(state.engine.inner(), &id, result) {
         return Err(not_found(bisa_core::text!(
             "error-node-drawings-nothing-waits-under-id"
         )));

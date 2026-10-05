@@ -45,8 +45,8 @@ pub const NOBODY_HOME: &str =
 /// Said when a desktop was here and this request went unanswered within
 /// [`ANSWER_TIMEOUT`]: a different fact from nobody home.
 pub const DESKTOP_SILENT: &str = "the canvas was open but did not answer this request in \
-time — try the same call once more; if it happens again, tell the person the canvas is not \
-responding and stop";
+time — drawing_read the drawing first, since the canvas may have saved after the wait, then try \
+the same call once more; if it happens again, tell the person the canvas is not responding and stop";
 /// The sentences the op refuses with, by policy.
 pub const OFF: &str = "the canvas is turned off in Settings › You › Draw";
 pub const NOBODY_MAY: &str = "the workspace lets no agent draw (draw.agents = nobody)";
@@ -342,6 +342,51 @@ pub fn delete(inner: &Arc<Inner>, id: DrawingId) -> Result<(), EngineError> {
 
 /// Say on the bus that a drawing changed — with the scene's hash, so an
 /// open canvas can tell its own save from somebody else's.
+/// The desktop's answer to a parked request, through the node. `false` when
+/// nothing waits under the id — the op already said the canvas was silent —
+/// and then, when the answer still says the canvas drew, the drawing is read
+/// and announced all the same: the desktop saved through the `PATCH`, which
+/// is silent on the bus by design, so this is the only announcement a late
+/// save gets, and the open canvas and the list learn what the store holds.
+pub fn answer(inner: &Inner, id: &str, result: DrawResult) -> bool {
+    let ok = result.ok;
+    let drawing = result.drawing;
+    let taken = inner.draw.answer(id, result);
+    if !taken && ok {
+        if let Some(drawing) = drawing {
+            if let Ok(d) = inner.ws.get_drawing(drawing) {
+                inner.drawings_git.touched(inner);
+                emit_changed(inner, &d);
+            }
+        }
+    }
+    taken
+}
+
+/// Tell an open canvas what a peer drew: the store adopts a peer's drawing
+/// and says so (`RemoteDrawingArrived`); here it becomes `drawing_changed`
+/// with the hash the store now holds, so a canvas open on it reloads or
+/// says somebody drew meanwhile, as it does for an agent's erase.
+pub fn spawn_listener(inner: &Arc<Inner>) -> tokio::task::JoinHandle<()> {
+    let mut rx = inner.ws.subscribe_store_events();
+    let inner = Arc::clone(inner);
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(bisa_store::StoreEvent::RemoteDrawingArrived { drawing }) => {
+                    inner.drawings_git.touched(&inner);
+                    emit_changed(&inner, &drawing);
+                }
+                Ok(_) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!("drawings listener lagged by {n} events");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    })
+}
+
 pub fn emit_changed(inner: &Inner, drawing: &Drawing) {
     inner.emit(EngineEvent::global(EnginePayload::DrawingChanged {
         drawing: drawing.id.to_string(),

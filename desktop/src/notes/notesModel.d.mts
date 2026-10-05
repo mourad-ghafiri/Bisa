@@ -95,10 +95,15 @@ export declare function wrapSelection(
   kind: MarkKind,
 ): Spliced;
 
-/** The outcome of a server copy arriving while the editor is open. */
+/**
+ * The outcome of a server copy arriving while the editor is open: nothing
+ * (`same`), an agent's block landed under the buffer (`appended`), a rewrite
+ * taken over a clean buffer (`taken`), or a rewrite over unsaved text
+ * (`conflict`), with the body to show.
+ */
 export interface Adoption {
   body: string;
-  conflict: boolean;
+  outcome: "same" | "appended" | "taken" | "conflict";
 }
 
 export declare function adoptIncoming(
@@ -106,6 +111,19 @@ export declare function adoptIncoming(
   confirmed: string,
   incoming: string,
 ): Adoption;
+
+/** A parked draft: the text and the hash of the note it was typed against (`null` for an older build's bare text). */
+export interface NoteDraft {
+  body: string;
+  base_hash: string | null;
+}
+export declare function parseDraft(raw: string): NoteDraft;
+/** What the editor opens with for a note with a parked draft: restored and typed into, or restored as a conflict when the note moved since. */
+export declare function restoredDraft(draft: NoteDraft | null | undefined, note: { body: string; hash: string }): { body: string; conflict: boolean; restored: boolean };
+/** The newer of a read's row and a save's answer: the save stands unless the read is strictly newer. */
+export declare function latestNote<R extends { updated_at: number }>(read: R, saved: R): R;
+/** A list read landing beside the saves that landed while it was out. */
+export declare function landedNotes<R extends { id: string; updated_at: number }>(rows: readonly R[], savedSince: ReadonlyMap<string, R>): readonly R[];
 
 export declare function draftKey(id: string): string;
 

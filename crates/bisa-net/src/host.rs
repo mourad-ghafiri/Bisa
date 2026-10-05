@@ -610,6 +610,9 @@ async fn catch_up(inner: &Arc<Inner>) {
 
 async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
     match ev {
+        // A peer's drawing landed here: the engine tells the canvas; the host
+        // relays facts by its own pump, never by echo.
+        StoreEvent::RemoteDrawingArrived { .. } => {}
         StoreEvent::ConversationAppended { event, .. }
         | StoreEvent::RemoteMessageArrived { event, .. } => relay_fact(inner, &event).await,
         StoreEvent::ConversationSnapshot { kind, .. } if kind == KIND_CHANNEL => {
