@@ -52,6 +52,12 @@
 //! the first listed the one a session opens on), and `model_efforts` gives a
 //! model levels of its own — what lets a journey see that the effort was
 //! fitted to the model that was set, and not to the one the session opened on.
+//! A script whose `model_api` is `set_model` speaks the draft that came
+//! before config options, as Gemini CLI does (its `packages/cli/src/acp/`,
+//! read 2026-10-05): its sessions answer `session/new` and `session/load`
+//! with `models` — the ids listed, each with a label, and the one the
+//! session is on — and no config option at all, and take `session/set_model`
+//! with a `modelId`, answered empty.
 //!
 //! A binary of this package, never shipped: the distribution builds
 //! `--bin bisa` alone.
@@ -127,6 +133,13 @@ fn listed_models(script: &Value) -> Vec<String> {
         .flatten()
         .filter_map(|model| model.as_str().map(str::to_string))
         .collect()
+}
+
+/// Whether the script's sessions say their models the draft way — `models`
+/// in the answer, `session/set_model` to change it — rather than as a config
+/// option.
+fn speaks_set_model(script: &Value) -> bool {
+    script["model_api"] == json!("set_model")
 }
 
 /// The files beside the binary: the script the test wrote, the record it
@@ -332,10 +345,12 @@ impl Agent {
             ("session/new", Some(id)) => {
                 let session = self.beside.begin_session();
                 self.open(&session, &params, "session_new");
-                self.answer(
-                    &id,
-                    json!({ "sessionId": session, "configOptions": self.config_options(&session) }),
-                );
+                let answer = if speaks_set_model(&self.script) {
+                    json!({ "sessionId": session, "models": self.models_draft(&session) })
+                } else {
+                    json!({ "sessionId": session, "configOptions": self.config_options(&session) })
+                };
+                self.answer(&id, answer);
             }
             ("session/load", Some(id)) => {
                 let session = text(&params["sessionId"]);
@@ -356,6 +371,36 @@ impl Agent {
                         json!({ "sessionUpdate": kind, "content": { "type": "text", "text": said["text"] } }),
                     );
                 }
+                // The draft says the models again on a load; the protocol's answer is empty.
+                let answer = if speaks_set_model(&self.script) {
+                    json!({ "models": self.models_draft(&session) })
+                } else {
+                    json!({})
+                };
+                self.answer(&id, answer);
+            }
+            ("session/set_model", Some(id)) => {
+                if !speaks_set_model(&self.script) {
+                    self.refuse(&id, -32601, "no method session/set_model");
+                    return;
+                }
+                let session = text(&params["sessionId"]);
+                let value = text(&params["modelId"]);
+                // The same fact a config option's set leaves, so a journey
+                // reads what a session was set to whichever way it was said.
+                self.record(json!({
+                    "event": "config",
+                    "session": session,
+                    "config_id": "model",
+                    "value": params["modelId"],
+                    "method": "session/set_model",
+                }));
+                if !listed_models(&self.script).contains(&value) {
+                    self.refuse(&id, -32602, &format!("model not found: {value}"));
+                    return;
+                }
+                self.beside
+                    .change(&session, |known| known["model"] = params["modelId"].clone());
                 self.answer(&id, json!({}));
             }
             ("session/set_config_option", Some(id)) => {
@@ -420,6 +465,22 @@ impl Agent {
             known["cwd"] = params["cwd"].clone();
             known["servers"] = servers;
         });
+    }
+
+    /// The models the draft before config options lists: each id with a
+    /// label, and the one the session is on — the first listed until set.
+    fn models_draft(&self, session: &str) -> Value {
+        let known = self.beside.known(session).unwrap_or(Value::Null);
+        let models = listed_models(&self.script);
+        let current = known["model"]
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| models.first().cloned());
+        let listed: Vec<Value> = models
+            .iter()
+            .map(|m| json!({ "modelId": m, "name": format!("Model {m}") }))
+            .collect();
+        json!({ "availableModels": listed, "currentModelId": current })
     }
 
     /// What the session offers to be set: its model, when the script names

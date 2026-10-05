@@ -7,7 +7,8 @@
 //! in protocol mode. [`AcpAdapter`] is the generic caller: one per known
 //! target (goose, cursor-agent, `omp acp`, opencode's acp mode, ...), four
 //! words each. A harness with an id of its own — GitHub Copilot CLI
-//! (`copilot.rs`), Grok Build (`grok.rs`) — is another caller: its module
+//! (`copilot.rs`), Grok Build (`grok.rs`), Gemini CLI (`gemini.rs`) — is
+//! another caller: its module
 //! says what only that tool knows (its probe, its levels, its models, its
 //! terminal form) and no frame is written outside this file.
 //!
@@ -35,6 +36,19 @@
 //! agent's plan to its next model. A session that offers no model option
 //! cannot be told, and runs the agent's own; one that offers no
 //! `thought_level` option is sent no effort.
+//!
+//! One agent still speaks the draft that came before config options: Gemini
+//! CLI answers `session/new` and `session/load` with `models` —
+//! `availableModels`, each a `modelId` and a `name`, and `currentModelId` —
+//! and takes `session/set_model` with a `modelId`, answered empty (its
+//! `packages/cli/src/acp/acpSessionManager.ts` and `acpRpcDispatcher.ts`,
+//! read 2026-10-05; the protocol's site says the method never stabilised and
+//! models now ride config options,
+//! https://agentclientprotocol.com/announcements/session-config-options-stabilized).
+//! The rule keeps its shape: the session on the model already is told
+//! nothing, one that lists it is set, and one that lists others ends as
+//! *model unavailable*. An agent that offers both is read by its `model`
+//! config option.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -80,7 +94,7 @@ const CANNOT_LOAD: &str =
 /// — is the [`SessionSpec`]'s, and reaches the agent the protocol's way.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AcpCommand {
-    /// The adapter the session belongs to: `acp:goose`, `copilot`, `grok`.
+    /// The adapter the session belongs to: `acp:goose`, `copilot`, `grok`, `gemini`.
     pub adapter_id: String,
     pub program: String,
     pub args: Vec<String>,
@@ -239,7 +253,7 @@ fn option_of<'a>(
         .find(|o| o.get("category").and_then(|c| c.as_str()) == Some(category))
 }
 
-/// What a session's options say of the model asked.
+/// What a session's answer says of the model asked.
 #[derive(Debug, PartialEq, Eq)]
 enum ModelStep {
     /// Nothing to send: the session has no model option to set — it runs the
@@ -247,26 +261,55 @@ enum ModelStep {
     Nothing,
     /// Set the option of this id to the model.
     Set(String),
+    /// Set the model the draft's way — `session/set_model` — which names no
+    /// option: the agent listed its `models` and offers no `model` option.
+    SetModel,
     /// The session chooses its model among ones that do not include it.
     NotOffered,
 }
 
-/// What to do so the session runs `asked`. A model is matched by its id as
-/// the agent spells it, exactly: a model is a name, never a level to fit.
-fn model_step(config_options: &serde_json::Value, asked: &str) -> ModelStep {
-    let Some(option) = option_of(config_options, MODEL_CATEGORY) else {
+/// What to do so the session runs `asked`, read off the answer to
+/// `session/new` or `session/load`: its `model` config option when it has
+/// one, else the draft's `models` list. A model is matched by its id as the
+/// agent spells it, exactly: a model is a name, never a level to fit — and
+/// a listed model's `name` is a label, not its id.
+fn model_step(answer: &serde_json::Value, asked: &str) -> ModelStep {
+    let option = answer
+        .get("configOptions")
+        .and_then(|options| option_of(options, MODEL_CATEGORY));
+    if let Some(option) = option {
+        if option.get("currentValue").and_then(|v| v.as_str()) == Some(asked) {
+            return ModelStep::Nothing;
+        }
+        let Some(id) = option.get("id").and_then(|i| i.as_str()) else {
+            // An option with no id cannot be set, and says nothing of what the
+            // session would take.
+            return ModelStep::Nothing;
+        };
+        return if offered_values(option).contains(&asked) {
+            ModelStep::Set(id.to_string())
+        } else {
+            ModelStep::NotOffered
+        };
+    }
+    let Some(listed) = answer
+        .pointer("/models/availableModels")
+        .and_then(|m| m.as_array())
+    else {
         return ModelStep::Nothing;
     };
-    if option.get("currentValue").and_then(|v| v.as_str()) == Some(asked) {
+    if answer
+        .pointer("/models/currentModelId")
+        .and_then(|v| v.as_str())
+        == Some(asked)
+    {
         return ModelStep::Nothing;
     }
-    let Some(id) = option.get("id").and_then(|i| i.as_str()) else {
-        // An option with no id cannot be set, and says nothing of what the
-        // session would take.
-        return ModelStep::Nothing;
-    };
-    if offered_values(option).contains(&asked) {
-        ModelStep::Set(id.to_string())
+    if listed
+        .iter()
+        .any(|m| m.get("modelId").and_then(|v| v.as_str()) == Some(asked))
+    {
+        ModelStep::SetModel
     } else {
         ModelStep::NotOffered
     }
@@ -283,6 +326,16 @@ fn set_config_option(
         request,
         "session/set_config_option",
         serde_json::json!({ "sessionId": session_id, "configId": config_id, "value": value }),
+    )
+}
+
+/// The request that sets a session's model the draft's way: no option, the
+/// model alone.
+fn set_model(request: u64, session_id: &str, model_id: &str) -> serde_json::Value {
+    jsonrpc_request(
+        request,
+        "session/set_model",
+        serde_json::json!({ "sessionId": session_id, "modelId": model_id }),
     )
 }
 
@@ -626,6 +679,15 @@ fn map_acp(shared: &Shared, state: &mut AcpState, value: serde_json::Value) -> D
                     });
                 }
                 if id == ID_MODEL {
+                    // An agent that listed its models yet has no
+                    // `session/set_model` (-32601, method not found) is a
+                    // failure to say, not a model to walk past: every model
+                    // of the plan would be refused the same way.
+                    if error.get("code").and_then(|c| c.as_i64()) == Some(-32601) {
+                        return Drive::End(Outcome::Failed {
+                            error: format!("the agent cannot set a model: {msg}"),
+                        });
+                    }
                     // The agent will not run the model asked: the session
                     // would go on with another while its token and the
                     // ledger name this one. It ends here instead, before any
@@ -730,7 +792,7 @@ fn map_acp(shared: &Shared, state: &mut AcpState, value: serde_json::Value) -> D
                             Err(end) => Drive::End(end),
                         };
                     };
-                    match model_step(&options, &model) {
+                    match model_step(&result, &model) {
                         ModelStep::Nothing => {
                             if let Err(end) = state.begin(shared, &options) {
                                 return Drive::End(end);
@@ -750,11 +812,21 @@ fn map_acp(shared: &Shared, state: &mut AcpState, value: serde_json::Value) -> D
                             // one given meanwhile is kept as the first.
                             state.options = options;
                         }
+                        ModelStep::SetModel => {
+                            // The draft's way: the model alone, answered
+                            // empty — the options kept are the session's own.
+                            let set = set_model(ID_MODEL, &sid, &model);
+                            if let Err(end) = queued(shared, "model", set) {
+                                return Drive::End(end);
+                            }
+                            state.options = options;
+                        }
                     }
                 }
                 ID_MODEL => {
                     // The whole option list again, as the model leaves it —
-                    // the session's own when the answer carries none.
+                    // the session's own when the answer carries none (the
+                    // draft's `session/set_model` answers nothing at all).
                     let kept = std::mem::take(&mut state.options);
                     let options = result
                         .get("configOptions")
@@ -1028,18 +1100,22 @@ pub struct AcpSession {
     beginning: SharedBeginning,
 }
 
-/// The option that answers a permission request: the first `allow*` option
-/// for an allow, the first `reject*` for a deny, else the request is cancelled.
+/// The option that answers a permission request: for an allow the
+/// `allow_once` option, else the first `allow*`; for a deny `reject_once`,
+/// else the first `reject*`; with neither, the request is cancelled. Once
+/// before always whatever order the agent lists them — Gemini CLI lists
+/// *Allow for this session* first — so the guard's one allow never becomes a
+/// standing grant it is not asked about again.
 fn permission_outcome(options: &[serde_json::Value], allow: bool) -> serde_json::Value {
+    fn kind_of(option: &serde_json::Value) -> &str {
+        option.get("kind").and_then(|k| k.as_str()).unwrap_or("")
+    }
     let want = if allow { "allow" } else { "reject" };
+    let once = format!("{want}_once");
     let picked = options
         .iter()
-        .find(|o| {
-            o.get("kind")
-                .and_then(|k| k.as_str())
-                .unwrap_or("")
-                .starts_with(want)
-        })
+        .find(|o| kind_of(o) == once)
+        .or_else(|| options.iter().find(|o| kind_of(o).starts_with(want)))
         .and_then(|o| o.get("optionId").cloned());
     match picked {
         Some(option_id) => {
@@ -1631,9 +1707,36 @@ mod effort_tests {
         json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": message } })
     }
 
+    /// The result of a `session/new` with these config options.
+    fn answered(config_options: serde_json::Value) -> serde_json::Value {
+        json!({ "sessionId": "sess-1", "configOptions": config_options })
+    }
+
+    /// The result of a `session/new` as an agent on the draft before config
+    /// options gives it (Gemini CLI): the models it lists, each an id and a
+    /// label, the one the session is on — and no config options at all.
+    fn on_the_draft(current: &str, models: &[&str]) -> serde_json::Value {
+        let listed: Vec<serde_json::Value> = models
+            .iter()
+            .map(|m| json!({ "modelId": m, "name": format!("Model {m}") }))
+            .collect();
+        json!({
+            "sessionId": "sess-1",
+            "modes": {
+                "availableModes": [{ "id": "default", "name": "Default" }],
+                "currentModeId": "default"
+            },
+            "models": { "availableModels": listed, "currentModelId": current }
+        })
+    }
+
+    fn session_new_on_the_draft(current: &str, models: &[&str]) -> serde_json::Value {
+        json!({ "jsonrpc": "2.0", "id": ID_SESSION, "result": on_the_draft(current, models) })
+    }
+
     #[test]
     fn what_a_sessions_options_say_of_a_model() {
-        let options = on_model("small", &["small", "large"], &["low"]);
+        let options = answered(on_model("small", &["small", "large"], &["low"]));
         assert_eq!(
             model_step(&options, "large"),
             ModelStep::Set("model".into())
@@ -1649,26 +1752,219 @@ mod effort_tests {
         assert_eq!(model_step(&options, "larg"), ModelStep::NotOffered);
         // A session with no model option cannot be told, and is not refused.
         for silent in [
-            advertised(&["low", "high"]),
-            json!([]),
+            answered(advertised(&["low", "high"])),
+            answered(json!([])),
+            json!({ "sessionId": "sess-1" }),
             serde_json::Value::Null,
         ] {
             assert_eq!(model_step(&silent, "large"), ModelStep::Nothing);
         }
         // The option is found by its category, never by its id; values in
         // groups count as values.
-        let grouped = json!([{
+        let grouped = answered(json!([{
             "id": "engine", "category": "model", "type": "select", "currentValue": "a",
             "options": [
                 { "group": "fast", "name": "Fast", "options": [{ "value": "a" }] },
                 { "group": "deep", "name": "Deep", "options": [{ "value": "b" }] }
             ]
-        }]);
+        }]));
         assert_eq!(model_step(&grouped, "b"), ModelStep::Set("engine".into()));
         // An option with no id cannot be set, and refuses nothing.
-        let nameless = json!([{ "category": "model", "options": [{ "value": "a" }] }]);
+        let nameless = answered(json!([{ "category": "model", "options": [{ "value": "a" }] }]));
         assert_eq!(model_step(&nameless, "b"), ModelStep::Nothing);
         assert_eq!(ID_MODEL, 5);
+    }
+
+    #[test]
+    fn what_a_sessions_models_say_of_a_model_when_it_offers_no_model_option() {
+        let draft = on_the_draft("auto", &["auto", "gemini-2.5-pro"]);
+        assert_eq!(
+            model_step(&draft, "auto"),
+            ModelStep::Nothing,
+            "on it already"
+        );
+        assert_eq!(model_step(&draft, "gemini-2.5-pro"), ModelStep::SetModel);
+        assert_eq!(model_step(&draft, "gemini-9"), ModelStep::NotOffered);
+        // A listed model's name is a label, never its id.
+        assert_eq!(
+            model_step(&draft, "Model gemini-2.5-pro"),
+            ModelStep::NotOffered
+        );
+        // An agent that offers both is read by its `model` config option.
+        let mut both = draft.clone();
+        both["configOptions"] = on_model("small", &["small", "large"], &["low"]);
+        assert_eq!(model_step(&both, "large"), ModelStep::Set("model".into()));
+        assert_eq!(
+            model_step(&both, "gemini-2.5-pro"),
+            ModelStep::NotOffered,
+            "the option's list, not the draft's"
+        );
+        // Models said without a list cannot be told.
+        let mut no_list = draft.clone();
+        no_list["models"] = json!({ "currentModelId": "auto" });
+        assert_eq!(model_step(&no_list, "gemini-2.5-pro"), ModelStep::Nothing);
+        // No current model said: a listed one is set, the default among them too.
+        let mut no_current = draft.clone();
+        no_current["models"]
+            .as_object_mut()
+            .unwrap()
+            .remove("currentModelId");
+        assert_eq!(
+            model_step(&no_current, "gemini-2.5-pro"),
+            ModelStep::SetModel
+        );
+        assert_eq!(model_step(&no_current, "auto"), ModelStep::SetModel);
+    }
+
+    #[test]
+    fn a_model_is_set_with_set_model_where_the_session_offers_no_option_and_the_prompt_waits() {
+        // The draft's answer to a set is empty — `null` or `{}` alike.
+        for empty in [serde_json::Value::Null, json!({})] {
+            let (shared, mut state, mut out_rx) =
+                handshake_on(Some("gemini-2.5-pro"), Some(Effort::High), Some("go"));
+            map_acp(
+                &shared,
+                &mut state,
+                session_new_on_the_draft("auto", &["auto", "gemini-2.5-pro"]),
+            );
+            let lines = written(&mut out_rx);
+            assert_eq!(
+                lines,
+                [json!({
+                    "jsonrpc": "2.0", "id": ID_MODEL, "method": "session/set_model",
+                    "params": { "sessionId": "sess-1", "modelId": "gemini-2.5-pro" }
+                })],
+                "the model alone, the draft's way: no prompt before its answer"
+            );
+            assert!(!state.beginning.locked().exists);
+            assert_eq!(shared.phase(), Phase::Starting);
+            // Answered: the session offers no level, so the effort asked is
+            // sent nowhere, and the prompt goes out.
+            let answered = json!({ "jsonrpc": "2.0", "id": ID_MODEL, "result": empty });
+            assert!(matches!(
+                map_acp(&shared, &mut state, answered),
+                Drive::Continue
+            ));
+            let lines = written(&mut out_rx);
+            assert_eq!(lines.len(), 1, "{lines:?}");
+            assert_eq!(lines[0]["method"], "session/prompt");
+            assert!(state.beginning.locked().exists);
+            assert_eq!(shared.phase(), Phase::Turn);
+        }
+    }
+
+    #[test]
+    fn a_model_the_draft_list_does_not_offer_or_refuses_ends_as_unavailable_before_any_prompt() {
+        // Not among the ones it lists.
+        let (shared, mut state, mut out_rx) = handshake_on(Some("gemini-9"), None, Some("go"));
+        let end = map_acp(
+            &shared,
+            &mut state,
+            session_new_on_the_draft("auto", &["auto", "gemini-2.5-pro"]),
+        );
+        match end {
+            Drive::End(Outcome::ModelUnavailable { model, reason, .. }) => {
+                assert_eq!(model, "gemini-9");
+                assert_eq!(reason, MODEL_NOT_OFFERED);
+            }
+            _ => panic!("the session went on with a model nobody asked for"),
+        }
+        assert!(written(&mut out_rx).is_empty(), "nothing was sent");
+
+        // Listed, and refused when set.
+        let (shared, mut state, mut out_rx) =
+            handshake_on(Some("gemini-2.5-pro"), None, Some("go"));
+        map_acp(
+            &shared,
+            &mut state,
+            session_new_on_the_draft("auto", &["auto", "gemini-2.5-pro"]),
+        );
+        assert_eq!(written(&mut out_rx).len(), 1);
+        let end = map_acp(&shared, &mut state, refused(ID_MODEL, "Model not found"));
+        assert!(matches!(
+            end,
+            Drive::End(Outcome::ModelUnavailable { reason, .. })
+                if reason == "the agent refused the model: Model not found"
+        ));
+        assert!(written(&mut out_rx).is_empty(), "no prompt was written");
+
+        // An agent that listed its models yet has no `session/set_model` is
+        // a failure to say, not a model to walk past.
+        let (shared, mut state, _out_rx) = handshake_on(Some("gemini-2.5-pro"), None, Some("go"));
+        map_acp(
+            &shared,
+            &mut state,
+            session_new_on_the_draft("auto", &["auto", "gemini-2.5-pro"]),
+        );
+        let no_method = json!({
+            "jsonrpc": "2.0", "id": ID_MODEL,
+            "error": { "code": -32601, "message": "Method not found" }
+        });
+        assert!(matches!(
+            map_acp(&shared, &mut state, no_method),
+            Drive::End(Outcome::Failed { error })
+                if error == "the agent cannot set a model: Method not found"
+        ));
+    }
+
+    #[test]
+    fn a_loaded_session_is_set_to_its_model_through_the_draft_too() {
+        let (shared, mut state, mut out_rx) = handshake_on(Some("gemini-2.5-pro"), None, None);
+        state.load_session = Some("sess-7".into());
+        state.replaying = true;
+        // The answer to `session/load` carries no id: the one asked for stands.
+        let mut loaded = on_the_draft("auto", &["auto", "gemini-2.5-pro"]);
+        loaded.as_object_mut().unwrap().remove("sessionId");
+        map_acp(
+            &shared,
+            &mut state,
+            json!({ "jsonrpc": "2.0", "id": ID_SESSION, "result": loaded }),
+        );
+        let lines = written(&mut out_rx);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert_eq!(lines[0]["method"], "session/set_model");
+        assert_eq!(
+            lines[0]["params"],
+            json!({ "sessionId": "sess-7", "modelId": "gemini-2.5-pro" })
+        );
+        assert!(!state.replaying);
+    }
+
+    #[test]
+    fn an_allow_is_once_before_always_whatever_order_the_agent_lists() {
+        // Gemini CLI's order: *Allow for this session* before *Allow*.
+        let gemini = [
+            json!({ "optionId": "proceed_always", "name": "Allow for this session", "kind": "allow_always" }),
+            json!({ "optionId": "proceed_once", "name": "Allow", "kind": "allow_once" }),
+            json!({ "optionId": "cancel", "name": "Reject", "kind": "reject_once" }),
+        ];
+        assert_eq!(
+            permission_outcome(&gemini, true)["outcome"]["optionId"],
+            "proceed_once"
+        );
+        assert_eq!(
+            permission_outcome(&gemini, false)["outcome"]["optionId"],
+            "cancel"
+        );
+        // An agent that offers only a standing answer: still the answer, the
+        // only one there is.
+        let always_only = [
+            json!({ "optionId": "always", "kind": "allow_always" }),
+            json!({ "optionId": "never", "kind": "reject_always" }),
+        ];
+        assert_eq!(
+            permission_outcome(&always_only, true)["outcome"]["optionId"],
+            "always"
+        );
+        assert_eq!(
+            permission_outcome(&always_only, false)["outcome"]["optionId"],
+            "never"
+        );
+        // Nothing to pick: the request is cancelled.
+        assert_eq!(
+            permission_outcome(&[], true),
+            json!({ "outcome": { "outcome": "cancelled" } })
+        );
     }
 
     #[test]

@@ -12,7 +12,7 @@ The source is https://github.com/mourad-ghafiri/Bisa; the website is https://bis
 | git | 2.36 or later | projects, and every git test |
 | `just` | any recent | the task runner below |
 | Tauri CLI | `cargo install tauri-cli` | building and running the desktop app |
-| A coding harness | Claude Code, Codex CLI, OpenCode, GitHub Copilot CLI, Grok Build, … | running Bisa for real; the tests use a scripted agent and need none |
+| A coding harness | Claude Code, Codex CLI, OpenCode, GitHub Copilot CLI, Grok Build, Gemini CLI, … | running Bisa for real; the tests use a scripted agent and need none |
 | macOS with Xcode's command-line tools | — | building the desktop app as it ships |
 
 Optional, installed inside the tree by their recipes: cargo-nextest (`just install-nextest`),

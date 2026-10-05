@@ -1,5 +1,5 @@
-//! GitHub Copilot CLI and Grok Build, through the binary: two harnesses that
-//! speak the Agent Client Protocol under ids of their own.
+//! GitHub Copilot CLI, Grok Build and Gemini CLI, through the binary: three
+//! harnesses that speak the Agent Client Protocol under ids of their own.
 //!
 //! No real CLI runs. The scripted agent is placed under each program's name,
 //! so each adapter finds it by its own probe (`--version`, answered with a
@@ -7,15 +7,18 @@
 //! door. What a journey asserts is what the agent kept: the command line it
 //! was started with, the MCP server it was handed, and what its session was
 //! set to — the model first, then the effort, fitted to the levels *that
-//! model* offers — never how the code got there.
+//! model* offers, where the harness has a level at all — never how the code
+//! got there. Gemini CLI's agent speaks the draft before config options
+//! (`model_api: set_model`): its model is set with `session/set_model`, and
+//! nothing is sent for an effort it has no control for.
 //!
 //! The terminal half plays the hooks Copilot CLI fires against the plugin the
 //! platform handed it — the PascalCase events and the payload its hooks
 //! reference gives them (`hook_event_name`, `cwd`, `tool_name` as Claude
 //! names the tool, `tool_input`;
 //! https://docs.github.com/en/copilot/reference/hooks-reference, read
-//! 2026-09-30) — each command line run as a harness runs it. Grok Build's
-//! terminal is handed nothing, and is no session.
+//! 2026-09-30) — each command line run as a harness runs it. Grok Build's and
+//! Gemini CLI's terminals are handed nothing, and are no session.
 
 use super::a_harness_in_a_terminal::{a_port, a_project, a_shell, ended, waiting_in_a_terminal};
 use super::sealed::Sealed;
@@ -23,17 +26,46 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Output;
 
-/// Each harness: the program it is found as, the agent of the journey that
-/// runs on it, and the words its adapter starts it with.
-const HARNESSES: [(&str, &str, &[&str]); 2] = [
-    ("copilot", "pilot", &["--acp", "--stdio", "--no-ask-user"]),
-    ("grok", "builder", &["agent", "--no-leader", "stdio"]),
+/// One harness of the journey.
+struct Harness {
+    /// The program it is found as — its id, the binary's name.
+    program: &'static str,
+    /// The agent of the journey that runs on it.
+    agent: &'static str,
+    /// The words its adapter starts it with.
+    words: &'static [&'static str],
+    /// What a session on `large` at `max` is set to — the model, then the
+    /// effort held to the levels `large` offers; nothing for the effort
+    /// where the harness has no level.
+    set: &'static [(&'static str, &'static str)],
+}
+
+const HARNESSES: [Harness; 3] = [
+    Harness {
+        program: "copilot",
+        agent: "pilot",
+        words: &["--acp", "--stdio", "--no-ask-user"],
+        set: &[("model", "large"), ("effort", "high")],
+    },
+    Harness {
+        program: "grok",
+        agent: "builder",
+        words: &["agent", "--no-leader", "stdio"],
+        set: &[("model", "large"), ("effort", "high")],
+    },
+    Harness {
+        program: "gemini",
+        agent: "twin",
+        words: &["--acp"],
+        set: &[("model", "large")],
+    },
 ];
 
 /// A harness whose sessions choose their model: they open on `small`, which
-/// takes two levels; `large` takes others. A worker on it yields.
-fn chooses_its_model() -> Value {
-    json!({
+/// takes two levels; `large` takes others. A worker on it yields. Gemini
+/// CLI's says its models the draft way and offers no level at all.
+fn chooses_its_model(program: &str) -> Value {
+    let mut script = json!({
         "models": ["small", "large"],
         "model_efforts": {
             "small": ["low", "medium"],
@@ -47,15 +79,20 @@ fn chooses_its_model() -> Value {
             }],
             "say": ["Written."],
         }],
-    })
+    });
+    if program == "gemini" {
+        script["model_api"] = json!("set_model");
+        script.as_object_mut().unwrap().remove("model_efforts");
+    }
+    script
 }
 
-/// A workspace with both harnesses installed, the two core agents on the
+/// A workspace with every harness installed, the two core agents on the
 /// first, and no daemon yet.
-fn with_both_installed() -> Sealed {
+fn with_all_installed() -> Sealed {
     let ws = Sealed::bare();
-    for (program, _, _) in HARNESSES {
-        ws.install_agent_as(program, &chooses_its_model());
+    for Harness { program, .. } in HARNESSES {
+        ws.install_agent_as(program, &chooses_its_model(program));
     }
     for agent in ["general-agent", "workflow-agent"] {
         ws.ok(&[
@@ -148,12 +185,12 @@ fn set_on(ws: &Sealed, program: &str) -> Vec<(String, String, String)> {
 
 #[test]
 fn each_harness_is_found_started_and_set_to_its_model_and_level_the_protocols_way() {
-    let mut ws = with_both_installed();
+    let mut ws = with_all_installed();
 
     // --- found: by the adapter's own probe, with a version -----------------------
     let listed = ws.json(&["harness", "list"]);
     let rows = listed["harnesses"].as_array().expect("the rows");
-    for (program, _, _) in HARNESSES {
+    for Harness { program, .. } in HARNESSES {
         let row = rows
             .iter()
             .find(|row| row["id"] == program)
@@ -170,7 +207,8 @@ fn each_harness_is_found_started_and_set_to_its_model_and_level_the_protocols_wa
     }
 
     // --- its models: Grok Build's as its CLI prints them, the default first;
-    //     Copilot CLI's as its reference lists them --------------------------------
+    //     Copilot CLI's as its reference lists them; Gemini CLI's as its page
+    //     names them, `auto` first, with no level beside any ---------------------
     let grok = ws.json(&["agent", "models", "grok"]);
     let ids: Vec<&str> = grok["models"]
         .as_array()
@@ -187,16 +225,47 @@ fn each_harness_is_found_started_and_set_to_its_model_and_level_the_protocols_wa
             .is_some_and(|all| all.len() == 11),
         "{copilot}"
     );
+    let gemini = ws.json(&["agent", "models", "gemini"]);
+    let listed = gemini["models"].as_array().expect("the models");
+    assert_eq!(
+        listed
+            .iter()
+            .filter_map(|m| m["id"].as_str())
+            .collect::<Vec<_>>(),
+        [
+            "auto",
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash"
+        ],
+        "{gemini}"
+    );
+    assert!(
+        listed
+            .iter()
+            .all(|m| m["efforts"].as_array().is_none_or(|e| e.is_empty())),
+        "no effort control: {gemini}"
+    );
 
     // --- a run on each ------------------------------------------------------------
     let mut workflows = Vec::new();
-    for (program, agent, _) in HARNESSES {
+    for Harness { program, agent, .. } in HARNESSES {
         let name = format!("{}{}", agent[..1].to_uppercase(), &agent[1..]);
         an_agent(&ws, &name, program, &["large"], "max");
         workflows.push(one_step_for(&ws, agent));
     }
     ws.start();
-    for ((program, _, words), workflow) in HARNESSES.iter().zip(&workflows) {
+    for (
+        Harness {
+            program,
+            words,
+            set: expected,
+            ..
+        },
+        workflow,
+    ) in HARNESSES.iter().zip(&workflows)
+    {
         run_to_done(&ws, workflow);
 
         // Started with the adapter's own words: the protocol, and nothing
@@ -220,21 +289,19 @@ fn each_harness_is_found_started_and_set_to_its_model_and_level_the_protocols_wa
 
         // Set the protocol's way: the model, then the effort — `max` asked,
         // held to the levels `large` offers. Fitted to the list the session
-        // opened with, `small`'s, it would have been `medium`.
+        // opened with, `small`'s, it would have been `medium`. A harness with
+        // no level is set its model alone, the draft's way.
         let session = sessions[0]["session"].as_str().unwrap_or_default();
         let set: Vec<(String, String)> = set_on(&ws, program)
             .into_iter()
             .filter(|(of, _, _)| of == session)
             .map(|(_, option, value)| (option, value))
             .collect();
-        assert_eq!(
-            set,
-            [
-                ("model".to_string(), "large".to_string()),
-                ("effort".to_string(), "high".to_string()),
-            ],
-            "{program}"
-        );
+        let expected: Vec<(String, String)> = expected
+            .iter()
+            .map(|(option, value)| (option.to_string(), value.to_string()))
+            .collect();
+        assert_eq!(set, expected, "{program}");
         // And it was prompted once it was set, never before.
         let prompts = ws.recorded_by(program, "prompt");
         assert_eq!(prompts.len(), 1, "{program}: {prompts:?}");
@@ -244,37 +311,66 @@ fn each_harness_is_found_started_and_set_to_its_model_and_level_the_protocols_wa
 
 #[test]
 fn a_model_a_session_does_not_offer_is_passed_over_for_the_next_of_the_plan() {
-    let mut ws = with_both_installed();
-    // A plan whose first model the harness does not offer.
-    an_agent(&ws, "Pilot", "copilot", &["huge", "large"], "low");
-    let workflow = one_step_for(&ws, "pilot");
-    ws.start();
-    run_to_done(&ws, &workflow);
-
-    // The session asked for `huge` ended before it was prompted; the one
-    // that did the work was set to `large`. Nothing was ever set to a model
-    // the harness does not offer, and no session ran on one nobody asked for.
-    let sessions = ws.recorded_by("copilot", "session_new");
-    assert!(
-        sessions.len() > 1,
-        "a session for each model tried: {sessions:?}"
-    );
-    let models: Vec<String> = set_on(&ws, "copilot")
-        .into_iter()
-        .filter(|(_, option, _)| option == "model")
-        .map(|(_, _, value)| value)
+    let mut ws = with_all_installed();
+    // A plan whose first model the harness does not offer — on a harness
+    // whose sessions say their models as a config option, and on one that
+    // says them the draft way.
+    let walked = [("copilot", "Pilot", "pilot"), ("gemini", "Twin", "twin")];
+    let workflows: Vec<String> = walked
+        .iter()
+        .map(|(program, name, agent)| {
+            an_agent(&ws, name, program, &["huge", "large"], "low");
+            one_step_for(&ws, agent)
+        })
         .collect();
-    assert_eq!(models, ["large"], "the only model a session was set to");
-    let prompts = ws.recorded_by("copilot", "prompt");
-    assert_eq!(prompts.len(), 1, "one session was prompted: {prompts:?}");
-    let worked = prompts[0]["session"].as_str().unwrap_or_default();
+    ws.start();
+    for ((program, _, _), workflow) in walked.iter().zip(&workflows) {
+        run_to_done(&ws, workflow);
+
+        // The session asked for `huge` ended before it was prompted; the one
+        // that did the work was set to `large`. Nothing was ever set to a
+        // model the harness does not offer, and no session ran on one nobody
+        // asked for.
+        let sessions = ws.recorded_by(program, "session_new");
+        assert!(
+            sessions.len() > 1,
+            "{program}: a session for each model tried: {sessions:?}"
+        );
+        let models: Vec<String> = set_on(&ws, program)
+            .into_iter()
+            .filter(|(_, option, _)| option == "model")
+            .map(|(_, _, value)| value)
+            .collect();
+        assert_eq!(
+            models,
+            ["large"],
+            "{program}: the only model a session was set to"
+        );
+        let prompts = ws.recorded_by(program, "prompt");
+        assert_eq!(
+            prompts.len(),
+            1,
+            "{program}: one session was prompted: {prompts:?}"
+        );
+        let worked = prompts[0]["session"].as_str().unwrap_or_default();
+        assert!(
+            set_on(&ws, program)
+                .iter()
+                .any(|(session, option, value)| session == worked
+                    && option == "model"
+                    && value == "large"),
+            "{program}: the session that was prompted is the one on `large`"
+        );
+    }
+    // The draft's set is its own method; the option's is the protocol's.
+    let how: Vec<Value> = ws
+        .recorded_by("gemini", "config")
+        .iter()
+        .map(|set| set["method"].clone())
+        .collect();
     assert!(
-        set_on(&ws, "copilot")
-            .iter()
-            .any(|(session, option, value)| session == worked
-                && option == "model"
-                && value == "large"),
-        "the session that was prompted is the one on `large`"
+        !how.is_empty() && how.iter().all(|m| m == "session/set_model"),
+        "{how:?}"
     );
     ws.stop();
 }
@@ -593,33 +689,39 @@ fn a_copilot_tab_reports_through_its_plugin_and_is_judged_in_copilots_own_shape(
 }
 
 #[test]
-fn a_grok_build_tab_is_a_plain_terminal_and_no_session() {
+fn a_grok_build_or_gemini_cli_tab_is_a_plain_terminal_and_no_session() {
     let mut ws = Sealed::bare();
     let _node = ws.start_listening(a_port());
     let checkout = a_project(&ws, "shelf");
     let (_, before) = ws.call("GET", "/node", &[], None);
 
-    // Its TUI takes no hook for one launch, and the platform writes nothing
-    // under ~/.grok or into the project: it opens, and nothing is handed it.
-    let (status, opened) = ws.call(
-        "POST",
-        "/sessions/terminal",
-        &[],
-        Some(&json!({"scope": "workstream", "id": checkout, "harness": "grok"})),
-    );
-    assert_eq!(status, 200, "it opens all the same: {opened}");
-    assert!(opened["session"].is_null(), "no roster row: {opened}");
-    assert!(
-        opened["args"].as_array().is_none_or(|args| args.is_empty()),
-        "no word is added to its command: {opened}"
-    );
+    // Neither TUI takes a hook for one launch, and the platform writes
+    // nothing under ~/.grok or ~/.gemini or into the project: each opens, and
+    // nothing is handed it.
+    for harness in ["grok", "gemini"] {
+        let (status, opened) = ws.call(
+            "POST",
+            "/sessions/terminal",
+            &[],
+            Some(&json!({"scope": "workstream", "id": checkout, "harness": harness})),
+        );
+        assert_eq!(status, 200, "{harness} opens all the same: {opened}");
+        assert!(
+            opened["session"].is_null(),
+            "{harness}: no roster row: {opened}"
+        );
+        assert!(
+            opened["args"].as_array().is_none_or(|args| args.is_empty()),
+            "{harness}: no word is added to its command: {opened}"
+        );
+    }
     let (_, after) = ws.call("GET", "/node", &[], None);
     assert_eq!(after["live_sessions"], before["live_sessions"], "{after}");
     assert!(
         !ws.data().join("run").join("interactive").exists()
             || std::fs::read_dir(ws.data().join("run").join("interactive"))
                 .is_ok_and(|mut entries| entries.next().is_none()),
-        "nothing was written for it"
+        "nothing was written for either"
     );
 
     // A harness with no terminal form at all is still refused by name.

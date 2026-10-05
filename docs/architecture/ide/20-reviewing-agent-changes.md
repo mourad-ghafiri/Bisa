@@ -49,7 +49,7 @@ instructions always knows which mode it is answering in.
 ### The harness requirement
 
 `plan` needs a harness the guard can stop before a tool runs — `HarnessCaps::TOOL_GUARD` (Claude
-Code, GitHub Copilot CLI, Grok Build, any ACP agent) — because a plan that cannot be held to reading is no plan.
+Code, GitHub Copilot CLI, Grok Build, Gemini CLI, any ACP agent) — because a plan that cannot be held to reading is no plan.
 `ConversationMode::needs_tool_guard()` is checked once, at wake time
 (`engine::conversation::wake_attempt`), against the same `guarded` flag that decides whether the
 turn's edits are bracketed one call at a time (below): on any other harness the wake is refused and

@@ -259,7 +259,7 @@ byte route into a blob URL ([17](17-links-and-paths.md)).
 heading carries the anchor GitHub gives it (`ui/headingAnchorsModel.mjs`, tested against GitHub's
 own rule and example: lower-cased, spaces to hyphens, the rest of the punctuation and the ASCII
 symbols GitHub counts as such dropped, markup removed, a repeat `-1`, `-2`…), so a link written for
-GitHub — `[Build and upload](#10-build-and-upload)` — names a heading here too. A same-document link
+GitHub — *Build and upload*, aimed at `#10-build-and-upload` — names a heading here too. A same-document link
 is followed in the rendering: `docLink.fragmentOf(href)` reads the fragment, `ui/docAnchors.scrollToFragment`
 finds the heading under the rendering's box by its id, without regard to case, yields the kept scroll
 and scrolls it into view. **The window never navigates**: the rendering's click handler prevents every

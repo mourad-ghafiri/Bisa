@@ -968,6 +968,7 @@ fn harness_list_reports_probes() {
         "opencode",
         "copilot",
         "grok",
+        "gemini",
         "preset:goose",
     ] {
         assert!(
@@ -1008,17 +1009,21 @@ fn harness_list_reports_probes() {
     if let Some(acp) = launch_of("acp:goose") {
         assert!(acp.is_null(), "an ACP target has no interactive form");
     }
-    // The two harnesses that speak ACP under an id of their own are rows of
+    // The three harnesses that speak ACP under an id of their own are rows of
     // their own — never also a generic target — and a person opens each by
     // its bare command, resumed with its own word.
-    for (id, program) in [("copilot", "copilot"), ("grok", "grok")] {
+    for (id, program, resume) in [
+        ("copilot", "copilot", serde_json::json!(["--continue"])),
+        ("grok", "grok", serde_json::json!(["--continue"])),
+        (
+            "gemini",
+            "gemini",
+            serde_json::json!(["--resume", "latest"]),
+        ),
+    ] {
         let launch = launch_of(id).unwrap_or_else(|| panic!("no row for {id}"));
         assert_eq!(launch["program"], program, "{id}");
-        assert_eq!(
-            launch["resume_args"],
-            serde_json::json!(["--continue"]),
-            "{id}"
-        );
+        assert_eq!(launch["resume_args"], resume, "{id}");
         assert!(launch.get("args").is_none(), "{id}: no protocol word");
         assert!(
             !ids.iter().any(|i| *i == format!("acp:{id}")),

@@ -65,7 +65,7 @@ project's own root is its **primary workstream**, under the project's id) is thr
   that pops once when it is done, a cross that shakes once when it failed, a moon when parked; the
   motion stops under your system's reduced-motion setting. On a workstream row the mark reads first, on
   the left, and the row then shows each harness's own mark — Claude's, Codex's, pi's, Oh My Pi's,
-  OpenCode's, GitHub Copilot's, Grok's, Goose's, Cursor's — for each harness working in it, and a terminal glyph for each open shell. Each
+  OpenCode's, GitHub Copilot's, Grok's, Gemini's, Goose's, Cursor's — for each harness working in it, and a terminal glyph for each open shell. Each
   tab carries one badge, the number of projects it holds; attention is the mark and the row's wash,
   not a count. A listening port a shell or harness opens shows as a chip on the workstream's row:
   hover for its number and process, click to open `http://localhost:<port>`, right-click to copy the
@@ -1060,7 +1060,7 @@ control over every block: **Auto** opens the thinking while it is all the agent 
 it the moment the words begin; **Shown** keeps every thinking open; **Hidden** keeps every thinking
 folded to one line. The choice is remembered; one block can still be opened or closed on its own. A
 harness that reasons in the open — Claude Code, Codex, OpenCode, GitHub Copilot CLI, Grok Build,
-anything speaking ACP — shows its
+Gemini CLI, anything speaking ACP — shows its
 thinking; one that does not shows its words alone. Conversations grow long: the harness keeps and compacts
 its own context, so nothing here asks you to.
 
@@ -1318,16 +1318,16 @@ them, opened in a terminal you watch (the tab reads *run · npm run dev*); a com
 has not approved opens that card instead, and a project that sets none shows no item — then every
 harness the node found, with *resume* when that harness has run in that place before
 and *fresh session* beside it — every harness continues its latest session in that directory with
-its own form (Claude Code, Codex, OpenCode, pi, OMP, GitHub Copilot CLI, Grok Build, Goose and
-Cursor alike), and a resumed
+its own form (Claude Code, Codex, OpenCode, pi, OMP, GitHub Copilot CLI, Grok Build, Gemini CLI,
+Goose and Cursor alike), and a resumed
 harness **starts**: once it has drawn its prompt the tab types *Continue where you left off.* for
 you, unless you type first; **Start a resumed harness** under Settings › Project IDE › Terminal
 turns that off, and the session then waits at its prompt. What the tab then tells the rail is the
 harness's to give: Claude Code, Codex, OpenCode, pi, OMP and GitHub Copilot CLI each report what
 they are doing — Copilot through a plugin the platform mounts for that one launch, which waits *in
 Copilot's own words* when it asks you something — and Claude Code and Copilot CLI ask the guard
-before a tool runs; **Grok Build opens as a plain terminal**: its terminal takes no hook for one
-launch, so nothing is reported and its own prompt is the only one. A project's `terminal.default_harness`
+before a tool runs; **Grok Build and Gemini CLI open as plain terminals**: neither takes a hook for
+one launch, so nothing is reported and each one's own prompt is the only one. A project's `terminal.default_harness`
 setting makes the plain control open that harness instead. From the palette, `Terminal: Claude Code here` and friends open the same
 things without a pointer.
 
@@ -1427,7 +1427,7 @@ text. A relative path there is read from where the shell is: after `cd crates/ap
 ignored or hidden folder — `target/out.log`, `.github/workflows/ci.yml` — or a file an agent made a
 moment ago opens too, once the node has confirmed it is there. A relative link inside a rendered
 document — `./notes.md` — opens the document it names without a card, and a table-of-contents
-link — `[Build and upload](#10-build-and-upload)` — scrolls the rendering to that heading: a
+link — *Build and upload*, aimed at `#10-build-and-upload` — scrolls the rendering to that heading: a
 rendered document's headings carry the same anchors GitHub gives them.
 
 Design: [ide/17 — Links and paths](../architecture/ide/17-links-and-paths.md).

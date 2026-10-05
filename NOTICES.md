@@ -13,7 +13,7 @@ The desktop draws each coding harness's own mark (`desktop/src/ui/harnessMarks.t
 
 ## LobeHub icons — MIT
 
-The Claude Code, Codex, GitHub Copilot, Grok, Goose and pi marks are the SVG paths of `@lobehub/icons-static-svg` (https://github.com/lobehub/lobe-icons).
+The Claude Code, Codex, GitHub Copilot, Grok, Gemini, Goose and pi marks are the SVG paths of `@lobehub/icons-static-svg` (https://github.com/lobehub/lobe-icons).
 
 ```
 MIT License

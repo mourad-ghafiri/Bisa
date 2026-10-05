@@ -16,7 +16,7 @@ graph TB
         core["A workspace on one machine<br/>goals · projects · channels · agents"]
     end
 
-    harness["<b>Coding harnesses</b><br/>Claude Code · Codex · pi<br/>oh-my-pi · OpenCode<br/>Copilot CLI · Grok Build · ACP"]
+    harness["<b>Coding harnesses</b><br/>Claude Code · Codex · pi<br/>oh-my-pi · OpenCode<br/>Copilot CLI · Grok Build · Gemini CLI · ACP"]
     codehost["<b>Git code host</b><br/>gh: pull requests, repos"]
     relays["<b>Nostr relays</b><br/>dumb transport, never authority"]
     ext["<b>The outside world</b><br/>the clock · hook calls · repositories<br/>platforms polled · checks"]

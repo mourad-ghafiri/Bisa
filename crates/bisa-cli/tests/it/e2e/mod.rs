@@ -18,7 +18,7 @@ mod a_folder_served_and_a_browser_asked;
 mod a_harness_in_a_terminal;
 mod a_platform_reached_through_a_connector;
 mod addons_drawings_and_notes;
-mod copilot_and_grok;
+mod copilot_grok_and_gemini;
 mod crash_in_a_step;
 mod events_and_gateways;
 mod every_step_kind;

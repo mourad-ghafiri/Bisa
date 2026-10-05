@@ -205,7 +205,7 @@ fn harness(installed: &[Installed]) -> Check {
             id: CheckId::Harness,
             state: CheckState::Missing,
             title: "A coding harness".into(),
-            detail: "No coding harness is installed on this machine. Agents run on one — Claude Code, Codex, OpenCode, GitHub Copilot CLI or Grok Build; install one, sign in to it, then check again.".into(),
+            detail: "No coding harness is installed on this machine. Agents run on one — Claude Code, Codex, OpenCode, GitHub Copilot CLI, Grok Build or Gemini CLI; install one, sign in to it, then check again.".into(),
             hint: install_hint("claude-code"),
             door: Door::Settings {
                 tab: "harnesses".into(),

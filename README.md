@@ -16,7 +16,7 @@
 
 Bisa is a local-first, account-free platform where people and agents carry
 work from a stated want to a running outcome. It orchestrates the coding harnesses you already have —
-Claude Code, Codex CLI, OpenCode, GitHub Copilot CLI, Grok Build, pi, Oh My Pi, anything speaking ACP —
+Claude Code, Codex CLI, OpenCode, GitHub Copilot CLI, Grok Build, Gemini CLI, pi, Oh My Pi, anything speaking ACP —
 rather than shipping its own, and it speaks Nostr (GEP), MCP, ACP and A2A.
 
 One engine, three ways to reach it: the **desktop app**, the **`bisa` command line**, and the **node**

@@ -2,7 +2,7 @@
 
 Bisa is a local-first, account-free platform where humans and agents carry work from a stated
 want to a running outcome. It orchestrates coding harnesses you already have — Claude Code, Codex
-CLI, pi, oh-my-pi, OpenCode, GitHub Copilot CLI, Grok Build, anything speaking ACP — rather than shipping its own, and it speaks
+CLI, pi, oh-my-pi, OpenCode, GitHub Copilot CLI, Grok Build, Gemini CLI, anything speaking ACP — rather than shipping its own, and it speaks
 Nostr (GEP), MCP, ACP and A2A.
 
 A workspace is a directory. There is no account, no server to sign up for, and no deployed

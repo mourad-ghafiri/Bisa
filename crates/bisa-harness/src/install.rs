@@ -6,7 +6,9 @@
 //! developers.openai.com/codex (Codex), opencode.ai/docs (OpenCode) — and on
 //! 2026-09-30: the github/copilot-cli repository README and
 //! docs.github.com/en/copilot/reference/copilot-cli-reference (GitHub Copilot
-//! CLI), docs.x.ai/build and the xai-org/grok-build user guide (Grok Build).
+//! CLI), docs.x.ai/build and the xai-org/grok-build user guide (Grok Build) —
+//! and on 2026-10-05: geminicli.com/docs/get-started/installation and
+//! get-started/authentication (Gemini CLI).
 
 use serde::{Deserialize, Serialize};
 
@@ -168,6 +170,19 @@ pub const GROK: InstallHint = InstallHint {
     sign_in: Some("run `grok login`, or set XAI_API_KEY"),
 };
 
+/// Gemini CLI — https://geminicli.com/docs/get-started/installation
+pub const GEMINI: InstallHint = InstallHint {
+    url: "https://geminicli.com/docs/get-started/installation",
+    commands: &[
+        on(Platform::MacOs, "brew install gemini-cli"),
+        on(Platform::MacOs, "npm install -g @google/gemini-cli"),
+        on(Platform::Linux, "npm install -g @google/gemini-cli"),
+        on(Platform::Windows, "npm install -g @google/gemini-cli"),
+    ],
+    verify: Some("gemini --version"),
+    sign_in: Some("run `gemini` and choose Login with Google, or set GEMINI_API_KEY"),
+};
+
 /// The hint for a compiled-in harness, by its id; `None` for one whose
 /// official install page is not known to the platform.
 pub fn install_hint(harness_id: &str) -> Option<InstallHint> {
@@ -177,6 +192,7 @@ pub fn install_hint(harness_id: &str) -> Option<InstallHint> {
         "opencode" => Some(OPENCODE),
         "copilot" => Some(COPILOT),
         "grok" => Some(GROK),
+        "gemini" => Some(GEMINI),
         _ => None,
     }
 }
@@ -210,6 +226,7 @@ mod tests {
             ("opencode", OPENCODE),
             ("copilot", COPILOT),
             ("grok", GROK),
+            ("gemini", GEMINI),
         ] {
             assert!(hint.url.starts_with("https://"), "{name}");
             for platform in Platform::ALL {
@@ -222,16 +239,17 @@ mod tests {
         }
         assert!(GIT.sign_in.is_none(), "git has nobody to sign in to");
         assert!(CLAUDE_CODE.sign_in.is_some() && CODEX.sign_in.is_some());
-        assert!(COPILOT.sign_in.is_some() && GROK.sign_in.is_some());
+        assert!(COPILOT.sign_in.is_some() && GROK.sign_in.is_some() && GEMINI.sign_in.is_some());
     }
 
     #[test]
-    fn the_hinted_harnesses_are_the_five_with_a_known_page_and_the_rest_have_none() {
+    fn the_hinted_harnesses_are_the_six_with_a_known_page_and_the_rest_have_none() {
         assert_eq!(install_hint("claude-code"), Some(CLAUDE_CODE));
         assert_eq!(install_hint("codex"), Some(CODEX));
         assert_eq!(install_hint("opencode"), Some(OPENCODE));
         assert_eq!(install_hint("copilot"), Some(COPILOT));
         assert_eq!(install_hint("grok"), Some(GROK));
+        assert_eq!(install_hint("gemini"), Some(GEMINI));
         for other in ["pi", "omp", "acp", "custom", "preset:goose", "nope"] {
             assert_eq!(install_hint(other), None, "{other}");
         }
@@ -245,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn the_two_acp_harnesses_are_installed_and_signed_in_as_their_pages_say() {
+    fn the_three_acp_harnesses_are_installed_and_signed_in_as_their_pages_say() {
         assert_eq!(COPILOT.url, "https://github.com/github/copilot-cli");
         assert_eq!(
             COPILOT.commands_for(Platform::Windows),
@@ -271,6 +289,30 @@ mod tests {
         );
         assert_eq!(GROK.verify, Some("grok --version"));
         assert!(GROK.sign_in.unwrap_or_default().contains("`grok login`"));
+
+        // Gemini CLI is an npm package on every platform, and a brew formula
+        // on a Mac; signing in is the CLI's own first run, or a key.
+        assert_eq!(
+            GEMINI.url,
+            "https://geminicli.com/docs/get-started/installation"
+        );
+        assert_eq!(
+            GEMINI.commands_for(Platform::MacOs),
+            [
+                "brew install gemini-cli",
+                "npm install -g @google/gemini-cli"
+            ]
+        );
+        for platform in [Platform::Linux, Platform::Windows] {
+            assert_eq!(
+                GEMINI.commands_for(platform),
+                ["npm install -g @google/gemini-cli"],
+                "{platform:?}"
+            );
+        }
+        assert_eq!(GEMINI.verify, Some("gemini --version"));
+        let sign_in = GEMINI.sign_in.unwrap_or_default();
+        assert!(sign_in.contains("Login with Google") && sign_in.contains("GEMINI_API_KEY"));
     }
 
     #[test]

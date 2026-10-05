@@ -125,7 +125,7 @@ test("a new agent starts on a harness this machine can run, or on none — no ha
   const editor = readFileSync(new URL("./AgentEditor.tsx", import.meta.url), "utf8");
   assert.ok(editor.includes("}, [open, agent]);"), "the harness list arriving does not take what was typed");
   assert.ok(editor.includes('prev.harness === null ? { ...prev, harness: starting } : prev'), "a draft with no harness takes the first installed, and nothing else of it moves");
-  assert.ok(!/"claude-code"|"codex"|"copilot"|"grok"/.test(editor), "no harness id is spelt in the editor");
+  assert.ok(!/"claude-code"|"codex"|"copilot"|"grok"|"gemini"/.test(editor), "no harness id is spelt in the editor");
   assert.ok(editor.includes("disabled={!maySaveAgent(d, busy)}") && editor.includes("harnessChoices(harnesses, d.harness)"));
 });
 

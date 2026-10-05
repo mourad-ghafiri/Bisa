@@ -7,13 +7,13 @@
  */
 
 /** Every mark `harnessMarks.tsx` draws, by the id it stands for. */
-export const MARK_IDS = Object.freeze(["claude-code", "codex", "pi", "omp", "opencode", "copilot", "grok", "goose", "cursor-agent", "acp", "custom"]);
+export const MARK_IDS = Object.freeze(["claude-code", "codex", "pi", "omp", "opencode", "copilot", "grok", "gemini", "goose", "cursor-agent", "acp", "custom"]);
 
 /**
  * The mark for a harness id, or `null` for one nothing here knows — the
  * caller draws the generic terminal glyph then.
  * @param {string | null | undefined} id
- * @returns {"claude-code" | "codex" | "pi" | "omp" | "opencode" | "copilot" | "grok" | "goose" | "cursor-agent" | "acp" | "custom" | null}
+ * @returns {"claude-code" | "codex" | "pi" | "omp" | "opencode" | "copilot" | "grok" | "gemini" | "goose" | "cursor-agent" | "acp" | "custom" | null}
  */
 export function markIdOf(id) {
   if (!id) return null;

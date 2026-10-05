@@ -42,7 +42,7 @@ Read [07 — Layering](../07-layering.md) first for the rules between the layers
 | `bisa-security` | [security](security.md) | the Redactor, the Tool & Commands Guard and the Classifier's contract — pure rules over text, the placeholder vault | netrules |
 | `bisa-iso` | [iso](iso.md) | isolation backends: two-phase probe, ordered fallback | vcs |
 | `bisa-harness` | [harness](harness.md) | the adapter and session traits, the event model, the three-tier catalog, skill delivery | cache, core |
-| `bisa-adapters` | [adapters](adapters.md) | one adapter per harness: claude-code, codex, acp, pi, omp, OpenCode, copilot (GitHub Copilot CLI), grok (Grok Build), custom-json, a2a — and the usage readers | core, harness, http |
+| `bisa-adapters` | [adapters](adapters.md) | one adapter per harness: claude-code, codex, acp, pi, omp, OpenCode, copilot (GitHub Copilot CLI), grok (Grok Build), gemini (Gemini CLI), custom-json, a2a — and the usage readers | core, harness, http |
 | `bisa-mcp` | [mcp](mcp.md) | the MCP server a session is handed, and the intake client behind it | core |
 | `bisa-mcp-probe` | [mcp-probe](mcp-probe.md) | the client that dials an installed MCP server — stdio, Streamable HTTP, the older HTTP+SSE — in either protocol era and reports what answered; never runs a tool | `bisa-core`, `bisa-http` |
 | `bisa-store` | [store](store.md) | the filesystem as truth, `index.sqlite` as a cache, identity, ingest | core, harness |

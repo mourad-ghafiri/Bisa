@@ -394,8 +394,9 @@ that probes unavailable is abandoned entirely; a model that says no moves to the
 
 **How the model reaches the harness** is the adapter's: a flag for the CLIs that take one
 (`--model`, `-m`), and for an agent that speaks ACP — a generic target, GitHub Copilot CLI, Grok
-Build — the session's own config option of category `model`, set before the first prompt and
-before the effort. **A session is never recorded on a model it is not running**: an ACP session
+Build, Gemini CLI — the session's own config option of category `model`, set before the first
+prompt and before the effort (Gemini CLI still speaks the draft before config options: its
+session lists `models`, and is set with `session/set_model`). **A session is never recorded on a model it is not running**: an ACP session
 that chooses its model among ones that do not include the model asked, or that refuses it when it
 is set, ends `ModelUnavailable` before any prompt — *a model that says no* — and the walk moves to
 the plan's next. A session that offers no model option cannot be told; it runs the agent's own
@@ -472,9 +473,10 @@ fits it among what the session advertises — as pi fits a level to its model.
 | ACP | `session/set_config_option` on the option whose category is `thought_level` ([session config options](https://agentclientprotocol.com/protocol/session-config-options)) — after the model, when the session chooses one: the levels fitted are the ones the model's own answer offers | all six may be asked for; the adapter fits the level among what the session advertises |
 | GitHub Copilot CLI | as ACP — reasoning effort is a session config option of its ACP server ([changelog](https://github.com/github/copilot-cli/blob/main/changelog.md)); no `--effort` word is passed | `low`–`max` on a `claude-*` model, `low`–`xhigh` on any other and on none — *`max` is the highest-depth tier for Anthropic models* ([CLI reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)) |
 | Grok Build | as ACP — the session's `reasoning_effort` option ([agent mode](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/15-agent-mode.md)) | `minimal`–`xhigh`; a model that takes none advertises none, and is sent none |
+| Gemini CLI | nothing — its ACP session offers no `thought_level` option and the CLI documents no control for how hard a model works ([ACP mode](https://geminicli.com/docs/cli/acp-mode), [CLI reference](https://geminicli.com/docs/cli/cli-reference)) | none |
 | Goose, Cursor Agent, A2A, a custom harness | nothing — none documents a control | none |
 
-Every page was read on 2026-09-29, Copilot CLI's and Grok Build's on 2026-09-30. A harness refusing a level would fail the launch as any other
+Every page was read on 2026-09-29, Copilot CLI's and Grok Build's on 2026-09-30, Gemini CLI's on 2026-10-05. A harness refusing a level would fail the launch as any other
 launch error does, which is why the lists for a model the platform does not know are the
 conservative ones.
 

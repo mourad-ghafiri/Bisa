@@ -691,7 +691,8 @@ while read -r _l; do :; done
 }
 
 // ---------------------------------------------------------------------------
-// GitHub Copilot CLI and Grok Build (their own ids, over the one ACP door)
+// GitHub Copilot CLI, Grok Build and Gemini CLI (their own ids, over the one
+// ACP door)
 // ---------------------------------------------------------------------------
 
 /// An ACP agent that chooses its model: it opens on `small`, which takes two
@@ -960,6 +961,119 @@ fi
     assert_eq!(models[0].efforts, adapter.efforts(Some("grok-b")));
 }
 
+/// An ACP agent on the draft before config options, as Gemini CLI is: its
+/// `session/new` answers `models` — the ids it lists and the one it is on —
+/// and no config option at all; the model is set with `session/set_model`,
+/// answered empty. It keeps what it was started with and what it was told,
+/// in order, in `<stub>.seen`.
+fn acp_stub_on_the_model_draft(dir: &Path, name: &str) -> PathBuf {
+    write_stub(
+        dir,
+        name,
+        r#"
+seen="$0.seen"
+echo "args: $*" > "$seen"
+while read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}}'
+      ;;
+    *'"method":"session/new"'*)
+      echo '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s-1","modes":{"availableModes":[{"id":"default","name":"Default"}],"currentModeId":"default"},"models":{"availableModels":[{"modelId":"small","name":"Small"},{"modelId":"large","name":"Large"}],"currentModelId":"small"}}}'
+      ;;
+    *'"method":"session/set_model"'*)
+      echo "set model: $line" >> "$seen"
+      echo '{"jsonrpc":"2.0","id":5,"result":{}}'
+      ;;
+    *'"method":"session/set_config_option"'*)
+      echo "set option: $line" >> "$seen"
+      echo '{"jsonrpc":"2.0","id":4,"result":{"configOptions":[]}}'
+      ;;
+    *'"method":"session/prompt"'*)
+      echo "prompt" >> "$seen"
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello from the stub"}}}}'
+      echo '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
+      ;;
+  esac
+done
+"#,
+    )
+}
+
+#[tokio::test]
+async fn gemini_is_started_in_protocol_mode_and_set_the_drafts_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = acp_stub_on_the_model_draft(dir.path(), "gemini");
+    let adapter = bisa_adapters::gemini::GeminiAdapter {
+        program: stub.display().to_string(),
+    };
+    let mut asked = spec(dir.path(), "hello");
+    asked.model = Some("large".into());
+    // No effort: the harness has no such control, and the engine asks none.
+    asked.effort = None;
+    let session = adapter.launch(asked).await.unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(has_text_delta(&events, "hello from the stub"), "{events:?}");
+    assert!(ended_completed(&events), "{events:?}");
+    let token = session.resume_token().unwrap();
+    assert_eq!(token.adapter_id, "gemini");
+    assert_eq!(token.native_id, "s-1");
+    assert_eq!(token.model.as_deref(), Some("large"));
+    assert_eq!(token.effort, None);
+    session.dispose().await.unwrap();
+
+    let seen = seen_by(&stub);
+    assert_eq!(
+        seen[0], "args: --acp",
+        "the one protocol word: no model, no effort and no approval word on the command line"
+    );
+    let order: Vec<&str> = seen[1..]
+        .iter()
+        .map(|l| l.split(':').next().unwrap_or(l))
+        .collect();
+    assert_eq!(
+        order,
+        ["set model", "prompt"],
+        "the model the draft's way, then the prompt — and no option set: {seen:?}"
+    );
+    assert!(
+        seen[1].contains(r#""method":"session/set_model""#)
+            && seen[1].contains(r#""modelId":"large""#),
+        "{seen:?}"
+    );
+}
+
+/// `gemini` is a common word for a binary: the CLI is there only when it
+/// answers with a version, as the CLI prints one — the bare number.
+#[tokio::test]
+async fn gemini_is_there_only_when_it_answers_with_a_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let cli = write_stub(dir.path(), "gemini", "echo '0.31.0'\n");
+    let probe = bisa_adapters::gemini::GeminiAdapter {
+        program: cli.display().to_string(),
+    }
+    .probe()
+    .await;
+    assert!(probe.available, "{probe:?}");
+    assert_eq!(probe.version.as_deref(), Some("0.31.0"));
+
+    let mute = write_stub(dir.path(), "gemini-mute", "echo 'Gemini CLI'\n");
+    let probe = bisa_adapters::gemini::GeminiAdapter {
+        program: mute.display().to_string(),
+    }
+    .probe()
+    .await;
+    assert!(!probe.available, "{probe:?}");
+    assert!(
+        probe
+            .reason
+            .as_deref()
+            .is_some_and(|r| r.ends_with("with a version")),
+        "{probe:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // registration
 // ---------------------------------------------------------------------------
@@ -976,6 +1090,7 @@ async fn register_all_populates_catalog() {
         "opencode",
         "copilot",
         "grok",
+        "gemini",
         "acp:goose",
         "acp:cursor-agent",
         "acp:omp",
@@ -992,8 +1107,9 @@ async fn register_all_populates_catalog() {
         "GitHub Copilot CLI"
     );
     assert_eq!(catalog.get("grok").unwrap().display_name(), "Grok Build");
+    assert_eq!(catalog.get("gemini").unwrap().display_name(), "Gemini CLI");
     // One row each: an id of its own is not also a generic target.
-    for generic in ["acp:copilot", "acp:grok"] {
+    for generic in ["acp:copilot", "acp:grok", "acp:gemini"] {
         assert!(catalog.get(generic).is_none(), "{generic}");
     }
     // Every id the catalog reserves for a compiled-in adapter has one —
@@ -1338,7 +1454,8 @@ while read -r _l; do :; done
 fn every_interactive_adapter_offers_the_program_it_probes() {
     use bisa_adapters::{
         claude_code::ClaudeCodeAdapter, codex::CodexAdapter, copilot::CopilotAdapter,
-        grok::GrokAdapter, omp::OmpAdapter, opencode::OpencodeAdapter, pi_rpc::PiRpcAdapter,
+        gemini::GeminiAdapter, grok::GrokAdapter, omp::OmpAdapter, opencode::OpencodeAdapter,
+        pi_rpc::PiRpcAdapter,
     };
 
     let cases: Vec<(&str, Box<dyn HarnessAdapter>, &str)> = vec![
@@ -1395,6 +1512,13 @@ fn every_interactive_adapter_offers_the_program_it_probes() {
             }),
             "grok-somewhere-else",
         ),
+        (
+            "gemini",
+            Box::new(GeminiAdapter {
+                program: "gemini-somewhere-else".into(),
+            }),
+            "gemini-somewhere-else",
+        ),
     ];
 
     for (id, adapter, program) in cases {
@@ -1427,26 +1551,29 @@ fn a_protocol_adapter_has_no_interactive_form() {
 }
 
 /// A harness that speaks ACP under an id of its own does have a terminal
-/// form — the bare command a person types — and it carries none of the words
-/// that put the binary in protocol mode: `copilot --acp` or `grok agent
-/// stdio` in a PTY is a screen of JSON-RPC.
+/// form — the bare command a person types, resumed with its own word — and
+/// it carries none of the words that put the binary in protocol mode:
+/// `copilot --acp`, `grok agent stdio` or `gemini --acp` in a PTY is a
+/// screen of JSON-RPC.
 #[test]
 fn a_harness_that_speaks_acp_under_its_own_id_is_opened_bare_in_a_terminal() {
-    use bisa_adapters::{copilot::CopilotAdapter, grok::GrokAdapter};
+    use bisa_adapters::{copilot::CopilotAdapter, gemini::GeminiAdapter, grok::GrokAdapter};
 
     let copilot = CopilotAdapter::default();
     let grok = GrokAdapter::default();
-    let cases: [(&dyn HarnessAdapter, Vec<String>); 2] = [
-        (&copilot, copilot.command().args),
-        (&grok, grok.command().args),
+    let gemini = GeminiAdapter::default();
+    let cases: [(&dyn HarnessAdapter, Vec<String>, &[&str]); 3] = [
+        (&copilot, copilot.command().args, &["--continue"]),
+        (&grok, grok.command().args, &["--continue"]),
+        (&gemini, gemini.command().args, &["--resume", "latest"]),
     ];
-    for (adapter, protocol_words) in cases {
+    for (adapter, protocol_words, resume_words) in cases {
         let launch = adapter
             .interactive()
             .unwrap_or_else(|| panic!("{} has a terminal form", adapter.id()));
         assert_eq!(launch.program, adapter.id(), "the binary is its id");
         assert!(launch.args.is_empty(), "{}", adapter.id());
-        assert_eq!(launch.resume_args, ["--continue"], "{}", adapter.id());
+        assert_eq!(launch.resume_args, resume_words, "{}", adapter.id());
         for word in &protocol_words {
             assert!(
                 !launch.args.contains(word) && !launch.resume_args.contains(word),

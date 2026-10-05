@@ -17,7 +17,7 @@ Developers who carry work from a stated want to a running outcome with coding ag
 
 ## Product Purpose
 
-Bisa is a local-first, account-free agentic IDE. It orchestrates the coding harnesses a person already has (Claude Code, Codex CLI, OpenCode, GitHub Copilot CLI, Grok Build, pi, Oh My Pi, anything speaking ACP) rather than shipping its own. A goal is the durable object; its workflow is how it runs. Success is a person who can see at a glance what waits on them, decide it, and get back to the work.
+Bisa is a local-first, account-free agentic IDE. It orchestrates the coding harnesses a person already has (Claude Code, Codex CLI, OpenCode, GitHub Copilot CLI, Grok Build, Gemini CLI, pi, Oh My Pi, anything speaking ACP) rather than shipping its own. A goal is the durable object; its workflow is how it runs. Success is a person who can see at a glance what waits on them, decide it, and get back to the work.
 
 ## Positioning
 

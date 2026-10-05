@@ -25,6 +25,16 @@ notes (`docs/contributing/release.md`).
   count, the mark of each harness open in one of its projects — Claude Code's, Codex's — and, on
   hover, which project and workstream each one is in and what it is doing. A finished or failed
   harness, or a plain shell, shows nothing; a folded group still says it.
+- **Gemini CLI** is a harness. Google's agent CLI is found by its own version, installed and signed
+  in as its page says (`npm install -g @google/gemini-cli` or Homebrew; *Login with Google* or
+  `GEMINI_API_KEY`), and driven over the Agent Client Protocol with the platform's tools: the model
+  is set on the session before the first word — `auto`, the CLI's own default, or one of the models
+  its page names — a model your sign-in lacks is passed over for the plan's next, and every tool is
+  asked before it runs, so the guard answers. It has no effort control, so none is sent, and no
+  account-usage source, so the footer says so. It wears its own mark, and opens in a terminal as the
+  bare `gemini`, resumed with `--resume latest` — a plain terminal, like Grok Build's. For every ACP
+  agent, a permission is now answered with its *once* option whatever order the agent lists them, so
+  one allow never becomes a standing grant.
 
 ### Changed
 

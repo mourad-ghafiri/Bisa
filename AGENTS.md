@@ -23,7 +23,7 @@ The person who asked you is responsible for your change and submits it. Every ru
 | `crates/bisa-engine` | everything with an effect: runs, sessions, events, the IDE's operations |
 | `crates/bisa-node` | the daemon: HTTP API, auth, the event stream |
 | `crates/bisa-cli` | the `bisa` binary: verbs, the node, the MCP server; end-to-end journeys in `tests/it/e2e/` |
-| `crates/bisa-adapters`, `crates/bisa-harness` | coding harnesses (Claude Code, Codex, OpenCode, Copilot, Grok, ACP, A2A, custom) |
+| `crates/bisa-adapters`, `crates/bisa-harness` | coding harnesses (Claude Code, Codex, OpenCode, Copilot, Grok, Gemini, ACP, A2A, custom) |
 | `desktop/src` | the UI: facts in `.mjs` models with `.d.mts` and tests; components only draw |
 | `desktop/src-tauri` | the native shell |
 | `locales/` | every sentence a person reads |

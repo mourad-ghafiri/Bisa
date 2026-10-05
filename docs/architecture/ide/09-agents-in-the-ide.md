@@ -14,7 +14,7 @@ is a card in the Inbox when the workstream belongs to a goal, and a card in the 
 when it does not — the conversation's own **mode** decides how far the turn goes before that happens
 at all ([20 — Reviewing agent changes](20-reviewing-agent-changes.md)). The
 sessions list wears a shield beside a harness the guard can stop — Claude Code, GitHub Copilot CLI,
-Grok Build, any ACP agent — and none beside one that runs under its own sandbox.
+Grok Build, Gemini CLI, any ACP agent — and none beside one that runs under its own sandbox.
 
 ---
 
@@ -303,7 +303,8 @@ their `isError` verdict, approvals and prompts, and no sub-agents (pi ships none
 exposes none to an extension); GitHub Copilot CLI gives turns, tools with their verdict and a wait
 in its own words (its `permission_prompt` and `elicitation_dialog` notifications), through a plugin
 mounted for the one launch, and no sub-agents (its `subagentStart` hook carries no id); Grok Build
-reports nothing — its TUI takes no hook for one launch, and it opens as a plain terminal; Goose and
+and Gemini CLI report nothing — neither takes a hook for one launch, and each opens as a plain
+terminal; Goose and
 Cursor are presets — detected, not driven — and report nothing. A *waiting on you*
 from a terminal harness is answered **in the terminal** — the row's click opens the tab and offers
 no *Answer* — and its verb is *Terminate*, which closes the tab: the process ends and the row goes with it.
@@ -333,7 +334,7 @@ its tone is `terminalsModel.livenessTone`.
 A heading of the project rail wears the marks of the harnesses open under it — each harness's own, one per distinct harness, quiet beside the heading's count — with a tip naming each one's project, workstream and what it is doing (`railHarnessesModel`, [07 §Why switching is free](07-workstreams.md#why-switching-is-free)); the attention stays on the session's own mark, on its row.
 
 A harness is a **mark** too — its own (`ui/harnessMarks.tsx`): Claude Code, Codex, GitHub Copilot,
-Grok, Goose and pi from LobeHub's MIT set, OpenCode and Cursor from Simple Icons, OMP hand-drawn because it publishes
+Grok, Gemini, Goose and pi from LobeHub's MIT set, OpenCode and Cursor from Simple Icons, OMP hand-drawn because it publishes
 none, an ACP plug, a custom wand; the licences in `NOTICES.md`. It is the glyph on a session row in
 the rail and the Workstreams panel, on a terminal tab, in the launcher's menu and on the agent chip
 in a conversation, so *which* harness reads before the name does. After the name, dimmed, **the

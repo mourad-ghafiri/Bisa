@@ -36,14 +36,17 @@ test("every built-in and every preset harness resolves to a mark, and the marks 
   assert.equal(new Set(MARK_IDS).size, MARK_IDS.length);
 });
 
-test("the two harnesses that speak ACP under an id of their own wear their own marks, never the protocol's plug", () => {
-  assert.ok(builtinIds().includes("copilot") && builtinIds().includes("grok"), "the catalog compiles both in");
-  assert.equal(markIdOf("copilot"), "copilot");
-  assert.equal(markIdOf("grok"), "grok");
+test("the three harnesses that speak ACP under an id of their own wear their own marks, never the protocol's plug", () => {
+  const own = [["copilot", "CopilotMark"], ["grok", "GrokMark"], ["gemini", "GeminiMark"]];
+  for (const [id] of own) {
+    assert.ok(builtinIds().includes(id), `the catalog compiles ${id} in`);
+    assert.equal(markIdOf(id), id);
+  }
   // The generic route into an agent is still the plug, whatever the agent.
   assert.equal(markIdOf("acp:copilot"), "acp");
+  assert.equal(markIdOf("acp:gemini"), "acp");
   const marks = readFileSync(join(here, "harnessMarks.tsx"), "utf8");
-  for (const [id, component] of [["copilot", "CopilotMark"], ["grok", "GrokMark"]]) {
+  for (const [id, component] of own) {
     assert.match(marks, new RegExp(`^  ${id}: ${component},$`, "m"), `${id} is drawn by ${component}`);
     assert.match(marks, new RegExp(`<Svg \\{\\.\\.\\.p\\} id="${id}">`), `${component} names the id it stands for`);
   }

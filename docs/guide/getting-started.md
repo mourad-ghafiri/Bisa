@@ -8,7 +8,7 @@ the CLI are the same binary for when you want a daemon or a terminal. You need:
 - at least one coding harness: [Claude Code](https://code.claude.com/docs/en/setup) (`claude`),
   [Codex CLI](https://developers.openai.com/codex) (`codex`), [OpenCode](https://opencode.ai/docs),
   [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`),
-  [Grok Build](https://docs.x.ai/build/overview) (`grok`), oh-my-pi (`omp`), pi, goose,
+  [Grok Build](https://docs.x.ai/build/overview) (`grok`), [Gemini CLI](https://geminicli.com/docs/) (`gemini`), oh-my-pi (`omp`), pi, goose,
   cursor-agent — or any ACP agent — signed in
 - a model for the **Decision-Making Agent** to answer with: one of an installed harness (Claude
   Code · `claude-sonnet-5-5[1m]` out of the box), or Jev with its API key — set under Settings › Decision

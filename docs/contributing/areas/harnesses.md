@@ -1,7 +1,7 @@
 # Harnesses
 
 For a person, a harness is a coding agent program they already have — Claude Code, Codex CLI, OpenCode,
-GitHub Copilot CLI, Grok Build, pi, Oh My Pi, anything that speaks ACP, an A2A agent or a custom binary
+GitHub Copilot CLI, Grok Build, Gemini CLI, pi, Oh My Pi, anything that speaks ACP, an A2A agent or a custom binary
 — which Bisa drives rather than shipping its own, in the background for a step or a conversation, or in
 a terminal tab. In code, `crates/bisa-harness` is the abstraction — two traits, one event model, a
 three-tier catalog, skill delivery, the shared subprocess plumbing — and `crates/bisa-adapters` holds one
@@ -46,7 +46,7 @@ adapter per harness, the only place a harness's own wording is ever read.
 - `scripts/test crate adapters` — every adapter against its scripted peer; `scripts/test lib adapters` for the unit tests beside each wire; `FEATURES=a2a scripts/test crate adapters a2a` for A2A.
 - `scripts/test module engine models`, `scripts/test module engine readiness`, `scripts/test module engine presence`, `scripts/test module engine interactive`.
 - `desktop/src/ui/harnessMarkModel.test.mjs` — every built-in id wears a mark.
-- Journeys: `crates/bisa-cli/tests/it/e2e/copilot_and_grok.rs`, `crates/bisa-cli/tests/it/e2e/a_harness_in_a_terminal.rs`, `crates/bisa-cli/tests/it/e2e/models_and_effort.rs`, `crates/bisa-cli/tests/it/e2e/the_setup_gate.rs`; the scripted agent goes under a harness's program name with `Sealed::install_agent_as`.
+- Journeys: `crates/bisa-cli/tests/it/e2e/copilot_grok_and_gemini.rs`, `crates/bisa-cli/tests/it/e2e/a_harness_in_a_terminal.rs`, `crates/bisa-cli/tests/it/e2e/models_and_effort.rs`, `crates/bisa-cli/tests/it/e2e/the_setup_gate.rs`; the scripted agent goes under a harness's program name with `Sealed::install_agent_as`.
 - One module at a time; the whole workspace (`just verify`) only at the end of a pass ([Running](../testing-rules.md#running)).
 
 ## Common changes

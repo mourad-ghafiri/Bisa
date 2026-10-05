@@ -191,10 +191,12 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, SessionEvent::Progress(ProgressEvent::TurnEnded))));
-        assert!(
-            translate("grok", &serde_json::json!({"hook_event_name": "Stop"})).is_empty(),
-            "Grok Build's terminal has no hook of ours: nothing is reported, nothing read"
-        );
+        for bare in ["grok", "gemini"] {
+            assert!(
+                translate(bare, &serde_json::json!({"hook_event_name": "Stop"})).is_empty(),
+                "{bare}'s terminal has no hook of ours: nothing is reported, nothing read"
+            );
+        }
     }
 
     #[test]
@@ -250,7 +252,15 @@ mod tests {
             assert!(guard_output(harness, &serde_json::json!({ "reason": "x" })).is_none());
         }
         // A harness with no hook that reads a verdict is printed nothing.
-        for harness in ["codex", "opencode", "pi", "omp", "grok", "custom:mine"] {
+        for harness in [
+            "codex",
+            "opencode",
+            "pi",
+            "omp",
+            "grok",
+            "gemini",
+            "custom:mine",
+        ] {
             assert!(guard_output(harness, &deny).is_none(), "{harness}");
         }
     }

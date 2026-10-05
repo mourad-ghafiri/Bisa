@@ -27,7 +27,7 @@ graph TB
     decision["bisa-decision<br/>the Decision-Making Agent's providers"]
     iso["bisa-iso<br/>isolation backends"]
     harness["bisa-harness<br/>adapter traits, catalog, model plans"]
-    adapters["bisa-adapters<br/>claude-code · codex · acp · pi · omp · OpenCode · copilot · grok"]
+    adapters["bisa-adapters<br/>claude-code · codex · acp · pi · omp · OpenCode · copilot · grok · gemini"]
     store["<b>bisa-store</b><br/>truth files + rebuildable index"]
     mcp["bisa-mcp<br/>the tool surface"]
     mcpprobe["bisa-mcp-probe<br/>dials an installed MCP server"]

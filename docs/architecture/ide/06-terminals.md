@@ -225,6 +225,7 @@ the same adapter (`HarnessAdapter::translate_report`) into the engine's `Session
 | OMP · pi | `-e <run/interactive/…/bisa-reporter.ts>` — a generated extension that shells out to the reporter per event, the tool's `isError` forwarded | turns, tools with their verdict, approvals (OMP) and extension prompts (pi), the model when a turn starts on a named one; no sub-agents (pi ships none by design; OMP's `task` fan-out is not exposed to an extension) |
 | GitHub Copilot CLI | `--plugin-dir=<run/interactive/…>` — the session's own folder is a plugin for that launch: `plugin.json` names `hooks.json`, whose events (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `Stop` — PascalCase, the names that deliver the Claude-shaped payload) each run `bisa session report --harness copilot`; the guard is a second `PreToolUse` entry when the machine guards terminals | turns, *running <tool>* with its verdict (`PostToolUseFailure`), *waiting on you* in Copilot's own words — its `permission_prompt` and `elicitation_dialog` notifications carry a sentence and no tool — over when something then runs, ends or is said; no sub-agents (its `subagentStart` hook carries no id to nest under), no model, and no `PermissionRequest`, which fires before Copilot's own rules for calls nobody is asked about |
 | Grok Build | nothing — its TUI takes no hook and no plugin for one launch (`--plugin-dir` is `grok agent`'s alone) and the platform writes nothing under `~/.grok` or into a project; the reporting plan is the empty one | liveness only, as a plain terminal: no session, no roster row, no guard |
+| Gemini CLI | nothing — its hooks live in its own `settings.json`, which the platform never writes, and it takes none for one launch; the reporting plan is the empty one | liveness only, as a plain terminal: no session, no roster row, no guard |
 | OpenCode | `--port <n>`; the engine subscribes to the TUI's own `GET /event` stream — nothing is injected; every pulled event passes the Redactor like a reported one; every frame is raised by its `sessionID`, so the engine sorts the root from the child sessions | started (`server.connected`), turns, tools, permissions, questions (its `question` tool), cost (`step-finish` parts), the model (an assistant `message.updated`), sub-agents as child sessions (`parentID`): announced by id and title, an idle one has left, an erroring one failed |
 | a plain shell, a custom or preset binary (Goose, Cursor) | nothing — a preset is detected, not driven | liveness only — and, for a shell, the harness the process table shows running under it (§What runs in a shell), as a harness terminal row |
 
@@ -379,9 +380,11 @@ directory"), OpenCode `--continue`, pi `--continue` ("continue most recent sessi
 a resumed OMP used to sit in), GitHub Copilot CLI `--continue` ("resume the most recent session in
 the current working directory" — falling back, in Copilot's own words, to the globally most recent
 one), Grok Build `--continue` ("continue the most recent session for the current working
-directory"), Goose `session --resume`, Cursor `--continue` ("the previous session"); a custom
-descriptor's is its own; an `acp:*` or `a2a:*` target has no interactive form — Copilot CLI and
-Grok Build speak ACP under ids of their own, and open by their bare commands.
+directory"), Gemini CLI `--resume latest` ("resume a previous session … `latest` for most
+recent" — its sessions are the directory's), Goose `session --resume`, Cursor `--continue` ("the
+previous session"); a custom descriptor's is its own; an `acp:*` or `a2a:*` target has no
+interactive form — Copilot CLI, Grok Build and Gemini CLI speak ACP under ids of their own, and
+open by their bare commands.
 
 ## A resumed session starts
 

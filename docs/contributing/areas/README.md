@@ -13,7 +13,7 @@ public contract, and what review looks at first. The same areas appear in the is
 | Node and HTTP API | [node](node.md) | the daemon's routes, auth and event stream — `bisa-node` |
 | CLI | [cli](cli.md) | the `bisa` command line and the end-to-end journeys — `bisa-cli` |
 | MCP tools | [mcp](mcp.md) | the tools every harness session is handed — `bisa-mcp` |
-| Harnesses | [harnesses](harnesses.md) | Claude Code, Codex, OpenCode, Copilot, Grok, pi, ACP, A2A, custom — `bisa-harness`, `bisa-adapters` |
+| Harnesses | [harnesses](harnesses.md) | Claude Code, Codex, OpenCode, Copilot, Grok, Gemini, pi, ACP, A2A, custom — `bisa-harness`, `bisa-adapters` |
 | Collaboration | [collaboration](collaboration.md) | people on other nodes, GEP over Nostr — `bisa-collab`, `bisa-guest`, `bisa-net` |
 | Security features | [security](security.md) | the Redactor, the Tool & Commands Guard, the Classifier, the publish gate — `bisa-security` |
 | Decision-making | [decision-making](decision-making.md) | the Decision-Making Agent and the decision points — `bisa-decision` |

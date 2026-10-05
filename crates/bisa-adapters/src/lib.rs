@@ -2,9 +2,9 @@
 //!
 //! One module + one cargo feature per adapter (all on by default):
 //! `claude-code`, `codex`, `acp` (the Agent Client Protocol, and the generic
-//! ACP agents), `pi-rpc`, `omp`, `opencode`, `copilot` (GitHub Copilot CLI)
-//! and `grok` (Grok Build) — two harnesses that speak ACP, each its own
-//! facts over [`acp::open`] — and `custom-json`. Shared subprocess/session
+//! ACP agents), `pi-rpc`, `omp`, `opencode`, `copilot` (GitHub Copilot CLI),
+//! `grok` (Grok Build) and `gemini` (Gemini CLI) — three harnesses that speak
+//! ACP, each its own facts over [`acp::open`] — and `custom-json`. Shared subprocess/session
 //! machinery lives in [`util`] and [`oneshot`]; the pi wire mapping shared by
 //! pi/omp in [`pi_wire`].
 
@@ -26,6 +26,8 @@ pub mod codex;
 pub mod copilot;
 #[cfg(feature = "custom-json")]
 pub mod custom_json;
+#[cfg(feature = "gemini")]
+pub mod gemini;
 #[cfg(feature = "grok")]
 pub mod grok;
 #[cfg(feature = "omp")]
@@ -69,6 +71,8 @@ pub fn register_all(catalog: &mut HarnessCatalog, http: Arc<bisa_http::Clients>)
     catalog.register(Arc::new(copilot::CopilotAdapter::default()));
     #[cfg(feature = "grok")]
     catalog.register(Arc::new(grok::GrokAdapter::default()));
+    #[cfg(feature = "gemini")]
+    catalog.register(Arc::new(gemini::GeminiAdapter::default()));
     #[cfg(feature = "acp")]
     {
         // Known ACP targets, PATH-probed like any adapter. `omp acp` gives a

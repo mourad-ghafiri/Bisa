@@ -190,7 +190,7 @@ its facts.** Two ways in, by what the platform should know of it:
 - **A generic target** — one line in `register_all`: `AcpAdapter::new("acp:<x>", label, program,
   args)`. Four words: no probe beyond `PATH`, no models, no terminal form, the protocol's plug for
   a mark.
-- **An id of its own** (`copilot.rs`, `grok.rs` are the models) — `src/<id>.rs` with a
+- **An id of its own** (`copilot.rs`, `grok.rs`, `gemini.rs` are the models) — `src/<id>.rs` with a
   `HarnessAdapter` whose `launch` is `acp::open(self.command(), &spec, None)` and whose `attach`
   is `acp::revival(ADAPTER_ID, token)` then `acp::open(…, Some(native_id))`; `command()` is a pure
   function returning an `AcpCommand` — the words that put the binary in protocol mode, and
@@ -210,7 +210,7 @@ What such an adapter never does:
 
 Tests: the adapter's own facts beside it (the command, the levels, the models, the terminal
 form); a stub agent driven through it in `tests/it/adapters.rs`; and the scripted agent placed
-under its program's name in a journey (`Sealed::install_agent_as`, `e2e/copilot_and_grok.rs`).
+under its program's name in a journey (`Sealed::install_agent_as`, `e2e/copilot_grok_and_gemini.rs`).
 
 ## 9. Add a GEP kind
 

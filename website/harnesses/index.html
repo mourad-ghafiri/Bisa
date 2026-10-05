@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa</title>
-<meta name="description" content="Bisa drives the coding agents you already have — Claude Code, Codex CLI, OpenCode, Copilot CLI, Grok Build, pi and any ACP agent — and says what it does with each.">
+<meta name="description" content="Bisa drives the coding agents you already have — Claude Code, Codex, OpenCode, Copilot CLI, Grok Build, Gemini CLI, pi, any ACP agent — and says what it does with each.">
 <link rel="canonical" href="https://bisa.dev/harnesses/">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eef3f9">
@@ -13,7 +13,7 @@
 <meta property="og:site_name" content="Bisa">
 <meta property="og:locale" content="en_US">
 <meta property="og:title" content="Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa">
-<meta property="og:description" content="Bisa drives the coding agents you already have — Claude Code, Codex CLI, OpenCode, Copilot CLI, Grok Build, pi and any ACP agent — and says what it does with each.">
+<meta property="og:description" content="Bisa drives the coding agents you already have — Claude Code, Codex, OpenCode, Copilot CLI, Grok Build, Gemini CLI, pi, any ACP agent — and says what it does with each.">
 <meta property="og:url" content="https://bisa.dev/harnesses/">
 <meta property="og:image" content="https://bisa.dev/assets/social-card.png">
 <meta property="og:image:type" content="image/png">
@@ -22,7 +22,7 @@
 <meta property="og:image:alt" content="Bisa — A Decentralized Agentic IDE">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa">
-<meta name="twitter:description" content="Bisa drives the coding agents you already have — Claude Code, Codex CLI, OpenCode, Copilot CLI, Grok Build, pi and any ACP agent — and says what it does with each.">
+<meta name="twitter:description" content="Bisa drives the coding agents you already have — Claude Code, Codex, OpenCode, Copilot CLI, Grok Build, Gemini CLI, pi, any ACP agent — and says what it does with each.">
 <meta name="twitter:image" content="https://bisa.dev/assets/social-card.png">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="icon" href="../favicon.ico" sizes="any">
@@ -79,6 +79,7 @@
         <tr><th scope="row">OpenCode</th><td>driven, with the platform's tools</td><td>read from its own event stream, resumed with <code>--continue</code></td><td>observed</td><td>with a Claude sign-in</td></tr>
         <tr><th scope="row">GitHub Copilot CLI</th><td>driven over ACP, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">Grok Build</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--continue</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">Gemini CLI</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--resume latest</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">pi</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">Oh My Pi</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>yes</td></tr>
         <tr><th scope="row">Any ACP agent</th><td>driven, with the platform's tools</td><td>—</td><td>judged before it runs</td><td>—</td></tr>
@@ -111,6 +112,10 @@
   <section id="grok" aria-labelledby="h-grok">
     <h2 id="h-grok">Grok Build</h2>
     <p>Driven over the Agent Client Protocol with the platform's tools, the model and the effort set as the session offers them, every tool asked before it runs. Its terminal takes no hook for one launch and Bisa writes nothing into your configuration, so a Grok tab is a plain terminal: unreported and unguarded.</p>
+  </section>
+  <section id="gemini" aria-labelledby="h-gemini">
+    <h2 id="h-gemini">Gemini CLI</h2>
+    <p>Driven over the Agent Client Protocol with the platform's tools: the model is set as the session offers it — Gemini CLI still speaks the protocol's earlier draft for models, and Bisa speaks it back — and every tool is asked before it runs. It has no effort control, so none is sent. Its terminal takes no hook for one launch and Bisa writes nothing into your configuration, so a Gemini tab is a plain terminal: unreported and unguarded. Its account usage is not offered by the harness.</p>
   </section>
   <section id="pi" aria-labelledby="h-pi">
     <h2 id="h-pi">pi and Oh My Pi</h2>

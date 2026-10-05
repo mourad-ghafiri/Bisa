@@ -249,8 +249,8 @@ all on by default and all configured under `security.*`:
   so an unattended run is not one you answer *Allow Bash?* for. A workstream script you approved is still read line by line, and a line a rule
   refuses stops the script. `security.guard.terminal_hooks` (machine scope) guards a Claude Code
   or GitHub Copilot CLI session opened in the IDE's terminal through its own hook. Only a harness
-  that asks before a tool runs can be stopped — Claude Code, GitHub Copilot CLI, Grok Build and any
-  ACP agent; Codex, pi, OMP, OpenCode and the rest are observed,
+  that asks before a tool runs can be stopped — Claude Code, GitHub Copilot CLI, Grok Build, Gemini
+  CLI and any ACP agent; Codex, pi, OMP, OpenCode and the rest are observed,
   and `bisa security status` says which is which.
 - **The Classifier.** `security.classifier.provider` picks who reads: `agent` (`security.classifier.agent`,
   the default — the General Agent, so on its plan: Opus 5.5 out of the box), `harness`

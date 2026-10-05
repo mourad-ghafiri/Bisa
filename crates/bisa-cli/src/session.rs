@@ -643,10 +643,12 @@ mod tests {
                 "{harness}"
             );
         }
-        assert!(
-            printed("grok", deny).is_none(),
-            "a harness with no hook that reads a verdict is printed nothing"
-        );
+        for bare in ["grok", "gemini"] {
+            assert!(
+                printed(bare, deny.clone()).is_none(),
+                "{bare}: a harness with no hook that reads a verdict is printed nothing"
+            );
+        }
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! The harness abstraction layer.
 //!
 //! Bisa orchestrates *foreign* coding harnesses (Claude Code, Codex,
-//! pi, omp, opencode, GitHub Copilot CLI, Grok Build, anything ACP-speaking)
+//! pi, omp, opencode, GitHub Copilot CLI, Grok Build, Gemini CLI, anything
+//! ACP-speaking)
 //! behind two traits:
 //! [`HarnessAdapter`] (how to find, probe, launch, and re-attach a harness)
 //! and [`HarnessSession`] (one running session: prompt/steer/abort, and a

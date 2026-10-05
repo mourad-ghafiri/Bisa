@@ -388,7 +388,7 @@ setting-security-collaboration-agent_tools = Tools on behalf of an outsider
     .choice-as_owner = As the owner
 
 setting-security-mcp-observed = Installed MCP servers on an observed harness
-    .help = Whether an MCP server installed on an agent is mounted on a harness the guard cannot judge — Codex, pi, OMP, OpenCode, a custom harness. `refuse`: the server is left off that harness and the session is told; the platform's own server is always mounted, and a judged harness (Claude Code, GitHub Copilot CLI, Grok Build, ACP) always gets every server, its tools judged like commands. `allow`: every server is mounted everywhere, and an observed harness runs its tools under its own approval prompt.
+    .help = Whether an MCP server installed on an agent is mounted on a harness the guard cannot judge — Codex, pi, OMP, OpenCode, a custom harness. `refuse`: the server is left off that harness and the session is told; the platform's own server is always mounted, and a judged harness (Claude Code, GitHub Copilot CLI, Grok Build, Gemini CLI, ACP) always gets every server, its tools judged like commands. `allow`: every server is mounted everywhere, and an observed harness runs its tools under its own approval prompt.
     .choice-refuse = Refuse
     .choice-allow = Allow
 

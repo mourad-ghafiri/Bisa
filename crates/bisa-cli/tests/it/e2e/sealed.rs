@@ -107,7 +107,7 @@ impl Sealed {
     }
 
     /// [`Self::install_agent`], under another program's name: a harness
-    /// with an id of its own (`copilot`, `grok`), found by that adapter's own
+    /// with an id of its own (`copilot`, `grok`, `gemini`), found by that adapter's own
     /// probe and started with that adapter's own words. Each name has its
     /// script and its record beside it.
     pub fn install_agent_as(&self, program: &str, script: &Value) {
