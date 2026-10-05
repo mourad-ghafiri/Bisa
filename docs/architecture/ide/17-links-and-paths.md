@@ -43,15 +43,18 @@ remains anywhere**: in the desktop shell that anchor is a navigation of the app 
 
 ## Where a path points
 
-`resolveLink(hit, roots)` answers over the roots a surface knows, each `{scope, id, root, label,
-paths}` — the root's absolute path when its checkout is on disk, and its path index (the node's
-list of every file under it, the desktop's one existence check).
+`resolveLink(hit, roots, {from})` answers over the roots a surface knows, each `{scope, id, root,
+label, paths}` — the root's absolute path when it is on disk (the workspace's word for a
+workstream, `GET /placement` for a goal's or a project's root), and its path index (the node's
+list of every file under it, the desktop's first existence check) — and from **where the surface
+stands** when it says: `from`, a shell's current directory, absolute.
 
 | The path | The answer |
 |---|---|
 | absolute, or `~/…` | matched to the **longest root prefix** and named relative to it. `~` is expanded through the roots alone — the webview has no home directory — so `~/Projects/app/README.md` is under `/Users/me/Projects/app` because that root ends that way. Under a root but not in its index (an ignored `target/out.log`) still opens: the node reads any contained path |
 | absolute under no root | `outside` — *Reveal in Finder*, copy, or **open in the IDE** as a loose document ([03 §Loose files](03-files-and-editing.md#loose-files)) |
-| `./a`, `a/b`, `a.rs` | looked up in each root's index, exact first; a bare name by its basename; one hit is a document, several are a `choice`, none is `unknown`. A path that climbs with `..` has no base to climb from and is `unknown` |
+| `./a`, `../a`, `a/b`, `a.rs` | read **from where the surface stands** first, when it says (`from`): `absolutePath(from, path)` — `.` and `..` resolved — matched to the longest root; listed there, it is that document (the `src/lib.rs` of the crate a shell `cd`'d into, not the root's), unlisted it is the `unlisted` guess below; under no root, a path that says where it starts (`./`, `../`) is `outside`, a bare one is looked further. Then **from each root**, exact (`./` stripped). Then **by its tail** across the roots, at most `MAX_CANDIDATES` = 8 — `src/lib.rs` is every crate's, `main.rs` every `src/main.rs` — one is a document, several a `choice`. A climb with no `from` to climb from is `unknown` |
+| listed by no index | `unlisted` — the guess the node is asked about before it is offered: from `from` when it stands in a root, else the surface's first root with the path as written. The handler lists the guess's folder (`GET /tree/{scope}/{id}?path=<parent>&depth=1`, which lists ignored and hidden entries too) and `confirmListing` answers — the document or directory the index skipped (`target/out.log`, `.github/workflows/ci.yml`, a file made since the index was read), `indexed: false`, or `unknown`. A word that merely looks like a path costs one listing and is *Not found*, as before |
 | a directory of a root | `dir` — the root opens in the IDE |
 
 **The trust boundary stands.** The webview never sends an absolute path to the node: the prefix
@@ -83,12 +86,14 @@ against:
 | a conversation about a checkout (Agent Mode, the Agent panel) | this checkout, then the project's other checkouts on disk (`useConversationPane.linkRoots`) |
 | a goal's thread | the attached projects' primary checkouts |
 | a rendered document (`EditorDoc`'s preview, `FileView`) | the document's own root |
-| a terminal or a harness session | its own root (`scope`, `id`) |
+| a terminal or a harness session | its own root (`scope`, `id`), and where its shell stands — `from`, the shell's current directory read at the click (`session.cwd()` → `terminal_cwd`: the process table's word for the shell's pid, else the directory it was started in), since the tool that printed the path ran there |
 | a channel, a direct message, a conversation about a goal, a workflow, the workspace or the node, the Pulse, the Inbox, a note | none named: the provider's default — the root on screen first, then every checkout on disk, at most eight |
 
-`shell/linkHandler.tsx` is the provider, mounted once in `App`. It describes the roots (the
-checkout's path and label from the workspace, the index from `pathIndexStore` — cached, or loaded
-once), resolves, and opens one of two things at the pointer. **The card is the model's**
+`shell/linkHandler.tsx` is the provider, mounted once in `App`. It describes the roots (a
+workstream's path and label from the workspace, a goal's or a project's root placed by
+`GET /placement`, the index from `pathIndexStore` — cached, or loaded once), resolves — from where
+the surface stands when it said so — asks the node about an `unlisted` guess (one listing of its
+folder, held to the click's ticket like the describe), and opens one of two things at the pointer. **The card is the model's**
 (`shell/linkCardModel.mjs`): `defaultRoots` names the roots a surface left unnamed (the root on
 screen, then every checkout on disk, `MAX_DEFAULT_ROOTS` = 8), `rootLabel` a root's word,
 `pathCard(hit, resolution)` and `urlCard(url)` the title, the subtitle and the verbs — each verb an
@@ -140,6 +145,17 @@ cut in two is underlined across its rows and a ⌘-click on either row opens the
 that ends short, or a next row that starts with a space, is a line break someone meant.
 **⌘-click**, as before: a plain click selects. The URL no longer opens silently.
 
+**A relative path is read from where the shell stands.** The click asks the shell for its current
+directory (`session.cwd()`, the desktop shell's `terminal_cwd` — `sysinfo`'s word for the login
+shell's pid, one process refreshed and never the table; the directory it was started in once the
+process is gone, so a dead tab's scrollback still reads its paths) and hands it to the handler as
+`from`: the `src/lib.rs` a compiler printed after a `cd` into a crate opens that crate's file, a
+`../README.md` climbs, a `target/out.log` or `.github/workflows/ci.yml` no index lists is asked of
+the node, and a shell that cannot say where it is reads from its root alone, as before. The
+directory is read at the click, not kept: the shell is asked, never told, and the webview still
+names no path to anyone ([06 §What does not change](06-terminals.md)). A nested shell's own `cd` is
+not followed — its paths are found by their tail or asked of the node.
+
 ## What is not a door
 
 - The end of a text selection — a drag that finishes on a path, a double-click on one of its words
@@ -167,10 +183,12 @@ that ends short, or a next row that starts with a space, is a line break someone
 | a URL is a URL, a `www.` host given its scheme, a URL's own `)` kept, the sentence's dropped | `ui/linkModel.test.mjs` |
 | a redacted secret is never a link, whatever it holds or is followed by | `ui/linkModel.test.mjs` |
 | the HTML pass: an anchor in text and inline code, a `<pre>` block untouched, an existing anchor tagged and never nested, a neutered `#` left alone, entities kept | `ui/linkModel.test.mjs` |
-| the resolver: an absolute and a `~` path under the longest root, ignored-but-contained still opens, a directory, outside, a relative path in one root, in two, a bare name by its file, `..` refused | `ui/linkModel.test.mjs` |
+| the resolver: an absolute and a `~` path under the longest root, ignored-but-contained still opens, a directory, outside, a relative path in one root, in two, a bare name by its file, `..` with no base refused; from where the shell stands — a sub-crate's own `src/lib.rs`, a climb to the root and past it, into another root, the root itself; unlisted — the guess from the shell or the first root, confirmed by the node's listing as a file, a directory, or nothing; a slashed path by its tail, bounded; `absolutePath` | `ui/linkModel.test.mjs` |
+| the grammar climbs as far as it says (`../../lib/a.ts`) and reads a hidden folder's path (`.github/workflows/ci.yml`); a dotfile alone is a word | `ui/linkModel.test.mjs` |
+| where a shell stands is its process's word, follows its `cd`, and is where it started once the process is gone; a pid nobody holds says nothing; an unknown terminal is refused | `desktop/src-tauri/src/terminal.rs` unit tests |
 | a message of two thousand lines is scanned and marked well inside a frame | `ui/linkModel.test.mjs` |
 | a relative link in a document resolves and refuses to climb | `views/_workbench/docLink.test.mjs` |
 | the card: a path's verbs per resolution — one document opens, several are a door each, outside opens loose or reveals, unknown copies alone; a URL's — the embedded browser first, then the machine's, `http` and `https` alone; the roots a surface names none of, capped at eight | `shell/linkCardModel.test.mjs`, `scenarios/browser.test.mjs` |
 | the click that lands last is the card drawn; a resolution for a click superseded draws nothing | `shell/latestModel.test.mjs` |
-| a path from a message and from the terminal's grammar reaches the same card, with the same roots | `scenarios/files.test.mjs` |
+| a path from a message and from the terminal's grammar reaches the same card, with the same roots; a relative path read from where the shell stands reaches the same card, the crate's own file revealed; the terminal asks the shell at the click and hands `from` | `scenarios/files.test.mjs` |
 | no view reaches an anchor library or the opener around the kit | `ui/imports.test.mjs` |

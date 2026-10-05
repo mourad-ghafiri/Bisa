@@ -604,17 +604,23 @@ async function boot(
   // page, the `src/main.rs:42` in a compiler's error — opens with ⌘-click
   // (Ctrl-click elsewhere) through the link handler (ide/17): the card asks
   // before the browser, the menu before a file. A plain click keeps
-  // selecting text. The terminal's own root is where a relative path lives;
-  // a machine-scoped shell (a code host sign-in) has none, and the handler
-  // falls back to every checkout on disk. One provider over the app's one
-  // scanner (`findLinks`) for URLs and paths alike, reading the *logical*
-  // line a row belongs to (`terminalLinksModel`): a link the row edge cut in
-  // two — folded by xterm, or broken by a harness's own frame — is one door,
-  // underlined across its rows.
+  // selecting text. A relative path is read from **where the shell stands**
+  // — its current directory, asked of the shell at the click (`cwd`), since
+  // the tool that printed the path ran there: `src/lib.rs` after a `cd` into
+  // a crate, `../README.md`, a `target/out.log` no index lists — then from
+  // the terminal's own root. A shell that cannot say where it is reads from
+  // its root alone; a machine-scoped shell (a code host sign-in) has no
+  // root, and the handler falls back to every checkout on disk. One provider
+  // over the app's one scanner (`findLinks`) for URLs and paths alike,
+  // reading the *logical* line a row belongs to (`terminalLinksModel`): a
+  // link the row edge cut in two — folded by xterm, or broken by a harness's
+  // own frame — is one door, underlined across its rows.
   const roots: LinkRootRef[] = scope === "machine" ? [] : [{ scope: scope as WorkbenchScope, id }];
   const open = (hit: LinkHit, e: MouseEvent) => {
     if (!(e.metaKey || e.ctrlKey)) return;
-    refs.link.current?.onLink(hit, { x: e.clientX, y: e.clientY }, roots);
+    const at = { x: e.clientX, y: e.clientY };
+    const standing: Promise<string | null> = live.session?.cwd().catch(() => null) ?? Promise.resolve(null);
+    void standing.then((from) => refs.link.current?.onLink(hit, at, roots, { from }));
   };
   const rowAt = (i: number) => {
     const line = term.buffer.active.getLine(i);

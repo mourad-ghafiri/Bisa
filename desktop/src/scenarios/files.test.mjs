@@ -143,6 +143,20 @@ test("a path in any text is a door: found, resolved against the roots, and offer
   assert.deepEqual([onFirst.hit.path, onFirst.hit.line], ["/Users/me/app/src/main.rs", 42]);
   assert.deepEqual([onFirst.range.start.y, onFirst.range.end.y], [1, 2], "underlined across both rows");
   assert.deepEqual(linksAt(rowAt, 1, 24).find((l) => l.hit.kind === "path").hit, onFirst.hit, "a ⌘-click on either row opens the same door");
+  // A relative path the shell printed is read from where the shell stands — asked at the click — and reaches the same card.
+  const printed = [{ scope: "workstream", id: "w1", root: "/Users/me/app", label: "App", paths: ["src/main.rs", "README.md", "crates/x/src/main.rs"] }];
+  const [relative] = findLinks("error at src/main.rs:42:7").filter((l) => l.kind === "path");
+  const fromCrate = resolveLink(relative, printed, { from: "/Users/me/app/crates/x" });
+  assert.deepEqual([fromCrate.path, fromCrate.line, fromCrate.col], ["crates/x/src/main.rs", 42, 7], "the crate's own, where cargo ran");
+  assert.deepEqual(pathCard(relative, fromCrate, { reveal: "Reveal in Finder" }).verbs.map((v) => v.id), ["open", "reveal", "copy"]);
+  assert.equal(pathCard(relative, fromCrate, { reveal: "Reveal in Finder" }).verbs[1].absolute, "/Users/me/app/crates/x/src/main.rs");
+  const [up] = findLinks("see ../../README.md").filter((l) => l.kind === "path");
+  assert.equal(resolveLink(up, printed, { from: "/Users/me/app/crates/x" }).path, "README.md", "a climb from where the shell stands");
+  assert.equal(resolveLink(relative, printed).path, "src/main.rs", "a shell that cannot say where it is reads from its root");
+  const terminal = readFileSync(new URL("../terminal/Terminal.tsx", import.meta.url), "utf8");
+  assert.ok(terminal.includes("live.session?.cwd()") && terminal.includes("onLink(hit, at, roots, { from })"), "the terminal asks the shell where it stands at the click and hands it with the hit");
+  const session = readFileSync(new URL("../terminal/session.ts", import.meta.url), "utf8");
+  assert.ok(session.includes('invoke<string>("terminal_cwd"'), "one command reads a path back; none hands one in");
 });
 
 test("a relative link in a rendered document stays inside the root, and a diagram's error names the line in the person's file", () => {

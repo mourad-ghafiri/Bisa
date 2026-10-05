@@ -104,7 +104,8 @@ test("the provider draws what the model says, in the order the clicks came", () 
   const provider = readFileSync(new URL("./linkHandler.tsx", import.meta.url), "utf8");
   assert.ok(provider.includes("show(pathCard(hit, res, { reveal }), at)") && provider.includes("show(urlCard(hit.url, { embedded: canOpenBrowser() }), at)"));
   assert.ok(provider.includes("const ticket = clicks.begin();"), "a click takes its ticket");
-  assert.ok(provider.indexOf("if (!clicks.lands(ticket)) return;") < provider.indexOf("const res = resolveLink(hit, known);"), "an earlier click's card never lands over a later one's");
+  assert.ok(provider.indexOf("if (!clicks.lands(ticket)) return;") < provider.indexOf("let res = resolveLink(hit, known, { from: opts?.from ?? null });"), "an earlier click's card never lands over a later one's");
+  assert.ok(provider.indexOf("res = await confirmUnlisted(res);") < provider.lastIndexOf("if (!clicks.lands(ticket)) return;"), "the node's answer to an unlisted guess is held to the ticket too");
   const code = provider.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.ok(!/label: t\(/.test(code), "no verb is worded in the provider");
 });

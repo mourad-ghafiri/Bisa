@@ -47,6 +47,13 @@
 //! module a general-purpose process launcher with a terminal attached, which
 //! is precisely the authority the placement rule exists to withhold.
 //!
+//! **The frontend may read where a shell stands; it still names nothing.**
+//! `terminal_cwd` answers the shell's current directory — the process table's
+//! word for its pid, else the directory it was started in — so a relative
+//! path the shell printed can be read from where the shell was (ide/17). That
+//! is a fact read back, like a workstream's path: the webview resolves with
+//! it on its own side and hands the node `(scope, id, relative)` as ever.
+//!
 //! Both lookups speak raw HTTP over a `TcpStream`, for the reason
 //! `sidecar::wait_for_health` does: the desktop shell has no HTTP
 //! client dependency, and two GETs against loopback do not justify adding
@@ -858,6 +865,10 @@ struct Session {
     /// port scanner walks up to, and what the escalation signals. A server
     /// the shell starts is a descendant of this pid.
     pid: Option<u32>,
+    /// Where the shell was started — the placement the node named (a mobile
+    /// run's folder under it). What `terminal_cwd` answers once the process
+    /// is gone, or on a platform whose process table has no cwd to give.
+    dir: PathBuf,
     /// The roster row this tab is, when the harness in it reports.
     reporter: Option<Reporter>,
     /// The tab's channel, shared with the pump, so what runs in the shell
@@ -936,6 +947,19 @@ impl TerminalRegistry {
                 pixel_height: 0,
             })
             .map_err(|e| format!("could not resize {id}: {e}"))
+    }
+
+    /// Where a shell stands now: its process's current directory, else the
+    /// directory it was started in — a dead tab's scrollback still reads its
+    /// paths from where the shell began. The process table is asked outside
+    /// the lock; it is a syscall, not a map read.
+    fn cwd(&self, id: &str) -> Result<String, String> {
+        let (pid, dir) = {
+            let sessions = self.sessions.locked();
+            let session = sessions.get(id).ok_or_else(|| unknown(id))?;
+            (session.pid, session.dir.clone())
+        };
+        Ok(place_of(pid.and_then(cwd_of), &dir).display().to_string())
     }
 
     /// What the process table showed under a shell. A change is told to the
@@ -1149,6 +1173,33 @@ fn unknown(id: &str) -> String {
 
 fn exited(id: &str) -> String {
     format!("terminal {id:?} has exited; restart it to type into it")
+}
+
+// ---------------------------------------------------------------------------
+// Where a shell stands
+// ---------------------------------------------------------------------------
+
+/// One process's current directory, as the OS reports it — the one pid is
+/// refreshed, never the table: a click asks this, and a click must not cost a
+/// scan. `None` for a process that is gone or a platform that does not say.
+fn cwd_of(pid: u32) -> Option<PathBuf> {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let pid = Pid::from_u32(pid);
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::new().with_cwd(UpdateKind::Always),
+    );
+    sys.process(pid)
+        .and_then(|p| p.cwd())
+        .map(Path::to_path_buf)
+}
+
+/// Where a shell is read from: what the process table said, else where the
+/// shell was started.
+fn place_of(reported: Option<PathBuf>, started_in: &Path) -> PathBuf {
+    reported.unwrap_or_else(|| started_in.to_path_buf())
 }
 
 // ---------------------------------------------------------------------------
@@ -1366,6 +1417,7 @@ fn spawn_session(
             writer: Some(writer),
             killer: Some(killer),
             pid,
+            dir: dir.to_path_buf(),
             reporter: reporter.clone(),
             sink: Some(Arc::clone(&sink)),
             running: None,
@@ -1771,6 +1823,20 @@ pub async fn terminal_close(
         .map_err(|e| format!("the close did not finish: {e}"))
 }
 
+/// Where a shell stands now — read at a click on a relative path it printed
+/// (ide/17), so the path is read from where the tool that printed it ran. The
+/// process table is a syscall away: off the main thread, like a write.
+#[tauri::command]
+pub async fn terminal_cwd(
+    registry: State<'_, Arc<TerminalRegistry>>,
+    id: String,
+) -> Result<String, String> {
+    let registry = Arc::clone(registry.inner());
+    tauri::async_runtime::spawn_blocking(move || registry.cwd(&id))
+        .await
+        .map_err(|e| format!("the directory read did not finish: {e}"))?
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -2089,6 +2155,7 @@ mod tests {
                 writer: None,
                 killer: None,
                 pid: Some(4242),
+                dir: PathBuf::from("/tmp"),
                 reporter: None,
                 sink: Some(sink),
                 running: None,
@@ -2555,6 +2622,95 @@ mod tests {
         wait_gone(&registry);
     }
 
+    /// Where a shell stands is the process's own word, read at the moment of
+    /// asking: it follows a `cd`, and once the process is gone it is where the
+    /// shell was started, so a dead tab's scrollback still reads its paths.
+    #[cfg(unix)]
+    #[test]
+    fn where_a_shell_stands_follows_its_cd_and_outlives_its_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let want = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir(want.join("sub")).unwrap();
+        let exited = Arc::new(AtomicBool::new(false));
+        let sink_exited = Arc::clone(&exited);
+        let registry = Arc::new(TerminalRegistry::new());
+        let id = spawn_session(
+            Arc::clone(&registry),
+            &want,
+            Some("/bin/sh"),
+            None,
+            None,
+            false,
+            None,
+            24,
+            80,
+            Arc::new(move |event| {
+                if matches!(event, TerminalEvent::Exit { .. }) {
+                    sink_exited.store(true, Ordering::SeqCst);
+                }
+                true
+            }),
+        )
+        .unwrap();
+        let said = |registry: &TerminalRegistry| PathBuf::from(registry.cwd(&id).unwrap());
+        assert_eq!(
+            said(&registry),
+            want,
+            "a fresh shell stands where it was started"
+        );
+
+        registry.write(&id, "cd sub\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while said(&registry) != want.join("sub") {
+            if Instant::now() >= deadline {
+                registry.terminate(&id);
+                panic!(
+                    "the shell never stood in sub; it said {:?}",
+                    said(&registry)
+                );
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        // The process ends; the tab, and its answer, stay.
+        registry.write(&id, "exit\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !exited.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the shell never exited");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert_eq!(registry.len(), 1, "the tab still owns the session");
+        assert_eq!(
+            said(&registry),
+            want,
+            "a shell whose process is gone stands where it was started"
+        );
+
+        registry.terminate(&id);
+        wait_gone(&registry);
+    }
+
+    #[test]
+    fn where_a_process_stands_is_the_tables_word_else_where_it_started() {
+        let here = std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+        let reported = cwd_of(std::process::id()).expect("this process has a directory");
+        assert_eq!(std::fs::canonicalize(reported).unwrap(), here);
+        assert_eq!(
+            cwd_of(u32::MAX - 1),
+            None,
+            "a pid nobody holds says nothing"
+        );
+        let started = Path::new("/started/here");
+        assert_eq!(place_of(None, started), started);
+        assert_eq!(
+            place_of(Some(PathBuf::from("/moved/to")), started),
+            Path::new("/moved/to")
+        );
+        let registry = TerminalRegistry::new();
+        let err = registry.cwd("term-99").unwrap_err();
+        assert!(err.contains("no terminal"), "{err}");
+    }
+
     /// The load-bearing test for running a harness: the program the node named
     /// is what starts, **in the resolved directory**, with its arguments intact
     /// as separate words.
@@ -2686,6 +2842,7 @@ mod tests {
                 writer: None,
                 killer: None,
                 pid: None,
+                dir: PathBuf::from("/tmp"),
                 sink: None,
                 running: None,
                 reporter: None,

@@ -2,15 +2,22 @@
  * Paths and links in text (ide/17): one scanner that finds them, one pass
  * that marks them in rendered HTML, one resolver that turns a path into a
  * door — a document under a root the workspace knows, a choice between
- * several, an absolute path outside every root (reveal only), or nothing
- * the desktop can vouch for.
+ * several, an absolute path outside every root (reveal only), a path under a
+ * root that its index does not list (asked of the node before it is
+ * offered), or nothing the desktop can vouch for.
+ *
+ * A relative path is read from **where the surface stands** when it says —
+ * a shell's current directory — then from each root, then by its tail: the
+ * `src/lib.rs` a compiler printed from a sub-crate, the `../README.md` a
+ * shell listed, the `target/out.log` no index carries.
  *
  * Pure, so `node --test` holds the grammar: an agent's `src/main.rs:42`,
- * a `./docs/x.md`, a `~/Projects/app/README.md`, a `https://…`. A redacted
- * secret (`«secret:kind:tag»`) is never a link, whatever it contains, and a
- * URL is never mistaken for a path. The webview never sends an absolute path
- * anywhere: an absolute path is matched to a root here and named to the node
- * as `(scope, id, relative)` — the node still checks containment.
+ * a `./docs/x.md`, a `.github/workflows/ci.yml`, a `~/Projects/app/README.md`,
+ * a `https://…`. A redacted secret (`«secret:kind:tag»`) is never a link,
+ * whatever it contains, and a URL is never mistaken for a path. The webview
+ * never sends an absolute path anywhere: an absolute path is matched to a
+ * root here and named to the node as `(scope, id, relative)` — the node still
+ * checks containment.
  */
 
 const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'`\]]+/gi;
@@ -32,12 +39,15 @@ const BARE_EXTENSIONS = new Set([
 ]);
 
 /**
- * A path token: an optional prefix, then slash-separated segments, a
- * trailing slash for a directory, and the address a compiler or a reviewer
- * appends — `:42`, `:42:7`, `#L12`, `#L12-L20` — as part of the token, so
- * the link and its underline cover it and `parseAddress` reads it.
+ * A path token: an optional prefix — `~/`, `/`, or one or more `./` and
+ * `../`, so `../../lib/a.ts` climbs as far as it says — then slash-separated
+ * segments — the first may lead with one dot, `.github/workflows/ci.yml` — a trailing slash
+ * for a directory, and the address a compiler or a reviewer appends — `:42`,
+ * `:42:7`, `#L12`, `#L12-L20` — as part of the token, so the link and its
+ * underline cover it and `parseAddress` reads it. A dotfile with no slash
+ * (`.env`, `.gitignore`) is a word: `looksLikePath` reads no extension in it.
  */
-const PATH_RE = /(?:~\/|\.\.?\/|\/)?[A-Za-z0-9_@+][A-Za-z0-9_.@+-]*(?:\/[A-Za-z0-9_.@+-]+)*\/?(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)?/g;
+const PATH_RE = /(?:~\/|\/|(?:\.\.?\/)+)?\.?[A-Za-z0-9_@+][A-Za-z0-9_.@+-]*(?:\/[A-Za-z0-9_.@+-]+)*\/?(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)?/g;
 const ADDRESS_RE = /^(.*?)(?::(\d+)(?::(\d+))?|#L(\d+)(?:-L?\d+)?)$/;
 
 /**
@@ -191,10 +201,8 @@ export function linkifyHtml(html) {
   return out.join("");
 }
 
-function basename(p) {
-  const i = p.lastIndexOf("/");
-  return i === -1 ? p : p.slice(i + 1);
-}
+/** How many documents a path found by its tail may offer: enough for a choice, bounded for a click. */
+export const MAX_CANDIDATES = 8;
 
 /** A root holds a relative path when the index lists it, or a directory of it. */
 function holds(root, rel) {
@@ -203,52 +211,129 @@ function holds(root, rel) {
   return root.paths.some((p) => p.startsWith(dir)) ? "dir" : null;
 }
 
+/** The root an absolute path is under — the longest — with the path relative to it; null outside every root. */
+function rootOf(absolute, roots) {
+  let best = null;
+  for (const root of roots) {
+    if (!root.root) continue;
+    const rel = relativeUnder(absolute, root.root);
+    if (rel !== null && (best === null || root.root.length > best.root.root.length)) best = { root, rel };
+  }
+  return best;
+}
+
+/** A path that says where it starts — `./a`, `../a` — as an absolute one does; a bare `a/b` or `a.rs` does not. */
+function saysWhereItStarts(path) {
+  return path.startsWith("./") || path.startsWith("../");
+}
+
+/**
+ * `path` read from `base`, an absolute directory: `.` and `..` resolved, a
+ * doubled slash dropped, a climb past `/` stopped there. An absolute `path`
+ * is its own base.
+ * @param {string} base
+ * @param {string} path
+ * @returns {string}
+ */
+export function absolutePath(base, path) {
+  const segments = [];
+  const walk = (p) => {
+    for (const part of p.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") segments.pop();
+      else segments.push(part);
+    }
+  };
+  if (!path.startsWith("/")) walk(base);
+  walk(path);
+  return `/${segments.join("/")}`;
+}
+
 /**
  * Where a path points, over the roots the surface knows — the current one
- * first. An absolute path (or `~/…`) is matched to the longest root prefix
- * and named relative to it; a relative path is looked up in each root's
- * index, exact first, then by its basename; the answer is one document, a
- * choice, an absolute path outside every root, or nothing vouched for.
+ * first — and from where the surface stands, when it says (`from`: a
+ * shell's current directory, absolute).
+ *
+ * An absolute path (or `~/…`) is matched to the longest root prefix and
+ * named relative to it. A relative path is read from `from` first — under a
+ * root and listed, it is that document; under a root and unlisted, it is the
+ * guess the node is asked about (`unlisted`); under no root, one that says
+ * where it starts (`./`, `../`) is `outside`, a bare one is looked further.
+ * Then it is looked up in each root's index exactly, then by its tail (the
+ * `src/lib.rs` of every crate, the `main.rs` of every `src/`), at most
+ * `MAX_CANDIDATES` — one is a document, several a choice. Nothing listed is
+ * `unlisted` with the best guess — from `from`, else the surface's first
+ * root — for the node to confirm (`confirmListing`); a climb with no base to
+ * climb from, or no root at all, is `unknown`.
  * @param {{path: string, line: number | null, col: number | null}} hit
  * @param {readonly import("./linkModel.d.mts").LinkRoot[]} roots
+ * @param {{from?: string | null}} [opts]
  * @returns {import("./linkModel.d.mts").LinkResolution}
  */
-export function resolveLink(hit, roots) {
+export function resolveLink(hit, roots, { from = null } = {}) {
   const { line, col } = hit;
   let path = hit.path.replace(/\/+$/, "");
   const doc = (root, rel, kind = "file") => ({ kind: kind === "dir" ? "dir" : "doc", scope: root.scope, id: root.id, path: rel, line, col, root: root.root, label: root.label, indexed: root.paths.includes(rel) });
+  const rootItself = (root) => ({ kind: "dir", scope: root.scope, id: root.id, path: "", line: null, col: null, root: root.root, label: root.label, indexed: true });
   if (path.startsWith("/") || path.startsWith("~/")) {
-    let best = null;
-    for (const root of roots) {
-      if (!root.root) continue;
-      const rel = relativeUnder(path, root.root);
-      if (rel !== null && (best === null || root.root.length > best.root.root.length)) best = { root, rel };
-    }
+    const best = rootOf(path, roots);
     if (!best) return { kind: "outside", absolute: path, line, col };
-    if (best.rel === "") return { kind: "dir", scope: best.root.scope, id: best.root.id, path: "", line: null, col: null, root: best.root.root, label: best.root.label, indexed: true };
+    if (best.rel === "") return rootItself(best.root);
     const kind = holds(best.root, best.rel);
     if (path.startsWith("~/") && kind === null) return { kind: "outside", absolute: path, line, col };
     return doc(best.root, best.rel, kind ?? "file");
   }
-  if (path.startsWith("./")) path = path.slice(2);
-  if (path.split("/").includes("..")) return { kind: "unknown", raw: hit.path };
-  const candidates = [];
-  for (const root of roots) {
-    const kind = holds(root, path);
-    if (kind) candidates.push(doc(root, path, kind));
-  }
-  if (candidates.length === 0 && !path.includes("/")) {
-    const name = basename(path);
-    for (const root of roots) {
-      for (const p of root.paths) {
-        if (basename(p) === name) candidates.push(doc(root, p));
-        if (candidates.length >= 8) break;
-      }
+  // Where the surface stands is where the tool that printed the path ran.
+  let unlisted = null;
+  if (from) {
+    const absolute = absolutePath(from, path);
+    const best = rootOf(absolute, roots);
+    if (best) {
+      if (best.rel === "") return rootItself(best.root);
+      const kind = holds(best.root, best.rel);
+      if (kind) return doc(best.root, best.rel, kind);
+      unlisted = doc(best.root, best.rel);
+    } else if (saysWhereItStarts(path)) {
+      return { kind: "outside", absolute, line, col };
     }
   }
-  if (candidates.length === 1) return candidates[0];
-  if (candidates.length > 1) return { kind: "choice", candidates };
+  if (path.startsWith("./")) path = path.slice(2);
+  if (!path.split("/").includes("..")) {
+    const candidates = [];
+    for (const root of roots) {
+      const kind = holds(root, path);
+      if (kind) candidates.push(doc(root, path, kind));
+    }
+    if (candidates.length === 0) {
+      const tail = `/${path}`;
+      outer: for (const root of roots) {
+        for (const p of root.paths) {
+          if (!p.endsWith(tail)) continue;
+          candidates.push(doc(root, p));
+          if (candidates.length >= MAX_CANDIDATES) break outer;
+        }
+      }
+    }
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length > 1) return { kind: "choice", candidates };
+    if (!unlisted && roots.length > 0) unlisted = doc(roots[0], path);
+  }
+  if (unlisted) return { kind: "unlisted", doc: unlisted, raw: hit.path };
   return { kind: "unknown", raw: hit.path };
+}
+
+/**
+ * The node's answer to an `unlisted` guess: the listing of the guess's own
+ * folder names it — a document, or a directory by the entry's word, either
+ * way one the index skipped — or it is nothing the desktop can vouch for.
+ * @param {{doc: import("./linkModel.d.mts").DocResolution, raw: string}} unlisted
+ * @param {readonly {path: string, dir: boolean}[]} entries
+ * @returns {import("./linkModel.d.mts").DocResolution | {kind: "unknown", raw: string}}
+ */
+export function confirmListing(unlisted, entries) {
+  const entry = entries.find((e) => e.path === unlisted.doc.path);
+  if (!entry) return { kind: "unknown", raw: unlisted.raw };
+  return { ...unlisted.doc, kind: entry.dir ? "dir" : "doc", indexed: false };
 }
 
 /**

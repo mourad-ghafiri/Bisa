@@ -4,13 +4,14 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { addressWords, findLinks, linkifyHtml, parseAddress, relativeUnder, resolveLink, urlWords } from "./linkModel.mjs";
+import { MAX_CANDIDATES, absolutePath, addressWords, confirmListing, findLinks, linkifyHtml, parseAddress, relativeUnder, resolveLink, urlWords } from "./linkModel.mjs";
 
 const paths = (text) => findLinks(text).filter((h) => h.kind === "path").map((h) => h.raw);
 const urls = (text) => findLinks(text).filter((h) => h.kind === "url").map((h) => h.url);
 
 test("a path is found with every prefix, its line and column read, the sentence's punctuation left behind", () => {
   assert.deepEqual(paths("see src/main.rs:42, then ./docs/x.md and ../lib/a.ts."), ["src/main.rs:42", "./docs/x.md", "../lib/a.ts"]);
+  assert.deepEqual(paths("up ../../lib/a.ts and ../../../README.md, not .../odd"), ["../../lib/a.ts", "../../../README.md"], "a climb of any depth is one path");
   assert.deepEqual(paths("open ~/Projects/app/README.md and /etc/hosts (both)"), ["~/Projects/app/README.md", "/etc/hosts"]);
   assert.deepEqual(paths("`src/a.rs:12:7` failed; docs/x.md#L12 too"), ["src/a.rs:12:7", "docs/x.md#L12"]);
   const [hit] = findLinks("at src/a.rs:12:7!");
@@ -27,6 +28,12 @@ test("a bare word is a path only with an extension a source tree carries, and a 
   assert.deepEqual(paths("see hyphen-ated/path and crates/bisa-core"), ["hyphen-ated/path", "crates/bisa-core"], "a hyphen is a path character, as every crate folder shows");
   assert.deepEqual(paths("id$src/main.rs and x%docs/y.md"), [], "a boundary is needed before a path — a letter or a symbol glued to it is not one");
   assert.deepEqual(paths("(src/main.rs) [docs/y.md] <a.rs> {b.rs}"), ["src/main.rs", "docs/y.md", "a.rs", "b.rs"], "a bracket of any kind is a boundary");
+});
+
+test("a hidden folder's path is a path; a dotfile alone, and a sentence's full stop, are words", () => {
+  assert.deepEqual(paths("edit .github/workflows/ci.yml and ./.claude/settings.json"), [".github/workflows/ci.yml", "./.claude/settings.json"]);
+  assert.deepEqual(paths("the .env and .gitignore here; done.Next step, then ...wait"), [], "no slash and no extension in a dotfile's name");
+  assert.deepEqual(paths("under src/.hidden/x.rs"), ["src/.hidden/x.rs"]);
 });
 
 test("a URL is a URL, with what the sentence appended dropped and a bare www given its scheme", () => {
@@ -82,8 +89,67 @@ test("a relative path is looked up in each root, exact first, then by its name; 
   assert.deepEqual(both.candidates.map((c) => c.id), ["app", "blog"]);
   assert.equal(resolveLink({ path: "main.rs", line: 3, col: null }, roots).path, "src/main.rs", "a bare name finds its file");
   assert.equal(resolveLink({ path: "src", line: null, col: null }, roots).kind, "dir");
-  assert.deepEqual(resolveLink({ path: "nope/none.rs", line: null, col: null }, roots), { kind: "unknown", raw: "nope/none.rs" });
+  const nowhere = resolveLink({ path: "nope/none.rs", line: null, col: null }, roots);
+  assert.deepEqual([nowhere.kind, nowhere.doc.id, nowhere.doc.path, nowhere.doc.indexed, nowhere.raw], ["unlisted", "app", "nope/none.rs", false, "nope/none.rs"], "nothing listed: the first root is asked");
   assert.equal(resolveLink({ path: "../up.rs", line: null, col: null }, roots).kind, "unknown", "no base to climb from");
+  assert.equal(resolveLink({ path: "nope.rs", line: null, col: null }, []).kind, "unknown", "no root at all");
+});
+
+const hit = (path, line = null) => ({ path, line, col: null });
+const crates = [
+  { scope: "workstream", id: "mono", root: "/Users/me/mono", label: "mono", paths: ["README.md", "src/lib.rs", "crates/a/src/lib.rs", "crates/a/Cargo.toml", "crates/b/src/lib.rs", "docs/guide.md"] },
+  { scope: "workstream", id: "blog", root: "/Users/me/blog", label: "blog", paths: ["README.md", "posts/a.md"] },
+];
+
+test("a relative path is read from where the surface stands first: a shell in a sub-crate names that crate's file, climbs with .., and reaches past the root", () => {
+  const from = "/Users/me/mono/crates/a";
+  const own = resolveLink(hit("src/lib.rs", 7), crates, { from });
+  assert.deepEqual([own.kind, own.path, own.line, own.indexed], ["doc", "crates/a/src/lib.rs", 7, true], "the shell's own, not the root's src/lib.rs");
+  assert.equal(resolveLink(hit("./Cargo.toml"), crates, { from }).path, "crates/a/Cargo.toml");
+  assert.equal(resolveLink(hit("../b/src/lib.rs"), crates, { from }).path, "crates/b/src/lib.rs", "a climb has a base");
+  assert.equal(resolveLink(hit("../../README.md"), crates, { from }).path, "README.md");
+  assert.deepEqual(resolveLink(hit(".."), crates, { from: "/Users/me/mono/crates" }).kind, "dir", "the root itself");
+  assert.deepEqual(resolveLink(hit("../../../blog/posts/a.md"), crates, { from }).id, "blog", "into another root");
+  assert.deepEqual(resolveLink(hit("../../../../etc/hosts"), crates, { from }), { kind: "outside", absolute: "/Users/etc/hosts", line: null, col: null }, "past every root, said where it starts: outside");
+  assert.equal(resolveLink(hit("docs/guide.md"), crates, { from }).path, "docs/guide.md", "not under the shell: the root's, as before");
+  assert.equal(resolveLink(hit("src/lib.rs"), crates).path, "src/lib.rs", "with no place said, the root's own");
+});
+
+test("a path the index does not list is the guess the node is asked about, from where the shell stands or the first root; one outside every root is looked further", () => {
+  const from = "/Users/me/mono/crates/a";
+  const out = resolveLink(hit("./target/out.log", 3), crates, { from });
+  assert.deepEqual([out.kind, out.doc.id, out.doc.path, out.doc.line, out.doc.indexed, out.raw], ["unlisted", "mono", "crates/a/target/out.log", 3, false, "./target/out.log"]);
+  assert.equal(resolveLink(hit(".github/workflows/ci.yml"), crates, { from: "/Users/me/mono" }).doc.path, ".github/workflows/ci.yml");
+  assert.equal(resolveLink(hit("new.rs"), crates, { from }).doc.path, "crates/a/new.rs", "a bare name nobody lists: the shell's guess");
+  assert.equal(resolveLink(hit("lib.rs"), crates, { from: "/Users/me/elsewhere" }).kind, "choice", "a bare name from outside every root is still found by its tail");
+  assert.deepEqual(resolveLink(hit("./notes.txt"), crates, { from: "/Users/me/elsewhere" }), { kind: "outside", absolute: "/Users/me/elsewhere/notes.txt", line: null, col: null });
+  assert.equal(resolveLink(hit("notes.txt"), crates, { from: "/Users/me/elsewhere" }).doc.id, "mono", "a bare name from outside: the surface's first root is asked");
+  // The node's answer.
+  const file = confirmListing(out, [{ path: "crates/a/target/out.log", dir: false }, { path: "crates/a/target/debug", dir: true }]);
+  assert.deepEqual([file.kind, file.path, file.line, file.indexed], ["doc", "crates/a/target/out.log", 3, false]);
+  assert.equal(confirmListing(resolveLink(hit("target"), crates, { from }), [{ path: "crates/a/target", dir: true }]).kind, "dir");
+  assert.deepEqual(confirmListing(out, [{ path: "crates/a/target/debug", dir: true }]), { kind: "unknown", raw: "./target/out.log" });
+});
+
+test("a slashed path is found by its tail across the roots, bounded; one is a document, several a choice", () => {
+  const two = [{ scope: "workstream", id: "w", root: "/w", label: "w", paths: ["crates/a/src/lib.rs", "crates/b/src/lib.rs", "src/main.rs"] }];
+  const both = resolveLink(hit("src/lib.rs"), two);
+  assert.equal(both.kind, "choice", "no root holds it exactly; every crate's src/lib.rs is offered");
+  assert.deepEqual(both.candidates.map((c) => c.path), ["crates/a/src/lib.rs", "crates/b/src/lib.rs"]);
+  assert.equal(resolveLink(hit("src/lib.rs"), crates).path, "src/lib.rs", "an exact hit comes before any tail");
+  assert.equal(resolveLink(hit("a/src/lib.rs"), crates).path, "crates/a/src/lib.rs", "one tail, one document");
+  assert.equal(resolveLink(hit("guide.md"), crates).path, "docs/guide.md", "a bare name by its tail, as before");
+  const many = [{ scope: "workstream", id: "m", root: "/m", label: "m", paths: Array.from({ length: 20 }, (_, i) => `d${i}/x/lib.rs`) }];
+  assert.equal(resolveLink(hit("x/lib.rs"), many).candidates.length, MAX_CANDIDATES);
+});
+
+test("a path read from a directory: dots resolved, slashes single, a climb past the top stopped there", () => {
+  assert.equal(absolutePath("/a/b", "c/d.rs"), "/a/b/c/d.rs");
+  assert.equal(absolutePath("/a/b/", "./c//d.rs"), "/a/b/c/d.rs");
+  assert.equal(absolutePath("/a/b", "../c"), "/a/c");
+  assert.equal(absolutePath("/a/b", "../../../c"), "/c");
+  assert.equal(absolutePath("/a/b", ".."), "/a");
+  assert.equal(absolutePath("/a/b", "/x/y"), "/x/y", "an absolute path is its own base");
 });
 
 test("the words: an address with its line, a URL with its host", () => {

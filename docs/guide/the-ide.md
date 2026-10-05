@@ -1419,7 +1419,10 @@ plain click, the app never leaves its window, and only `http` and `https` addres
 else can be copied. A redacted secret is never a link.
 
 In a terminal or a harness session the same doors answer to ⌘-click, since a plain click selects
-text. A relative link inside a rendered document — `./notes.md` — opens the document it names
-without a card.
+text. A relative path there is read from where the shell is: after `cd crates/app`, the
+`src/lib.rs:42` a compiler prints is that crate's file; `../README.md` climbs; a path into an
+ignored or hidden folder — `target/out.log`, `.github/workflows/ci.yml` — or a file an agent made a
+moment ago opens too, once the node has confirmed it is there. A relative link inside a rendered
+document — `./notes.md` — opens the document it names without a card.
 
 Design: [ide/17 — Links and paths](../architecture/ide/17-links-and-paths.md).

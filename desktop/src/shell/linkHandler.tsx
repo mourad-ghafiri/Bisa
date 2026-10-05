@@ -17,20 +17,31 @@
  *   never navigates: a URL an agent wrote is untrusted text.
  *
  * Roots: the surface's, or — for a channel, the Pulse, the Inbox — every
- * checkout on disk, the one on screen first. An absolute path is matched to
- * a root here, on the desktop, and named to the node as `(scope, id,
- * relative)`; the webview never sends an absolute path to the node. Reveal
- * and *Open in the IDE* are the two acts on an absolute path outside every
- * root — the opener, and the shell reading it as a loose file (ide/03).
+ * checkout on disk, the one on screen first; each with its path on disk —
+ * the workspace's word for a workstream, `GET /placement` for a goal's or a
+ * project's root — so a path under it reveals and a shell's directory can be
+ * placed under it. A relative path is read from where the surface stands
+ * when it says (`from`: a shell's current directory), then from the roots.
+ * A path under a root that its index does not list is asked of the node —
+ * the listing of its folder, one GET — before it is offered, so an ignored
+ * `target/out.log`, a hidden `.github/…` or a file made since the index was
+ * read opens, and a word that merely looks like a path is *Not found*.
+ *
+ * An absolute path is matched to a root here, on the desktop, and named to
+ * the node as `(scope, id, relative)`; the webview never sends an absolute
+ * path to the node. Reveal and *Open in the IDE* are the two acts on an
+ * absolute path outside every root — the opener, and the shell reading it as
+ * a loose file (ide/03).
  */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { openExternal, revealPath } from "../api";
+import { api, openExternal, revealPath } from "../api";
 import { openUrlInBrowser } from "./browserDoors";
 import { canOpenBrowser } from "./useBrowsers";
 import { navigate, useRoute } from "../router";
-import { LinkCard, LinkHandlerContext, copyText, resolveLink, useToast } from "../ui";
-import type { DocResolution, LinkCardVerb, LinkHandler, LinkPointer, LinkRoot, LinkRootRef } from "../ui";
+import { LinkCard, LinkHandlerContext, confirmListing, copyText, resolveLink, useToast } from "../ui";
+import type { DocResolution, LinkCardVerb, LinkHandler, LinkPointer, LinkResolution, LinkRoot, LinkRootRef, UnlistedResolution } from "../ui";
+import { parentPath } from "../ui/fileTreeModel.mjs";
 import { revealLabel } from "../ui/fileTreeMutations.mjs";
 import { editorKey, requestLine } from "../views/_workbench/editorRegistry";
 import { rootKey } from "../views/_workbench/workbenchModel.mjs";
@@ -62,6 +73,31 @@ function openResolvedDoc(res: DocResolution): void {
   navigate({ name: "workbench", scope: res.scope, id: res.id }, res.kind === "dir" ? undefined : { doc: tab });
 }
 
+/** Where a root is on disk, by the node's placement — null for one not on disk, or a node that did not answer. */
+async function placementPath(ref: LinkRootRef): Promise<string | null> {
+  try {
+    const p = await api.placement(ref.scope, ref.id);
+    return p.exists ? p.path : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The node asked about a path no index lists: the listing of the guess's
+ * folder, one level, decides (`confirmListing`). A node that cannot list it
+ * — a folder that is not there, a root gone — vouches for nothing.
+ */
+async function confirmUnlisted(res: UnlistedResolution): Promise<LinkResolution> {
+  try {
+    const parent = parentPath(res.doc.path);
+    const tree = await api.tree(res.doc.scope, res.doc.id, parent || undefined, 1);
+    return confirmListing(res, tree.entries);
+  } catch {
+    return { kind: "unknown", raw: res.raw };
+  }
+}
+
 export function LinkProvider({ children }: { children: ReactNode }) {
   const ws = useWorkspace();
   const route = useRoute();
@@ -78,9 +114,13 @@ export function LinkProvider({ children }: { children: ReactNode }) {
       Promise.all(
         refs.map(async (r) => {
           const w = r.scope === "workstream" ? ws.workstreams.find((x) => x.workstream.id === r.id) : undefined;
-          // A root whose index cannot be read is still a root: an absolute path under it opens, a relative one finds nothing.
-          const paths = cachedIndex(r.scope, r.id) ?? (await loadIndex(r.scope, r.id).catch(() => null));
-          return { scope: r.scope, id: r.id, root: w?.path ?? null, label: rootLabel(r, w), paths: paths?.paths ?? [] };
+          // A root whose index cannot be read is still a root: an absolute path under it opens, a relative one is asked of the node.
+          const [paths, placed] = await Promise.all([
+            cachedIndex(r.scope, r.id) ?? loadIndex(r.scope, r.id).catch(() => null),
+            // A goal's or a project's root has no row in the workspace to read a path from: the node places it.
+            w ? Promise.resolve(w.path ?? null) : placementPath(r),
+          ]);
+          return { scope: r.scope, id: r.id, root: placed, label: rootLabel(r, w), paths: paths?.paths ?? [] };
         }),
       ),
     [ws.workstreams],
@@ -133,10 +173,14 @@ export function LinkProvider({ children }: { children: ReactNode }) {
           openResolvedDoc({ kind: "doc", scope: hit.scope, id: hit.id, path: hit.path, line: hit.line, col: null, root: null, label: hit.id, indexed: true });
           return;
         }
-        void describe(roots && roots.length > 0 ? roots : defaultRoots(route, ws.workstreams)).then((known) => {
+        void describe(roots && roots.length > 0 ? roots : defaultRoots(route, ws.workstreams)).then(async (known) => {
           // A later click took the pointer: this one's answer is nobody's.
           if (!clicks.lands(ticket)) return;
-          const res = resolveLink(hit, known);
+          let res = resolveLink(hit, known, { from: opts?.from ?? null });
+          if (res.kind === "unlisted") {
+            res = await confirmUnlisted(res);
+            if (!clicks.lands(ticket)) return;
+          }
           if (opts?.direct && res.kind === "doc") openResolvedDoc(res);
           else show(pathCard(hit, res, { reveal }), at);
         });

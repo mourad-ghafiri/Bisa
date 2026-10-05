@@ -44,6 +44,13 @@ notes (`docs/contributing/release.md`).
   drawn. The hidden terminal layer's scrollbar showed through it, and the glass frost came back
   with it; a hidden layer now paints nothing, frost included, and no small grey bar shows at the
   centre's edge.
+- A relative path printed in a terminal or a harness session now opens with ⌘-click, and reveals:
+  it is read from where the shell stands — `src/lib.rs:42` after a `cd` into a crate is that
+  crate's file, `../README.md` climbs, `../../lib/a.ts` as far as it says — then from the
+  checkout's root, then by its tail across the checkouts. A path into an ignored or hidden folder
+  (`target/out.log`, `.github/workflows/ci.yml`), or a file made since the Files index was read, is
+  confirmed with the node and opens too; a word that merely looks like a path still says *Not
+  found*. A path under a goal's or a project's root can now be revealed in the file manager.
 - A terminal in a background tab or pane no longer shows its scrollbar over the one in front.
 - Editor and terminal scrollbars fade out again instead of vanishing at once.
 - The code editor's suggestions keep their row layout: long labels are cut inside the row.

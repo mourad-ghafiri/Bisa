@@ -28,8 +28,13 @@ export interface LinkPointer {
 }
 
 export interface LinkHandler {
-  /** `direct`: the person held ⌘ — open without a menu when the door is plain. */
-  onLink: (hit: LinkHit, at: LinkPointer, roots: readonly LinkRootRef[] | null, opts?: { direct?: boolean }) => void;
+  /**
+   * `direct`: the person held ⌘ — open without a menu when the door is plain.
+   * `from`: the absolute directory a relative path is read from, when the
+   * surface stands in one — a shell's current directory; absent, a relative
+   * path is read from the roots alone.
+   */
+  onLink: (hit: LinkHit, at: LinkPointer, roots: readonly LinkRootRef[] | null, opts?: { direct?: boolean; from?: string | null }) => void;
 }
 
 export const LinkHandlerContext = createContext<LinkHandler | null>(null);

@@ -44,16 +44,26 @@ export interface DocResolution {
   /** Whether the index lists it; a file under the root the index skips (ignored) still opens. */
   indexed: boolean;
 }
+/** Under a root the desktop knows, not in its index: the guess the node is asked about before it is offered. */
+export interface UnlistedResolution {
+  kind: "unlisted";
+  doc: DocResolution;
+  raw: string;
+}
 export type LinkResolution =
   | DocResolution
   | { kind: "choice"; candidates: DocResolution[] }
   | { kind: "outside"; absolute: string; line: number | null; col: number | null }
+  | UnlistedResolution
   | { kind: "unknown"; raw: string };
 
+export declare const MAX_CANDIDATES: number;
 export declare function parseAddress(raw: string): { path: string; line: number | null; col: number | null };
 export declare function findLinks(text: string): LinkSpan[];
 export declare function linkifyHtml(html: string): string;
-export declare function resolveLink(hit: { path: string; line: number | null; col: number | null }, roots: readonly LinkRoot[]): LinkResolution;
+export declare function absolutePath(base: string, path: string): string;
+export declare function resolveLink(hit: { path: string; line: number | null; col: number | null }, roots: readonly LinkRoot[], opts?: { from?: string | null }): LinkResolution;
+export declare function confirmListing(unlisted: UnlistedResolution, entries: readonly { path: string; dir: boolean }[]): DocResolution | { kind: "unknown"; raw: string };
 export declare function relativeUnder(absolute: string, root: string): string | null;
 export declare function addressWords(path: string, line: number | null, col: number | null): string;
 export declare function urlWords(url: string): { host: string; url: string; scheme: string | null };

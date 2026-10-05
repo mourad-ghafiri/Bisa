@@ -13,7 +13,10 @@ vocabulary with room for *I do not know* are below.
 
 - **The PTY is a desktop-shell command and never a node route.** See [01](01-trust-boundary.md).
 - **The webview names a scope, an id and a harness id** — never a path, never a program. The shell
-  asks the node `GET /placement` and `GET /harnesses`, now with the bearer token.
+  asks the node `GET /placement` and `GET /harnesses`, now with the bearer token. One path is
+  *read back*, none handed in: `terminal_cwd` answers where a shell stands — its process's current
+  directory through `sysinfo`, one pid refreshed, else the directory it was started in — so a
+  relative path it printed is read from there ([17 §The terminal](17-links-and-paths.md#the-terminal)).
 - **A harness runs inside the login shell** (`$SHELL -l -c 'exec …'`), so it sees the same `PATH`
   and environment the person's own terminal does.
 - **Every terminal is reachable, always**: the centre strip lists the shells rooted in the current
@@ -44,9 +47,11 @@ vocabulary with room for *I do not know* are below.
   over `findLinks` finds URLs and paths (`src/main.rs:42` in a compiler's error) on the *logical*
   line a row belongs to — a link the row edge cut in two, folded by xterm or broken by a harness's
   own frame, is one door underlined across its rows (`terminalLinksModel.mjs`) —
-  and ⌘-click (Ctrl-click elsewhere) hands either to the link handler with the terminal's own root —
-  the card before the browser, scoped to `http` and `https` (`opener:allow-open-url`); the menu before
-  a file. A plain click keeps selecting.
+  and ⌘-click (Ctrl-click elsewhere) hands either to the link handler with the terminal's own root
+  and where the shell stands (`session.cwd()`, read at the click) — a relative path is read from
+  there first, so `src/lib.rs` after a `cd` into a crate is that crate's, `../README.md` climbs, and
+  a path no index lists is asked of the node — the card before the browser, scoped to `http` and
+  `https` (`opener:allow-open-url`); the menu before a file. A plain click keeps selecting.
 - **A focused shell keeps its keyboard**, except for a declared chord a PTY cannot mean
   (`keymapModel.interceptsInTerminal`): on macOS every ⌘ chord — the PTY never sees ⌘ — and
   elsewhere `Ctrl+Shift+…` and function keys; never copy, paste or find. Those bubble past xterm

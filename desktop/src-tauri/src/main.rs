@@ -525,6 +525,7 @@ fn main() {
             terminal::terminal_write,
             terminal::terminal_resize,
             terminal::terminal_close,
+            terminal::terminal_cwd,
             terminal::terminal_scrollback_read,
             terminal::terminal_scrollback_write,
             terminal::terminal_scrollback_forget,

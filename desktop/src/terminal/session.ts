@@ -1,5 +1,5 @@
 /**
- * The seven Tauri commands behind an embedded terminal, typed.
+ * The eight Tauri commands behind an embedded terminal, typed.
  *
  * These mirror `src-tauri/src/terminal.rs`, and its module doc is where the
  * reasoning lives: a shell is a capability of *this machine*, not a fact about
@@ -12,6 +12,9 @@
  * to run, and refuses anything it does not recognise. A signature that accepted
  * a `cwd`, or a `{program, args}`, would put those choices back in the webview
  * — which is the one place in this design that is not allowed to make them.
+ * A path is *read back* by one command alone — `cwd()`, where the shell
+ * stands, so a relative path it printed is read from there (ide/17) — and
+ * never handed in.
  */
 
 import type { WorkbenchScope } from "../routeModel.mjs";
@@ -54,6 +57,12 @@ export interface TerminalSession {
   /** Keystrokes, straight through — xterm has already encoded them. */
   write(data: string): Promise<void>;
   resize(rows: number, cols: number): Promise<void>;
+  /**
+   * Where the shell stands now, absolute: its process's current directory —
+   * it follows a `cd` — or, once the process is gone, the directory it was
+   * started in. Read at a click on a relative path the shell printed.
+   */
+  cwd(): Promise<string>;
   /** Ends the shell. Safe to call twice, and on one that has already exited. */
   close(): Promise<void>;
 }
@@ -139,6 +148,9 @@ export async function openTerminal(
     },
     async resize(nextRows: number, nextCols: number) {
       await invoke("terminal_resize", { id: terminalId, rows: nextRows, cols: nextCols });
+    },
+    cwd() {
+      return invoke<string>("terminal_cwd", { id: terminalId });
     },
     async close() {
       await invoke("terminal_close", { id: terminalId });
