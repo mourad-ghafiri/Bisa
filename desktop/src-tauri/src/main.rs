@@ -322,6 +322,11 @@ fn main() {
     // the workspace the `bisa` binary names — so a node that fails to
     // start is a line in the file, not on a stderr nobody reads.
     let log = logging::install();
+    // The app's context first: its identifier names the config folder where
+    // the login shell's `PATH` is remembered between launches (`login_env`),
+    // and the memo must be in place before the first process asks for it.
+    let context = tauri::generate_context!();
+    login_env::remember_in(dirs::config_dir().map(|dir| dir.join(&context.config().identifier)));
     match logging::attach_from_binary(&log) {
         Ok(dir) => {
             tracing::debug!(target: "bisa_desktop", dir = %dir.display(), "log folder named by the binary")
@@ -530,7 +535,7 @@ fn main() {
             terminal::terminal_scrollback_write,
             terminal::terminal_scrollback_forget,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error building tauri app")
         .run(|app, event| match event {
             // ⌘Q, the Dock's Quit: held, and handed to the webview's one close

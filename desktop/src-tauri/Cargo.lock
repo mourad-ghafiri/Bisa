@@ -252,6 +252,7 @@ version = "0.2.0"
 dependencies = [
  "bisa-log",
  "block2",
+ "dirs",
  "hex",
  "listeners",
  "objc2",

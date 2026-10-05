@@ -29,6 +29,9 @@ export interface Settled {
 }
 
 export declare const USAGE_KEEP_S: number;
+export declare const USAGE_RETRY_MS: readonly number[];
+/** Milliseconds until a failed read with nothing kept is asked again, or null when it answered or the backoff is spent. */
+export declare function retryDelay(entry: { state: UsageState | null; stale: string | null }, attempt: number): number | null;
 export declare function usageKey(harness: string): string;
 export declare function usageTone(percent: number): UsageToneWord;
 export declare function resetWords(resetsAt: number | null | undefined, now?: number): string | null;

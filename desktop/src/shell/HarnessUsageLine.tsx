@@ -21,6 +21,7 @@
 
 import type { HarnessUsageEntry } from "./harnessUsageStore";
 import { refreshHarnessUsage, useHarnessUsage } from "./harnessUsageStore";
+import { reloadHarnesses } from "./useHarnesses";
 import { ICON, Meter, Tooltip, cn, useCollapsed } from "../ui";
 import type { Meter as MeterWords } from "./harnessUsageModel.mjs";
 import { usageKey, usageTitle, usageWords } from "./harnessUsageModel.mjs";
@@ -65,6 +66,9 @@ export function RefreshUsage({ harness, loading }: { harness: string; loading: b
         disabled={loading}
         onClick={(e) => {
           e.stopPropagation();
+          // Which harnesses are installed first — a probe that was late at
+          // launch answers now — then this one's source.
+          reloadHarnesses();
           refreshHarnessUsage(harness);
         }}
         className="anim flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-dim hover:bg-surface-2 hover:text-text disabled:opacity-45"

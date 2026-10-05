@@ -18,7 +18,10 @@ vocabulary with room for *I do not know* are below.
   directory through `sysinfo`, one pid refreshed, else the directory it was started in — so a
   relative path it printed is read from there ([17 §The terminal](17-links-and-paths.md#the-terminal)).
 - **A harness runs inside the login shell** (`$SHELL -l -c 'exec …'`), so it sees the same `PATH`
-  and environment the person's own terminal does.
+  and environment the person's own terminal does. The node is started with that shell's `PATH` too
+  (`login_env`): asked at launch under a budget, remembered in the app's config folder for the
+  launch after, so a profile slow on a cold start does not leave the node — and every harness it
+  probes — looking uninstalled for the app's whole life.
 - **Every terminal is reachable, always**: the centre strip lists the shells rooted in the current
   workstream, and the rail lists every shell under the workstream it stands in. A dead shell keeps
   its tab and its buffer. Nothing respawns on its own.

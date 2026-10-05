@@ -12,15 +12,24 @@
  * rule in `harnessUsageModel.mjs`), so a rate-limited endpoint dims the
  * numbers instead of blanking them, as Claude Code's own `/usage` does.
  *
+ * A read that fails with nothing to keep — a launch that outran the node, an
+ * endpoint that did not answer in time — is asked again on its own, on a
+ * short bounded backoff (`retryDelay`), rather than left for the poll; and
+ * every shown line is read again when the bus comes back after the node was
+ * away (`reloadOnReconnect`), as every store's rows are. The node never
+ * caches a failure, so a plain re-read reaches the source.
+ *
  * The node does the reading with the harness's own sign-in; what arrives
  * here is percentages, labels and reset times — never a credential.
  */
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../api";
+import { watchConnection } from "../bus";
 import type { UsageState } from "../types";
-import { settled } from "./harnessUsageModel.mjs";
+import { retryDelay, settled } from "./harnessUsageModel.mjs";
 import { isHidden, onVisibilityChange } from "./visibility";
+import { reloadOnReconnect } from "./workspaceLoadModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 import { failureReason } from "../ui/failure";
 
@@ -46,11 +55,36 @@ const shown = new Map<string, number>();
 const inFlight = new Set<string>();
 /** A refresh asked for while a read was out: the source is asked again once it lands, never dropped. */
 const again = new Set<string>();
+/** How many retries followed each harness's last failure with nothing kept. */
+const attempts = new Map<string, number>();
+/** The retry armed per harness, if any. */
+const retries = new Map<string, ReturnType<typeof setTimeout>>();
 let timer: ReturnType<typeof setInterval> | null = null;
+let watching = false;
 
 function set(id: string, patch: Partial<HarnessUsageEntry>) {
   entries = { ...entries, [id]: { ...(entries[id] ?? EMPTY), ...patch } };
   for (const l of listeners) l();
+}
+
+/** A failure with nothing kept is asked again as the model says; any other answer ends the retries. */
+function scheduleRetry(id: string) {
+  const armed = retries.get(id);
+  if (armed) clearTimeout(armed);
+  retries.delete(id);
+  const wait = retryDelay(entries[id] ?? EMPTY, attempts.get(id) ?? 0);
+  if (wait === null) {
+    if (entries[id]?.state?.state !== "failed") attempts.delete(id);
+    return;
+  }
+  retries.set(
+    id,
+    setTimeout(() => {
+      retries.delete(id);
+      attempts.set(id, (attempts.get(id) ?? 0) + 1);
+      if (shown.has(id) && !isHidden()) void read(id, false);
+    }, wait),
+  );
 }
 
 async function read(id: string, refresh: boolean): Promise<void> {
@@ -70,6 +104,7 @@ async function read(id: string, refresh: boolean): Promise<void> {
   set(id, { ...settled(entries[id] ?? EMPTY, answer, Math.floor(Date.now() / 1000)), loading: false });
   inFlight.delete(id);
   if (again.delete(id)) void read(id, true);
+  else scheduleRetry(id);
 }
 
 function tick(refresh = false): void {
@@ -98,6 +133,16 @@ onVisibilityChange(() => {
   }
 });
 
+/** The bus coming back after the node was away: every shown line is read again — the node's cache answers what it still holds. */
+function ensureWatching() {
+  if (watching) return;
+  watching = true;
+  reloadOnReconnect(watchConnection, () => {
+    attempts.clear();
+    tick();
+  });
+}
+
 function subscribe(l: () => void) {
   listeners.add(l);
   return () => listeners.delete(l);
@@ -105,6 +150,7 @@ function subscribe(l: () => void) {
 
 /** Ask the node to read the harness's source again, now. */
 export function refreshHarnessUsage(id: string): void {
+  attempts.delete(id);
   void read(id, true);
 }
 
@@ -115,6 +161,7 @@ export function refreshHarnessUsage(id: string): void {
 export function useHarnessUsage(id: string | null, shown: boolean): HarnessUsageEntry {
   useEffect(() => {
     if (!id || !shown) return;
+    ensureWatching();
     shownCount(id, 1);
     if ((entries[id]?.readAt ?? 0) === 0) void read(id, false);
     schedule();

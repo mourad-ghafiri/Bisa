@@ -43,6 +43,24 @@ export function resetWords(resetsAt, now = Date.now() / 1000) {
 /** How long a failed re-read keeps the last report: an hour, Claude Code's own rule. */
 export const USAGE_KEEP_S = 3_600;
 
+/** The waits before a read that failed with no report to keep is asked again, in order; past the last, the poll alone. */
+export const USAGE_RETRY_MS = Object.freeze([15_000, 30_000, 60_000]);
+
+/**
+ * How long until a read is asked again on its own — for an answer that
+ * *failed* with nothing kept: a launch that outran the node, an endpoint that
+ * did not answer in time. A report, *not signed in*, *off* or *unsupported*
+ * is an answer and ends the retries, as does a failure past a kept report
+ * (the hour's rule, above) and the spent backoff; the poll takes over then.
+ * @param {{ state: object | null, stale: string | null }} entry what the read settled to
+ * @param {number} attempt how many retries were already made after it
+ * @returns {number | null} milliseconds
+ */
+export function retryDelay(entry, attempt) {
+  if (entry.state?.state !== "failed" || entry.stale !== null) return null;
+  return USAGE_RETRY_MS[attempt] ?? null;
+}
+
 /** The window closest to its limit. */
 function tightest(windows) {
   return windows.reduce((best, w) => (best === null || w.used_percent > best.used_percent ? w : best), null);

@@ -46,6 +46,10 @@ portable-pty = "0.9"
 # table, each read directly rather than by shelling out to `lsof`. Both MIT.
 listeners = "0.2"
 sysinfo = "0.32"
+# The app's config folder before the app exists (`login_env`: the login
+# shell's `PATH`, remembered between launches) — the same folder Tauri's
+# `app_config_dir()` resolves, through the crate Tauri itself resolves it with.
+dirs = "6"
 # A loose file's hash (`loose.rs`): the node's own `content_hash` — sha256,
 # hex — so a hash from one side is a hash on the other.
 sha2 = "0.10"

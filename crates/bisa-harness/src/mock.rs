@@ -217,6 +217,12 @@ pub struct MockAdapter {
     /// answer from a fresh one without a global counter.
     pub usage_asked: Arc<std::sync::atomic::AtomicUsize>,
     pub available: bool,
+    /// How long `probe()` takes to answer — a slow `--version`, for a test of
+    /// what a listing does with a probe that outstays its budget.
+    pub probe_delay: std::time::Duration,
+    /// How many times `probe()` was asked — so a test can tell a cached
+    /// listing from a fresh probe.
+    pub probes: Arc<std::sync::atomic::AtomicUsize>,
     /// Adapter id override, so tests can register several mocks side by side.
     pub id: String,
     /// Models this harness will not run, and how it says so. Matched against
@@ -307,6 +313,8 @@ impl Default for MockAdapter {
             usage: None,
             usage_asked: Arc::default(),
             available: true,
+            probe_delay: std::time::Duration::ZERO,
+            probes: Arc::default(),
             id: "mock".into(),
             dead_models: Vec::new(),
             launches: Arc::new(Mutex::new(Vec::new())),
@@ -467,6 +475,11 @@ impl HarnessAdapter for MockAdapter {
     }
 
     async fn probe(&self) -> ProbeResult {
+        self.probes
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if !self.probe_delay.is_zero() {
+            tokio::time::sleep(self.probe_delay).await;
+        }
         if self.available {
             ProbeResult::available(Some("mock 0.0.0".into()))
         } else {

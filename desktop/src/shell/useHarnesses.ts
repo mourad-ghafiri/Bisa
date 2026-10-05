@@ -10,8 +10,13 @@
  * Module-level rather than per-mount, and deliberately not folded into
  * {@link useWorkspaceState}: the workspace store reloads on a burst of bus
  * frames, and this list changes when somebody installs a CLI, which is not
- * something the message bus reports. So it is fetched once per window, shared
- * by every mount, and refetched only when asked.
+ * something the message bus reports. So it is fetched once per window and
+ * shared by every mount — and read again only for a reason: the bus coming
+ * back after the node was away (`reloadOnReconnect`), a read that failed or
+ * found no harness a person could launch (`harnessListModel.nextCatalogRead`:
+ * a launch can outrun the node, and a cold `--version` can outstay its probe,
+ * which is "not installed" for nobody), or a person pressing Refresh on the
+ * footer's usage (`reloadHarnesses`).
  *
  * **Unknown is not the same as uninstalled.** Until the fetch lands the answer
  * is `null` and no row is marked — marking every agent as unavailable for the
@@ -22,8 +27,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { watchConnection } from "../bus";
 import { errorFields, log } from "../log";
 import type { HarnessRow } from "../types";
+import { nextCatalogRead } from "./harnessListModel.mjs";
+import { reloadOnReconnect } from "./workspaceLoadModel.mjs";
 
 /** Every row the node reported, or `null` while the answer is still unknown. */
 type Known = HarnessRow[] | null;
@@ -31,10 +39,30 @@ type Known = HarnessRow[] | null;
 let cache: Known = null;
 let inflight: Promise<void> | null = null;
 const listeners = new Set<(next: Known) => void>();
+/** How many re-reads followed the last read that answered nothing useful. */
+let attempts = 0;
+let retry: ReturnType<typeof setTimeout> | null = null;
+let watching = false;
 
 function publish(next: Known) {
   cache = next;
   for (const l of listeners) l(next);
+}
+
+/** A read that found no installed harness to offer is asked again, on the model's backoff; one that did ends the retries. */
+function scheduleRetry() {
+  if (retry) clearTimeout(retry);
+  retry = null;
+  const wait = nextCatalogRead(cache, attempts);
+  if (wait === null) {
+    if (cache !== null) attempts = 0;
+    return;
+  }
+  retry = setTimeout(() => {
+    retry = null;
+    attempts += 1;
+    void load();
+  }, wait);
 }
 
 function load() {
@@ -49,8 +77,25 @@ function load() {
     })
     .finally(() => {
       inflight = null;
+      scheduleRetry();
     });
   return inflight;
+}
+
+/** The bus coming back after the node was away: the list is read again whole, as every store's is. */
+function ensureWatching() {
+  if (watching) return;
+  watching = true;
+  reloadOnReconnect(watchConnection, () => {
+    attempts = 0;
+    void load();
+  });
+}
+
+/** Read which harnesses are installed again, now — what Refresh on the footer's usage asks first. */
+export function reloadHarnesses(): void {
+  attempts = 0;
+  void load();
 }
 
 /** The whole catalog, or `null` until it is known. */
@@ -59,6 +104,7 @@ export function useHarnesses(): Known {
 
   useEffect(() => {
     listeners.add(setRows);
+    ensureWatching();
     if (cache === null) void load();
     else setRows(cache);
     return () => {

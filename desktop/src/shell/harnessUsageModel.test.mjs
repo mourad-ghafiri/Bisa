@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { USAGE_KEEP_S, resetWords, settled, usageKey, usageTitle, usageTone, usageWords } from "./harnessUsageModel.mjs";
+import { USAGE_KEEP_S, USAGE_RETRY_MS, resetWords, retryDelay, settled, usageKey, usageTitle, usageTone, usageWords } from "./harnessUsageModel.mjs";
 
 const NOW = 1_000_000;
 const window = (id, label, used, over = {}) => ({ id, label, used_percent: used, ...over });
@@ -97,9 +97,22 @@ test("a failed re-read keeps the last report an hour, then shows; any other answ
   assert.deepEqual(settled({ state: kept, readAt: NOW - 100 }, signedOut, NOW), { state: signedOut, readAt: NOW, stale: null }, "only a failure is kept over");
 });
 
-test("the store asks the source again once a refresh pressed mid-read lands, rather than dropping the press", async () => {
+test("a read that failed with nothing kept is asked again at 15 s, 30 s, 60 s, then left to the poll; an answer, or a kept report, ends the retries", () => {
+  assert.deepEqual([...USAGE_RETRY_MS], [15_000, 30_000, 60_000]);
+  const failed = { state: { state: "failed", reason: "the node could not be reached" }, stale: null };
+  assert.deepEqual([0, 1, 2, 3].map((n) => retryDelay(failed, n)), [15_000, 30_000, 60_000, null]);
+  assert.equal(retryDelay({ state: report([window("five_hour", "5h", 10)]), stale: "the usage endpoint answered 503" }, 0), null, "a kept report is an answer for the hour");
+  assert.equal(retryDelay({ state: report([window("five_hour", "5h", 10)]), stale: null }, 0), null);
+  assert.equal(retryDelay({ state: { state: "not_signed_in", reason: "run `claude`" }, stale: null }, 0), null, "not signed in is an answer");
+  assert.equal(retryDelay({ state: { state: "off" }, stale: null }, 0), null);
+  assert.equal(retryDelay({ state: null, stale: null }, 0), null, "nothing read yet is the first read's");
+});
+
+test("the store asks the source again once a refresh pressed mid-read lands, rather than dropping the press, reads again when the bus comes back, and retries a failure on the model's backoff", async () => {
   const { readFileSync } = await import("node:fs");
   const store = readFileSync(new URL("./harnessUsageStore.ts", import.meta.url), "utf8");
   assert.ok(store.includes("if (refresh) again.add(id);"), "a refresh asked while a read is out is remembered");
   assert.ok(store.includes("if (again.delete(id)) void read(id, true);"), "and asked once the read lands");
+  assert.ok(store.includes("reloadOnReconnect(watchConnection, "), "a page that opened while the node was down reads again when it comes up");
+  assert.ok(store.includes("retryDelay(entries[id] ?? EMPTY, attempts.get(id) ?? 0)"), "a failure is retried as the model says");
 });

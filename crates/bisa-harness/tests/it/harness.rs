@@ -206,6 +206,59 @@ async fn both_listings_agree_about_everything_that_is_not_an_adapter() {
     assert!(!rows(&slow).is_empty(), "there is something to compare");
 }
 
+/// A listing in which a probe outstayed its budget is answered — the row
+/// unavailable, saying so — but not kept: the next ask probes again, so a
+/// cold `--version` on a first launch is not "not installed" for the TTL.
+/// A listing whose probes all answered is kept as before.
+#[tokio::test]
+async fn a_listing_with_a_timed_out_probe_is_answered_but_not_cached() {
+    let ttl = Duration::from_secs(60);
+    let slow = Arc::new(MockAdapter {
+        id: "slow".into(),
+        probe_delay: Duration::from_millis(300),
+        ..MockAdapter::default()
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&slow) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let first = catalog.list_cached(ttl, Duration::from_millis(50)).await;
+    let row = first
+        .iter()
+        .find(|l| l.id == "slow")
+        .expect("the slow adapter is listed");
+    assert!(
+        !row.probe.available,
+        "a probe that outstayed its budget is unavailable"
+    );
+    assert!(
+        row.probe
+            .reason
+            .as_deref()
+            .is_some_and(|r| r.starts_with("probe timed out after")),
+        "and says so: {:?}",
+        row.probe.reason
+    );
+    catalog.list_cached(ttl, Duration::from_millis(50)).await;
+    assert_eq!(
+        slow.probes.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "the next ask probes again"
+    );
+
+    let quick = Arc::new(MockAdapter {
+        id: "quick".into(),
+        ..MockAdapter::default()
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&quick) as Arc<dyn bisa_harness::HarnessAdapter>);
+    catalog.list_cached(ttl, Duration::from_secs(3)).await;
+    catalog.list_cached(ttl, Duration::from_secs(3)).await;
+    assert_eq!(
+        quick.probes.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "a listing whose probes answered is kept"
+    );
+}
+
 /// **A preset may never shadow a compiled-in adapter.**
 ///
 /// Tier 2 is defined as *a harness we can detect but ship no first-class

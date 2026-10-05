@@ -10,6 +10,7 @@ import type { HarnessRow } from "../types";
 import { ICON, Tooltip, cn, harnessMark } from "../ui";
 import { UsageLine } from "./HarnessUsageLine";
 import { refreshHarnessUsage, useHarnessUsage } from "./harnessUsageStore";
+import { reloadHarnesses } from "./useHarnesses";
 import { pinUsage } from "./footerUsageStore";
 import { t } from "../i18n/l10n.mjs";
 
@@ -46,6 +47,7 @@ export function UsagePicker({ rows, pinned }: { rows: readonly HarnessRow[]; pin
             type="button"
             aria-label={t("shell-usage-picker-refresh-all")}
             onClick={() => {
+              reloadHarnesses();
               for (const r of rows) refreshHarnessUsage(r.id);
             }}
             className="anim flex h-6 items-center gap-1 rounded-control px-1.5 text-2xs text-text-dim hover:bg-surface-2 hover:text-text"

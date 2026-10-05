@@ -64,6 +64,18 @@ notes (`docs/contributing/release.md`).
 - A table of contents in a rendered Markdown file works: `[Build and upload](#10-build-and-upload)`
   scrolls to that heading. Headings now carry the anchors GitHub gives them, and a same-document
   link is followed in the rendering — the window never navigates.
+- The footer's harness usage shows up when the app opens, and comes back on its own. Four things
+  conspired against it: the node's `PATH` came from the login shell under a two-second budget that
+  a cold start missed, leaving every harness "not installed" until a restart — the shell now gets
+  four seconds, its `PATH` is remembered between launches and used when it is late, and a slow
+  shell is named in the log; a version probe that timed out was held as "not installed" for half a
+  minute while the installed-harness list was read once per window — the node no longer keeps such
+  a listing, and the desktop reads the list again when the node comes back, on a short backoff while
+  it names nothing launchable, and whenever *Refresh* is pressed; a usage read that failed waited
+  minutes for the poll — it is asked again at 15 s, 30 s and 60 s, and every shown line is read
+  again when the node comes back; and a stale Claude Code credential file shadowed the fresh
+  sign-in in the Keychain, whose lookup could hang — the file's own expiry is honoured and the
+  Keychain is asked under a five-second budget.
 - A terminal in a background tab or pane no longer shows its scrollbar over the one in front.
 - Editor and terminal scrollbars fade out again instead of vanishing at once.
 - The code editor's suggestions keep their row layout: long labels are cut inside the row.

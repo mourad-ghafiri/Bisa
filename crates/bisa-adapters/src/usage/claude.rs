@@ -8,10 +8,13 @@
 //! `.credentials.json` under its config directory — `CLAUDE_CONFIG_DIR` when
 //! set, else `~/.claude` — as `claudeAiOauth.accessToken`, or on macOS in the
 //! login keychain item *Claude Code-credentials* with the same JSON. The file
-//! is tried first; a file that is missing or holds no token falls through to
-//! the keychain, since Claude Code keeps one or the other. The token is read
-//! into memory for the one request and dropped; it is never logged, never in
-//! a report, never stored by the platform.
+//! is tried first; a file that is missing, holds no token or holds one whose
+//! `expiresAt` has passed falls through to the keychain — Claude Code keeps
+//! one or the other, and a stale file must not shadow the fresh sign-in
+//! beside it. The keychain is asked under a short budget: a locked keychain
+//! must not hold the footer's read for the desktop's whole deadline. The
+//! token is read into memory for the one request and dropped; it is never
+//! logged, never in a report, never stored by the platform.
 
 use bisa_harness::usage::now_secs;
 use bisa_harness::UsageState;
@@ -34,6 +37,10 @@ fn config_dir(override_dir: Option<OsString>, home: Option<OsString>) -> Option<
     }
 }
 
+/// How long the keychain gets to answer: a locked keychain, or one asking the
+/// person, must not hold the read for the desktop's whole deadline.
+const KEYCHAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The token from the credential JSON: the parsed field only, never the file.
 fn token_of(credentials_json: &str) -> Option<String> {
     let v: Value = serde_json::from_str(credentials_json).ok()?;
@@ -43,30 +50,53 @@ fn token_of(credentials_json: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The token from the credential file, when there is one with a token in it.
+/// When the credential JSON says its token expires — `claudeAiOauth.expiresAt`,
+/// milliseconds since the epoch — as seconds; `None` when it does not say.
+fn expires_at_of(credentials_json: &str) -> Option<u64> {
+    let v: Value = serde_json::from_str(credentials_json).ok()?;
+    let ms = v.get("claudeAiOauth")?.get("expiresAt")?;
+    ms.as_u64()
+        .or_else(|| ms.as_f64().map(|f| f.max(0.0) as u64))
+        .map(|ms| ms / 1_000)
+}
+
+/// The credential JSON's token, unless the JSON itself says it has expired:
+/// a stale file is no sign-in, and the keychain beside it may hold a fresh one.
+fn live_token_of(credentials_json: &str, now: u64) -> Option<String> {
+    if expires_at_of(credentials_json).is_some_and(|at| at <= now) {
+        return None;
+    }
+    token_of(credentials_json)
+}
+
+/// The token from the credential file, when there is one with a live token in it.
 async fn file_token() -> Option<String> {
     let dir = config_dir(std::env::var_os(CONFIG_DIR_VAR), std::env::var_os("HOME"))?;
     let text = tokio::fs::read_to_string(dir.join(".credentials.json"))
         .await
         .ok()?;
-    token_of(&text)
+    live_token_of(&text, now_secs())
 }
 
-/// The token from the macOS login keychain, when the item is there.
+/// The token from the macOS login keychain, when the item is there and the
+/// keychain answers within its budget.
 async fn keychain_token() -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let out = tokio::process::Command::new("security")
+    let asked = tokio::process::Command::new("security")
         .args(["find-generic-password", "-s", KEYCHAIN_ITEM, "-w"])
         .stdin(std::process::Stdio::null())
-        .output()
+        .kill_on_drop(true)
+        .output();
+    let out = tokio::time::timeout(KEYCHAIN_BUDGET, asked)
         .await
+        .ok()?
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    token_of(String::from_utf8_lossy(&out.stdout).trim())
+    live_token_of(String::from_utf8_lossy(&out.stdout).trim(), now_secs())
 }
 
 #[allow(
@@ -111,6 +141,42 @@ mod tests {
         assert_eq!(token_of(r#"{"claudeAiOauth":{}}"#), None);
         assert_eq!(token_of("{}"), None);
         assert_eq!(token_of("nope"), None);
+    }
+
+    /// A file whose own `expiresAt` has passed is no sign-in — the keychain
+    /// beside it is asked instead — while one that says nothing, or a time
+    /// still to come, hands its token over.
+    #[test]
+    fn an_expired_credential_file_yields_to_the_keychain() {
+        let now = 1_700_000_000;
+        let fresh = format!(
+            r#"{{"claudeAiOauth":{{"accessToken":"sk-ant-oat-fresh","expiresAt":{}}}}}"#,
+            (now + 3_600) * 1_000
+        );
+        let stale = format!(
+            r#"{{"claudeAiOauth":{{"accessToken":"sk-ant-oat-stale","expiresAt":{}}}}}"#,
+            (now - 60) * 1_000
+        );
+        assert_eq!(expires_at_of(&fresh), Some(now + 3_600));
+        assert_eq!(
+            expires_at_of(r#"{"claudeAiOauth":{"accessToken":"x"}}"#),
+            None
+        );
+        assert_eq!(
+            live_token_of(&fresh, now).as_deref(),
+            Some("sk-ant-oat-fresh")
+        );
+        assert_eq!(
+            live_token_of(&stale, now),
+            None,
+            "a stale file is no sign-in"
+        );
+        assert_eq!(
+            live_token_of(r#"{"claudeAiOauth":{"accessToken":"x"}}"#, now).as_deref(),
+            Some("x"),
+            "a file that does not say when it expires is taken at its word"
+        );
+        assert_eq!(live_token_of("nope", now), None);
     }
 
     #[test]

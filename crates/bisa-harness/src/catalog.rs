@@ -386,6 +386,11 @@ impl HarnessCatalog {
     /// the per-request subprocess storm of re-probing every binary, and a fresh
     /// probe still runs at most once per TTL. `list_with_timeout` stays uncached
     /// for the callers (the CLI, tests) that want a live probe every time.
+    ///
+    /// A listing in which a probe **timed out** is answered but not kept: a
+    /// cold `--version` on a machine's first launch is not a harness that is
+    /// absent, and holding it as one for the TTL is what left a footer with
+    /// nothing to show until a restart. The next ask probes again.
     pub async fn list_cached(
         &self,
         ttl: std::time::Duration,
@@ -395,7 +400,7 @@ impl HarnessCatalog {
             return listings;
         }
         let listings = self.list_with_timeout(per_probe).await;
-        if !ttl.is_zero() {
+        if !ttl.is_zero() && !listings.iter().any(|l| timed_out(&l.probe)) {
             self.listing.set(listings.clone());
         }
         listings
@@ -425,7 +430,7 @@ impl HarnessCatalog {
                     Ok(p) => p,
                     Err(_) => ProbeResult {
                         available: false,
-                        reason: Some(format!("probe timed out after {per_probe:?}")),
+                        reason: Some(format!("{TIMED_OUT} {per_probe:?}")),
                         version: None,
                     },
                 };
@@ -473,6 +478,18 @@ fn sanitize_custom(mut spec: CustomHarnessSpec) -> Result<CustomHarnessSpec, Cat
 /// column labelled *version* came to show a filesystem path for every preset.
 /// A lookup that found a binary has learned where it is, not what version it
 /// is; saying so takes a second return value and no more.
+/// How a probe that outstayed its budget is worded — the one reason a listing
+/// is not cached on (`list_cached`).
+const TIMED_OUT: &str = "probe timed out after";
+
+/// Whether a probe's answer is the budget's, not the binary's.
+fn timed_out(probe: &ProbeResult) -> bool {
+    probe
+        .reason
+        .as_deref()
+        .is_some_and(|r| r.starts_with(TIMED_OUT))
+}
+
 pub fn probe_command(command: &str) -> (ProbeResult, Option<String>) {
     match which::which(command) {
         Ok(path) => {
