@@ -210,3 +210,21 @@ test("a harness opened in the home folder is a terminal and never a roster row; 
   assert.equal(exitNote(at(s, tab)), "exited (1)");
   assert.equal(footerSessions(s.sessions, []).openTerminals, 1, "the sign-in shell alone");
 });
+
+test("the tab says when its harness's dialog was answered, the whole way down: the keystroke, the host, the shell's command, the session's door", () => {
+  // No hook of a harness's says how a dialog was answered — only that it
+  // showed. The tab that showed it does (ide/06 §Reporting), through one
+  // path: xterm's bytes → the panel → the terminals store, which asks the
+  // model once per wait → the shell's command → `POST /sessions/{id}/answered`.
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const terminal = src("../terminal/Terminal.tsx");
+  assert.ok(terminal.includes("refs.onInput.current?.(data);"), "the component hands every keystroke to its host, after the PTY has it");
+  assert.ok(!terminal.includes("onInput.current?.(nudgeText()"), "the platform's resume nudge is typed without passing there");
+  assert.ok(src("../shell/TerminalPanel.tsx").includes("onInput={(data) => terminalTyped(s.key, s.generation, data)}"), "the panel names the tab and its generation");
+  const store = src("../shell/useTerminals.ts");
+  assert.ok(store.includes("answerDue(tab, row, data, answered.get(key) ?? null)"), "the store asks the model, once per wait");
+  assert.ok(store.includes("answeredInTerminal(tab.terminalId)"), "and tells the shell by the PTY's id");
+  assert.ok(src("../terminal/session.ts").includes('invoke("terminal_answered", { id: terminalId })'), "the shell's command");
+  const rust = src("../../src-tauri/src/terminal.rs");
+  assert.ok(rust.includes("pub async fn terminal_answered(") && rust.includes('self.send("answered", "{}")'), "which posts the session's own `answered` door");
+});

@@ -7,13 +7,14 @@
  * workstream — clicking a row in the Agent panel, an agent row on the rail,
  * or bringing a harness tab to the centre all choose. With no choice, or a
  * choice that left, the **loudest live** session stands in — attention rank,
- * then newest, the same order the Agent panel sorts by, so the pet and the
- * panel's status line agree — and failing that the newest ended one still on
- * the roster, because a harness that just failed is exactly what the pet
- * should be saying.
+ * then the one that started last, then the id: a steady subject, so a tool
+ * call in one of two working sessions never swaps whose doing the pet
+ * reports — and failing that the newest ended one still on the roster,
+ * because a harness that just failed is exactly what the pet should be
+ * saying.
  */
 
-import { isEnded, isLive, sortRows } from "../ui/sessionState.mjs";
+import { attentionRank, isEnded, isLive } from "../ui/sessionState.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
 const TERMINAL_DOC = "terminal:";
@@ -37,7 +38,9 @@ export function chosenSession(chosen, sessions, workstream) {
  */
 export function fallbackSession(sessions, workstream) {
   const here = (sessions ?? []).filter((s) => s.workstream === workstream);
-  const live = sortRows(here.filter((s) => isLive(s.state)));
+  // Attention first; among equals the session that started last, then the
+  // id — never `since`, which every tool call resets.
+  const live = here.filter((s) => isLive(s.state)).sort((a, b) => attentionRank(a.state) - attentionRank(b.state) || (b.started ?? b.since ?? 0) - (a.started ?? a.since ?? 0) || String(a.id).localeCompare(String(b.id)));
   if (live.length > 0) return live[0];
   const ended = here.filter((s) => isEnded(s.state)).sort((a, b) => (b.since ?? 0) - (a.since ?? 0));
   return ended[0] ?? null;

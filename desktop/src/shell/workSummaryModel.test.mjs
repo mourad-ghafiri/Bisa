@@ -15,16 +15,23 @@ const row = (...kinds) => ({ needs_action: kinds.map((gate_kind) => ({ gate_kind
 
 test("what waits, what is open for review and what is worked on are counted from the shell's lists and the roster's tally", () => {
   const ws = { inbox: [row("approval"), row("question"), row("approval", "question"), row()], waiting: 2, working: { c1: ["scout"], c2: [], c3: ["ada", "scout"] } };
-  assert.deepEqual(workSummary(ws, { waiting: 1, working: 3 }), { waiting: 3, review: 2, working: 5, busyScope: "c1" });
+  assert.deepEqual(workSummary(ws, { waiting: 1, working: 3 }), { waiting: 2, review: 2, working: 5, busyScope: "c1" });
   assert.deepEqual(workSummary({ inbox: [], waiting: 0, working: {} }, { waiting: 0, working: 0 }), { waiting: 0, review: 0, working: 0, busyScope: null });
   assert.equal(workSummary({ inbox: [{ needs_action: null }, {}], waiting: 0, working: { c2: [] } }, { waiting: 0, working: 0 }).working, 0, "a conversation nobody is mid-turn in is no work");
+});
+
+test("a wait is counted once: the Inbox is the ledger, and a harness at its prompt is already a row of it", () => {
+  // The roster says one session waits; the Inbox holds its row. One wait, not two.
+  assert.equal(workSummary({ inbox: [], waiting: 1, working: {} }, { waiting: 1, working: 0 }).waiting, 1);
+  // The roster's tally alone — a frame the Inbox has not drawn yet — is not a count the pet jumps to.
+  assert.equal(workSummary({ inbox: [], waiting: 0, working: {} }, { waiting: 1, working: 0 }).waiting, 0);
 });
 
 test("the pet and an addon's summary read the one rule: they never say two things about one moment", () => {
   const busy = workSummary({ inbox: [], waiting: 0, working: { c9: ["scout"] } }, { waiting: 0, working: 0 });
   assert.equal(standingState(busy), "running");
   assert.equal(standingState(workSummary({ inbox: [row("approval")], waiting: 0, working: { c9: ["scout"] } }, { waiting: 0, working: 0 })), "review", "a gate open outranks an agent working");
-  assert.equal(standingState(workSummary({ inbox: [row("approval")], waiting: 0, working: {} }, { waiting: 1, working: 0 })), "waiting", "a session waiting on the person outranks both");
+  assert.equal(standingState(workSummary({ inbox: [row("approval")], waiting: 1, working: {} }, { waiting: 1, working: 0 })), "waiting", "a session waiting on the person — its Inbox row — outranks both");
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
   for (const reader of ["../pet/PetCompanion.tsx", "../addons/AddonLayer.tsx"]) {
     const text = src(reader);

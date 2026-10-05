@@ -138,6 +138,14 @@ fn item_tool(item: &serde_json::Value) -> Option<(&'static str, ToolTier)> {
     }
 }
 
+/// An item's own id — what ties `item.completed` to its `item.started`.
+fn item_id(item: &serde_json::Value) -> Option<String> {
+    item.get("id")
+        .and_then(|v| v.as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
 /// What an item's arguments read as on the row: a command, the files a
 /// patch touches, an MCP tool's name, a search's query.
 fn item_args(item: &serde_json::Value) -> String {
@@ -225,6 +233,7 @@ fn map_codex_event(shared: &Shared, value: serde_json::Value) -> Drive {
                             name: name.into(),
                             args_summary: item_args(&item),
                             tier,
+                            id: item_id(&item),
                         }));
                 }
                 None => shared.broadcaster.emit(SessionEvent::Raw(value.clone())),
@@ -254,6 +263,7 @@ fn map_codex_event(shared: &Shared, value: serde_json::Value) -> Drive {
                         .emit(SessionEvent::Progress(ProgressEvent::ToolEnded {
                             name: name.into(),
                             ok,
+                            id: item_id(&item),
                         }));
                 }
                 None => match item.get("type").and_then(|t| t.as_str()) {
@@ -380,7 +390,7 @@ mod stream_tests {
         );
         let events = drain(&mut stream, 1).await;
         assert!(
-            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ToolStarted { name, args_summary, tier: ToolTier::Exec }) if name == "shell" && args_summary == "cargo test")
+            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ToolStarted { name, args_summary, tier: ToolTier::Exec, .. }) if name == "shell" && args_summary == "cargo test")
         );
         map_codex_event(
             &s,
@@ -388,7 +398,7 @@ mod stream_tests {
         );
         let events = drain(&mut stream, 1).await;
         assert!(
-            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: false }) if name == "shell"),
+            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: false, .. }) if name == "shell"),
             "a non-zero exit is the tool's failure"
         );
         map_codex_event(
@@ -397,7 +407,7 @@ mod stream_tests {
         );
         let events = drain(&mut stream, 1).await;
         assert!(
-            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ToolStarted { name, args_summary, tier: ToolTier::Write }) if name == "apply_patch" && args_summary == "src/cart.rs")
+            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ToolStarted { name, args_summary, tier: ToolTier::Write, .. }) if name == "apply_patch" && args_summary == "src/cart.rs")
         );
         map_codex_event(
             &s,

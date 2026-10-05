@@ -1198,7 +1198,7 @@ fn session_line(style: &Style, scope: &str, e: &SessionEvent) -> Option<String> 
             ProgressEvent::ToolStarted {
                 name, args_summary, ..
             } => Some(style.dim(&format!("{scope}→ {name} {}", short(args_summary, 60)))),
-            ProgressEvent::ToolEnded { name, ok } if !ok => {
+            ProgressEvent::ToolEnded { name, ok, .. } if !ok => {
                 Some(style.red(&format!("{scope}✗ {name} failed")))
             }
             ProgressEvent::SubagentStarted {
@@ -1214,9 +1214,9 @@ fn session_line(style: &Style, scope: &str, e: &SessionEvent) -> Option<String> 
             ))),
             // A sub-agent's tools are its own business; only its failures show.
             ProgressEvent::Nested { event, .. } => match event.as_ref() {
-                ProgressEvent::ToolEnded { name, ok: false } => {
-                    Some(style.red(&format!("{scope}↳ ✗ {name} failed")))
-                }
+                ProgressEvent::ToolEnded {
+                    name, ok: false, ..
+                } => Some(style.red(&format!("{scope}↳ ✗ {name} failed"))),
                 _ => None,
             },
             ProgressEvent::CostDelta {

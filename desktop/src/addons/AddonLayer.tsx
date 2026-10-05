@@ -15,7 +15,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { openExternal } from "../api";
 import { t } from "../i18n/l10n.mjs";
 import { useLayerSlot } from "../shell/layerSlots";
-import { useSessions } from "../shell/sessionsStore";
+import { useSettledSessions } from "../shell/useSettledSessions";
 import { useDiskUsage, useHostLoad } from "../shell/statsStore";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { ConfirmDialog } from "../ui";
@@ -34,9 +34,9 @@ export function AddonLayer() {
   const aux = useLayerSlot("aux");
   const slots = useMemo(() => [center, aux], [center, aux]);
 
-  // The facts a widget may read — the same the pet reads.
+  // The facts a widget may read — the same the pet reads, the roster as the tabs say it.
   const ws = useWorkspace();
-  const sessions = useSessions();
+  const sessions = useSettledSessions();
   const summary: AddonSummary = useMemo(() => {
     const { waiting, review, working } = workSummary(ws, sessionCounts(sessions));
     return { waiting, review, working };

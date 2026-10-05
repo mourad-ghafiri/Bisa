@@ -41,7 +41,8 @@ import { followWords, followedSession } from "../shell/followedSessionModel.mjs"
 import { workSummary } from "../shell/workSummaryModel.mjs";
 import { openFollowed, useFollowedSession } from "../shell/followedSessionStore";
 import { useBrowserClear } from "../shell/browserClear";
-import { onSessionTransition, useSessions } from "../shell/sessionsStore";
+import { onSessionTransition } from "../shell/sessionsStore";
+import { useSettledSessions } from "../shell/useSettledSessions";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { counts as sessionCounts } from "../ui/sessionState.mjs";
 import { dockBox, dockStyle, useDockDrag, useDockViewport } from "../ui/Dock";
@@ -104,7 +105,9 @@ export function PetCompanion() {
   // else the loudest live). Everywhere else it stands for the workspace.
   const route = useRoute();
   const wid = route.name === "workbench" && route.scope === "workstream" ? route.id : null;
-  const sessions = useSessions();
+  // The roster as the tabs say it: a harness whose tab exited is settled
+  // here as on the rail, so the pet never keeps working for a closed shell.
+  const sessions = useSettledSessions();
   const chosenId = useFollowedSession(wid);
   const followed = useMemo(() => followedSession(chosenId, sessions, wid), [chosenId, sessions, wid]);
   const following = useRef(followed);

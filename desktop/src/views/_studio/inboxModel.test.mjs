@@ -529,6 +529,10 @@ test("a session row is a harness waiting in its terminal: owed, from projects, t
   assert.equal(matchesFilter(row, "needs_you"), true);
   assert.equal(waitingWords(row, { "claude-code": "Claude Code" }), "Claude Code is waiting on you — permission: Bash");
   assert.equal(waitingWords(row), "claude-code is waiting on you — permission: Bash", "no label: the id");
+  // A sub-agent's dialog: the row says whose, the pulse line's own way.
+  const child = { ...row, waiting: { ...waiting, subagent: "explore" } };
+  assert.equal(waitingWords(child, { "claude-code": "Claude Code" }), "Claude Code is waiting on you — ↳ explore · permission: Bash");
+  assert.equal(summarize(child).text, "waiting on you — ↳ explore · permission: Bash");
   assert.equal(waitingOf({ ...row, waiting: undefined }), null);
   assert.deepEqual(summarize(row), { text: "waiting on you — permission: Bash", icon: "waiting", urgent: true, tone: "accent" });
   assert.deepEqual(doorOf(row), { route: { name: "workbench", scope: "workstream", id: "w1" }, search: null }, "the door is the workstream; the screen adds the tab");
@@ -542,7 +546,8 @@ test("a session row is a harness waiting in its terminal: owed, from projects, t
   assert.equal(applyDelta([row], { key: "s1", kind: "session", waiting: true, unread_count: 0, needs_action_count: 1, latest_at: 0, read: true, handled: false })[0], row, "still waiting: the row stands");
   assert.equal(needsReload([], { key: "s2", kind: "session", waiting: true, unread_count: 0, needs_action_count: 1, latest_at: 0, read: true, handled: false }), true);
   assert.equal(needsReload([], { key: "s2", kind: "session", waiting: false, unread_count: 0, needs_action_count: 0, latest_at: 0, read: true, handled: false }), false, "a wait that ended before it was shown moves nothing");
-  assert.equal(needsReload([row], { key: "s1", kind: "session", waiting: true, unread_count: 0, needs_action_count: 1, latest_at: 0, read: true, handled: false }), false);
+  assert.equal(needsReload([row], { key: "s1", kind: "session", waiting: true, unread_count: 0, needs_action_count: 1, latest_at: 0, read: true, handled: false }), true, "still waiting, but on what may have moved — another tool, a sub-agent: the words are read again");
+  assert.equal(needsReload([row], { key: "s1", kind: "session", waiting: false, unread_count: 0, needs_action_count: 0, latest_at: 0, read: true, handled: false }), false, "the wait over is applyDelta's to drop");
 });
 
 test("a people row is its own source, waits while a join is open, and opens Settings › People", () => {

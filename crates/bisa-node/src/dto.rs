@@ -1594,7 +1594,12 @@ pub struct WaitingSession {
     pub on: bisa_engine::WaitingOn,
     /// The wait in words — *permission: Bash*, *a question: …*.
     pub words: String,
-    /// Unix seconds the wait began.
+    /// The sub-agent whose wait it is, by name, when a sub-agent asks and
+    /// not the session itself — the card reads *↳ explore · permission:
+    /// Bash*. Absent for the session's own wait.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<String>,
+    /// Unix seconds the wait began — the sub-agent's when it is its wait.
     pub since: u64,
 }
 

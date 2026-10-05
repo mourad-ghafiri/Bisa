@@ -149,6 +149,22 @@ export declare function isRootedAt(
 export declare function isLive(session: TerminalSessionState | null | undefined): boolean;
 export declare function isExited(session: TerminalSessionState | null | undefined): boolean;
 export declare function settledByTab<S extends { state: unknown; since: number; children?: readonly unknown[] }>(session: S, tab: TerminalSessionState | null | undefined): S;
+/** The roster as the tabs say it — every session through `settledByTab` with the tab that claims it; the same array when no tab changes a row. */
+export declare function settledRoster<S extends { id: string; state: unknown; since: number; children?: readonly unknown[] }>(
+  sessions: readonly S[],
+  terminals: readonly { sessionId?: string | null }[],
+): readonly S[];
+/**
+ * Whether what was just typed into a tab answers the dialog its harness has up: the roster says the session
+ * or a sub-agent waits, the tab is live, the bytes are an answering key, and this wait was not said already.
+ * The `since` of the wait answered — to remember as `said` — or `null`.
+ */
+export declare function answerDue(
+  tab: TerminalSessionState | null | undefined,
+  row: { state: unknown; since: number; children?: readonly { state: unknown; since: number }[] } | null | undefined,
+  data: string,
+  said: number | null | undefined,
+): number | null;
 
 export declare function nowSecs(): number;
 export declare function loginOf(login: unknown): TerminalLogin | null;

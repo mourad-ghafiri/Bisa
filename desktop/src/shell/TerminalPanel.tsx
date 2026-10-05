@@ -106,6 +106,7 @@ import {
   terminalUnverifiable,
   useTerminals,
   terminalRunning,
+  terminalTyped,
 } from "./useTerminals";
 import { t as tr } from "../i18n/l10n.mjs";
 
@@ -373,6 +374,7 @@ export function TerminalPanel() {
                   fontSize={settings.fontSize ?? undefined}
                   cursorStyle={settings.cursorStyle ?? undefined}
                   onExit={(code) => terminalExited(s.key, s.generation, code)}
+                  onInput={(data) => terminalTyped(s.key, s.generation, data)}
                   onOpened={(tid, session) => terminalLive(s.key, s.generation, tid, session)}
                   onUnverifiable={(reason) => terminalUnverifiable(s.key, s.generation, reason)}
                   onProcess={(h) => terminalRunning(s.key, s.generation, h)}

@@ -205,6 +205,13 @@ pub(crate) fn map_line(shared: &Shared, value: serde_json::Value) -> Drive {
             Drive::Continue
         }
         "tool_use" => {
+            // The part's own id: what ties the call's end to its start.
+            fn part_id(part: &serde_json::Value) -> Option<String> {
+                part.get("id")
+                    .and_then(|v| v.as_str())
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+            }
             let name = part
                 .get("tool")
                 .and_then(|v| v.as_str())
@@ -222,12 +229,14 @@ pub(crate) fn map_line(shared: &Shared, value: serde_json::Value) -> Drive {
                     tier: ToolTier::classify(&name),
                     args_summary: util::summarize_args(&input, 160),
                     name: name.clone(),
+                    id: part_id(&part),
                 }));
             shared
                 .broadcaster
                 .emit(SessionEvent::Progress(ProgressEvent::ToolEnded {
                     name,
                     ok,
+                    id: part_id(&part),
                 }));
             Drive::Continue
         }
@@ -514,6 +523,7 @@ mod tests {
                 name,
                 tier,
                 args_summary,
+                ..
             }) => {
                 assert_eq!(name, "edit");
                 assert_eq!(*tier, ToolTier::Write);
@@ -522,7 +532,7 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(
-            matches!(&events[1], SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true }) if name == "edit")
+            matches!(&events[1], SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true, .. }) if name == "edit")
         );
         assert_eq!(s.snapshot().activity.as_deref(), Some("edit"));
 
@@ -530,7 +540,7 @@ mod tests {
         map_line(&s, failed);
         let events = drain(&mut stream, 2).await;
         assert!(
-            matches!(&events[1], SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: false }) if name == "bash")
+            matches!(&events[1], SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: false, .. }) if name == "bash")
         );
     }
 

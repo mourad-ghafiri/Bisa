@@ -29,6 +29,17 @@ use tokio::sync::mpsc;
 
 use crate::util::{self, Drive, OutMsg, Shared};
 
+/// A tool line's own id (`id`, or `call_id`), when the command gives one —
+/// what ties a `tool_end` to its `tool` when two calls share a name. The
+/// contract does not require it.
+fn call_id(value: &serde_json::Value) -> Option<String> {
+    ["id", "call_id"]
+        .iter()
+        .find_map(|key| value.get(key).and_then(|v| v.as_str()))
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
 pub struct CustomJsonAdapter {
     pub spec: CustomHarnessSpec,
     full_id: String,
@@ -134,6 +145,7 @@ impl HarnessAdapter for CustomJsonAdapter {
                                 tier: ToolTier::classify(&name),
                                 args_summary: util::summarize_args(&args, 160),
                                 name,
+                                id: call_id(&value),
                             },
                         ));
                     }
@@ -149,6 +161,7 @@ impl HarnessAdapter for CustomJsonAdapter {
                             .emit(SessionEvent::Progress(ProgressEvent::ToolEnded {
                                 name,
                                 ok,
+                                id: call_id(&value),
                             }));
                     }
                     Some("ended") => {

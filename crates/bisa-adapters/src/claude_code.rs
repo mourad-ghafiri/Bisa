@@ -737,6 +737,7 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
                                 tier: ToolTier::classify(&normalize_tool(&name)),
                                 args_summary: util::summarize_args(&args, 160),
                                 name,
+                                id,
                             }
                             .raised_by(parent.clone()),
                         ));
@@ -815,7 +816,7 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
                         }
                         Some(ToolUse { name, .. }) => {
                             shared.broadcaster.emit(SessionEvent::Progress(
-                                ProgressEvent::ToolEnded { name, ok }.raised_by(parent.clone()),
+                                ProgressEvent::ToolEnded { name, ok, id }.raised_by(parent.clone()),
                             ));
                         }
                         None => {
@@ -823,6 +824,7 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
                                 ProgressEvent::ToolEnded {
                                     name: "?".to_string(),
                                     ok,
+                                    id,
                                 }
                                 .raised_by(parent.clone()),
                             ));

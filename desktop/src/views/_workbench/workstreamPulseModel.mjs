@@ -58,9 +58,14 @@ export function headlineOf(state) {
   return label(state);
 }
 
-/** Newer activity first among equally loud rows. */
+/**
+ * Loudest first; among equals the subject that started last, then the id. A
+ * steady lead: `last_activity` moves on every token and `since` on every
+ * tool call, and a line whose subject swapped between two working sessions
+ * at each of them read as a flicker, not as news.
+ */
 function byLoudness(a, b) {
-  return rank(a.state) - rank(b.state) || (b.last_activity ?? 0) - (a.last_activity ?? 0);
+  return rank(a.state) - rank(b.state) || (b.start ?? 0) - (a.start ?? 0) || String(a.id).localeCompare(String(b.id));
 }
 
 /**
@@ -232,11 +237,15 @@ function liveShellPulse(terminals, workstream, ports, now) {
   };
 }
 
-/** A collapsed project's line: the loudest of its workstreams' pulses, newest first among equals. */
+/**
+ * A collapsed project's line: the loudest of its workstreams' pulses; among
+ * equals the live line whose subject started last (`liveStart`, which a
+ * tool call never moves), then the one that entered its state last.
+ */
 export function projectPulse(pulses) {
   const list = (pulses ?? []).filter(Boolean);
   if (list.length === 0) return null;
-  return [...list].sort((a, b) => rank(a.word) - rank(b.word) || b.since - a.since)[0];
+  return [...list].sort((a, b) => rank(a.word) - rank(b.word) || (b.liveStart ?? 0) - (a.liveStart ?? 0) || b.since - a.since)[0];
 }
 
 /** The words for the `+N` chip. */

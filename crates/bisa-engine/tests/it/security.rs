@@ -1027,6 +1027,7 @@ async fn the_guard_hook_answers_deny_ask_or_nothing_and_a_report_is_redacted() {
                 name: "Bash".into(),
                 args_summary: format!("curl -H {FAKE_TOKEN}"),
                 tier: ToolTier::Exec,
+                id: None,
             })],
         )
         .unwrap();

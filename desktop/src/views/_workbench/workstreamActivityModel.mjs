@@ -13,6 +13,7 @@
  */
 
 import { attentionRank, counts, loudest } from "../../ui/sessionState.mjs";
+import { settledRoster } from "../../shell/terminalsModel.mjs";
 import { claimedSessions, isDrawn } from "./workstreamSessionsModel.mjs";
 
 /**
@@ -43,7 +44,9 @@ export function fold(words) {
  */
 export function workstreamActivity(sessions, terminals, workstream) {
   const claimed = claimedSessions(sessions, terminals);
-  const here = (sessions ?? []).filter((s) => s.workstream === workstream && isDrawn(s, claimed));
+  // As the claiming tab says (`settledRoster`): a tab that exited ended its
+  // session, so the dot settles with the pill and the footer, not after them.
+  const here = settledRoster(sessions ?? [], terminals ?? []).filter((s) => s.workstream === workstream && isDrawn(s, claimed));
   const shells = (terminals ?? []).filter((t) => t.scope === "workstream" && t.id === workstream);
   // A tab a roster row claims speaks through that row; only an unclaimed
   // shell's own exit is a word here.

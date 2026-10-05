@@ -51,7 +51,7 @@
  */
 
 import { addTab, closeLeaf, findLeaf, leafOfTab, leaves, moveWithin, neighbor, parseTree, removeTab, setActiveTab, setRatio, singleLeaf, splitLeaf } from "./paneTreeModel.mjs";
-import { isEnded } from "../ui/sessionState.mjs";
+import { isEnded, stateOf } from "../ui/sessionState.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
 /**
@@ -207,6 +207,75 @@ export function settledByTab(session, tab) {
   const code = tab.liveness.code;
   const state = code === 0 ? { state: "done" } : { state: "failed", reason: code == null ? tr("shell-terminals-process-ended") : tr("shell-terminals-exited-status", { code }) };
   return { ...session, state, since: tab.exitedAt ?? session.since, children: [] };
+}
+
+/**
+ * The roster as the tabs say it: every session through {@link settledByTab}
+ * with the tab that claims it. The one roster every surface that marks or
+ * counts sessions reads — the rail's rows and marks, the Workstreams panel,
+ * the footer, the pet's counts, the tray, the Agents screen — so a tab that
+ * exited settles its mark, its pill and its count alike, and no two of
+ * them disagree about one session. The same array when no tab changes a
+ * row, so a memo holds.
+ * @template {{id: string, state: object, since: number, children?: object[]}} S
+ * @param {readonly S[]} sessions the roster (`SessionRow[]`)
+ * @param {readonly {sessionId?: string | null}[]} terminals the tabs
+ * @returns {readonly S[]}
+ */
+export function settledRoster(sessions, terminals) {
+  const tabs = new Map();
+  for (const t of terminals ?? []) if (t.sessionId) tabs.set(t.sessionId, t);
+  let changed = false;
+  const settled = (sessions ?? []).map((s) => {
+    const next = settledByTab(s, tabs.get(s.id));
+    if (next !== s) changed = true;
+    return next;
+  });
+  return changed ? settled : sessions ?? [];
+}
+
+/**
+ * Unix seconds the wait a row shows began — the session's own, else the
+ * first waiting sub-agent's (a child speaks only to ask); `null` when nothing
+ * on the row waits.
+ * @param {{state: object, since: number, children?: readonly {state: object, since: number}[]} | null | undefined} row
+ * @returns {number | null}
+ */
+function waitSince(row) {
+  if (!row) return null;
+  if (stateOf(row.state) === "waiting") return row.since;
+  return (row.children ?? []).find((c) => stateOf(c.state) === "waiting")?.since ?? null;
+}
+
+/**
+ * The keystrokes that answer a harness's dialog, as xterm encodes them: Enter,
+ * Escape alone, a digit choosing an option, `y`/`n`, Ctrl-C. One key at a
+ * time — an arrow moving the dialog's cursor is `\x1b[A`, three bytes, and a
+ * paste is many; neither answers anything.
+ */
+const ANSWER_KEYS = /^(?:\r|\n|\x1b|\x03|[0-9]|[yYnN])$/;
+
+/**
+ * Whether what was just typed into a tab answers the dialog the harness in
+ * it has up (ide/06 §Reporting). No hook of the harness's says how a dialog
+ * was answered — only that it showed, and later that the tool ran — so the
+ * hand on the roster would stay up for as long as the tool takes, or until
+ * the next prompt. The tab that showed the dialog knows the moment: the
+ * roster says the session (or one of its sub-agents) waits, the tab is live,
+ * and the bytes are an answering key. Said **once per wait**: `said` is the
+ * `since` of the wait last answered from this tab, and the same wait is
+ * never answered twice by a second key.
+ * @param {TerminalSessionState | null | undefined} tab the tab typed into
+ * @param {{state: object, since: number, children?: readonly {state: object, since: number}[]} | null | undefined} row the roster row the tab claims
+ * @param {string} data the bytes xterm encoded for the keystroke
+ * @param {number | null | undefined} said the `since` of the wait last answered from this tab
+ * @returns {number | null} the `since` of the wait this answers — to remember as `said` — or `null`
+ */
+export function answerDue(tab, row, data, said) {
+  if (!tab || !isLive(tab) || !tab.terminalId) return null;
+  const since = waitSince(row);
+  if (since === null || since === said) return null;
+  return ANSWER_KEYS.test(data) ? since : null;
 }
 
 function indexOfKey(state, key) {

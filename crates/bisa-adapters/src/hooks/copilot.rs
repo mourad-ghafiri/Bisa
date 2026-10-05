@@ -40,7 +40,8 @@
 //! prompt standing.
 
 use super::{
-    hook_subagent, hook_tool_name, hook_tool_started, hook_tool_tier, shell_command, Verdict,
+    hook_subagent, hook_tool_id, hook_tool_name, hook_tool_started, hook_tool_tier, shell_command,
+    Verdict,
 };
 use bisa_harness::{
     InputRequest, LaunchFile, LifecycleEvent, ProgressEvent, ReportingContext, ReportingPlan,
@@ -145,13 +146,17 @@ pub fn translate(payload: &Value) -> Vec<SessionEvent> {
             let name = hook_tool_name(payload);
             let input = payload.get("tool_input").cloned().unwrap_or(Value::Null);
             let tier = hook_tool_tier(&name);
-            vec![answered(), progress(hook_tool_started(name, tier, &input))]
+            vec![
+                answered(),
+                progress(hook_tool_started(payload, name, tier, &input)),
+            ]
         }
         "PostToolUse" | "PostToolUseFailure" => vec![
             answered(),
             progress(ProgressEvent::ToolEnded {
                 name: hook_tool_name(payload),
                 ok: event == "PostToolUse",
+                id: hook_tool_id(payload),
             }),
         ],
         // The harness shows a dialog and waits: a permission, or a question
@@ -358,6 +363,7 @@ mod tests {
                 name,
                 tier,
                 args_summary,
+                ..
             }) => {
                 assert_eq!(name, "Bash");
                 assert_eq!(*tier, ToolTier::Exec);
@@ -378,7 +384,7 @@ mod tests {
         ));
         assert!(matches!(
             &translate(&hook("PostToolUse", json!({"tool_name": "Bash"})))[1],
-            SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true }) if name == "Bash"
+            SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true, .. }) if name == "Bash"
         ));
         assert!(matches!(
             &translate(&hook("PostToolUseFailure", json!({"tool_name": "Bash"})))[1],

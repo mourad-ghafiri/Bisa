@@ -332,6 +332,7 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | `POST /sessions/{id}/guard` | The guard hook inside a terminal-hosted harness asks before a tool runs: `{payload}` (the harness's `PreToolUse` payload) → `{decision?: allow \| deny \| ask, reason?, updated_input?}`; an empty answer means the guard has no opinion and the harness's own prompt stands. Bearer = the session's secret. |
 | `POST /sessions/{id}/exit` | The process behind a terminal session ended by itself: `{code?, signal?}` → done on 0, failed otherwise, the row held beside its tab. Bearer = the session's secret. |
 | `POST /sessions/{id}/close` | The terminal tab behind a terminal session is gone: the row leaves the roster at once. Bearer = the session's secret. |
+| `POST /sessions/{id}/answered` | The person answered the harness's dialog in its terminal tab — approved, declined or escaped it; no hook says so, the tab does. Every wait of the session and of its sub-agents is over and the row goes back to what it was doing: *running <tool>* for a call it already announced, else *thinking*; the harness's next word corrects it whichever way the person answered. Bearer = the session's secret. |
 
 ## Skills
 

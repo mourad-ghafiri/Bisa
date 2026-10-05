@@ -10,17 +10,21 @@
 //! `--dangerously-bypass-hook-trust` to run — the flag's name is the
 //! vendor's; the hook it lets through is this platform's reporter.
 //!
-//! What a row reads, from the CLI's hooks reference: `SessionStart`,
-//! `UserPromptSubmit` (a turn), `PreToolUse` / `PostToolUse` (tools),
-//! `PermissionRequest` (a wait, over until the tool runs or the turn ends),
+//! What a row reads, from the CLI's hooks reference
+//! (https://learn.chatgpt.com/docs/hooks, read 2026-10-05): `SessionStart`,
+//! `UserPromptSubmit` (a turn), `PreToolUse` / `PostToolUse` (tools, each
+//! with its `tool_use_id`), `PermissionRequest` (a wait — asked **after**
+//! `PreToolUse`, before the tool runs, and over when that call ends, when the
+//! turn ends, or when the person's answer in the tab is told to the node),
 //! `SubagentStart` / `SubagentStop` (sub-agents, their events nested by
 //! `agent_id`), `Stop` and `Interrupt` (the turn over). Codex fires no
-//! event while the model writes and no failure verdict on a tool or a
-//! sub-agent; a row reads what is reported and nothing invented.
+//! event while the model writes, none when the person answers its prompt,
+//! and no failure verdict on a tool or a sub-agent; a row reads what is
+//! reported and nothing invented.
 
 use super::{
-    hook_subagent, hook_subagent_ended, hook_subagent_started, hook_tool_name, hook_tool_started,
-    shell_command,
+    hook_subagent, hook_subagent_ended, hook_subagent_started, hook_tool_id, hook_tool_name,
+    hook_tool_started, shell_command,
 };
 use bisa_core::ToolTier;
 use bisa_harness::{
@@ -75,9 +79,13 @@ pub fn reporting(ctx: &ReportingContext) -> ReportingPlan {
     }
 }
 
-/// The id a permission wait is filed under: one per turn, so the tool that
-/// then runs — or the turn that then ends — resolves it.
+/// The id a permission wait is filed under: the call's own `tool_use_id`, so
+/// the call that then ends resolves it; one per turn when the payload names
+/// no call, so the turn that then ends does.
 fn permission_id(payload: &Value) -> String {
+    if let Some(id) = hook_tool_id(payload) {
+        return id;
+    }
     match payload.get("turn_id").and_then(|t| t.as_str()) {
         Some(turn) if !turn.is_empty() => format!("permission:{turn}"),
         _ => "permission".into(),
@@ -91,11 +99,6 @@ pub fn translate(payload: &Value) -> Vec<SessionEvent> {
     };
     let parent = hook_subagent(payload);
     let progress = |p: ProgressEvent| SessionEvent::Progress(p.raised_by(parent.clone()));
-    let resolved = || {
-        SessionEvent::Lifecycle(LifecycleEvent::InputResolved {
-            id: permission_id(payload),
-        })
-    };
     match event {
         "SessionStart" => {
             let mut events = vec![SessionEvent::Lifecycle(LifecycleEvent::Started)];
@@ -111,16 +114,18 @@ pub fn translate(payload: &Value) -> Vec<SessionEvent> {
             events
         }
         "UserPromptSubmit" => vec![progress(ProgressEvent::TurnStarted)],
-        // A tool that runs is a permission answered, when one was asked.
+        // The call is announced before Codex asks about it: a start answers
+        // nothing — its end, or the turn's, does.
         "PreToolUse" => {
             let name = hook_tool_name(payload);
             let input = payload.get("tool_input").cloned().unwrap_or(Value::Null);
             let tier = ToolTier::classify(&name.to_ascii_lowercase());
-            vec![resolved(), progress(hook_tool_started(name, tier, &input))]
+            vec![progress(hook_tool_started(payload, name, tier, &input))]
         }
         "PostToolUse" => vec![progress(ProgressEvent::ToolEnded {
             name: hook_tool_name(payload),
             ok: true,
+            id: hook_tool_id(payload),
         })],
         "PermissionRequest" => {
             let name = hook_tool_name(payload);
@@ -138,9 +143,9 @@ pub fn translate(payload: &Value) -> Vec<SessionEvent> {
             })]
         }
         // The turn is over — finished, or interrupted by the person; a
-        // permission still asked is over with it. Inside a sub-agent, the
-        // sub-agent's turn.
-        "Stop" | "Interrupt" => vec![resolved(), progress(ProgressEvent::TurnEnded)],
+        // permission still asked is over with it (the turn's end clears
+        // every wait). Inside a sub-agent, the sub-agent's turn.
+        "Stop" | "Interrupt" => vec![progress(ProgressEvent::TurnEnded)],
         "SubagentStart" => hook_subagent_started(payload)
             .map(|e| vec![SessionEvent::Progress(e)])
             .unwrap_or_default(),
@@ -227,20 +232,22 @@ mod tests {
             "PreToolUse",
             json!({"tool_name": "shell", "tool_use_id": "c1", "tool_input": {"command": "ls"}}),
         ));
+        assert_eq!(started.len(), 1, "a start answers nothing: {started:?}");
         assert!(
-            matches!(&started[1], SessionEvent::Progress(ProgressEvent::ToolStarted { name, tier: ToolTier::Exec, .. }) if name == "shell")
+            matches!(&started[0], SessionEvent::Progress(ProgressEvent::ToolStarted { name, tier: ToolTier::Exec, id: Some(id), .. }) if name == "shell" && id == "c1")
         );
         assert!(matches!(
-            translate(&hook("PostToolUse", json!({"tool_name": "shell"})))[0],
-            SessionEvent::Progress(ProgressEvent::ToolEnded { ok: true, .. })
+            &translate(&hook("PostToolUse", json!({"tool_name": "shell", "tool_use_id": "c1"})))[0],
+            SessionEvent::Progress(ProgressEvent::ToolEnded { ok: true, id: Some(id), .. }) if id == "c1"
         ));
         let stop = translate(&hook("Stop", json!({"last_assistant_message": "done"})));
+        assert_eq!(stop.len(), 1);
         assert!(matches!(
-            stop[1],
+            stop[0],
             SessionEvent::Progress(ProgressEvent::TurnEnded)
         ));
         assert!(matches!(
-            translate(&hook("Interrupt", json!({})))[1],
+            translate(&hook("Interrupt", json!({})))[0],
             SessionEvent::Progress(ProgressEvent::TurnEnded)
         ));
         let start = translate(&hook(
@@ -258,29 +265,50 @@ mod tests {
     }
 
     #[test]
-    fn a_permission_waits_on_the_person_and_the_tool_that_then_runs_or_the_turn_that_ends_resolves_it(
-    ) {
+    fn a_permission_waits_under_its_calls_id_and_nothing_here_answers_it() {
+        // Codex asks after the call is announced: the wait is filed under the
+        // call's own id, so the fold ends it when that call ends — or when
+        // the turn does, or when the person's answer in the tab is told.
         let asked = translate(&hook(
             "PermissionRequest",
-            json!({"tool_name": "shell", "tool_input": {"command": "rm -r x"}}),
+            json!({"tool_name": "shell", "tool_use_id": "c7", "tool_input": {"command": "rm -r x"}}),
         ));
+        assert_eq!(asked.len(), 1);
         match &asked[0] {
             SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) => {
-                assert_eq!(request.id, "permission:t1");
+                assert_eq!(request.id, "c7");
                 assert!(
                     matches!(&request.kind, InputKind::Permission { tool_name, .. } if tool_name == "shell")
                 );
             }
             other => panic!("{other:?}"),
         }
-        assert!(matches!(
-            &translate(&hook("PreToolUse", json!({"tool_name": "shell", "tool_input": {}})))[0],
-            SessionEvent::Lifecycle(LifecycleEvent::InputResolved { id }) if id == "permission:t1"
+        // A payload that names no call: one wait a turn, the turn's end its end.
+        let turn = translate(&hook(
+            "PermissionRequest",
+            json!({"tool_name": "shell", "tool_input": {}}),
         ));
         assert!(matches!(
-            &translate(&hook("Stop", json!({})))[0],
-            SessionEvent::Lifecycle(LifecycleEvent::InputResolved { id }) if id == "permission:t1"
+            &turn[0],
+            SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) if request.id == "permission:t1"
         ));
+        // Neither a start nor a stop says the person answered.
+        for (event, body) in [
+            (
+                "PreToolUse",
+                json!({"tool_name": "shell", "tool_use_id": "c7", "tool_input": {}}),
+            ),
+            ("Stop", json!({})),
+            ("Interrupt", json!({})),
+        ] {
+            assert!(
+                translate(&hook(event, body)).iter().all(|e| !matches!(
+                    e,
+                    SessionEvent::Lifecycle(LifecycleEvent::InputResolved { .. })
+                )),
+                "{event}"
+            );
+        }
     }
 
     #[test]
@@ -296,8 +324,9 @@ mod tests {
             "PreToolUse",
             json!({"agent_id": "a1", "tool_name": "read_file", "tool_input": {"path": "x"}}),
         ));
+        assert_eq!(nested.len(), 1);
         assert!(
-            matches!(&nested[1], SessionEvent::Progress(ProgressEvent::Nested { parent, .. }) if parent.0 == "a1")
+            matches!(&nested[0], SessionEvent::Progress(ProgressEvent::Nested { parent, .. }) if parent.0 == "a1")
         );
         assert!(matches!(
             translate(&hook(

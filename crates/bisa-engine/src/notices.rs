@@ -778,6 +778,7 @@ mod tests {
             cost: Default::default(),
             children: vec![],
             last_activity: 1,
+            revision: 1,
         };
         let terminal = presence(crate::registry::SessionKind::Terminal);
         let ev = EngineEvent::global(EnginePayload::SessionState {

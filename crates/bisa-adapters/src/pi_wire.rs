@@ -16,6 +16,16 @@ pub const STATE_REQ_ID: &str = "bisa-state";
 
 /// Map one pi-wire JSON object. Returns `Drive::Continue` always — pi RPC
 /// sessions end on process exit, not on any event.
+/// A tool call's own id (`toolCallId`), when the event carries one — what
+/// ties `tool_execution_end` to its start.
+fn tool_call_id(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("toolCallId")
+        .and_then(|v| v.as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
 pub fn map_pi_event(shared: &Shared, value: serde_json::Value) -> Drive {
     let kind = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
     match kind {
@@ -67,6 +77,7 @@ pub fn map_pi_event(shared: &Shared, value: serde_json::Value) -> Drive {
                     tier: ToolTier::classify(&name),
                     args_summary: crate::util::summarize_args(&args, 160),
                     name,
+                    id: tool_call_id(&value),
                 }));
         }
         "tool_execution_end" => {
@@ -84,6 +95,7 @@ pub fn map_pi_event(shared: &Shared, value: serde_json::Value) -> Drive {
                 .emit(SessionEvent::Progress(ProgressEvent::ToolEnded {
                     name,
                     ok,
+                    id: tool_call_id(&value),
                 }));
         }
         "message_end" => {

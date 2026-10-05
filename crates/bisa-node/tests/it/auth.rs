@@ -67,6 +67,7 @@ fn every_documented_route_takes_the_token_unless_it_is_a_named_exception() {
         "/sessions/{id}/guard",
         "/sessions/{id}/exit",
         "/sessions/{id}/close",
+        "/sessions/{id}/answered",
         "/addons/{id}/files/{*path}",
     ];
     let mut surprises = Vec::new();

@@ -11,6 +11,11 @@ export interface WorkSummary {
   busyScope: string | null;
 }
 
+/**
+ * The counts from the shell's lists and the roster's tally. What waits is the
+ * Inbox's count alone — every wait the roster knows is an Inbox row — so the
+ * tally's `waiting` is not added again; its `working` is.
+ */
 export declare function workSummary(
   workspace: {
     inbox: readonly { needs_action?: readonly { gate_kind?: string | null }[] | null }[];

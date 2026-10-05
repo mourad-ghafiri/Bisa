@@ -359,6 +359,15 @@ async fn the_sessions_doors_refuse_the_control_plane_token_and_a_wrong_secret() 
         )
         .await;
     assert_eq!(status, 401);
+    let (status, _) = node
+        .req(
+            "POST",
+            &format!("/sessions/{session}/answered"),
+            TOKEN,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(status, 401, "the answer is the tab's, under its secret");
     let (_, v) = node
         .req("GET", &format!("/sessions/{session}"), TOKEN, None)
         .await;
@@ -686,6 +695,66 @@ async fn a_terminal_harness_waiting_at_its_prompt_is_an_inbox_row_until_answered
             .any(|r| r["kind"] == json!("session")),
         "the wait is over, the row with it: {v}"
     );
+
+    // A sub-agent asks: the row is the sub-agent's wait, and says whose.
+    // No hook says how the person answers; the tab does, through the
+    // session's `answered` door — and the row is gone.
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/sessions/{session}/report"),
+            &secret,
+            Some(json!({"events": [
+                {"tier": "progress", "event": {"type": "turn_started"}},
+                {"tier": "progress", "event": {"type": "subagent_started", "id": "agent-1", "name": "explore", "description": "find the shelf"}},
+                {"tier": "lifecycle", "event": {
+                    "type": "input_requested",
+                    "request": {"id": "toolu_s", "kind": "permission", "tool_name": "Bash", "tier": "exec", "args_summary": "ls shelf", "input": {"command": "ls shelf"}, "parent": "agent-1"}
+                }}
+            ]})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let (_, v) = node
+        .req("GET", "/inbox?filter=needs_you", TOKEN, None)
+        .await;
+    let rows = v["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "one row, the sub-agent's wait: {v}");
+    assert_eq!(rows[0]["waiting"]["subagent"], json!("explore"), "{v}");
+    assert_eq!(rows[0]["waiting"]["words"], json!("permission: Bash"));
+    let (_, v) = node
+        .req("GET", &format!("/sessions/{session}"), TOKEN, None)
+        .await;
+    assert_eq!(
+        v["state"]["state"],
+        json!("running"),
+        "the session keeps its word — the hand is the sub-agent's: {v}"
+    );
+    assert_eq!(v["children"][0]["state"]["state"], json!("waiting"), "{v}");
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/sessions/{session}/answered"),
+            &secret,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let (_, v) = node.req("GET", "/inbox", TOKEN, None).await;
+    assert!(
+        !v["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["kind"] == json!("session")),
+        "answered in the tab, the row is gone: {v}"
+    );
+    let (_, v) = node
+        .req("GET", &format!("/sessions/{session}"), TOKEN, None)
+        .await;
+    assert_eq!(v["children"][0]["state"]["state"], json!("thinking"), "{v}");
+    assert_eq!(v["state"]["state"], json!("running"), "{v}");
+    assert_eq!(v["state"]["tool"], json!("sub-agent"), "{v}");
 
     // Waiting again, then the tab closes: the row goes with the session.
     let (status, _) = node

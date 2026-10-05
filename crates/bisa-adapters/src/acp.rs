@@ -149,6 +149,15 @@ impl AcpAdapter {
     }
 }
 
+/// A tool call's `toolCallId`, when a message names one.
+fn tool_call_id(update: &serde_json::Value) -> Option<String> {
+    update
+        .get("toolCallId")
+        .and_then(|v| v.as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
 fn jsonrpc_request(id: u64, method: &str, params: serde_json::Value) -> serde_json::Value {
     serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
@@ -930,6 +939,7 @@ fn map_acp(shared: &Shared, state: &mut AcpState, value: serde_json::Value) -> D
                             name,
                             args_summary: String::new(),
                             tier,
+                            id: tool_call_id(&update),
                         }));
                 }
                 Some("tool_call_update") => {
@@ -941,6 +951,7 @@ fn map_acp(shared: &Shared, state: &mut AcpState, value: serde_json::Value) -> D
                                 ProgressEvent::ToolEnded {
                                     name: said.name(),
                                     ok: status == "completed",
+                                    id: tool_call_id(&update),
                                 },
                             ));
                         }
@@ -1431,7 +1442,7 @@ mod effort_tests {
                 SessionEvent::Progress(ProgressEvent::ToolStarted { name, tier, .. }) => {
                     Some(format!("started {name} ({tier:?})"))
                 }
-                SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok }) => {
+                SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok, .. }) => {
                     Some(format!("ended {name} ({ok})"))
                 }
                 SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) => {

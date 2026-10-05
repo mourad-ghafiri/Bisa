@@ -9,8 +9,8 @@
  */
 
 /**
- * @param {{inbox: readonly {needs_action?: readonly {gate_kind?: string | null}[] | null}[], waiting: number, working: Readonly<Record<string, readonly string[]>>}} workspace the shell's lists
- * @param {{waiting: number, working: number}} sessions the roster's tally (`sessionState.counts`)
+ * @param {{inbox: readonly {needs_action?: readonly {gate_kind?: string | null}[] | null}[], waiting: number, working: Readonly<Record<string, readonly string[]>>}} workspace the shell's lists — `waiting` the Inbox's count of what waits on the person
+ * @param {{waiting: number, working: number}} sessions the roster's tally (`sessionState.counts`) — its `working` counts here; its `waiting` is already the Inbox's
  * @returns {{waiting: number, review: number, working: number, busyScope: string | null}}
  */
 export function workSummary(workspace, sessions) {
@@ -19,8 +19,12 @@ export function workSummary(workspace, sessions) {
   // The conversations an agent is mid-turn in; the first is where a click lands.
   const busy = Object.entries(workspace.working ?? {}).filter(([, who]) => who.length > 0);
   return {
-    // A worker running a step is work even when no conversation moves, and a session waiting on a person is a wait.
-    waiting: (workspace.waiting ?? 0) + (sessions?.waiting ?? 0),
+    // What waits on the person is the Inbox's count alone: every wait the
+    // roster knows — a gate, a question, a harness at its prompt in a
+    // terminal, a sub-agent's dialog — is an Inbox row, so adding the
+    // roster's tally said each of them twice. A worker running a step is
+    // work even when no conversation moves.
+    waiting: workspace.waiting ?? 0,
     review,
     working: busy.length + (sessions?.working ?? 0),
     busyScope: busy[0]?.[0] ?? null,

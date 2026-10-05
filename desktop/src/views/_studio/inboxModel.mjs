@@ -188,7 +188,17 @@ export function waitingOf(row) {
 export function waitingWords(row, labels = {}) {
   const w = waitingOf(row);
   if (!w) return null;
-  return t("studio-inbox-waiting", { harness: labels[w.harness] ?? w.harness, words: w.words });
+  return t("studio-inbox-waiting", { harness: labels[w.harness] ?? w.harness, words: waitWordsOf(w) });
+}
+
+/**
+ * The wait in words, with whose it is when a sub-agent raised it — *↳ explore ·
+ * permission: Bash*, the pulse line's own way of naming a sub-agent — else the
+ * wait alone.
+ * @param {{words: string, subagent?: string | null}} waiting
+ */
+function waitWordsOf(waiting) {
+  return waiting.subagent ? `↳ ${waiting.subagent} · ${waiting.words}` : waiting.words;
 }
 
 /**
@@ -421,7 +431,11 @@ export function needsReload(rows, frame) {
   // A session's frame for a row nobody holds is a new wait only while it
   // waits; a wait that ended before the row was ever shown moves nothing.
   if (!row) return frame.kind !== "session" || frame.waiting === true;
-  if (row.kind === "session") return false;
+  // A session row is its wait, and its words are the wait's. A frame that
+  // says it still waits is a wait that moved — another tool's dialog, a
+  // sub-agent's — so the words are read again; one that says the wait is
+  // over is `applyDelta`'s to drop.
+  if (row.kind === "session") return frame.waiting === true;
   if (frame.needs_action_count > needsOf(row).length) return true;
   return typeof frame.notice_count === "number" && frame.notice_count > noticesOf(row).length;
 }
@@ -453,7 +467,7 @@ function gateText(action) {
 
 export function summarize(row) {
   const waiting = waitingOf(row);
-  if (waiting) return { text: t("studio-inbox-waiting-3", { words: waiting.words }), icon: "waiting", urgent: true, tone: "accent" };
+  if (waiting) return { text: t("studio-inbox-waiting-3", { words: waitWordsOf(waiting) }), icon: "waiting", urgent: true, tone: "accent" };
   const needs = needsOf(row);
   if (needs.length > 1) {
     return { text: t("studio-inbox-waiting-4", { needs: needs.length }), icon: "waiting", urgent: true, tone: "accent" };

@@ -773,7 +773,13 @@ pub mod clear {
         /// A rounded corner of an overlay that meets others, which no other
         /// overlay touches: the quarter disc about `(cx, cy)` reaching toward
         /// `(sx, sy)`, each ±1.
-        Corner { cx: f64, cy: f64, radius: f64, sx: f64, sy: f64 },
+        Corner {
+            cx: f64,
+            cy: f64,
+            radius: f64,
+            sx: f64,
+            sy: f64,
+        },
     }
 
     impl Piece {
@@ -789,7 +795,11 @@ pub mod clear {
     }
 
     fn usable(c: &Clear) -> bool {
-        [c.left, c.top, c.width, c.height].iter().all(|v| v.is_finite()) && c.width > 0.0 && c.height > 0.0
+        [c.left, c.top, c.width, c.height]
+            .iter()
+            .all(|v| v.is_finite())
+            && c.width > 0.0
+            && c.height > 0.0
     }
 
     /// The overlays' boxes as holes in the layer: each through the anchor
@@ -849,11 +859,21 @@ pub mod clear {
                 if frames.iter().any(|f| inside(f, cx, cy)) {
                     run = Some(run.map_or((x0, x1), |(a, _)| (a, x1)));
                 } else if let Some((a, b)) = run.take() {
-                    out.push(Frame { x: a, y: y0, width: b - a, height: y1 - y0 });
+                    out.push(Frame {
+                        x: a,
+                        y: y0,
+                        width: b - a,
+                        height: y1 - y0,
+                    });
                 }
             }
             if let Some((a, b)) = run {
-                out.push(Frame { x: a, y: y0, width: b - a, height: y1 - y0 });
+                out.push(Frame {
+                    x: a,
+                    y: y0,
+                    width: b - a,
+                    height: y1 - y0,
+                });
             }
         }
         out
@@ -903,8 +923,18 @@ pub mod clear {
                     rects.push(f);
                     continue;
                 }
-                rects.push(Frame { x: f.x, y: f.y + r, width: f.width, height: f.height - 2.0 * r });
-                rects.push(Frame { x: f.x + r, y: f.y, width: f.width - 2.0 * r, height: f.height });
+                rects.push(Frame {
+                    x: f.x,
+                    y: f.y + r,
+                    width: f.width,
+                    height: f.height - 2.0 * r,
+                });
+                rects.push(Frame {
+                    x: f.x + r,
+                    y: f.y,
+                    width: f.width - 2.0 * r,
+                    height: f.height,
+                });
                 for (cx, cy, sx, sy) in [
                     (f.x + r, f.y + r, -1.0, -1.0),
                     (f.x + f.width - r, f.y + r, 1.0, -1.0),
@@ -912,11 +942,20 @@ pub mod clear {
                     (f.x + f.width - r, f.y + f.height - r, 1.0, 1.0),
                 ] {
                     let square = Piece::square(cx, cy, r, sx, sy);
-                    let touched = members.iter().enumerate().any(|(o, other)| o != k && overlap(&square, &other.frame));
+                    let touched = members
+                        .iter()
+                        .enumerate()
+                        .any(|(o, other)| o != k && overlap(&square, &other.frame));
                     if touched {
                         rects.push(square);
                     } else {
-                        out.push(Piece::Corner { cx, cy, radius: r, sx, sy });
+                        out.push(Piece::Corner {
+                            cx,
+                            cy,
+                            radius: r,
+                            sx,
+                            sy,
+                        });
                     }
                 }
             }
@@ -932,7 +971,10 @@ pub mod clear {
         pub fn contains(&self, x: f64, y: f64) -> bool {
             match self {
                 Piece::Rect(f) => inside(f, x, y),
-                Piece::Rounded(Hole { frame: f, radius: r }) => {
+                Piece::Rounded(Hole {
+                    frame: f,
+                    radius: r,
+                }) => {
                     if !inside(f, x, y) {
                         return false;
                     }
@@ -940,8 +982,15 @@ pub mod clear {
                     let dy = (f.y + r - y).max(y - (f.y + f.height - r)).max(0.0);
                     dx * dx + dy * dy <= r * r
                 }
-                Piece::Corner { cx, cy, radius, sx, sy } => {
-                    inside(&Piece::square(*cx, *cy, *radius, *sx, *sy), x, y) && (x - cx).powi(2) + (y - cy).powi(2) <= radius * radius
+                Piece::Corner {
+                    cx,
+                    cy,
+                    radius,
+                    sx,
+                    sy,
+                } => {
+                    inside(&Piece::square(*cx, *cy, *radius, *sx, *sy), x, y)
+                        && (x - cx).powi(2) + (y - cy).powi(2) <= radius * radius
                 }
             }
         }
@@ -962,47 +1011,104 @@ pub mod clear {
         fn anchor(main_width: f64, main_height: f64, viewport: Viewport) -> Anchor {
             Anchor::of(
                 main_height,
-                Frame { x: 0.0, y: 0.0, width: main_width, height: main_height },
+                Frame {
+                    x: 0.0,
+                    y: 0.0,
+                    width: main_width,
+                    height: main_height,
+                },
                 viewport,
             )
         }
 
-        const PAGE: Viewport = Viewport { width: 1000.0, height: 800.0 };
+        const PAGE: Viewport = Viewport {
+            width: 1000.0,
+            height: 800.0,
+        };
 
         fn clear(left: f64, top: f64, width: f64, height: f64, radius: f64) -> Clear {
-            Clear { left, top, width, height, radius }
+            Clear {
+                left,
+                top,
+                width,
+                height,
+                radius,
+            }
         }
 
         #[test]
         fn an_overlay_is_mapped_through_the_anchor_a_tab_is_placed_by() {
             let a = anchor(1000.0, 800.0, PAGE);
             let h = holes(&a, &[clear(100.0, 50.0, 200.0, 100.0, 0.0)]);
-            assert_eq!(h[0].frame, Frame { x: 100.0, y: 800.0 - 50.0 - 100.0, width: 200.0, height: 100.0 });
+            assert_eq!(
+                h[0].frame,
+                Frame {
+                    x: 100.0,
+                    y: 800.0 - 50.0 - 100.0,
+                    width: 200.0,
+                    height: 100.0
+                }
+            );
             // A zoom of 1.5 and a content inset of 28 points move it as they move a tab.
             let zoomed = Anchor::of(
                 800.0,
-                Frame { x: 0.0, y: 0.0, width: 1500.0, height: 800.0 },
-                Viewport { width: 1000.0, height: (800.0 - 28.0) / 1.5 },
+                Frame {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1500.0,
+                    height: 800.0,
+                },
+                Viewport {
+                    width: 1000.0,
+                    height: (800.0 - 28.0) / 1.5,
+                },
             );
             let z = holes(&zoomed, &[clear(100.0, 50.0, 200.0, 100.0, 12.0)]);
-            assert_eq!(z[0].frame, zoomed.frame_for(&Bounds { left: 100.0, top: 50.0, width: 200.0, height: 100.0 }));
-            assert!((z[0].radius - 18.0).abs() < 1e-9, "the radius scales with the zoom");
+            assert_eq!(
+                z[0].frame,
+                zoomed.frame_for(&Bounds {
+                    left: 100.0,
+                    top: 50.0,
+                    width: 200.0,
+                    height: 100.0
+                })
+            );
+            assert!(
+                (z[0].radius - 18.0).abs() < 1e-9,
+                "the radius scales with the zoom"
+            );
         }
 
         #[test]
         fn a_radius_is_never_more_than_half_the_short_side_nor_less_than_nothing() {
             let a = anchor(1000.0, 800.0, PAGE);
-            assert_eq!(holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, 9999.0)])[0].radius, 24.0, "a round dock: fully round");
-            assert_eq!(holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, -3.0)])[0].radius, 0.0);
-            assert_eq!(holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, f64::NAN)])[0].radius, 0.0);
+            assert_eq!(
+                holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, 9999.0)])[0].radius,
+                24.0,
+                "a round dock: fully round"
+            );
+            assert_eq!(
+                holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, -3.0)])[0].radius,
+                0.0
+            );
+            assert_eq!(
+                holes(&a, &[clear(0.0, 0.0, 48.0, 48.0, f64::NAN)])[0].radius,
+                0.0
+            );
         }
 
         #[test]
         fn an_empty_or_non_finite_box_clears_nothing_and_the_count_is_capped() {
             let a = anchor(1000.0, 800.0, PAGE);
-            let junk = [clear(0.0, 0.0, 0.0, 10.0, 0.0), clear(f64::NAN, 0.0, 10.0, 10.0, 0.0), clear(0.0, 0.0, 10.0, f64::INFINITY, 0.0)];
+            let junk = [
+                clear(0.0, 0.0, 0.0, 10.0, 0.0),
+                clear(f64::NAN, 0.0, 10.0, 10.0, 0.0),
+                clear(0.0, 0.0, 10.0, f64::INFINITY, 0.0),
+            ];
             assert!(holes(&a, &junk).is_empty());
-            let many: Vec<Clear> = (0..40).map(|i| clear(f64::from(i) * 20.0, 0.0, 10.0, 10.0, 0.0)).collect();
+            let many: Vec<Clear> = (0..40)
+                .map(|i| clear(f64::from(i) * 20.0, 0.0, 10.0, 10.0, 0.0))
+                .collect();
             assert_eq!(holes(&a, &many).len(), MAX_CLEARS);
         }
 
@@ -1013,22 +1119,51 @@ pub mod clear {
             assert_eq!(p.len(), 1);
             assert!(matches!(p[0], Piece::Rounded(_)));
             let (left, bottom) = (100.0, 800.0 - 100.0 - 100.0);
-            assert!(cleared(&p, left + 100.0, bottom + 50.0), "its middle is see-through");
-            assert!(!cleared(&p, left + 1.0, bottom + 1.0), "the very corner, outside the curve, is the page's");
-            assert!(cleared(&p, left + 16.0, bottom + 1.0), "the edge past the curve is the overlay's");
-            assert!(!cleared(&p, left - 1.0, bottom + 50.0), "a point past its edge is the page's");
+            assert!(
+                cleared(&p, left + 100.0, bottom + 50.0),
+                "its middle is see-through"
+            );
+            assert!(
+                !cleared(&p, left + 1.0, bottom + 1.0),
+                "the very corner, outside the curve, is the page's"
+            );
+            assert!(
+                cleared(&p, left + 16.0, bottom + 1.0),
+                "the edge past the curve is the overlay's"
+            );
+            assert!(
+                !cleared(&p, left - 1.0, bottom + 50.0),
+                "a point past its edge is the page's"
+            );
         }
 
         #[test]
         fn overlapping_overlays_are_cut_as_their_union_in_disjoint_pieces() {
             let a = anchor(1000.0, 800.0, PAGE);
             // A panel, a round dock over its bottom-right, and a dock that touches nothing.
-            let h = holes(&a, &[clear(400.0, 200.0, 560.0, 500.0, 16.0), clear(900.0, 640.0, 48.0, 48.0, 24.0), clear(50.0, 50.0, 48.0, 48.0, 24.0)]);
+            let h = holes(
+                &a,
+                &[
+                    clear(400.0, 200.0, 560.0, 500.0, 16.0),
+                    clear(900.0, 640.0, 48.0, 48.0, 24.0),
+                    clear(50.0, 50.0, 48.0, 48.0, 24.0),
+                ],
+            );
             let p = pieces(&h);
-            assert_eq!(p.iter().filter(|x| matches!(x, Piece::Rounded(_))).count(), 1, "the lone dock stays round");
+            assert_eq!(
+                p.iter().filter(|x| matches!(x, Piece::Rounded(_))).count(),
+                1,
+                "the lone dock stays round"
+            );
             let cover = |x: &Piece| match x {
                 Piece::Rect(f) => *f,
-                Piece::Corner { cx, cy, radius, sx, sy } => Piece::square(*cx, *cy, *radius, *sx, *sy),
+                Piece::Corner {
+                    cx,
+                    cy,
+                    radius,
+                    sx,
+                    sy,
+                } => Piece::square(*cx, *cy, *radius, *sx, *sy),
                 Piece::Rounded(hole) => hole.frame,
             };
             for (i, one) in p.iter().enumerate() {
@@ -1050,11 +1185,24 @@ pub mod clear {
                 }
                 x += 3.0;
             }
-            let (left, bottom, top) = (panel.frame.x, panel.frame.y, panel.frame.y + panel.frame.height);
-            assert!(!cleared(&p, left + 0.5, top - 0.5), "the panel's free top-left corner is round: its very corner is the page's");
-            assert!(!cleared(&p, left + 0.5, bottom + 0.5), "and so is its free bottom-left one");
+            let (left, bottom, top) = (
+                panel.frame.x,
+                panel.frame.y,
+                panel.frame.y + panel.frame.height,
+            );
+            assert!(
+                !cleared(&p, left + 0.5, top - 0.5),
+                "the panel's free top-left corner is round: its very corner is the page's"
+            );
+            assert!(
+                !cleared(&p, left + 0.5, bottom + 0.5),
+                "and so is its free bottom-left one"
+            );
             let (dock_left, dock_top) = (dock.frame.x, dock.frame.y + dock.frame.height);
-            assert!(cleared(&p, dock_left + 24.0, dock_top - 24.0), "the dock's middle is cut");
+            assert!(
+                cleared(&p, dock_left + 24.0, dock_top - 24.0),
+                "the dock's middle is cut"
+            );
         }
     }
 }
@@ -1340,7 +1488,10 @@ mod layer {
     use objc2::rc::Retained;
     use objc2::runtime::NSObject;
     use objc2::{define_class, msg_send, DeclaredClass, MainThreadOnly};
-    use objc2_app_kit::{NSAutoresizingMaskOptions, NSResponder, NSView, NSViewLayerContentsRedrawPolicy, NSWindowOrderingMode};
+    use objc2_app_kit::{
+        NSAutoresizingMaskOptions, NSResponder, NSView, NSViewLayerContentsRedrawPolicy,
+        NSWindowOrderingMode,
+    };
     use objc2_core_graphics::CGMutablePath;
     use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize};
     use objc2_quartz_core::{kCAFillRuleEvenOdd, CALayer, CAShapeLayer, CATransaction};
@@ -1418,7 +1569,10 @@ mod layer {
         /// Whether what NSView's hit-test found is the tab's to take: not
         /// this view's own empty glass, and not a point in a hole.
         fn passes_to_page(&self, hit: &NSView, point: NSPoint) -> bool {
-            if std::ptr::eq((hit as *const NSView).cast::<u8>(), (self as *const Self).cast::<u8>()) {
+            if std::ptr::eq(
+                (hit as *const NSView).cast::<u8>(),
+                (self as *const Self).cast::<u8>(),
+            ) {
                 return false;
             }
             // SAFETY: the superview, read on the main thread for the call's duration.
@@ -1437,7 +1591,10 @@ mod layer {
         pub fn adopt(&self, tab: &NSView) {
             // SAFETY: the tab's superview, read on the main thread.
             let home = unsafe { tab.superview() };
-            if home.as_deref().is_some_and(|v| std::ptr::eq(v as *const NSView, (self as *const Self).cast())) {
+            if home
+                .as_deref()
+                .is_some_and(|v| std::ptr::eq(v as *const NSView, (self as *const Self).cast()))
+            {
                 return;
             }
             self.addSubview(tab);
@@ -1504,20 +1661,36 @@ mod layer {
 
         fn draw_mask(&self) {
             let state = self.ivars().state.borrow();
-            let Some(mask) = state.mask.as_ref() else { return };
+            let Some(mask) = state.mask.as_ref() else {
+                return;
+            };
             let path = CGMutablePath::new();
             // SAFETY: a fresh path, no transform; every corner radius is at most half its side (`clear::holes`).
             unsafe {
                 CGMutablePath::add_rect(Some(&path), std::ptr::null(), self.bounds());
                 for piece in &state.pieces {
                     match piece {
-                        Piece::Rect(f) => CGMutablePath::add_rect(Some(&path), std::ptr::null(), rect(f)),
-                        Piece::Rounded(h) if h.radius > 0.0 => {
-                            CGMutablePath::add_rounded_rect(Some(&path), std::ptr::null(), rect(&h.frame), h.radius, h.radius)
+                        Piece::Rect(f) => {
+                            CGMutablePath::add_rect(Some(&path), std::ptr::null(), rect(f))
                         }
-                        Piece::Rounded(h) => CGMutablePath::add_rect(Some(&path), std::ptr::null(), rect(&h.frame)),
+                        Piece::Rounded(h) if h.radius > 0.0 => CGMutablePath::add_rounded_rect(
+                            Some(&path),
+                            std::ptr::null(),
+                            rect(&h.frame),
+                            h.radius,
+                            h.radius,
+                        ),
+                        Piece::Rounded(h) => {
+                            CGMutablePath::add_rect(Some(&path), std::ptr::null(), rect(&h.frame))
+                        }
                         // A quarter disc: from the centre along one edge, the short arc to the other, closed.
-                        Piece::Corner { cx, cy, radius, sx, sy } => {
+                        Piece::Corner {
+                            cx,
+                            cy,
+                            radius,
+                            sx,
+                            sy,
+                        } => {
                             let start = 0.0_f64.atan2(*sx);
                             let end = sy.atan2(0.0);
                             let mut sweep = end - start;
@@ -1528,8 +1701,22 @@ mod layer {
                                 sweep += std::f64::consts::TAU;
                             }
                             CGMutablePath::move_to_point(Some(&path), std::ptr::null(), *cx, *cy);
-                            CGMutablePath::add_line_to_point(Some(&path), std::ptr::null(), cx + sx * radius, *cy);
-                            CGMutablePath::add_arc(Some(&path), std::ptr::null(), *cx, *cy, *radius, start, end, sweep < 0.0);
+                            CGMutablePath::add_line_to_point(
+                                Some(&path),
+                                std::ptr::null(),
+                                cx + sx * radius,
+                                *cy,
+                            );
+                            CGMutablePath::add_arc(
+                                Some(&path),
+                                std::ptr::null(),
+                                *cx,
+                                *cy,
+                                *radius,
+                                start,
+                                end,
+                                sweep < 0.0,
+                            );
                             CGMutablePath::close_subpath(Some(&path));
                         }
                     }
@@ -1561,7 +1748,10 @@ mod layer {
             }
         }
         let layer = BrowserLayer::new(mtm, parent.bounds());
-        layer.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable);
+        layer.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
         layer.setWantsLayer(true);
         layer.setLayerContentsRedrawPolicy(NSViewLayerContentsRedrawPolicy::DuringViewResize);
         parent.addSubview_positioned_relativeTo(&layer, NSWindowOrderingMode::Above, Some(main));
@@ -1630,7 +1820,11 @@ mod place {
 
     /// The overlays' boxes on the browser layer: anchored as a tab is, with
     /// the page's viewport, and cut out of it. How many holes they make.
-    pub fn clear<R: Runtime>(main: &Webview<R>, clears: Vec<super::clear::Clear>, viewport: Viewport) -> Result<usize, String> {
+    pub fn clear<R: Runtime>(
+        main: &Webview<R>,
+        clears: Vec<super::clear::Clear>,
+        viewport: Viewport,
+    ) -> Result<usize, String> {
         let (tx, rx) = mpsc::channel::<Result<usize, String>>();
         main.with_webview(move |platform| {
             let cut = (|| {

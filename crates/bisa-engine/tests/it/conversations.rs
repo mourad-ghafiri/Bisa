@@ -605,6 +605,7 @@ async fn a_turn_says_which_tool_runs_while_its_words_wait_and_clears_it_after() 
                 name: "Read".into(),
                 args_summary: "src/app.ts".into(),
                 tier: bisa_core::ToolTier::Read,
+                id: None,
             }),
         ]),
         ..Default::default()
@@ -663,10 +664,12 @@ async fn a_tool_that_ended_leaves_no_line_under_the_words() {
                 name: "Read".into(),
                 args_summary: "src/app.ts".into(),
                 tier: bisa_core::ToolTier::Read,
+                id: None,
             }),
             SessionEvent::Progress(ProgressEvent::ToolEnded {
                 name: "Read".into(),
                 ok: true,
+                id: None,
             }),
             SessionEvent::Progress(ProgressEvent::TextDelta {
                 text: "It boots the app.".into(),

@@ -55,7 +55,9 @@ project's own root is its **primary workstream**, under the project's id) is thr
   *waiting on you — permission: Bash*, *failed: …*), how long, its sub-agents nested under it, and
   *Terminate* (a harness) or *Abort* / *Answer* (an engine session) on hover — the stop mark only
   while the session runs or waits on you, never while it sits idle between turns; a harness's row opens its terminal tab,
-  and a *waiting on you* there is answered in the terminal. What a harness's **account** has left
+  and a *waiting on you* there is answered in the terminal — the hand drops the moment you answer,
+  Enter, Escape or a number, not when the tool finishes; a question one of its sub-agents asks is
+  the sub-agent's hand, nested under the harness, which keeps reading *running sub-agent*. What a harness's **account** has left
   is not a session row's fact: it lives in the window's footer ([The desktop](the-desktop.md) —
   one harness at a time, every installed one a click away) and, folded under each harness, in the
   Workstreams panel and Settings › Harnesses. A plain shell is a terminal row that

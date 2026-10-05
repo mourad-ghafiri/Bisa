@@ -45,6 +45,18 @@ test("a claimed tab speaks through its row only, and an unclaimed interactive ro
   assert.equal(b.counts.agents, 0);
 });
 
+test("a tab that exited settles its row for the dot too: the mark agrees with the pill and the footer", () => {
+  // The roster still says *running* — the node's frame is on its way — but
+  // the tab is gone: done on a clean exit, failed otherwise, as `settledByTab` says.
+  const running = S("i1", "W", { state: "running", tool: "Bash", args: "", tier: "exec" }, { kind: "terminal", children: [{ id: "c1", name: "explore", description: "", state: { state: "thinking" }, since: 1, started: 1 }] });
+  const clean = workstreamActivity([running], [T("W", { status: "exited", code: 0 }, "claude-code", "i1")], "W");
+  assert.equal(clean.state, "done");
+  assert.deepEqual(clean.counts, { needsYou: 0, working: 0, done: 1, live: 0, agents: 1 }, "no sub-agent survives the process it ran in");
+  const bad = workstreamActivity([running], [T("W", { status: "exited", code: 1 }, "claude-code", "i1")], "W");
+  assert.equal(bad.state, "failed");
+  assert.equal(bad.counts.needsYou, 1, "one failure: the settled row's, not the shell's too");
+});
+
 test("a workstream folds to its loudest state and counts what stands in it", () => {
   const sessions = [S("a", "W", waiting), S("b", "W", { state: "running", tool: "Edit", args: "" }), S("c", "elsewhere", { state: "failed", reason: "x" })];
   const a = workstreamActivity(sessions, [T("W", { status: "live" })], "W");

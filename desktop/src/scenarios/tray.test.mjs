@@ -76,7 +76,7 @@ test("both doors are held by the shell and decided by the webview under the one 
 test("one count outside the window: the tray hook wears the Dock badge, notifications only notify", () => {
   const tray = read("shell/useTray.ts");
   assert.ok(tray.includes("setBadgeCount(") && tray.includes('invoke("tray_report"'), "the badge and the report, from one report");
-  assert.ok(tray.includes("trayReport({") && tray.includes("useWorkspace()") && tray.includes("useSessions()"));
+  assert.ok(tray.includes("trayReport({") && tray.includes("useWorkspace()") && tray.includes("useSettledSessions()"), "the roster as the tabs say it: a harness whose tab exited is not working");
   assert.ok(tray.includes("TRAY_EVENTS.go") && tray.includes('navigate({ name: "inbox" })'), "the needs line lands on the Inbox");
   assert.ok(tray.includes("TRAY_EVENTS.dock") && tray.includes(`[TRAY_KEYS.dockIcon]`), "the menu's Dock toggle becomes the setting");
   const notes = read("shell/notifications.ts");

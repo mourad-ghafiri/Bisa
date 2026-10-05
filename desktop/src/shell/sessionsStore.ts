@@ -15,7 +15,7 @@ import { subscribe as busSubscribe, watchConnection } from "../bus";
 import { reloadOnReconnect } from "./workspaceLoadModel.mjs";
 import { isHidden, onVisibilityChange } from "./visibility";
 import { sameJsonList } from "./snapshotEqual.mjs";
-import { dropped, landedRead, stoppedAlready, upserted, type StopOutcome } from "./sessionRosterModel.mjs";
+import { dropped, landedRead, latest, stoppedAlready, upserted, type StopOutcome } from "./sessionRosterModel.mjs";
 
 /** A frame the stream lost is caught here; nothing else refetches. Tunable via
  *  `cache.desktop.sessions_safety_ms`. */
@@ -96,9 +96,18 @@ function reloadSessions(): void {
 }
 
 function upsert(row: SessionRow) {
-  since?.set(row.id, row);
+  // The frames heard while a read is out keep the newest word of each row;
+  // a row a frame said was gone stays gone.
+  if (since) {
+    const heard = since.get(row.id);
+    if (heard !== null) since.set(row.id, heard ? latest(heard, row) : row);
+  }
   const prev = state.sessions.find((s) => s.id === row.id) ?? null;
-  commit(upserted(state.sessions, row));
+  const next = upserted(state.sessions, row);
+  // The same array: a frame older than the row held (two reports landing
+  // together, in the other order) — not a change, and not a transition.
+  if (next === state.sessions) return;
+  commit(next);
   if (!prev || prev.state.state !== row.state.state) {
     for (const t of transitions) t(prev?.state ?? null, row);
   }

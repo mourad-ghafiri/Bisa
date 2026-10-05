@@ -52,6 +52,15 @@ test("an ended session is not a harness row", () => {
   );
 });
 
+test("a harness whose tab exited is settled by the tab: no live row, whatever its last frame said", () => {
+  // The tab's exit reaches the desktop before the node's frame does; the
+  // footer reads the tab's word, as the rail's row and the pulse do.
+  const gone = tab("t1", { harness: "claude-code", sessionId: "s1", liveness: { status: "exited", code: 0 }, exitedAt: 90 });
+  const out = footerSessions([gone], [session("s1", { kind: "terminal", state: { state: "running", tool: "Bash", args: "", tier: "exec" } })]);
+  assert.deepEqual(out.harnesses, [], "settled done by its tab: not live");
+  assert.deepEqual(out.terminals.map((t) => t.key), [], "and still the harness's tab, not a terminal row");
+});
+
 test("open tabs count — live and unverifiable — exited ones are listed last and not counted", () => {
   const out = footerSessions(
     [tab("t1", { liveness: { status: "exited", code: 1 } }), tab("t2", { liveness: { status: "unverifiable", reason: "restored" } }), tab("t3", { scope: "goal", id: "g1" })],

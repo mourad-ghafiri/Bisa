@@ -30,14 +30,16 @@ const EVENTS = [
 function compact(event) {{
   const out = {{}};
   if (!event || typeof event !== "object") return out;
-  for (const key of ["toolName", "tool", "name", "id", "toolCallId", "callId", "message", "text", "prompt", "title"]) {{
+  for (const key of ["toolName", "tool", "name", "id", "toolCallId", "callId", "message", "text", "prompt", "title", "model"]) {{
     const v = event[key];
     if (typeof v === "string") out[key] = v.slice(0, 200);
   }}
-  if (event.input !== undefined) {{
-    try {{ out.input = JSON.stringify(event.input).slice(0, 200); }} catch {{}}
+  const args = event.input !== undefined ? event.input : event.args;
+  if (args !== undefined) {{
+    try {{ out.input = JSON.stringify(args).slice(0, 200); }} catch {{}}
   }}
   if (typeof event.isError === "boolean") out.isError = event.isError;
+  if (typeof event.isTerminal === "boolean") out.isTerminal = event.isTerminal;
   return out;
 }}
 export default function (pi) {{
@@ -78,6 +80,13 @@ fn request_id(payload: &Value) -> String {
         .unwrap_or_else(|| tool(payload))
 }
 
+/// A tool call's own id (`toolCallId`), when the event carries one.
+fn call_id(payload: &Value) -> Option<String> {
+    first_str(payload, &["toolCallId", "callId"])
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
 /// One extension report → what it means.
 pub fn translate(payload: &Value) -> Vec<SessionEvent> {
     let Some(event) = payload.get("event").and_then(|e| e.as_str()) else {
@@ -97,19 +106,26 @@ pub fn translate(payload: &Value) -> Vec<SessionEvent> {
             }
             events
         }
-        "agent_end" => vec![SessionEvent::Progress(ProgressEvent::TurnEnded)],
+        // OMP says `agent_end` for every retry of a turn, `isTerminal`
+        // telling the last from the rest: only the last is the turn's end.
+        "agent_end" => match payload.get("isTerminal").and_then(|t| t.as_bool()) {
+            Some(false) => Vec::new(),
+            _ => vec![SessionEvent::Progress(ProgressEvent::TurnEnded)],
+        },
         "tool_execution_start" => {
             let name = tool(payload);
             vec![SessionEvent::Progress(ProgressEvent::ToolStarted {
                 tier: ToolTier::classify(&name.to_ascii_lowercase()),
                 args_summary: args_summary(&input),
                 name,
+                id: call_id(payload),
             })]
         }
         // `tool_execution_end` carries `isError`: the tool's own verdict.
         "tool_execution_end" => vec![SessionEvent::Progress(ProgressEvent::ToolEnded {
             name: tool(payload),
             ok: payload.get("isError").and_then(|e| e.as_bool()) != Some(true),
+            id: call_id(payload),
         })],
         "tool_approval_requested" => {
             let name = tool(payload);
@@ -176,6 +192,20 @@ mod tests {
             src.contains("isError"),
             "the extension forwards the tool's verdict"
         );
+        assert!(
+            src.contains("isTerminal") && src.contains(r#""model""#) && src.contains("event.args"),
+            "the extension forwards the turn's last word, the model and the tool's arguments"
+        );
+        // OMP says `agent_end` for every retry of a turn; only the last ends it.
+        assert!(translate(&json!({"event": "agent_end", "isTerminal": false})).is_empty());
+        assert!(matches!(
+            translate(&json!({"event": "agent_end", "isTerminal": true}))[0],
+            SessionEvent::Progress(ProgressEvent::TurnEnded)
+        ));
+        assert!(matches!(
+            translate(&json!({"event": "agent_end"}))[0],
+            SessionEvent::Progress(ProgressEvent::TurnEnded)
+        ));
     }
 
     #[test]

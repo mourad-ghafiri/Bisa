@@ -18,7 +18,7 @@
  * checkout alike.
  */
 
-import { harnessOf, livenessWord } from "./terminalsModel.mjs";
+import { harnessOf, livenessWord, settledRoster } from "./terminalsModel.mjs";
 import { isLive } from "../ui/sessionState.mjs";
 import { cardTitle } from "../views/_work/workstreamCardModel.mjs";
 import { claimedSessions, isDrawn } from "../views/_workbench/workstreamSessionsModel.mjs";
@@ -119,7 +119,9 @@ export function footerSessions(terminals, sessions, index = emptyPlaceIndex()) {
     .filter((t) => !claimedKeys.has(t.key))
     .map((t) => ({ key: t.key, scope: t.scope, id: t.id, harness: harnessOf(t), liveness: t.liveness, open: isOpen(t.liveness), word: livenessWord(t.liveness), place: placeWords(t.scope, t.id, index) }))
     .sort((a, b) => (ORDER[a.liveness?.status] ?? 3) - (ORDER[b.liveness?.status] ?? 3));
-  const harnesses = (sessions ?? [])
+  // As the claiming tab says (`settledRoster`): a harness whose tab exited
+  // is not a live harness row, whatever its last frame said.
+  const harnesses = settledRoster(sessions ?? [], terminals ?? [])
     .filter((s) => isDrawn(s, claimed) && isLive(s.state))
     .map((s) => ({ id: s.id, agent: s.agent ?? null, harness: s.harness ?? null, workstream: s.workstream ?? null, state: s.state, terminalKey: claimed.get(s.id) ?? null, place: harnessPlace(s, index) }));
   return { terminals: terminalRows, harnesses, openTerminals: terminalRows.filter((t) => t.open).length };

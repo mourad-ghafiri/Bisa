@@ -131,14 +131,16 @@ pub fn is_addon_file(path: &str) -> bool {
 
 /// The doors of a session a person opened in a terminal, each presenting the
 /// session's secret instead of the control-plane token: `report` and `guard`
-/// for the hooks inside the terminal, `exit` and `close` for the PTY host
-/// that runs it. The secret is a capability for one roster row and nothing
-/// else; the handler checks it, and the token is never in a PTY.
+/// for the hooks inside the terminal, `exit`, `close` and `answered` for the
+/// PTY host that runs it — the last says the person answered the harness's
+/// dialog in the tab, which no hook says. The secret is a capability for one
+/// roster row and nothing else; the handler checks it, and the token is
+/// never in a PTY.
 ///
 /// One list, read here and nowhere else: a door the hooks call that is
 /// missing from it is answered `401` before its handler sees the secret —
 /// the guard's was, and no terminal harness was ever judged.
-pub const SESSION_DOORS: [&str; 4] = ["report", "guard", "exit", "close"];
+pub const SESSION_DOORS: [&str; 5] = ["report", "guard", "exit", "close", "answered"];
 
 /// `POST /sessions/{id}/<door>` for one of the [`SESSION_DOORS`].
 pub fn is_session_door(path: &str) -> bool {

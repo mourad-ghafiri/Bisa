@@ -357,6 +357,7 @@ pub fn subagent_script(id: &str, name: &str) -> Vec<SessionEvent> {
                 name: "Read".into(),
                 args_summary: "README.md".into(),
                 tier: bisa_core::ToolTier::Read,
+                id: None,
             }
             .raised_by(Some(sub.clone())),
         ),
@@ -370,6 +371,7 @@ pub fn subagent_script(id: &str, name: &str) -> Vec<SessionEvent> {
             ProgressEvent::ToolEnded {
                 name: "Read".into(),
                 ok: true,
+                id: None,
             }
             .raised_by(Some(sub.clone())),
         ),
@@ -744,10 +746,12 @@ impl HarnessSession for MockSession {
                         name: "edit_file".into(),
                         args_summary: "src/lib.rs".into(),
                         tier: bisa_core::ToolTier::Write,
+                        id: None,
                     }));
                     broadcaster.emit(SessionEvent::Progress(ProgressEvent::ToolEnded {
                         name: "edit_file".into(),
                         ok: true,
+                        id: None,
                     }));
                     broadcaster.emit(SessionEvent::Progress(ProgressEvent::TextDelta {
                         text: "half-way through the change…".into(),

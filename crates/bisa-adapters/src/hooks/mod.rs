@@ -126,6 +126,14 @@ pub(crate) fn hook_tool_use_id(payload: &Value) -> String {
         .to_string()
 }
 
+/// The call's own id, when the hook carries one — what ties a tool's end,
+/// and a wait on it, to its start; `None` for a payload that names none.
+pub(crate) fn hook_tool_id(payload: &Value) -> Option<String> {
+    first_str(payload, &["tool_use_id"])
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
 /// The tier of a tool a Claude-shaped hook names — `Bash`, `Read`, `Edit`:
 /// Claude Code's own names, which Copilot CLI's hooks speak too — by what it
 /// can change.
@@ -133,12 +141,19 @@ pub(crate) fn hook_tool_tier(name: &str) -> ToolTier {
     ToolTier::classify(&crate::claude_code::normalize_tool(name))
 }
 
-/// A tool the hook says started, its tier the caller's word.
-pub(crate) fn hook_tool_started(name: String, tier: ToolTier, input: &Value) -> ProgressEvent {
+/// A tool the hook says started, its tier the caller's word, its id the
+/// payload's when it carries one.
+pub(crate) fn hook_tool_started(
+    payload: &Value,
+    name: String,
+    tier: ToolTier,
+    input: &Value,
+) -> ProgressEvent {
     ProgressEvent::ToolStarted {
         tier,
         args_summary: args_summary(input),
         name,
+        id: hook_tool_id(payload),
     }
 }
 

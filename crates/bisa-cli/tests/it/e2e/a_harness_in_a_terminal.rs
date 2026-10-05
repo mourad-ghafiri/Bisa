@@ -192,11 +192,13 @@ impl Tab {
 
     /// The harness is about to run a tool: the reporter, then the guard.
     /// What the guard printed — the verdict the harness reads — or nothing.
-    fn asks_before(&self, ws: &Sealed, tool: &str, input: Value) -> Option<Value> {
+    /// `id` is the call's `tool_use_id`, the one its `PermissionRequest` and
+    /// its `PostToolUse` carry too.
+    fn asks_before(&self, ws: &Sealed, tool: &str, id: &str, input: Value) -> Option<Value> {
         let said = self.fires(
             ws,
             "PreToolUse",
-            json!({"tool_name": tool, "tool_input": input, "tool_use_id": "toolu_1"}),
+            json!({"tool_name": tool, "tool_input": input, "tool_use_id": id}),
         );
         assert_eq!(said.len(), 2, "the reporter, then the guard");
         assert!(
@@ -350,7 +352,12 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
     // A tool the guard has no opinion on: it says nothing, and the harness's
     // own prompt stands.
     assert_eq!(
-        tab.asks_before(&ws, "Bash", json!({"command": "fake-tool --level"})),
+        tab.asks_before(
+            &ws,
+            "Bash",
+            "toolu_1",
+            json!({"command": "fake-tool --level"})
+        ),
         None
     );
     let row = tab.reads(&ws, "running");
@@ -369,7 +376,7 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
     // One the journey's rule asks about: the verdict hands the call to the
     // person at the keyboard, and the harness stops at its own prompt.
     let asked = tab
-        .asks_before(&ws, "Bash", json!({"command": "fake-asked now"}))
+        .asks_before(&ws, "Bash", "toolu_2", json!({"command": "fake-asked now"}))
         .expect("a verdict");
     assert_eq!(
         asked["hookSpecificOutput"]["permissionDecision"], "ask",
@@ -409,6 +416,73 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
     tab.reads(&ws, "thinking");
     assert_eq!(waiting_in_a_terminal(&ws), Vec::<Value>::new());
 
+    // --- the person answers in the tab, and no hook says so --------------------
+    // The hooks say when a dialog shows and when a tool ran — never how the
+    // person answered. The terminal that shows the dialog does, through the
+    // host's own door: the wait is over at once, and the row goes back to the
+    // call it already announced; the harness's next word corrects it.
+    assert_eq!(
+        tab.asks_before(
+            &ws,
+            "Bash",
+            "toolu_4",
+            json!({"command": "fake-asked again"})
+        )
+        .expect("a verdict")["hookSpecificOutput"]["permissionDecision"],
+        "ask"
+    );
+    tab.reports(
+        &ws,
+        "PermissionRequest",
+        json!({"tool_name": "Bash", "tool_input": {"command": "fake-asked again"}, "tool_use_id": "toolu_4"}),
+    );
+    tab.reads(&ws, "waiting");
+    assert_eq!(waiting_in_a_terminal(&ws).len(), 1);
+    let (status, _) = tab.host(&ws, "answered", Some(json!({})));
+    assert_eq!(status, 200);
+    let row = tab.reads(&ws, "running");
+    assert_eq!(row["state"]["tool"], "Bash", "the call it announced: {row}");
+    assert_eq!(
+        waiting_in_a_terminal(&ws),
+        Vec::<Value>::new(),
+        "answered, so no longer the Inbox's"
+    );
+    // Claude Code refused it after all: the call is closed, nothing waits.
+    tab.reports(
+        &ws,
+        "PermissionDenied",
+        json!({"tool_name": "Bash", "tool_use_id": "toolu_4"}),
+    );
+    tab.reads(&ws, "thinking");
+
+    // --- two calls of one name, told apart by their ids -----------------------------
+    tab.reports(
+        &ws,
+        "PreToolUse",
+        json!({"tool_name": "Bash", "tool_use_id": "toolu_a", "tool_input": {"command": "first"}}),
+    );
+    tab.reports(
+        &ws,
+        "PreToolUse",
+        json!({"tool_name": "Bash", "tool_use_id": "toolu_b", "tool_input": {"command": "second"}}),
+    );
+    tab.reports(
+        &ws,
+        "PostToolUse",
+        json!({"tool_name": "Bash", "tool_use_id": "toolu_a"}),
+    );
+    let row = tab.reads(&ws, "running");
+    assert_eq!(
+        row["state"]["args"], r#"{"command":"second"}"#,
+        "the first ended, the second runs: {row}"
+    );
+    tab.reports(
+        &ws,
+        "PostToolUse",
+        json!({"tool_name": "Bash", "tool_use_id": "toolu_b"}),
+    );
+    tab.reads(&ws, "thinking");
+
     // --- a sub-agent of its own, nested under it ----------------------------------
     tab.reports(
         &ws,
@@ -423,13 +497,48 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
         row["children"][0]["description"], "find where the shelf goes",
         "{row}"
     );
+    // The sub-agent asks: the hand is the sub-agent's, the session keeps its
+    // word, and the Inbox row says whose the wait is. Its tool then runs —
+    // approved — and the sub-agent's hand drops, the Inbox row with it.
+    tab.reports(
+        &ws,
+        "PreToolUse",
+        json!({"agent_id": "agent-1", "tool_name": "Bash", "tool_use_id": "toolu_s", "tool_input": {"command": "ls shelf"}}),
+    );
+    tab.reports(
+        &ws,
+        "PermissionRequest",
+        json!({"agent_id": "agent-1", "tool_name": "Bash", "tool_use_id": "toolu_s", "tool_input": {"command": "ls shelf"}}),
+    );
+    let row = tab.reads(&ws, "running");
+    assert_eq!(
+        row["state"]["tool"], "sub-agent",
+        "the parent keeps its word: {row}"
+    );
+    assert_eq!(row["children"][0]["state"]["state"], "waiting", "{row}");
+    let waiting = waiting_in_a_terminal(&ws);
+    assert_eq!(waiting.len(), 1, "{waiting:?}");
+    assert_eq!(waiting[0]["waiting"]["subagent"], "explore", "{waiting:?}");
+    tab.reports(
+        &ws,
+        "PostToolUse",
+        json!({"agent_id": "agent-1", "tool_name": "Bash", "tool_use_id": "toolu_s"}),
+    );
+    let row = tab.reads(&ws, "running");
+    assert_eq!(row["children"][0]["state"]["state"], "thinking", "{row}");
+    assert_eq!(waiting_in_a_terminal(&ws), Vec::<Value>::new());
     tab.reports(&ws, "SubagentStop", json!({"agent_id": "agent-1"}));
     assert_eq!(tab.reads(&ws, "thinking")["children"], json!([]));
 
     // --- a call the journey's rule refuses ----------------------------------------
     // The verdict is the harness's to obey, with the reason a person reads.
     let refused = tab
-        .asks_before(&ws, "Bash", json!({"command": "fake-refused now"}))
+        .asks_before(
+            &ws,
+            "Bash",
+            "toolu_3",
+            json!({"command": "fake-refused now"}),
+        )
         .expect("a verdict");
     let verdict = &refused["hookSpecificOutput"];
     assert_eq!(verdict["hookEventName"], "PreToolUse", "{refused}");
@@ -440,6 +549,9 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
             .is_some_and(|reason| reason.contains("refused by the journey")),
         "{refused}"
     );
+    // A refused call never runs: the row does not read *running* it,
+    // whichever of the two hooks the node heard first.
+    tab.reads(&ws, "thinking");
     // The turn ends: whatever the harness said it was about to run, nothing
     // of the turn outlives it.
     tab.reports(&ws, "Stop", json!({}));
@@ -468,7 +580,12 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
     // them — and move nothing.
     tab.reports(&ws, "SessionStart", json!({"source": "resume"}));
     tab.reports(&ws, "UserPromptSubmit", json!({}));
-    tab.asks_before(&ws, "Bash", json!({"command": "fake-tool --level"}));
+    tab.asks_before(
+        &ws,
+        "Bash",
+        "toolu_1",
+        json!({"command": "fake-tool --level"}),
+    );
     tab.reads(&ws, "done");
 
     // --- the tab closes: the row is gone, and its files with it -------------------
@@ -489,7 +606,12 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
         String::from_utf8_lossy(&late[0].stderr)
     );
     assert_eq!(
-        tab.asks_before(&ws, "Bash", json!({"command": "fake-refused now"})),
+        tab.asks_before(
+            &ws,
+            "Bash",
+            "toolu_3",
+            json!({"command": "fake-refused now"})
+        ),
         None
     );
     let (status, _) = tab.host(&ws, "close", None);
@@ -539,7 +661,12 @@ fn a_node_that_starts_again_has_forgotten_every_terminal_and_kept_nothing_of_the
         String::from_utf8_lossy(&told[0].stderr)
     );
     assert_eq!(
-        tab.asks_before(&ws, "Bash", json!({"command": "fake-tool --level"})),
+        tab.asks_before(
+            &ws,
+            "Bash",
+            "toolu_1",
+            json!({"command": "fake-tool --level"})
+        ),
         None
     );
     assert_eq!(ended(shell), Some(0));

@@ -46,6 +46,8 @@ import {
   runningWord,
   sessionsRootedAt,
   settledByTab,
+  settledRoster,
+  answerDue,
   shellWord,
   tabOfSession,
   terminalTabLabel,
@@ -809,6 +811,51 @@ test("a claimed tab's liveness is the session's: an exited tab ends the row as o
   const signalled = settledByTab(session, { key: "t1", liveness: { status: "exited", code: null }, exitedAt: 92 });
   assert.deepEqual(signalled.state, { state: "failed", reason: "the process ended" });
   assert.equal(settledByTab(session, { key: "t1", liveness: { status: "exited", code: 0 }, exitedAt: null }).since, 50, "no exit instant: the state's");
+});
+
+test("the settled roster is every row as its tab says, one rule for every surface, and the same array when no tab changes a row", () => {
+  const rows = [
+    { id: "s1", state: { state: "running", tool: "Edit", args: "", tier: "write" }, since: 50, children: [] },
+    { id: "s2", state: { state: "thinking" }, since: 60, children: [] },
+    { id: "s3", state: { state: "idle" }, since: 70, children: [] },
+  ];
+  const tabs = [
+    { key: "t1", sessionId: "s1", liveness: { status: "exited", code: 0 }, exitedAt: 90 },
+    { key: "t2", sessionId: "s2", liveness: { status: "live" }, exitedAt: null },
+    { key: "t3", sessionId: null, liveness: { status: "exited", code: 1 }, exitedAt: 91 },
+  ];
+  const settled = settledRoster(rows, tabs);
+  assert.deepEqual(settled.map((s) => s.state.state), ["done", "thinking", "idle"], "s1 as its exited tab says; s2's tab is live; s3 has no tab");
+  assert.equal(settled[1], rows[1], "an unchanged row is the same object");
+  assert.equal(settledRoster(rows, [tabs[1], tabs[2]]), rows, "no tab changes a row: the same array, so a memo holds");
+  assert.deepEqual(settledRoster([], tabs), []);
+});
+
+test("the tab says when its harness's dialog was answered: once per wait, by an answering key, while the roster says it waits", () => {
+  // No hook says how a dialog was answered — only that it showed. The tab
+  // that showed it does, through the session's own door, and the hand drops
+  // the moment the person presses Enter rather than when the tool finishes.
+  const tab = { key: "t1", terminalId: "pty-1", sessionId: "s1", liveness: { status: "live" } };
+  const waiting = { id: "s1", state: { state: "waiting", on: { on: "permission", tool: "Bash", gate_id: null } }, since: 500, children: [] };
+  assert.equal(answerDue(tab, waiting, "\r", null), 500, "Enter answers");
+  assert.equal(answerDue(tab, waiting, "\x1b", null), 500, "Escape alone declines");
+  assert.equal(answerDue(tab, waiting, "2", null), 500, "a digit picks an option");
+  assert.equal(answerDue(tab, waiting, "y", null), 500);
+  assert.equal(answerDue(tab, waiting, "\x03", null), 500, "Ctrl-C ends the dialog too");
+  assert.equal(answerDue(tab, waiting, "\x1b[A", null), null, "an arrow moves the cursor; it answers nothing");
+  assert.equal(answerDue(tab, waiting, "k", null), null, "a letter is not an answer");
+  assert.equal(answerDue(tab, waiting, "\r\r", null), null, "a paste is not a keystroke");
+  assert.equal(answerDue(tab, waiting, "\r", 500), null, "this wait was said already");
+  assert.equal(answerDue(tab, { ...waiting, since: 501 }, "\r", 500), 501, "a new wait is said again");
+  // A sub-agent's dialog is the row's wait too, dated by the sub-agent.
+  const child = { id: "s1", state: { state: "running", tool: "sub-agent", args: "", tier: "exec" }, since: 400, children: [{ id: "c1", state: { state: "waiting", on: { on: "permission", tool: "Bash", gate_id: null } }, since: 450 }] };
+  assert.equal(answerDue(tab, child, "\r", null), 450);
+  // Nothing waits, no tab, no PTY, a tab that exited, no row: nothing to say.
+  assert.equal(answerDue(tab, { ...waiting, state: { state: "thinking" } }, "\r", null), null);
+  assert.equal(answerDue(null, waiting, "\r", null), null);
+  assert.equal(answerDue({ ...tab, terminalId: null }, waiting, "\r", null), null);
+  assert.equal(answerDue({ ...tab, liveness: { status: "exited", code: 0 } }, waiting, "\r", null), null);
+  assert.equal(answerDue(tab, null, "\r", null), null);
 });
 
 test("a run tab runs the project's command: labelled run, its own identity beside a shell, and remembered as one", () => {

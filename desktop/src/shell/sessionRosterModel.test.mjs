@@ -9,11 +9,35 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { dropped, landedRead, stopWords, stoppedAlready, upserted } from "./sessionRosterModel.mjs";
+import { dropped, landedRead, latest, stopWords, stoppedAlready, upserted } from "./sessionRosterModel.mjs";
 import { isStoppable } from "../ui/sessionState.mjs";
 
 const row = (id, state, extra = {}) => ({ id, harness: "claude", kind: "engine", since: 1, state: { state }, children: [], ...extra });
 const ids = (rows) => rows.map((r) => `${r.id}:${r.state.state}`);
+
+test("a frame older than the row held moves nothing: two reports landing together reach the desktop in either order", () => {
+  // The node bumps `revision` on every change it says; the hooks of one turn
+  // post in parallel, so the frame for the tool's end can land before the
+  // frame for its start.
+  const held = row("s1", "thinking", { revision: 7 });
+  const roster = [held, row("s2", "idle", { revision: 3 })];
+  const late = row("s1", "running", { revision: 6 });
+  assert.equal(upserted(roster, late), roster, "the same array: nothing repaints, and no transition to a word the row already left");
+  assert.deepEqual(ids(upserted(roster, row("s1", "running", { revision: 8 }))), ["s1:running", "s2:idle"], "the newer word replaces");
+  assert.deepEqual(ids(upserted(roster, row("s1", "running", { revision: 7 }))), ["s1:running", "s2:idle"], "equal: the later word stands");
+  assert.deepEqual(ids(upserted(roster, row("s1", "running"))), ["s1:running", "s2:idle"], "an older node's frame carries no revision and is never older");
+  assert.equal(latest(held, late), held);
+  assert.equal(latest(held, row("s1", "running")).state.state, "running", "a frame without a revision is the later word");
+  // A read that answered after the frames carries the later number and wins; one from before does not.
+  const heard = new Map([["s1", row("s1", "aborted", { revision: 9 })], ["s3", row("s3", "running", { revision: 2 })]]);
+  const answered = [row("s1", "aborted", { revision: 10 }), row("s3", "waiting", { revision: 4 }), row("s2", "idle", { revision: 3 })];
+  const landed = landedRead(answered, heard);
+  assert.deepEqual(ids(landed), ["s3:waiting", "s1:aborted", "s2:idle"]);
+  assert.equal(landed[0].revision, 4, "the read's newer word of s3 stands over the frame heard");
+  assert.equal(landed[1].revision, 10);
+  const before = [row("s1", "running", { revision: 8 }), row("s2", "idle", { revision: 3 })];
+  assert.equal(ids(landedRead(before, heard))[1], "s1:aborted", "a read from before the frame never takes the row back");
+});
 
 test("a frame replaces the row where it stands, a new session leads, and a gone one leaves", () => {
   const roster = [row("s1", "running"), row("s2", "idle")];
@@ -55,7 +79,8 @@ test("every Stop on the desktop goes through the one door, and the store holds a
   const store = src("./sessionsStore.ts");
   assert.ok(store.includes("if (!stoppedAlready(e)) throw e;") && store.includes('return "gone";'), "the node's 404 drops the row and throws nothing");
   assert.ok(store.includes("commit(landedRead(r.sessions, heard));"), "a read lands under the frames heard while it was out");
-  assert.ok(store.includes("since?.set(row.id, row);") && store.includes("since?.set(id, null);"), "both kinds of frame are kept while a read is out");
+  assert.ok(store.includes("since.set(row.id, heard ? latest(heard, row) : row);") && store.includes("since?.set(id, null);"), "both kinds of frame are kept while a read is out, the newest word of each row");
+  assert.ok(store.includes("if (next === state.sessions) return;"), "a frame older than the row held neither commits nor announces a transition");
   for (const surface of ["../views/Agents.tsx", "../views/_workbench/useConversationPane.tsx", "../views/_studio/ConversationThread.tsx", "../views/_workbench/ProjectRail.tsx", "../views/_work/useReviewRun.ts"]) {
     const text = src(surface);
     assert.ok(text.includes("stopSession("), `${surface} stops through the store`);

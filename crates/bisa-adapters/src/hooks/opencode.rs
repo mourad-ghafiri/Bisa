@@ -35,6 +35,13 @@ use bisa_harness::{
 use serde_json::Value;
 
 /// The session a frame is about: the properties' `sessionID`, or the part's.
+/// A tool part's own id, when the frame carries one.
+fn part_id(part: &Value) -> Option<String> {
+    first_str(part, &["id"])
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
 fn session_of(props: &Value) -> Option<SubagentId> {
     first_str(props, &["sessionID"])
         .or_else(|| props.pointer("/part/sessionID").and_then(|s| s.as_str()))
@@ -177,17 +184,28 @@ pub fn translate(payload: &Value) -> Vec<SessionEvent> {
                 Some("tool") => {
                     let name = first_str(&part, &["tool"]).unwrap_or("tool").to_string();
                     match part.pointer("/state/status").and_then(|s| s.as_str()) {
+                        // The part's id: a repeated `running` update is one
+                        // tool, and its end closes that one.
                         Some("running") => vec![raised(ProgressEvent::ToolStarted {
                             tier: ToolTier::classify(&name.to_ascii_lowercase()),
                             args_summary: args_summary(
                                 part.pointer("/state/input").unwrap_or(&Value::Null),
                             ),
                             name,
+                            id: part_id(&part),
                         })],
                         Some("completed") => {
-                            vec![raised(ProgressEvent::ToolEnded { name, ok: true })]
+                            vec![raised(ProgressEvent::ToolEnded {
+                                name,
+                                ok: true,
+                                id: part_id(&part),
+                            })]
                         }
-                        Some("error") => vec![raised(ProgressEvent::ToolEnded { name, ok: false })],
+                        Some("error") => vec![raised(ProgressEvent::ToolEnded {
+                            name,
+                            ok: false,
+                            id: part_id(&part),
+                        })],
                         _ => Vec::new(),
                     }
                 }

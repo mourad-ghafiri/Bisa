@@ -705,8 +705,9 @@ type ProgressEvent =
   | { type: "subagent_ended"; id: string; ok: boolean }
   /** A progress event raised inside a sub-agent — never the agent's own. */
   | { type: "nested"; parent: string; event: ProgressEvent }
-  | { type: "tool_started"; name: string; args_summary: string; tier: "read" | "write" | "exec" }
-  | { type: "tool_ended"; name: string; ok: boolean }
+  /** `id` is the harness's own id for the call, when it has one — what ties the end to the start. */
+  | { type: "tool_started"; name: string; args_summary: string; tier: "read" | "write" | "exec"; id?: string | null }
+  | { type: "tool_ended"; name: string; ok: boolean; id?: string | null }
   | { type: "text_delta"; text: string }
   /** The model's reasoning as it streams — never the reply. */
   | { type: "thinking_delta"; text: string }

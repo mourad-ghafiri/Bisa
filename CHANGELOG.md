@@ -48,6 +48,31 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A harness's raised hand in the Project IDE drops the moment you answer its dialog in the terminal
+  — Enter, Escape, a number — rather than when the approved tool finishes or the next prompt comes.
+  No hook of Claude Code's, Codex's or Copilot CLI's says how a dialog was answered, only that it
+  showed; the tab that showed it now tells the node, once per wait, through the session's own
+  `answered` door. A declined call closes at once (Claude Code's `PermissionDenied`).
+- A dialog a sub-agent raises is the sub-agent's hand, nested under its harness, which keeps reading
+  *running sub-agent*; the Inbox row says whose it is (*↳ explore · permission: Bash*) and its own
+  tool running clears it. Before, the parent read *waiting* for the sub-agent's whole run.
+- Waits are told apart: two dialogs are two waits, and a tool starting or finishing ends only the
+  wait on that tool — never another's — so with parallel tools the hand no longer vanishes while a
+  dialog is still on screen. Every tool call carries its id, so two calls of one name close by their
+  own ids, a refused call never reads *running* whichever hook landed first, and a repeated progress
+  update is one tool, not a stack of them.
+- Codex's permission wait is filed after its `PreToolUse`, as Codex fires them; a Claude Code
+  compaction mid-turn no longer makes the row *idle*; a sub-agent whose announcement was lost is a
+  sub-agent, never mistaken for the session itself; a late word from a finished sub-agent makes no
+  ghost row.
+- Every session frame carries a `revision`, so two reports landing together in the other order never
+  leave a row reading an older word, and a roster read lands beside the frames by the newer of each.
+- One settled roster: a tab that exited settles its mark, pill, footer row, tray and pet count alike
+  — before, a mark and its pill could disagree for a moment. The pet's and an addon's *waiting*
+  count is the Inbox's alone; a harness at its prompt was counted twice.
+- A session's mark dwells 300 ms on a working word, so a harness flipping between *thinking* and
+  *running* on quick tool calls no longer flickers between the sparkle and the loader; the subject a
+  pulse line or the pet follows no longer swaps between two working sessions on every token.
 - The floating Notes and Drawings buttons wear a count of their own: every note and every drawing
   there is, shown from launch without opening a panel, kept live while the panel is closed — a note
   an agent writes into, one made from a conversation, a drawing deleted, a project gone with its

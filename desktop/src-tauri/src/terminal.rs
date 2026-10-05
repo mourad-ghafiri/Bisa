@@ -760,6 +760,12 @@ impl Reporter {
         self.send("close", "{}");
     }
 
+    /// The person answered the harness's dialog in this tab: no hook says
+    /// so, the tab does — the row's wait is over.
+    fn answered(&self) {
+        self.send("answered", "{}");
+    }
+
     /// The approval prompt Codex announced through the terminal, as the
     /// engine's own event — the same shape a hook would report.
     fn approval_requested(&self) {
@@ -1080,6 +1086,20 @@ impl TerminalRegistry {
             .and_then(|s| s.reporter.clone());
         if let Some(reporter) = reporter {
             reporter.approval_requested();
+        }
+    }
+
+    /// The person answered in the tab: told to the node off the lock, like
+    /// every other word of the reporter's. A tab that is no roster row has
+    /// nobody to tell.
+    fn answered(&self, id: &str) {
+        let reporter = self
+            .sessions
+            .locked()
+            .get(id)
+            .and_then(|s| s.reporter.clone());
+        if let Some(reporter) = reporter {
+            reporter.answered();
         }
     }
 
@@ -1798,6 +1818,21 @@ pub async fn terminal_write(
     tauri::async_runtime::spawn_blocking(move || registry.write(&id, &data))
         .await
         .map_err(|e| format!("the terminal write did not finish: {e}"))?
+}
+
+/// The person answered the harness's dialog in this tab — the webview saw
+/// the roster say *waiting* and the keys that answer a dialog typed. The
+/// node is told through the session's own door; a post is a TCP call, so
+/// it runs off the main thread like a write.
+#[tauri::command]
+pub async fn terminal_answered(
+    registry: State<'_, Arc<TerminalRegistry>>,
+    id: String,
+) -> Result<(), String> {
+    let registry = Arc::clone(&registry);
+    tauri::async_runtime::spawn_blocking(move || registry.answered(&id))
+        .await
+        .map_err(|e| format!("the answer did not reach the node: {e}"))
 }
 
 #[tauri::command]

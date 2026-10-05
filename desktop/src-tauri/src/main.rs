@@ -528,6 +528,7 @@ fn main() {
             browser::browser_focus_main,
             terminal::terminal_open,
             terminal::terminal_write,
+            terminal::terminal_answered,
             terminal::terminal_resize,
             terminal::terminal_close,
             terminal::terminal_cwd,

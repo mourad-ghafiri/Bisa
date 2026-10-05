@@ -94,6 +94,13 @@ export interface TerminalProps {
   reserveKey?: (e: KeyboardEvent) => boolean;
   /** Fires once, when the shell exits on its own. Not on unmount. */
   onExit?: (code: number | null) => void;
+  /**
+   * The person typed: the bytes xterm encoded, after they went to the PTY.
+   * What the owning host reads to say a harness's dialog was answered
+   * (`useTerminals.terminalTyped`); never the platform's own resume nudge,
+   * which is typed without passing here.
+   */
+  onInput?: (data: string) => void;
   /** The owning host has the shell: it spawned, or came back — with the live PTY's id. */
   onOpened?: (terminalId: string, session: string | null) => void;
   /** Contact was lost without a verdict — the spawn failed, the channel died. */
@@ -201,6 +208,7 @@ export function Terminal({
   startOnResume = false,
   active,
   onExit,
+  onInput,
   onOpened,
   onUnverifiable,
   onProcess,
@@ -222,6 +230,8 @@ export function Terminal({
   // or flipping `active` — does not tear down and respawn the shell.
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
+  const onInputRef = useRef(onInput);
+  onInputRef.current = onInput;
   const onOpenedRef = useRef(onOpened);
   onOpenedRef.current = onOpened;
   const onUnverifiableRef = useRef(onUnverifiable);
@@ -299,7 +309,7 @@ export function Terminal({
       { scope, id, harness: harness ?? null, login: login ?? null, resume, run, mobileDevelopment: mobileDevelopment ?? null, startOnResume, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle },
       activeRef,
       live,
-      { onExit: onExitRef, onOpened: onOpenedRef, onUnverifiable: onUnverifiableRef, onProcess: onProcessRef, find: findRef, reserveKey: reserveKeyRef, link: linkRef },
+      { onExit: onExitRef, onInput: onInputRef, onOpened: onOpenedRef, onUnverifiable: onUnverifiableRef, onProcess: onProcessRef, find: findRef, reserveKey: reserveKeyRef, link: linkRef },
       setError,
       () => setBooted((n) => n + 1),
     );
@@ -466,6 +476,8 @@ interface BootWhat {
 
 interface BootRefs {
   onExit: { current: ((code: number | null) => void) | undefined };
+  /** The person's keystrokes, after the PTY has them. */
+  onInput: { current: ((data: string) => void) | undefined };
   onOpened: { current: ((terminalId: string, session: string | null) => void) | undefined };
   onUnverifiable: { current: ((reason: string) => void) | undefined };
   onProcess: { current: ((harness: string | null) => void) | undefined };
@@ -753,6 +765,8 @@ async function boot(
       // says so properly.
       log.debug("terminal", "the typed bytes could not be written; the exit event says why", errorFields(e));
     });
+    // The host hears what was typed — how a harness's dialog is known answered.
+    refs.onInput.current?.(data);
   });
 
   search.onDidChangeResults(({ resultIndex, resultCount }) => {

@@ -129,9 +129,11 @@ test("a sub-agent leads only when it is louder than its parent, and the chip cou
 });
 
 test("several sessions fold into one more chip: the next-loudest word and its count", () => {
-  const p = pulse([S("s1", running("Read"), { last_activity: NOW }), S("s2", running("Edit"), { last_activity: NOW - 9 }), S("s3", { state: "thinking" }, { last_activity: NOW - 8 })]);
+  const p = pulse([S("s1", running("Read"), { started: NOW - 20 }), S("s2", running("Edit"), { started: NOW - 30, last_activity: NOW }), S("s3", { state: "thinking" }, { last_activity: NOW - 8 })]);
   assert.equal(p.who, "claude-code");
-  assert.equal(p.headline, "running Read", "ties break by the newest activity");
+  assert.equal(p.headline, "running Read", "ties break by the subject that started last — never by a token's arrival");
+  const steady = pulse([S("s1", running("Read"), { started: NOW - 20, last_activity: NOW - 5 }), S("s2", running("Edit"), { started: NOW - 20, since: NOW, last_activity: NOW })]);
+  assert.equal(steady.headline, "running Read", "equal starts: the id, so a tool call in the other session does not swap the lead");
   assert.deepEqual(p.more, { count: 2, word: "working" }, "the rest, by the next-loudest word — a live one reads as working");
   const thinker = pulse([S("s1", { state: "thinking" }, { last_activity: NOW }), S("s2", running("Edit"), { last_activity: NOW - 9 })]);
   assert.equal(thinker.headline, "running Edit", "a named tool is the more telling line, whatever the dot's order says");

@@ -23,7 +23,8 @@ test("a choice that left the roster, or moved to another workstream, falls back"
 test("the fallback is the loudest live session, then the newest ended one", () => {
   const rows = [row("idle", "idle", { since: 300 }), row("wait", "waiting", { since: 100 }), row("run", "running", { since: 200 })];
   assert.equal(fallbackSession(rows, "ws1")?.id, "wait", "attention first");
-  assert.equal(fallbackSession([row("r1", "running", { since: 100 }), row("r2", "running", { since: 200 })], "ws1")?.id, "r2", "then newest");
+  assert.equal(fallbackSession([row("r1", "running", { started: 100 }), row("r2", "running", { started: 200 })], "ws1")?.id, "r2", "then the one that started last");
+  assert.equal(fallbackSession([row("r1", "running", { since: 100 }), row("r2", "running", { since: 900 })], "ws1")?.id, "r1", "a tool call — a newer `since` — never swaps the subject; equal starts break by id");
   assert.equal(fallbackSession([row("old", "done", { since: 100 }), row("new", "failed", { since: 200 })], "ws1")?.id, "new", "the newest ended when nothing is live");
   assert.equal(fallbackSession([row("p", "parked")], "ws1"), null, "a parked session is nobody to follow");
   assert.equal(fallbackSession([row("x", "running", { workstream: "ws2" })], "ws1"), null);

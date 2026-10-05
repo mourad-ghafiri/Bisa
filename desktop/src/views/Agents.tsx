@@ -50,7 +50,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { useEngineEvents } from "../bus";
 import { href, navigate, useSearchValue } from "../router";
-import { stopSession, useSessions } from "../shell/sessionsStore";
+import { stopSession } from "../shell/sessionsStore";
+import { useSettledSessions } from "../shell/useSettledSessions";
 import { stopWords } from "../shell/sessionRosterModel.mjs";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
@@ -520,8 +521,10 @@ function AgentDetail({
 
 function Sessions() {
   const toast = useToast();
-  // The roster is the presence store's: seeded once, moved by `session_state`.
-  const sessions = sessionState.sortRows(useSessions());
+  // The roster is the presence store's: seeded once, moved by `session_state`
+  // — as the tabs say it, so a harness whose tab exited reads ended here as
+  // on the rail.
+  const sessions = sessionState.sortRows(useSettledSessions());
   const [aborting, setAborting] = useState<SessionRow | null>(null);
   // A goal a session works on reads by its title, from the goals the window already holds.
   const { goals } = useWorkspace();
@@ -579,9 +582,10 @@ function Sessions() {
                   <Button size="sm" variant="danger" onClick={() => setAborting(s)}>{t("screens-agents-abort")}</Button>
                 )}
               </div>
-              {s.children.length > 0 && (
+              {/* The rail's rule (`liveChildren`): a sub-agent that finished has left; one that failed stays to be read. */}
+              {sessionState.liveChildren(s).length > 0 && (
                 <ul className="flex flex-col gap-0.5 pl-5 text-2xs">
-                  {s.children.map((c) => (
+                  {sessionState.liveChildren(s).map((c) => (
                     <li key={c.id} className="flex items-center gap-2">
                       <ICON.subagent size={11} aria-hidden className="shrink-0 text-text-dim" />
                       <SessionMark state={c.state} />

@@ -3064,6 +3064,7 @@ async fn ask_human(
         inner.presence.waiting(
             inner,
             run,
+            &gate_id,
             crate::presence::WaitingOn::Question {
                 text: question.clone(),
                 gate_id: Some(gate_id.clone()),

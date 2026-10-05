@@ -260,7 +260,16 @@ async fn decide_permission(
                 (Some(home), _) => home,
                 (None, Some(reach)) => {
                     return ask_in_conversation(
-                        inner, ctx, reach, &judge, tool, tier, input, question, of_ceiling,
+                        inner,
+                        ctx,
+                        reach,
+                        &judge,
+                        &request.id,
+                        tool,
+                        tier,
+                        input,
+                        question,
+                        of_ceiling,
                     )
                     .await
                 }
@@ -308,6 +317,7 @@ async fn ask_in_conversation(
     ctx: &InputContext,
     reach: ConversationReach,
     judge: &Judge<'_>,
+    request_id: &str,
     tool: &str,
     tier: ToolTier,
     input: serde_json::Value,
@@ -322,6 +332,7 @@ async fn ask_in_conversation(
     inner.presence.waiting(
         inner,
         ctx.live_run,
+        request_id,
         WaitingOn::Permission {
             tool: tool.to_string(),
             gate_id: None,
@@ -384,7 +395,9 @@ async fn escalate(
         },
         other => other,
     };
-    inner.presence.waiting(inner, ctx.live_run, on);
+    // Under the request's own id: the wait the fold already holds for it is
+    // told its gate, never doubled.
+    inner.presence.waiting(inner, ctx.live_run, &request.id, on);
     inner.emit(inner.home_scope(&home).event(
         ctx.work_item,
         EnginePayload::GateOpened {

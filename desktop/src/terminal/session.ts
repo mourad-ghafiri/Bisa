@@ -171,6 +171,20 @@ export async function writeTerminal(terminalId: string, data: string): Promise<v
   await invoke("terminal_write", { id: terminalId, data });
 }
 
+/**
+ * The person answered the dialog the harness in this tab had up — typed into
+ * the PTY by its id. No hook of the harness's says how a dialog was answered,
+ * only that it showed (ide/06 §Reporting); the shell tells the node through
+ * the session's own door (`POST /sessions/{id}/answered`), and the roster's
+ * hand drops at once. Best effort, like an exit: a door that does not
+ * answer leaves the wait to the harness's next word.
+ */
+export async function answeredInTerminal(terminalId: string): Promise<void> {
+  if (!terminalAvailable()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("terminal_answered", { id: terminalId });
+}
+
 // ---------------------------------------------------------------------------
 // Listening ports
 // ---------------------------------------------------------------------------

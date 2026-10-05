@@ -10,14 +10,34 @@
 import { t } from "../i18n/l10n.mjs";
 
 /**
+ * The newer of two words about one row, by the roster's `revision` — the
+ * number the node bumps on every change it says, so two frames of one row
+ * are ordered however they reached the desktop. A row without one (an older
+ * node's) is never older; equal, or unknown, the later word stands.
+ * @template {{revision?: number}} R
+ * @param {R} held what the desktop holds @param {R} said what arrived
+ * @returns {R}
+ */
+export function latest(held, said) {
+  const older = typeof said.revision === "number" && typeof held.revision === "number" && said.revision < held.revision;
+  return older ? held : said;
+}
+
+/**
  * The roster with one row as a `session_state` frame says it: replaced where
  * it stood, else first — the newest session leads until the order is drawn.
- * @template {{id: string}} R
+ * A frame older than the row held (`latest`) moves nothing: the same array
+ * comes back, so the store neither commits nor announces a transition to a
+ * word the row already left.
+ * @template {{id: string, revision?: number}} R
  * @param {readonly R[]} sessions @param {R} row
- * @returns {R[]}
+ * @returns {readonly R[]}
  */
 export function upserted(sessions, row) {
-  return sessions.some((s) => s.id === row.id) ? sessions.map((s) => (s.id === row.id ? row : s)) : [row, ...sessions];
+  const held = sessions.find((s) => s.id === row.id);
+  if (!held) return [row, ...sessions];
+  if (latest(held, row) === held) return sessions;
+  return sessions.map((s) => (s.id === row.id ? row : s));
 }
 
 /**
@@ -32,13 +52,14 @@ export function dropped(sessions, id) {
 }
 
 /**
- * A read of the whole roster, as it lands: the node's rows — **under** every
- * frame that arrived while the read was out. The read was taken before those
- * frames were said, so for the rows they name it is the older word: a session
- * a frame said was *aborted* must not read *running* again because a
- * snapshot asked for a moment earlier answered a moment later, and one a
- * frame said was gone must not come back.
- * @template {{id: string}} R
+ * A read of the whole roster, as it lands, beside every frame that arrived
+ * while the read was out. For a row both name, the newer word by `revision`
+ * stands (`latest`): a read asked for before a frame and answered after it
+ * carries the later number and wins; one answered from before the frame does
+ * not, so a session a frame said was *aborted* never reads *running* again
+ * because a snapshot asked for a moment earlier answered a moment later. One
+ * a frame said was gone does not come back, whatever the read says.
+ * @template {{id: string, revision?: number}} R
  * @param {readonly R[]} snapshot what `GET /sessions` answered
  * @param {ReadonlyMap<string, R | null>} since the rows frames moved since the read was asked for — the row, or `null` for one that went
  * @returns {R[]}
@@ -46,7 +67,16 @@ export function dropped(sessions, id) {
 export function landedRead(snapshot, since) {
   if (since.size === 0) return [...snapshot];
   const kept = snapshot.filter((row) => !since.has(row.id));
-  const fresh = [...since.values()].filter((row) => row !== null);
+  const read = new Map(snapshot.map((row) => [row.id, row]));
+  const fresh = [...since.entries()]
+    .map(([id, heard]) => {
+      if (heard === null) return null;
+      // The frame is the later word unless both carry a revision and the
+      // read's is higher — a read that answered after the frame.
+      const row = read.get(id);
+      return row ? latest(row, heard) : heard;
+    })
+    .filter((row) => row !== null);
   return [...fresh.reverse(), ...kept];
 }
 

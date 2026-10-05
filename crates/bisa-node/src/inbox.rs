@@ -87,7 +87,6 @@ use bisa_core::{
     StepState, TemplateCtx, WorkflowRun,
 };
 use bisa_engine::notices::{self, InboxKind, InboxTarget};
-use bisa_engine::SessionState;
 use bisa_store::{approval_subject, MessageRow, Workspace, WorkstreamFilter};
 use serde::Deserialize;
 use serde_json::json;
@@ -1168,9 +1167,12 @@ async fn inbox(
     // session, titled by the harness and where it stands. Owed like an
     // ask; answered in the terminal, never here.
     for p in state.engine.inner().presence.waiting_terminals() {
-        let SessionState::Waiting { on } = &p.state else {
+        // The session's own wait, else a sub-agent's: one row either way,
+        // dated from the wait it names.
+        let Some((on, child)) = p.wait() else {
             continue;
         };
+        let since = p.wait_since();
         let key = p.id.to_string();
         let place = p
             .workstream
@@ -1190,9 +1192,9 @@ async fn inbox(
             source: InboxSource::of(InboxKind::Session, None),
             origin: None,
             title,
-            latest_at: p.since,
+            latest_at: since,
             unread_count: 0,
-            read: f.read_at(&key, p.since),
+            read: f.read_at(&key, since),
             handled: false,
             mentioned: false,
             needs_action: vec![],
@@ -1210,7 +1212,8 @@ async fn inbox(
                 goal: p.goal.map(|g| g.to_string()),
                 on: on.clone(),
                 words: on.words(),
-                since: p.since,
+                subagent: child.map(|c| c.name.clone()),
+                since,
             }),
         });
     }
@@ -1327,12 +1330,13 @@ fn try_delta(
         let Ok(session) = key.parse() else {
             return Ok(None);
         };
+        // Its own wait or a sub-agent's: the row is owed while either is.
         let waiting = state
             .engine
             .inner()
             .presence
             .get(session)
-            .is_some_and(|p| matches!(p.state, SessionState::Waiting { .. }));
+            .is_some_and(|p| p.wait().is_some());
         return Ok(Some(json!({
             "key": key,
             "kind": kind,

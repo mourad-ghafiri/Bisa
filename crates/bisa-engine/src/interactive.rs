@@ -417,7 +417,10 @@ impl InteractiveDesk {
 
     /// Judge one tool call a terminal-hosted harness is about to run — the
     /// guard hook's question. Secret-checked like a report; the verdict is
-    /// what the hook prints back to the harness.
+    /// what the hook prints back to the harness. A call refused will not
+    /// run: the row closes it — whether its start was heard already or lands
+    /// later, since a harness runs an event's hooks in parallel — and a wait
+    /// on it is over.
     pub async fn guard(
         &self,
         inner: &Inner,
@@ -426,7 +429,35 @@ impl InteractiveDesk {
         payload: &serde_json::Value,
     ) -> Result<crate::security::GuardReply, InteractiveError> {
         self.check(session, secret)?;
-        Ok(crate::security::guard_hook(inner, session, payload).await)
+        let reply = crate::security::guard_hook(inner, session, payload).await;
+        if reply.decision.as_deref() == Some("deny") {
+            let tool = payload
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let tool_id = payload
+                .get("tool_use_id")
+                .and_then(|v| v.as_str())
+                .filter(|id| !id.is_empty());
+            inner.presence.refused_tool(inner, session, tool_id, tool);
+        }
+        Ok(reply)
+    }
+
+    /// The person answered in the terminal — approved, declined or escaped
+    /// the harness's dialog. No hook says so, so the tab does, through this
+    /// door: every wait of the session and its sub-agents is over and the
+    /// row goes back to what it was doing; the harness's next word corrects
+    /// it whichever way the person answered.
+    pub fn answered(
+        &self,
+        inner: &Inner,
+        session: LiveRunId,
+        secret: &str,
+    ) -> Result<(), InteractiveError> {
+        self.check(session, secret)?;
+        inner.presence.answered(inner, session);
+        Ok(())
     }
 
     /// The process behind the session ended by itself: the row moves to the

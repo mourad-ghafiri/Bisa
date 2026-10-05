@@ -18,8 +18,8 @@ import type { ConnState } from "../bus";
 import { connected } from "../busModel.mjs";
 import { errorFields, log } from "../log";
 import { navigate } from "../router";
-import { useSessions } from "./sessionsStore";
 import { TRAY_EVENTS, TRAY_KEYS, trayReport } from "./trayModel.mjs";
+import { useSettledSessions } from "./useSettledSessions";
 import type { TrayReport } from "./trayModel.mjs";
 import { useWorkspace } from "./useWorkspaceData";
 
@@ -47,7 +47,8 @@ async function badge(count: number): Promise<void> {
 /** Mount once, in the shell, with the one connection state `App` watches. */
 export function useTray(conn: ConnState): void {
   const ws = useWorkspace();
-  const sessions = useSessions();
+  // As the tabs say it: a harness whose tab exited is not working.
+  const sessions = useSettledSessions();
   // Before the node has ever answered, not open is *connecting*; after, it is *trouble*.
   const everOpen = useRef(false);
   if (connected(conn)) everOpen.current = true;

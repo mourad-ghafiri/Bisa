@@ -27,11 +27,12 @@
 import { errorFields, log } from "../log";
 import { jsonPref, readPref, webStorage, writePref } from "./storedPrefModel.mjs";
 import { useSyncExternalStore } from "react";
-import { terminalAvailable, writeTerminal } from "../terminal/session";
+import { answeredInTerminal, terminalAvailable, writeTerminal } from "../terminal/session";
 import type { TerminalScope } from "../terminal/session";
 import { dropScrollback } from "../terminal/Terminal";
-import { onSessionTransition } from "./sessionsStore";
+import { onSessionTransition, sessionRows } from "./sessionsStore";
 import {
+  answerDue,
   closeExitedTerminals,
   closeOtherTerminals,
   closePane,
@@ -164,8 +165,33 @@ function set(next: TerminalsState) {
       // Storage denied: tabs die with the window, as they did before.
       writePref(webStorage(), SESSIONS_KEY, serialized);
     }
+    // A closed tab's answers go with it; keys are never reused.
+    for (const key of answered.keys()) if (!next.sessions.some((s) => s.key === key)) answered.delete(key);
   }
   for (const listener of listeners) listener();
+}
+
+/** The `since` of the wait last answered from each tab, by key — once per wait (`terminalsModel.answerDue`). */
+const answered = new Map<string, number>();
+
+/**
+ * The person typed into a tab. When the roster says the harness in it — or
+ * one of its sub-agents — waits on them and the keystroke is one that answers
+ * a dialog, the node is told through the session's own door, once per wait,
+ * and the row goes back to what it was doing (ide/06 §Reporting). No hook of
+ * the harness's can say this; only the tab that showed the dialog can.
+ */
+export function terminalTyped(key: string, generation: number, data: string): void {
+  const tab = state.sessions.find((s) => s.key === key && s.generation === generation);
+  if (!tab?.sessionId || tab.terminalId === null) return;
+  const row = sessionRows().find((r) => r.id === tab.sessionId) ?? null;
+  const since = answerDue(tab, row, data, answered.get(key) ?? null);
+  if (since === null) return;
+  answered.set(key, since);
+  void answeredInTerminal(tab.terminalId).catch((e: unknown) => {
+    // Best effort: the harness's next word corrects the row either way.
+    log.debug("terminals", "the answer did not reach the node; the harness's next report corrects the row", { key, ...errorFields(e) });
+  });
 }
 
 function subscribe(listener: () => void): () => void {

@@ -252,10 +252,20 @@ pub enum ProgressEvent {
         /// Short rendering of the arguments, already truncated by the adapter.
         args_summary: String,
         tier: ToolTier,
+        /// The harness's own id for this call (Claude Code's `tool_use_id`,
+        /// OpenCode's part id), when it has one: what ties the call's end —
+        /// and a wait on it — to its start when two calls share a name. A
+        /// harness that names its calls nothing leaves it out, and the call is
+        /// known by its name alone.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
     },
     ToolEnded {
         name: String,
         ok: bool,
+        /// The same id the start carried, when it did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
     },
     /// Streaming assistant text.
     TextDelta {
@@ -380,6 +390,7 @@ mod tests {
             name: "Read".into(),
             args_summary: "x".into(),
             tier: ToolTier::Read,
+            id: None,
         };
         let plain = SessionEvent::Progress(inner.clone().raised_by(None));
         assert!(plain.parent().is_none());

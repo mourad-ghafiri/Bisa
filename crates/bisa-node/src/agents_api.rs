@@ -55,6 +55,7 @@ pub(crate) fn routes() -> Router<Shared> {
         .route("/sessions/{id}/guard", post(guard_session))
         .route("/sessions/{id}/exit", post(exit_session))
         .route("/sessions/{id}/close", post(close_session))
+        .route("/sessions/{id}/answered", post(answered_session))
 }
 
 fn parse_respond(s: Option<&str>) -> Result<RespondPolicy, ApiError> {
@@ -708,6 +709,24 @@ async fn close_session(
     Ok(Json(json!({"ok": true})))
 }
 
+/// The person answered the harness's dialog in the terminal tab: every wait
+/// of the session is over and the row goes back to what it was doing.
+async fn answered_session(
+    State(state): State<Shared>,
+    AxPath(id): AxPath<String>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let id = session_id(&id)?;
+    let secret = session_secret(&headers, &uri)?;
+    let inner = state.engine.inner();
+    inner
+        .interactive
+        .answered(inner, id, &secret)
+        .map_err(interactive_error)?;
+    Ok(Json(json!({"ok": true})))
+}
+
 /// The routes this module mounts, for `bisa-node --bin api-docs` and the
 /// route test. Kept beside `routes()` so a route added here is added here.
 pub const ROUTES: &[RouteDoc] = &[
@@ -736,4 +755,5 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "POST", path: "/sessions/{id}/guard", summary: "The guard hook inside a terminal-hosted harness asks before a tool runs: `{payload}` (the harness's `PreToolUse` payload) → `{decision?: allow | deny | ask, reason?, updated_input?}`; an empty answer means the guard has no opinion and the harness's own prompt stands. Bearer = the session's secret." },
     RouteDoc { method: "POST", path: "/sessions/{id}/exit", summary: "The process behind a terminal session ended by itself: `{code?, signal?}` → done on 0, failed otherwise, the row held beside its tab. Bearer = the session's secret." },
     RouteDoc { method: "POST", path: "/sessions/{id}/close", summary: "The terminal tab behind a terminal session is gone: the row leaves the roster at once. Bearer = the session's secret." },
+    RouteDoc { method: "POST", path: "/sessions/{id}/answered", summary: "The person answered the harness's dialog in its terminal tab — approved, declined or escaped it; no hook says so, the tab does. Every wait of the session and of its sub-agents is over and the row goes back to what it was doing: *running <tool>* for a call it already announced, else *thinking*; the harness's next word corrects it whichever way the person answered. Bearer = the session's secret." },
 ];

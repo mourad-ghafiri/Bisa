@@ -1,6 +1,6 @@
 //! A harness a person opened in a desktop terminal, as a roster session: the
-//! tab is the row. The desk's three doors — `exited`, `close`, `abort` — and
-//! what each leaves in the roster and on disk.
+//! tab is the row. The desk's doors — `exited`, `close`, `abort`, `answered`
+//! — and what each leaves in the roster and on disk.
 
 use crate::common;
 
@@ -500,6 +500,110 @@ async fn the_doors_take_only_the_sessions_own_secret() {
         desk.close(engine.inner(), LiveRunId::mint(), &secret(&opened)),
         Err(InteractiveError::UnknownSession(_))
     ));
+    assert!(matches!(
+        desk.answered(engine.inner(), opened.session, &secret(&other)),
+        Err(InteractiveError::BadSecret)
+    ));
+}
+
+/// No hook says how the person answered a permission dialog — only that it
+/// showed, and later that the tool ran. The tab that showed it says so,
+/// through the `answered` door: every wait of the session ends at once and
+/// the row lands back on the call it already announced; a sub-agent's wait
+/// ends the same way, the sub-agent back to *thinking*.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_answered_door_ends_every_wait_and_lands_the_row_on_its_open_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let desk = &engine.inner().interactive;
+    let opened = open(&engine);
+    let tool = |id: &str| {
+        SessionEvent::Progress(ProgressEvent::ToolStarted {
+            name: "Bash".into(),
+            args_summary: "cargo test".into(),
+            tier: bisa_core::ToolTier::Exec,
+            id: Some(id.into()),
+        })
+    };
+    let asks = |id: &str| {
+        SessionEvent::Lifecycle(LifecycleEvent::InputRequested {
+            request: bisa_harness::InputRequest::permission(
+                id,
+                "Bash",
+                bisa_core::ToolTier::Exec,
+                "cargo test",
+                serde_json::json!({"command": "cargo test"}),
+            ),
+        })
+    };
+    desk.report(
+        engine.inner(),
+        opened.session,
+        &secret(&opened),
+        &[
+            SessionEvent::Lifecycle(LifecycleEvent::Started),
+            SessionEvent::Progress(ProgressEvent::TurnStarted),
+            tool("toolu_1"),
+            asks("toolu_1"),
+        ],
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            state_of(&engine, opened.session),
+            Some(SessionState::Waiting { .. })
+        ),
+        "the dialog is up"
+    );
+
+    desk.answered(engine.inner(), opened.session, &secret(&opened))
+        .unwrap();
+    assert!(
+        matches!(
+            state_of(&engine, opened.session),
+            Some(SessionState::Running { ref tool, .. }) if tool == "Bash"
+        ),
+        "back on the call it announced: {:?}",
+        state_of(&engine, opened.session)
+    );
+
+    // A sub-agent's dialog: its hand, not the session's — and the same door
+    // drops it.
+    spawn_child(&engine, opened.session, "agent-1");
+    desk.report(
+        engine.inner(),
+        opened.session,
+        &secret(&opened),
+        &[SessionEvent::Lifecycle(LifecycleEvent::InputRequested {
+            request: bisa_harness::InputRequest::permission(
+                "toolu_s",
+                "Read",
+                bisa_core::ToolTier::Read,
+                "README",
+                serde_json::json!({"file_path": "README"}),
+            )
+            .raised_by(Some(SubagentId("agent-1".into()))),
+        })],
+    )
+    .unwrap();
+    let row = engine.inner().presence.get(opened.session).unwrap();
+    assert!(
+        matches!(row.state, SessionState::Running { ref tool, .. } if tool == "Bash"),
+        "the session keeps its word: {:?}",
+        row.state
+    );
+    assert!(
+        matches!(row.children[0].state, SessionState::Waiting { .. }),
+        "the hand is the sub-agent's: {:?}",
+        row.children[0].state
+    );
+    assert!(row.wait().is_some_and(|(_, child)| child.is_some()));
+    desk.answered(engine.inner(), opened.session, &secret(&opened))
+        .unwrap();
+    let row = engine.inner().presence.get(opened.session).unwrap();
+    assert_eq!(row.children[0].state, SessionState::Thinking);
+    assert!(row.wait().is_none(), "{row:?}");
+    engine.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

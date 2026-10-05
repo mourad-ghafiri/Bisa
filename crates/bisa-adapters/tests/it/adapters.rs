@@ -134,7 +134,7 @@ while read -r _l; do :; done
     )));
     assert!(events.iter().any(|e| matches!(
         e,
-        SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true }) if name == "Bash"
+        SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true, .. }) if name == "Bash"
     )));
     assert!(events.iter().any(|e| matches!(
         e,

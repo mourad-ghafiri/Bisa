@@ -4509,6 +4509,9 @@ export interface Goal {
   /**
    * Who carries this goal: agents take the work, humans may decide the
    * gates, teams expand to both. Descendants inherit through `origin`.
+   * The agents and teams named here are also the staff the Workflow
+   * Agent designs from — a team whole or one of its members — and when
+   * none is named, the nearest ancestor's, else every enabled one.
    */
   assignees?: Assignee[];
   tags?: Tags;
@@ -11315,7 +11318,13 @@ export interface WaitingSession {
    */
   words: string;
   /**
-   * Unix seconds the wait began.
+   * The sub-agent whose wait it is, by name, when a sub-agent asks and
+   * not the session itself — the card reads *↳ explore · permission:
+   * Bash*. Absent for the session's own wait.
+   */
+  subagent?: string | null;
+  /**
+   * Unix seconds the wait began — the sub-agent's when it is its wait.
    */
   since: number;
   [k: string]: unknown;
@@ -11451,6 +11460,12 @@ export interface SessionRow {
    * Unix seconds of the last event, tokens included.
    */
   last_activity: number;
+  /**
+   * Climbs by one on every change a reader sees — each frame of a row
+   * carries a higher number than the one before it, whatever order they
+   * reach a reader in. A reader keeps the highest it has.
+   */
+  revision: number;
   [k: string]: unknown;
 }
 /**

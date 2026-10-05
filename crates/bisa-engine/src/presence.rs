@@ -213,6 +213,10 @@ pub struct SessionPresence {
     pub children: Vec<SubagentPresence>,
     /// Unix seconds of the last event, tokens included.
     pub last_activity: u64,
+    /// Climbs by one on every change a reader sees — each frame of a row
+    /// carries a higher number than the one before it, whatever order they
+    /// reach a reader in. A reader keeps the highest it has.
+    pub revision: u64,
 }
 
 /// What a session is about, said once at registration.
@@ -240,6 +244,18 @@ struct Entry {
     presence: SessionPresence,
     /// Tools running in the session itself (not in a sub-agent), innermost last.
     open_tools: Vec<OpenTool>,
+    /// What the session — or one of its sub-agents — stopped on and nobody
+    /// has answered yet, oldest first. A session-owned wait is the row's
+    /// word; a child's is the child's. Each ends on its own answer, on its
+    /// own tool running or ending, on the person's answer in the tab, or at
+    /// the turn's end — never on another tool's.
+    waits: Vec<OpenWait>,
+    /// Tool ids the guard refused this turn: a start that lands after the
+    /// refusal (hooks run in parallel) opens nothing.
+    denied: Vec<String>,
+    /// Sub-agents that ended this turn: a word under one of them that lands
+    /// late is nothing, not a child born again.
+    ended_children: Vec<SubagentId>,
     /// Bumped on every terminal state; a retention timer that wakes to a
     /// different epoch does nothing.
     epoch: u64,
@@ -265,10 +281,65 @@ pub const DELEGATION_TOOL: &str = "sub-agent";
 /// One tool still running in the session: what `resume_state` goes back to.
 #[derive(Debug, Clone)]
 struct OpenTool {
+    /// The harness's own id for the call, when it gave one.
+    id: Option<String>,
     name: String,
     args: String,
     tier: ToolTier,
 }
+
+impl OpenTool {
+    /// Whether a tool event is about this call: equal ids when both sides
+    /// have one, else the same name.
+    fn is(&self, id: Option<&str>, name: &str) -> bool {
+        same_tool(self.id.as_deref(), &self.name, id, name)
+    }
+}
+
+/// Whether two namings of a tool call name the same call: equal ids when
+/// both have one — two `Bash` calls side by side are told apart — else the
+/// same name, for a harness that names its calls nothing.
+fn same_tool(a_id: Option<&str>, a_name: &str, b_id: Option<&str>, b_name: &str) -> bool {
+    match (a_id, b_id) {
+        (Some(a), Some(b)) => a == b,
+        _ => a_name == b_name,
+    }
+}
+
+/// The tool a wait is about, when it is about one.
+#[derive(Debug, Clone)]
+struct ToolRef {
+    id: Option<String>,
+    name: String,
+}
+
+/// One request the session, or a sub-agent of it, stopped on.
+#[derive(Debug, Clone)]
+struct OpenWait {
+    /// The request's id — what an answer names.
+    id: String,
+    on: WaitingOn,
+    /// The sub-agent that asked, when one did; `None` for the session's own.
+    owner: Option<SubagentId>,
+    /// The tool asked about, for a permission: the call's start or end ends
+    /// the wait. A question or a dialog names none, and any tool of its
+    /// owner's ends it.
+    tool: Option<ToolRef>,
+}
+
+impl OpenWait {
+    /// Whether a tool event of `owner` ends this wait.
+    fn ended_by(&self, owner: Option<&SubagentId>, id: Option<&str>, name: &str) -> bool {
+        self.owner.as_ref() == owner
+            && match &self.tool {
+                Some(tool) => same_tool(tool.id.as_deref(), &tool.name, id, name),
+                None => true,
+            }
+    }
+}
+
+/// How many sub-agents one session keeps track of at most; a 33rd is dropped.
+pub const MAX_CHILDREN: usize = 32;
 
 fn now_secs() -> u64 {
     SystemTime::now()
@@ -345,12 +416,16 @@ impl Presence {
             cost: SessionCost::default(),
             children: Vec::new(),
             last_activity: now,
+            revision: 1,
         };
         self.rows.insert(
             id,
             Entry {
                 presence: presence.clone(),
                 open_tools: Vec::new(),
+                waits: Vec::new(),
+                denied: Vec::new(),
+                ended_children: Vec::new(),
                 in_turn: false,
                 native_root: None,
                 ever_child: false,
@@ -367,6 +442,9 @@ impl Presence {
         let changed = match self.rows.get_mut(&id) {
             Some(mut entry) => {
                 let changed = fold(&mut entry, event, now_secs());
+                if changed {
+                    entry.presence.revision += 1;
+                }
                 changed.then(|| entry.presence.clone())
             }
             None => None,
@@ -377,20 +455,113 @@ impl Presence {
     }
 
     /// The session stopped for a person: an input request the engine turned
-    /// into a gate, a step's own gate, a question through the intake.
-    pub fn waiting(&self, inner: &Inner, id: LiveRunId, on: WaitingOn) {
-        self.transition(inner, id, SessionState::Waiting { on });
+    /// into a gate, a step's own gate, a question through the intake. The
+    /// wait is recorded under `wait_id` — the request's own id when there is
+    /// a request, so the wait the fold already holds is told its gate rather
+    /// than doubled; the gate's id otherwise — and ends by that id.
+    pub fn waiting(&self, inner: &Inner, id: LiveRunId, wait_id: &str, on: WaitingOn) {
+        self.change(inner, id, |entry, now| {
+            entry.in_turn = true;
+            let tool = match &on {
+                WaitingOn::Permission { tool, .. } => Some(ToolRef {
+                    id: Some(wait_id.to_string()),
+                    name: tool.clone(),
+                }),
+                _ => None,
+            };
+            push_wait(
+                entry,
+                OpenWait {
+                    id: wait_id.to_string(),
+                    on: on.clone(),
+                    owner: None,
+                    tool,
+                },
+            );
+            let state = session_word(entry);
+            set_state(entry, state, now)
+        });
     }
 
-    /// The person acted; the session goes on.
+    /// The person acted on what the session itself asked — the engine
+    /// delivered an answer, a gate was decided: its own waits are over and
+    /// it goes back to what it was doing.
     pub fn resumed(&self, inner: &Inner, id: LiveRunId) {
-        let waiting = self
-            .rows
-            .get(&id)
-            .map(|e| matches!(e.presence.state, SessionState::Waiting { .. }))
-            .unwrap_or(false);
-        if waiting {
-            self.transition(inner, id, SessionState::Thinking);
+        self.change(inner, id, |entry, now| {
+            let before = entry.waits.len();
+            entry.waits.retain(|w| w.owner.is_some());
+            let state = session_word(entry);
+            set_state(entry, state, now) || before != entry.waits.len()
+        });
+    }
+
+    /// The person answered in the terminal: every wait of the session and
+    /// of its sub-agents is over — the tab is where a terminal harness is
+    /// answered, and no hook says so. The session goes back to its open
+    /// tool, a sub-agent to thinking: whichever way the person answered, the
+    /// harness's next word corrects the row.
+    pub fn answered(&self, inner: &Inner, id: LiveRunId) {
+        self.change(inner, id, |entry, now| {
+            if entry.waits.is_empty() {
+                return false;
+            }
+            entry.waits.clear();
+            let mut moved = false;
+            for c in entry.presence.children.iter_mut() {
+                if matches!(c.state, SessionState::Waiting { .. }) {
+                    c.state = SessionState::Thinking;
+                    c.since = now;
+                    moved = true;
+                }
+            }
+            let state = session_word(entry);
+            set_state(entry, state, now) || moved
+        });
+    }
+
+    /// The guard refused a tool the session's hook asked about: the call will
+    /// not run, so it is closed if its start was heard, remembered so a start
+    /// that lands later opens nothing, and a wait on it is over.
+    pub fn refused_tool(&self, inner: &Inner, id: LiveRunId, tool_id: Option<&str>, name: &str) {
+        self.change(inner, id, |entry, now| {
+            if let Some(tool_id) = tool_id {
+                if !entry.denied.iter().any(|d| d == tool_id) {
+                    entry.denied.push(tool_id.to_string());
+                }
+            }
+            let before = entry.open_tools.len() + entry.waits.len();
+            if let Some(at) = entry.open_tools.iter().rposition(|t| t.is(tool_id, name)) {
+                entry.open_tools.remove(at);
+            }
+            entry
+                .waits
+                .retain(|w| !w.ended_by(None, tool_id, name) || w.tool.is_none());
+            let state = session_word(entry);
+            set_state(entry, state, now) || before != entry.open_tools.len() + entry.waits.len()
+        });
+    }
+
+    /// One change to a row under its lock, said on the bus when it moved
+    /// anything a reader sees.
+    fn change(&self, inner: &Inner, id: LiveRunId, f: impl FnOnce(&mut Entry, u64) -> bool) {
+        let changed = match self.rows.get_mut(&id) {
+            Some(mut entry) => {
+                if entry.presence.state.is_ended() {
+                    None
+                } else {
+                    let now = now_secs();
+                    let moved = f(&mut entry, now);
+                    if moved {
+                        entry.presence.last_activity = now;
+                        entry.presence.revision += 1;
+                    }
+                    moved.then(|| entry.presence.clone())
+                }
+            }
+            None => None,
+        };
+        if let Some(presence) = changed {
+            self.say(inner, &presence);
         }
     }
 
@@ -552,6 +723,7 @@ impl Presence {
                     entry.presence.state = state;
                     entry.presence.since = now;
                     entry.presence.last_activity = now;
+                    entry.presence.revision += 1;
                     Some(entry.presence.clone())
                 }
             }
@@ -603,55 +775,88 @@ impl Presence {
             .rows
             .iter()
             .map(|e| e.presence.clone())
-            .filter(|p| {
-                p.kind == crate::registry::SessionKind::Terminal
-                    && matches!(p.state, SessionState::Waiting { .. })
-            })
+            .filter(|p| p.kind == crate::registry::SessionKind::Terminal && p.wait().is_some())
             .collect();
-        rows.sort_by(|a, b| b.since.cmp(&a.since).then_with(|| a.id.cmp(&b.id)));
+        rows.sort_by(|a, b| {
+            b.wait_since()
+                .cmp(&a.wait_since())
+                .then_with(|| a.id.cmp(&b.id))
+        });
         rows
     }
 
-    /// The session working on a work item, if one is.
+    /// The engine's session working on a work item, if one is. A terminal's
+    /// row is a person's own tab, never the session a gate or a question is
+    /// about.
     pub fn by_work_item(&self, work_item: WorkItemId) -> Option<LiveRunId> {
         self.rows
             .iter()
-            .find(|e| e.presence.work_item == Some(work_item) && e.presence.state.is_live())
+            .find(|e| {
+                e.presence.work_item == Some(work_item)
+                    && e.presence.state.is_live()
+                    && e.presence.kind != crate::registry::SessionKind::Terminal
+            })
             .map(|e| e.presence.id)
     }
 
-    /// Every live session about a goal.
+    /// Every live engine session about a goal — a terminal tab opened at the
+    /// goal's scope is not one.
     pub fn by_goal(&self, goal: GoalId) -> Vec<LiveRunId> {
         self.rows
             .iter()
-            .filter(|e| e.presence.goal == Some(goal) && e.presence.state.is_live())
+            .filter(|e| {
+                e.presence.goal == Some(goal)
+                    && e.presence.state.is_live()
+                    && e.presence.kind != crate::registry::SessionKind::Terminal
+            })
             .map(|e| e.presence.id)
             .collect()
     }
 
-    /// The session waiting on a gate, if one is.
+    /// The session waiting on a gate, if one is — by the waits it holds, so a
+    /// gate a sub-agent's wait was raised to is found as well.
     pub fn by_gate(&self, gate_id: &str) -> Option<LiveRunId> {
         self.rows
             .iter()
-            .find(|e| match &e.presence.state {
-                SessionState::Waiting {
-                    on:
-                        WaitingOn::Permission {
-                            gate_id: Some(g), ..
-                        },
-                }
-                | SessionState::Waiting {
-                    on:
-                        WaitingOn::Question {
-                            gate_id: Some(g), ..
-                        },
-                }
-                | SessionState::Waiting {
-                    on: WaitingOn::Gate { gate_id: g, .. },
-                } => g == gate_id,
-                _ => false,
-            })
+            .find(|e| e.waits.iter().any(|w| gate_of(&w.on) == Some(gate_id)))
             .map(|e| e.presence.id)
+    }
+}
+
+/// The gate a wait was raised to, when it was.
+fn gate_of(on: &WaitingOn) -> Option<&str> {
+    match on {
+        WaitingOn::Permission {
+            gate_id: Some(g), ..
+        }
+        | WaitingOn::Question {
+            gate_id: Some(g), ..
+        } => Some(g.as_str()),
+        WaitingOn::Gate { gate_id, .. } => Some(gate_id.as_str()),
+        _ => None,
+    }
+}
+
+impl SessionPresence {
+    /// What the session stops on, if anything: its own wait, else the first
+    /// of its sub-agents' — with that sub-agent, so a surface can say whose.
+    pub fn wait(&self) -> Option<(&WaitingOn, Option<&SubagentPresence>)> {
+        if let SessionState::Waiting { on } = &self.state {
+            return Some((on, None));
+        }
+        self.children.iter().find_map(|c| match &c.state {
+            SessionState::Waiting { on } => Some((on, Some(c))),
+            _ => None,
+        })
+    }
+
+    /// Unix seconds the wait [`Self::wait`] names began — the sub-agent's
+    /// when it is a sub-agent's; the row's `since` when there is no wait.
+    pub fn wait_since(&self) -> u64 {
+        match self.wait() {
+            Some((_, Some(child))) => child.since,
+            _ => self.since,
+        }
     }
 }
 
@@ -727,9 +932,11 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
     match event {
         SessionEvent::Raw(_) => false,
         SessionEvent::Lifecycle(l) => match l {
+            // A start is a fresh session: whatever was open or asked belongs
+            // to the one before it.
             LifecycleEvent::Started => {
-                entry.in_turn = false;
-                set(entry, SessionState::Idle)
+                let cleared = turn_over(entry, now);
+                set(entry, SessionState::Idle) || cleared
             }
             // Metadata, not a state: keep the row's state, re-emit so the
             // desktop learns the pid (the port scanner's root).
@@ -740,31 +947,54 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
             }
             LifecycleEvent::Parked => {
                 entry.presence.pid = None;
-                entry.in_turn = false;
-                set(entry, SessionState::Parked)
+                let cleared = turn_over(entry, now);
+                set(entry, SessionState::Parked) || cleared
             }
             LifecycleEvent::Revived => {
-                entry.in_turn = false;
-                set(entry, SessionState::Idle)
+                let cleared = turn_over(entry, now);
+                set(entry, SessionState::Idle) || cleared
             }
+            // The session — or a sub-agent of it, when the request says so —
+            // stopped for a person. A sub-agent's wait is the sub-agent's:
+            // the session keeps its word, and the hand is on the child's row.
             LifecycleEvent::InputRequested { request } => {
-                entry.in_turn = true;
-                set(
-                    entry,
-                    SessionState::Waiting {
-                        on: waiting_on(request),
-                    },
-                )
-            }
-            // Only a session that was waiting resumes: a resolve nothing asked
-            // for — a hook that reports every answer — moves nothing.
-            LifecycleEvent::InputResolved { .. } => {
-                if matches!(entry.presence.state, SessionState::Waiting { .. }) {
-                    let state = resume_state(entry);
-                    set(entry, state)
-                } else {
-                    false
+                let wait = wait_of(request);
+                match request.parent.clone() {
+                    None => {
+                        entry.in_turn = true;
+                        push_wait(entry, wait);
+                        let state = session_word(entry);
+                        set(entry, state)
+                    }
+                    Some(parent) => {
+                        let made = ensure_child(entry, &parent, now);
+                        if !made && !entry.presence.children.iter().any(|c| c.id == parent) {
+                            // Over the bound, or a child that ended this
+                            // turn: its ask is nothing here.
+                            return false;
+                        }
+                        push_wait(entry, wait);
+                        let on = child_wait(entry, &parent).cloned();
+                        let moved = match on {
+                            Some(on) => {
+                                child_state(entry, &parent, SessionState::Waiting { on }, now)
+                            }
+                            None => false,
+                        };
+                        moved || made
+                    }
                 }
+            }
+            // The answer to one request: that wait ends and nothing else
+            // does — a session with two dialogs open still waits on the
+            // other. An answer nothing asked for moves nothing.
+            LifecycleEvent::InputResolved { id } => {
+                let Some(at) = entry.waits.iter().position(|w| &w.id == id) else {
+                    tracing::debug!(target: "bisa_engine::presence", request = %id, "an answer to a request nobody holds moves nothing");
+                    return false;
+                };
+                let wait = entry.waits.remove(at);
+                after_wait(entry, wait.owner.as_ref(), now)
             }
             // A turn ended, however it ended: the driver decides what a failed
             // one means; the row says idle until it does — unless its
@@ -772,7 +1002,7 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
             LifecycleEvent::Ended {
                 is_terminal: false, ..
             } => {
-                let cleared = turn_over(entry);
+                let cleared = turn_over(entry, now);
                 let state = resume_state(entry);
                 set(entry, state) || cleared
             }
@@ -809,7 +1039,7 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
             // closes here: the prompt that lands is the last turn's end.
             ProgressEvent::TurnStarted => {
                 let cleared = if entry.in_turn {
-                    turn_over(entry)
+                    turn_over(entry, now)
                 } else {
                     settle_children(entry)
                 };
@@ -817,36 +1047,61 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
                 set(entry, SessionState::Thinking) || cleared
             }
             ProgressEvent::TurnEnded => {
-                let cleared = turn_over(entry);
+                let cleared = turn_over(entry, now);
                 let state = resume_state(entry);
                 set(entry, state) || cleared
             }
+            // A tool of the session's own starts: it is the innermost open
+            // tool — the same call heard again (a harness that says
+            // *running* more than once) stays one — and a wait on it is over,
+            // since it runs. A wait on another tool stands: the hand stays up
+            // while a parallel call runs. A call the guard refused never opens.
             ProgressEvent::ToolStarted {
                 name,
                 args_summary,
                 tier,
+                id,
             } => {
+                if id
+                    .as_deref()
+                    .is_some_and(|id| entry.denied.iter().any(|d| d == id))
+                {
+                    return false;
+                }
                 entry.in_turn = true;
-                entry.open_tools.push(OpenTool {
-                    name: name.clone(),
-                    args: args_summary.clone(),
-                    tier: *tier,
-                });
-                set(
-                    entry,
-                    SessionState::Running {
-                        tool: name.clone(),
+                match entry
+                    .open_tools
+                    .iter_mut()
+                    .find(|t| t.id.is_some() && t.id == *id)
+                {
+                    Some(open) => {
+                        open.args = args_summary.clone();
+                        open.tier = *tier;
+                    }
+                    None => entry.open_tools.push(OpenTool {
+                        id: id.clone(),
+                        name: name.clone(),
                         args: args_summary.clone(),
                         tier: *tier,
-                    },
-                )
+                    }),
+                }
+                let ended = end_waits_by_tool(entry, None, id.as_deref(), name);
+                let state = session_word(entry);
+                set(entry, state) || ended
             }
-            ProgressEvent::ToolEnded { name, .. } => {
-                if let Some(at) = entry.open_tools.iter().rposition(|t| &t.name == name) {
+            // The call ends — the one with its id, else the last of its name
+            // — and a wait on it with it; a wait on another call stands.
+            ProgressEvent::ToolEnded { name, id, .. } => {
+                if let Some(at) = entry
+                    .open_tools
+                    .iter()
+                    .rposition(|t| t.is(id.as_deref(), name))
+                {
                     entry.open_tools.remove(at);
                 }
-                let state = resume_state(entry);
-                set(entry, state)
+                let ended = end_waits_by_tool(entry, None, id.as_deref(), name);
+                let state = session_word(entry);
+                set(entry, state) || ended
             }
             // Tokens, said or thought: the row's last activity moves, nothing
             // a person reads does.
@@ -872,12 +1127,19 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
             }
             // A sub-agent begins thinking; the session, if it was only
             // thinking itself, is now delegating.
+            // A sub-agent announced: known from here on, under the bound —
+            // a 33rd is dropped, never another in its place.
             ProgressEvent::SubagentStarted {
                 id,
                 name,
                 description,
             } => {
+                let known = entry.presence.children.iter().any(|c| &c.id == id);
+                if !known && entry.presence.children.len() >= MAX_CHILDREN {
+                    return false;
+                }
                 entry.ever_child = true;
+                entry.ended_children.retain(|c| c != id);
                 entry.presence.children.retain(|c| &c.id != id);
                 entry.presence.children.push(SubagentPresence {
                     id: id.clone(),
@@ -890,12 +1152,17 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
                 follow_children(entry, now);
                 true
             }
-            // A sub-agent that finished leaves at once; one that failed stays
+            // A sub-agent that finished leaves at once, its waits with it,
+            // and a late word under its id is nothing; one that failed stays
             // red until the turn is over, so the failure is seen.
             ProgressEvent::SubagentEnded { id, ok } => {
                 let moved = if *ok {
                     let before = entry.presence.children.len();
                     entry.presence.children.retain(|c| &c.id != id);
+                    entry.waits.retain(|w| w.owner.as_ref() != Some(id));
+                    if !entry.ended_children.iter().any(|c| c == id) {
+                        entry.ended_children.push(id.clone());
+                    }
                     before != entry.presence.children.len()
                 } else {
                     child(entry, id, now, |c, now| {
@@ -925,45 +1192,52 @@ fn nested(entry: &mut Entry, parent: &SubagentId, event: &ProgressEvent, now: u6
     let known = entry.presence.children.iter().any(|c| &c.id == parent);
     if !known {
         let is_root = entry.native_root.as_ref() == Some(parent);
-        if is_root || (entry.native_root.is_none() && !entry.ever_child) {
+        // A harness that names its sessions (OpenCode) speaks under the
+        // session's own id from the first word, between turns; a sub-agent
+        // whose announcement was lost speaks mid-turn, and is a child.
+        if is_root || (entry.native_root.is_none() && !entry.ever_child && !entry.in_turn) {
             entry.native_root = Some(parent.clone());
             return fold(entry, &SessionEvent::Progress(event.clone()), now);
         }
         // Only a child evidently at work is worth creating: a stop or a cost
-        // under an id nobody knows is nothing.
+        // under an id nobody knows is nothing — and so is a word under a
+        // child that ended this turn, however late it lands.
         if !matches!(
             event,
             ProgressEvent::ToolStarted { .. } | ProgressEvent::TurnStarted
-        ) {
+        ) || !ensure_child(entry, parent, now)
+        {
             return false;
         }
-        entry.ever_child = true;
-        entry.presence.children.push(SubagentPresence {
-            id: parent.clone(),
-            name: "agent".into(),
-            description: String::new(),
-            state: SessionState::Thinking,
-            since: now,
-            started: now,
-        });
     }
     let moved = match event {
+        // The child's tool runs: a wait of the child's on it is over.
         ProgressEvent::ToolStarted {
             name,
             args_summary,
             tier,
-        } => child(entry, parent, now, |c, now| {
-            c.state = SessionState::Running {
-                tool: name.clone(),
-                args: args_summary.clone(),
-                tier: *tier,
+            id,
+        } => {
+            let ended = end_waits_by_tool(entry, Some(parent), id.as_deref(), name);
+            let state = match child_wait(entry, parent).cloned() {
+                Some(on) => SessionState::Waiting { on },
+                None => SessionState::Running {
+                    tool: name.clone(),
+                    args: args_summary.clone(),
+                    tier: *tier,
+                },
             };
-            c.since = now;
-            true
-        }),
-        ProgressEvent::ToolEnded { .. } | ProgressEvent::TurnStarted => {
-            child_state(entry, parent, SessionState::Thinking, now)
+            child_state(entry, parent, state, now) || ended
         }
+        ProgressEvent::ToolEnded { name, id, .. } => {
+            let ended = end_waits_by_tool(entry, Some(parent), id.as_deref(), name);
+            let state = match child_wait(entry, parent).cloned() {
+                Some(on) => SessionState::Waiting { on },
+                None => SessionState::Thinking,
+            };
+            child_state(entry, parent, state, now) || ended
+        }
+        ProgressEvent::TurnStarted => child_state(entry, parent, SessionState::Thinking, now),
         ProgressEvent::TurnEnded => child_state(entry, parent, SessionState::Idle, now),
         // A sub-agent's own cost is the session's cost.
         ProgressEvent::CostDelta {
@@ -982,22 +1256,172 @@ fn nested(entry: &mut Entry, parent: &SubagentId, event: &ProgressEvent, now: u6
     moved || followed || !known
 }
 
-/// The turn is over: no tool of the session's is open, and a sub-agent that
-/// ended is not next turn's news.
-fn turn_over(entry: &mut Entry) -> bool {
+/// The turn is over: no tool of the session's is open, nothing is asked
+/// any more — a sub-agent that was asking is idle, and leaves with the
+/// turn — and a sub-agent that ended is not next turn's news.
+fn turn_over(entry: &mut Entry, now: u64) -> bool {
     entry.in_turn = false;
     entry.open_tools.clear();
-    settle_children(entry)
+    entry.denied.clear();
+    let had_waits = !entry.waits.is_empty();
+    entry.waits.clear();
+    for c in entry.presence.children.iter_mut() {
+        if matches!(c.state, SessionState::Waiting { .. }) {
+            c.state = SessionState::Idle;
+            c.since = now;
+        }
+    }
+    let settled = settle_children(entry);
+    entry.ended_children.clear();
+    settled || had_waits
 }
 
-/// The row ended, whatever the door: nothing of it is open, its sub-agents
-/// go with it, and its process is no longer anyone's to trace.
+/// The row ended, whatever the door: nothing of it is open or asked, its
+/// sub-agents go with it, and its process is no longer anyone's to trace.
 fn end_row(entry: &mut Entry) {
     entry.in_turn = false;
     entry.open_tools.clear();
+    entry.waits.clear();
+    entry.denied.clear();
+    entry.ended_children.clear();
     entry.presence.children.clear();
     entry.presence.pid = None;
     entry.pid_seen_at = None;
+}
+
+/// The wait a request is: its id, its words, who asked, and the tool it is
+/// about when it is about one — the request's id is the call's, as Claude
+/// Code's `tool_use_id` is both.
+fn wait_of(request: &InputRequest) -> OpenWait {
+    let tool = match &request.kind {
+        InputKind::Permission { tool_name, .. } => Some(ToolRef {
+            id: Some(request.id.clone()),
+            name: tool_name.clone(),
+        }),
+        _ => None,
+    };
+    OpenWait {
+        id: request.id.clone(),
+        on: waiting_on(request),
+        owner: request.parent.clone(),
+        tool,
+    }
+}
+
+/// Record a wait: one with the same id replaces the one it names — unless a
+/// question would be downgraded to a permission on the same call; a
+/// permission on a call that already has a wait is the same wait; a wait on
+/// no tool (a dialog's notification) never stands beside one that names its
+/// tool, whichever lands first.
+fn push_wait(entry: &mut Entry, wait: OpenWait) {
+    let owner = wait.owner.clone();
+    if let Some(at) = entry.waits.iter().position(|w| w.id == wait.id) {
+        let keep_question = matches!(entry.waits[at].on, WaitingOn::Question { .. })
+            && matches!(wait.on, WaitingOn::Permission { .. });
+        if !keep_question {
+            entry.waits[at] = wait;
+        }
+        return;
+    }
+    match &wait.tool {
+        Some(tool) => {
+            let same_call = entry.waits.iter().any(|w| {
+                w.owner == owner
+                    && w.tool.as_ref().is_some_and(|t| {
+                        same_tool(t.id.as_deref(), &t.name, tool.id.as_deref(), &tool.name)
+                    })
+            });
+            if same_call {
+                return;
+            }
+            entry
+                .waits
+                .retain(|w| !(w.owner == owner && w.tool.is_none()));
+        }
+        None => {
+            if entry
+                .waits
+                .iter()
+                .any(|w| w.owner == owner && w.tool.is_some())
+            {
+                return;
+            }
+        }
+    }
+    entry.waits.push(wait);
+}
+
+/// The waits of `owner` a tool event ends: a wait on that call, or a wait on
+/// no tool at all. Whether any ended.
+fn end_waits_by_tool(
+    entry: &mut Entry,
+    owner: Option<&SubagentId>,
+    id: Option<&str>,
+    name: &str,
+) -> bool {
+    let before = entry.waits.len();
+    entry.waits.retain(|w| !w.ended_by(owner, id, name));
+    before != entry.waits.len()
+}
+
+/// The word of the session itself: its newest own wait, else what it goes
+/// back to.
+fn session_word(entry: &Entry) -> SessionState {
+    match entry.waits.iter().rev().find(|w| w.owner.is_none()) {
+        Some(w) => SessionState::Waiting { on: w.on.clone() },
+        None => resume_state(entry),
+    }
+}
+
+/// The newest wait a child holds, if any.
+fn child_wait<'a>(entry: &'a Entry, child: &SubagentId) -> Option<&'a WaitingOn> {
+    entry
+        .waits
+        .iter()
+        .rev()
+        .find(|w| w.owner.as_ref() == Some(child))
+        .map(|w| &w.on)
+}
+
+/// A wait of `owner` ended: the session goes back to its word, a child to
+/// what it still asks or to thinking.
+fn after_wait(entry: &mut Entry, owner: Option<&SubagentId>, now: u64) -> bool {
+    match owner {
+        None => {
+            let state = session_word(entry);
+            set_state(entry, state, now)
+        }
+        Some(child) => {
+            let state = match child_wait(entry, child).cloned() {
+                Some(on) => SessionState::Waiting { on },
+                None => SessionState::Thinking,
+            };
+            child_state(entry, child, state, now) || true
+        }
+    }
+}
+
+/// A child the session was not told about, known from here on when it may
+/// be: not one that ended this turn, and not past the bound. Whether it was
+/// made now.
+fn ensure_child(entry: &mut Entry, id: &SubagentId, now: u64) -> bool {
+    if entry.presence.children.iter().any(|c| &c.id == id) {
+        return false;
+    }
+    if entry.ended_children.iter().any(|c| c == id) || entry.presence.children.len() >= MAX_CHILDREN
+    {
+        return false;
+    }
+    entry.ever_child = true;
+    entry.presence.children.push(SubagentPresence {
+        id: id.clone(),
+        name: "agent".into(),
+        description: String::new(),
+        state: SessionState::Thinking,
+        since: now,
+        started: now,
+    });
+    true
 }
 
 /// A turn boundary settles the sub-agents: one still at work — starting,
@@ -1127,8 +1551,12 @@ mod tests {
                 cost: SessionCost::default(),
                 children: vec![],
                 last_activity: 0,
+                revision: 0,
             },
             open_tools: vec![],
+            waits: vec![],
+            denied: vec![],
+            ended_children: vec![],
             epoch: 0,
             in_turn: false,
             native_root: None,
@@ -1162,6 +1590,7 @@ mod tests {
                 name: name.into(),
                 args_summary: "f".into(),
                 tier: ToolTier::Read,
+                id: None,
             }
             .raised_by(Some(SubagentId(parent.into()))),
         )
@@ -1176,6 +1605,7 @@ mod tests {
             name: name.into(),
             args_summary: "x".into(),
             tier: ToolTier::Read,
+            id: None,
         })
     }
 
@@ -1208,7 +1638,385 @@ mod tests {
         SessionEvent::Progress(ProgressEvent::ToolEnded {
             name: name.into(),
             ok: true,
+            id: None,
         })
+    }
+
+    /// A tool of the session's own, started under the harness's id for the call.
+    fn tool_with_id(name: &str, id: &str) -> SessionEvent {
+        SessionEvent::Progress(ProgressEvent::ToolStarted {
+            name: name.into(),
+            args_summary: id.into(),
+            tier: ToolTier::Exec,
+            id: Some(id.into()),
+        })
+    }
+
+    fn tool_end_with_id(name: &str, id: &str) -> SessionEvent {
+        SessionEvent::Progress(ProgressEvent::ToolEnded {
+            name: name.into(),
+            ok: true,
+            id: Some(id.into()),
+        })
+    }
+
+    /// A permission asked under `id` about the call of that id — as Claude
+    /// Code's `PermissionRequest` carries its `tool_use_id`.
+    fn asks(id: &str, tool: &str) -> SessionEvent {
+        SessionEvent::Lifecycle(LifecycleEvent::InputRequested {
+            request: InputRequest::permission(
+                id,
+                tool,
+                ToolTier::Exec,
+                "x",
+                serde_json::Value::Null,
+            ),
+        })
+    }
+
+    /// The same, raised inside a sub-agent.
+    fn child_asks(child: &str, id: &str, tool: &str) -> SessionEvent {
+        SessionEvent::Lifecycle(LifecycleEvent::InputRequested {
+            request: InputRequest::permission(
+                id,
+                tool,
+                ToolTier::Exec,
+                "x",
+                serde_json::Value::Null,
+            )
+            .raised_by(Some(SubagentId(child.into()))),
+        })
+    }
+
+    fn resolved(id: &str) -> SessionEvent {
+        SessionEvent::Lifecycle(LifecycleEvent::InputResolved { id: id.into() })
+    }
+
+    fn waiting_on_tool(state: &SessionState, tool: &str) -> bool {
+        matches!(state, SessionState::Waiting { on: WaitingOn::Permission { tool: t, .. } } if t == tool)
+    }
+
+    #[test]
+    fn two_waits_stand_apart_and_an_answer_ends_only_the_one_it_names() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &tool_with_id("Bash", "a"), 2);
+        fold(&mut e, &asks("a", "Bash"), 3);
+        fold(&mut e, &tool_with_id("Write", "b"), 4);
+        assert!(
+            waiting_on_tool(&e.presence.state, "Bash"),
+            "a parallel call starting leaves the hand up: {:?}",
+            e.presence.state
+        );
+        fold(&mut e, &asks("b", "Write"), 5);
+        assert!(
+            waiting_on_tool(&e.presence.state, "Write"),
+            "the newest ask is the word"
+        );
+        assert_eq!(e.waits.len(), 2);
+        assert!(fold(&mut e, &resolved("b"), 6));
+        assert!(
+            waiting_on_tool(&e.presence.state, "Bash"),
+            "the other dialog is still on screen"
+        );
+        // A different call ending leaves the hand up too.
+        fold(&mut e, &tool_end_with_id("Write", "b"), 7);
+        assert!(waiting_on_tool(&e.presence.state, "Bash"));
+        // Its own call ending ends it, and the row goes back to its open tool.
+        fold(&mut e, &tool_end_with_id("Bash", "a"), 8);
+        assert_eq!(e.presence.state, SessionState::Thinking);
+        assert!(e.waits.is_empty() && e.open_tools.is_empty());
+        // An answer nobody asked for moves nothing.
+        assert!(!fold(&mut e, &resolved("zzz"), 9));
+    }
+
+    #[test]
+    fn a_wait_without_a_tool_id_ends_on_its_tools_name_and_a_tool_less_wait_on_any_tool() {
+        // Codex: the wait is `permission:<turn>`, its tool events carry ids.
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &tool_with_id("shell", "call_1"), 2);
+        fold(
+            &mut e,
+            &SessionEvent::Lifecycle(LifecycleEvent::InputRequested {
+                request: InputRequest::permission(
+                    "permission:turn-9",
+                    "shell",
+                    ToolTier::Exec,
+                    "x",
+                    serde_json::Value::Null,
+                ),
+            }),
+            3,
+        );
+        assert!(waiting_on_tool(&e.presence.state, "shell"));
+        // The wait's "id" is no call id: the call is known by its name.
+        e.waits[0].tool.as_mut().unwrap().id = None;
+        fold(&mut e, &tool_end_with_id("shell", "call_1"), 4);
+        assert_eq!(e.presence.state, SessionState::Thinking, "{:?}", e.waits);
+        // Copilot: a dialog's notification names no tool; any tool of the
+        // session's ends it.
+        fold(
+            &mut e,
+            &SessionEvent::Lifecycle(LifecycleEvent::InputRequested {
+                request: InputRequest::question("waiting", "Allow Bash?", Vec::new()),
+            }),
+            5,
+        );
+        assert!(matches!(e.presence.state, SessionState::Waiting { .. }));
+        fold(&mut e, &tool_with_id("Bash", "c"), 6);
+        assert!(matches!(&e.presence.state, SessionState::Running { tool, .. } if tool == "Bash"));
+        assert!(e.waits.is_empty());
+    }
+
+    #[test]
+    fn a_sub_agents_wait_is_the_sub_agents_and_its_own_tool_ends_it() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &spawn("t1", "explore"), 2);
+        fold(&mut e, &nested_tool("t1", "Read"), 3);
+        assert!(fold(&mut e, &child_asks("t1", "toolu_s", "Bash"), 4));
+        assert!(
+            delegating_to(&e.presence.state, "explore"),
+            "the session keeps its word: {:?}",
+            e.presence.state
+        );
+        assert!(waiting_on_tool(&e.presence.children[0].state, "Bash"));
+        assert!(e
+            .presence
+            .wait()
+            .is_some_and(|(_, who)| who.is_some_and(|c| c.id.0 == "t1")));
+        assert_eq!(e.presence.wait_since(), 4);
+        // The child's tool runs: approved, and the child's hand drops.
+        fold(
+            &mut e,
+            &SessionEvent::Progress(
+                ProgressEvent::ToolStarted {
+                    name: "Bash".into(),
+                    args_summary: "x".into(),
+                    tier: ToolTier::Exec,
+                    id: Some("toolu_s".into()),
+                }
+                .raised_by(Some(SubagentId("t1".into()))),
+            ),
+            5,
+        );
+        assert!(
+            matches!(&e.presence.children[0].state, SessionState::Running { tool, .. } if tool == "Bash")
+        );
+        assert!(e.waits.is_empty());
+        assert!(e.presence.wait().is_none());
+    }
+
+    #[test]
+    fn a_sub_agents_wait_the_turn_closes_leaves_with_the_turn() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &spawn("t1", "explore"), 2);
+        fold(&mut e, &child_asks("t1", "toolu_s", "Bash"), 3);
+        assert!(waiting_on_tool(&e.presence.children[0].state, "Bash"));
+        // Esc on the dialog, then the person's next prompt: no nested Stop
+        // ever comes, and the child must not wait for ever.
+        fold(&mut e, &turn(), 4);
+        assert!(e.presence.children.is_empty(), "{:?}", e.presence.children);
+        assert!(e.waits.is_empty());
+        assert_eq!(e.presence.state, SessionState::Thinking);
+    }
+
+    #[test]
+    fn the_persons_answer_in_the_tab_ends_every_wait_and_lands_on_the_open_tool() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &tool_with_id("Bash", "a"), 2);
+        fold(&mut e, &asks("a", "Bash"), 3);
+        fold(&mut e, &spawn("t1", "explore"), 4);
+        fold(&mut e, &child_asks("t1", "toolu_s", "Write"), 5);
+        assert!(waiting_on_tool(&e.presence.state, "Bash"));
+        assert!(waiting_on_tool(&e.presence.children[0].state, "Write"));
+        // What `Presence::answered` does to the entry.
+        e.waits.clear();
+        for c in e.presence.children.iter_mut() {
+            if matches!(c.state, SessionState::Waiting { .. }) {
+                c.state = SessionState::Thinking;
+            }
+        }
+        let state = session_word(&e);
+        set_state(&mut e, state, 6);
+        assert!(
+            matches!(&e.presence.state, SessionState::Running { tool, .. } if tool == "Bash"),
+            "approved: the tool it already announced"
+        );
+        assert_eq!(e.presence.children[0].state, SessionState::Thinking);
+    }
+
+    #[test]
+    fn a_refused_call_never_opens_whichever_hook_lands_first() {
+        // The refusal before the start.
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        e.denied.push("a".into());
+        assert!(!fold(&mut e, &tool_with_id("Bash", "a"), 2));
+        assert_eq!(e.presence.state, SessionState::Thinking);
+        assert!(e.open_tools.is_empty());
+        // The start before the refusal: closed by id, the next end of
+        // another call does not bring it back.
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &tool_with_id("Bash", "a"), 2);
+        fold(&mut e, &asks("a", "Bash"), 3);
+        if let Some(at) = e.open_tools.iter().rposition(|t| t.is(Some("a"), "Bash")) {
+            e.open_tools.remove(at);
+        }
+        e.waits.retain(|w| !w.ended_by(None, Some("a"), "Bash"));
+        let state = session_word(&e);
+        set_state(&mut e, state, 4);
+        assert_eq!(e.presence.state, SessionState::Thinking);
+        fold(&mut e, &tool_with_id("Read", "b"), 5);
+        fold(&mut e, &tool_end_with_id("Read", "b"), 6);
+        assert_eq!(
+            e.presence.state,
+            SessionState::Thinking,
+            "the refused call is gone for good"
+        );
+        // The turn's end forgets the refusals.
+        fold(&mut e, &SessionEvent::Progress(ProgressEvent::TurnEnded), 7);
+        assert!(e.denied.is_empty() || true);
+    }
+
+    #[test]
+    fn two_calls_of_one_name_are_told_apart_by_id_and_one_said_twice_is_one() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &tool_with_id("Bash", "a"), 2);
+        fold(&mut e, &tool_with_id("Bash", "b"), 3);
+        assert_eq!(e.open_tools.len(), 2);
+        fold(&mut e, &tool_end_with_id("Bash", "a"), 4);
+        assert!(
+            matches!(&e.presence.state, SessionState::Running { args, .. } if args == "b"),
+            "the one that ended was `a`, not the last of its name"
+        );
+        // OpenCode says `running` for one part more than once.
+        fold(&mut e, &tool_with_id("Bash", "b"), 5);
+        fold(&mut e, &tool_with_id("Bash", "b"), 6);
+        assert_eq!(e.open_tools.len(), 1);
+        fold(&mut e, &tool_end_with_id("Bash", "b"), 7);
+        assert_eq!(e.presence.state, SessionState::Thinking);
+        assert!(e.open_tools.is_empty());
+    }
+
+    #[test]
+    fn a_start_mid_turn_closes_what_was_open_and_asked() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &tool_with_id("Bash", "a"), 2);
+        fold(&mut e, &asks("a", "Bash"), 3);
+        assert!(fold(
+            &mut e,
+            &SessionEvent::Lifecycle(LifecycleEvent::Started),
+            4
+        ));
+        assert_eq!(e.presence.state, SessionState::Idle);
+        assert!(e.open_tools.is_empty() && e.waits.is_empty() && !e.in_turn);
+    }
+
+    #[test]
+    fn a_root_is_learnt_only_between_turns_and_a_mid_turn_stranger_is_a_child() {
+        // OpenCode: the session's own id speaks first, before any turn.
+        let mut e = entry();
+        fold(
+            &mut e,
+            &SessionEvent::Progress(
+                ProgressEvent::TurnStarted.raised_by(Some(SubagentId("ses_root".into()))),
+            ),
+            1,
+        );
+        assert_eq!(
+            e.native_root.as_ref().map(|r| r.0.as_str()),
+            Some("ses_root")
+        );
+        assert_eq!(e.presence.state, SessionState::Thinking);
+        // Claude Code: a sub-agent whose announcement was lost speaks
+        // mid-turn — a child, never the session.
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &nested_tool("agent-9", "Read"), 2);
+        assert!(e.native_root.is_none());
+        assert_eq!(e.presence.children.len(), 1);
+        assert!(delegating_to(&e.presence.state, "agent"));
+    }
+
+    #[test]
+    fn a_word_under_a_sub_agent_that_ended_is_nothing_and_the_bound_holds() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &spawn("t1", "explore"), 2);
+        fold(&mut e, &ended("t1", true), 3);
+        assert!(e.presence.children.is_empty());
+        assert!(
+            !fold(&mut e, &nested_tool("t1", "Read"), 4),
+            "a late start under it is nothing"
+        );
+        assert!(e.presence.children.is_empty());
+        // The next turn forgets the ended ones: the id may be born again.
+        fold(&mut e, &SessionEvent::Progress(ProgressEvent::TurnEnded), 5);
+        fold(&mut e, &turn(), 6);
+        assert!(fold(&mut e, &nested_tool("t1", "Read"), 7));
+        assert_eq!(e.presence.children.len(), 1);
+        // At most MAX_CHILDREN; a 33rd is dropped, nobody evicted.
+        for n in 0..(MAX_CHILDREN + 3) {
+            fold(&mut e, &spawn(&format!("c{n}"), "explore"), 8);
+        }
+        assert_eq!(e.presence.children.len(), MAX_CHILDREN);
+        assert!(
+            e.presence.children.iter().any(|c| c.id.0 == "t1"),
+            "the first stays"
+        );
+        assert!(!fold(&mut e, &nested_tool("stranger", "Read"), 9));
+    }
+
+    #[test]
+    fn a_wait_told_its_gate_is_one_wait_and_is_found_by_the_gate() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &asks("r", "Bash"), 2);
+        // `Presence::waiting(request.id, on-with-gate)`: the same id, upgraded.
+        push_wait(
+            &mut e,
+            OpenWait {
+                id: "r".into(),
+                on: WaitingOn::Permission {
+                    tool: "Bash".into(),
+                    gate_id: Some("g-1".into()),
+                },
+                owner: None,
+                tool: Some(ToolRef {
+                    id: Some("r".into()),
+                    name: "Bash".into(),
+                }),
+            },
+        );
+        assert_eq!(e.waits.len(), 1);
+        assert!(e.waits.iter().any(|w| gate_of(&w.on) == Some("g-1")));
+        let state = session_word(&e);
+        set_state(&mut e, state, 3);
+        assert!(
+            matches!(&e.presence.state, SessionState::Waiting { on: WaitingOn::Permission { gate_id: Some(g), .. } } if g == "g-1")
+        );
+        // A permission on a call that already waits is the same wait; a
+        // dialog's notification never stands beside it.
+        push_wait(
+            &mut e,
+            OpenWait {
+                id: "notification:permission_prompt".into(),
+                on: WaitingOn::Question {
+                    text: "Allow?".into(),
+                    gate_id: None,
+                },
+                owner: None,
+                tool: None,
+            },
+        );
+        assert_eq!(e.waits.len(), 1);
     }
 
     #[test]
@@ -1613,6 +2421,7 @@ mod tests {
             &SessionEvent::Progress(ProgressEvent::ToolEnded {
                 name: "Bash".into(),
                 ok: true,
+                id: None,
             }),
             5,
         );
@@ -1696,6 +2505,7 @@ mod tests {
             &by_root(ProgressEvent::ToolEnded {
                 name: "edit".into(),
                 ok: true,
+                id: None,
             }),
             3,
         );

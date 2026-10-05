@@ -49,6 +49,7 @@ async fn a_worker_reports_its_states_never_a_token_and_leaves_after_retention() 
                 name: "Read".into(),
                 args_summary: "README.md".into(),
                 tier: ToolTier::Read,
+                id: None,
             }),
             SessionEvent::Progress(ProgressEvent::TextDelta { text: "a".into() }),
             SessionEvent::Progress(ProgressEvent::TextDelta { text: "b".into() }),
@@ -56,6 +57,7 @@ async fn a_worker_reports_its_states_never_a_token_and_leaves_after_retention() 
             SessionEvent::Progress(ProgressEvent::ToolEnded {
                 name: "Read".into(),
                 ok: true,
+                id: None,
             }),
             SessionEvent::Progress(ProgressEvent::TurnEnded),
             SessionEvent::Lifecycle(LifecycleEvent::Ended {

@@ -266,9 +266,19 @@ end any session by id — the rule is the desktop's, in one file. Every Stop goe
 drives the session, and a row the node no longer has — its 404, a `session_gone` the stream lost —
 is dropped from the roster with *That session had already ended* and no error, where each press
 was once an error toast until the safety read (`sessionRosterModel.stoppedAlready`, `stopWords`).
-The roster itself lands a whole read **under** the frames that arrived while the read was out
-(`landedRead`): a row a frame said was *aborted* never reads *running* again because a snapshot
-asked for a moment earlier answered a moment later, and one said gone does not come back.
+Every frame carries the row's **`revision`** — the number the fold bumps on every change it says —
+so two reports of one turn landing together, in either order (the hooks post in parallel), never
+leave the desktop holding the older word: a frame older than the row held moves nothing
+(`sessionRosterModel.upserted`, the same array back, no transition announced), and a whole read lands
+**beside** the frames that arrived while it was out by the newer revision of each row
+(`landedRead`): a read that answered after a frame wins, one from before does not — so a row a frame
+said was *aborted* never reads *running* again because a snapshot asked for a moment earlier
+answered a moment later, and one said gone does not come back. **One settled roster**: a tab that
+exited ends the session it hosts as of its exit (`terminalsModel.settledByTab`), and every surface
+that marks or counts sessions reads the roster through that rule — the rail's rows and the pulse
+through their own models, the footer and the activity dot inside theirs, the pet, the tray, the
+Agents screen and an addon's summary through `useSettledSessions` (`settledRoster`) — so a mark and
+its pill, the footer and the pet never disagree about one session.
 
 **The transcript.** A session's transcript is the harness's own file as the node tails it
 (`GET /sessions/{id}/transcript?from_byte=`, `admin.rs`), read by `SessionTranscript`
@@ -308,12 +318,26 @@ terminal; Goose and
 Cursor are presets — detected, not driven — and report nothing. A *waiting on you*
 from a terminal harness is answered **in the terminal** — the row's click opens the tab and offers
 no *Answer* — and its verb is *Terminate*, which closes the tab: the process ends and the row goes with it.
+**And the tab says so**: no hook of a harness's says how a dialog was answered, only that it showed,
+so the hand would stay up for as long as the approved tool takes; when the person types an
+answering key into a tab whose session waits, the desktop tells the node once per wait through the
+session's own `answered` door and the hand drops at once, the row back on the call it announced
+([06 §Reporting](06-terminals.md#reporting--a-harness-in-a-terminal-is-a-roster-session)). **A
+sub-agent asks for itself**: a dialog a sub-agent raises is the sub-agent's hand (`InputRequest.parent`),
+the session keeping its own word — *running sub-agent · explore* — and the Inbox row says whose
+(`WaitingSession.subagent`, *↳ explore · permission: Bash*); the sub-agent's own tool running, the
+tab's answer or the turn's end drops it. The fold holds every pending wait by its id and owner, so a
+resolve, a tool's start or end, or the person's answer ends *its* wait and never another's.
 While it waits it is an Inbox row too (`InboxKind::Session`, the node's `WaitingSession` from
 `presence.waiting_terminals()`), owed like an ask, whose one door — *Open the terminal* — is the same
 tab (`sessionDoors.openHarnessSession` with the tab `terminalsModel.tabOfSession` finds); every
-`session_state` of a terminal session moves that row through the `inbox` stream (`notices::target_of`),
-and the frame's `waiting: false` drops it. A plain shell is never a session and never wears a
-working dot; nothing on the desktop infers a state from what a terminal prints.
+`session_state` of a terminal session moves that row through the `inbox` stream (`notices::target_of`):
+the frame's `waiting: false` drops it, and `waiting: true` on a row already held reads the list again,
+since the words are the wait's and the wait may have moved to another tool or a sub-agent. **The
+Inbox is the one ledger of waits**: every wait the roster knows — a gate, a question, a harness at
+its prompt, a sub-agent's dialog — is an Inbox row, so the pet's and an addon's *waiting* count is
+the Inbox's alone (`workSummaryModel`), never that plus the roster's. A plain shell is never a
+session and never wears a working dot; nothing on the desktop infers a state from what a terminal prints.
 
 ---
 
@@ -326,7 +350,13 @@ breathing while it thinks, a check that pops once when done, a cross that shakes
 stop mark for aborted, a bot for idle, a moon for parked. The motion is one rule per word
 (`ui/sessionMotion.mjs`): live states move a little, settled states not at all, the two arrivals move
 once; *waiting* nudges every few seconds rather than strobing — attention, not alarm — and every
-`motion-*` class stops dead under reduced motion. The same mark is the chip's glyph
+`motion-*` class stops dead under reduced motion. The mark **dwells** (`ui/markDwellModel.mjs`,
+300 ms): a working word — *thinking*, *running*, *starting* — holds for a beat against another
+working word, so a harness flipping between the sparkle and the loader on every quick tool call
+does not cut one motion with the other and read as a flicker; a raised hand, a failure or an end
+shows at once. The subject a pulse line or the pet follows is steady too: among equally loud
+sessions the one that started last leads, then the id — never `last_activity`, which moves on every
+token, nor `since`, which every tool call resets (`workstreamPulseModel`, `followedSessionModel`). The same mark is the chip's glyph
 (`SessionStateChip`) and the status bar's, so a state reads without its colour anywhere. A terminal's
 liveness stays a dot: a shell that is *open* says nothing about what runs in it, and the one rule for
 its tone is `terminalsModel.livenessTone`.

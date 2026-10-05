@@ -558,10 +558,12 @@ impl SecurityState {
                 name,
                 args_summary,
                 tier,
+                id,
             } => ProgressEvent::ToolStarted {
                 name,
                 args_summary: self.redact(&args_summary).text,
                 tier,
+                id,
             },
             ProgressEvent::SubagentStarted {
                 id,

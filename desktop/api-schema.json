@@ -2179,7 +2179,7 @@
           "items": {
             "$ref": "#/definitions/Assignee"
           },
-          "description": "Who carries this goal: agents take the work, humans may decide the\ngates, teams expand to both. Descendants inherit through `origin`."
+          "description": "Who carries this goal: agents take the work, humans may decide the\ngates, teams expand to both. Descendants inherit through `origin`.\nThe agents and teams named here are also the staff the Workflow\nAgent designs from — a team whole or one of its members — and when\nnone is named, the nearest ancestor's, else every enabled one."
         },
         "tags": {
           "$ref": "#/definitions/Tags"
@@ -28261,11 +28261,18 @@
           "type": "string",
           "description": "The wait in words — *permission: Bash*, *a question: …*."
         },
+        "subagent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The sub-agent whose wait it is, by name, when a sub-agent asks and\nnot the session itself — the card reads *↳ explore · permission:\nBash*. Absent for the session's own wait."
+        },
         "since": {
           "type": "integer",
           "format": "uint64",
           "minimum": 0,
-          "description": "Unix seconds the wait began."
+          "description": "Unix seconds the wait began — the sub-agent's when it is its wait."
         }
       },
       "required": [
@@ -29715,6 +29722,12 @@
           "format": "uint64",
           "minimum": 0,
           "description": "Unix seconds of the last event, tokens included."
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Climbs by one on every change a reader sees — each frame of a row\ncarries a higher number than the one before it, whatever order they\nreach a reader in. A reader keeps the highest it has."
         }
       },
       "required": [
@@ -29726,7 +29739,8 @@
         "started",
         "cost",
         "children",
-        "last_activity"
+        "last_activity",
+        "revision"
       ],
       "description": "One live (or recently ended) harness session, as the roster shows it."
     }

@@ -413,6 +413,7 @@ async fn escalate_to_inbox(
         inner.presence.waiting(
             inner,
             live_run,
+            &gate_id,
             WaitingOn::Permission {
                 tool: "content".to_string(),
                 gate_id: Some(gate_id.clone()),
