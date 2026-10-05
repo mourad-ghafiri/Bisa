@@ -108,6 +108,37 @@ test("the footer, the keymap, Settings and the wire carry the feature", () => {
   assert.ok(noteOverlay.includes('<RepoStrip repo={api.notesRepo} subject="Notes" pulls'), "the notes overlay draws the same strip");
 });
 
+test("each dock wears a count of its own — every record there is, kept by the frames whether or not the panel is open — and no panel hands one down", () => {
+  // The panel's list is one tab's and alive only while it is open; a badge fed from it was absent
+  // after a launch and frozen while the panel was closed. The dock reads its own live count.
+  for (const [dock, hook, store] of [
+    ["notes/NoteDock.tsx", "useNoteCount()", "notes/noteCount.ts"],
+    ["draw/DrawDock.tsx", "useDrawingCount()", "draw/drawingCount.ts"],
+  ]) {
+    const text = read(dock);
+    assert.ok(text.includes(`const count = ${hook};`), `${dock} reads its own count`);
+    assert.ok(text.includes("countBadge") && text.includes("showCount && Boolean(count) && ("), `${dock} paints it only when the badge is on and the count is some`);
+    assert.ok(read(store).includes("createLiveCount({"), `${store} is a live count`);
+  }
+  for (const [overlay, dock] of [
+    ["notes/NoteOverlay.tsx", "<NoteDock />"],
+    ["draw/DrawOverlay.tsx", "<DrawDock />"],
+  ]) {
+    const text = read(overlay);
+    assert.ok(text.includes(dock), `${overlay} draws the bare dock`);
+    assert.ok(!/<(?:Note|Draw)Dock[^>]*\bcount=/.test(text), `${overlay} hands no count down`);
+  }
+  // The factory: one read per burst of frames, read again when the bus comes back, answers in
+  // order, and nothing left ticking once nothing shows the count.
+  const live = read("shell/liveCount.ts");
+  assert.ok(live.includes('busSubscribe({ stream: "engine" }, '), "it hears every engine frame — a goal's deletion is goal-scoped");
+  assert.ok(live.includes("reloadOnReconnect(watchConnection, "), "and reads again when the bus comes back");
+  assert.ok(live.includes("const latest = createLatest();") && live.includes("latest.close();") && live.includes("latest.open();"), "answers land in order, through strict mode's remount");
+  const stop = live.slice(live.indexOf("function stop()"), live.indexOf("function subscribe("));
+  assert.ok(stop.includes("clearTimeout(flush)") && stop.includes("inFlight?.abort()"), "the last listener leaving ends the timer and the read");
+  assert.ok(live.includes("if (listeners.size === 1) start();") && live.includes("if (listeners.size === 0) stop();"), "the first listener starts it, the last stops it");
+});
+
 test("the panel's × is there whatever is open — the list, a note, a drawing — and an agent is asked with the agent glyph", () => {
   // The × closes the panel and keeps the open record the open one (`setNotesOpen(false)` / `setDrawOpen(false)`, through
   // the leave guard); Back is what returns to the list. Both live in every header, so the way out never moves.

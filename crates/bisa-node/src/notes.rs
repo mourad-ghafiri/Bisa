@@ -7,15 +7,16 @@
 //! `note_append` op, which the engine points at that note when the call
 //! names none.
 //!
-//! # Nothing here announces itself
+//! # An edit does not announce itself
 //!
-//! `create` and `patch` emit no `note_changed`. That event says *somebody else
-//! wrote*, and these two callers are the somebody — they get the note back in
-//! the response. Emitting on them made the writer its own audience: the frame
-//! returned, the overlay refetched, the refetch replaced the buffer somebody
-//! was typing into, and the difference that produced was saved as another
-//! write. The one path that does emit is the one with a different writer:
-//! the `note_append` op an agent calls.
+//! `patch` emits no `note_changed` (the engine's [`bisa_engine::notes`]).
+//! That event says *somebody else wrote*, and the editor is the somebody — it
+//! gets the note back in the response. Emitting on it made the writer its own
+//! audience: the frame returned, the overlay refetched, the refetch replaced
+//! the buffer somebody was typing into, and the difference that produced was
+//! saved as another write. `create`, `delete` and the `note_append` op an
+//! agent calls do emit: a note appearing or going is a fact every surface
+//! wants — the list, and the dock's count of every note there is.
 //!
 //! # Two writers, so one guard
 //!

@@ -153,7 +153,7 @@ function useWorkflowNames(open: boolean): NamedRecord[] {
 export function NoteOverlay() {
   const route = useRoute();
   const ws = useWorkspace();
-  const { open, active, tab, query, dockVisible, countBadge, maximized } = useNotesOverlay();
+  const { open, active, tab, query, dockVisible, maximized } = useNotesOverlay();
   const [notes, setNotes] = useState<NoteRow[]>([]);
   // Two keys because `useStoredSize` holds one number each — the same hook the
   // sidebar, the aux pane and the terminal panel use to remember a size.
@@ -221,9 +221,9 @@ export function NoteOverlay() {
   );
 
   // Only while open, and per tab: a closed panel polling would be work nobody
-  // asked for, and the route is not in this list on purpose. The dock's count
-  // comes from the last load, and being a few seconds stale is the right
-  // trade for not fetching on every navigation.
+  // asked for, and the route is not in this list on purpose. This list is the
+  // panel's alone — the dock's count is its own (`noteCount.ts`), kept by the
+  // frames whether or not the panel is open.
   useEffect(() => {
     if (!open) return;
     const ctrl = new AbortController();
@@ -553,7 +553,7 @@ export function NoteOverlay() {
       {/* Off only hides the corner button — `Alt+N` above still opens the
           panel, which is what makes this a visibility switch rather than an
           off switch for the feature. */}
-      {dockVisible && <NoteDock count={notes.length || undefined} showCount={countBadge} />}
+      {dockVisible && <NoteDock />}
       <UnsavedDialog open={leaving !== null} words={leaving ? leaveWords(leaving.kind, leaving.title) : null} saving={leaving?.saving ?? false} onCancel={notesGuard.cancel} onDiscard={notesGuard.discardAndGo} onSave={() => void notesGuard.saveAndGo()} />
       <ConfirmDialog
         open={asking}

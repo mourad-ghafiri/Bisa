@@ -104,7 +104,7 @@ function useWorkflowNames(open: boolean): NamedRecord[] {
 export function DrawOverlay() {
   const route = useRoute();
   const ws = useWorkspace();
-  const { open, active, tab, query, dockVisible, countBadge, maximized } = useDrawOverlay();
+  const { open, active, tab, query, dockVisible, maximized } = useDrawOverlay();
   const { enabled } = useDrawPrefs();
   const [rows, setRows] = useState<DrawingRow[]>([]);
   const [detail, setDetail] = useState<DrawingDetail | null>(null);
@@ -453,7 +453,8 @@ export function DrawOverlay() {
           void create(scope, template, title);
         }}
       />
-      {dockVisible && enabled && <DrawDock count={rows.length || undefined} showCount={countBadge} />}
+      {/* The dock's count is its own (`drawingCount.ts`); this list is the panel's. */}
+      {dockVisible && enabled && <DrawDock />}
       <UnsavedDialog open={leaving !== null} words={leaving ? leaveWords(leaving.kind, leaving.title) : null} saving={leaving?.saving ?? false} onCancel={drawGuard.cancel} onDiscard={drawGuard.discardAndGo} onSave={() => void drawGuard.saveAndGo()} />
       <ConfirmDialog
         open={asking}

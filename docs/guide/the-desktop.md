@@ -645,7 +645,11 @@ it), so a note goes without being opened. Nothing in
 the workspace depends on a note, and it stays on this machine unless you push. The notes icon floats
 over the app: drag it anywhere, and it keeps its distance from the edges it is nearest when the
 window is resized or maximized — a restore puts it back exactly; **Settings → Notes → Reset
-position** returns it to its corner. A long note needs room: **Maximize** in the panel's header
+position** returns it to its corner. The number on it is every note there is, whatever tab the panel
+is on — live whether the panel is open or closed (a note an agent writes into, one made from a
+conversation, one deleted, a project gone with its notes), and still there when you hide the button
+from the footer and show it again; **Settings → Notes** turns the number off, and the button's name
+still says it. A long note needs room: **Maximize** in the panel's header
 fills the window between the header, the footer and the sidebar — the same frame the Draw panel
 takes — and Escape puts it back in its corner (the find bar and the search box get Escape first);
 **Settings → Notes → Open maximized** makes that the panel's default.

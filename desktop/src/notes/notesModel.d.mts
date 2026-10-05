@@ -37,6 +37,12 @@ export declare function tabKind(tab: NoteTab): OwnerScopeKind | null;
 export declare function tabQuery(tab: NoteTab): string;
 /** Whether a note of `kind` belongs on `tab`. */
 export declare function tabAdmits(tab: NoteTab, kind: string): boolean;
+/** The frames of a place leaving with its notes and drawings, and no note or drawing frame saying so. */
+export declare const OWNER_GONE_FRAMES: readonly string[];
+/** Whether a frame of this type is a place leaving with its notes and drawings. */
+export declare function ownerGone(type: unknown): boolean;
+/** Whether a frame of this type moves how many notes there are — what the dock's count is read again on. */
+export declare function movesNoteCount(type: unknown): boolean;
 
 /** A record a new note may be about: its id and the name a person knows it by. */
 export interface NamedRecord {

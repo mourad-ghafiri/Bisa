@@ -16,12 +16,17 @@ import { useDockFootprint } from "../ui/dockClearance";
 import { chordFor } from "../shell/keymapModel.mjs";
 import { currentKeymap } from "../shell/shortcuts";
 import { useBusyDrawings } from "./drawActivityStore";
+import { useDrawingCount } from "./drawingCount";
 import { drawingWords } from "./drawRequestModel.mjs";
 import { moveDrawDock, toggleDraw, useDrawOverlay } from "./drawStore";
 import { t } from "../i18n/l10n.mjs";
 
-export function DrawDock({ count, showCount = true }: { count?: number; showCount?: boolean }) {
-  const { dock } = useDrawOverlay();
+export function DrawDock() {
+  // The count is the dock's own (`drawingCount.ts`), as the notes dock's is: every drawing there
+  // is, kept whether or not the panel is open; `countBadge` says whether to paint it.
+  const { dock, countBadge } = useDrawOverlay();
+  const count = useDrawingCount();
+  const showCount = countBadge;
   const busy = useBusyDrawings();
   const viewport = useDockViewport(DOCK_SIZE);
   const box = dockBox(dock, viewport);

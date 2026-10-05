@@ -166,6 +166,36 @@ export function tabAdmits(tab, kind) {
 }
 
 /**
+ * The frames of a place leaving with its notes and drawings: a project's, a
+ * goal's and a workflow's deletion removes every note and drawing under it in
+ * the store, and no `note_changed` or `drawing_changed` says so. Archiving
+ * and closing remove nothing. A channel's deletion emits nothing on either
+ * stream — the one place a count catches up only on the next frame or when
+ * the bus comes back.
+ */
+export const OWNER_GONE_FRAMES = Object.freeze(["project_deleted", "goal_deleted", "workflow_deleted"]);
+
+/**
+ * Whether a fact of this type is a place leaving with its notes and drawings.
+ * @param {unknown} type an engine frame's `type`
+ */
+export function ownerGone(type) {
+  return typeof type === "string" && OWNER_GONE_FRAMES.includes(type);
+}
+
+/**
+ * Whether a fact of this type moves how many notes there are — what the
+ * dock's count is read again on, whether or not the panel is open. A
+ * `note_changed` is a note created, deleted or appended to by an agent (an
+ * editor's own PATCH is silent by design, and moves no count); the rest are
+ * a place gone with its notes.
+ * @param {unknown} type an engine frame's `type`
+ */
+export function movesNoteCount(type) {
+  return type === "note_changed" || ownerGone(type);
+}
+
+/**
  * The scope the route stands on — the one place a *new* note goes without
  * asking.
  *

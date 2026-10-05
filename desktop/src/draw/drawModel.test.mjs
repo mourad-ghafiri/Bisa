@@ -14,9 +14,11 @@ import {
   drawnElements,
   filterDrawings,
   goneQuietly,
+  movesDrawingCount,
   persistedAppState,
   sceneMoved,
 } from "./drawModel.mjs";
+import { OWNER_GONE_FRAMES } from "../notes/notesModel.mjs";
 
 test("the tabs are the notes' seven, All first, and a stored word outside them lands on All", () => {
   assert.deepEqual(DRAW_TABS, ["all", "workspace", "projects", "goals", "workflows", "channels", "node"]);
@@ -26,6 +28,12 @@ test("the tabs are the notes' seven, All first, and a stored word outside them l
   assert.equal(drawTabQuery("all"), "");
   assert.equal(drawTabQuery("projects"), "?scope=project");
   assert.ok(drawTabAdmits("all", "goal") && drawTabAdmits("goals", "goal") && !drawTabAdmits("goals", "project"));
+});
+
+test("the dock's count is read again on a drawing changed and on the places the notes' rule names gone — on nothing else", () => {
+  assert.ok(movesDrawingCount("drawing_changed"));
+  for (const gone of OWNER_GONE_FRAMES) assert.ok(movesDrawingCount(gone), `${gone}: the notes' list, shared`);
+  for (const still of ["note_changed", "drawing_request", "project_archived", "channel_deleted", "file_changed", undefined, 3]) assert.ok(!movesDrawingCount(still), String(still));
 });
 
 test("the search keeps a drawing whose title says every word, in order", () => {

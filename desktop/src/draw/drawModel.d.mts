@@ -21,6 +21,8 @@ export declare function drawTargets(
 export declare function routeTarget(route: Route | null | undefined, projectOf?: (workstream: string) => string | null | undefined): OwnerScope;
 export declare function scopeOfRow(row: { scope: string; scope_id?: string | null } | null | undefined): OwnerScope;
 export declare function scopeWords(scope: OwnerScope | null | undefined, names: ScopeNames | null | undefined): string;
+/** Whether a frame of this type moves how many drawings there are — what the dock's count is read again on. */
+export declare function movesDrawingCount(type: unknown): boolean;
 export declare function filterDrawings<T extends { title?: string }>(rows: T[], query: string | null | undefined): T[];
 
 /** The two facts a drawing keeps of the canvas's state, as the wire spells them. */

@@ -107,8 +107,11 @@ in the same words, so a drawing goes without being opened; one already gone simp
 
 The **panel** is the notes overlay's twin — a pane that floats over whatever screen is open, at
 `z-40` under every dialog, over a live browser tab too (the browser layer cuts around it, ide/18), with the same seven tabs, search, *New* and a repository strip at the
-foot of its list; its **dock** is a floating button the footer's Draw switch shows or hides, and
-**Mod+Alt+D** (`toggle_draw`) opens and closes the panel. *New* is a dialog (`NewDrawingDialog.tsx`):
+foot of its list; its **dock** is a floating button the footer's Draw switch shows or hides — wearing
+how many drawings there are (`drawingCount.ts`, a live count over `GET /drawings`: read while the dock
+shows, again on `drawing_changed` and on a project, goal or workflow gone with its drawings, and when
+the bus comes back, whether or not the panel is open, and kept across a hide and a show; Settings
+turns the number off, never the count) — and **Mod+Alt+D** (`toggle_draw`) opens and closes the panel. *New* is a dialog (`NewDrawingDialog.tsx`):
 a gallery of the templates as tiles — each a **preview** drawn from its own skeleton (`templates/preview.mjs`,
 no canvas loaded) and a **blurb** on when to reach for it — a title the template proposes and a hand
 may change (`newDrawingModel.mjs`), and *Where* only when the tab offers several places; *Create*

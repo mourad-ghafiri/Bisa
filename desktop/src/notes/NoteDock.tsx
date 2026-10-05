@@ -33,22 +33,20 @@ import { useRef } from "react";
 import { DOCK_SIZE, dockBox, dockStyle, useDockDrag, useDockViewport } from "../ui/Dock";
 import { useBrowserClear } from "../shell/browserClear";
 import { useDockFootprint } from "../ui/dockClearance";
+import { useNoteCount } from "./noteCount";
 import { moveDock, toggleNotes, useNotesOverlay } from "./notesStore";
 import { t } from "../i18n/l10n.mjs";
 
-export function NoteDock({
-  count,
-  showCount = true,
-}: {
-  count?: number;
-  /**
-   * Whether to *paint* the count. The accessible name uses `count` either
-   * way — hiding the badge is about pixels, and a screen reader losing the
-   * number would be a different, worse change than the one being asked for.
-   */
-  showCount?: boolean;
-}) {
-  const { dock } = useNotesOverlay();
+export function NoteDock() {
+  // The count is the dock's own (`noteCount.ts`): every note there is, read
+  // while the dock shows and kept by the frames whether or not the panel is
+  // open — never the panel's list, which is one tab's and alive only while it
+  // is open. `countBadge` says whether to *paint* it; the accessible name
+  // keeps the number either way — hiding the badge is about pixels, and a
+  // screen reader losing the number would be a different, worse change.
+  const { dock, countBadge } = useNotesOverlay();
+  const count = useNoteCount();
+  const showCount = countBadge;
   const viewport = useDockViewport(DOCK_SIZE);
   // The paint: the stored placement projected into this window and clamped
   // inside it. The drag starts from it, so a clamped dock does not jump.

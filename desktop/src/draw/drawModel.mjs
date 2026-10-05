@@ -14,7 +14,7 @@
  */
 
 import { t as tr } from "../i18n/l10n.mjs";
-import { NOTE_TABS, NOTE_TAB_LABEL, noteTab, noteTargets, routeTarget, scopeOfRow, scopeWords, tabAdmits, tabKind, tabQuery } from "../notes/notesModel.mjs";
+import { NOTE_TABS, NOTE_TAB_LABEL, noteTab, noteTargets, ownerGone, routeTarget, scopeOfRow, scopeWords, tabAdmits, tabKind, tabQuery } from "../notes/notesModel.mjs";
 
 /** The tabs, in the order the strip draws them; *All* is first and the default. */
 export const DRAW_TABS = NOTE_TABS;
@@ -31,6 +31,18 @@ export const drawTabKind = tabKind;
 /** The scopes a new drawing may take under a tab, the route's own first. */
 export const drawTargets = noteTargets;
 export { routeTarget, scopeOfRow, scopeWords };
+
+/**
+ * Whether a fact of this type moves how many drawings there are — what the
+ * dock's count is read again on, whether or not the panel is open: a
+ * `drawing_changed` (created, changed or deleted, by a hand or an agent), or
+ * a place gone with its drawings — the notes' rule (`notesModel.ownerGone`),
+ * since a drawing hangs off the same things a note does.
+ * @param {unknown} type an engine frame's `type`
+ */
+export function movesDrawingCount(type) {
+  return type === "drawing_changed" || ownerGone(type);
+}
 
 /**
  * The drawings a search keeps: a case-insensitive match on the title, order

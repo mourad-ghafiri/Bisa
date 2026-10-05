@@ -38,6 +38,12 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- The floating Notes and Drawings buttons wear a count of their own: every note and every drawing
+  there is, shown from launch without opening a panel, kept live while the panel is closed — a note
+  an agent writes into, one made from a conversation, a drawing deleted, a project gone with its
+  notes — and still there when the button is hidden from the footer and shown again. The number
+  was the open panel's list, one tab's and alive only while the panel was open, so it was missing
+  after a launch and froze while the panel was closed.
 - Staging, committing, amending, unstaging, discarding and stashing no longer fail when a file in
   the Changes list was deleted after the list was read — an agent's temporary file, typically. The
   file that is gone is left out and the rest go through; a discard with nothing left says *nothing

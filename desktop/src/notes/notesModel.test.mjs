@@ -18,6 +18,7 @@ import {
   NOTE_TABS,
   NOTE_TAB_LABEL,
   NOTE_VIEWS,
+  OWNER_GONE_FRAMES,
   SAVE_DEFAULT_MS,
   SAVE_MAX_MS,
   SAVE_MIN_MS,
@@ -26,8 +27,10 @@ import {
   draftKey,
   filterNotes,
   matchAt,
+  movesNoteCount,
   noteTab,
   noteTargets,
+  ownerGone,
   noteView,
   routeTarget,
   sameScope,
@@ -134,6 +137,16 @@ test("a frame redraws the list only when its kind is on the tab", () => {
   assert.ok(!tabAdmits("goals", "project"));
   assert.ok(tabAdmits("node", "node"));
   assert.ok(!tabAdmits("workspace", "node"));
+});
+
+test("the dock's count is read again on a note changed and on a place gone with its notes — never on an archive, an edit's own save, or a channel, which says nothing", () => {
+  assert.deepEqual([...OWNER_GONE_FRAMES], ["project_deleted", "goal_deleted", "workflow_deleted"]);
+  assert.ok(movesNoteCount("note_changed"), "created, deleted, or appended to by an agent");
+  for (const gone of OWNER_GONE_FRAMES) assert.ok(movesNoteCount(gone) && ownerGone(gone), gone);
+  for (const still of ["drawing_changed", "project_archived", "goal_archived", "workflow_archived", "file_changed", "channel_deleted", "channel_changed", "", undefined, null, 7]) {
+    assert.ok(!movesNoteCount(still), `${String(still)} moves no note count`);
+    assert.ok(!ownerGone(still), `${String(still)} is no place gone`);
+  }
 });
 
 test("the route says where a new note goes: a goal, a workflow, a channel, a project, else the workspace", () => {
