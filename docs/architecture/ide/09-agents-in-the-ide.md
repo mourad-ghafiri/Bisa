@@ -330,6 +330,8 @@ once; *waiting* nudges every few seconds rather than strobing — attention, not
 liveness stays a dot: a shell that is *open* says nothing about what runs in it, and the one rule for
 its tone is `terminalsModel.livenessTone`.
 
+A heading of the project rail wears the marks of the harnesses open under it — each harness's own, one per distinct harness, quiet beside the heading's count — with a tip naming each one's project, workstream and what it is doing (`railHarnessesModel`, [07 §Why switching is free](07-workstreams.md#why-switching-is-free)); the attention stays on the session's own mark, on its row.
+
 A harness is a **mark** too — its own (`ui/harnessMarks.tsx`): Claude Code, Codex, GitHub Copilot,
 Grok, Goose and pi from LobeHub's MIT set, OpenCode and Cursor from Simple Icons, OMP hand-drawn because it publishes
 none, an ACP plug, a custom wand; the licences in `NOTICES.md`. It is the glyph on a session row in

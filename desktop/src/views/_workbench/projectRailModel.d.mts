@@ -3,6 +3,7 @@ import type { TerminalSessionState, Liveness } from "../../shell/terminalsModel.
 import type { Activity } from "./workstreamActivityModel.mjs";
 import type { Pulse } from "./workstreamPulseModel.mjs";
 import type { WorkstreamPort } from "./portsModel.mjs";
+import type { HeadingHarness } from "./railHarnessesModel.mjs";
 import type { Effort, SessionState } from "../../types";
 import type { IconName } from "../../ui/icons";
 
@@ -18,8 +19,8 @@ export declare function tabOf(project: Pick<Project, "origin"> | null | undefine
 export declare function isRailTab(v: unknown): v is RailTab;
 
 export type RailRow =
-  | { kind: "group"; id: string; label: string; /** What the heading folds: `group:<name>`, `ungrouped`, `workflow:<id>`. */ under: string; depth: number; collapsed: boolean; count: number; projects: string[] }
-  | { kind: "goal"; id: string; label: string; /** `goal:<id>`. */ under: string; depth: number; collapsed: boolean; count: number; projects: string[] }
+  | { kind: "group"; id: string; label: string; /** What the heading folds: `group:<name>`, `ungrouped`, `workflow:<id>`. */ under: string; depth: number; collapsed: boolean; count: number; projects: string[]; /** The harnesses open under it, each with its place — the heading's marks and their tip. */ harnesses: HeadingHarness[] }
+  | { kind: "goal"; id: string; label: string; /** `goal:<id>`. */ under: string; depth: number; collapsed: boolean; count: number; projects: string[]; harnesses: HeadingHarness[] }
   | {
       kind: "project";
       id: string;
@@ -33,6 +34,8 @@ export type RailRow =
       activity: Activity;
       workstreams: number;
       current: boolean;
+      /** The harnesses open in its workstreams, each with its place — what its heading folds. */
+      harnesses: HeadingHarness[];
       /** The loudest workstream's line, on a collapsed project alone. */
       pulse: Pulse | null;
     }

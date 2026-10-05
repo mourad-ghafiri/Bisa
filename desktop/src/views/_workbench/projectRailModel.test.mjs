@@ -215,6 +215,37 @@ test("a workstream row names the harnesses here and its shells", () => {
   ]);
 });
 
+test("a heading says who is working under it: each member's open harnesses with their place, in the rail's order, folded or not", () => {
+  const input = {
+    projects: [P("p1", "Alpha", { group: "Shop" }), P("p2", "Beta", { group: "Shop" }), P("p3", "Gamma", { group: "Admin" })],
+    workstreams: [primary("p1"), worktree("w2", "p1", "fix", 2), primary("p2"), primary("p3")],
+    terminals: [T("t1", "w2", null, "live"), T("t2", "p2", "codex", "live"), T("t3", "p3", "pi", "exited")],
+    sessions: [S("s1", "p1", "running"), S("s2", "p1", "done"), S("s3", "p3", "failed")],
+  };
+  const rows = railRows(input);
+  const heading = (id) => rows.find((r) => r.kind === "group" && r.id === id);
+  assert.deepEqual(
+    heading("Shop").harnesses.map((h) => [h.project, h.workstream, h.harness, h.sessionId, h.terminalKey]),
+    [
+      ["Alpha", "primary", "claude-code", "s1", null],
+      ["Beta", "primary", "codex", null, "t2"],
+    ],
+    "a live session and a live harness shell count; a done session and a plain shell do not; each with its project and workstream",
+  );
+  assert.deepEqual(heading("Admin").harnesses, [], "a failed session and an exited shell are not open");
+  assert.deepEqual(rows.find((r) => r.kind === "project" && r.project.id === "p1").harnesses.map((h) => h.harness), ["claude-code"], "the project row carries its own");
+  const folded = railRows({ ...input, collapsed: new Set(["rail.group.Shop", "rail.project.p2.group:Shop"]) });
+  assert.equal(heading("Shop").harnesses.length, 2);
+  assert.deepEqual(folded.find((r) => r.kind === "group" && r.id === "Shop").harnesses.map((h) => h.harness), ["claude-code", "codex"], "a folded heading still says who is under it");
+  const goal = railRows({ tab: "goals", projects: [P("p1", "Alpha", { origin: { origin: "goal", goal: "01HG" } })], workstreams: [primary("p1")], sessions: [S("s1", "p1", "thinking")], goals: [{ id: "01HG", label: "Ship it" }] });
+  assert.deepEqual(goal[0].harnesses.map((h) => [h.project, h.harness]), [["Alpha", "claude-code"]], "a goal's heading too");
+  // The heading draws it: the marks in a tip, before the count; the rail hands it the harness labels.
+  const heading_src = readFileSync(new URL("./rail/RailHeadingRow.tsx", import.meta.url), "utf8");
+  assert.ok(heading_src.indexOf("<HeadingHarnesses") < heading_src.indexOf("<CountBadge"), "the marks sit before the count");
+  assert.ok(heading_src.includes("headingMarks(harnesses)") && heading_src.includes("headingHarnessWords(harnesses, labels)") && heading_src.includes("<Tooltip"), "the model's marks and words, in a tip");
+  assert.match(readFileSync(new URL("./ProjectRail.tsx", import.meta.url), "utf8"), /<RailHeadingRow[\s\S]*?harnessLabels=\{harnessLabels\}[\s\S]*?\/>/, "the rail hands the heading its harness labels");
+});
+
 test("a closed workstream is not a row; a workstream row collapses its sessions", () => {
   const closed = worktree("w9", "p1", "old", 1);
   closed.workstream.state = { state: "closed" };

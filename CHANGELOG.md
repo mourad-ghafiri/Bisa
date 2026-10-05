@@ -21,6 +21,10 @@ notes (`docs/contributing/release.md`).
   Agent designs and repairs the goal's workflow with them alone — a team whole, or one of its
   members. Pick nobody and it chooses from every enabled agent and team, as before. The picks are
   the goal's assignees, shown and changed on its Details.
+- A project group's heading in the Project IDE's rail shows who is working under it: before its
+  count, the mark of each harness open in one of its projects — Claude Code's, Codex's — and, on
+  hover, which project and workstream each one is in and what it is doing. A finished or failed
+  harness, or a plain shell, shows nothing; a folded group still says it.
 
 ### Changed
 

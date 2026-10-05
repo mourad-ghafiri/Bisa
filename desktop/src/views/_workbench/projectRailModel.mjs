@@ -16,7 +16,9 @@
  * Order is stable — sections by name, projects by name, the primary first then
  * by creation — so nothing reshuffles under the pointer. Attention shows in the
  * dot ({@link workstreamActivity}) and the row's wash, never in the order; the
- * tab carries one badge, its project count ({@link railCounts}).
+ * tab carries one badge, its project count ({@link railCounts}). A heading
+ * carries, beside its count, who is working under it: the harnesses open in
+ * its projects' workstreams, each with its place (`railHarnessesModel`).
  */
 
 import { harnessOf } from "../../shell/terminalsModel.mjs";
@@ -25,6 +27,7 @@ import { projectActivity, workstreamActivity } from "./workstreamActivityModel.m
 import { projectPulse, pulseOf } from "./workstreamPulseModel.mjs";
 import { portsOf } from "./portsModel.mjs";
 import { claimedSessions, isDrawn, visibleSessionRows, workstreamSessionRows } from "./workstreamSessionsModel.mjs";
+import { standingHarnesses } from "./railHarnessesModel.mjs";
 import { groupOrder, orderBy, projectOrder, workstreamOrder } from "./railOrderModel.mjs";
 import { cardTitle } from "../_work/workstreamCardModel.mjs";
 import { t as tr } from "../../i18n/l10n.mjs";
@@ -186,6 +189,8 @@ export function railRows(input) {
     const activities = [];
     const pulses = [];
     const children = [];
+    // The harnesses open in this project, each with its place — what its heading says unopened.
+    const standing = [];
     for (const ref of refs) {
       const w = ref.workstream;
       const status = statusOf.get(w.id) ?? null;
@@ -225,6 +230,7 @@ export function railRows(input) {
       const wsMatches = matches(filter, label, w.name, status?.branch) || rawSessionRows.some((r) => matches(filter, r.label, r.activity));
       const projectMatches = matches(filter, p.name, p.slug, ...(p.tags ?? []));
       if (filter && !wsMatches && !projectMatches) continue;
+      for (const h of standingHarnesses(sessions, terminals, w.id)) standing.push({ ...h, projectId: p.id, project: p.name, workstream: label });
       const wrow = {
         kind: "workstream",
         id: w.id,
@@ -263,6 +269,7 @@ export function railRows(input) {
       activity: projectActivity(activities),
       workstreams: refs.length,
       current: !!current && refs.some((r) => current.scope === "workstream" && current.id === r.workstream.id),
+      harnesses: standing,
       // A folded project still says what is loudest inside it; an open one
       // shows its workstreams' own lines instead.
       pulse: null,
@@ -301,6 +308,8 @@ export function railRows(input) {
         collapsed,
         count: members.length,
         projects: members.map((m) => m[0].project.id),
+        // Who is working under the heading, folded or not — in the rail's order.
+        harnesses: members.flatMap((m) => m[0].harnesses),
       });
       if (collapsed) continue;
     }

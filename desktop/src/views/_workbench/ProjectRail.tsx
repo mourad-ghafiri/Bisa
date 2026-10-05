@@ -609,6 +609,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
             editable={isRealGroup}
             menu={menu}
             groupMenu={isRealGroup ? groupMenu(row.id) : []}
+            harnessLabels={harnessLabels}
             onToggle={toggle}
             onRename={() => setRenamingGroup({ name: row.id, value: row.id })}
           />

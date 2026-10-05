@@ -45,7 +45,7 @@ project's own root is its **primary workstream**, under the project's id) is thr
   its section, marked *(removed)*. What a project is *attached* to is a different thing — shown on
   the project, in About, never as a tab. An archived project is out of the tree until the **Archived** switch beside the filter box is on, then dim with its mark. The tree is one geometry: a guide line hangs from every
   open row's chevron down to its children, every row's glyph sits in one column, a section header
-  wears its count as a badge with space above it, the project is the one tall card, and the row you
+  wears its count as a badge with space above it — and, before the count, the mark of each harness working in one of its projects, its tip naming the project, the workstream and what the harness is doing, so a folded group still says who is at work in it — the project is the one tall card, and the row you
   stand in wears a wash and an accent pill on its left edge. Each project opens to its workstreams — the primary first, badged — and each workstream to
   the work standing in it: the agents the engine runs there on a step and the harnesses you opened in
   a terminal, which report what they are doing themselves — an agent answering you in a conversation

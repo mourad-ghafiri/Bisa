@@ -364,6 +364,7 @@ workbench-rail-drag-moved = Moved to { $group }.
 workbench-rail-facts-base = the base
 workbench-rail-facts-beyond = { $ahead_of_base } beyond { $base }
 workbench-rail-facts-not-here = { $behind_base } on { $base } not here
+workbench-rail-harnesses-model-in-shell = in a shell
 workbench-rail-heading-row-actions = Actions for { $row }
 workbench-rail-menu-abort = Abort
 workbench-rail-menu-answer-inbox = Answer in the Inbox
@@ -631,6 +632,12 @@ workbench-rail-heading-row-project-projects = { $row } { $row ->
     [one] project
    *[other] projects
   }
+workbench-rail-harnesses-model-harnesses-open = { $n } { $n ->
+    [one] harness
+   *[other] harnesses
+  } open
+workbench-rail-harnesses-model-line = { $project } › { $workstream } — { $harness } · { $state }
+workbench-rail-harnesses-model-more = +{ $more } more
 # Each slot is the chord of a keymap command, drawn by `CommandHint`.
 workbench-center-landing-panels-legend = <show_terminal/> shows the terminal here · <toggle_right_panel/> hides the right panel · <toggle_rail/> hides the rail
 workbench-center-landing-tabs-legend = <git_panel/> Git · <panel_files/> Files · <rename/> rename · <close_tab/> closes a tab · <reopen_tab/> reopens it
