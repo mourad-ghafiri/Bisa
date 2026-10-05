@@ -13,6 +13,9 @@ export const WITHIN = Object.freeze({
   monaco: ".monaco-editor",
   rendered: "[data-rendered-doc]",
   conflict: "[data-conflict-doc]",
+  // A document's own root — its bar and its controls as well as its editor or
+  // rendering — so a find chord pressed from the mode control finds in it.
+  document: "[data-document]",
   terminal: "[data-terminal-panel]",
   browser: "[data-browser-doc]",
   files: "[data-files-tree]",
@@ -32,7 +35,7 @@ export function scopesOf({ root, strip, designer, within }) {
   if (root && w.monaco) out.push("editor");
   // A document is read two ways — the editor, or a rendering — and find is
   // the document's whichever way, wherever it is drawn, on any route.
-  if (w.monaco || w.rendered || w.conflict) out.push("document");
+  if (w.monaco || w.rendered || w.conflict || w.document) out.push("document");
   if (w.terminal) out.push("terminal");
   // A browser tab's body — the IDE's centre or the Browser pane (ide/18).
   if (w.browser) out.push("browser");

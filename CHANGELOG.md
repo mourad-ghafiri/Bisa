@@ -55,6 +55,15 @@ notes (`docs/contributing/release.md`).
   (`target/out.log`, `.github/workflows/ci.yml`), or a file made since the Files index was read, is
   confirmed with the node and opens too; a word that merely looks like a path still says *Not
   found*. A path under a goal's or a project's root can now be revealed in the file manager.
+- Find works in a rendered file in the Project IDE: ⌘F opens the bar right after the file is
+  opened, after switching to *Rendered*, after scrolling, and from the file's own bar — a rendered
+  file now has the keyboard as soon as it is shown (never taken from a field you are typing in, a
+  shell, or the Files tree), and gets it back when the bar closes. Switching between *Rendered* and
+  *Split* with the bar open no longer loses the highlights, nor does a replace that keeps the
+  text's length, nor another open document.
+- A table of contents in a rendered Markdown file works: `[Build and upload](#10-build-and-upload)`
+  scrolls to that heading. Headings now carry the anchors GitHub gives them, and a same-document
+  link is followed in the rendering — the window never navigates.
 - A terminal in a background tab or pane no longer shows its scrollbar over the one in front.
 - Editor and terminal scrollbars fade out again instead of vanishing at once.
 - The code editor's suggestions keep their row layout: long labels are cut inside the row.

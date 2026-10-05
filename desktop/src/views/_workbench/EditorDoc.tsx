@@ -78,8 +78,9 @@ import type { Buffer, DocSource } from "./editorModel.mjs";
 import { backendFor } from "./docBackend";
 import { looseFile, pickSavePath, revealPath, writeLooseFile } from "../../api";
 import type { WorkbenchTab } from "./workbenchModel.mjs";
-import { LinkRoots, copyText } from "../../ui";
-import { resolveDocLink } from "./docLink.mjs";
+import { LinkRoots, copyText, scrollToFragment } from "../../ui";
+import { fragmentOf, resolveDocLink } from "./docLink.mjs";
+import { takeKeyboard } from "./docFocus";
 import { artifactKindOf, binaryWords, defaultMode, docKindOf, docModes, modeGlyph, modeLabel } from "./fileDocModel.mjs";
 import type { DocMode } from "./fileDocModel.mjs";
 import type { LensLayout } from "./reviewLensModel.mjs";
@@ -681,7 +682,10 @@ export function EditorDoc({
   // walk; a sheet searches its rows; a page searches inside its frame; an
   // svg is a picture — its bar points at the source.
   const domFindable = mode !== "source" && (docKind === "markdown" || docKind === "diagram");
-  const domFound = useDomFind(renderedBox, domFindable ? find : null, findIndex, buffer.text.length);
+  // The walk is redone when the rendering is: another text — a replace that
+  // kept the length included — or another mode, since Rendered and Split
+  // draw the preview in different boxes and the old text nodes are gone.
+  const domFound = useDomFind(renderedBox, domFindable ? find : null, findIndex, domFindable ? `${mode}\u0000${buffer.text}` : "");
   const findCount = docKind === "html" ? (pageFound?.count ?? null) : docKind === "sheet_text" ? sheetFound : docKind === "svg" ? null : domFound.count;
   const findShown = find !== null && mode !== "source";
   useEffect(() => {
@@ -710,13 +714,29 @@ export function EditorDoc({
     window.addEventListener(DOC_FIND, onFind);
     return () => window.removeEventListener(DOC_FIND, onFind);
   }, [mode, docKind, buffer.readOnly, setMode]);
+  /** The focusable box the rendering is drawn in — the Rendered wrapper, or the Split pane's half. */
+  const renderedShown = () => docRoot.current?.querySelector<HTMLElement>("[data-rendered-doc][tabindex]") ?? null;
   const closeFind = () => {
     setFind(null);
     setReplacing(false);
     setFindIndex(-1);
     setPageFound(null);
     setSheetFound(null);
+    // The bar hands the keyboard back to the rendering it searched, so the
+    // next find chord — and Space, and the arrows — still reach the document.
+    if (mode !== "source") takeKeyboard(renderedShown());
   };
+  // A rendering takes the keyboard when it is shown — the document opened on
+  // it, or switched to it — never on a re-render, and never from a field, a
+  // shell or the Files tree (`docFocus.takeKeyboard`); so the find chord
+  // finds in it, and Space and the arrows scroll it.
+  const modeShown = useRef<DocMode | null>(null);
+  useEffect(() => {
+    const before = modeShown.current;
+    modeShown.current = mode;
+    if (mode === "source" || before === mode) return;
+    takeKeyboard(renderedShown());
+  }, [mode]);
   const replaceInBuffer = (all: boolean) => {
     if (!find || buffer.readOnly) return;
     const next = all ? replaceAll(buffer.text, find).text : replaceOne(buffer.text, find, findIndex).text;
@@ -896,14 +916,21 @@ export function EditorDoc({
         className="h-full overflow-auto p-3 outline-none"
         onClick={(e) => {
           // A URL or a bare path went to the link handler inside `Markdown`.
-          // What reaches here is a relative link — resolved against this
-          // document; one that climbs out of the root is left inert.
+          // What reaches here is a heading of this document — a table of
+          // contents' `#build-and-upload`, scrolled to here and never a hash
+          // the window would follow — or a relative link, resolved against
+          // this document; one that climbs out of the root is left inert.
           const anchor = (e.target as HTMLElement).closest("a");
           const href = anchor?.getAttribute("href");
           if (!href) return;
           e.preventDefault();
           // The end of a selection, not a click on the link (`ui/selectionModel.mjs`).
           if (endsSelection(window.getSelection(), e.currentTarget)) return;
+          const fragment = fragmentOf(href);
+          if (fragment !== null) {
+            scrollToFragment(e.currentTarget, fragment);
+            return;
+          }
           const target = resolveDocLink(path, href);
           if (target) onOpenFile?.(target);
         }}
@@ -920,6 +947,7 @@ export function EditorDoc({
     return (
       <div
         ref={docRoot}
+        data-document
         className={cn("flex h-full min-h-0 flex-col", className)}
         onFocusCapture={() => {
           setActiveEditor(registryKey);
@@ -956,6 +984,7 @@ export function EditorDoc({
   return (
     <div
       ref={docRoot}
+      data-document
       className={cn("flex h-full min-h-0 flex-col", className)}
       // Focus anywhere in this document — the editor, the bar — makes it the
       // active one; ⌘S in it saves it and nothing beside it.

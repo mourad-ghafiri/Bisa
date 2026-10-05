@@ -25,7 +25,9 @@ import { matchesOf, replaceAll } from "../ui/find/findModel.mjs";
 import { findLinks, resolveLink } from "../ui/linkModel.mjs";
 import { mermaidBlocks, offsetError } from "../ui/mermaidModel.mjs";
 import { guardWords } from "../views/_workbench/closeGuardModel.mjs";
-import { resolveDocLink } from "../views/_workbench/docLink.mjs";
+import { fragmentOf, resolveDocLink } from "../views/_workbench/docLink.mjs";
+import { WITHIN } from "../shell/keyContextsModel.mjs";
+import { withHeadingIds } from "../ui/headingAnchorsModel.mjs";
 import { changedOnDisk, conflicted, edited, emptyBuffer, isUnsaved, keepMine, loadFailed, loadFailure, loaded, refusalWords, saveFailure, saved, sizeNote, unsavedKeys } from "../views/_workbench/editorModel.mjs";
 import { defaultMode, docKindOf, docModes, isRenderedDoc, tooLargeWords } from "../views/_workbench/fileDocModel.mjs";
 import { nameResults, parseQuery } from "../views/_workbench/fileSearchModel.mjs";
@@ -164,6 +166,26 @@ test("a relative link in a rendered document stays inside the root, and a diagra
   assert.equal(resolveDocLink("docs/guide/intro.md", "../api/index.md#L12"), "docs/api/index.md");
   assert.equal(resolveDocLink("README.md", "../outside.md"), null, "one that climbs out of the root is inert");
   assert.equal(resolveDocLink("README.md", "https://example.com"), null, "a URL is the link handler's");
+  // A same-document link names a heading: its fragment is the anchor GitHub gives the heading — and the rendering's heading carries it.
+  assert.equal(fragmentOf("#10-build-and-upload"), "10-build-and-upload");
+  assert.equal(fragmentOf("./STUDIO.md#projects"), null, "a link to another document is resolveDocLink's");
+  assert.ok(withHeadingIds("<h2>10. Build and upload</h2><p>…</p>").startsWith('<h2 id="10-build-and-upload">'), "the heading carries the anchor the link names");
+  const editor = readFileSync(new URL("../views/_workbench/EditorDoc.tsx", import.meta.url), "utf8");
+  const fileView = readFileSync(new URL("../ui/FileView.tsx", import.meta.url), "utf8");
+  for (const [name, src] of [["EditorDoc", editor], ["FileView", fileView]]) {
+    assert.ok(src.indexOf("fragmentOf(href)") < src.indexOf("resolveDocLink(path, href)"), `${name}: a heading is followed before a document is resolved`);
+    assert.ok(src.includes("scrollToFragment(e.currentTarget, fragment)"), `${name}: the rendering scrolls; the window never navigates`);
+  }
+  const renderer = readFileSync(new URL("../ui/Markdown.tsx", import.meta.url), "utf8");
+  assert.ok(renderer.includes("relativeLinks ? withHeadingIds(sanitized) : sanitized"), "headings carry anchors in a document alone; a message's HTML is as before");
+  // Find reaches a rendering: a document's own root is the `document` scope, and a rendering shown takes the keyboard — never from a field, a shell or the Files tree.
+  assert.equal(WITHIN.document, "[data-document]");
+  const rendered = readFileSync(new URL("../views/_workbench/RenderedFileDoc.tsx", import.meta.url), "utf8");
+  assert.equal(editor.split("data-document\n").length, 3, "both of the editor document's roots are documents");
+  assert.ok(rendered.includes("data-document "), "a rendering of bytes is a document too");
+  assert.ok(editor.includes("takeKeyboard(renderedShown())") && rendered.includes("takeKeyboard(bodyBox.current)"), "a rendering shown takes the keyboard, and takes it back when its find bar closes");
+  const focus = readFileSync(new URL("../views/_workbench/docFocus.ts", import.meta.url), "utf8");
+  assert.ok(focus.includes("isTypingTarget(held)") && focus.includes("held.closest(WITHIN.terminal)") && focus.includes("held.closest(WITHIN.files)"), "never from a field, a shell or the Files tree");
   const markdown = ["# Flow", "", "text", "", "```mermaid", "graph TD", "  A --> B", "```", ""].join("\n");
   const [block] = mermaidBlocks(markdown);
   assert.equal(block.startLine, 6, "the first line of the diagram, counted in the document");

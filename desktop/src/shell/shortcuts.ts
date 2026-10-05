@@ -180,7 +180,8 @@ export function onDoor(event: string, handler: (detail?: unknown) => void): () =
   };
 }
 
-function isTypingTarget(el: EventTarget | null): boolean {
+/** Whether a key on `el` is typing — a field, a select, an editable — which the keymap leaves alone and nothing takes the keyboard from. */
+export function isTypingTarget(el: EventTarget | null): boolean {
   const node = el as HTMLElement | null;
   if (!node) return false;
   const tag = node.tagName;

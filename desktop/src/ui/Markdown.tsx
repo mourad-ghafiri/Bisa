@@ -25,6 +25,7 @@
 import { useMemo } from "react";
 import { micromark } from "micromark";
 import { gfm, gfmHtml } from "micromark-extension-gfm";
+import { withHeadingIds } from "./headingAnchorsModel.mjs";
 import { delegateLinkClick, useLinkHandler, useLinkRoots } from "./linkContext";
 import { linkifyHtml } from "./linkModel.mjs";
 import { cn } from "./cn";
@@ -89,24 +90,23 @@ export function Markdown({
   const html = useMemo(() => {
     if (!text.trim()) return "";
     try {
-      // Sanitized first; then every path and link marked as a door
-      // (`linkModel.mjs`, ide/17) on a string with no raw HTML left in it;
-      // then a redacted secret an agent quoted back rendered as a chip
-      // naming its kind (`placeholderChips.mjs`) — the scanner has already
-      // refused to link inside it.
-      return placeholderChips(
-        linkifyHtml(
-          sanitizeUrls(
-            micromark(text, {
-              allowDangerousHtml: false,
-              allowDangerousProtocol: false,
-              extensions: [gfm()],
-              htmlExtensions: [gfmHtml()],
-            }),
-            relativeLinks,
-          ),
-        ),
+      // Sanitized first; then, in a document, every heading given GitHub's
+      // anchor so a table of contents lands (`headingAnchorsModel.mjs`,
+      // ide/03) — a message's HTML stays as it was; then every path and link
+      // marked as a door (`linkModel.mjs`, ide/17) on a string with no raw
+      // HTML left in it; then a redacted secret an agent quoted back rendered
+      // as a chip naming its kind (`placeholderChips.mjs`) — the scanner has
+      // already refused to link inside it.
+      const sanitized = sanitizeUrls(
+        micromark(text, {
+          allowDangerousHtml: false,
+          allowDangerousProtocol: false,
+          extensions: [gfm()],
+          htmlExtensions: [gfmHtml()],
+        }),
+        relativeLinks,
       );
+      return placeholderChips(linkifyHtml(relativeLinks ? withHeadingIds(sanitized) : sanitized));
     } catch {
       return "";
     }

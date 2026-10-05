@@ -217,7 +217,10 @@ A file opened from the explorer opens **in an editor** — Monaco, wrapped once,
 token roles as the rest of the app, with multi-cursor, bracket matching and find (`⌘F`) and
 find-and-replace (`⌘R`) in the file — the same two chords open a find bar over a **rendered** file
 too: a README's page, a csv's grid (it scrolls to the cell), an HTML page inside its frame; replacing
-there lands in the source, so the page follows and the tab dirties. An svg is a picture — its bar
+there lands in the source, so the page follows and the tab dirties. A rendered file has the keyboard
+as soon as it is shown — press ⌘F after opening it, after switching to *Rendered*, or after
+scrolling, and the bar opens; Space and the arrows scroll it — and ⌘F works from the file's own bar
+too. An svg is a picture — its bar
 takes you to the source
 built in. Its type is yours: `editor.font_size` (14 by default), `editor.line_height`,
 `editor.word_wrap` and `editor.font_family` under Settings › Project IDE › Editor apply to an open
@@ -1423,6 +1426,8 @@ text. A relative path there is read from where the shell is: after `cd crates/ap
 `src/lib.rs:42` a compiler prints is that crate's file; `../README.md` climbs; a path into an
 ignored or hidden folder — `target/out.log`, `.github/workflows/ci.yml` — or a file an agent made a
 moment ago opens too, once the node has confirmed it is there. A relative link inside a rendered
-document — `./notes.md` — opens the document it names without a card.
+document — `./notes.md` — opens the document it names without a card, and a table-of-contents
+link — `[Build and upload](#10-build-and-upload)` — scrolls the rendering to that heading: a
+rendered document's headings carry the same anchors GitHub gives them.
 
 Design: [ide/17 — Links and paths](../architecture/ide/17-links-and-paths.md).

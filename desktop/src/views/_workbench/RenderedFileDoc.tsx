@@ -24,6 +24,7 @@ import { useArtifactLibraries } from "../../shell/artifactSettings";
 import { keepScroll, scrollOf } from "./docViewStore";
 import { breadcrumbsOf } from "./editorModel.mjs";
 import { editorKey } from "./editorRegistry";
+import { takeKeyboard } from "./docFocus";
 import { artifactKindOf, docKindOf, tooLargeWords } from "./fileDocModel.mjs";
 import { rootKey, tabId } from "./workbenchModel.mjs";
 import { mimeOfName } from "../../ui/artifact/artifactModel.mjs";
@@ -92,6 +93,11 @@ export function RenderedFileDoc({
     window.addEventListener(DOC_FIND, onFind);
     return () => window.removeEventListener(DOC_FIND, onFind);
   }, [findable]);
+  // A rendering with text to find in takes the keyboard when it is shown —
+  // never from a field, a shell or the Files tree (`docFocus.takeKeyboard`).
+  useEffect(() => {
+    if (findable) takeKeyboard(bodyBox.current);
+  }, [findable]);
   const words = kindWords(kind);
   const Glyph = (ICON as Record<string, typeof ICON.file>)[words.glyph] ?? ICON.file;
   const reveal = useMemo(() => revealLabel(navigator.userAgent), []);
@@ -140,7 +146,7 @@ export function RenderedFileDoc({
   }
 
   return (
-    <div ref={docRoot} className={cn("flex h-full min-h-0 flex-col", className)}>
+    <div ref={docRoot} data-document className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-1 text-2xs">
         <nav aria-label={t("workbench-editor-doc-path")} className="flex min-w-0 items-center gap-0.5 truncate font-mono text-text-dim">
           {breadcrumbsOf(path).map((crumb, i) => (
@@ -174,6 +180,8 @@ export function RenderedFileDoc({
               setFind(null);
               setFindIndex(-1);
               setSheetFound(null);
+              // The bar hands the keyboard back, so the next find chord reaches the document.
+              takeKeyboard(bodyBox.current);
             }}
             label={t("workbench-editor-doc-find-rendering")}
           />

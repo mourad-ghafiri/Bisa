@@ -166,6 +166,7 @@ export type { FindBarProps } from "./find/FindBar";
 export { useDomFind } from "./find/useDomFind";
 export { endsSelection } from "./selectionModel.mjs";
 export { useKeptScroll, yieldKeptScroll } from "./useKeptScroll";
+export { scrollToFragment } from "./docAnchors";
 export type { KeptScroll } from "./useKeptScroll";
 export { compileFind, countWords, emptyFind, hasQuery, matchesOf, replaceAll, replaceOne, stepIndex } from "./find/findModel.mjs";
 export type { Find, Match } from "./find/findModel.mjs";

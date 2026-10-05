@@ -39,7 +39,8 @@ import { Markdown } from "./Markdown";
 import { SegmentedControl } from "./SegmentedControl";
 import { Tooltip } from "./Tooltip";
 import { formatSize } from "./fileTreeModel.mjs";
-import { isMarkdown, resolveDocLink } from "../views/_workbench/docLink.mjs";
+import { scrollToFragment } from "./docAnchors";
+import { fragmentOf, isMarkdown, resolveDocLink } from "../views/_workbench/docLink.mjs";
 import { binaryWords } from "../views/_workbench/fileDocModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 
@@ -135,13 +136,20 @@ export function FileView({
               className="min-h-0 flex-1 overflow-auto p-3"
               onClick={(e) => {
                 // A URL or a bare path went to the link handler inside
-                // `Markdown` and never reaches here. What does is a relative
-                // link — resolved against the file it sits in; one that
-                // climbs out of the root, or points nowhere, is left inert.
+                // `Markdown` and never reaches here. What does is a heading
+                // of this document — `#build-and-upload`, scrolled to here,
+                // never a hash the window would follow — or a relative link,
+                // resolved against the file it sits in; one that climbs out
+                // of the root, or points nowhere, is left inert.
                 const anchor = (e.target as HTMLElement).closest("a");
                 const href = anchor?.getAttribute("href");
                 if (!href) return;
                 e.preventDefault();
+                const fragment = fragmentOf(href);
+                if (fragment !== null) {
+                  scrollToFragment(e.currentTarget, fragment);
+                  return;
+                }
                 const target = resolveDocLink(path, href);
                 if (!target || !onOpenFile) return;
                 onOpenFile(target);

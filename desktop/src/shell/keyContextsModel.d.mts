@@ -1,6 +1,6 @@
 /** Types for `keyContextsModel.mjs`. */
 
-export type WithinFact = "monaco" | "rendered" | "conflict" | "terminal" | "browser" | "files";
+export type WithinFact = "monaco" | "rendered" | "conflict" | "document" | "terminal" | "browser" | "files";
 
 export interface KeyFacts {
   root: boolean;

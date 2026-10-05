@@ -255,6 +255,26 @@ editor: it registers no line requests and has no dirty state.
 document (`resolveDocLink` — one that climbs out of the root stays blank) and reads it through the
 byte route into a blob URL ([17](17-links-and-paths.md)).
 
+**A table of contents works.** In a document — under `relativeLinks`, never in a message — every
+heading carries the anchor GitHub gives it (`ui/headingAnchorsModel.mjs`, tested against GitHub's
+own rule and example: lower-cased, spaces to hyphens, the rest of the punctuation and the ASCII
+symbols GitHub counts as such dropped, markup removed, a repeat `-1`, `-2`…), so a link written for
+GitHub — `[Build and upload](#10-build-and-upload)` — names a heading here too. A same-document link
+is followed in the rendering: `docLink.fragmentOf(href)` reads the fragment, `ui/docAnchors.scrollToFragment`
+finds the heading under the rendering's box by its id, without regard to case, yields the kept scroll
+and scrolls it into view. **The window never navigates**: the rendering's click handler prevents every
+anchor's default, since the window is a hash router and a hash that names nothing lands on home. A
+link to another document with a fragment (`./b.md#install`) opens the document, at its top.
+
+**A rendering takes the keyboard when it is shown.** Opened on its rendering, switched to it, or
+its find bar closed, the rendering's box (`[data-rendered-doc]`, `tabIndex={-1}`) takes the focus —
+so the find chord finds in it and Space and the arrows scroll it, as a reading surface owes — never
+from where the keyboard must stay: a field being typed in, a shell, or the Files tree a person is
+arrowing through to preview files (`views/_workbench/docFocus.takeKeyboard`, over the keymap's own
+selectors). A document's root is also a `document` key scope of its own (`data-document`,
+[15 §Dispatch](15-keymap.md#dispatch)), so ⌘F pressed from the document's bar or mode control finds
+in it rather than dying.
+
 **The glyphs.** `ui/fileIcons.mjs` knows the rendered kinds — pdf, video, audio, sheet, document,
 slides — so the tree and the tab wear the artifact kinds' marks.
 
@@ -757,8 +777,8 @@ The CLI has the same verbs: `bisa files new|mv|cp|rm`, which say how a delete we
 |---|---|
 | syntax highlighting | Monaco's tokeniser — there are no semantic tokens ([10](10-language-intelligence.md)) |
 | multi-cursor, bracket matching | Monaco, built in |
-| find, find and replace in the file | Monaco's own widgets, opened by the app's chords — `find` (⌘F) and `replace` (⌘R), `when: document` ([15](15-keymap.md)) — through `CodeEditor.handle.trigger`; Monaco's ⌘⌥F still works |
-| find in a **rendering** | the kit's one bar (`ui/find/FindBar.tsx` over `findModel.mjs`), on the same chords: markdown and a diagram are walked and drawn with the CSS Custom Highlight API (`useDomFind`, `domFindModel.mjs` — the DOM is never rewritten), a csv searches its parsed rows and scrolls the grid to the cell (`sheetModel.findCells`), a page finds inside its frame (`pageInspector` `FIND` / `FOUND`, the frame highlighting its own text), an svg is a picture and its bar goes to the source; a rendering of bytes (`RenderedFileDoc`: a sheet, a document) finds and never replaces |
+| find, find and replace in the file | Monaco's own widgets, opened by the app's chords — `find` (⌘F) and `replace` (⌘R), `when: document` ([15](15-keymap.md)) — through `CodeEditor.handle.trigger`, from the editor or from the document's own bar (`data-document`); Monaco's ⌘⌥F still works |
+| find in a **rendering** | the kit's one bar (`ui/find/FindBar.tsx` over `findModel.mjs`), on the same chords: markdown and a diagram are walked and drawn with the CSS Custom Highlight API (`useDomFind`, `domFindModel.mjs` — the DOM is never rewritten), a csv searches its parsed rows and scrolls the grid to the cell (`sheetModel.findCells`), a page finds inside its frame (`pageInspector` `FIND` / `FOUND`, the frame highlighting its own text), an svg is a picture and its bar goes to the source; a rendering of bytes (`RenderedFileDoc`: a sheet, a document) finds and never replaces. The chord reaches the rendering because the rendering holds the keyboard — taken when it is shown and given back when the bar closes (`docFocus`) — or because the key landed anywhere in the document's root (`data-document`); the walk is redone when the text or the mode changes (Rendered and Split draw the preview in different boxes), and a rendering with no query never clears the highlights another one drew — the registry's two names are the page's |
 | replace in a rendering | into the **buffer** — the rendering is drawn from it — through `edited`, so the page follows, the tab dirties and autosave and the on-disk conflict work as for any edit |
 | find/replace across files | [12 — search](12-search-and-quick-open.md), through the CAS write per file |
 | go-to-symbol, go-to-definition, hover, diagnostics | [10 — language intelligence](10-language-intelligence.md) |

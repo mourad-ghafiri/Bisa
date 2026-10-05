@@ -26,6 +26,8 @@ test("on a root: workbench always, tabs with a strip, and the target's own scope
   assert.deepEqual(at({ monaco: true }), ["workbench", "tabs", "editor", "document"]);
   assert.deepEqual(at({ rendered: true }), ["workbench", "tabs", "document"], "a rendering is a document and not an editor");
   assert.deepEqual(at({ conflict: true }), ["workbench", "tabs", "document"]);
+  assert.deepEqual(at({ document: true }), ["workbench", "tabs", "document"], "a document's own chrome — its bar, its mode control — is the document, never the editor");
+  assert.deepEqual(scopesOf({ root: false, strip: false, designer: false, within: { document: true } }), ["document"], "on any route");
   assert.deepEqual(at({ terminal: true }), ["workbench", "tabs", "terminal"]);
   assert.deepEqual(at({ browser: true }), ["workbench", "tabs", "browser"]);
   assert.deepEqual(at({ files: true }), ["workbench", "tabs", "files"]);

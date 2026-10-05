@@ -169,7 +169,11 @@ not followed — its paths are found by their tail or asked of the node.
 - A `«secret:…»` placeholder, and anything that follows it without a space.
 - A relative link inside a rendered document (`./notes.md`) is the document's own, resolved
   against the file it sits in by `docLink.mjs` — it opens as another document and never reaches
-  the handler; one that climbs out of the root is inert. A relative **image** (an `![…]` whose
+  the handler; one that climbs out of the root is inert. A same-document link (`#build-and-upload`,
+  a table of contents') names a heading — every heading of a document carries GitHub's anchor
+  (`ui/headingAnchorsModel.mjs`) — and the rendering scrolls to it (`docLink.fragmentOf`,
+  `ui/docAnchors.scrollToFragment`); the window never follows the hash ([03 §Rendered
+  documents](03-files-and-editing.md#rendered-documents)). A relative **image** (an `![…]` whose
   source is a sibling file such as `diagram.png`)
   is the document's own the same way: the sanitizer keeps its path as `data-doc-src`, and the
   rendered view reads it through the node's byte route into a blob URL
@@ -187,7 +191,8 @@ not followed — its paths are found by their tail or asked of the node.
 | the grammar climbs as far as it says (`../../lib/a.ts`) and reads a hidden folder's path (`.github/workflows/ci.yml`); a dotfile alone is a word | `ui/linkModel.test.mjs` |
 | where a shell stands is its process's word, follows its `cd`, and is where it started once the process is gone; a pid nobody holds says nothing; an unknown terminal is refused | `desktop/src-tauri/src/terminal.rs` unit tests |
 | a message of two thousand lines is scanned and marked well inside a frame | `ui/linkModel.test.mjs` |
-| a relative link in a document resolves and refuses to climb | `views/_workbench/docLink.test.mjs` |
+| a relative link in a document resolves and refuses to climb; a same-document link names its heading's fragment, decoded and lower-cased, and a document's link, a bare `#` or nothing names none | `views/_workbench/docLink.test.mjs` |
+| a document's headings carry GitHub's anchors — GitHub's own example, a numbered heading, markup and entities, repeats counted, a heading with an id or no words left alone — in a document alone, and a table of contents' fragment is the anchor its heading got | `ui/headingAnchorsModel.test.mjs`, `scenarios/files.test.mjs` |
 | the card: a path's verbs per resolution — one document opens, several are a door each, outside opens loose or reveals, unknown copies alone; a URL's — the embedded browser first, then the machine's, `http` and `https` alone; the roots a surface names none of, capped at eight | `shell/linkCardModel.test.mjs`, `scenarios/browser.test.mjs` |
 | the click that lands last is the card drawn; a resolution for a click superseded draws nothing | `shell/latestModel.test.mjs` |
 | a path from a message and from the terminal's grammar reaches the same card, with the same roots; a relative path read from where the shell stands reaches the same card, the crate's own file revealed; the terminal asks the shell at the click and hands `from` | `scenarios/files.test.mjs` |

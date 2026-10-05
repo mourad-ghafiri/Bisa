@@ -203,14 +203,17 @@ key is live in are one reading** (`shell/keyContexts.ts`, `contextsOf(target, ro
 the DOM with the selectors `shell/keyContextsModel.mjs` names and leaves the decision to its
 `scopesOf` — every scope it can answer is one the keymap ranks, and the reverse): `workbench`
 while the IDE is on a root, `tabs` while a root's strip is on screen, `editor` inside Monaco,
-`document` inside the editor, a rendering or a conflict document **on any route** (a rendering in
-the Details pane finds too), `terminal`, `browser`, `files` by their frames' markers — read once
+`document` inside the editor, a rendering, a conflict document, or a document's own root — its bar,
+its mode control (`[data-document]`, so ⌘F from the mode control finds) — **on any route** (a
+rendering in the Details pane finds too), `terminal`, `browser`, `files` by their frames' markers — read once
 per key by the window listener and by a terminal's key reservation alike, so the two never
 disagree. The typing guard lets every non-`always` chord through to a focused input; `Mod+P` is
 always `preventDefault`ed because it is Print in a webview, and `Mod+R` is prevented where it
 resolves — a document's replace, a browser tab's reload — and falls through elsewhere; `find` /
 `replace` open Monaco's own widgets in the editor and the rendering's bar (`DOC_FIND`, answered by
-the document that holds the focus) otherwise, and the terminal's own find bar opens on the same
+the document that holds the focus — a rendering takes the keyboard when it is shown, and takes it
+back when its bar closes, never from a field, a shell or the Files tree: `docFocus.takeKeyboard`)
+otherwise, and the terminal's own find bar opens on the same
 `find` chord (`chordFor`, so a rebinding follows; the editor's `save` resolves through
 `commandForEvent` the same way); a focused terminal types a `typed` command's key before anything
 else may take the keystroke (`typedFor(currentKeymap(), …)`, then the app's reserved chords, then
