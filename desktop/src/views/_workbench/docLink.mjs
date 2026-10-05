@@ -66,6 +66,27 @@ export function resolveDocLink(from, href) {
   return segments.join("/");
 }
 
+/**
+ * The heading a same-document link names — `#10-build-and-upload`, as a
+ * table of contents writes it — decoded and lower-cased as a heading's id is
+ * (`ui/headingAnchorsModel`), or `null` for a link that names a document
+ * (`./b.md#x` is {@link resolveDocLink}'s), a bare `#`, or no link at all. The
+ * window never follows it: the rendering scrolls to the heading.
+ * @param {unknown} href
+ * @returns {string | null}
+ */
+export function fragmentOf(href) {
+  if (typeof href !== "string") return null;
+  const raw = href.trim();
+  if (!raw.startsWith("#") || raw.length === 1) return null;
+  const fragment = raw.slice(1);
+  try {
+    return decodeURIComponent(fragment).toLowerCase();
+  } catch {
+    return fragment.toLowerCase();
+  }
+}
+
 /** Whether a file should render as markdown rather than as source — the one kind table's answer (`fileDocModel`). */
 export function isMarkdown(path) {
   return typeof path === "string" && docKindOf(path) === "markdown";

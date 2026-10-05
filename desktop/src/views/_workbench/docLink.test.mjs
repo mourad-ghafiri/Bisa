@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { isMarkdown, resolveDocLink } from "./docLink.mjs";
+import { fragmentOf, isMarkdown, resolveDocLink } from "./docLink.mjs";
 
 test("a relative link resolves against the directory of the file it is in", () => {
   assert.equal(resolveDocLink("docs/API.md", "./STUDIO.md"), "docs/STUDIO.md");
@@ -44,6 +44,17 @@ test("anything that is not a document in this tree is left to the browser", () =
 test("a query or a fragment addresses the same file", () => {
   assert.equal(resolveDocLink("docs/API.md", "./STUDIO.md#projects"), "docs/STUDIO.md");
   assert.equal(resolveDocLink("docs/API.md", "./STUDIO.md?v=2"), "docs/STUDIO.md");
+});
+
+test("a same-document link names a heading: its fragment, decoded and lower-cased; a document's link, a bare # or nothing names none", () => {
+  assert.equal(fragmentOf("#10-build-and-upload"), "10-build-and-upload");
+  assert.equal(fragmentOf("#Build-And-Upload"), "build-and-upload", "as a heading's id is lower-cased");
+  assert.equal(fragmentOf("#a%20b"), "a b", "decoded");
+  assert.equal(fragmentOf(" #trimmed "), "trimmed");
+  assert.equal(fragmentOf("#%E0%A4%A"), "%e0%a4%a", "one that will not decode is taken as written");
+  for (const none of ["#", "", "./STUDIO.md#projects", "https://example.com/#x", "x#y", undefined, null, 3]) {
+    assert.equal(fragmentOf(none), null, String(none));
+  }
 });
 
 test("markdown is decided by extension, and only by extension", () => {
