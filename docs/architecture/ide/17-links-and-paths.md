@@ -28,9 +28,12 @@ path**: URLs are found first and a path never overlaps one.
 
 ## Where it is marked
 
-Rendered markdown goes through three string passes in `Markdown.tsx`: the sanitizer (no raw HTML,
-no protocol the desktop does not vouch for, no handlers), then `linkifyHtml`, then the placeholder
-chips. The link pass walks the HTML by tag: text and inline `<code>` gain anchors where `findLinks`
+Rendered markdown goes through the string passes in `Markdown.tsx`: in a document, DOMPurify's
+prose profile over the raw HTML micromark kept (`markdownHtmlModel.PROSE_PROFILE`; a message's HTML
+is escaped by micromark and never reaches it), then the URL sanitizer (no protocol the desktop does
+not vouch for, no handlers), then `linkifyHtml`, then the placeholder chips. Every pass reads a tag
+to its first `>` outside a double-quoted value (`TAG_REST`), since a document's raw HTML may carry
+one inside an attribute, and the chips are made in the text alone, never inside a tag. The link pass walks the HTML by tag: text and inline `<code>` gain anchors where `findLinks`
 says; a fenced `<pre>` block, an existing anchor and a redacted secret are left alone; the anchor
 micromark made for a URL is tagged `data-link="url"`, a `mailto:` one `data-link="mail"`, a relative
 `href` in a document `data-link="doc"`. A path anchor carries `data-path`, `data-line` and

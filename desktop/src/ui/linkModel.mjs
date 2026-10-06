@@ -20,6 +20,8 @@
  * checks containment.
  */
 
+import { TAG_REST } from "./markdownHtmlModel.mjs";
+
 const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"'`\]]+/gi;
 const PLACEHOLDER_RE = /«secret:[^»]*»/g;
 /** Trailing punctuation a sentence leaves on a link. */
@@ -143,8 +145,10 @@ function anchorFor(hit) {
  * Mark the links in rendered HTML. Text and inline `<code>` gain anchors
  * where `findLinks` says; an anchor micromark made for a URL is tagged and
  * left; fenced `<pre>` blocks, existing anchors and a redacted secret are
- * left alone. Runs after the sanitizer (no raw HTML, no handlers) and before
- * the placeholder chips.
+ * left alone. Runs after the sanitizer — a document's raw HTML is DOMPurify's
+ * by then, with no handlers, and a message has none — and before the
+ * placeholder chips. A tag is read to its first `>` outside a quoted value
+ * (`markdownHtmlModel.TAG_REST`), since raw HTML may carry one inside.
  * @param {string} html
  * @returns {string}
  */
@@ -154,7 +158,7 @@ export function linkifyHtml(html) {
   let inAnchor = 0;
   let inPre = 0;
   let last = 0;
-  const TAG = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
+  const TAG = new RegExp(String.raw`<\/?([a-zA-Z][a-zA-Z0-9]*)\b${TAG_REST}>`, "g");
   const emitText = (chunk) => {
     if (!chunk) return;
     if (inAnchor > 0 || inPre > 0 || !/[A-Za-z]/.test(chunk)) {

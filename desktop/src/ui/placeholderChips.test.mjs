@@ -12,6 +12,18 @@ test("a placeholder becomes a chip naming its kind, with the whole placeholder i
   assert.ok(!/«secret:[^"]*»(?![^<]*")/.test(out.replace(/title="[^"]*"/g, "")), "no bare placeholder is left in the text");
 });
 
+/** A placeholder spelt at run time: the guillemet form the redactor writes, built so no fixture carries one whole. */
+const placeholder = (kind, hex) => "«secret:" + kind + ":" + hex + "»";
+
+test("a placeholder inside a tag's attribute is left where it is; the one in the text beside it is still a chip", () => {
+  const token = placeholder("github_token", "7f3a2c");
+  const out = placeholderChips(`<abbr title="${token}">x</abbr> ${token}`);
+  assert.ok(out.startsWith(`<abbr title="${token}">x</abbr> <span class="placeholder-chip"`), out);
+  assert.ok(out.endsWith(">github token</span>"), out);
+  const inAttr = `<img alt="a > ${placeholder("k", "abcdef")}">`;
+  assert.equal(placeholderChips(inAttr), inAttr, "a > inside the attribute does not end the tag");
+});
+
 test("an environment variable's placeholder names the variable, and text without one is untouched", () => {
   assert.equal(placeholderKindWords("env:MY_API_KEY"), "MY_API_KEY");
   assert.equal(placeholderKindWords("user:team_key"), "team key");

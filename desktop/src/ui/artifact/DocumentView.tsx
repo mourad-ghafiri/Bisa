@@ -1,11 +1,13 @@
 /**
  * A Word document as prose (ide/12): mammoth turns the `.docx` into HTML,
  * DOMPurify strips anything that is not prose from it, and the result is
- * drawn in the same `prose-i` the app's Markdown wears. Both libraries load
- * when the first document opens and nowhere else.
+ * drawn in the same `prose-i` the app's Markdown wears. mammoth loads when
+ * the first document opens and nowhere else; DOMPurify is the kit's already
+ * (`ui/Markdown.tsx` sanitizes a rendered document's raw HTML with it), so
+ * its import here resolves at once.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ErrorNote, Spinner } from "../Card";
 import { sayFailure } from "../failure";
 import { cn } from "../cn";
@@ -33,6 +35,9 @@ export function DocumentView({ bytes, className }: { bytes: Uint8Array; classNam
       live = false;
     };
   }, [bytes]);
+  // One object per string: react-dom sets `innerHTML` again whenever the
+  // object is new, which would replace the text nodes a find holds ranges over.
+  const inner = useMemo(() => (html === null ? undefined : { __html: html }), [html]);
   if (error)
     return (
       <div className={cn("p-3", className)}>
@@ -49,7 +54,7 @@ export function DocumentView({ bytes, className }: { bytes: Uint8Array; classNam
   return (
     <div data-scroll-keep="document" className={cn("h-full overflow-auto p-4", className)}>
       {/* Sanitised above: a prose profile, no styles, no handlers, no frames. */}
-      <div className="prose-i mx-auto max-w-3xl text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="prose-i mx-auto max-w-3xl text-xs leading-relaxed" dangerouslySetInnerHTML={inner} />
     </div>
   );
 }

@@ -14,8 +14,12 @@
  * with the tags stripped and the entities decoded. Nothing here reads a DOM.
  */
 
-/** A heading, open tag to close tag; headings never nest. */
-const HEADING = /<h([1-6])(\s[^>]*)?>([\s\S]*?)<\/h\1>/gi;
+import { TAG_REST } from "./markdownHtmlModel.mjs";
+
+/** A heading, open tag to close tag; headings never nest. Its attributes are read to the first `>` outside a quoted value: a document's raw HTML may carry one. */
+const HEADING = new RegExp(String.raw`<h([1-6])(\s${TAG_REST})?>([\s\S]*?)<\/h\1>`, "gi");
+/** Any tag, read the same way. */
+const ANY_TAG = new RegExp(String.raw`<\/?[a-zA-Z]${TAG_REST}>`, "g");
 /**
  * What GitHub drops from a heading: whitespace other than the spaces already
  * made hyphens, and punctuation of every script — the hyphen and the
@@ -38,7 +42,7 @@ function decodeEntities(s) {
 
 /** A heading's words: its inner HTML with the markup removed and the entities read back. */
 function plainText(inner) {
-  return decodeEntities(inner.replace(/<[^>]*>/g, ""));
+  return decodeEntities(inner.replace(ANY_TAG, ""));
 }
 
 /**

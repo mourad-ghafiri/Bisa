@@ -14,5 +14,11 @@ export interface Span {
   end: number;
 }
 
+export interface Band {
+  top: number;
+  bottom: number;
+}
+
 export declare function segmentsOf(texts: readonly string[]): Segments;
+export declare function revealOffset(match: Band, port: Band, scrollTop: number): number | null;
 export declare function locate(segments: Pick<Segments, "starts">, texts: readonly string[], match: { start: number; end: number }): Span[];

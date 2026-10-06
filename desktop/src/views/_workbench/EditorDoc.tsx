@@ -722,8 +722,10 @@ export function EditorDoc({
     setFindIndex(-1);
     setPageFound(null);
     setSheetFound(null);
-    // The bar hands the keyboard back to the rendering it searched, so the
+    // The found occurrence stays selected, as a native find leaves it; then
+    // the bar hands the keyboard back to the rendering it searched, so the
     // next find chord — and Space, and the arrows — still reach the document.
+    if (domFindable) domFound.select();
     if (mode !== "source") takeKeyboard(renderedShown());
   };
   // A rendering takes the keyboard when it is shown — the document opened on

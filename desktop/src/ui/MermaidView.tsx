@@ -14,7 +14,7 @@
  * re-renders the last source — the same attribute observer the terminal uses.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { exportFile } from "../api";
 import { Button } from "./Button";
 import { copyText } from "./clipboard";
@@ -70,6 +70,9 @@ export function MermaidView({
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<{ line: number | null; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // One object per drawing: react-dom sets `innerHTML` again whenever the
+  // object is new, which would replace the text nodes a find holds ranges over.
+  const drawing = useMemo(() => ({ __html: svg }), [svg]);
   const host = useRef<HTMLDivElement>(null);
   const id = useRef(`mermaid-${++counter}`);
   const themeNonce = useThemeNonce();
@@ -168,7 +171,7 @@ export function MermaidView({
         ref={host}
         className={cn("min-h-0 flex-1 overflow-auto p-2 [&_svg]:max-w-full", error && "opacity-60")}
         // Mermaid's output under `securityLevel: strict` carries no scripts or handlers.
-        dangerouslySetInnerHTML={{ __html: svg }}
+        dangerouslySetInnerHTML={drawing}
       />
     </div>
   );

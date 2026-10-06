@@ -459,6 +459,8 @@ export function NoteEditor({
     setFind(null);
     setReplacing(false);
     setFindIndex(-1);
+    // In Read, the found occurrence stays selected, as a native find leaves it.
+    if (reading) domFound.select();
     area.current?.focus();
   };
   const replaceInBody = (all: boolean) => {

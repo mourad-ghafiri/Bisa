@@ -255,6 +255,19 @@ editor: it registers no line requests and has no dirty state.
 document (`resolveDocLink` — one that climbs out of the root stays blank) and reads it through the
 byte route into a blob URL ([17](17-links-and-paths.md)).
 
+**A document's raw HTML renders as GitHub renders it.** In a document — under `relativeLinks`,
+never in a message, a note or a card, where `Vec<T>` in an agent's prose must keep its brackets —
+micromark keeps the raw HTML and DOMPurify's prose profile sanitizes it (`ui/markdownHtmlModel.mjs`
+`PROSE_PROFILE`, over the library's own HTML allow-list: nothing that runs, styles, frames,
+submits, plays, draws, pops over or hides, no `data-*` a README could mint — every mark the app
+reads is its own, added after — and the one `<input>` kept is GFM's task box), so a `<details>`, a
+row of badges in `<p align="center">`, a `<br>`, a `<kbd>` draw; a comment is never a tag and is
+gone; a YAML front matter block at the top is left out (`withoutFrontMatter`), Source still showing
+it. Then the string passes as before, each reading a tag to its first `>` outside a quoted value
+(`TAG_REST`), since raw HTML may carry one. The HTML goes into the page through one memoised object
+per string: react-dom sets `innerHTML` again whenever the object is new, which would replace every
+text node on every render — the nodes a find holds its ranges over.
+
 **A table of contents works.** In a document — under `relativeLinks`, never in a message — every
 heading carries the anchor GitHub gives it (`ui/headingAnchorsModel.mjs`, tested against GitHub's
 own rule and example: lower-cased, spaces to hyphens, the rest of the punctuation and the ASCII
@@ -779,7 +792,7 @@ The CLI has the same verbs: `bisa files new|mv|cp|rm`, which say how a delete we
 | syntax highlighting | Monaco's tokeniser — there are no semantic tokens ([10](10-language-intelligence.md)) |
 | multi-cursor, bracket matching | Monaco, built in |
 | find, find and replace in the file | Monaco's own widgets, opened by the app's chords — `find` (⌘F) and `replace` (⌘R), `when: document` ([15](15-keymap.md)) — through `CodeEditor.handle.trigger`, from the editor or from the document's own bar (`data-document`); Monaco's ⌘⌥F still works |
-| find in a **rendering** | the kit's one bar (`ui/find/FindBar.tsx` over `findModel.mjs`), on the same chords: markdown and a diagram are walked and drawn with the CSS Custom Highlight API (`useDomFind`, `domFindModel.mjs` — the DOM is never rewritten), a csv searches its parsed rows and scrolls the grid to the cell (`sheetModel.findCells`), a page finds inside its frame (`pageInspector` `FIND` / `FOUND`, the frame highlighting its own text), an svg is a picture and its bar goes to the source; a rendering of bytes (`RenderedFileDoc`: a sheet, a document) finds and never replaces. The chord reaches the rendering because the rendering holds the keyboard — taken when it is shown and given back when the bar closes (`docFocus`) — or because the key landed anywhere in the document's root (`data-document`); the walk is redone when the text or the mode changes (Rendered and Split draw the preview in different boxes), and a rendering with no query never clears the highlights another one drew — the registry's two names are the page's |
+| find in a **rendering** | the kit's one bar (`ui/find/FindBar.tsx` over `findModel.mjs`), on the same chords: markdown and a diagram are walked and drawn with the CSS Custom Highlight API (`useDomFind`, `domFindModel.mjs` — the DOM is never rewritten), a csv searches its parsed rows and scrolls the grid to the cell (`sheetModel.findCells`), a page finds inside its frame (`pageInspector` `FIND` / `FOUND`, the frame highlighting its own text), an svg is a picture and its bar goes to the source; a rendering of bytes (`RenderedFileDoc`: a sheet, a document) finds and never replaces. The chord reaches the rendering because the rendering holds the keyboard — taken when it is shown and given back when the bar closes (`docFocus`) — or because the key landed anywhere in the document's root (`data-document`); the walk is redone when the text or the mode changes (Rendered and Split draw the preview in different boxes) and whenever the rendering's DOM changes under it (a `MutationObserver`, one walk per frame — a diagram landing, a document arriving), since a range over a replaced node collapses and draws nothing; text nobody sees — a closed `<details>`, a `[hidden]`, an SVG's own stylesheet — is not found; the current match is revealed by its own rect inside the rendering's scrollports, innermost first, after the kept scroll yields (`domFindModel.revealOffset`), never by `scrollIntoView`; a bar that closes leaves the found occurrence selected (`select`), the next press collapsing it so a link's click stays a click, and Escape lets go of the field before the close so the rendering takes the keyboard back; a rendering with no query never clears the highlights another one drew — the registry's two names are the page's |
 | replace in a rendering | into the **buffer** — the rendering is drawn from it — through `edited`, so the page follows, the tab dirties and autosave and the on-disk conflict work as for any edit |
 | find/replace across files | [12 — search](12-search-and-quick-open.md), through the CAS write per file |
 | go-to-symbol, go-to-definition, hover, diagnostics | [10 — language intelligence](10-language-intelligence.md) |

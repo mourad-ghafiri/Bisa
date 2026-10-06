@@ -21,6 +21,11 @@ test("GitHub's rule: lower-case, spaces to hyphens, the rest of the punctuation 
   assert.equal(slug("!!!"), "", "no words, no anchor");
 });
 
+test("a > inside a heading's quoted attribute does not end the tag, and an inline tag with one is still stripped from the words", () => {
+  assert.equal(withHeadingIds('<h2 title="a > b">Hello</h2>'), '<h2 title="a > b" id="hello">Hello</h2>');
+  assert.equal(withHeadingIds('<h3><abbr title="1 > 0">One</abbr> two</h3>'), '<h3 id="one-two"><abbr title="1 > 0">One</abbr> two</h3>');
+});
+
 test("a heading that repeats an earlier anchor counts up: -1, -2, …", () => {
   const taken = new Map();
   assert.deepEqual([slug("Notes", taken), slug("notes", taken), slug("NOTES!", taken), slug("Other", taken)], ["notes", "notes-1", "notes-2", "other"]);

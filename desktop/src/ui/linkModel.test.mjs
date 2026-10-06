@@ -60,6 +60,9 @@ test("rendered HTML gains anchors in text and inline code, never in a block, an 
   assert.equal(linkifyHtml("<p>«secret:k:abcdef» and nothing</p>"), "<p>«secret:k:abcdef» and nothing</p>");
   assert.equal(linkifyHtml('<a href="#">x</a>'), '<a href="#">x</a>', "a neutered anchor stays neutered");
   assert.match(linkifyHtml("<p>a &quot;src/q.rs&quot; here</p>"), /a &quot;<a data-link="path" data-path="src\/q.rs" class="link-path">src\/q.rs<\/a>&quot; here/, "entities survive around a link");
+  // A document's raw HTML, sanitized: a `>` inside a quoted value does not end the tag, so the title is never linked and the text still is.
+  const raw = linkifyHtml('<abbr title="see docs/x.md > y">docs/a.md</abbr>');
+  assert.match(raw, /^<abbr title="see docs\/x.md > y"><a data-link="path" data-path="docs\/a.md" class="link-path">docs\/a.md<\/a><\/abbr>$/, raw);
 });
 
 const roots = [

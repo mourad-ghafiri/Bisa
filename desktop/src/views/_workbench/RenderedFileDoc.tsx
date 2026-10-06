@@ -180,7 +180,9 @@ export function RenderedFileDoc({
               setFind(null);
               setFindIndex(-1);
               setSheetFound(null);
-              // The bar hands the keyboard back, so the next find chord reaches the document.
+              // The found occurrence stays selected; then the bar hands the
+              // keyboard back, so the next find chord reaches the document.
+              domFound.select();
               takeKeyboard(bodyBox.current);
             }}
             label={t("workbench-editor-doc-find-rendering")}

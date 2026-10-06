@@ -10,6 +10,11 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- A Markdown file in the Project IDE renders its raw HTML as GitHub renders it: a `<details>`, a
+  row of badges in `<p align="center">`, a `<br>`, a `<kbd>` draw, through DOMPurify's prose
+  profile — nothing that runs, styles, frames, submits, plays, pops over or hides is kept, and no
+  `data-*` attribute a README could use to pose as the app's own marks. Messages and notes keep
+  their HTML as text, so `Vec<T>` in an agent's prose keeps its brackets.
 - `Ctrl+Q` quits on Linux and Windows, through the same question-then-save flow as the menu bar
   icon's *Quit Bisa* — a keymap command, `quit`, rebindable under Settings › Keymap, taken from a
   composer and a focused shell alike; on a Mac the application menu's `⌘Q` is the way out.
@@ -61,6 +66,15 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- Find in a rendered Markdown file shows its matches again: every match is marked in amber, the one
+  you are on darker and underlined and brought into view inside the rendering, and closing the bar
+  leaves it selected. The highlights were drawn over text nodes the page had just replaced — React
+  sets a rendering's HTML again on every re-render unless the HTML object is the same one — so the
+  bar counted matches nobody could see. The walk is also redone when the rendering changes under
+  it, so a diagram or a Word document that arrives late is searchable, a diagram's own stylesheet
+  no longer counts as matches, and ⌘F reopens the bar after Escape closed it.
+- A rendered Markdown file no longer shows its HTML comments — a pull request template's
+  `<!-- … -->` — or its YAML front matter as text.
 - `⌘Q`, the application menu's *Quit*, the Dock's *Quit* and a logout now ask first while *Confirm
   before quitting* is on, and save what is unsaved — they used to end Bisa at once, the switch
   notwithstanding, because the runtime never held the quit. The window comes forward for the

@@ -482,7 +482,11 @@ bearer token, `localStorage` or the parent. As a second wall the page carries it
 Content-Security-Policy, first in its head: no network at all (`connect-src 'none'`, no frames, no
 forms, no base), except scripts, styles and fonts from three public CDNs while
 `artifacts.html.libraries` is on. A figure is drawn as an `<img>`, which runs no script; a document's
-HTML passes DOMPurify's prose profile; a deck is read as text and pictures. The shell opens or copies
+HTML passes DOMPurify's prose profile — and so does a rendered Markdown file's raw HTML, under a
+tighter one (`markdownHtmlModel.PROSE_PROFILE`: no control, media, form or popover either, and no
+`data-*` a README could mint), since the webview runs with no Content-Security-Policy and the
+sanitizer is the wall, while a message's or a note's HTML stays escaped text; a deck is read as text
+and pictures. The shell opens or copies
 only a path shaped like the store's named copy, and no bytes cross its bridge.
 
 ## Pages a person installed

@@ -218,8 +218,9 @@ bisa project list | show <id> | attach <id> <goal> | detach <id> <goal>
 A file opened from the explorer opens **in an editor** — Monaco, wrapped once, themed from the same
 token roles as the rest of the app, with multi-cursor, bracket matching and find (`⌘F`) and
 find-and-replace (`⌘R`) in the file — the same two chords open a find bar over a **rendered** file
-too: a README's page, a csv's grid (it scrolls to the cell), an HTML page inside its frame; replacing
-there lands in the source, so the page follows and the tab dirties. A rendered file has the keyboard
+too: a README's page, a csv's grid (it scrolls to the cell), an HTML page inside its frame; every
+match is marked, the one you are on darker, underlined and brought into view, and closing the bar
+leaves it selected; replacing there lands in the source, so the page follows and the tab dirties. A rendered file has the keyboard
 as soon as it is shown — press ⌘F after opening it, after switching to *Rendered*, or after
 scrolling, and the bar opens; Space and the arrows scroll it — and ⌘F works from the file's own bar
 too. An svg is a picture — its bar
@@ -228,7 +229,9 @@ built in. Its type is yours: `editor.font_size` (14 by default), `editor.line_he
 `editor.word_wrap` and `editor.font_family` under Settings › Project IDE › Editor apply to an open
 editor as you change them, and an empty family means the code face chosen in Appearance. The
 terminal's `terminal.font_size` and `terminal.font_family` work the same way. Markdown opens
-rendered, with *Source* one click away; a relative link in it opens the document it names, a
+rendered, with *Source* one click away, and renders as GitHub renders it — a `<details>`, a row of
+badges, a `<br>` draw; a comment and a YAML front matter are left out; nothing that runs, styles,
+frames, submits or plays is kept; a relative link in it opens the document it names, a
 relative picture in it draws, and every path and URL in it is a door (see *Links and paths* below).
 The view control on such a file is three glyphs — the **eye** for the rendering, the **brackets**
 for the source, the **two columns** for both side by side — with the word as the tooltip, and the

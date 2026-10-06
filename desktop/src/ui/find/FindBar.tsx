@@ -53,9 +53,14 @@ export function FindBar({ find, onChange, index, count, onStep, onClose, replace
     return () => window.clearTimeout(t);
   }, [wantsReplace, focus?.nonce]);
 
+  // Escape lets go of the keyboard before the close is said: the surface
+  // hands it back to what it searched (`takeKeyboard`), which refuses a
+  // field still being typed in — and this one would be, since the close
+  // runs inside its own keydown.
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
+      e.currentTarget.blur();
       onClose();
     } else if (e.key === "Enter") {
       e.preventDefault();
@@ -107,6 +112,7 @@ export function FindBar({ find, onChange, index, count, onStep, onClose, replace
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
+                e.currentTarget.blur();
                 onClose();
               } else if (e.key === "Enter") {
                 e.preventDefault();

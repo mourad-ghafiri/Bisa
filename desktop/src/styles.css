@@ -91,14 +91,18 @@ samp {
 
 /* A find over a rendering: every match, and the one the bar is on
    (`ui/find/useDomFind.ts`), drawn by the highlight registry so the
-   rendering's DOM is never rewritten. */
+   rendering's DOM is never rewritten. An amber wash, as an editor marks
+   its matches: it reads on a light surface, a dark one and a code block's
+   alike, and the current match is darker and underlined — the accent stays
+   what the product keeps it for. */
 ::highlight(bisa-find) {
-  background-color: color-mix(in oklch, var(--color-accent-soft) 80%, transparent);
+  background-color: color-mix(in oklch, var(--color-warn) 25%, transparent);
   color: var(--color-text);
 }
 ::highlight(bisa-find-current) {
-  background-color: var(--color-warn-soft);
+  background-color: color-mix(in oklch, var(--color-warn) 50%, transparent);
   color: var(--color-text);
+  text-decoration: underline;
 }
 
 /*
