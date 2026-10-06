@@ -335,7 +335,7 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 
 | Key | Kind | Default | Scopes | What it does |
 |---|---|---|---|---|
-| `desktop.confirm_quit` | bool | `true` | M | **Confirm before quitting** — Quitting — ⌘Q, the menu bar icon's Quit Bisa, or closing the window while it does not keep Bisa running — asks first, naming what is running and what is unsaved; unsaved documents are saved after you confirm. Off, the app quits at once — still saving what is unsaved. |
+| `desktop.confirm_quit` | bool | `true` | M | **Confirm before quitting** — Quitting — ⌘Q, the application menu's or the Dock's Quit, a logout, the menu bar icon's Quit Bisa, Ctrl+Q on Linux and Windows, or closing the window while it does not keep Bisa running — asks first, naming what is running and what is unsaved; unsaved documents are saved after you confirm, and a logout waits for your answer. Off, the app quits at once — still saving what is unsaved. |
 | `desktop.close_keeps_running` | bool | `true` | M | **Closing the window keeps Bisa running** — The window hides and Bisa stays in the menu bar, its icon showing what the platform is doing and how many things need you; agents, terminals and the node keep going. Bring the window back from the icon or the Dock; quit from the icon's menu or with ⌘Q. Off, closing the window quits. |
 | `desktop.dock_icon` | bool | `true` | M | **Show in the Dock** — macOS: Bisa's icon in the Dock, wearing the number of things that need you. Off, the menu bar icon is the app's only door — the window comes back from there — and Bisa leaves ⌘Tab and the application menu. On other platforms the switch has no effect yet. |
 

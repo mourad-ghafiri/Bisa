@@ -130,7 +130,8 @@ hides, and nothing else happens: agents, terminals and the node keep going, noth
 nothing is saved, because nothing is lost. The window comes back from a left click on the icon, from
 *Open Bisa*, from the Dock, from `⌘Tab` — the same doors that bring back any hidden app — and a
 browser tab open in the IDE changes none of that. Quitting is deliberate — *Quit Bisa* in the icon's
-menu or `⌘Q` — and asks and saves as [Settings › Capabilities › Desktop](#settings) says. Turn the switch off and the
+menu, `⌘Q`, the Dock's *Quit*, a logout, or `Ctrl+Q` on Linux and Windows — and asks and saves as
+[Settings › Capabilities › Desktop](#settings) says; the window comes forward for the question. Turn the switch off and the
 red button quits, as it always did.
 
 **One Bisa.** Launching Bisa again while it runs — from a terminal, with `open -n`, from a second
@@ -873,8 +874,10 @@ default, and under them **Where you were** — one action, *Forget where I was*
 ([§Where you were](#where-you-were)). **Closing the window keeps Bisa running** — the red button hides Bisa as `⌘H` does and the app
 lives on in the menu bar ([§The menu bar icon](#the-menu-bar-icon)); off, closing the window quits.
 **Show in the Dock** — the Dock icon, wearing the number of things that need you; off, the menu bar
-icon is the only door. **Confirm before quitting** — `⌘Q`, the icon's *Quit Bisa*, or the red
-button while the first switch is off, asks first: the dialog names the shells and harnesses running
+icon is the only door. **Confirm before quitting** — `⌘Q`, the application menu's and the Dock's *Quit*, a logout,
+the icon's *Quit Bisa*, `Ctrl+Q` on Linux and Windows, or the red button while the first switch is
+off, asks first — the window brought forward if it was put away or minimised, and a logout waiting
+for your answer: the dialog names the shells and harnesses running
 and the documents unsaved — an open note or drawing with unsaved changes counts as one — and only after
 you confirm are the documents saved and the app quit;
 *Cancel* leaves everything as it was. Off, the app quits at once, still saving what is unsaved. A

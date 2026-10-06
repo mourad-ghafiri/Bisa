@@ -41,6 +41,18 @@ export async function saveEvery(items, saveOne, onError) {
 export const CLOSE_OUTCOMES = Object.freeze(["busy", "cancelled", "unsaved", "closed"]);
 
 /**
+ * Whether the shell is told *no* after a flow ended this way. An OS that
+ * asked — a `terminate:` held on macOS, a logout waiting on it — is owed an
+ * answer: a cancelled quit and a document that would not save are a no;
+ * `closed` has answered through `quit_app`; and `busy` is a second request
+ * whose first is still being asked, which answers for both.
+ * @param {string} outcome
+ */
+export function declines(outcome) {
+  return outcome === "cancelled" || outcome === "unsaved";
+}
+
+/**
  * One flow over the window's hands. `confirms` — the quit switch; `ask` —
  * the question, answered yes or no; `dirty` — whether anything is unsaved;
  * `save` — save it all, true when all of it saved; `unsaved` — say that the

@@ -25,6 +25,7 @@ mod png;
 #[allow(clippy::let_underscore_must_use)]
 mod ports;
 mod probe;
+mod quit;
 mod second_launch;
 mod sidecar;
 #[allow(clippy::let_underscore_must_use)]
@@ -61,13 +62,33 @@ fn node_status(node: State<NodeState>) -> NodeStatus {
     node.status()
 }
 
-/// The webview's word that the quit it was asked about may go ahead: a
-/// programmatic exit, which the `ExitRequested` arm below lets through.
-/// Every way out ends here — ⌘Q, the menu bar's *Quit Bisa*, and the window
-/// closing while *Closing the window keeps Bisa running* is off.
+/// The webview's word that the quit it was asked about may go ahead: the
+/// answer to a `terminate:` held on macOS (`quit.rs` — AppKit then ends the
+/// app through `RunEvent::Exit` below), else a programmatic exit, which the
+/// `ExitRequested` arm below lets through. Every way out ends here — ⌘Q and
+/// the Dock's Quit, the menu bar's *Quit Bisa*, Ctrl+Q off macOS, and the
+/// window closing while *Closing the window keeps Bisa running* is off.
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
-    app.exit(0);
+    if !quit::answer(&app, true) {
+        app.exit(0);
+    }
+}
+
+/// The webview's word that the quit it was asked about does not go ahead —
+/// a no, a document that would not save, a flow that failed: a held
+/// `terminate:` is told so, and a logout waiting on it with it. Nothing
+/// held is nothing to say.
+#[tauri::command]
+fn quit_declined(app: tauri::AppHandle) {
+    quit::answer(&app, false);
+}
+
+/// The webview listens for `bisa:quit-requested` from now on, so a quit the
+/// OS asks for can be held for its question; before this the exit stands.
+#[tauri::command]
+fn quit_ready() {
+    quit::ready();
 }
 
 /// The event that hands a person's ⌘Q — or the menu bar's *Quit Bisa* — to
@@ -425,6 +446,11 @@ fn main() {
             // app lives there from now until `Exit`.
             let tray = tray::install(app.handle())?;
             app.manage(tray);
+            // The way out, held: every `terminate:` AppKit sends — ⌘Q, the
+            // Dock's Quit, a logout — waits for the webview's question
+            // (`quit.rs`). Last, so the window and the icon's door it comes
+            // forward through exist.
+            quit::install(app.handle());
             Ok(())
         })
         // The window's red button is held and handed to the webview, as ⌘Q
@@ -470,6 +496,8 @@ fn main() {
             api_token,
             node_status,
             quit_app,
+            quit_declined,
+            quit_ready,
             hide_window,
             licence_files,
             tray_report,
@@ -525,11 +553,13 @@ fn main() {
         .build(context)
         .expect("error building tauri app")
         .run(|app, event| match event {
-            // ⌘Q, the Dock's Quit: held, and handed to the webview's one close
-            // flow, which asks (when `desktop.confirm_quit` says so), saves
-            // what is dirty, then quits through `quit_app` — whose own exit
-            // request carries a code and is not held. With no window to ask,
-            // the exit stands.
+            // Tauri's own exit request with no code: the last window
+            // destroyed — which this shell never does, a close being held
+            // above — so this arm is the letter of it: held, and handed to
+            // the webview's one close flow. ⌘Q and the Dock's Quit never
+            // come this way: AppKit's `terminate:` is held in `quit.rs`.
+            // `quit_app`'s own exit request carries a code and is not held.
+            // With no window to ask, the exit stands.
             RunEvent::ExitRequested {
                 code: None, api, ..
             } => {

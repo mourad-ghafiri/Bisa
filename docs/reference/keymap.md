@@ -9,6 +9,7 @@ live scope wins when two hold one chord: `document`, `editor`, `terminal`, `file
 `workbench` and `designer` — which are never live together — over `global`.
 
 A chord marked macOS is the one a Mac uses in place of the one beside it; where it stands alone, the command is a Mac's only — elsewhere the terminal's own keys already do it.
+A chord marked *not on macOS* is everyone else's: on a Mac the application menu has it, and holds it for the same question.
 
 ## global
 
@@ -17,6 +18,7 @@ A chord marked macOS is the one a Mac uses in place of the one beside it; where 
 | `omnibox` — Search or jump to | Mod+K | Mod+K |
 | `quick_open` — Quick open | Mod+P | Mod+P |
 | `commands` — Commands | Mod+Shift+P | Mod+Shift+P |
+| `quit` — Quit Bisa (asks first while Confirm before quitting is on and saves what is unsaved; taken from a focused shell too; on macOS the application menu's ⌘Q, held for the same question) | Mod+Q · not on macOS | Mod+Q · not on macOS |
 | `new_goal` — New goal | Mod+Shift+I | Mod+Shift+I |
 | `new_channel` — New channel | Mod+Shift+N | Mod+Shift+N |
 | `new_message` — New message | Mod+Shift+K | Mod+Shift+K |

@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { sourceFiles } from "../testWalk.mjs";
 import { EDIT_VERBS, EDIT_VERB_EVENT, editVerbId } from "./editMenuModel.mjs";
-import { COMMANDS, canonicalChord } from "./keymapModel.mjs";
+import { COMMANDS, canonicalChord, chordFor, resolveKeymap } from "./keymapModel.mjs";
 import { TYPED } from "../terminal/typedKeysModel.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -83,10 +83,16 @@ test("no native menu key equivalent shadows a declared chord, and the Edit menu'
   for (const verb of ["cut", "copy", "paste", "select_all", "close_window"]) {
     assert.ok(!used.includes(verb), `the predefined ${verb} item would claim its key before the webview sees it`);
   }
-  const declared = new Map(COMMANDS.map((c) => [c.id, canonicalChord(c.chords.default)]));
+  // The chord a Mac takes: a command's `mac` table stands in for its `chords` there — so `quit`, Mod+Q elsewhere, is unbound on a Mac, where the menu's ⌘Q is held for the same question (`src-tauri/src/quit.rs`).
+  const onMac = resolveKeymap("default", null, true);
   for (const m of used) {
-    for (const [id, chord] of declared) assert.notEqual(chord, canonicalChord(PREDEFINED[m]), `${id} is shadowed by the menu's ${m}`);
+    for (const { id } of COMMANDS) {
+      const chord = chordFor(onMac, id);
+      if (chord) assert.notEqual(chord, canonicalChord(PREDEFINED[m]), `${id} is shadowed by the menu's ${m}`);
+    }
   }
+  assert.equal(chordFor(onMac, "quit"), null, "on a Mac the menu's ⌘Q is the way out");
+  assert.equal(chordFor(resolveKeymap("default", null, false), "quit"), "Mod+Q", "elsewhere the keymap's Ctrl+Q is");
   assert.ok(menu.includes("edit_menu::items(handle)"), "the four verbs are custom items");
   assert.ok(shell.includes(".on_menu_event(") && shell.includes("edit_menu::perform(app, verb)"), "a verb runs natively and is told to the webview");
   assert.ok(shell.includes('#[cfg(target_os = "macos")]\nfn app_menu'), "the menu is macOS's alone");

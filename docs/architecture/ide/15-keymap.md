@@ -73,6 +73,7 @@ The ids, in the model's order (a test keeps this list equal to `COMMANDS`):
 omnibox
 quick_open
 commands
+quit
 new_goal
 new_channel
 new_message
@@ -240,7 +241,7 @@ selection they do nothing, rather than fall through to another command spelling 
 even from inside a shell (`interceptsInTerminal`: a terminal-scoped chord is never the PTY's; nor is
 a palette chord — `always` — on any platform, nor an explicit `Ctrl` on `Tab` or `Backquote`, so
 Ctrl+Tab cycles the strip and Ctrl+` opens a terminal from a focused shell; copy, paste, find and
-a bare `Ctrl+letter` stay the shell's).
+a bare `Ctrl+letter` stay the shell's — `quit` on Ctrl+Q, an `always` chord, excepted).
 
 **The native menu on macOS** (`src-tauri/src/main.rs`, `edit_menu.rs`) is built by hand, since a
 menu key equivalent fires before the webview ever sees the key: no *Close Window* under ⌘W, and the
@@ -258,9 +259,12 @@ which holds a slice of the text, and a synthetic key carries no key code Monaco 
 focused editor is asked first (`ui/monaco.selectAllInFocusedEditor`: the code editor, either side of
 a diff, a lens — whichever Monaco holds the focus selects its model's whole range) and the chord is
 replayed only when none took it (`editMenuModel.replaysChord`), which is how ⌘A selects a file's
-whole text in the editor, a tree's rows in Files, and a field's text in a field. Undo and redo stay predefined; off macOS
+whole text in the editor, a tree's rows in Files, and a field's text in a field. Undo, redo and Quit stay predefined — Quit's ⌘Q is AppKit's `terminate:`, which
+`src-tauri/src/quit.rs` holds for the close guard's question, so a `quit` override to ⌘Q on a Mac is
+the menu's first and never the keymap's; off macOS
 no menu is built at all, since WebView2 and WebKitGTK take Ctrl+C/V/X/A themselves and a menubar
-accelerator would only shadow the keymap. `shell/shortcuts.test.mjs` keeps every declared chord
+accelerator would only shadow the keymap — and `quit` on Ctrl+Q is the keymap's there, from a
+composer and a focused shell alike. `shell/shortcuts.test.mjs` keeps every declared chord
 clear of the menu's key equivalents.
 
 **The browser chords** are the `browser` scope's six — `focus_address`, `browser_back`,

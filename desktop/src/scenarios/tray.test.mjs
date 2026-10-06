@@ -58,7 +58,7 @@ test("every door back finds the window as a window — a browser tab is a child 
 test("both doors are held by the shell and decided by the webview under the one spelling", () => {
   const main = read("../src-tauri/src/main.rs");
   assert.ok(main.includes("WindowEvent::CloseRequested { api, .. }") && main.includes("api.prevent_close()") && main.includes("window.emit(CLOSE_REQUESTED, ())"), "the red button is held and handed over");
-  assert.ok(main.includes("RunEvent::ExitRequested {") && main.includes("api.prevent_exit()") && main.includes("window.emit(QUIT_REQUESTED, ())"), "⌘Q is held and handed over");
+  assert.ok(main.includes("RunEvent::ExitRequested {") && main.includes("api.prevent_exit()") && main.includes("window.emit(QUIT_REQUESTED, ())"), "Tauri's own exit request — a destroyed last window — is held and handed over; ⌘Q itself is AppKit's terminate, held in quit.rs (scenarios/quit.test.mjs)");
   assert.ok(!main.includes("WindowEvent::Destroyed"), "nothing waits on a destroyed window any more");
   assert.ok(main.includes("RunEvent::Reopen {") && main.includes("has_visible_windows: false"), "the Dock icon brings the window back");
   const guard = read("shell/useCloseGuard.ts");

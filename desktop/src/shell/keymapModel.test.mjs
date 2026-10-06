@@ -56,8 +56,8 @@ test("the default preset has no conflicts, and overrides sit on top", () => {
   assert.equal(chordFor(resolveKeymap("vim", null), "omnibox"), "Mod+K", "vim keeps the app-level chords");
 });
 
-test("the Triggers occupant took its command with it: 92 named commands and the eight numbered tabs, and ⌘⇧Y is nobody's", () => {
-  assert.equal(COMMANDS.length, 100, "92 named commands, and tab_1 … tab_8 from one row");
+test("the Triggers occupant took its command with it: 93 named commands and the eight numbered tabs, and ⌘⇧Y is nobody's", () => {
+  assert.equal(COMMANDS.length, 101, "93 named commands, and tab_1 … tab_8 from one row");
   assert.equal(COMMANDS.filter((c) => /^tab_[1-8]$/.test(c.id)).length, 8);
   assert.ok(!COMMANDS.some((c) => c.id === "panel_triggers"), "no Triggers panel to show");
   const km = resolveKeymap("default", null);

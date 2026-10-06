@@ -300,8 +300,9 @@ fn open_inbox(app: &AppHandle) {
 }
 
 /// *Quit Bisa*: the window shown — the question is asked in it — and the
-/// request handed to the webview's one close flow, as ⌘Q's is. With no
-/// window to ask in, the exit stands.
+/// request handed to the webview's one close flow, as a held ⌘Q's is
+/// (`quit.rs`). With no window to ask in, the exit stands: through the
+/// `terminate:` AppKit is waiting on when one is held, else at once.
 fn request_quit(app: &AppHandle) {
     match main_window(app) {
         Some(window) => {
@@ -310,7 +311,11 @@ fn request_quit(app: &AppHandle) {
                 warn("could not hand the quit to the webview", e);
             }
         }
-        None => app.exit(0),
+        None => {
+            if !crate::quit::answer(app, true) {
+                app.exit(0);
+            }
+        }
     }
 }
 

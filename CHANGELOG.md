@@ -10,6 +10,9 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- `Ctrl+Q` quits on Linux and Windows, through the same question-then-save flow as the menu bar
+  icon's *Quit Bisa* — a keymap command, `quit`, rebindable under Settings › Keymap, taken from a
+  composer and a focused shell alike; on a Mac the application menu's `⌘Q` is the way out.
 - Bisa runs once. Launching the app while it is open — from a terminal, with `open -n`, from a
   second copy of the app, or from a `bisa://join/…` link on Windows and Linux — opens no second
   Bisa: the launch hands what it was asked to the running app, which brings its window back, and
@@ -58,6 +61,10 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- `⌘Q`, the application menu's *Quit*, the Dock's *Quit* and a logout now ask first while *Confirm
+  before quitting* is on, and save what is unsaved — they used to end Bisa at once, the switch
+  notwithstanding, because the runtime never held the quit. The window comes forward for the
+  question, a logout waits for the answer, and *Cancel* leaves everything as it was.
 - A second `bisa node` on a workspace a node already holds is refused at the door — before it
   opens the workspace — in its own words: which pid holds it and where the node answers. It used
   to open the workspace first and then say a daemon had been slow to answer.

@@ -40,6 +40,8 @@ export const COMMANDS = Object.freeze([
   { id: "omnibox", label: t("shell-omnibox-search-jump"), when: "global", chords: { default: "Mod+K", vscode: "Mod+K" }, always: true },
   { id: "quick_open", label: t("shell-omnibox-quick-open"), when: "global", chords: { default: "Mod+P", vscode: "Mod+P" }, always: true },
   { id: "commands", label: t("shell-keymap-commands"), when: "global", chords: { default: "Mod+Shift+P", vscode: "Mod+Shift+P" }, always: true },
+  // The way out, where no menu holds it: Ctrl+Q off macOS, from anywhere — a composer, a focused shell — into the one close flow. On a Mac the application menu's ⌘Q is held for the same question (`src-tauri/src/quit.rs`), so nothing is bound here.
+  { id: "quit", label: t("shell-keymap-quit-bisa"), when: "global", chords: { default: "Mod+Q", vscode: "Mod+Q" }, mac: {}, always: true, note: t("shell-keymap-quit-note") },
   { id: "new_goal", label: t("shell-omnibox-new-goal"), when: "global", chords: { default: "Mod+Shift+I", vscode: "Mod+Shift+I" } },
   { id: "new_channel", label: t("shell-omnibox-new-channel"), when: "global", chords: { default: "Mod+Shift+N", vscode: "Mod+Shift+N" } },
   { id: "new_message", label: t("shell-omnibox-new-message"), when: "global", chords: { default: "Mod+Shift+K", vscode: "Mod+Shift+K" } },
@@ -301,7 +303,8 @@ export function conflictFor(keymap, id, chord) {
  * it. A shell owns its keyboard, so only a chord that cannot mean anything to
  * a PTY is intercepted: on macOS every `Mod` (⌘) chord — the PTY never sees ⌘;
  * elsewhere `Ctrl+Shift+…` and function keys, since bare `Ctrl+x` is the
- * shell's own vocabulary; on every platform a palette chord (`always`) and an
+ * shell's own vocabulary — the palette's chords and `quit` on Ctrl+Q, both
+ * `always`, being the exceptions; on every platform a palette chord (`always`) and an
  * explicit `Ctrl` on `Tab` or `Backquote` — the strip's cycle, a terminal or a
  * browser tab here — which no PTY means. Copy, paste and find stay with the
  * terminal everywhere: `Mod+C`, `Mod+V`, `Mod+F`, `Ctrl+Shift+C`, `Ctrl+Shift+V`.
@@ -409,13 +412,14 @@ export function keymapMarkdown() {
     t("shell-keymap-workbench-designer-which-never-live-together"),
     "",
     t("shell-keymap-macos-chord-stands-on-a-mac"),
+    t("shell-keymap-not-on-macos-legend"),
     "",
   ];
-  // One preset's cell: the chord, and a Mac's beside it where a Mac's differs — alone where only a Mac has one.
+  // One preset's cell: the chord, and a Mac's beside it where a Mac's differs — alone where only a Mac has one; a Mac table with nothing in it says the chord is everyone else's.
   const cell = (c, preset) => {
     const rest = c.chords[preset] ? canonicalChord(c.chords[preset]) : null;
     const mac = c.mac?.[preset] ? canonicalChord(c.mac[preset]) : null;
-    const onMac = mac && mac !== rest ? t("shell-keymap-on-macos", { chord: mac }) : null;
+    const onMac = mac && mac !== rest ? t("shell-keymap-on-macos", { chord: mac }) : c.mac && !mac && rest ? t("shell-keymap-not-on-macos") : null;
     return [rest, onMac].filter(Boolean).join(" · ") || "—";
   };
   for (const when of WHENS) {

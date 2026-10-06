@@ -25,5 +25,6 @@ export interface CloseFlow {
 }
 
 export declare const CLOSE_OUTCOMES: readonly CloseOutcome[];
+export declare function declines(outcome: CloseOutcome | string): boolean;
 export declare function saveEvery<T>(items: readonly T[], saveOne: (item: T) => Promise<boolean>, onError?: (item: T, error: unknown) => void): Promise<boolean>;
 export declare function closeFlow(hands: CloseHands): CloseFlow;

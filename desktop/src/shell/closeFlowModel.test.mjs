@@ -5,7 +5,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { CLOSE_OUTCOMES, closeFlow, saveEvery } from "./closeFlowModel.mjs";
+import { CLOSE_OUTCOMES, closeFlow, declines, saveEvery } from "./closeFlowModel.mjs";
 
 /** The window's hands, faked: what happened is in `said`, in the order it happened. */
 function hands({ confirms = true, answer = true, dirty = true, saved = true, keeps = true } = {}) {
@@ -129,6 +129,14 @@ test("what is remembered is kept after the save and before the way out, and neve
   const unsaved = hands({ saved: false });
   await closeFlow(unsaved).run(finish(unsaved));
   assert.ok(!unsaved.said.includes("keep"));
+});
+
+test("a no and a document that would not save tell the shell no; a closed flow has answered, and a dropped second request leaves the answer to the first", () => {
+  assert.equal(declines("cancelled"), true, "the OS asked and was told no");
+  assert.equal(declines("unsaved"), true, "the window stays, so the quit is a no");
+  assert.equal(declines("closed"), false, "quit_app answered");
+  assert.equal(declines("busy"), false, "the question up answers for both; a no now would answer it early");
+  for (const outcome of CLOSE_OUTCOMES) assert.equal(typeof declines(outcome), "boolean");
 });
 
 test("a keep that throws never holds the window", async () => {

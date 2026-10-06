@@ -1,29 +1,37 @@
 /**
- * The app's ways out (ide/03, ide/13), both held by the shell and decided
- * here. **The window's red button** arrives as `bisa:close-requested`: while
+ * The app's ways out (ide/03, ide/13), held by the shell and decided here.
+ * **The window's red button** arrives as `bisa:close-requested`: while
  * *Closing the window keeps Bisa running* is on the app is put away
  * (`hide_window` — the shell decides how: on macOS the app hides as ⌘H
  * does, so ⌘Tab, the Dock and the icon all bring it back) — nothing asked,
  * nothing saved, the webview lives on in the menu bar (`useTray.ts`) — and
- * off, it is a quit. **⌘Q and the menu bar's *Quit Bisa*** arrive as
- * `bisa:quit-requested`. A quit is one flow: ask first when
- * `desktop.confirm_quit` is on, naming what is running and what is unsaved;
- * then save every dirty document; then keep what is remembered — where the
- * person was, how each screen stood (`viewMemoryStore.settleMemories`) —
- * then `quit_app`. The question comes **before** the save: a cancelled quit
- * must not have written files. A save that fails keeps the window, with an
- * OS notice; a memory that cannot be kept never does. The window put away
- * writes its memories too: a hidden app may be ended from the menu bar. A
- * browser dev session keeps `beforeunload`'s question; there is no other
- * hook there.
+ * off, it is a quit. **⌘Q, the Dock's Quit, a logout and the menu bar's
+ * *Quit Bisa*** arrive as `bisa:quit-requested` — on macOS the shell holds
+ * AppKit's `terminate:` for the answer (`quit.rs`) — and **Ctrl+Q off
+ * macOS** through the keymap's door (`shortcuts.QUIT_APP`). A quit is one
+ * flow: ask first when `desktop.confirm_quit` is on, naming what is running
+ * and what is unsaved; then save every dirty document; then keep what is
+ * remembered — where the person was, how each screen stood
+ * (`viewMemoryStore.settleMemories`) — then `quit_app`, which is the yes a
+ * held `terminate:` was waiting on. A no — a cancelled quit, a document that
+ * would not save, a flow that failed — is told to the shell as
+ * `quit_declined`, so a logout waiting on it hears it too; and once the
+ * listeners stand the shell is told so (`quit_ready`), since before that a
+ * quit the OS asks for has nobody to ask through and stands. The question
+ * comes **before** the save: a cancelled quit must not have written files.
+ * A save that fails keeps the window, with an OS notice; a memory that
+ * cannot be kept never does. The window put away writes its memories too:
+ * a hidden app may be ended from the menu bar. A browser dev session keeps
+ * `beforeunload`'s question; there is no other hook there.
  */
 import { errorFields, log } from "../log";
 import { useEffect } from "react";
 import { anyDirty, dirtyCount, flushAll } from "../views/_workbench/editorRegistry";
-import { closeFlow } from "./closeFlowModel.mjs";
+import { closeFlow, declines } from "./closeFlowModel.mjs";
 import { deliverAppNotice } from "./notifications";
 import { quitQuestion } from "./closeGuardModel.mjs";
 import { confirmPrefs } from "./closeGuardSettings";
+import { QUIT_APP, onDoor } from "./shortcuts";
 import { askClose } from "./terminalCloseGuard";
 import { harnessOf, isLive } from "./terminalsModel.mjs";
 import { TRAY_EVENTS, closeVerb } from "./trayModel.mjs";
@@ -33,7 +41,18 @@ import { flushMemories, settleMemories } from "./viewMemoryStore";
 import { t } from "../i18n/l10n.mjs";
 
 /** Which door the request came through — for the log line alone; the flow is one. */
-type Door = "window" | "quit";
+type Door = "window" | "quit" | "keyboard";
+
+/** The shell's two words back about a held quit (`quit.rs`): that the webview listens, and a no. */
+async function tellShell(command: "quit_ready" | "quit_declined"): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke(command);
+}
+
+/** The OS asked and is told no — nothing held is nothing, and the shell knows which. */
+function decline(): void {
+  tellShell("quit_declined").catch((e: unknown) => log.warn("close", "the shell did not hear the no", errorFields(e)));
+}
 
 /** The one word this hook has when a save fails: an OS notice through the shell's one door, since the window was about to go. */
 async function say(body: string): Promise<void> {
@@ -65,11 +84,20 @@ async function quit(): Promise<void> {
   await invoke("quit_app");
 }
 
-/** Run the flow; a way out that throws is logged — the window staying open is what the person sees. */
+/**
+ * Run the flow; a way out that throws is logged — the window staying open is
+ * what the person sees — and, like a no, told to the shell (`declines`).
+ */
 function leave(door: Door): void {
   flow.run(quit).then(
-    (outcome) => log.info("close", "the way out ended", { door, outcome }),
-    (e: unknown) => log.error("close", "the way out failed", { door, ...errorFields(e) }),
+    (outcome) => {
+      log.info("close", "the way out ended", { door, outcome });
+      if (declines(outcome)) decline();
+    },
+    (e: unknown) => {
+      log.error("close", "the way out failed", { door, ...errorFields(e) });
+      decline();
+    },
   );
 }
 
@@ -95,10 +123,16 @@ export function useCloseGuard(): void {
         else leave("window");
       });
       const quitRequested = await ev.listen(TRAY_EVENTS.quit, () => leave("quit"));
+      const keyboard = onDoor(QUIT_APP, () => leave("keyboard"));
       if (gone) {
         close();
         quitRequested();
-      } else off = [close, quitRequested];
+        keyboard();
+        return;
+      }
+      off = [close, quitRequested, keyboard];
+      // Listening now: a quit the OS asks for can be held for the question.
+      tellShell("quit_ready").catch((e: unknown) => log.warn("close", "the shell was not told the webview listens; a quit the OS asks for stands", errorFields(e)));
     });
     return () => {
       gone = true;

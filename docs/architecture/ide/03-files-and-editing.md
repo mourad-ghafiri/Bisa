@@ -446,12 +446,13 @@ it failed or was stopped.
   notice cannot be shown). The order is a model's (`shell/closeFlowModel.mjs`: `closeFlow` —
   ask, save, go, a second request dropped while one is being answered, a flow that throws still
   ending; `saveEvery` — every document tried after one fails, a save that throws logged and
-  counted as failed; `holdsClose` — the window goes as the OS meant when there is nothing to ask
-  and nothing to save), and the hook hands it the window's own hands. A document of a
+  counted as failed; `declines` — which endings are a no the shell is told), and the hook hands
+  it the window's own hands. A document of a
   root that is not on screen has nobody to show it, so it counts as one that did not save. The question comes before the save, so a
-  cancelled quit has written nothing. ⌘Q reaches the same flow because the shell holds Tauri's
-  exit request and hands it to the webview (`bisa:quit-requested`), which finishes through
-  the `quit_app` command.
+  cancelled quit has written nothing. ⌘Q, the Dock's Quit and a logout reach the same flow because the shell
+  holds AppKit's `terminate:` (`src-tauri/src/quit.rs`: the app delegate answers *later*) and
+  hands it to the webview (`bisa:quit-requested`), which answers through the `quit_app` and
+  `quit_declined` commands; off macOS the keymap's `quit` on Ctrl+Q opens the same door.
 - **Format on save** runs the language server's formatter when one is up and the
   `editor.format_on_save` setting is on; it never runs a program the settings did not name.
 

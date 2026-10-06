@@ -679,7 +679,7 @@ setting-collab-invite_ttl_hours = An invite lasts (hours)
     .help = How long a code may be claimed after it is made. A code claimed once is spent whatever this says.
 
 setting-desktop-confirm_quit = Confirm before quitting
-    .help = Quitting — ⌘Q, the menu bar icon's Quit Bisa, or closing the window while it does not keep Bisa running — asks first, naming what is running and what is unsaved; unsaved documents are saved after you confirm. Off, the app quits at once — still saving what is unsaved.
+    .help = Quitting — ⌘Q, the application menu's or the Dock's Quit, a logout, the menu bar icon's Quit Bisa, Ctrl+Q on Linux and Windows, or closing the window while it does not keep Bisa running — asks first, naming what is running and what is unsaved; unsaved documents are saved after you confirm, and a logout waits for your answer. Off, the app quits at once — still saving what is unsaved.
 
 setting-desktop-close_keeps_running = Closing the window keeps Bisa running
     .help = The window hides and Bisa stays in the menu bar, its icon showing what the platform is doing and how many things need you; agents, terminals and the node keep going. Bring the window back from the icon or the Dock; quit from the icon's menu or with ⌘Q. Off, closing the window quits.

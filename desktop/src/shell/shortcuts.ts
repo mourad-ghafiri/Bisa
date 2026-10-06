@@ -65,6 +65,8 @@ export const RENAME_SELECTION = "bisa:rename-selection";
 export const SHOW_TERMINAL = "bisa:show-terminal";
 /** The workbench listens: close the active tab (a document asks when dirty; a terminal closes). */
 export const CLOSE_ACTIVE_TAB = "bisa:close-active-tab";
+/** The keymap's `quit` — Ctrl+Q off macOS, where no menu holds it — at which the close guard stands (`useCloseGuard.ts`): the one flow, ask then save then go. */
+export const QUIT_APP = "bisa:quit-app";
 /** The workbench listens: reopen the last document closed in this root. */
 export const REOPEN_TAB = "bisa:reopen-tab";
 /**
@@ -522,6 +524,10 @@ export function useGlobalShortcuts({ onOmnibox, onEscape }: ShortcutHandlers): v
         case "close_tab":
           e.preventDefault();
           fire(CLOSE_ACTIVE_TAB);
+          return;
+        case "quit":
+          e.preventDefault();
+          fire(QUIT_APP);
           return;
         case "reopen_tab":
           e.preventDefault();
