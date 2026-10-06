@@ -81,7 +81,11 @@ export function SectionHeader({
     </>
   );
   return (
-    <div className={cn("group flex h-6 shrink-0 items-center gap-1.5", flush ? "px-0" : "px-2")}>
+    // `min-h-6` and `flex-wrap`, not a fixed `h-6`: at a panel's narrowest a
+    // header's actions (the remotes' layout switch, *Fetch* and *Add remote…*)
+    // did not share the line with its name and were cut at the panel's edge;
+    // wrapped, they keep the right (`ml-auto`) on a line of their own.
+    <div className={cn("group flex min-h-6 shrink-0 flex-wrap items-center gap-1.5", flush ? "px-0" : "px-2")}>
       {onToggle ? (
         <button
           type="button"
@@ -95,7 +99,7 @@ export function SectionHeader({
         <span className="flex flex-1 items-center gap-1.5">{label}</span>
       )}
       {trailing && <span className="text-2xs text-text-dim">{trailing}</span>}
-      {action && <span className={alwaysAction ? "anim" : "row-actions anim"}>{action}</span>}
+      {action && <span className={cn("ml-auto", alwaysAction ? "anim" : "row-actions anim")}>{action}</span>}
     </div>
   );
 }

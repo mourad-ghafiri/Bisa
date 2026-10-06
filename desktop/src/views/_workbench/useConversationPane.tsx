@@ -342,7 +342,8 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
       await api.buildPlan(current.id);
       await api.postConversationMessage(current.id, { content: BUILD_MESSAGE });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : tr("workbench-use-conversation-pane-could-not-build-plan"));
+      // The node's own sentence when it refused; otherwise the catalog's, never a raw message.
+      toast.error(failureText("workbench", tr("workbench-use-conversation-pane-could-not-build-plan"), e));
     }
   };
 

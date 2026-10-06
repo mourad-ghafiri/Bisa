@@ -24,7 +24,7 @@ import { ApiError, api, inDesktopShell, pickFolder } from "../../api";
 import { t } from "../../i18n/l10n.mjs";
 import { tx } from "../../i18n/l10n.mjs";
 import type { Addon, AddonManifest, AddonOffer, AddonPermission, AddonProblem } from "../../types";
-import { Button, Card, Chip, ConfirmDialog, ErrorNote, Pending, Section, Switch, useToast } from "../../ui";
+import { Button, Card, Chip, ConfirmDialog, EmptyState, ErrorNote, ICON, Pending, Section, Switch, useToast } from "../../ui";
 import { declaredOf, grantToggle, isGranted, offerRows, originWords, permissionWords, problemLines, reviewWords, sortAddons, sortedPermissions, stateWords } from "../../addons/addonsModel.mjs";
 import { ADDONS_ENABLED_KEY, importAddon, installAddonFromCatalog, refreshAddons, removeAddon, setAddonEnabled, setAddonGrants, useAddons } from "../../addons/addonsStore";
 import { useAsync } from "../_work/useAsync";
@@ -231,9 +231,19 @@ export function AddonsPanel() {
             <Pending what={t("settings-addons-panel-addons")} rows={pendingRows(t("settings-addons-panel-addons"))} />
           )
         ) : installed.length === 0 ? (
-          <Card>
-            <p className="text-2xs text-text-dim">{t("settings-addons-panel-none-installed")}</p>
-          </Card>
+          // Open, with its door, as every empty list in the app: the import
+          // is the one act that fills it from here; the catalog is below.
+          <EmptyState
+            icon={ICON.addon}
+            title={t("settings-addons-panel-none-installed-title")}
+            hint={t("settings-addons-panel-none-installed")}
+            className="py-6"
+            action={
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void startImport()}>
+                {t("settings-addons-panel-import-addon")}
+              </Button>
+            }
+          />
         ) : (
           <div className="flex flex-col gap-3">
             {installed.map((a) => (

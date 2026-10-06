@@ -86,7 +86,8 @@ function RosterLine({ ids, agents, humans = [] }: { ids: string[]; agents: Agent
   const entries = resolveRoster(ids, agents);
   if (entries.length === 0 && humans.length === 0) return null;
   return (
-    <span className="truncate">
+    // A flex item: `min-w-0` lets it shrink below its names, so a long roster ends in an ellipsis instead of running past the header's edge.
+    <span className="min-w-0 truncate">
       {entries.map((e, i) => (
         <span key={e.id}>
           {i > 0 && ", "}
@@ -636,7 +637,7 @@ export default function Channels({ id }: { id?: string }) {
                 // beside it opens the same list in full, for the roster too
                 // long to fit on one line.
                 <span className="flex min-w-0 items-center gap-1">
-                  {channel?.topic && <span className="shrink-0">{t("screens-channels-topic-dot", { topic: channel.topic })}</span>}
+                  {channel?.topic && <span className="min-w-0 truncate">{t("screens-channels-topic-dot", { topic: channel.topic })}</span>}
                   <RosterLine ids={roster} agents={ws.agents} humans={rosterHumans(channel)} />
                 </span>
               ) : (

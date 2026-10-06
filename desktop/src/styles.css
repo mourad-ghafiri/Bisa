@@ -299,8 +299,9 @@ select:focus-visible,
  */
 .board-card-lift {
   transform: scale(1.02);
+  /* The family's floating shadow (The Two Shadows Rule), with the accent's one-pixel edge: a card in flight is a drop target's feedback. */
   box-shadow:
-    0 12px 28px -8px rgb(0 0 0 / 0.35),
+    var(--shadow-floating),
     0 0 0 1px var(--color-accent);
   cursor: grabbing;
 }

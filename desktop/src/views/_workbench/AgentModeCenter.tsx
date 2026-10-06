@@ -80,7 +80,9 @@ export function AgentModeCenter({
 
   return (
     <LinkRoots roots={c.linkRoots}>
-      <DropZone className="flex h-full min-h-0 flex-1 flex-col" label={t("workbench-agent-mode-center-attach-next-message")} accepts={c.accepts} onDrop={c.onDrop}>
+      {/* `min-w-0`: the centre is a column of the IDE row and yields its width like Project Mode's; at its content's
+          minimum it held the row eight pixels past the window whenever a menu or dialog opened over it. */}
+      <DropZone className="flex h-full min-h-0 min-w-0 flex-1 flex-col" label={t("workbench-agent-mode-center-attach-next-message")} accepts={c.accepts} onDrop={c.onDrop}>
         <div className="mx-auto flex h-full w-full min-h-0 max-w-4xl flex-col">
           <ConversationSurface
             surface={s}

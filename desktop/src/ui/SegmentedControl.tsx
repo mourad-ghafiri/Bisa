@@ -23,6 +23,7 @@
 import * as G from "@radix-ui/react-toggle-group";
 import { cn } from "./cn";
 import type { LucideIcon } from "./icons";
+import { FOCUS_RING } from "./rings";
 import { Tooltip } from "./Tooltip";
 
 export interface Segment<T extends string> {
@@ -66,8 +67,13 @@ export function SegmentedControl<T extends string>({
       // control has no empty state — re-picking the current option is a
       // no-op, not a way to choose nothing.
       onValueChange={(next) => next && onChange(next as T)}
+      // The ring on the root too: Radix's roving focus makes the group a tab
+      // stop that hands focus on to the pressed segment, and the keyboard walk
+      // found focus resting on the root itself in Board and Agent Mode with no
+      // ring to show for it. The segments keep their own.
       className={cn(
         "items-center gap-0.5 rounded-control border border-hairline bg-surface-2/70 p-0.5",
+        FOCUS_RING,
         stretch ? "flex w-full flex-wrap" : "inline-flex",
         className,
       )}

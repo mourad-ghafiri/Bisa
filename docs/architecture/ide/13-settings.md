@@ -125,6 +125,11 @@ because two panels may share a label under different groups (*You › Identity*,
 Identity*). A link's label is that path, and every `Settings › …` a desktop catalog sentence spells
 is held to a group and a panel of the rail (`scenarios/settingsPaths.test.mjs`).
 
+**The rail shows where you are.** It keeps its scroll place like every region
+(`data-scroll-keep="nav"`), and arriving at a panel by its route — a link, the omnibox, a sentence's
+*Settings › …* — reveals the current row when the kept place hides it (`Settings.tsx` scrolls the
+`aria-current` row into view, the kept place yielding first through `yieldKeptScroll`).
+
 **The Settings screen holds no per-project setting.** It resolves for the workspace and this
 machine and never for a project — there is no project picker and no *override for this project*.
 A key whose `ScopeSet` admits `Project` is edited for one project **in the Project IDE**, where the

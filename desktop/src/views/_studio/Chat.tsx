@@ -1062,9 +1062,14 @@ export function Chat({
             place.keep(atBottomOf(el.scrollHeight, el.scrollTop, el.clientHeight) ? null : placeFrom(rowsOf(el), el.scrollTop));
           });
         }}
-        className="min-h-0 flex-1 overflow-y-auto py-2"
+        // No padding at the head: a sticky day divider is held inside its
+        // scrollport's padding and its containing block's, so a `pt-2` here
+        // left it 8px short of the top with a strip of the scrolled words
+        // showing above its band; the head room is a spacer in the flow.
+        className="min-h-0 flex-1 overflow-y-auto pb-2"
       >
         <div ref={content}>
+        <div className="h-2" aria-hidden="true" />
         {pinned && <div ref={pinnedBox} className="flex flex-col gap-2 px-3 pb-2">{pinned}</div>}
 
         {conv.error && (

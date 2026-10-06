@@ -753,9 +753,12 @@ export default function Inbox() {
                 </section>
               ))}
           </nav>
-          <p className="shrink-0 border-t border-hairline px-3 py-1 text-2xs text-text-dim">
-            {rich("screens-inbox-keys-legend")}
-          </p>
+          {/* The keys, only while there is a row for them to move through. */}
+          {rows.length > 0 && (
+            <p className="shrink-0 border-t border-hairline px-3 py-1 text-2xs text-text-dim">
+              {rich("screens-inbox-keys-legend")}
+            </p>
+          )}
         </div>
 
         {!lone && <div className="flex min-w-0 flex-1 flex-col">

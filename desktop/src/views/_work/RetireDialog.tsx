@@ -22,7 +22,7 @@ import { navigate } from "../../router";
 import { sessionRows, useSessions } from "../../shell/sessionsStore";
 import { terminalSessions, useTerminals } from "../../shell/useTerminals";
 import type { Retirement as RetirementFacts } from "../../types";
-import { Button, Checkbox, Dialog, Pending, SegmentedControl, failureText, cn, useToast } from "../../ui";
+import { Button, Checkbox, Dialog, Pending, SOLID_DANGER, SegmentedControl, failureText, cn, useToast } from "../../ui";
 import type { Segment } from "../../ui";
 import type { Retirement } from "./retire";
 import { retire } from "./retire";
@@ -122,15 +122,19 @@ export function RetireDialog({
       title={titleWords(choices.thing, name)}
       description={
         kind === "goal"
-          ? t("work-retire-dialog-run-cancelled-everything-working-ends-before")
+          ? preview && born === 0
+            // No project was born of it: the choice below is the goal's alone, and the sentence says no more than that.
+            ? t("work-retire-dialog-run-cancelled-everything-working-ends-before-alone")
+            : t("work-retire-dialog-run-cancelled-everything-working-ends-before")
           : t("work-retire-dialog-what-becomes-projects-steps-made-choice")
       }
       width="max-w-md"
       footer={
         <>
           <Button variant="ghost" disabled={busy} onClick={onClose}>{t("work-agent-editor-cancel")}</Button>
-          <Button variant={preview && destroys(choices) ? "danger" : "primary"} disabled={!preview || busy} onClick={() => void confirm()}>
-            {busy ? t("work-retire-dialog-stopping-retiring") : preview ? confirmWords(kind, choices, preview) : "…"}
+          {/* The one confirm: solid danger when the choices destroy, as the kit's `ConfirmDialog` draws it (The Irreversible Asks Rule). Until the preview is read it says so, held. */}
+          <Button variant="primary" className={preview && destroys(choices) ? SOLID_DANGER : undefined} disabled={!preview || busy} onClick={() => void confirm()}>
+            {busy ? t("work-retire-dialog-stopping-retiring") : preview ? confirmWords(kind, choices, preview) : t("work-retire-dialog-reading")}
           </Button>
         </>
       }

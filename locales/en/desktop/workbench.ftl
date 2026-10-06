@@ -657,6 +657,7 @@ workbench-devices-no-pubspec-naming-flutter = This checkout has no pubspec.yaml 
 workbench-editor-doc-no-server-installed = { $lspLanguage }: no server installed
 workbench-project-rail-open-goal-born-of = Open the goal it was born of
 workbench-project-rail-open-workflow-step-made = Open the workflow whose step made it
+workbench-project-rail-could-not-read = Your projects could not be read, so this list may not be empty. The diagnostic log has the detail.
 workbench-rail-agent-row-sub-agents = { $n ->
     [one] 1 sub-agent
    *[other] { $n } sub-agents

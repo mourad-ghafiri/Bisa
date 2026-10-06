@@ -175,3 +175,21 @@ test("the wiring: five hosts, one painter, one hook, one label — and nothing a
   assert.ok(src("../views/_workbench/EditorDoc.tsx").includes("useRememberedPick(rootKey(scope, id))"), "the editor follows the same pick");
   assert.ok(src("../views/_workbench/conversationsStore.ts").includes("keepPick(root, made.id);"), "a hand-off writes it");
 });
+
+test("a thread's sticky day divider sits at the true top of its scrollport and lays two sheets of the page's ground", () => {
+  // The band: `bg` over `bg` — one sheet is translucent on a glass family and
+  // the words scrolling under it ghosted through the rule (`themes.test.mjs`
+  // holds two sheets to the sheet floor); never a pane.
+  const divider = src("../ui/DayDivider.tsx");
+  assert.match(divider, /className="sticky top-0 z-10 bg-bg">\{row\}/, "the sticky wrapper is a sheet of bg");
+  assert.match(divider, /sticky \? "bg-bg" : ""/, "the row inside is a second sheet of bg only when sticky");
+  assert.doesNotMatch(divider, /data-pane/, "a divider never frosts");
+  // The scrollport: a sticky element is held inside its scrollport's padding
+  // and its containing block's, so the thread's head room is a spacer in the
+  // flow, never a `pt-*` on the viewport or on the content it scrolls.
+  const chat = src("../views/_studio/Chat.tsx");
+  const viewport = chat.match(/className="min-h-0 flex-1 overflow-y-auto[^"]*"\n\s*>\n\s*<div ref=\{content\}>\n\s*(<div[^>]*>)/);
+  assert.ok(viewport, "the thread viewport wraps its content");
+  assert.doesNotMatch(viewport[0].split("\n")[0], /\bpt-\d/, "no head padding on the viewport");
+  assert.match(viewport[1], /className="h-2" aria-hidden="true"/, "the head room is a spacer in the flow");
+});

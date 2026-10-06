@@ -42,9 +42,29 @@ export const TERMINAL_ROLES = [
   "--color-surface",
   "--color-surface-2",
   "--color-text",
+  "--color-text-dim",
   "--color-accent",
   "--color-accent-soft",
+  "--color-warn",
 ];
+
+/**
+ * How a find's matches are drawn in the buffer: the same amber wash the
+ * app's own find uses in a rendering (`::highlight(bisa-find)`, warn at a
+ * quarter; the current match at half), and the overview ruler's marks in
+ * the text roles — never a colour of xterm's own, which no theme answers.
+ * @param {Record<string, string>} resolved role name → `#rrggbb`, or `""` when the page could not resolve it
+ * @returns {{ matchOverviewRuler: string, activeMatchColorOverviewRuler: string, matchBackground: string, activeMatchBackground: string }}
+ */
+export function findDecorations(resolved) {
+  const warn = resolved["--color-warn"] || "#c9a227";
+  return {
+    matchOverviewRuler: resolved["--color-text-dim"] || "#888888",
+    activeMatchColorOverviewRuler: resolved["--color-text"] || "#ffffff",
+    matchBackground: `${warn}40`,
+    activeMatchBackground: `${warn}80`,
+  };
+}
 
 /**
  * The last-resort chrome, per side.

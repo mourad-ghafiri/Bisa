@@ -126,7 +126,8 @@ import { BOARD_DEFAULTS, BOARD_ENABLED_KEY } from "./_board/boardSettings.mjs";
 import { useResolvedSettings } from "../shell/useResolvedSettings";
 import { ProjectRailToggle, RightPanelToggle } from "./_workbench/PanelDoors";
 import { setProjectRailFolded, useProjectRail } from "./_workbench/projectRailStore";
-import { fitColumns } from "./_workbench/ideColumnsModel.mjs";
+import { fitColumns, fixedWidth } from "./_workbench/ideColumnsModel.mjs";
+import { listUnread } from "../shell/workspaceLoadModel.mjs";
 import { boardLabel } from "./_work/types";
 import { useAsync } from "./_work/useAsync";
 import {
@@ -875,8 +876,8 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // The occupant rail's column (`IconRail`, w-10) never moves.
-  const fit = fitColumns({ total: rowWidth, fixed: 40, rail: railWidth, railMin: RAIL_MIN, railOpen, right: rightWidth, rightMin: RIGHT_MIN, rightOpen: right.open });
+  // What never moves: the occupant rail's column (`IconRail`, w-10) and one resize handle per open side column.
+  const fit = fitColumns({ total: rowWidth, fixed: fixedWidth({ railOpen, rightOpen: right.open }), rail: railWidth, railMin: RAIL_MIN, railOpen, right: rightWidth, rightMin: RIGHT_MIN, rightOpen: right.open });
   useEffect(() => setProjectRailFolded(fit.railFolded), [fit.railFolded]);
   useEffect(() => () => setProjectRailFolded(false), []);
   // The rail and the right panel move the centre without resizing the window.
@@ -1325,7 +1326,16 @@ export function ProjectsHome() {
       </aside>
       <ResizeHandle side="right" size={railWidth} min={RAIL_MIN} max={RAIL_MAX} defaultSize={RAIL_DEFAULT} onSize={setRailWidth} label={tr("screens-workbench-resize-rail")} />
       <div className="min-w-0 flex-1">
-        <EmptyIdeLanding onNewProject={() => setCreating(true)} />
+        {/* A read that failed is not an empty workspace: the landing's *Add a
+            project to get started* would be a false word while the node is
+            away or the projects read failed. */}
+        {listUnread(ws.degraded, ws.offline, "projects") ? (
+          <div className="p-6">
+            <ErrorNote error={tr("screens-workbench-projects-could-not-read")} retry={ws.refresh} />
+          </div>
+        ) : (
+          <EmptyIdeLanding onNewProject={() => setCreating(true)} />
+        )}
       </div>
       {/* The rail's `+` and menus fire `NEW_WORKSTREAM` here as on the workbench. */}
       <NewWorkstreamDoor defaultPid={null} />

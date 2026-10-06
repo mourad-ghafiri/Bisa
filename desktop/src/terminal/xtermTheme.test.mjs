@@ -17,7 +17,17 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { TERMINAL_ROLES, xtermTheme } from "./xtermTheme.mjs";
+import { TERMINAL_ROLES, findDecorations, xtermTheme } from "./xtermTheme.mjs";
+
+test("a find's matches wear the warn role's wash and the text roles' ruler marks — never a colour of xterm's own", () => {
+  const d = findDecorations({ "--color-warn": "#a08020", "--color-text-dim": "#606060", "--color-text": "#202020" });
+  assert.equal(d.matchBackground, "#a0802040", "a quarter, as the rendering's find highlight");
+  assert.equal(d.activeMatchBackground, "#a0802080", "the current match at half");
+  assert.equal(d.matchOverviewRuler, "#606060");
+  assert.equal(d.activeMatchColorOverviewRuler, "#202020");
+  // A page that could not resolve the roles still draws something readable.
+  assert.equal(findDecorations({}).matchBackground, "#c9a22740");
+});
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 

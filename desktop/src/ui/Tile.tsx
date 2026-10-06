@@ -59,7 +59,10 @@ export function Tile({
       onClick={onSelect}
       className={cn("anim group flex min-w-0 flex-col items-stretch gap-1.5 text-left outline-none disabled:opacity-60", className)}
     >
-      <span className={cn("anim relative overflow-hidden rounded-card border", previewClass, active ? "border-accent ring-2 ring-accent/40" : "border-border group-hover:border-text-dim/40 group-focus-visible:border-accent")}>
+      {/* The preview is a picture of the choice, never its name: hidden from assistive
+          technology, or a theme tile's name would be every word of the window in miniature
+          inside it ("waiting on you · Ship the landing page · 12 of 20 · Glass"). */}
+      <span aria-hidden="true" className={cn("anim relative overflow-hidden rounded-card border", previewClass, active ? "border-accent ring-2 ring-accent/40" : "border-border group-hover:border-text-dim/40 group-focus-visible:border-accent")}>
         {preview}
       </span>
       <span className="flex min-w-0 items-center gap-1 text-2xs">

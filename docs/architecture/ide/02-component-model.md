@@ -159,6 +159,14 @@ most tempting to break:
   Every pending piece — the `Skeleton` block included, its box held unseen meanwhile — waits the kit's beat in a page that is already drawn and none inside a surface
   that has just opened — `Dialog`, `ConfirmDialog` and `Popover` provide `ImmediateIndicators` —
   so a dialog or a popover never opens onto an empty panel.
+- **A trigger is never a button inside a button.** `Menu` and `Popover` render Radix's own
+  `<button>` around the styled `<span>` they are handed; handed a `<button>` or the kit's `Button`,
+  they make that element the trigger itself (`ui/triggers.ts`, `isButtonElement` → `asChild`), so
+  no screen can nest one control in another — invalid HTML React reports on every render, and two
+  controls where a screen reader expects one. A popover's panel is a `dialog` to assistive
+  technology and carries its trigger's name; a right-click menu (`ContextMenu`) carries a name too,
+  the row's when its caller gives one and *Actions* otherwise. Held by `ui/triggers.test.mjs`,
+  which also reads every `trigger={` a screen writes.
 - **`ui/icons.ts` is the single glyph map.** New concepts — workstream, recovery ref, pull request,
   check run, language server — get one glyph each, there.
 - **Three error boundaries.** The routed screen's (`App.tsx`) costs a bad render one screen; the

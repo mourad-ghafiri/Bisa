@@ -17,11 +17,12 @@
  */
 
 import * as P from "@radix-ui/react-popover";
-import { useState, type ReactNode } from "react";
+import { isValidElement, useState, type ReactNode } from "react";
 import { useSurface } from "./openSurfaces";
 import { cn } from "./cn";
 import { ImmediateIndicators } from "./indicatorBeat";
 import { POPOVER_SURFACE } from "./surfaces";
+import { isButtonElement } from "./triggers";
 
 export function Popover({
   trigger,
@@ -46,8 +47,10 @@ export function Popover({
   /**
    * The trigger is already a focusable control (a `<button>`/`<Button>`): make
    * it the trigger itself rather than nesting it inside the one Radix renders,
-   * the same rule `Tooltip` follows. Leave it off — the default — and pass a
-   * styled `<span>`, which is how the popover earns a keyboard-reachable button.
+   * the same rule `Tooltip` follows. A bare `<button>` or the kit's `Button`
+   * is read as such on its own (`isButtonElement`); the prop stays for a
+   * component that renders one. Otherwise pass a styled `<span>`, which is
+   * how the popover earns a keyboard-reachable button.
    */
   asChild?: boolean;
 }) {
@@ -55,6 +58,8 @@ export function Popover({
   // way a native layer yields while it shows.
   const [own, setOwn] = useState(false);
   useSurface(open ?? own);
+  // The panel's name: the label given, else the one the trigger carries.
+  const name = label ?? (isValidElement(trigger) ? (trigger.props as { "aria-label"?: string })["aria-label"] : undefined);
   return (
     <P.Root
       open={open}
@@ -63,7 +68,7 @@ export function Popover({
         onOpenChange?.(next);
       }}
     >
-      {asChild ? (
+      {asChild || isButtonElement(trigger) ? (
         <P.Trigger asChild>{trigger}</P.Trigger>
       ) : (
         <P.Trigger aria-label={label} className="inline-flex items-center outline-none">
@@ -73,6 +78,9 @@ export function Popover({
       <P.Portal>
         <P.Content
           data-pane
+          // The panel is a `dialog` to assistive technology: it carries the
+          // trigger's name, so it is never announced as a nameless dialog.
+          aria-label={name}
           side={side}
           align={align}
           sideOffset={6}

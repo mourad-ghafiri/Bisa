@@ -277,9 +277,10 @@ export function AgentEditor({
           )}
         </Field>
 
-        {/* The two references side by side: a skill from the library, a server from the registry — each a search box with chips, each with its door to Settings. */}
+        {/* The two references side by side: a skill from the library, a server from the registry — each a search box with chips, each with its door to Settings.
+            `min-w-0` on each: a grid item's automatic minimum is its content's min-content, and a picker row's one-line name would hold a column at the row's full width — at 1024 the Skills box ran a hundred pixels past the dialog and was clipped. */}
         <div className="grid gap-3 md:grid-cols-2">
-          <fieldset className="rounded-control border border-hairline p-3">
+          <fieldset className="min-w-0 rounded-control border border-hairline p-3">
             <legend className="px-1 text-2xs font-semibold text-text-dim">
               {t("work-agent-editor-skills-count", { n: d.skills.length })}
             </legend>
@@ -321,7 +322,7 @@ export function AgentEditor({
             </div>
           </fieldset>
 
-          <fieldset className="rounded-control border border-hairline p-3">
+          <fieldset className="min-w-0 rounded-control border border-hairline p-3">
             <legend className="px-1 text-2xs font-semibold text-text-dim">
               {t("work-agent-editor-mcp-servers-count", { n: d.mcps.length })}
             </legend>

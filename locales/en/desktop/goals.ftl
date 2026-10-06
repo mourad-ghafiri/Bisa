@@ -4,6 +4,7 @@ goals-goal-act-popover-could-not-read = This goal could not be read. The diagnos
 goals-goal-act-popover-decision-waiting-needs-goal-s-own = A decision waits on you that is answered on the goal's page, under Your move.
 goals-goal-act-popover-nothing-here-acts-one-control = Nothing here can be answered in one step. The goal's page shows what it needs.
 goals-goal-act-popover-open-goal = Open goal
+goals-goal-act-popover-act-on-this-goal = Act on this goal
 goals-goal-act-popover-open-workflow-tab = Open the Workflow tab
 goals-goal-card-act = Act
 goals-goal-card-act-2 = Act on { $label }

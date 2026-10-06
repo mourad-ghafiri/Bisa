@@ -86,16 +86,18 @@ export function ArtifactCard({
   let body: React.ReactNode = null;
   if (present && preview === "image" && bytes.state === "ready") {
     body = (
-      <button type="button" onClick={open} className="block w-full bg-surface-2" title={t("ui-artifact-card-open")}>
+      <button type="button" onClick={open} aria-label={t("ui-artifact-card-open")} className="block w-full bg-surface-2">
         <img src={bytes.url} alt={artifact.title} className="mx-auto max-h-64 w-auto object-contain" />
       </button>
     );
   } else if (present && preview === "live" && live && bytes.state === "ready") {
+    // A button, not a clickable box: the preview opens from the keyboard and
+    // has a name; the frame underneath is inert and takes no pointer.
     body = (
-      <div className="relative h-56 w-full" onClick={open}>
+      <button type="button" onClick={open} aria-label={t("ui-artifact-card-open")} className="relative block h-56 w-full text-left">
         <PageFrame html={textOf(bytes.bytes)} title={artifact.title} libraries={libraries} inert />
         <span className="absolute inset-0" aria-hidden />
-      </div>
+      </button>
     );
   } else if (present && preview !== "poster" && (bytes.state === "loading" || (preview === "live" && !live))) {
     body = (

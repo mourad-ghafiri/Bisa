@@ -5,7 +5,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { CENTRE_MIN, fitColumns } from "./ideColumnsModel.mjs";
+import { CENTRE_MIN, HANDLE_PX, ICON_RAIL_PX, fitColumns, fixedWidth } from "./ideColumnsModel.mjs";
+
+test("the fixed budget is the occupant rail and one handle per open side column — the handles were left out, and the row ran past the window by their width", () => {
+  assert.equal(fixedWidth({ railOpen: true, rightOpen: true }), ICON_RAIL_PX + 2 * HANDLE_PX);
+  assert.equal(fixedWidth({ railOpen: false, rightOpen: true }), ICON_RAIL_PX + HANDLE_PX);
+  assert.equal(fixedWidth({ railOpen: false, rightOpen: false }), ICON_RAIL_PX);
+  // At 1440 beside the sidebar, with both side columns as set and the centre
+  // at its least, the row is exactly the window: nothing is drawn past it.
+  const total = 1440 - 280;
+  const fit = fitColumns({ total, fixed: fixedWidth({ railOpen: true, rightOpen: true }), rail: 382, railMin: 220, railOpen: true, right: 378, rightMin: 300, rightOpen: true });
+  assert.ok(total - fixedWidth({ railOpen: true, rightOpen: true }) - fit.rail - fit.right >= CENTRE_MIN);
+});
 
 const at = (total, over = {}) => fitColumns({ total, fixed: 40, rail: 380, railMin: 220, railOpen: true, right: 380, rightMin: 300, rightOpen: true, ...over });
 const centre = (total, fit) => total - 40 - (fit.rail ?? 0) - (fit.right ?? 0);

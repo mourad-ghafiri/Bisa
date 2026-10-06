@@ -9,6 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { leaves, leafOfTab, parseTree } from "../shell/paneTreeModel.mjs";
 import {
@@ -132,4 +133,28 @@ test("a restart brings back what you meant to keep: the layout is composed from 
   for (const t of saved.tabs) again = openTab(again, KEY, t);
   assert.deepEqual(ids(again), ["file:kept.rs", "file:also.rs"]);
   assert.deepEqual(previewIds(again, KEY), [], "nothing restored is a preview");
+});
+
+test("a projects read that failed is said as a failure, never as an empty workspace", () => {
+  // With the node away or the projects read degraded, the rail's *No projects
+  // yet* and the landing's *Add a project to get started* would be false words:
+  // both doors read the load's own verdict (`listUnread`) and show the error
+  // note with Retry instead.
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const rail = src("../views/_workbench/ProjectRail.tsx");
+  assert.match(rail, /listUnread\(ws\.degraded, ws\.offline, "projects"\) \? \(\s*<div className="p-3">\s*<ErrorNote error=\{tr\("workbench-project-rail-could-not-read"\)\} retry=\{ws\.refresh\} \/>/, "the rail's empty slot shows the failure first");
+  const bench = src("../views/Workbench.tsx");
+  assert.match(bench, /listUnread\(ws\.degraded, ws\.offline, "projects"\) \? \(\s*<div className="p-6">\s*<ErrorNote error=\{tr\("screens-workbench-projects-could-not-read"\)\} retry=\{ws\.refresh\} \/>/, "the landing shows the failure first");
+});
+
+test("every centre of the IDE row yields its width: Agent Mode's column is min-w-0 like Project Mode's", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  assert.match(src("../views/_workbench/AgentModeCenter.tsx"), /<DropZone className="flex h-full min-h-0 min-w-0 flex-1 flex-col"/, "the Agent Mode centre yields");
+});
+
+test("a section header wraps its actions at a panel's narrowest instead of cutting them at the edge", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const header = src("../ui/SectionHeader.tsx");
+  assert.match(header, /"group flex min-h-6 shrink-0 flex-wrap items-center gap-1\.5"/, "the row wraps and grows");
+  assert.match(header, /cn\("ml-auto", alwaysAction \? "anim" : "row-actions anim"\)/, "the actions keep the right on a line of their own");
 });

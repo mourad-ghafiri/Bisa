@@ -28,12 +28,12 @@
  * between panels never moves the edge the eye reads against.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchValue } from "../router";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf } from "../shell/viewMemoryStore";
-import { ConfirmDialog, ErrorNote, GitMark, ICON, Spinner, cn } from "../ui";
+import { ConfirmDialog, ErrorNote, GitMark, ICON, Spinner, cn, yieldKeptScroll } from "../ui";
 import type { LucideIcon, Mark } from "../ui";
 import { GovernancePanel } from "./_work/GovernancePanel";
 import { AppearancePanel } from "./_settings/AppearancePanel";
@@ -167,6 +167,21 @@ export default function Settings() {
   // back when it is the one shown.
   const root = useRef<HTMLDivElement>(null);
   useViewScroll(root, `${PLACE}#${panel.id}`, PLACE);
+  // The nav keeps the place it was scrolled to; arriving at a panel by its
+  // route — a link, the omnibox — must still show the row that is current,
+  // so a row the kept place hides is brought into view, the kept place
+  // yielding first (`yieldKeptScroll`), as every programmatic scroll does.
+  const nav = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const list = nav.current;
+    const row = list?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!list || !row) return;
+    const box = list.getBoundingClientRect();
+    const own = row.getBoundingClientRect();
+    if (own.top >= box.top && own.bottom <= box.bottom) return;
+    yieldKeptScroll(list);
+    row.scrollIntoView({ block: "nearest" });
+  }, [panel.id]);
 
   // A panel with unsaved edits asks before the rail leaves it.
   const unsaved = useUnsavedForms();
@@ -179,6 +194,7 @@ export default function Settings() {
   return (
     <div ref={root} className="flex h-full min-h-0">
       <nav
+        ref={nav}
         aria-label={t("screens-settings-settings-sections")}
         data-scroll-keep="nav"
         className="w-48 shrink-0 overflow-y-auto border-r border-border px-2 py-3"

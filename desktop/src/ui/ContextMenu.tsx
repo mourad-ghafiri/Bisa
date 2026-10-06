@@ -14,6 +14,7 @@
 
 import * as C from "@radix-ui/react-context-menu";
 import type { ReactNode } from "react";
+import { t } from "../i18n/l10n.mjs";
 import { cn } from "./cn";
 import { keyLabel } from "./KeyHint";
 import type { MenuItem } from "./Menu";
@@ -26,6 +27,7 @@ export function ContextMenu({
   children,
   className,
   selected,
+  label,
 }: {
   items: MenuItem[];
   /** The region that owns the menu — usually one row. */
@@ -33,6 +35,12 @@ export function ContextMenu({
   className?: string;
   /** The row is the one in hand: `data-selected` on the region, so its `row-actions` stay revealed (`styles.css`). */
   selected?: boolean;
+  /**
+   * The menu's accessible name — *Actions for <the row>* — since a `menu`
+   * with no name is read as a bare "menu". Without one the kit says
+   * *Actions*: true of every row, specific to none.
+   */
+  label?: string;
 }) {
   // The chosen action runs once the menu has left (`useChosenOnClose`).
   const chosen = useChosenOnClose();
@@ -56,6 +64,7 @@ export function ContextMenu({
       <C.Portal>
         <C.Content
           data-pane
+          aria-label={label ?? t("ui-context-menu-actions")}
           collisionPadding={8}
           className={cn(POPOVER_SURFACE, "min-w-44 py-1")}
           onCloseAutoFocus={chosen.onCloseAutoFocus}

@@ -566,6 +566,7 @@ screens-teams-platform-own-agent-belongs-every-team = The platform's own agent b
 
 ## The Project IDE's header — the goal chip when the goal's name is not read yet (`views/Workbench.tsx`) — words moved out of the markup.
 screens-workbench-goal-chip = goal
+screens-workbench-projects-could-not-read = Your projects could not be read, so there may be more here than it shows. The diagnostic log has the detail.
 
 ## A team card's member — a stray team member, named by its id (`views/rosterModel.mjs`) — words moved out of the model.
 screens-roster-team-named = team { $team }

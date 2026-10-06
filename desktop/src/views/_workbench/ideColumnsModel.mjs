@@ -12,6 +12,24 @@
 /** The least the centre keeps: a document's tab strip and a line of code or prose. */
 export const CENTRE_MIN = 360;
 
+/** The occupant rail's column (`IconRail`, `w-10`), which never moves. */
+export const ICON_RAIL_PX = 40;
+
+/** A column's resize handle (`ResizeHandle`, its bar `w-1`): in the row, between the columns it parts. */
+export const HANDLE_PX = 4;
+
+/**
+ * What the row spends on what never resizes: the occupant rail, and one
+ * handle beside each side column that is open. Left out of the budget, the
+ * handles pushed the row past the window by their width whenever the centre
+ * stood at its least — the occupant rail's right edge was drawn off screen.
+ * @param {{ railOpen: boolean, rightOpen: boolean }} p
+ * @returns {number}
+ */
+export function fixedWidth(p) {
+  return ICON_RAIL_PX + HANDLE_PX * ((p.railOpen ? 1 : 0) + (p.rightOpen ? 1 : 0));
+}
+
 /**
  * The columns as drawn at a width.
  * @param {{

@@ -31,13 +31,17 @@ import { type ConnState, useEngineEvents, watchConnection } from "./bus";
 import { FIRST_CONN } from "./busModel.mjs";
 import { useReloadOnReconnect } from "./ui/useReloadOnReconnect";
 import { navigate, useRoute, type Route } from "./router";
-import { DragProvider, ErrorBoundary, OverlayBoundary, ResizeHandle, Spinner, ToastProvider, useDockClearance, useStoredSize } from "./ui";
+import { MotionConfig } from "motion/react";
+import { DragProvider, ErrorBoundary, OverlayBoundary, ResizeHandle, Spinner, ToastProvider, TooltipProvider, useDockClearance, useStoredSize } from "./ui";
 import { AuxPane, useAux } from "./shell/AuxPane";
-import { NoteOverlay } from "./notes/NoteOverlay";
-import { DrawOverlay } from "./draw/DrawOverlay";
+// The floating overlays load behind the first paint: a note's editor, the
+// drawing canvas's wrapper, the companion and the addon windows are chunks of
+// their own, fetched once the shell is up — not carried by every screen.
+const NoteOverlay = lazy(() => import("./notes/NoteOverlay").then((m) => ({ default: m.NoteOverlay })));
+const DrawOverlay = lazy(() => import("./draw/DrawOverlay").then((m) => ({ default: m.DrawOverlay })));
 import { DrawPanel } from "./draw/DrawPanel";
-import { PetCompanion } from "./pet/PetCompanion";
-import { AddonLayer } from "./addons/AddonLayer";
+const PetCompanion = lazy(() => import("./pet/PetCompanion").then((m) => ({ default: m.PetCompanion })));
+const AddonLayer = lazy(() => import("./addons/AddonLayer").then((m) => ({ default: m.AddonLayer })));
 import { ProjectGitDialog } from "./views/_work/ProjectGitDialog";
 import { HookSecretsDialog } from "./views/_workflow/HookSecretsDialog";
 import { WorkstreamScriptToasts } from "./views/_work/WorkstreamScriptToasts";
@@ -356,6 +360,15 @@ export default function App() {
     log.error("shell", `${what} crashed`, { ...errorFields(error), route: route.name, component_stack: info.componentStack });
 
   return (
+    // The motion library follows the OS's reduced-motion setting on its own
+    // (`reducedMotion="user"`), beside the tokens that already do — so a
+    // `motion` prop written without `useMotionTiming` still stands still,
+    // and the library stops warning about it on every screen. One tooltip
+    // provider at the root lets a second tooltip skip the open delay while
+    // the pointer sweeps along a toolbar; the kit's own per-tip providers
+    // become no-ops under it.
+    <MotionConfig reducedMotion="user">
+    <TooltipProvider delayDuration={400} skipDelayDuration={200}>
     <ToastProvider>
       {/*
         Every host mounted outside the routed screen has a boundary of its
@@ -483,7 +496,7 @@ export default function App() {
           every dialog and menu.
         */}
         <OverlayBoundary name="notes panel" resetKey={routeKey} onError={crashed(tr("app-app-notes-panel"))}>
-          <NoteOverlay />
+          <Suspense fallback={null}><NoteOverlay /></Suspense>
         </OverlayBoundary>
         {/*
           The Draw panel (19 — Drawings): the same placement and tier as the
@@ -492,7 +505,7 @@ export default function App() {
           column, under every dialog.
         */}
         <OverlayBoundary name="draw panel" resetKey={routeKey} onError={crashed(tr("app-app-draw-panel"))}>
-          <DrawOverlay />
+          <Suspense fallback={null}><DrawOverlay /></Suspense>
         </OverlayBoundary>
         {/*
           Same placement, one tier lower: a companion that vanished when a
@@ -500,7 +513,7 @@ export default function App() {
           and it must never draw over the notes panel or a dialog.
         */}
         <OverlayBoundary name="companion" resetKey={routeKey} onError={crashed(tr("app-app-companion"))}>
-          <PetCompanion />
+          <Suspense fallback={null}><PetCompanion /></Suspense>
         </OverlayBoundary>
         {/*
           The addons (18 — Addons): the same tier as the pet, so a window never
@@ -508,7 +521,7 @@ export default function App() {
           every widget standing.
         */}
         <OverlayBoundary name="addons" resetKey={routeKey} onError={crashed(tr("app-app-addons"))}>
-          <AddonLayer />
+          <Suspense fallback={null}><AddonLayer /></Suspense>
         </OverlayBoundary>
         {/* Who commits in a repository nobody is set to commit in — one dialog for every creation path. */}
         <OverlayBoundary name="who-commits dialog" resetKey={routeKey} onError={crashed(tr("app-app-who-commits-dialog"))}>
@@ -531,6 +544,8 @@ export default function App() {
         </DragProvider>
       </WorkspaceContext.Provider>
     </ToastProvider>
+    </TooltipProvider>
+    </MotionConfig>
   );
 }
 

@@ -231,7 +231,7 @@ export function CodeHostPanel({ kind }: { kind: CodeHostKind }) {
                 {cli.action !== null && phase(plan) === "failed" && <ErrorNote error={plan.error ?? t("settings-code-host-panel-sign-in-plan-refused")} retry={plan.reload} />}
                 {cli.action === "signin" && plan.data && (
                   <div className="flex flex-wrap items-center gap-2 pl-5">
-                    <Button size="sm" variant="primary" disabled={!data.cli?.installed} onClick={authenticate}>
+                    <Button size="sm" variant="primary" disabled={!data.cli?.installed} disabledReason={data.cli?.installed ? undefined : t("settings-code-host-panel-sign-in-needs-cli")} onClick={authenticate}>
                       <ICON.open size={12} aria-hidden />
                       <span className="ml-1">{way.button}</span>
                     </Button>

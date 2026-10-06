@@ -80,7 +80,7 @@ export function GitProfilesPanel() {
         </div>
       }
       action={
-        <Button size="sm" variant="primary" disabled={!data.hasconfig_supported} onClick={() => setEditing({ slug: null, spec: emptySpec() })}>{t("settings-git-profiles-panel-new-profile")}</Button>
+        <Button size="sm" variant="primary" disabled={!data.hasconfig_supported} disabledReason={note ?? undefined} onClick={() => setEditing({ slug: null, spec: emptySpec() })}>{t("settings-git-profiles-panel-new-profile")}</Button>
       }
     >
       <Card className="flex flex-col gap-3">

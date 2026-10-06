@@ -19,3 +19,11 @@ export declare function xtermTheme(
   resolved: Record<string, string>,
   scheme: string | null | undefined,
 ): ITheme;
+
+/** How a find's matches are drawn in the buffer, from the warn and text roles. */
+export declare function findDecorations(resolved: Record<string, string>): {
+  matchOverviewRuler: string;
+  activeMatchColorOverviewRuler: string;
+  matchBackground: string;
+  activeMatchBackground: string;
+};

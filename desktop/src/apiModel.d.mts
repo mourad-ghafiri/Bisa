@@ -17,7 +17,7 @@ export type FailureKind = "aborted" | "timeout" | "unreachable";
 export declare function refusalOf(body: unknown): string | null;
 /** A deadline in milliseconds as the whole seconds a sentence says: rounded up, never 0. */
 export declare function deadlineSeconds(timeoutMs: number): number;
-export declare function failureOf(error: unknown, callerAborted: boolean, timedOut?: boolean, timeoutMs?: number): { kind: FailureKind; reason: string };
+export declare function failureOf(error: unknown, callerAborted: boolean, timedOut?: boolean, timeoutMs?: number): { kind: FailureKind; reason: string; detail?: string | null };
 export declare function answerUnreadableWords(): string;
 export declare function streamEndedWords(): string;
 /** The `Authorization` value for a token — words for the node, never a message. */

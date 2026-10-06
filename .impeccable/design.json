@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-03T12:00:00+00:00",
+  "generatedAt": "2026-10-06T12:00:00+00:00",
   "title": "Design System: Bisa",
   "extensions": {
     "colorMeta": {
@@ -550,7 +550,12 @@
       {
         "name": "material (glass)",
         "value": "backdrop-filter: blur(18px) saturate(1.35)",
-        "purpose": "Frost on [data-pane] elements and body; saturate 1.2 on Glass dark. Opaque families answer 0px and 1."
+        "purpose": "Frost on [data-pane] elements and the page's ground, laid on body::before (never body itself, the Backdrop Root); saturate 1.2 on Glass dark. Opaque families answer 0px and 1."
+      },
+      {
+        "name": "board-card-lift",
+        "value": "var(--shadow-floating), 0 0 0 1px var(--color-accent)",
+        "purpose": "The Board card in flight (styles.css): the family's floating shadow with the accent's one-pixel edge, a named class not a component's own shadow."
       }
     ],
     "motion": [
@@ -577,7 +582,7 @@
       {
         "name": "reduced-motion",
         "value": "durations 1ms; pulse, spin, breathe, nudge, pop, shake and lift stop; the canvas live flow turns solid and step rings stop",
-        "purpose": "Honoured at the token so new components inherit it."
+        "purpose": "Honoured at the token so new components inherit it; the motion library is told the same at the root (MotionConfig reducedMotion=\"user\", App.tsx)."
       },
       {
         "name": "flow-along",
@@ -641,7 +646,9 @@
       "ring": "outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px",
       "fields": "border-color: var(--color-accent); no outline, no box-shadow",
       "selection": "color-mix(in oklch, var(--color-accent) 26%, transparent)",
-      "caret": "var(--color-accent)"
+      "caret": "var(--color-accent)",
+      "find": "::highlight(bisa-find) color-mix(in oklch, var(--color-warn) 25%, transparent); current match 50% and underlined; text keeps var(--color-text). The terminal draws the same from the roles (findDecorations, terminal/xtermTheme.mjs).",
+      "segmentedTrack": "The SegmentedControl root wears the kit ring too: Radix's roving focus makes the track a tab stop."
     },
     "dockClearance": {
       "source": "desktop/src/ui/dockClearance.ts + styles.css [data-dock-clear] rule",
@@ -746,9 +753,9 @@
     {
       "name": "Segmented Control",
       "kind": "custom",
-      "description": "Two to four options; the pressed segment lifts to surface, neutral.",
+      "description": "Two to four options; the pressed segment lifts to surface, neutral. The track wears the ring as well as its segments.",
       "html": "<div class=\"ds-seg\" role=\"group\"><button class=\"ds-seg-i ds-on\">Recent</button><button class=\"ds-seg-i\">Name</button><button class=\"ds-seg-i\">Status</button></div>",
-      "css": ".ds-seg{display:inline-flex;gap:2px;padding:2px;border:1px solid color-mix(in oklch,var(--color-border) 65%,transparent);border-radius:var(--radius-control);background:color-mix(in oklch,var(--color-surface-2) 70%,transparent)}.ds-seg-i{height:24px;padding:0 10px;border:0;border-radius:var(--radius-control);background:transparent;color:var(--color-text-dim);font:500 13px/1.45 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1),color 120ms cubic-bezier(0.2,0,0,1)}.ds-seg-i:hover{color:var(--color-text)}.ds-seg-i.ds-on{background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-raised)}.ds-seg-i:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}"
+      "css": ".ds-seg{display:inline-flex;gap:2px;padding:2px;border:1px solid color-mix(in oklch,var(--color-border) 65%,transparent);border-radius:var(--radius-control);background:color-mix(in oklch,var(--color-surface-2) 70%,transparent)}.ds-seg-i{height:24px;padding:0 10px;border:0;border-radius:var(--radius-control);background:transparent;color:var(--color-text-dim);font:500 13px/1.45 var(--font-sans,system-ui);cursor:pointer;transition:background-color 120ms cubic-bezier(0.2,0,0,1),color 120ms cubic-bezier(0.2,0,0,1)}.ds-seg-i:hover{color:var(--color-text)}.ds-seg-i.ds-on{background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-raised)}.ds-seg-i:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}.ds-seg:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}"
     },
     {
       "name": "Empty State",
@@ -774,7 +781,7 @@
     "rules": [
       {
         "name": "The One Summons Rule",
-        "body": "The accent means your attention. It appears on primary buttons, waiting-on-you badges and the needs-you count, \"new\" markers, an \"on\" Switch and a checked Checkbox (a decided state the person set), live/working dots and running states (a run canvas's live flow and step rings included), banners that ask for a decision now, focus rings and the caret, drag-and-drop target feedback, find matches and links in running prose. Nothing else wears it. Unread is news, not a summons: unread counts are neutral, and Inbox's source-tab counts are `quiet`. The sides of a conflict are neutral and told apart by glyph; tag names are neutral.",
+        "body": "The accent means your attention. It appears on primary buttons, waiting-on-you badges and the needs-you count, \"new\" markers, an \"on\" Switch and a checked Checkbox (a decided state the person set), live/working dots and running states (a run canvas's live flow and step rings included), banners that ask for a decision now, focus rings and the caret, drag-and-drop target feedback and links in running prose. Nothing else wears it. A find's matches are not a summons but a place you looked: they wear the warn role's wash — a quarter, the current match at half and underlined — in a rendering (`::highlight(bisa-find)`, `styles.css`) and in the terminal (`findDecorations`, `terminal/xtermTheme.mjs`) alike. Unread is news, not a summons: unread counts are neutral, and Inbox's source-tab counts are `quiet`. The sides of a conflict are neutral and told apart by glyph; tag names are neutral.",
         "section": "colors"
       },
       {
@@ -794,7 +801,7 @@
       },
       {
         "name": "The Words Stay Solid Rule",
-        "body": "On Glass, `bg`, `surface`, `surface-2` and `border` carry alpha; text, the accent and status colours never do, and every contrast bar is measured over the composite on both white and black.",
+        "body": "On Glass, `bg`, `surface`, `surface-2` and `border` carry alpha; text, the accent and status colours never do, and every contrast bar is measured over the composite on both white and black. A band that stays put while words scroll under it lays two sheets of its own role — a thread's sticky day divider is `bg` over `bg` (`ui/DayDivider.tsx`), the Your-move band `surface` over `bg` — so the words never ghost through its rule; two sheets reach the sheet floor on every family (`theme/themes.test.mjs`), and a band is never a pane, since a frost on every divider in a long thread would stack a blur per day.",
         "section": "colors"
       },
       {
@@ -819,12 +826,12 @@
       },
       {
         "name": "The Two Shadows Rule",
-        "body": "Raised or floating, from the family; nothing else. Interaction-specific lifts (the Board card in flight, the tree's nest ring) live as named classes in `styles.css`, not in components.",
+        "body": "Raised or floating, from the family; nothing else. Interaction-specific lifts (the Board card in flight, the tree's nest ring) live as named classes in `styles.css`, not in components, and are built from the two roles: the card in flight is the family's floating shadow with the accent's one-pixel edge (`.board-card-lift`), never a literal shadow.",
         "section": "elevation"
       },
       {
         "name": "The Panes Frost Rule",
-        "body": "Only panes frost. A dialog over a right panel stacks two blurs, which is the most there is; a surface read for minutes (the notes overlay) lays its own near-opaque ground. Code and terminals stay solid.",
+        "body": "Only panes frost. A dialog over a right panel stacks two blurs, which is the most there is; a surface read for minutes (the notes overlay) lays its own near-opaque ground. Code and terminals stay solid. A pane hidden in place frosts nothing: WebKit paints a hidden element's backdrop while anything inside it is visible, so a pane kept mounted and hidden — the terminal layer over the centre — drops its backdrop with its visibility (`shell/centerSlotModel.mjs`, `slotStyle`; `theme/material.css`).",
         "section": "elevation"
       },
       {
@@ -840,7 +847,7 @@
     ],
     "dos": [
       "**Do** ask for roles (`surface`, `text-dim`, `accent-ink`, `danger-soft`), never a colour; a new theme is a data change.",
-      "**Do** spend the accent only on a summons: primary buttons, waiting-on-you and the needs-you count, \"new\" markers, an on Switch or checked Checkbox, live and running, decision banners, focus, drop targets, find matches, links in prose. Unread counts are neutral.",
+      "**Do** spend the accent only on a summons: primary buttons, waiting-on-you and the needs-you count, \"new\" markers, an on Switch or checked Checkbox, live and running, decision banners, focus, drop targets, links in prose. Unread counts are neutral; find matches wear the warn wash.",
       "**Do** ask before anything that cannot be taken back, in a danger `ConfirmDialog` that names what will go (The Irreversible Asks Rule).",
       "**Do** give a disabled button its reason with `disabledReason`, and a refused value its reason with `Field`'s `error`.",
       "**Do** draw where-you-are with `selected` and full ink, and indicator bars in `text` (70% on rails).",
@@ -870,7 +877,9 @@
       "**Don't** put a step-family ink on a card's ground, edge or words, or let it stand in for a state; goal step chips keep the state colour.",
       "**Don't** move anything else on a run's canvas: the live flow is the one moving thing and the one accent flow.",
       "**Don't** show a person a raw error string, or an empty state for a list that failed to read; use a catalog sentence and `ErrorNote` with Retry.",
-      "**Don't** wrap a group of controls or a copy button in `Field`; use `Labelled`."
+      "**Don't** wrap a group of controls or a copy button in `Field`; use `Labelled`.",
+      "**Don't** let a flex or grid item hold its column at its content's width: an item that carries a one-line name (`truncate`, `whitespace-nowrap`, a picker's rows) is `min-w-0`, since its automatic minimum is its min-content and a `minmax(0, 1fr)` track does not clamp it — the New agent dialog's Skills box ran a hundred pixels past the dialog at 1024 and was clipped.",
+      "**Don't** write `visible`, `invisible`, `contents` or `container` as classes: xterm, Monaco and Excalidraw wear those names, so Tailwind never makes them (`styles.css`). Write `[visibility:hidden]` to hide in place and `[display:contents]` to drop a box (`theme/widgetClasses.test.mjs`)."
     ]
   }
 }

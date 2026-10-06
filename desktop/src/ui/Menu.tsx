@@ -8,9 +8,12 @@
  * and collision-aware placement, and it makes the trigger a real button.
  *
  * `trigger` stays a `ReactNode` rather than becoming an `asChild` element,
- * because every existing call site passes a styled `<span>`. Wrapping it in
- * the trigger button is what turns those into keyboard-reachable controls
- * without touching a single view.
+ * because most call sites pass a styled `<span>`. Wrapping it in the trigger
+ * button is what turns those into keyboard-reachable controls without
+ * touching a single view. A call site that passes a button — a `<button>`,
+ * or the kit's `Button` — gets the opposite treatment: that button *is* the
+ * trigger (`isButtonElement`, `asChild`), never a button inside the one
+ * Radix renders, which is invalid HTML and two controls to a screen reader.
  */
 
 import * as M from "@radix-ui/react-dropdown-menu";
@@ -21,6 +24,7 @@ import { cn } from "./cn";
 import { FOCUS_RING } from "./rings";
 import type { LucideIcon } from "./icons";
 import type { Mark } from "./harnessMarks";
+import { isButtonElement } from "./triggers";
 import { keyLabel } from "./KeyHint";
 import { MENU_ITEM, MENU_ITEM_TONE, POPOVER_SURFACE } from "./surfaces";
 
@@ -63,13 +67,21 @@ export function Menu({
   const [, setOpen] = useOpenSurface();
   return (
     <M.Root onOpenChange={setOpen}>
-      <M.Trigger
-        aria-label={label}
-        disabled={items.length === 0}
-        className={cn("inline-flex items-center rounded disabled:opacity-45", FOCUS_RING)}
-      >
-        {trigger}
-      </M.Trigger>
+      {isButtonElement(trigger) ? (
+        // The button given is the trigger: Radix merges its own props onto
+        // it (the child's `aria-label`, `disabled` and `className` win).
+        <M.Trigger asChild aria-label={label} disabled={items.length === 0} className={FOCUS_RING}>
+          {trigger}
+        </M.Trigger>
+      ) : (
+        <M.Trigger
+          aria-label={label}
+          disabled={items.length === 0}
+          className={cn("inline-flex items-center rounded disabled:opacity-45", FOCUS_RING)}
+        >
+          {trigger}
+        </M.Trigger>
+      )}
       <M.Portal>
         <M.Content
           data-pane

@@ -44,7 +44,7 @@ workstreams, inbox, unread — loaded once, patched by one bus subscription) →
 `Sidebar` → the routed `Screen` inside an `ErrorBoundary` and `Suspense` (its fallback a `Spinner` in place, shown only past the kit's beat; every screen's chunk is preloaded at idle after the first paint — `SCREENS`, `preloadScreens` — so navigation after boot never suspends) → `AuxPane` → … — every host the screen's boundary cannot reach in a boundary of its own: the top chrome, the sidebar, the details pane and the status bar each in an `ErrorBoundary` with a one-line fallback in place, and every overlay mounted once in the shell — the who-commits dialog, the close confirmation, the palette, the notes panel, the companion, the two toast rails — in an `OverlayBoundary` (closed, one toast saying so, back on the next route), so a throw in one costs that host and never the window; the shell's own `ErrorBoundary` in `main.tsx` is the last line, a card with *Reload* and a line in the log; and a shell whose node did not start still opens — `api_base` answers the reason, the offline line says it (`workspaceLoadModel.offlineWords`), and the sidecar's watchdog keeps trying on the crash curve until `node:restarted` brings the base back;
 `TerminalPanel` (outside the routed screen, so a shell survives navigation; drawn `position:fixed`
 over the rect the workbench's centre publishes to `layerSlots.ts`) → `Omnibox` → `NoteOverlay` →
-`PetOverlay` → `AddonLayer` (the addon windows, [18](../18-addons.md), in their own boundary at the pet's tier).
+`PetOverlay` → `AddonLayer` (the addon windows, [18](../18-addons.md), in their own boundary at the pet's tier). The notes and draw panels, the companion and the addon layer are chunks of their own (`lazy` in `App.tsx`, a `Suspense` with no fallback under each boundary): the first paint carries the shell and the screen, and the overlays arrive behind it.
 
 ### Routing
 
@@ -235,7 +235,8 @@ node being down. **A request fails three ways** and a caller tells them apart (`
 its caller gave it up, and nothing is said; it outstayed its deadline — every `GET` has one
 (`takesDeadline`, `API_READ_TIMEOUT_MS`), a read handed its caller's signal included, the bound made
 by hand since the webview this app ships for has no `AbortSignal.any`; or nobody answered, which is
-*offline*. An answer whose body cannot be read, and a stream that ends before it finished, are
+*offline* — said in the catalog's words (*node unreachable*), the engine's own transport text kept
+as `detail` for the log and never shown as the node's sentence. An answer whose body cannot be read, and a stream that ends before it finished, are
 sentences of the catalog. `bus.ts` — one
 `EventSource` for the app with per-subscriber `Filter { stream, goal, scope, key }`; a `system` frame
 is the bus's own, never a subscriber's — `{kind: "lagged", dropped}` says the node dropped events this

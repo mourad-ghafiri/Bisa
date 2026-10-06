@@ -80,7 +80,7 @@ One typed payload, `workstream-card {id, column, label}` (`ui/dnd/dragData.mjs`)
 `DropZone` around a vertical `SortableList`, and the columns are one sortable **family**
 (`family="board"`), so a card keeps its id whichever column holds it. **The drag is shown as it
 goes.** The ghost under the pointer is the card itself (`useDragGhost`: the same `BoardCard`, from
-the same `cardProps` as the column's, drawn `ghost` — no verbs — and lifted, `.board-card-lift`);
+the same `cardProps` as the column's, drawn `ghost` — no verbs — and lifted, `.board-card-lift`, the family's floating shadow with the accent's one-pixel edge);
 the card left on the board is a placeholder — its footprint, dashed and faded
 (`.board-card-placeholder`). A card hovering another column is moved there at once, at the slot it
 would take (`onHover` from the list or the zone's well → `optimisticMove` as a *preview*), so the

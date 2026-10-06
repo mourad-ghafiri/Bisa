@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import type { BranchInfo } from "../../types";
-import { Button, Checkbox, Dialog } from "../../ui";
+import { Button, Checkbox, Dialog, SOLID_DANGER } from "../../ui";
 import { consentWords } from "./branchActionsModel.mjs";
 import { SafetyNote } from "./SafetyNote";
 import { t } from "../../i18n/l10n.mjs";
@@ -48,7 +48,8 @@ export function DeleteBranchDialog({
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t("work-agent-editor-cancel")}</Button>
-          <Button variant="danger" disabled={busy} onClick={() => onConfirm(alsoRemote && remote ? remote : null)}>
+          {/* A destructive confirm fills solid danger, as the kit's `ConfirmDialog` does (The Irreversible Asks Rule). */}
+          <Button variant="primary" className={SOLID_DANGER} disabled={busy} onClick={() => onConfirm(alsoRemote && remote ? remote : null)}>
             {busy ? t("work-delete-branch-dialog-deleting") : copy.confirm}
           </Button>
         </>

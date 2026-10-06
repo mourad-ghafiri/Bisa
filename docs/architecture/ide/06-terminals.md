@@ -381,7 +381,10 @@ verified against a reference of pi's own. Copilot CLI's sub-agents carry no id t
 `@xterm/addon-search`: `⌘F` inside a terminal opens the kit's find bar (`ui/find/FindBar.tsx`, the
 same bar a rendered document shows) over the buffer with match count, next/previous, regex and
 match case. It is scoped to the focused pane. `⌘R` means nothing to a scrollback and stays the
-shell's (`interceptsInTerminal` leaves `r` with the PTY beside `c`, `v` and `f`).
+shell's (`interceptsInTerminal` leaves `r` with the PTY beside `c`, `v` and `f`). Matches wear the
+app's own find wash — the warn role at a quarter, the current match at half, the overview ruler's
+marks in the text roles (`xtermTheme.findDecorations`, read off the mounted theme when the bar
+opens) — never a colour of xterm's own, which no theme answers.
 
 ---
 

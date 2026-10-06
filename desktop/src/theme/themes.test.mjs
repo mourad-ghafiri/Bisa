@@ -319,3 +319,20 @@ test("a reading sheet — surface over bg — is nearly opaque on every family, 
   }
 });
 
+/**
+ * A band that stays put while words scroll under it — a thread's sticky day
+ * divider (`ui/DayDivider.tsx`) — is the page's own ground, not a sheet laid
+ * over it, so it lays `bg` over `bg`: the same colour twice, compounding to
+ * the sheet floor on a glass family and changing nothing on an opaque one.
+ */
+test("a sticky band on the page's ground — bg over bg — reaches the sheet floor on every family", () => {
+  const grounds = themeBlocks.filter((b) => ROLE(b.values, "bg"));
+  assert.ok(grounds.length >= THEME_FILES.length, "every family states its ground, each side");
+  for (const { file, selector, values } of grounds) {
+    const bg = parseOklch(ROLE(values, "bg"));
+    assert.ok(bg, `${file} ${selector}: bg is oklch`);
+    const opacity = 1 - (1 - bg.alpha) * (1 - bg.alpha);
+    assert.ok(opacity >= SHEET_FLOOR, `${file} ${selector}: two sheets of bg are ${(opacity * 100).toFixed(1)}% opaque, under ${SHEET_FLOOR * 100}%`);
+  }
+});
+

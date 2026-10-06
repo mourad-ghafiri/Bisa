@@ -379,6 +379,7 @@ ui-chip-diverted-by = diverted → { $by }
 ui-composer-people-agents = People & agents
 ui-composer-artifact = artifact
 ui-composer-file = file
+ui-context-menu-actions = Actions
 
 ## The Mermaid view's state word (`ui/MermaidView.tsx`) — words moved out of the markup.
 ui-mermaid-view-diagram = diagram

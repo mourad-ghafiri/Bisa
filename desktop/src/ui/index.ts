@@ -61,6 +61,8 @@ export type { DividerGeometry } from "./PaneDivider";
 export { ChoiceDialog } from "./ChoiceDialog";
 export type { Choice } from "./ChoiceDialog";
 export { ConfirmDialog, Dialog, PromptDialog } from "./Dialog";
+// The one solid danger fill a destructive dialog's confirm wears (The Irreversible Asks Rule), for a dialog the kit's `ConfirmDialog` cannot draw.
+export { SOLID_DANGER } from "./dialogLayout.mjs";
 export { useWatchLease } from "./useWatchLease";
 export { ToastProvider, toaster, useToast } from "./Toast";
 export { Tabs } from "./Tabs";

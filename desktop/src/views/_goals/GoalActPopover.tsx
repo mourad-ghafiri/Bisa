@@ -66,6 +66,7 @@ export function GoalActPopover({
       onOpenChange={(o) => !o && onClose()}
       trigger={children}
       asChild
+      label={t("goals-goal-act-popover-act-on-this-goal")}
       className="w-80 p-2"
     >
       {error ? (

@@ -71,6 +71,41 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A whole-app audit of the desktop's screens, dialogs and overlays, with its findings fixed. Names
+  and keyboard: the Notes and Drawings panels' row menus and the repository strip's *More* were
+  buttons inside buttons — invalid HTML React reported on every screen while a panel was open, two
+  controls where a screen reader expects one — so a menu or a popover handed a button now makes it
+  the trigger itself; every popover's panel carries its trigger's name instead of reading as a
+  nameless dialog; every right-click menu carries a name; a keyboard-focused flow on the workflow
+  canvas is drawn as a selected one, where it showed nothing; the canvas's dotted ground and
+  arrowhead definitions are hidden from assistive technology; a Settings tile's preview is hidden
+  too, so a theme tile is read by its name and not by the words of the window in miniature inside
+  it; the Keymap panel's group headings follow the panel's title without a level skipped; the mode
+  switch's track wears the kit's ring; an artifact card's live preview is a button with a name; one
+  tooltip provider at the root lets a second tip skip its delay; the motion library follows the
+  OS's reduced-motion setting at the root. Fit: the Project IDE's columns count their resize
+  handles, so the occupant rail no longer ends six pixels past the window, and Agent Mode's centre
+  yields its width like Project Mode's, where it had pushed the row past the window whenever a menu
+  or dialog opened over it; the New agent dialog's Skills and Servers boxes no longer run past the
+  dialog's edge at 1024 wide, where a picker row's one-line name had held each column at its full
+  width; the right panel's Git header wraps at its narrowest, where *Diff against base* ran past
+  the panel's edge; a channel header's topic and roster end in an ellipsis instead of running past
+  the edge; a thread's sticky day divider sits at the true top of its scrollport, where the
+  thread's head padding had held it eight pixels short with a strip of the scrolled words showing
+  above it, and on Glass it no longer lets those words ghost through its rule. Words and states: a
+  destructive confirm the kit's `ConfirmDialog` cannot draw (retiring a goal, deleting a branch,
+  deleting a library ref) fills solid danger like every other; *Retire* no longer offers a bare "…"
+  while it reads, and says "projects made for it" only when there are some; the Settings rail
+  reveals the current panel's row when its kept scroll place hid it; the Inbox's key legend shows
+  only while there are rows; Settings › Addons' empty *Installed* list is an open empty state with
+  its Import door; two held primaries say why; with the node away, an error note says *node
+  unreachable* in the app's own words where it had shown the engine's "Failed to fetch", and the
+  Projects rail and the IDE's landing say the projects could not be read, with Retry, instead of
+  *No projects yet*. Theme: the Board card in flight wears the family's floating shadow; a terminal
+  find's matches wear the app's amber wash from the theme's roles. Every section header in a panel wraps its actions at the panel's
+  narrowest, where the remotes' *Fetch* and *Add remote…* were cut at the edge.
+- The Notes and Drawings panels, the companion and the addon layer load behind the first paint as
+  chunks of their own.
 - Deleting a folder's untracked files from Git › Changes, every untracked file from the toolbar,
   a selection of several rows in the explorer, or the files an agent's turn made when the turn is
   undone moved them to the Trash one by one, and macOS played its trash sound once for each.

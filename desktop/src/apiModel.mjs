@@ -186,8 +186,12 @@ export function failureOf(error, callerAborted, timedOut = false, timeoutMs = AP
   if (callerAborted) return { kind: "aborted", reason: t("app-api-caller-gave-up") };
   const name = /** @type {{name?: unknown} | null} */ (error && typeof error === "object" ? error : null)?.name;
   if (timedOut || name === "TimeoutError") return { kind: "timeout", reason: t("app-api-no-answer-within-s", { seconds: deadlineSeconds(timeoutMs) }) };
+  // The reason a person reads is the catalog's word for an absent node; the
+  // engine's own text ("Failed to fetch", "Load failed") is `detail`, for the
+  // log — it named the transport, never the node, and read as the node's own
+  // sentence in every error note.
   const message = /** @type {{message?: unknown} | null} */ (error && typeof error === "object" ? error : null)?.message;
-  return { kind: "unreachable", reason: typeof message === "string" && message ? message : t("app-api-node-unreachable") };
+  return { kind: "unreachable", reason: t("app-api-node-unreachable"), detail: typeof message === "string" && message ? message : null };
 }
 
 /**

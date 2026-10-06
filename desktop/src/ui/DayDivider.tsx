@@ -21,14 +21,8 @@ export { dayKey, dayLabel };
  * be a promise the Pulse silently fails to keep.
  */
 export function DayDivider({ at, sticky = false }: { at: number; sticky?: boolean }) {
-  return (
-    // `bg-bg` when sticky: without an opaque band the rules and the label
-    // would sit on top of the messages scrolling under them.
-    <div
-      className={`flex items-center gap-2 px-3 py-1.5 ${
-        sticky ? "sticky top-0 z-10 bg-bg" : ""
-      }`}
-    >
+  const row = (
+    <div className={`flex items-center gap-2 px-3 py-1.5 ${sticky ? "bg-bg" : ""}`}>
       <Separator className="flex-1" />
       <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-2xs font-medium text-text-dim">
         {dayLabel(at)}
@@ -36,4 +30,15 @@ export function DayDivider({ at, sticky = false }: { at: number; sticky?: boolea
       <Separator className="flex-1" />
     </div>
   );
+  if (!sticky) return row;
+  // A band when sticky, or the rules and the label would sit on top of the
+  // messages scrolling under them. Two sheets of `bg`, not one: on a glass
+  // family the page's ground is translucent (`DESIGN.md`, Frosted Page), and
+  // through one sheet the words passing under the band ghosted through its
+  // rules; two of the same colour compound to the sheet floor
+  // (`theme/themes.test.mjs`) while staying the page's own ground, and on an
+  // opaque family the second changes nothing. Not a pane: a frost on every
+  // divider in a long thread would stack a blur per day for nothing
+  // (`theme/material.css`).
+  return <div className="sticky top-0 z-10 bg-bg">{row}</div>;
 }

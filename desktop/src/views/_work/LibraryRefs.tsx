@@ -36,6 +36,7 @@ import {
   Dialog,
   ErrorNote,
   ICON,
+  SOLID_DANGER,
   SkeletonRows,
   TagChips,
   TextInput,
@@ -195,7 +196,7 @@ export function AttachedRefs({
         >
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-1.5">
-              <span className={`truncate text-2xs font-medium ${e.known ? "" : "font-mono"}`}>
+              <span className={`min-w-0 truncate text-2xs font-medium ${e.known ? "" : "font-mono"}`}>
                 {e.name}
               </span>
               {e.origin && <OriginChip origin={e.origin} id={e.id} />}
@@ -342,7 +343,7 @@ export function RefPicker({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-1.5">
-                        <span className="truncate text-2xs font-medium">{e.name}</span>
+                        <span className="min-w-0 truncate text-2xs font-medium">{e.name}</span>
                         {e.origin && <OriginChip origin={e.origin} id={e.id} />}
                         {e.disabled && <Chip tone="warn">{tr("work-library-refs-disabled")}</Chip>}
               {e.warning && <Chip tone="warn">{e.warning}</Chip>}
@@ -631,7 +632,8 @@ export function DeleteDialog({
             {blocked ? tr("work-after-merge-dialog-close") : tr("work-agent-editor-cancel")}
           </Button>
           {!blocked && !usage.checking && (
-            <Button variant="danger" disabled={busy} onClick={() => void run()}>
+            // A destructive confirm fills solid danger, as the kit's `ConfirmDialog` does (The Irreversible Asks Rule).
+            <Button variant="primary" className={SOLID_DANGER} disabled={busy} onClick={() => void run()}>
               {busy ? tr("work-delete-branch-dialog-deleting") : tr("work-library-refs-delete")}
             </Button>
           )}

@@ -935,7 +935,7 @@ async function req<T>(
       // The caller gave up: nothing to say, the error is theirs.
       if (failure.kind === "aborted") throw e;
       if (failure.kind === "timeout") log.warn("api", "the node did not answer in time", { method, path, reason: failure.reason });
-      else log.error("api", "the node did not answer", { method, path, reason: failure.reason });
+      else log.error("api", "the node did not answer", { method, path, reason: failure.reason, detail: failure.detail ?? null });
       throw new ApiError(failure.reason, 0, path, undefined, failure.kind);
     }
     if (!res.ok) {

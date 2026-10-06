@@ -40,7 +40,7 @@ import { RELEASE_AFTER_MS, acquire, emptyPool, release as releaseSlot, wants } f
 import { registerTerminalTail } from "./tails";
 import type { TerminalScope, TerminalSession } from "./session";
 import { currentScheme, fontSizeOf, monoFamily, readTerminalTokens } from "./tokens";
-import { xtermTheme } from "./xtermTheme.mjs";
+import { findDecorations, xtermTheme } from "./xtermTheme.mjs";
 import { FindBar, emptyFind } from "../ui";
 import { compileFind } from "../ui/find/findModel.mjs";
 import { isMac } from "../ui/KeyHint";
@@ -409,7 +409,7 @@ export function Terminal({
     // A pattern that does not compile — `(` in regex mode — is the bar's
     // state to show, never something handed to the search addon to throw on.
     if (!live?.search || !compileFind(f.find)) return;
-    const opts = { regex: f.find.regex, caseSensitive: f.find.caseSensitive, decorations: FIND_DECORATIONS };
+    const opts = { regex: f.find.regex, caseSensitive: f.find.caseSensitive, decorations: findDecorationsNow() };
     if (dir === "next") live.search.findNext(f.find.query, opts);
     else live.search.findPrevious(f.find.query, opts);
   };
@@ -487,13 +487,8 @@ interface BootRefs {
   link: { current: LinkHandler | null };
 }
 
-/** How matches are drawn; the colours are xterm's own theme-aware defaults. */
-const FIND_DECORATIONS = {
-  matchOverviewRuler: "#888888",
-  activeMatchColorOverviewRuler: "#ffffff",
-  matchBackground: "#6b6b6b55",
-  activeMatchBackground: "#c9a22766",
-};
+/** How matches are drawn: the app's own find wash, from the roles the mounted theme answers (`findDecorations`). */
+const findDecorationsNow = () => findDecorations(readTerminalTokens());
 
 /**
  * Save the buffer as a replayable escape stream. Best effort and silent: a

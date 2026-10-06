@@ -389,8 +389,24 @@ function Inner<D extends Record<string, unknown>>({
     onDropAt?.(mime, e.dataTransfer.getData(mime), position);
   };
 
+  // What the canvas draws for the eye alone — the dotted ground, the arrowhead
+  // definitions — is no image to a screen reader: every `<svg>` that names
+  // nothing and holds no control is hidden from the tree once xyflow has
+  // drawn it. The edges' own svg holds the focusable flows and stays.
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      for (const svg of box.current?.querySelectorAll<SVGElement>("svg") ?? []) {
+        if (svg.classList.contains("react-flow__edges") || svg.hasAttribute("aria-label") || svg.hasAttribute("role") || svg.querySelector("title, [tabindex]")) continue;
+        svg.setAttribute("aria-hidden", "true");
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   return (
     <div
+      ref={box}
       className={cn("bisa-flow h-full w-full outline-none", className)}
       role="group"
       aria-label={label ?? t("ui-flow-canvas-label")}

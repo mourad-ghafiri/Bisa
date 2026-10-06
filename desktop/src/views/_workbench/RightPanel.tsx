@@ -348,7 +348,10 @@ function GitTab({
   // scroll inside; Changes is taller than it and scrolls the panel.
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-2">
-      <div className="flex shrink-0 items-center gap-2">
+      {/* The row wraps: at the panel's narrowest the four views and *Diff
+          against base* do not share a line, and the door ran past the
+          panel's edge, clipped. Wrapped, it keeps the right (`ml-auto`). */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <SegmentedControl
           label={t("workbench-right-panel-git-view")}
           size="sm"
@@ -365,9 +368,8 @@ function GitTab({
             </button>
           </Tooltip>
         )}
-        <span className="flex-1" />
         {!isPrimary && onOpenDiff && (
-          <Button size="sm" variant="ghost" onClick={onOpenDiff}>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={onOpenDiff}>
             <ICON.compare size={12} aria-hidden />{t("workbench-right-panel-diff-against-base")}</Button>
         )}
       </div>

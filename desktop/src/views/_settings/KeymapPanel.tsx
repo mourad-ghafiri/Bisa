@@ -165,10 +165,11 @@ export function KeymapPanel() {
       {groups.length === 0 && <p className="mt-3 text-2xs text-text-dim">{t("settings-keymap-panel-command-matches", { filter })}</p>}
       {groups.map((g) => (
         <div key={g.when} className="mt-5">
-          <h4 className="text-xs font-semibold text-text">
+          {/* An `h3`: the panel's title is the `h2`, and a level skipped is a heading a screen reader's outline cannot place. */}
+          <h3 className="text-xs font-semibold text-text">
             <span className="font-mono">{g.when}</span>
             <span className="ml-2 text-2xs font-normal text-text-dim">{WHEN_BLURB[g.when]}</span>
-          </h4>
+          </h3>
           <table className="mt-1 w-full text-2xs">
             <thead>
               <tr className="text-left text-text-dim">

@@ -8,13 +8,11 @@
  * that to assistive technology as an accessible name rather than as a
  * floating box nobody but a sighted mouse user ever sees.
  *
- * Each tooltip carries its own `Provider`. A single provider at the app root
- * would be better — it is what lets a second tooltip skip the open delay
- * while you sweep along a toolbar — but the shell does not mount one yet, and
- * a tooltip that silently does nothing because its provider is missing is a
- * worse trade than a lost skip-delay. `TooltipProvider` is exported so the
- * shell can hoist it, at which point the nested providers become harmless
- * no-ops rather than a breaking change.
+ * Each tooltip carries its own `Provider`, and the shell mounts one at the
+ * app root (`App.tsx`, `TooltipProvider`): the root one is what lets a second
+ * tooltip skip the open delay while you sweep along a toolbar, and the nested
+ * ones are harmless no-ops under it — kept so a tooltip drawn outside the
+ * shell (a test, a page of its own) never silently does nothing.
  *
  * A tooltip is read, never hovered: its content takes no pointer and never
  * keeps itself open under one (`disableHoverableContent`), so a tooltip can

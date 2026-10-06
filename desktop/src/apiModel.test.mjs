@@ -57,10 +57,10 @@ test("no answer is one of three things: the caller gave up, the read outstayed i
   const timeout = Object.assign(new Error("signal timed out"), { name: "TimeoutError" });
   assert.deepEqual(failureOf(timeout, false), { kind: "timeout", reason: `no answer within ${API_READ_TIMEOUT_MS / 1000} s` });
   assert.deepEqual(failureOf(timeout, false, false, 5000), { kind: "timeout", reason: "no answer within 5 s" });
-  assert.deepEqual(failureOf(new TypeError("Failed to fetch"), false), { kind: "unreachable", reason: "Failed to fetch" });
-  assert.deepEqual(failureOf(new Error(""), false), { kind: "unreachable", reason: "node unreachable" }, "a nameless failure still has words");
-  assert.deepEqual(failureOf(null, false), { kind: "unreachable", reason: "node unreachable" });
-  assert.deepEqual(failureOf("boom", false), { kind: "unreachable", reason: "node unreachable" });
+  assert.deepEqual(failureOf(new TypeError("Failed to fetch"), false), { kind: "unreachable", reason: "node unreachable", detail: "Failed to fetch" }, "the engine's transport text is detail for the log, never the words a person reads");
+  assert.deepEqual(failureOf(new Error(""), false), { kind: "unreachable", reason: "node unreachable", detail: null }, "a nameless failure still has words");
+  assert.deepEqual(failureOf(null, false), { kind: "unreachable", reason: "node unreachable", detail: null });
+  assert.deepEqual(failureOf("boom", false), { kind: "unreachable", reason: "node unreachable", detail: null });
 });
 
 test("every read takes the deadline, the caller's signal or not; a write does not", () => {

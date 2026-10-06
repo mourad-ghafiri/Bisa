@@ -1458,7 +1458,8 @@ settings-addons-panel-blurb = An addon is a folder of HTML, CSS and JavaScript t
 settings-addons-panel-show-addons-machine = Run addons on this machine
 settings-addons-panel-machine-hint = Off, no addon runs or draws; what each is and what it was granted is kept
 settings-addons-panel-installed = Installed
-settings-addons-panel-none-installed = Nothing yet. Install one from the catalog below, or import an addon.
+settings-addons-panel-none-installed = Install one from the catalog below, or import a folder of your own.
+settings-addons-panel-none-installed-title = No addon installed yet
 settings-addons-panel-on = On
 settings-addons-panel-may = It may
 settings-addons-panel-asks-nothing = It asks for nothing: it can only draw itself
@@ -1701,6 +1702,7 @@ settings-ssh-checked = checked { $ago }
 
 ## Settings › Git & code hosts — a sign-in plan that refused with no sentence of its own (`views/_settings/CodeHostPanel.tsx`).
 settings-code-host-panel-sign-in-plan-refused = the sign-in plan refused
+settings-code-host-panel-sign-in-needs-cli = The sign-in runs through the host's own command line, which is not installed on this machine.
 
 ## Settings › Capabilities › MCP servers — the pair editor's words (`views/_settings/McpPanel.tsx`).
 settings-mcp-panel-value-placeholder = value

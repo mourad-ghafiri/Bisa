@@ -37,6 +37,7 @@ import { useHarnessLabels, useLaunchableHarnesses } from "../../shell/useHarness
 import { agentRowMenuSpec, workstreamMenuSpec } from "./railMenuModel.mjs";
 import { terminalTabMenu } from "./tabMenuModel.mjs";
 import { useWorkspace } from "../../shell/useWorkspaceData";
+import { listUnread } from "../../shell/workspaceLoadModel.mjs";
 import {
   Button,
   ConfirmDialog,
@@ -58,6 +59,7 @@ import {
   useToast,
   useTokenPx,
   EmptyState,
+  ErrorNote,
   revealLabel,
   PHOTO_PROFILES,
   scalePhoto,
@@ -793,7 +795,13 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
         fill
         className="min-h-0 flex-1"
         empty={
-          ws.projects.length === 0 ? (
+          // A read that failed is not an empty list: *No projects yet* would be
+          // a false word while the node is away or the projects read failed.
+          listUnread(ws.degraded, ws.offline, "projects") ? (
+            <div className="p-3">
+              <ErrorNote error={tr("workbench-project-rail-could-not-read")} retry={ws.refresh} />
+            </div>
+          ) : ws.projects.length === 0 ? (
             <EmptyState
               icon={ICON.project}
               title={tr("workbench-project-rail-no-projects-yet")}
