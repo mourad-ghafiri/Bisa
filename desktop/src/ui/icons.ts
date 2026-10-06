@@ -205,6 +205,7 @@ import {
   PenTool,
   Shapes,
   CirclePlay, // terminology-lint-ignore: circle - lucide-react icon identifier, third-party API
+  CloudDownload,
   DiamondPlus,
   Timer,
   RotateCw,
@@ -590,6 +591,8 @@ export const ICON = {
   layout: LayoutGrid,
   delete: Trash2,
   install: Download,
+  /** A newer release of the platform, waiting on GitHub (`shell/UpdateDialog.tsx`). */
+  update: CloudDownload,
   attach: Paperclip,
   detach: Unlink,
   search: Search,

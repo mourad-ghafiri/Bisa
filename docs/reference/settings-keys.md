@@ -277,6 +277,7 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 | `cache.presence.ttl_ms` | integer 0–60000 | `500` | M | **Presence snapshot cache** — How long the sorted session roster snapshot is reused before re-sorting. |
 | `cache.model_health.ttl_ms` | integer 0–60000 | `500` | M | **Model-health snapshot cache** — How long the model-health snapshot is reused before rebuilding it. |
 | `cache.harness_usage.ttl_ms` | integer 0–3600000 | `180000` | M | **Harness usage cache** — How long a harness account's usage report is reused before its source is asked again — a provider's usage endpoint is not a thing to hit on every render. |
+| `cache.updates.ttl_ms` | integer 0–86400000 | `3600000` | M | **Update check cache** — How long the latest release GitHub answered is reused before it is asked again; Check again in the Update dialog asks regardless. GitHub allows sixty unsigned requests an hour from one address. |
 | `cache.desktop.ports_poll_ms` | integer 500–600000 | `5000` | M | **Ports poll** — How often the desktop rescans listening ports while a window is visible. |
 | `cache.desktop.stats_poll_ms` | integer 500–600000 | `5000` | M | **Stats poll** — How often the desktop footer refreshes CPU, GPU, memory and every process's share of them while a window is visible. |
 | `cache.desktop.disk_poll_ms` | integer 5000–3600000 | `60000` | M | **Disk poll** — How often the desktop footer walks the data directory for its sizes by area while a window is visible. |

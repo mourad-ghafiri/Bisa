@@ -51,6 +51,7 @@ mod retire;
 mod security;
 mod sessions;
 mod settings;
+mod updates;
 mod waits;
 mod workflow;
 mod workflow_agent;

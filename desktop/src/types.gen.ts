@@ -1631,6 +1631,51 @@ export type UsageState =
  */
 export type UsageSource = "endpoint" | "app_server" | "cli";
 /**
+ * What one check answered: the latest release, that there is none, that
+ * nothing was asked, or why the read failed. `checked_at` is unix seconds.
+ */
+export type UpdateCheck =
+  | {
+      release: LatestRelease;
+      checked_at: number;
+      state: "latest";
+      [k: string]: unknown;
+    }
+  | {
+      checked_at: number;
+      state: "no_release";
+      [k: string]: unknown;
+    }
+  | {
+      state: "off";
+      [k: string]: unknown;
+    }
+  | {
+      failure: UpdateFailure;
+      checked_at: number;
+      state: "failed";
+      [k: string]: unknown;
+    };
+/**
+ * Why a read failed.
+ */
+export type UpdateFailure =
+  | {
+      reason: string;
+      kind: "unreachable";
+      [k: string]: unknown;
+    }
+  | {
+      retry_in_secs?: number | null;
+      kind: "rate_limited";
+      [k: string]: unknown;
+    }
+  | {
+      status: number;
+      kind: "unexpected";
+      [k: string]: unknown;
+    };
+/**
  * Where a value may live. Ordered from the most specific to the least.
  */
 export type SettingScope = "project" | "workspace" | "machine";
@@ -3888,6 +3933,10 @@ export interface BisaApi {
   UsageSource?: UsageSource;
   UsageAccount?: UsageAccount;
   UsageWindow?: UsageWindow;
+  UpdateCheck?: UpdateCheck;
+  LatestRelease?: LatestRelease;
+  ReleaseAsset?: ReleaseAsset;
+  UpdateFailure?: UpdateFailure;
   LogsView?: LogsView;
   LogFamilyView?: LogFamilyView;
   SettingScope?: SettingScope;
@@ -5428,6 +5477,55 @@ export interface UsageWindow {
    * Unix seconds when the window resets, when the harness knows.
    */
   resets_at?: number | null;
+  [k: string]: unknown;
+}
+/**
+ * A published release as the desktop reads it.
+ */
+export interface LatestRelease {
+  /**
+   * The tag as GitHub holds it — `v0.2.0`.
+   */
+  tag: string;
+  /**
+   * The tag without its leading `v` — `0.2.0`, the shape the desktop
+   * compares with its own version.
+   */
+  version: string;
+  /**
+   * The release's title, when it has one — *Bisa 0.2.0*.
+   */
+  name?: string | null;
+  /**
+   * When it was published, unix seconds, when GitHub said.
+   */
+  published_at?: number | null;
+  /**
+   * The release page, where the notes and every asset are.
+   */
+  url: string;
+  /**
+   * The notes, Markdown as the release carries them.
+   */
+  notes?: string | null;
+  /**
+   * Whether GitHub marks it a prerelease (never for *latest*, kept so the
+   * shape says what it is).
+   */
+  prerelease: boolean;
+  /**
+   * What the release ships, as listed.
+   */
+  assets: ReleaseAsset[];
+  [k: string]: unknown;
+}
+/**
+ * One file a release ships.
+ */
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
   [k: string]: unknown;
 }
 /**

@@ -159,6 +159,13 @@ pub struct EngineConfig {
     /// a harness's usage read and the engine's code host calls share one
     /// policy, swapped together on a write.
     pub http: Option<std::sync::Arc<bisa_http::Clients>>,
+    /// Where the latest release of the platform is read from, for the
+    /// desktop's *You › Update* (`updates.rs`). **`None` by default**, like
+    /// `ssh` and `cli`: an engine nobody configured — every test fixture —
+    /// never dials GitHub and answers *off*; the node that serves a person
+    /// hands in the repository this build was made from, a test a stub on
+    /// the loopback.
+    pub updates: Option<crate::updates::UpdatesSource>,
 }
 
 impl Default for EngineConfig {
@@ -191,6 +198,7 @@ impl Default for EngineConfig {
             mcp_probe: None,
             log: None,
             http: None,
+            updates: None,
         }
     }
 }

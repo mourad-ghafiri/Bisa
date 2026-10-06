@@ -33,6 +33,7 @@ import type {
   GitResolution,
   LogsView,
   NetworkCheck,
+  UpdateCheck,
   NetworkStatus,
   NodeInfo,
   PasteboardHoldings,
@@ -1042,6 +1043,8 @@ function repoApi(prefix: "/notes/git" | "/drawings/git"): RepoApi {
 export const api = {
   // --- health / workspace -------------------------------------------------
   health: (s?: AbortSignal) => get<{ ok: boolean; version: string }>("/health", s),
+  /// `GET /updates` — the latest release of the platform as GitHub lists it, held by the node for `cache.updates.ttl_ms`; `refresh` asks GitHub again. Facts, never a comparison: the desktop knows its own version (`shell/updateModel.mjs`).
+  updateCheck: (refresh = false, s?: AbortSignal) => get<UpdateCheck>(`/updates${refresh ? "?refresh=true" : ""}`, s),
   /// `GET /node` — what this node is: the process, where it listens, where the workspace lives, whether the engine is paused, the sessions live.
   nodeInfo: (s?: AbortSignal) => get<NodeInfo>("/node", s),
   workspace: (s?: AbortSignal) => get<WorkspaceInfo>("/workspace", s),

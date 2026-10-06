@@ -286,6 +286,12 @@ scripts/publish-release.sh              # a draft release — read it on GitHub,
 scripts/publish-release.sh --publish    # published at once, marked the latest
 ```
 
+The release GitHub marks *latest* is the one the desktop offers: its *You › Update* reads
+`releases/latest` and compares the version with its own, so a draft is offered to nobody and a
+release left unmarked is not an update until it is. To rehearse the dialog without a release,
+start the node with `BISA_RELEASES_API` naming a stub's URL — the whole *latest release* address,
+answered as GitHub would answer it (`crates/bisa-engine/tests/it/updates.rs` shows the shape).
+
 `just publish-release --dry-run` is the same. The script publishes on the repository the workspace
 declares — `[workspace.package] repository` in `Cargo.toml`, read by `scripts/release/repository.mjs`
 — never on what `gh` would guess from the clone's remote, and through a git remote of this clone
@@ -355,6 +361,7 @@ public before the release.
 The website's source is in `scripts/website/` and its built pages in `website/` — any static host
 serves the folder as it is ([the website's README](../../website/README.md)). It names no version:
 it links to the latest release, so a release changes nothing there. Nothing publishes it on its own.
+The desktop learns of a release the same way, from GitHub, when a person opens *You › Update*.
 
 ## Rollback
 

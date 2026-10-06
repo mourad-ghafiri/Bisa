@@ -181,6 +181,10 @@ fn main() {
     add!(bisa_node::dto::GitIdent, "GitIdent");
     add!(bisa_node::dto::CommitterView, "CommitterView");
     add!(bisa_node::dto::HarnessUsage, "HarnessUsage");
+    add!(bisa_engine::updates::UpdateCheck, "UpdateCheck");
+    add!(bisa_engine::updates::UpdateFailure, "UpdateFailure");
+    add!(bisa_engine::updates::LatestRelease, "LatestRelease");
+    add!(bisa_engine::updates::ReleaseAsset, "ReleaseAsset");
     add!(bisa_node::dto::LogsView, "LogsView");
     add!(bisa_node::dto::LogFileView, "LogFile");
     add!(bisa_node::dto::CrashReportView, "CrashReportView");

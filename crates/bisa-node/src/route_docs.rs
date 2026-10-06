@@ -47,6 +47,11 @@ pub const ROUTES: &[RouteDoc] = &[
     },
     RouteDoc {
         method: "GET",
+        path: "/updates",
+        summary: "The latest release of the platform as GitHub lists it, for the desktop's *You › Update*: `{state: \"latest\", release: {tag, version, name?, published_at?, url, notes?, prerelease, assets: [{name, url, size}]}, checked_at}`, `no_release` (nothing published), `off` (the node was started without a source) or `failed` with its `failure.kind` — `unreachable` with the cause, `rate_limited` with `retry_in_secs?`, `unexpected` with the status. Held for `cache.updates.ttl_ms`; `?refresh=true` asks again; a failure is never held. The node compares nothing: the desktop knows its own version.",
+    },
+    RouteDoc {
+        method: "GET",
         path: "/workspace",
         summary: "This node's identity, data and logs directories, and its members (the owner first). Relays are the `sync.relays` setting; the wire is `GET /sync`.",
     },

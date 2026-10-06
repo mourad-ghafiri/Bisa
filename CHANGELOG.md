@@ -10,6 +10,16 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Update**, in the You menu before *About Bisa*: a dialog that asks GitHub for the latest
+  release — only when opened, never on its own — and sets it against the version this desktop
+  was built as: *This is the latest release*, *Bisa 0.3.0 is out — this desktop is 0.2.0* with
+  the release page on GitHub (the disk image and its checksum) as the one primary, *What changed*
+  opening the changelog at that release's tag, and the release's own notes reading inline under
+  *What's new*; a build from the source says it is ahead; no release yet, GitHub unreachable or
+  rate-limiting, and the node not answering each say so in a sentence, with *Check again*. The
+  node reads it (`GET /updates`, facts and never a comparison, through its one outbound client
+  and the `network.*` policy) and holds the answer for `cache.updates.ttl_ms` (an hour); an
+  engine nobody configured asks nobody, and `BISA_RELEASES_API` points a rehearsal at a stub.
 - `POST /ide/files/{scope}/{id}/delete` removes several entries as one act: every entry is checked
   before anything goes — a refused one refuses the whole batch untouched — then the list goes to
   the OS Trash as one move, or is unlinked in order; the answer lists every path that went and,

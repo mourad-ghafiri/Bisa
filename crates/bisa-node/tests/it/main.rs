@@ -34,3 +34,4 @@ mod security;
 mod sessions;
 mod settings;
 mod ssh;
+mod updates;

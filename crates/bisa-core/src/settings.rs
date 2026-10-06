@@ -1139,6 +1139,15 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
             S::M
         ),
         def!(
+            "cache.updates.ttl_ms",
+            Integer {
+                min: 0,
+                max: 86_400_000
+            },
+            json!(3_600_000),
+            S::M
+        ),
+        def!(
             "cache.desktop.ports_poll_ms",
             Integer {
                 min: 500,

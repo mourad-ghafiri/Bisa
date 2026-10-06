@@ -84,6 +84,7 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 | `GET /health` | `{ok, version}`. Answers without the token — a liveness probe carries no authority. |
 | `GET /events` | Server-sent events: `{stream: "engine" \| "conversation" \| "inbox", payload}` frames — and `{stream: "system", payload: {kind: "lagged", dropped}}` when this client read too slowly and missed events: re-read what you show. |
 | `GET /node` | What this node is: `{version, pid, started_at, socket, listen?, data_dir, logs_dir, paused, live_sessions}` — the process, where it listens, where the workspace lives, whether the engine is paused and how many sessions are live. |
+| `GET /updates` | The latest release of the platform as GitHub lists it, for the desktop's *You › Update*: `{state: "latest", release: {tag, version, name?, published_at?, url, notes?, prerelease, assets: [{name, url, size}]}, checked_at}`, `no_release` (nothing published), `off` (the node was started without a source) or `failed` with its `failure.kind` — `unreachable` with the cause, `rate_limited` with `retry_in_secs?`, `unexpected` with the status. Held for `cache.updates.ttl_ms`; `?refresh=true` asks again; a failure is never held. The node compares nothing: the desktop knows its own version. |
 | `GET /workspace` | This node's identity, data and logs directories, and its members (the owner first). Relays are the `sync.relays` setting; the wire is `GET /sync`. |
 
 ## Goals

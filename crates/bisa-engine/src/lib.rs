@@ -74,6 +74,7 @@ pub mod sessions;
 pub mod settings;
 pub mod ssh;
 pub mod staff;
+pub mod updates;
 pub mod waits;
 
 pub use bisa_core::run::INTERRUPTED;
@@ -531,6 +532,9 @@ pub struct Inner {
     /// The clients every crate reaches the network through, built from the
     /// `network.*` settings and swapped on a write of one (`network.rs`).
     pub http: Arc<bisa_http::Clients>,
+    /// Where the latest release is read from (`updates.rs`); `None` means
+    /// nothing is ever asked.
+    pub updates: Option<updates::UpdatesSource>,
     pub network: network::NetworkState,
     pub socket_path: PathBuf,
     bus: broadcast::Sender<EngineEvent>,
@@ -746,6 +750,7 @@ impl Engine {
             interactive: interactive::InteractiveDesk::default(),
             git: config.git.clone().unwrap_or_default(),
             ssh: config.ssh.clone(),
+            updates: config.updates.clone(),
             committers: identity::CommitterDesk::default(),
             ws,
             catalog,
@@ -1528,6 +1533,13 @@ impl Engine {
     /// source, cached (`harness_usage`); `refresh` asks the source again.
     pub async fn harness_usage(&self, harness: &str, refresh: bool) -> bisa_harness::UsageState {
         harness_usage::usage(&self.inner, harness, refresh).await
+    }
+
+    /// The latest release of the platform as GitHub lists it — facts, never
+    /// a comparison — cached (`updates`); `refresh` asks GitHub again. *Off*
+    /// when the engine was started without a source.
+    pub async fn check_update(&self, refresh: bool) -> updates::UpdateCheck {
+        updates::check(&self.inner, refresh).await
     }
 
     pub fn pause(&self) {

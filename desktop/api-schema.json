@@ -394,6 +394,18 @@
     "UsageWindow": {
       "$ref": "#/definitions/UsageWindow"
     },
+    "UpdateCheck": {
+      "$ref": "#/definitions/UpdateCheck"
+    },
+    "LatestRelease": {
+      "$ref": "#/definitions/LatestRelease"
+    },
+    "ReleaseAsset": {
+      "$ref": "#/definitions/ReleaseAsset"
+    },
+    "UpdateFailure": {
+      "$ref": "#/definitions/UpdateFailure"
+    },
     "LogsView": {
       "$ref": "#/definitions/LogsView"
     },
@@ -8854,6 +8866,233 @@
         "used_percent"
       ],
       "description": "One limit window: how much of it is used, and when it resets."
+    },
+    "UpdateCheck": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "release": {
+              "$ref": "#/definitions/LatestRelease"
+            },
+            "checked_at": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "latest"
+            }
+          },
+          "required": [
+            "state",
+            "release",
+            "checked_at"
+          ],
+          "description": "The release GitHub marks *latest*."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "checked_at": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "no_release"
+            }
+          },
+          "required": [
+            "state",
+            "checked_at"
+          ],
+          "description": "GitHub has no published release for the repository (a 404)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "off"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "description": "The engine was started without a source: nothing was asked."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "failure": {
+              "$ref": "#/definitions/UpdateFailure"
+            },
+            "checked_at": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "state",
+            "failure",
+            "checked_at"
+          ],
+          "description": "The read failed; never held, so the next ask tries again."
+        }
+      ],
+      "description": "What one check answered: the latest release, that there is none, that\nnothing was asked, or why the read failed. `checked_at` is unix seconds."
+    },
+    "LatestRelease": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string",
+          "description": "The tag as GitHub holds it — `v0.2.0`."
+        },
+        "version": {
+          "type": "string",
+          "description": "The tag without its leading `v` — `0.2.0`, the shape the desktop\ncompares with its own version."
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The release's title, when it has one — *Bisa 0.2.0*."
+        },
+        "published_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "description": "When it was published, unix seconds, when GitHub said."
+        },
+        "url": {
+          "type": "string",
+          "description": "The release page, where the notes and every asset are."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The notes, Markdown as the release carries them."
+        },
+        "prerelease": {
+          "type": "boolean",
+          "description": "Whether GitHub marks it a prerelease (never for *latest*, kept so the\nshape says what it is)."
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReleaseAsset"
+          },
+          "description": "What the release ships, as listed."
+        }
+      },
+      "required": [
+        "tag",
+        "version",
+        "url",
+        "prerelease",
+        "assets"
+      ],
+      "description": "A published release as the desktop reads it."
+    },
+    "ReleaseAsset": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "size"
+      ],
+      "description": "One file a release ships."
+    },
+    "UpdateFailure": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "unreachable"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "description": "No answer came back — the network, a proxy, the deadline. The\ninnermost cause, for the log; never a URL that could carry a login."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "retry_in_secs": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "rate_limited"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "GitHub's rate limit on unsigned reads, with the wait when it named one."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "kind": {
+              "type": "string",
+              "const": "unexpected"
+            }
+          },
+          "required": [
+            "kind",
+            "status"
+          ],
+          "description": "An answer that was neither a release nor a known refusal."
+        }
+      ],
+      "description": "Why a read failed."
     },
     "LogsView": {
       "type": "object",

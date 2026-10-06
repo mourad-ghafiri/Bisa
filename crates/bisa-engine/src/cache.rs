@@ -8,10 +8,12 @@
 
 use std::sync::RwLock;
 
-use bisa_cache::TtlCache;
+use bisa_cache::{TtlCache, TtlCell};
 use bisa_codehost::{CheckRun, PrReviews, PullRequest};
 use bisa_core::{CacheSettings, WorkstreamId};
 use bisa_harness::UsageState;
+
+use crate::updates::UpdateCheck;
 
 /// How many harnesses' usage reports are held — the catalog is a handful.
 const HARNESS_USAGE_CAP: usize = 32;
@@ -28,6 +30,9 @@ pub struct CacheState {
     /// A harness account's usage, by harness id — a provider's usage
     /// endpoint is not a thing to hit on every render.
     harness_usage: TtlCache<String, UsageState>,
+    /// The latest release GitHub answered — one answer per node, held for
+    /// `cache.updates.ttl_ms` so a reopened dialog costs GitHub nothing.
+    updates: TtlCell<UpdateCheck>,
 }
 
 impl CacheState {
@@ -39,12 +44,18 @@ impl CacheState {
             codehost_checks: RwLock::new(TtlCache::with_capacity("codehost.checks", cap)),
             codehost_reviews: RwLock::new(TtlCache::with_capacity("codehost.reviews", cap)),
             harness_usage: TtlCache::with_capacity("harness.usage", HARNESS_USAGE_CAP),
+            updates: TtlCell::new("engine.updates"),
         }
     }
 
     /// A handle on the harness-usage cache.
     pub fn harness_usage(&self) -> TtlCache<String, UsageState> {
         self.harness_usage.clone()
+    }
+
+    /// A handle on the latest-release cell.
+    pub fn updates(&self) -> TtlCell<UpdateCheck> {
+        self.updates.clone()
     }
 
     /// A snapshot of the current settings. Cheap; read it once per request and

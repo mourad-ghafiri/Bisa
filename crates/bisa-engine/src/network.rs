@@ -353,7 +353,7 @@ pub async fn check(inner: &Inner, url: &str) -> Result<NetworkCheck, EngineError
 
 /// The innermost cause, without the URL reqwest prefixes — a proxy URL in a
 /// message could carry a login.
-fn cause_of(e: &reqwest::Error) -> String {
+pub(crate) fn cause_of(e: &reqwest::Error) -> String {
     let mut cause: &dyn std::error::Error = e;
     while let Some(next) = cause.source() {
         cause = next;

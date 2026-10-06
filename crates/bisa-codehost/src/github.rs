@@ -315,8 +315,11 @@ fn explanation(v: &serde_json::Value) -> String {
 
 /// When a 403 or 429 is GitHub's rate limit rather than a refusal: the primary
 /// limit says `x-ratelimit-remaining: 0` and when it resets; the secondary
-/// says `retry-after`. The answer is the wait, in words.
-fn rate_limited(status: StatusCode, headers: &HeaderMap) -> Option<String> {
+/// says `retry-after`. `Some(wait)` when it is a limit — the seconds to wait,
+/// `None` inside when GitHub named no reset still to come — and `None` when
+/// it is not. Public: the engine's unsigned read of the latest release
+/// (`bisa_engine::updates`) meets the same limit and reads the same headers.
+pub fn rate_limit_secs(status: StatusCode, headers: &HeaderMap) -> Option<Option<u64>> {
     if status.as_u16() != 403 && status.as_u16() != 429 {
         return None;
     }
@@ -327,20 +330,28 @@ fn rate_limited(status: StatusCode, headers: &HeaderMap) -> Option<String> {
             .and_then(|v| v.trim().parse::<u64>().ok())
     };
     if let Some(secs) = header("retry-after") {
-        return Some(format!("in {secs}s"));
+        return Some(Some(secs));
     }
     if header("x-ratelimit-remaining") == Some(0) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let secs = header("x-ratelimit-reset").map(|reset| reset.saturating_sub(now));
-        return Some(match secs {
-            Some(s) if s > 0 => format!("in {s}s"),
-            _ => "in a minute".to_string(),
-        });
+        let secs = header("x-ratelimit-reset")
+            .map(|reset| reset.saturating_sub(now))
+            .filter(|s| *s > 0);
+        return Some(secs);
     }
     None
+}
+
+/// The wait, in words — `in 42s`, or `in a minute` when GitHub named no
+/// reset still to come.
+fn rate_limited(status: StatusCode, headers: &HeaderMap) -> Option<String> {
+    rate_limit_secs(status, headers).map(|secs| match secs {
+        Some(s) => format!("in {s}s"),
+        None => "in a minute".to_string(),
+    })
 }
 
 /// The classic token's scopes, as GitHub lists them: `repo, workflow, read:org`.
@@ -980,6 +991,33 @@ mod tests {
         );
         assert_eq!(
             rate_limited(StatusCode::UNAUTHORIZED, &headers(&[("retry-after", "1")])),
+            None
+        );
+    }
+
+    #[test]
+    fn the_seconds_behind_the_wait_are_read_by_the_engine_too() {
+        assert_eq!(
+            rate_limit_secs(StatusCode::FORBIDDEN, &headers(&[("retry-after", "42")])),
+            Some(Some(42))
+        );
+        assert_eq!(
+            rate_limit_secs(
+                StatusCode::TOO_MANY_REQUESTS,
+                &headers(&[("x-ratelimit-remaining", "0")])
+            ),
+            Some(None),
+            "a limit with no reset still to come is a limit without a wait"
+        );
+        assert_eq!(
+            rate_limit_secs(
+                StatusCode::FORBIDDEN,
+                &headers(&[("x-ratelimit-remaining", "12")])
+            ),
+            None
+        );
+        assert_eq!(
+            rate_limit_secs(StatusCode::NOT_FOUND, &headers(&[("retry-after", "1")])),
             None
         );
     }

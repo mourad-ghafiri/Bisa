@@ -492,6 +492,7 @@ shell-pet-overlay-show-pet = Show the pet
 shell-pet-overlay-size = Size
 shell-profile-menu-about-bisa = About Bisa
 shell-profile-menu-identity = Identity
+shell-profile-menu-update = Update
 shell-profile-menu-words = You
 shell-resource-activity = Activity
 shell-resource-activity-log = Activity log
@@ -1017,3 +1018,32 @@ shell-hosted-someone = someone
 
 ## A Stop on a session that had already ended (`shell/sessionRosterModel.mjs`).
 shell-sessions-already-ended = That session had already ended.
+
+## Update — whether a newer release is out (`shell/updateModel.mjs`, `shell/UpdateDialog.tsx`).
+shell-update-dialog-title = Update
+shell-update-dialog-close = Close
+shell-update-check-again = Check again
+shell-update-checked = Checked
+shell-update-published = Published
+shell-update-checking = Asking GitHub for the latest release…
+shell-update-version-line = { $product } { $app } · latest { $latest }
+shell-update-version-line-unknown = { $product } { $app }
+shell-update-available = { $product } { $latest } is out — this desktop is { $app }.
+shell-update-available-detail = Open the release on GitHub to download it; what changed is below.
+shell-update-current = This is the latest release.
+shell-update-current-detail = { $product } { $app } is the newest release on GitHub.
+shell-update-ahead = This desktop ({ $app }) is newer than the latest release ({ $latest }) — a build from the source.
+shell-update-none = No release has been published yet.
+shell-update-off = This node was started without a place to ask, so nothing was checked.
+shell-update-failed-unreachable = GitHub did not answer — check the connection, then try again.
+shell-update-failed-rate-limited = GitHub is not answering unsigned requests from this address for now — try again { $wait }.
+shell-update-failed-rate-limited-later = GitHub is not answering unsigned requests from this address for now — try again later.
+shell-update-failed-unexpected = GitHub answered something unexpected.
+shell-update-failed-node = The node did not answer the check.
+shell-update-wait-seconds = in { $n } seconds
+shell-update-wait-minutes = in { $n } minutes
+shell-update-open-release = Open release on GitHub
+shell-update-what-changed = What changed
+shell-update-see-releases = See releases on GitHub
+shell-update-whats-new = What's new in { $version }
+shell-update-download-hint = The release page holds the disk image and its SHA-256.

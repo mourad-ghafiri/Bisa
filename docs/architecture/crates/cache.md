@@ -12,7 +12,7 @@ it was computed, a time-to-live, hit/miss stats and a way to clear it — as a l
 |---|---|
 | `lib.rs` | the public surface: `TtlCell`, `TtlCache`, `Bounded`, `CacheHandle`, `CacheStats`, `Registry`, `all_stats`, `clear_all` |
 | `bounded.rs` | `Bounded<K, V>` — a keyed record of at most `cap` entries, the oldest insertion evicted first (`insert` returns what went); `get`, `remove`, `retain`, `clear`. No TTL and no registry: it is the shape for a record that must not grow for the process's life (the engine's guard answers and classifier verdicts, the laid-out commit graph per root), never for a value that may go stale |
-| `cell.rs` | `TtlCell<T>` — a single-slot value that expires after a call-time TTL (the harness listing, a folder's git status, the mobile toolchain, the presence and model-health snapshots) |
+| `cell.rs` | `TtlCell<T>` — a single-slot value that expires after a call-time TTL (the harness listing, a folder's git status, the mobile toolchain, the presence and model-health snapshots, the latest release GitHub answered) |
 | `keyed.rs` | `TtlCache<K, V>` — a keyed, optionally size-capped TTL cache over `DashMap` (the model lists, git status, the path index, the code host results) |
 | `registry.rs` | `Registry` — a set of caches counted and cleared together; `Registry::global()` is the process-wide one every `new` constructor joins, and `all_stats()` / `clear_all()` walk it — the admin surface, with no per-cache wiring. A registry of one's own (`in_registry` constructors) is counted and cleared apart: a test's, or a subsystem's |
 

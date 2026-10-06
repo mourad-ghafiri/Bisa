@@ -30,6 +30,7 @@ pub struct CacheSettings {
     pub presence_ttl_ms: u64,
     pub model_health_ttl_ms: u64,
     pub harness_usage_ttl_ms: u64,
+    pub updates_ttl_ms: u64,
     pub desktop_ports_poll_ms: u64,
     pub desktop_stats_poll_ms: u64,
     pub desktop_disk_poll_ms: u64,
@@ -53,6 +54,7 @@ impl Default for CacheSettings {
             presence_ttl_ms: 500,
             model_health_ttl_ms: 500,
             harness_usage_ttl_ms: 180_000,
+            updates_ttl_ms: 3_600_000,
             desktop_ports_poll_ms: 5_000,
             desktop_stats_poll_ms: 5_000,
             desktop_disk_poll_ms: 60_000,
@@ -97,6 +99,7 @@ impl CacheSettings {
             presence_ttl_ms: u64_of("cache.presence.ttl_ms", d.presence_ttl_ms),
             model_health_ttl_ms: u64_of("cache.model_health.ttl_ms", d.model_health_ttl_ms),
             harness_usage_ttl_ms: u64_of("cache.harness_usage.ttl_ms", d.harness_usage_ttl_ms),
+            updates_ttl_ms: u64_of("cache.updates.ttl_ms", d.updates_ttl_ms),
             desktop_ports_poll_ms: u64_of("cache.desktop.ports_poll_ms", d.desktop_ports_poll_ms),
             desktop_stats_poll_ms: u64_of("cache.desktop.stats_poll_ms", d.desktop_stats_poll_ms),
             desktop_disk_poll_ms: u64_of("cache.desktop.disk_poll_ms", d.desktop_disk_poll_ms),
@@ -144,6 +147,10 @@ impl CacheSettings {
     pub fn harness_usage_ttl(&self) -> Duration {
         self.ttl(self.harness_usage_ttl_ms)
     }
+    /// How long the latest release GitHub answered is reused (`bisa_engine::updates`).
+    pub fn updates_ttl(&self) -> Duration {
+        self.ttl(self.updates_ttl_ms)
+    }
 }
 
 #[cfg(test)]
@@ -178,5 +185,6 @@ mod tests {
         let cs = CacheSettings::default();
         assert_eq!(cs.git_status_ttl(), Duration::from_millis(2_000));
         assert_eq!(cs.harness_listing_ttl(), Duration::from_millis(30_000));
+        assert_eq!(cs.updates_ttl(), Duration::from_millis(3_600_000));
     }
 }

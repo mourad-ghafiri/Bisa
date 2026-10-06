@@ -105,7 +105,7 @@ graph TB
         notes["Notes overlay"]
         pet["Pet"]
         omni["Omnibox<br/>⌘K search · ⌘P quick open"]
-        profile["ProfileMenu (top chrome, far right)<br/>Identity · Settings · About Bisa"]
+        profile["ProfileMenu (top chrome, far right)<br/>Identity · Settings · Update · About Bisa"]
     end
     subgraph wb["views/Workbench — the IDE screen"]
         header["header · rail toggle · project photo › workstream · branch<br/>Project · Agent · Board · Quick open · Terminal · panel toggle"]

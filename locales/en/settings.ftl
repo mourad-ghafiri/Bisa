@@ -580,6 +580,9 @@ setting-cache-model_health-ttl_ms = Model-health snapshot cache
 setting-cache-harness_usage-ttl_ms = Harness usage cache
     .help = How long a harness account's usage report is reused before its source is asked again — a provider's usage endpoint is not a thing to hit on every render.
 
+setting-cache-updates-ttl_ms = Update check cache
+    .help = How long the latest release GitHub answered is reused before it is asked again; Check again in the Update dialog asks regardless. GitHub allows sixty unsigned requests an hour from one address.
+
 setting-cache-desktop-ports_poll_ms = Ports poll
     .help = How often the desktop rescans listening ports while a window is visible.
 

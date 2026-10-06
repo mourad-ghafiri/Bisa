@@ -166,6 +166,15 @@ impl Ctx {
             // machine's `logging.*` settings to it and follows every write.
             log: Some(self.log.clone()),
             http: Some(Arc::clone(&http)),
+            // Where the desktop's *Update* reads the latest release: the
+            // repository this build was made from, on GitHub.
+            // `BISA_RELEASES_API` points a rehearsal at a stub instead.
+            updates: match std::env::var("BISA_RELEASES_API") {
+                Ok(url) if !url.trim().is_empty() => {
+                    Some(bisa_engine::updates::UpdatesSource::at(url.trim()))
+                }
+                _ => bisa_engine::updates::UpdatesSource::github(env!("CARGO_PKG_REPOSITORY")),
+            },
             ..base
         };
         match Engine::start(ws, self.catalog_with(http), config) {

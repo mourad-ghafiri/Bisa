@@ -392,6 +392,7 @@ fn router(state: Shared) -> Router {
         .route("/health", get(health))
         .route("/events", get(events))
         .route("/node", get(node_info))
+        .route("/updates", get(update_check))
         .route("/workspace", get(workspace_info))
         .merge(collab::routes())
         .merge(goals::routes())
@@ -1236,6 +1237,23 @@ async fn events(
         .filter_map(|v| async move { Some(Ok(SseEvent::default().json_data(&v).ok()?)) });
     Sse::new(until_stopped(&state, stream))
         .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(15)))
+}
+
+/// `?refresh=true` asks GitHub again instead of answering from the cache.
+#[derive(serde::Deserialize)]
+struct UpdateQuery {
+    #[serde(default)]
+    refresh: bool,
+}
+
+/// The latest release of the platform as GitHub lists it, for the desktop's
+/// *You › Update*: facts, never a comparison — the desktop knows its own
+/// version. Held for `cache.updates.ttl_ms`; a failure is not held.
+async fn update_check(
+    State(state): State<Shared>,
+    Query(q): Query<UpdateQuery>,
+) -> Json<bisa_engine::updates::UpdateCheck> {
+    Json(state.engine.check_update(q.refresh).await)
 }
 
 /// What this node is — the process, where it listens, where the workspace
