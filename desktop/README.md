@@ -27,7 +27,14 @@ hands it over through the same variable, and the webview reads it with the `api_
 `fetch` sends it as a header, and an `EventSource` or an `<img>` gets it in the query through
 `withToken()`. Sidecar resolution: `BISA_BIN` → the node the bundle carries beside the executable
 (`Contents/MacOS/bisa`, universal and signed with the app by `scripts/macos/lib.sh`, the build both `scripts/bundle-macos.sh` and `scripts/release-macos.sh` share) → `bisa` on
-`PATH` → `target/debug/bisa` near the executable. Readiness is a `GET /health` poll.
+`PATH` → `target/debug/bisa` near the executable. Readiness is a `GET /health` poll, which ends
+the moment the node does: a node refused its workspace costs under a second, not twenty.
+
+The shell runs once (`tauri-plugin-single-instance`, first among the plugins): a second process of
+the app hands its arguments to the running one, which brings its window forward, and ends inside
+`build` — before it has a node. A dev run and the installed `Bisa.app` share the identifier
+`dev.bisa.bisa`, so quit the installed app before `cargo tauri dev`, or the dev run hands off to it.
+The node is started from `setup` (`sidecar::boot`), after that door, never from `main`.
 
 ```sh
 npm run build          # typecheck + bundle — run this, not tsc alone: tsc does not catch module resolution

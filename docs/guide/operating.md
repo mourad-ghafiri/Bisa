@@ -120,9 +120,13 @@ a word saying why the screen moved. A read that outstays thirty seconds is one l
 be read — the node is there — and the rest of the screen stands.
 
 **One engine per workspace.** The engine takes an exclusive lock on `run/engine.lock` before it
-binds anything and records its PID there; a second engine — a second `bisa node`, or a CLI
-command that would embed one while a daemon is busy and slow to answer — is refused with the
-holder's PID rather than started. A dead holder releases the lock with its process.
+binds anything and records its PID there. A second `bisa node` is refused at the door — before it
+opens the workspace — naming the holder's PID and the socket the running node answers on; a CLI
+command that would embed an engine while a daemon is busy and slow to answer is refused with the
+holder's PID rather than started. A dead holder releases the lock with its process. The desktop
+launched beside a node you run yourself says so in its footer within a second and starts its own
+the moment yours stops; and the desktop itself runs once — launching it again brings its window
+back ([The menu bar icon](the-desktop.md#the-menu-bar-icon)).
 
 **The control plane is behind a bearer token** in `run/token` (mode `0600`), minted on first start
 and reused, presented as `Authorization: Bearer <token>` or `?token=` for an `EventSource` or an

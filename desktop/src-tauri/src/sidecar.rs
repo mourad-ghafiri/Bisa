@@ -13,6 +13,14 @@
 //! 2. Spawn `bisa node --listen 127.0.0.1:<free port>`, binary found via
 //!    `BISA_BIN` env → the node the bundle carries beside this executable
 //!    (`scripts/macos/lib.sh` puts it there) → `PATH` → `../target/debug/bisa` (repo dev).
+//!
+//! The node is started from the app's `setup` ([`boot`]), never from
+//! `main`: a second launch of the app leaves `build()` through the
+//! single-instance plugin (`second_launch.rs`), and a node spawned before
+//! that would be nobody's. A child that ends before it answers — a node
+//! refused the workspace another engine holds, a loader's refusal — ends
+//! the wait at once, with what it said, rather than at the twenty-second
+//! deadline.
 
 use crate::sync::Locked;
 use bisa_log::{ChildExit, CrashKind, CrashReport, Handle, Process};
@@ -98,6 +106,46 @@ pub fn restart_delay(attempt: u32) -> Duration {
 const HEALTHY_AFTER: Duration = Duration::from_secs(60);
 /// How often the watchdog reads the child.
 const WATCH_EVERY: Duration = Duration::from_secs(1);
+
+/// The boot, from `setup` and never from `main` (one Bisa at a time,
+/// `second_launch.rs`): the log file first, under the workspace the `bisa`
+/// binary names, so a node that fails to start is a line in the file and
+/// not on a stderr nobody reads; then the node; then the file again from
+/// the node's own word, when nothing was writing yet — the node made the
+/// workspace if it was not there. A node that cannot start is not a reason
+/// for no window: the state says why, the shell opens, and the watchdog
+/// keeps trying ([`NodeState::supervise`]).
+pub fn boot<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> NodeState {
+    let log = app.state::<Handle>();
+    match crate::logging::attach_from_binary(&log) {
+        Ok(dir) => {
+            tracing::debug!(target: "bisa_desktop", dir = %dir.display(), "log folder named by the binary")
+        }
+        Err(e) => tracing::warn!(target: "bisa_desktop", "no log folder from the binary: {e}"),
+    }
+    let node = NodeState::start();
+    match node.api_base() {
+        Ok(base) => {
+            if let Err(e) = crate::logging::attach_from_node(&log, &base, &node.api_token()) {
+                tracing::warn!(target: "bisa_desktop", "no log file: {e}");
+            }
+            tracing::info!(
+                target: "bisa_desktop",
+                version = env!("CARGO_PKG_VERSION"),
+                node = %base,
+                "desktop started"
+            );
+        }
+        Err(reason) => {
+            tracing::error!(
+                target: "bisa_desktop",
+                version = env!("CARGO_PKG_VERSION"),
+                "desktop started without a node: {reason}"
+            );
+        }
+    }
+    node
+}
 
 impl NodeState {
     /// The state, poison-tolerant: a thread that panicked while holding it
@@ -507,8 +555,10 @@ impl StderrTail {
     }
 
     /// One thread for the child's stderr: every line into the ring and,
-    /// at `debug`, into the shell's own log. Ends with the pipe.
-    fn follow(self, stderr: std::process::ChildStderr) {
+    /// at `debug`, into the shell's own log. Ends with the pipe. Answers
+    /// the thread, for a wait on the child's last words; none when it
+    /// could not be started.
+    fn follow(self, stderr: std::process::ChildStderr) -> Option<std::thread::JoinHandle<()>> {
         let spawned = std::thread::Builder::new()
             .name("node-stderr".into())
             .spawn(move || {
@@ -520,9 +570,25 @@ impl StderrTail {
                     self.push(line);
                 }
             });
-        if let Err(e) = spawned {
-            tracing::warn!(target: "bisa_desktop", "the node's stderr is not followed: {e}");
+        match spawned {
+            Ok(follower) => Some(follower),
+            Err(e) => {
+                tracing::warn!(target: "bisa_desktop", "the node's stderr is not followed: {e}");
+                None
+            }
         }
+    }
+}
+
+/// Give the stderr follower a moment to read a child's last line after the
+/// child ended — bounded, since a grandchild could hold the pipe open.
+fn settle(follower: Option<&std::thread::JoinHandle<()>>, budget: Duration) {
+    let Some(follower) = follower else {
+        return;
+    };
+    let deadline = Instant::now() + budget;
+    while !follower.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -574,18 +640,38 @@ fn spawn_node(token: &str, keep: Option<u16>) -> Result<Spawned, String> {
         match cmd.spawn() {
             Ok(mut child) => {
                 let tail = StderrTail::default();
-                if let Some(stderr) = child.stderr.take() {
-                    tail.clone().follow(stderr);
+                let follower = child
+                    .stderr
+                    .take()
+                    .and_then(|stderr| tail.clone().follow(stderr));
+                let awaited =
+                    await_health(port, Duration::from_secs(20), || match child.try_wait() {
+                        Ok(Some(status)) => Some(Exit::of(&status)),
+                        Ok(None) => None,
+                        Err(_) => Some(Exit::unknown()),
+                    });
+                match awaited {
+                    Awaited::Healthy => return Ok(Spawned { child, port, tail }),
+                    Awaited::Exited(exit) => {
+                        // Reaped by `try_wait` already; its last words may
+                        // still be on the pipe.
+                        settle(follower.as_ref(), Duration::from_millis(200));
+                        errors.push(format!(
+                            "{}: {} before answering its health check{}",
+                            bin.display(),
+                            exit.words(),
+                            said(&tail.lines())
+                        ));
+                    }
+                    Awaited::TimedOut => {
+                        end(&mut child);
+                        errors.push(format!(
+                            "{}: started but health check failed{}",
+                            bin.display(),
+                            said(&tail.lines())
+                        ));
+                    }
                 }
-                if wait_for_health(port, Duration::from_secs(20)) {
-                    return Ok(Spawned { child, port, tail });
-                }
-                end(&mut child);
-                errors.push(format!(
-                    "{}: started but health check failed{}",
-                    bin.display(),
-                    said(&tail.lines())
-                ));
             }
             Err(e) => errors.push(format!("{}: {e}", bin.display())),
         }
@@ -687,31 +773,56 @@ fn end(child: &mut std::process::Child) {
     }
 }
 
-/// Minimal HTTP health probe over a raw TcpStream (loopback only) — avoids an
-/// HTTP client dependency in the shell.
-fn wait_for_health(port: u16, timeout: Duration) -> bool {
+/// How a spawn's wait for the health check ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Awaited {
+    /// The node answered `200` on `/health`.
+    Healthy,
+    /// The child ended before it answered — refused the workspace another
+    /// engine holds, a loader's refusal, a crash — and how.
+    Exited(Exit),
+    /// The budget ran out with the child still up and not answering.
+    TimedOut,
+}
+
+/// Wait for the node to answer its health check, or for the child to end,
+/// whichever comes first within `timeout`. `exited` reads the child each
+/// tick: a node refused its workspace exits at once, and nobody should
+/// wait twenty seconds to hear so. The probe comes first on every tick, so
+/// a node that answered and then ended is still a node that answered.
+fn await_health(port: u16, timeout: Duration, mut exited: impl FnMut() -> Option<Exit>) -> Awaited {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) {
-            let req = format!(
-                "GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-            );
-            // A socket that cannot be bounded is not read: the next tick asks again.
-            if s.set_read_timeout(Some(Duration::from_secs(2))).is_ok()
-                && s.write_all(req.as_bytes()).is_ok()
-            {
-                let mut buf = String::new();
-                if let Err(e) = s.read_to_string(&mut buf) {
-                    tracing::debug!(target: "bisa_desktop::node", "reading /health: {e}");
-                }
-                if buf.starts_with("HTTP/1.1 200") || buf.starts_with("HTTP/1.0 200") {
-                    return true;
-                }
-            }
+        if probe_health(port) {
+            return Awaited::Healthy;
+        }
+        if let Some(exit) = exited() {
+            return Awaited::Exited(exit);
         }
         std::thread::sleep(Duration::from_millis(300));
     }
-    false
+    Awaited::TimedOut
+}
+
+/// One minimal HTTP health probe over a raw TcpStream (loopback only) —
+/// avoids an HTTP client dependency in the shell. True on a `200`.
+fn probe_health(port: u16) -> bool {
+    let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) else {
+        return false;
+    };
+    let req =
+        format!("GET /health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    // A socket that cannot be bounded is not read: the next tick asks again.
+    if s.set_read_timeout(Some(Duration::from_secs(2))).is_err()
+        || s.write_all(req.as_bytes()).is_err()
+    {
+        return false;
+    }
+    let mut buf = String::new();
+    if let Err(e) = s.read_to_string(&mut buf) {
+        tracing::debug!(target: "bisa_desktop::node", "reading /health: {e}");
+    }
+    buf.starts_with("HTTP/1.1 200") || buf.starts_with("HTTP/1.0 200")
 }
 
 #[cfg(test)]
@@ -865,40 +976,95 @@ mod tests {
         assert_eq!(chosen_port(Some(taken), port_is_free), None);
     }
 
-    #[test]
-    fn the_health_probe_takes_a_200_on_loopback_and_gives_up_on_anything_else_within_its_budget() {
-        fn answer(status: &str) -> u16 {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let port = listener.local_addr().unwrap().port();
-            let reply = format!(
-                "HTTP/1.1 {status}
+    /// A loopback listener answering `status` to the next few requests.
+    fn answer(status: &str) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let reply = format!(
+            "HTTP/1.1 {status}
 Content-Length: 0
 Connection: close
 
 "
-            );
-            std::thread::spawn(move || {
-                for mut s in listener.incoming().take(3).flatten() {
-                    let mut buf = [0u8; 512];
-                    let _request = s.read(&mut buf);
-                    s.write_all(reply.as_bytes())
-                        .expect("the shell reads the reply");
-                }
-            });
-            port
-        }
-        assert!(wait_for_health(answer("200 OK"), Duration::from_secs(5)));
+        );
+        std::thread::spawn(move || {
+            for mut s in listener.incoming().take(3).flatten() {
+                let mut buf = [0u8; 512];
+                let _request = s.read(&mut buf);
+                s.write_all(reply.as_bytes())
+                    .expect("the shell reads the reply");
+            }
+        });
+        port
+    }
+
+    /// A child that is still up, as far as the wait can tell.
+    fn still_up() -> Option<Exit> {
+        None
+    }
+
+    #[test]
+    fn the_health_probe_takes_a_200_on_loopback_and_gives_up_on_anything_else_within_its_budget() {
+        assert_eq!(
+            await_health(answer("200 OK"), Duration::from_secs(5), still_up),
+            Awaited::Healthy
+        );
         let started = Instant::now();
-        assert!(!wait_for_health(
-            answer("503 Service Unavailable"),
-            Duration::from_millis(700)
-        ));
+        assert_eq!(
+            await_health(
+                answer("503 Service Unavailable"),
+                Duration::from_millis(700),
+                still_up
+            ),
+            Awaited::TimedOut
+        );
         assert!(started.elapsed() < Duration::from_secs(5));
         assert_eq!(said(&[]), "");
         assert_eq!(
             said(&["a".to_string(), "b".to_string()]),
             "; it said: a | b"
         );
+    }
+
+    /// A node refused its workspace exits at once: the wait ends on the
+    /// tick that sees it, with how it ended, not at the deadline — while a
+    /// child still up and not answering is waited for to the budget, and
+    /// one that answered before it ended is a node that answered.
+    #[test]
+    fn a_child_that_ends_before_answering_ends_the_wait_at_once() {
+        let nobody = free_port().unwrap();
+        let refused = Exit {
+            code: Some(1),
+            signal: None,
+        };
+        let started = Instant::now();
+        assert_eq!(
+            await_health(nobody, Duration::from_secs(10), || Some(refused)),
+            Awaited::Exited(refused)
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "seen on the first tick, not at the ten-second deadline"
+        );
+        let started = Instant::now();
+        assert_eq!(
+            await_health(nobody, Duration::from_millis(700), still_up),
+            Awaited::TimedOut
+        );
+        assert!(started.elapsed() >= Duration::from_millis(600));
+        assert_eq!(
+            await_health(answer("200 OK"), Duration::from_secs(5), || Some(
+                Exit::unknown()
+            )),
+            Awaited::Healthy,
+            "the probe is asked before the child is, on every tick"
+        );
+        // Nothing to wait for settles at once; a follower that is done, too.
+        let started = Instant::now();
+        settle(None, Duration::from_secs(5));
+        let done = std::thread::spawn(|| {});
+        done.join().expect("a thread that did nothing");
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

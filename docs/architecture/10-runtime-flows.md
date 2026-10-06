@@ -16,20 +16,22 @@ sequenceDiagram
     participant E as engine
     participant N as node
     participant W as webview
-    T->>T: window_state — read window.json, fit it to the screens there are, build the window there
-    T->>T: sidecar::NodeState::start — mint a token, find a free loopback port
+    T->>T: build — the single-instance plugin, first: a second launch of the app hands its arguments to the running one and ends here, before any node
+    T->>T: setup — sidecar::boot: the log file under the workspace the binary names, then NodeState::start — mint a token, find a free loopback port
     T->>C: bisa node --listen 127.0.0.1:port (BISA_API_TOKEN)
+    C->>C: EngineLock::holder — a workspace another engine holds is refused at the door, naming the holder and the node's socket
     C->>S: Workspace::open — owner member, rebuild if stale or damaged, reconcile the live runs, the General and Workflow Agents, general channel
     C->>E: Engine::start — flock run/engine.lock, bind the intake socket, end stale sessions, the restart walk, resume guided, withdraw dead questions, spawn tasks (the wait ticker and the ear always · the event ticker and the signal worker when events run)
     C->>N: serve — ensure run/token, mount every routes()
-    T->>N: GET /health until it answers
+    T->>N: GET /health until it answers — or the child ends first, and the wait ends with it
+    T->>T: window_state — read window.json, fit it to the screens there are, build the window there
     W->>W: installRouter — with no hash, stand on the last place remembered, else the home
     W->>T: invoke api_base, api_token
     W->>N: GET /goals, /workflows, /channels, /agents, /projects, /workstreams … (useWorkspaceState)
     W->>N: GET /events?token=… (one EventSource for the app)
 ```
 
-Files on the path: `desktop/src-tauri/src/sidecar.rs`, `crates/bisa-cli/src/main.rs`,
+Files on the path: `desktop/src-tauri/src/second_launch.rs`, `desktop/src-tauri/src/sidecar.rs`, `crates/bisa-cli/src/main.rs`,
 `crates/bisa-store/src/workspace.rs`, `crates/bisa-engine/src/lib.rs`,
 `crates/bisa-engine/src/sessions.rs` (`end_stale`: every session row still `live` is a dead
 session — its harness child, when the row's `pid` is still the process seen at `pid_seen_at`, is

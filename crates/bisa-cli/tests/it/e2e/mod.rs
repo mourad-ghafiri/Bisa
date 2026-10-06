@@ -27,6 +27,7 @@ mod from_capture_to_done;
 mod git_in_a_checkout;
 mod goals;
 mod models_and_effort;
+mod one_node_per_workspace;
 mod projects_and_workstreams;
 mod pulse_and_inbox;
 mod runs_in_the_workspace;

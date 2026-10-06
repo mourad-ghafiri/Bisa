@@ -2023,6 +2023,21 @@ fn check_bind(addr: std::net::SocketAddr, allowed: bool) -> Result<()> {
     ))
 }
 
+/// Where a node on this workspace answers, when one does: its socket, or
+/// — under a folder too long for one — the short path its pointer names
+/// (`bisa_node::pointer_path`), as `client::discover` reads it. `None`
+/// when no socket of either kind is there.
+fn node_socket_in_use(paths: &bisa_store::Paths) -> Option<std::path::PathBuf> {
+    let preferred = paths.node_socket();
+    if preferred.exists() {
+        return Some(preferred);
+    }
+    std::fs::read_to_string(bisa_node::pointer_path(&preferred))
+        .ok()
+        .map(|p| std::path::PathBuf::from(p.trim()))
+        .filter(|p| p.exists())
+}
+
 async fn node(
     ctx: &Ctx,
     out: &Out,
@@ -2032,8 +2047,30 @@ async fn node(
     if let Some(addr) = listen {
         check_bind(addr, insecure_allow_remote)?;
     }
+    // One engine per workspace (I40), refused at the door. The lock the
+    // engine takes in `node_engine` is the guarantee — but by then the
+    // workspace has been opened and its maintenance written beside the
+    // holder's, and the refusal reads as a slow daemon's. Whoever holds it
+    // — a node, or a verb that embedded an engine — this start says so,
+    // names where a node answers, and touches nothing.
+    let paths = bisa_store::Paths::new(&ctx.data_dir);
+    if let Some(holder) = bisa_engine::EngineLock::holder(&paths)? {
+        let answering = node_socket_in_use(&paths)
+            .map(|socket| {
+                bisa_i18n::say(&bisa_core::text!(
+                    "cli-main-node-answering-on",
+                    socket = socket.display().to_string()
+                ))
+            })
+            .unwrap_or_default();
+        anyhow::bail!(bisa_core::text!(
+            "cli-main-node-workspace-held-by-engine",
+            pid = holder.pid.to_string(),
+            socket = answering
+        ));
+    }
     let engine = ctx.node_engine().await?;
-    let socket = bisa_store::Paths::new(&ctx.data_dir).node_socket();
+    let socket = paths.node_socket();
     out.say(&bisa_core::text!(
         "cli-main-bisa-node-listening-press-ctrl-c",
         a0 = (socket.display()).to_string(),

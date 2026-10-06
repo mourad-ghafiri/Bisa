@@ -4,7 +4,9 @@
 //! the node it supervises.
 //!
 //! The shell installs the subscriber before anything else runs and attaches
-//! the file **before the node exists**: it asks the `bisa` binary where
+//! the file in `setup` (`sidecar::boot`), **before the node exists** and never
+//! before `build` — which a second launch of the app leaves through the
+//! single-instance plugin (`second_launch.rs`), having written nothing: it asks the `bisa` binary where
 //! the workspace is (`bisa paths --json` — the store's word, so the
 //! shell never spells a workspace path itself,
 //! `docs/reference/workspace-layout.md`). When the node answers it attaches

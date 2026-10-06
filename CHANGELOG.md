@@ -10,6 +10,11 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- Bisa runs once. Launching the app while it is open — from a terminal, with `open -n`, from a
+  second copy of the app, or from a `bisa://join/…` link on Windows and Linux — opens no second
+  Bisa: the launch hands what it was asked to the running app, which brings its window back, and
+  ends before it has a node. The app's Dock icon now shows as soon as the app is launched, the
+  window following once its node answers.
 - An agent asked to change a note can now rewrite it: `note_write` replaces the body at the hash
   `note_read` answered, and a note that moved since is refused with its current hash, so the agent
   reads again and writes once. `note_append` still adds under the agent's name. A rewrite never
@@ -53,6 +58,12 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A second `bisa node` on a workspace a node already holds is refused at the door — before it
+  opens the workspace — in its own words: which pid holds it and where the node answers. It used
+  to open the workspace first and then say a daemon had been slow to answer.
+- The desktop no longer waits twenty seconds on a node that ended at once — refused its workspace,
+  or unable to load: the reason, with the node's last words, is in the footer within a second, and
+  the app's own node starts as soon as the other one stops.
 - An agent's drawing no longer vanishes or reports done with nothing on the canvas. The canvas
   registered itself before Excalidraw had loaded the scene, so every non-empty drawing read as
   changed and autosaved its old elements — which could overwrite shapes an agent had just drawn

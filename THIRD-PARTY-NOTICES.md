@@ -110,7 +110,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 (https://crates.io/crates/option-ext) in both binaries. The MPL 2.0 text is in
 `THIRD-PARTY-NOTICES.md` §Licence texts.
 
-## Rust crates — 679 in the bisa binary, 318 in the desktop shell (macOS)
+## Rust crates — 679 in the bisa binary, 319 in the desktop shell (macOS)
 
 ### 0BSD
 
@@ -292,6 +292,8 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) 2017 - Present Tauri Apps Contributors
 - **tauri-plugin-opener** 2.5.4 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) 2017 - Present Tauri Apps Contributors
+- **tauri-plugin-single-instance** 2.4.5 — Apache-2.0 OR MIT — taken as Apache-2.0
+  copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) 2017 - Present The Tauri Programme in the Commons Conservancy
 - **tauri-runtime** 2.11.3 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright (c) 2017 - Present Tauri Apps Contributors
 - **tauri-runtime-wry** 2.11.4 — Apache-2.0 OR MIT — taken as Apache-2.0

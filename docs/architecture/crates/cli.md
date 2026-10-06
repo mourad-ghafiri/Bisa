@@ -53,7 +53,7 @@ output discipline.
 ## Entry points
 
 `bisa <verb> …`. `bisa node [--listen <addr>]` runs the daemon; a non-loopback address
-needs `--insecure-allow-remote`. `bisa mcp --socket <engine socket> (--work-item <id> |
+needs `--insecure-allow-remote`; a workspace an engine already holds — a node's, or a verb's that embedded one — is refused at the door (`EngineLock::holder`, before the workspace is opened), naming the holder's pid and the socket the node answers on, and the lock the engine takes stays the guarantee (I40). `bisa mcp --socket <engine socket> (--work-item <id> |
 --goal <id> [--agent <id>] | --conversation <scope> --agent <id> | --note <id> --agent <id>)` is
 the server the engine injects into every harness session — the engine spawns it, nobody runs it by
 hand. Every verb is in [`docs/reference/cli.md`](../../reference/cli.md), and a test keeps that so.

@@ -121,6 +121,12 @@ launch does. While a node is running the CLI routes through it, so decisions res
 mode. **Events are heard and waits elapse only while a node is running.** The HTTP surface is
 [`reference/http-api.md`](../reference/http-api.md).
 
+**One node per workspace, one Bisa.** A second `bisa node` on a workspace a node already holds —
+the desktop's `~/.bisa`, say — is refused at the door, naming the one that runs and its socket, and
+opens nothing. The desktop launched beside a node you run yourself says so in its footer and starts
+its own the moment yours stops. And launching the app while it is open brings its window back
+instead of a second app ([The menu bar icon](the-desktop.md#the-menu-bar-icon)).
+
 **The control plane is behind a bearer token.** The node mints 32 random bytes into `run/token`
 (mode `0600`) on first start and reuses it; the CLI reads it, and the desktop hands its sidecar one.
 Every route but the named exceptions answers `401` without it — `/health`, a public hook

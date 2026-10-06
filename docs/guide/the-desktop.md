@@ -133,6 +133,12 @@ browser tab open in the IDE changes none of that. Quitting is deliberate — *Qu
 menu or `⌘Q` — and asks and saves as [Settings › Capabilities › Desktop](#settings) says. Turn the switch off and the
 red button quits, as it always did.
 
+**One Bisa.** Launching Bisa again while it runs — from a terminal, with `open -n`, from a second
+copy of the app, or from a `bisa://` link on Windows and Linux — opens no second Bisa: the launch
+hands what it was asked to the running app, which brings its window back, and ends. One app, one
+node, one workspace: a `bisa node` you start yourself on the app's workspace is refused in the same
+spirit, naming the one that runs ([Operating](operating.md)).
+
 **Show in Dock** is macOS's. Off, the Dock icon goes, Bisa leaves `⌘Tab` and the application menu, and
 the menu bar icon is the app's only door — the window still comes back from it. The choice is a
 setting (`desktop.dock_icon`), so the menu and Settings › Capabilities › Desktop always agree; the app launches with

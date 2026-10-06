@@ -25,6 +25,7 @@ mod png;
 #[allow(clippy::let_underscore_must_use)]
 mod ports;
 mod probe;
+mod second_launch;
 mod sidecar;
 #[allow(clippy::let_underscore_must_use)]
 mod stats;
@@ -318,48 +319,25 @@ fn app_menu<R: Runtime>(handle: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> 
 }
 
 fn main() {
-    // The subscriber first, then the file — before the node exists, under
-    // the workspace the `bisa` binary names — so a node that fails to
-    // start is a line in the file, not on a stderr nobody reads.
+    // The subscriber first — the file comes in `setup` (`sidecar::boot`),
+    // under the workspace the `bisa` binary names, so a node that fails
+    // to start is a line in the file, not on a stderr nobody reads.
+    // Nothing before `build` spawns a process or writes a file: a second
+    // launch of the app ends inside `build`, below, having left nothing.
     let log = logging::install();
     // The app's context first: its identifier names the config folder where
     // the login shell's `PATH` is remembered between launches (`login_env`),
     // and the memo must be in place before the first process asks for it.
     let context = tauri::generate_context!();
     login_env::remember_in(dirs::config_dir().map(|dir| dir.join(&context.config().identifier)));
-    match logging::attach_from_binary(&log) {
-        Ok(dir) => {
-            tracing::debug!(target: "bisa_desktop", dir = %dir.display(), "log folder named by the binary")
-        }
-        Err(e) => tracing::warn!(target: "bisa_desktop", "no log folder from the binary: {e}"),
-    }
-    // A node that cannot start is not a reason for no window: the shell
-    // opens, says why, and the watchdog keeps trying (`sidecar.rs`).
-    let node = NodeState::start();
-    match node.api_base() {
-        Ok(base) => {
-            // The node made the workspace if it was not there: attach again
-            // when nothing is writing yet.
-            if let Err(e) = logging::attach_from_node(&log, &base, &node.api_token()) {
-                tracing::warn!(target: "bisa_desktop", "no log file: {e}");
-            }
-            tracing::info!(
-                target: "bisa_desktop",
-                version = env!("CARGO_PKG_VERSION"),
-                node = %base,
-                "desktop started"
-            );
-        }
-        Err(reason) => {
-            tracing::error!(
-                target: "bisa_desktop",
-                version = env!("CARGO_PKG_VERSION"),
-                "desktop started without a node: {reason}"
-            );
-        }
-    }
 
     let builder = tauri::Builder::default()
+        // One Bisa at a time (02 §I64), and first: a second launch of the
+        // app hands its arguments — a `bisa://join/…` link on Windows and
+        // Linux, where the OS starts a process for every link — to the
+        // running one and exits here, before any other plugin's setup and
+        // before `setup` below starts the node (`second_launch.rs`).
+        .plugin(tauri_plugin_single_instance::init(second_launch::hand_off))
         .plugin(tauri_plugin_notification::init())
         // The folder picker behind "Import a folder", and Reveal in Finder on
         // a project's path. Both are plugin commands, so registering the
@@ -378,7 +356,6 @@ fn main() {
         }
     });
     builder
-        .manage(node)
         .manage(log)
         // An `Arc` rather than the registry itself: the reader thread behind
         // every PTY has to reach the registry to forget its session when the
@@ -390,6 +367,15 @@ fn main() {
         // The node is kept up by the shell, not by luck: a child that dies
         // unasked is started again on its port, and the webview is told.
         .setup(|app| {
+            // The node, from here and never from `main`: a second launch
+            // has left `build` through the single-instance plugin above,
+            // and a node started before that would be nobody's. A node
+            // that cannot start is not a reason for no window: the shell
+            // opens, says why, and the watchdog keeps trying (`sidecar.rs`).
+            // Managed before the window exists: a command's `State` panics
+            // on a state nobody manages.
+            let node = sidecar::boot(app.handle());
+            app.manage(node);
             // Still no file — no binary named the workspace and no node
             // answered: the app's own log folder, the last resort.
             logging::attach_fallback(app.handle());

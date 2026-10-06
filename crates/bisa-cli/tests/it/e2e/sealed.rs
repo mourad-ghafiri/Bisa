@@ -390,6 +390,11 @@ impl Sealed {
             .unwrap_or(preferred)
     }
 
+    /// The daemon's process id — what the engine lock records as its holder.
+    pub fn pid(&self) -> u32 {
+        self.daemon.as_ref().expect("a daemon up").id()
+    }
+
     /// Ask the daemon to stop, the way a supervisor does, and wait for it:
     /// it ends by itself, well, and leaves no socket behind.
     pub fn stop(&mut self) {

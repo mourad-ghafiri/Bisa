@@ -33,6 +33,13 @@ tauri-plugin-opener = "2"
 # `tauri.conf.json`; the webview reads the URL through the plugin's
 # commands, so `capabilities/default.json` grants `deep-link:default`.
 tauri-plugin-deep-link = "2"
+# One Bisa at a time (02 §I64): a second launch hands its arguments — a
+# `bisa://join/…` link among them on Windows and Linux, where the OS starts
+# a new process for every link — to the running app through this plugin,
+# which brings the window back (`second_launch.rs`) and exits before it
+# has a node. Registered first in `main.rs`, before any other plugin. The
+# 2.4 line: 2.5 needs tauri 2.12 and the shell is on 2.11.
+tauri-plugin-single-instance = { version = "~2.4", features = ["deep-link"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The diagnostic log: the same subscriber and file layer the node runs, by
