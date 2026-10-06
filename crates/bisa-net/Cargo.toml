@@ -25,7 +25,7 @@ base64 = { workspace = true, optional = true }
 rand = { version = "0.9", optional = true }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["ring"] }
 secp256k1 = { workspace = true, optional = true }
-bisa-deps = { version = "0.2", path = "../bisa-deps" }
+bisa-deps = { version = "0.3", path = "../bisa-deps" }
 
 [features]
 default = []

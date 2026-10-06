@@ -2,7 +2,7 @@
   "id": "memory",
   "name": "Memory",
   "description": "Memory in use against what the machine has, as a bar and a number.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

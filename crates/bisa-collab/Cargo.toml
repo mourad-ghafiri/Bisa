@@ -26,7 +26,7 @@ tracing = { workspace = true }
 # websocket stack under `nostr-sdk` uses the process-wide provider, and with
 # both of rustls' backends compiled into this workspace it has none until told.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-bisa-deps = { version = "0.2", path = "../bisa-deps" }
+bisa-deps = { version = "0.3", path = "../bisa-deps" }
 
 [dev-dependencies]
 nostr-relay-builder = { workspace = true }

@@ -17,7 +17,7 @@ sha2 = { workspace = true }
 globset = { workspace = true }
 shlex = { workspace = true }
 bisa-netrules = { workspace = true }
-bisa-deps = { version = "0.2", path = "../bisa-deps" }
+bisa-deps = { version = "0.3", path = "../bisa-deps" }
 
 [lints]
 workspace = true

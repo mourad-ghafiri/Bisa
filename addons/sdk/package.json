@@ -1,6 +1,6 @@
 {
   "name": "bisa-addon",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "The library an addon runs against inside Bisa's desktop \u2014 served by the platform itself; never published, never bundled.",
   "type": "module",

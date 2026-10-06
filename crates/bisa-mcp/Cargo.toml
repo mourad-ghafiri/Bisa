@@ -17,7 +17,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 rmcp = { workspace = true }
-bisa-deps = { version = "0.2", path = "../bisa-deps" }
+bisa-deps = { version = "0.3", path = "../bisa-deps" }
 
 [dev-dependencies]
 tempfile = "3"

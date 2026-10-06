@@ -2,7 +2,7 @@
   "id": "stopwatch",
   "name": "Stopwatch",
   "description": "Start, lap, reset — time as it passes, with every lap numbered.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

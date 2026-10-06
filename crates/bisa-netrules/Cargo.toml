@@ -12,7 +12,7 @@ description = "The one grammar of a host pattern — `host[:port]` or `*.suffix`
 # core-free and `bisa-security` I/O-free while all three agree on what a host
 # pattern is.
 [dependencies]
-bisa-deps = { version = "0.2", path = "../bisa-deps" }
+bisa-deps = { version = "0.3", path = "../bisa-deps" }
 
 [lints]
 workspace = true

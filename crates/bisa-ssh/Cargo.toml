@@ -18,7 +18,7 @@ serde = { workspace = true }
 schemars = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
-bisa-deps = { version = "0.2", path = "../bisa-deps" }
+bisa-deps = { version = "0.3", path = "../bisa-deps" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -27,7 +27,7 @@ getrandom = { workspace = true }
 # The `jwt` scheme's signatures — ES256 and RS256 over PKCS#8 keys. Already
 # built for `rustls`; the one signing dependency.
 aws-lc-rs = { workspace = true }
-bisa-deps = { version = "0.2", path = "../bisa-deps" }
+bisa-deps = { version = "0.3", path = "../bisa-deps" }
 
 [dev-dependencies]
 # Every test runs against a stub HTTP server on the loopback interface —
