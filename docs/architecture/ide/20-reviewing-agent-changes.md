@@ -133,7 +133,10 @@ calls and attributes what they change to the turn under way.
 Undo writes through the IDE's own write path, `engine::ide::files::write_bytes` — atomic,
 compare-and-swap against the hash of the file just read, announced as `FileChanged` so an open buffer
 reloads and a dirty one gets its three-way affordance. A file the agent created is disposed of the
-way the explorer disposes of one, per `editor.delete.trash` (never unlinked behind a person's back).
+way the explorer disposes of one, per `editor.delete.trash` (never unlinked behind a person's back)
+— and the files one word unmakes go as one act once the walk is done (`ide::files::delete_entries`):
+one move to the Trash, not one per file; a halt there is the error it was, the ledger left unwritten
+as a delete failing mid-walk left it before.
 
 ---
 
@@ -208,7 +211,8 @@ person's yes to settle an overlapped file anyway. **`gone`** is a file's termina
 outside write removed it or put it back to exactly the review's base — there is nothing left of the
 agent's own to keep or undo.
 
-A file the agent created is disposed of per `editor.delete.trash` when an Undo unmakes it; undoing
+A file the agent created is disposed of per `editor.delete.trash` when an Undo unmakes it — the
+files of one word as one act, gathered along the walk and disposed of at its end; undoing
 one turn's change to a file other turns have also touched is a three-way take-back
 (`bisa_core::changes::take_back`), and a conflict there leaves the file alone, named in `skipped`,
 rather than guessed at.

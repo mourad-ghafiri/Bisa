@@ -5143,6 +5143,25 @@ pub struct IdeCopyBody {
     pub to: String,
 }
 
+/// One entry of a batch delete: its path, and whether a folder's delete was
+/// confirmed — what the confirmation shown for it records, entry by entry.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(rename = "IdeDeleteEntry")]
+#[serde(deny_unknown_fields)]
+pub struct IdeDeleteEntry {
+    pub path: String,
+    #[serde(default)]
+    pub recursive: bool,
+}
+
+/// `POST /ide/files/{scope}/{id}/delete`: several entries as one act.
+#[derive(Deserialize, JsonSchema)]
+#[schemars(rename = "IdeDeleteEntries")]
+#[serde(deny_unknown_fields)]
+pub struct IdeDeleteBody {
+    pub entries: Vec<IdeDeleteEntry>,
+}
+
 /// `GET /node`: what this node is — the process, where it listens, where it
 /// keeps the workspace, whether the engine is paused and how many sessions
 /// are live. The footer's node overlay reads it on open.

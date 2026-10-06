@@ -10,6 +10,11 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- `POST /ide/files/{scope}/{id}/delete` removes several entries as one act: every entry is checked
+  before anything goes — a refused one refuses the whole batch untouched — then the list goes to
+  the OS Trash as one move, or is unlinked in order; the answer lists every path that went and,
+  when it halted, the first that did not. The desktop's deletes send it, one entry or many;
+  `DELETE …?path=` stays the one-entry form the CLI uses.
 - A Markdown file in the Project IDE renders its raw HTML as GitHub renders it: a `<details>`, a
   row of badges in `<p align="center">`, a `<br>`, a `<kbd>` draw, through DOMPurify's prose
   profile — nothing that runs, styles, frames, submits, plays, pops over or hides is kept, and no
@@ -66,6 +71,11 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- Deleting a folder's untracked files from Git › Changes, every untracked file from the toolbar,
+  a selection of several rows in the explorer, or the files an agent's turn made when the turn is
+  undone moved them to the Trash one by one, and macOS played its trash sound once for each.
+  They go as one move now — one sound, one *Put Back* in the Finder — and a batch the node cannot
+  take whole is refused before anything goes.
 - Find in a rendered Markdown file shows its matches again: every match is marked in amber, the one
   you are on darker and underlined and brought into view inside the rendering, and closing the bar
   leaves it selected. The highlights were drawn over text nodes the page had just replaced — React

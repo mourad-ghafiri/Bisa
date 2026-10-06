@@ -493,6 +493,54 @@ async fn explorer_mutations_and_the_watch_lease() {
     assert!(!root.join("src").exists());
     assert!(root.is_dir());
 
+    // Several entries as one act: checked whole, answered whole.
+    for path in ["one.txt", "two/x.txt", "three.txt"] {
+        std::fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
+        std::fs::write(root.join(path), "x").unwrap();
+    }
+    let batch = format!("{files}/delete");
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &batch,
+        Some(json!({"entries": [{"path": "one.txt"}, {"path": "two", "recursive": true}, {"path": "three.txt"}]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["ok"], json!(true));
+    assert_eq!(v["failed"], json!(null));
+    assert_eq!(v["disposal"], json!("unlink"));
+    let gone: Vec<&str> = v["deleted"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(gone, vec!["one.txt", "two", "three.txt"]);
+    assert!(!root.join("one.txt").exists() && !root.join("two").exists());
+    assert!(!root.join("three.txt").exists());
+    std::fs::write(root.join("four.txt"), "x").unwrap();
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &batch,
+        Some(json!({"entries": [{"path": "four.txt"}, {"path": "nope.txt"}]})),
+    )
+    .await;
+    assert_eq!(status, 400, "a missing entry refuses the batch whole: {v}");
+    assert!(root.join("four.txt").is_file(), "nothing went");
+    let (status, _) = request(&socket, "POST", &batch, Some(json!({"entries": []}))).await;
+    assert_eq!(status, 400, "nothing named");
+    let (status, _) = request(
+        &socket,
+        "POST",
+        &batch,
+        Some(json!({"entries": [{"path": "four.txt"}], "recursive": true})),
+    )
+    .await;
+    assert_eq!(status, 400, "a key the body does not declare");
+    assert!(root.join("four.txt").is_file());
+
     let watch = format!("/ide/watch/workstream/{pid}");
     let (status, v) = request(&socket, "POST", &watch, None).await;
     assert_eq!(status, 200, "{v}");

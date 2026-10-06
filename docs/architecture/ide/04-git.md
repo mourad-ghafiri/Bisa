@@ -935,10 +935,12 @@ begun, and dropping the client's record of it was the bug.
 
 An **untracked** file has nothing in the index to go back to, so git is not the tool: its verb is
 *Delete file…* — a folder's *Delete files…*, the toolbar's *Delete all untracked files…* — through
-the IDE's own disposal (`DELETE /ide/files/workstream/{wid}?path=`, one call per file, stopping at
-the first refusal, `editor.delete.trash` — the Trash by default), with the file tree's sentence for
-a git root, and the listing re-read afterwards. The vcs crate keeps refusing to delete anything, as
-its guard test says.
+the IDE's own disposal as **one act** (`POST /ide/files/workstream/{wid}/delete`, every file in one
+body, so the Trash takes a folder's files as one move and the OS says so once; the node checks the
+whole list before anything goes and, after, halts at the first failure — the answer says what went
+and what did not, and the failure card holds what is left to retry; `editor.delete.trash` — the
+Trash by default), with the file tree's sentence for a git root, and the listing re-read
+afterwards. The vcs crate keeps refusing to delete anything, as its guard test says.
 
 ### Push from the project's own tree
 

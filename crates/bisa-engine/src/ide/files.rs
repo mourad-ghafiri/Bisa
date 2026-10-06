@@ -18,6 +18,13 @@
 //! removes the bytes. The caller resolves the setting and passes a
 //! [`Disposal`]; this module never reads settings and never guesses. A trash
 //! that refuses is an error, never a silent fall-through to unlinking.
+//!
+//! **A delete is one act.** Several entries — a folder's untracked files
+//! from the git panel, an explorer selection, the files an Undo unmakes —
+//! go through [`delete_entries`] as one batch: checked whole before anything
+//! goes, then handed to the remover as one list, which the OS trash takes as
+//! one move (one sound, one *Put Back*) where a call per entry would play
+//! the sound once for each. [`delete_entry`] is the batch of one.
 
 use crate::events::FileChangeKind;
 use crate::{EngineError, EngineEvent, EnginePayload, Inner};
@@ -56,22 +63,75 @@ impl Disposal {
     }
 }
 
+/// One entry a batch disposes of: where it is, and whether it is a folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removal {
+    pub path: PathBuf,
+    pub is_dir: bool,
+}
+
+/// Where a batch halted: how many entries went before it, and what halted it
+/// (boxed: an `Err` is kept small).
+#[derive(Debug)]
+pub struct Halt {
+    pub went: usize,
+    pub error: Box<EngineError>,
+}
+
 /// One way of making an entry go away.
 pub trait Remover {
     fn remove(&self, path: &Path, is_dir: bool) -> Result<(), EngineError>;
+
+    /// Several entries as **one act** for the person, in order, halting at
+    /// the first failure — how many went before it is the halt's. The
+    /// default removes one after another; a remover whose medium takes a
+    /// list as one move overrides it.
+    fn remove_all(&self, entries: &[Removal]) -> Result<(), Halt> {
+        for (went, entry) in entries.iter().enumerate() {
+            self.remove(&entry.path, entry.is_dir)
+                .map_err(|error| Halt {
+                    went,
+                    error: Box::new(error),
+                })?;
+        }
+        Ok(())
+    }
 }
 
 /// The OS trash: files and directories alike, recoverable by the person.
 pub struct TrashRemover;
 
 impl Remover for TrashRemover {
-    fn remove(&self, path: &Path, _is_dir: bool) -> Result<(), EngineError> {
-        trash::delete(path).map_err(|e| {
-            EngineError::Invalid(bisa_core::text!(
-                "error-engine-invalid-could-not-move-trash",
-                a0 = (path.display()).to_string(),
-                e = e.to_string()
-            ))
+    fn remove(&self, path: &Path, is_dir: bool) -> Result<(), EngineError> {
+        self.remove_all(&[Removal {
+            path: path.to_path_buf(),
+            is_dir,
+        }])
+        .map_err(|halt| *halt.error)
+    }
+
+    /// One call to the OS for the whole list. On macOS the Finder takes it
+    /// as one move — one sound, one *Put Back* — where a call per entry
+    /// would play the sound once for each; and the OS refuses the list
+    /// whole, so nothing went when it errs.
+    fn remove_all(&self, entries: &[Removal]) -> Result<(), Halt> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        trash::delete_all(entries.iter().map(|e| &e.path)).map_err(|e| Halt {
+            went: 0,
+            error: Box::new(EngineError::Invalid(match entries {
+                [one] => bisa_core::text!(
+                    "error-engine-invalid-could-not-move-trash",
+                    a0 = (one.path.display()).to_string(),
+                    e = e.to_string()
+                ),
+                _ => bisa_core::text!(
+                    "error-engine-invalid-could-not-move-trash-several",
+                    n = entries.len().to_string(),
+                    e = e.to_string()
+                ),
+            })),
         })
     }
 }
@@ -95,6 +155,30 @@ impl Remover for UnlinkRemover {
 pub struct Deleted {
     pub path: String,
     pub disposal: Disposal,
+}
+
+/// One entry a batch is asked to delete: its path, and whether a folder's
+/// delete was confirmed — what the confirmation the client showed records,
+/// entry by entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToDelete {
+    pub path: String,
+    pub recursive: bool,
+}
+
+/// What a batch delete hands back: every asked path that went, in the order
+/// asked, and where it halted when it did.
+#[derive(Debug)]
+pub struct Deletions {
+    pub deleted: Vec<Deleted>,
+    pub halted: Option<HaltedAt>,
+}
+
+/// The first asked path that did not go, and why.
+#[derive(Debug)]
+pub struct HaltedAt {
+    pub path: String,
+    pub error: EngineError,
 }
 
 /// A boolean setting, resolved for a project (or the workspace when `None`),
@@ -548,7 +632,8 @@ fn copy_tree(src: &Path, dst: &Path, meta: &std::fs::Metadata) -> std::io::Resul
 
 /// Remove a file, or a directory when `recursive` — the confirmation the
 /// client showed is what `recursive` records — by the given [`Disposal`]. The
-/// root itself is never removed.
+/// root itself is never removed. One entry of [`delete_entries`], answered
+/// as before: the one row, or the error that halted it.
 pub fn delete_entry(
     inner: &Arc<Inner>,
     scope: FileScope,
@@ -557,38 +642,208 @@ pub fn delete_entry(
     recursive: bool,
     disposal: Disposal,
 ) -> Result<Deleted, EngineError> {
-    let root = writable_root(inner, scope, id)?;
-    let trimmed = relative.trim();
-    if trimmed.is_empty() || trimmed == "." || trimmed == "./" {
-        return Err(EngineError::Invalid(bisa_core::text!(
-            "error-engine-invalid-root-itself-not-something-delete"
-        )));
-    }
-    let path = resolve_within(&root, relative)?;
-    if root.canonicalize().map(|r| r == path).unwrap_or(false) {
-        return Err(EngineError::Invalid(bisa_core::text!(
-            "error-engine-invalid-root-itself-not-something-delete"
-        )));
-    }
-    let meta = std::fs::symlink_metadata(&path).map_err(|_| {
-        EngineError::Invalid(bisa_core::text!(
+    let asked = [ToDelete {
+        path: relative.to_string(),
+        recursive,
+    }];
+    let deletions = delete_entries(inner, scope, id, &asked, disposal)?;
+    match (deletions.halted, deletions.deleted.into_iter().next()) {
+        (Some(halted), _) => Err(halted.error),
+        (None, Some(gone)) => Ok(gone),
+        (None, None) => Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-no-such-path-2",
             relative = format!("{relative:?}")
-        ))
-    })?;
-    if meta.is_dir() && !recursive {
-        let n = std::fs::read_dir(&path).map(|d| d.count()).unwrap_or(0);
+        ))),
+    }
+}
+
+/// An entry of a batch past its checks: where it is, how the root names it,
+/// and what it is.
+struct Checked {
+    path: PathBuf,
+    rel: String,
+    is_dir: bool,
+}
+
+/// Remove several entries as **one act** — a folder's untracked files from
+/// the git panel, an explorer selection, the files an Undo unmakes — by the
+/// given [`Disposal`]. Every entry is checked before anything goes: the
+/// first refusal — the root itself, a path that leaves it, one that is not
+/// there, a folder whose delete was not confirmed — refuses the whole batch
+/// untouched, as does a batch naming nothing. On the canonical paths an
+/// entry named twice goes once, and one under a folder of the batch goes
+/// with the folder; both are answered as asked. The remover takes the rest
+/// in the order asked and halts at the first failure: the answer lists every
+/// asked path that went and names the first that did not.
+pub fn delete_entries(
+    inner: &Arc<Inner>,
+    scope: FileScope,
+    id: &str,
+    asked: &[ToDelete],
+    disposal: Disposal,
+) -> Result<Deletions, EngineError> {
+    if asked.is_empty() {
         return Err(EngineError::Invalid(bisa_core::text!(
-            "error-engine-invalid-directory-holding-entries-confirm-with-recursive-true",
-            relative = format!("{relative:?}"),
-            n = n.to_string()
+            "error-engine-invalid-nothing-named-delete"
         )));
     }
-    let rel = shown(&root, &path)?;
-    disposal.remover().remove(&path, meta.is_dir())?;
-    announce(inner, scope, id, &rel, FileChangeKind::Removed, None, false);
-    Ok(Deleted {
-        path: rel,
-        disposal,
-    })
+    let root = writable_root(inner, scope, id)?;
+    let real_root = root.canonicalize().ok();
+    let root_itself = || {
+        EngineError::Invalid(bisa_core::text!(
+            "error-engine-invalid-root-itself-not-something-delete"
+        ))
+    };
+    let mut checked: Vec<Checked> = Vec::with_capacity(asked.len());
+    for entry in asked {
+        let trimmed = entry.path.trim();
+        if trimmed.is_empty() || trimmed == "." || trimmed == "./" {
+            return Err(root_itself());
+        }
+        let path = resolve_within(&root, &entry.path)?;
+        if real_root.as_ref().is_some_and(|r| *r == path) {
+            return Err(root_itself());
+        }
+        let meta = std::fs::symlink_metadata(&path).map_err(|_| {
+            EngineError::Invalid(bisa_core::text!(
+                "error-engine-invalid-no-such-path-2",
+                relative = format!("{:?}", entry.path)
+            ))
+        })?;
+        if meta.is_dir() && !entry.recursive {
+            let n = std::fs::read_dir(&path).map(|d| d.count()).unwrap_or(0);
+            return Err(EngineError::Invalid(bisa_core::text!(
+                "error-engine-invalid-directory-holding-entries-confirm-with-recursive-true",
+                relative = format!("{:?}", entry.path),
+                n = n.to_string()
+            )));
+        }
+        let rel = shown(&root, &path)?;
+        checked.push(Checked {
+            path,
+            rel,
+            is_dir: meta.is_dir(),
+        });
+    }
+    // Which removal each asked entry rides on: its own, or the outermost
+    // folder of the batch that holds it — a folder goes whole, so what is
+    // under it needs no move of its own, and a path named twice has one.
+    let holds = |holder: &Checked, held: &Checked| {
+        holder.path == held.path || (holder.is_dir && held.path.starts_with(&holder.path))
+    };
+    let rides: Vec<usize> = (0..checked.len())
+        .map(|i| {
+            (0..checked.len())
+                .filter(|&j| holds(&checked[j], &checked[i]))
+                .min_by_key(|&j| (checked[j].path.components().count(), j))
+                .unwrap_or(i)
+        })
+        .collect();
+    let mut order: Vec<usize> = Vec::new();
+    for &top in &rides {
+        if !order.contains(&top) {
+            order.push(top);
+        }
+    }
+    let removals: Vec<Removal> = order
+        .iter()
+        .map(|&j| Removal {
+            path: checked[j].path.clone(),
+            is_dir: checked[j].is_dir,
+        })
+        .collect();
+    let (went, halt) = match disposal.remover().remove_all(&removals) {
+        Ok(()) => (removals.len(), None),
+        Err(Halt { went, error }) => (went, Some(*error)),
+    };
+    for &j in &order[..went] {
+        announce(
+            inner,
+            scope,
+            id,
+            &checked[j].rel,
+            FileChangeKind::Removed,
+            None,
+            false,
+        );
+    }
+    // Each asked entry, by the removal it rode on: gone with it, or not.
+    let gone = |top: usize| {
+        order
+            .iter()
+            .position(|&j| j == top)
+            .is_some_and(|at| at < went)
+    };
+    let mut deleted = Vec::with_capacity(asked.len());
+    let mut first_left = None;
+    for (i, &top) in rides.iter().enumerate() {
+        if gone(top) {
+            deleted.push(Deleted {
+                path: checked[i].rel.clone(),
+                disposal,
+            });
+        } else if first_left.is_none() {
+            first_left = Some(checked[i].rel.clone());
+        }
+    }
+    let halted = match (first_left, halt) {
+        (Some(path), Some(error)) => Some(HaltedAt { path, error }),
+        _ => None,
+    };
+    Ok(Deletions { deleted, halted })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// A remover that refuses one path and remembers what it was asked.
+    struct Picky {
+        refuse: PathBuf,
+        asked: RefCell<Vec<PathBuf>>,
+    }
+
+    impl Remover for Picky {
+        fn remove(&self, path: &Path, _is_dir: bool) -> Result<(), EngineError> {
+            self.asked.borrow_mut().push(path.to_path_buf());
+            if path == self.refuse {
+                Err(EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-no-such-path-2",
+                    relative = format!("{:?}", path.display())
+                )))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn removals(paths: &[&str]) -> Vec<Removal> {
+        paths
+            .iter()
+            .map(|p| Removal {
+                path: PathBuf::from(p),
+                is_dir: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_default_batch_halts_at_the_first_failure_and_says_how_many_went() {
+        let picky = Picky {
+            refuse: PathBuf::from("/b"),
+            asked: RefCell::new(Vec::new()),
+        };
+        let halt = picky
+            .remove_all(&removals(&["/a", "/b", "/c"]))
+            .unwrap_err();
+        assert_eq!(halt.went, 1, "one went before the refusal");
+        assert_eq!(
+            *picky.asked.borrow(),
+            vec![PathBuf::from("/a"), PathBuf::from("/b")],
+            "nothing after the failure is tried"
+        );
+        assert!(picky.remove_all(&removals(&["/a", "/c"])).is_ok());
+        assert!(picky.remove_all(&[]).is_ok(), "nothing asked, nothing went");
+    }
 }

@@ -2500,11 +2500,11 @@ export const api = {
     post<{ path: string; kind: string }>(`/ide/files/${scope}/${id}`, { path, kind }, s),
   ideMove: (scope: FileScope, id: string, from: string, to: string, s?: AbortSignal) =>
     post<{ from: string; path: string }>(`/ide/files/${scope}/${id}/move`, { from, to }, s),
-  /// Delete — to the OS trash or unlinked, as `editor.delete.trash` says for the root; the answer's `disposal` says which.
-  ideDelete: (scope: FileScope, id: string, path: string, recursive: boolean, s?: AbortSignal) =>
-    del<{ ok: boolean; path: string; disposal: Disposal }>(
-      `/ide/files/${scope}/${id}?path=${encodeURIComponent(path)}${recursive ? "&recursive=true" : ""}`,
-      undefined,
+  /// Delete — to the OS trash or unlinked, as `editor.delete.trash` says for the root; the answer's `disposal` says which. One entry or many, always as one act — one move to the Trash, one sound — each entry with its own `recursive`; the answer lists every path that went and, when it halted, the first that did not. (`DELETE …?path=` stays the API's one-entry form, the CLI's.)
+  ideDeleteMany: (scope: FileScope, id: string, entries: { path: string; recursive: boolean }[], s?: AbortSignal) =>
+    post<{ ok: boolean; deleted: { path: string; disposal: Disposal }[]; failed: { path: string; reason: string } | null; disposal: Disposal }>(
+      `/ide/files/${scope}/${id}/delete`,
+      { entries },
       s,
     ),
   /// How a delete under this root goes right now, so a confirmation can say so first.

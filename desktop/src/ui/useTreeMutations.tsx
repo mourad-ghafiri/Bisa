@@ -15,9 +15,11 @@
  * about (`fileTreeModel.targetsOf`) — so the menu and the chord can never
  * disagree, and a verb over many is the same verb over one, run in turn.
  *
- * The engine's file routes take one path each and there is no batch route,
- * so a verb over many fans out here: sequentially, stopping at the first
- * refusal, and saying what was done and what was not (`fanOutSummary`). The
+ * The engine's file routes take one path each — but a delete, which the node
+ * takes as one batch (`POST …/delete`) so the Trash takes a selection as one
+ * move, one sound — so every other verb over many fans out here:
+ * sequentially, stopping at the first refusal, and saying what was done and
+ * what was not (`fanOutSummary`, the words a halted batch gets too). The
  * listings refresh from the watcher's frames as they do for one.
  *
  * A drag within the tree is the kit's (`ui/dnd`, `ui/tree`): the rows carry
@@ -438,10 +440,25 @@ export function useTreeMutations({
     setBusy(true);
     try {
       const { targets } = deleting;
+      // One act for the whole selection (`POST …/delete`): one move to the
+      // Trash, one sound. The node checks every entry before anything goes
+      // and halts at the first failure after; the summary says how far it got.
+      let done: string[] = [];
+      let failed: { path: string; reason: string } | null = null;
       let disposalOf: Disposal | null = null;
-      const done = await fanOut("deleted", targets, async (t) => {
-        disposalOf = (await api.ideDelete(scope, id, t.path, t.dir)).disposal;
-      });
+      try {
+        const r = await api.ideDeleteMany(scope, id, targets.map((t) => ({ path: t.path, recursive: t.dir })));
+        done = r.deleted.map((d) => d.path);
+        failed = r.failed;
+        disposalOf = r.disposal;
+      } catch (e) {
+        failed = { path: targets[0]?.path ?? "", reason: failureReason("files", tr("ui-use-tree-mutations-could-not-finish", { verb: "deleted" }), e) };
+      }
+      if (targets.length > 1 || failed) {
+        const words = fanOutSummary({ verb: "deleted", done, failed, total: targets.length });
+        if (words.ok) toast.ok(words.text);
+        else toast.error(words.text);
+      }
       if (done.length > 0) onDeleted?.(done);
       if (targets.length === 1 && done.length === 1) {
         toast.ok(disposalOf === "trash" ? tr("ui-use-tree-mutations-moved-trash", { path: targets[0].path }) : tr("ui-use-tree-mutations-deleted", { path: targets[0].path }));

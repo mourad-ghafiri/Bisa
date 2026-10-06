@@ -314,6 +314,8 @@ fn main() {
     add!(bisa_node::dto::IdeWriteBody, "IdeWriteFile");
     add!(bisa_node::dto::IdeCreateBody, "IdeCreateEntry");
     add!(bisa_node::dto::IdeMoveBody, "IdeMoveEntry");
+    add!(bisa_node::dto::IdeDeleteBody, "IdeDeleteEntries");
+    add!(bisa_node::dto::IdeDeleteEntry, "IdeDeleteEntry");
     add!(bisa_node::dto::HunkBody, "GitHunkApply");
     add!(bisa_node::dto::CheckoutBody, "GitCheckout");
     add!(bisa_node::dto::BranchCreateBody, "GitBranchCreate");

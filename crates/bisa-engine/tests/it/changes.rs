@@ -399,6 +399,50 @@ async fn a_file_the_agent_made_is_unmade_by_an_undo() {
     bench.engine.shutdown().await;
 }
 
+/// The files one turn made go as one act when the turn is undone — checked
+/// whole, then one move — and a restore before a turn the same: gone, the
+/// review settled, nothing skipped.
+#[tokio::test]
+async fn the_files_a_turn_made_are_unmade_as_one_act() {
+    let bench = bench(vec![], false);
+    let inner = bench.engine.inner();
+    let c = bench.conversation(ConversationMode::Manual);
+    let tracker = bench.tracker(c, true);
+    let turn = tracker
+        .begin_turn(inner, None, ConversationMode::Manual)
+        .unwrap();
+    agent_edits(&bench, &tracker, "src/one.rs", "fn one() {}\n");
+    agent_edits(&bench, &tracker, "src/two.rs", "fn two() {}\n");
+    tracker.end_turn(inner, None).unwrap();
+    assert_eq!(view(inner, c).unwrap().pending, 2);
+
+    let undone = settle(
+        inner,
+        c,
+        Verdict::Undo,
+        Target::Turn { turn },
+        Disposal::Unlink,
+        false,
+    )
+    .unwrap();
+    assert_eq!(undone.files, 2);
+    assert!(undone.skipped.is_empty(), "{:?}", undone.skipped);
+    assert!(!bench.root.join("src/one.rs").exists());
+    assert!(!bench.root.join("src/two.rs").exists());
+    assert_eq!(view(inner, c).unwrap().pending, 0);
+
+    // A restore the same: the file a later turn made goes with the walk's one act.
+    let later = tracker
+        .begin_turn(inner, None, ConversationMode::Manual)
+        .unwrap();
+    agent_edits(&bench, &tracker, "src/three.rs", "fn three() {}\n");
+    tracker.end_turn(inner, None).unwrap();
+    let restored = restore(inner, c, later, Disposal::Unlink).unwrap();
+    assert_eq!(restored.files, 1);
+    assert!(!bench.root.join("src/three.rs").exists());
+    bench.engine.shutdown().await;
+}
+
 #[tokio::test]
 async fn a_command_is_swept_from_a_snapshot_and_what_moved_before_it_is_not_its() {
     let bench = bench(vec![], true);

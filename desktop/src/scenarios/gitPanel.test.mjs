@@ -167,3 +167,22 @@ test("a pull's outcome is one banner in the catalog's words; the session's own d
   assert.ok(store.includes("reloadOnReconnect(watchConnection, readShown)"), "what changed while the node was away was said by no frame");
   assert.ok(store.includes("const e = entries.get(scope);\n  if (!e) return;"), "rows landing for a root nobody showed make no entry");
 });
+
+test("a delete from Git › Changes — a file's, a folder's untracked files, every untracked file — and the explorer's selection reach the node as one act, so the Trash takes them as one move", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const ops = src("../views/_work/gitOps.ts");
+  const remove = ops.slice(ops.indexOf("export function remove("), ops.indexOf("export function stashPush("));
+  assert.ok(remove.length > 0, "the delete verb is there");
+  assert.equal((remove.match(/api\.ideDeleteMany\("workstream", wid,/g) ?? []).length, 1, "one call for the whole list");
+  assert.ok(!remove.includes("for (const path of paths)") && !remove.includes("api.ideDelete("), "never one call per file");
+  assert.ok(remove.includes("paths.filter((p) => !done.includes(p))"), "what is left to retry is what did not go — never a slice, since the node folds a path named twice");
+  const tree = src("../ui/useTreeMutations.tsx");
+  const confirm = tree.slice(tree.indexOf("const confirmDelete = async () => {"), tree.indexOf("/** A drop onto a folder"));
+  assert.ok(confirm.includes("api.ideDeleteMany(scope, id, targets.map((t) => ({ path: t.path, recursive: t.dir })))"), "the explorer's selection the same, each folder carrying its own confirmation");
+  assert.ok(!confirm.includes('fanOut("deleted"'), "no fan-out for a delete");
+  const client = src("../api.ts");
+  assert.ok(client.includes("`/ide/files/${scope}/${id}/delete`") && client.includes("{ entries }"), "one route, one body");
+  const schema = JSON.parse(src("../../api-schema.json"));
+  assert.deepEqual(misfits(schema, "IdeDeleteEntries", { entries: [{ path: "a.txt", recursive: false }, { path: "pkg", recursive: true }] }), []);
+  assert.notDeepEqual(misfits(schema, "IdeDeleteEntries", { entries: [{ path: "a.txt" }], recursive: true }), [], "recursive is each entry's, never the batch's");
+});

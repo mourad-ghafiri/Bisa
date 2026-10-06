@@ -7,7 +7,9 @@
 //! shape of a `409`: it carries the current text, because a sentence is not
 //! something a client can merge from.
 
-use crate::dto::{IdeCopyBody, IdeCreateBody, IdeFileDto, IdeMoveBody, IdeWriteBody};
+use crate::dto::{
+    IdeCopyBody, IdeCreateBody, IdeDeleteBody, IdeFileDto, IdeMoveBody, IdeWriteBody,
+};
 use crate::route_docs::RouteDoc;
 use crate::Query;
 use crate::{bad_request, ApiError, Shared};
@@ -17,6 +19,7 @@ use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use bisa_core::Localize;
 use bisa_engine::ide::files::{self, Disposal, EntryKind};
 use bisa_engine::ide::graph;
 use bisa_engine::ide::index;
@@ -58,6 +61,7 @@ pub(crate) fn routes() -> Router<Shared> {
         )
         .route("/ide/raw/{scope}/{id}", get(raw))
         .route("/ide/files/{scope}/{id}", post(create).delete(delete))
+        .route("/ide/files/{scope}/{id}/delete", post(delete_many))
         .route("/ide/files/{scope}/{id}/move", post(move_entry))
         .route("/ide/files/{scope}/{id}/copy", post(copy_entry))
         .route("/ide/files/{scope}/{id}/disposal", get(disposal))
@@ -655,6 +659,43 @@ async fn delete(
     ))
 }
 
+/// Several entries as one act (`files::delete_entries`): a refused batch is
+/// the 400 a single delete gives, with nothing gone; one the engine took
+/// answers 200 with every asked path that went and, when it halted, the
+/// first that did not with the reason in the caller's language.
+async fn delete_many(
+    State(state): State<Shared>,
+    AxPath((scope, id)): AxPath<(String, String)>,
+    crate::i18n::Lang(locale): crate::i18n::Lang,
+    crate::Body(body): crate::Body<IdeDeleteBody>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let scope = parse_scope(&scope)?;
+    let disposal = disposal_for(&state, scope, &id);
+    let inner = Arc::clone(state.engine.inner());
+    let asked: Vec<files::ToDelete> = body
+        .entries
+        .into_iter()
+        .map(|e| files::ToDelete {
+            path: e.path,
+            recursive: e.recursive,
+        })
+        .collect();
+    let deletions =
+        blocking(move || files::delete_entries(&inner, scope, &id, &asked, disposal)).await?;
+    let failed = deletions.halted.map(|halted| {
+        json!({
+            "path": halted.path,
+            "reason": bisa_i18n::render(&locale, &halted.error.text()),
+        })
+    });
+    Ok(Json(json!({
+        "ok": failed.is_none(),
+        "deleted": deletions.deleted,
+        "failed": failed,
+        "disposal": disposal,
+    })))
+}
+
 /// What a delete under this root would do — so the confirmation can say
 /// *moved to the Trash* or *removed* before the click, not after.
 async fn disposal(
@@ -727,6 +768,11 @@ pub const ROUTES: &[RouteDoc] = &[
         method: "DELETE",
         path: "/ide/files/{scope}/{id}",
         summary: "Remove `?path=` — to the OS trash when `editor.delete.trash` is on for the root's project (the default), else unlinked; the answer's `disposal` says which. A directory needs `?recursive=true`; the root itself is never removed.",
+    },
+    RouteDoc {
+        method: "POST",
+        path: "/ide/files/{scope}/{id}/delete",
+        summary: "Remove several entries as one act — `{entries: [{path, recursive?}]}` — by the same disposal: every entry is checked before anything goes (the root, a path that leaves it, one that is not there, a folder without its `recursive`, or nothing named refuses the whole batch, 400); then the list goes to the OS trash as one move, or is unlinked one after another. The answer's `deleted` lists every asked path that went, `failed: {path, reason}` the first that did not (`null` when all went), `disposal` how.",
     },
     RouteDoc {
         method: "GET",

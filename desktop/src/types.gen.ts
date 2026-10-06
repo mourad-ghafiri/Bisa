@@ -4032,6 +4032,8 @@ export interface BisaApi {
   IdeWriteFile?: IdeWriteFile;
   IdeCreateEntry?: IdeCreateEntry;
   IdeMoveEntry?: IdeMoveEntry;
+  IdeDeleteEntries?: IdeDeleteEntries;
+  IdeDeleteEntry?: IdeDeleteEntry;
   GitHunkApply?: GitHunkApply;
   GitCheckout?: GitCheckout;
   GitBranchCreate?: GitBranchCreate;
@@ -6983,6 +6985,20 @@ export interface IdeCreateEntry {
 export interface IdeMoveEntry {
   from: string;
   to: string;
+}
+/**
+ * `POST /ide/files/{scope}/{id}/delete`: several entries as one act.
+ */
+export interface IdeDeleteEntries {
+  entries: IdeDeleteEntry[];
+}
+/**
+ * One entry of a batch delete: its path, and whether a folder's delete was
+ * confirmed — what the confirmation shown for it records, entry by entry.
+ */
+export interface IdeDeleteEntry {
+  path: string;
+  recursive?: boolean;
 }
 /**
  * `POST /workstreams/{wid}/git/hunk` — one hunk, or the lines of one a person

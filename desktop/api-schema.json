@@ -826,6 +826,12 @@
     "IdeMoveEntry": {
       "$ref": "#/definitions/IdeMoveEntry"
     },
+    "IdeDeleteEntries": {
+      "$ref": "#/definitions/IdeDeleteEntries"
+    },
+    "IdeDeleteEntry": {
+      "$ref": "#/definitions/IdeDeleteEntry"
+    },
     "GitHunkApply": {
       "$ref": "#/definitions/GitHunkApply"
     },
@@ -13685,6 +13691,39 @@
         "to"
       ],
       "description": "`POST /ide/files/{scope}/{id}/move`."
+    },
+    "IdeDeleteEntries": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IdeDeleteEntry"
+          }
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "description": "`POST /ide/files/{scope}/{id}/delete`: several entries as one act."
+    },
+    "IdeDeleteEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "recursive": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "description": "One entry of a batch delete: its path, and whether a folder's delete was\nconfirmed — what the confirmation shown for it records, entry by entry."
     },
     "GitHunkApply": {
       "type": "object",

@@ -492,6 +492,155 @@ async fn a_folder_that_holds_something_is_deleted_only_when_asked_to() {
     engine.shutdown().await;
 }
 
+/// Several entries go as one act (ide/03): every one is checked before
+/// anything goes, an entry named twice goes once, one under a folder of the
+/// batch goes with the folder — each answered as asked — and a failure
+/// midway answers what went and names the first entry that did not.
+#[tokio::test(flavor = "multi_thread")]
+async fn several_entries_go_as_one_act_and_a_refusal_before_them_touches_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, pid, root) = engine(&dir);
+    let inner = engine.inner();
+    let ws = FileScope::Workstream;
+    let mut bus = engine.events();
+    let ask = |path: &str, recursive: bool| files::ToDelete {
+        path: path.to_string(),
+        recursive,
+    };
+    for path in ["a.txt", "b.txt", "c.txt", "pkg/inner.txt", "pkg/deep/x.txt"] {
+        files::write_file(inner, ws, &pid, path, "x", None).unwrap();
+    }
+    files::create_entry(inner, ws, &pid, "hollow", EntryKind::Dir).unwrap();
+    while bus.try_recv().is_ok() {}
+
+    // A refusal anywhere in the list refuses the whole list: nothing goes,
+    // nothing is announced.
+    for bad in [
+        ask("../x", false),
+        ask("", true),
+        ask(".", true),
+        ask("nope", false),
+        ask("hollow", false),
+        ask("pkg", false),
+    ] {
+        let err = files::delete_entries(
+            inner,
+            ws,
+            &pid,
+            &[ask("a.txt", false), bad.clone()],
+            Disposal::Unlink,
+        )
+        .unwrap_err();
+        assert!(
+            root.join("a.txt").is_file(),
+            "nothing went for {bad:?}: {err}"
+        );
+    }
+    assert!(
+        files::delete_entries(inner, ws, &pid, &[], Disposal::Unlink).is_err(),
+        "a batch naming nothing is a refusal"
+    );
+    assert!(bus.try_recv().is_err(), "a refused batch announces nothing");
+
+    // A file named twice, a folder with a file under it named apart, another file.
+    let gone = files::delete_entries(
+        inner,
+        ws,
+        &pid,
+        &[
+            ask("a.txt", false),
+            ask("pkg/inner.txt", false),
+            ask("pkg", true),
+            ask("a.txt", false),
+            ask("b.txt", false),
+        ],
+        Disposal::Unlink,
+    )
+    .unwrap();
+    assert!(gone.halted.is_none(), "{:?}", gone.halted);
+    let answered: Vec<&str> = gone.deleted.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(
+        answered,
+        vec!["a.txt", "pkg/inner.txt", "pkg", "a.txt", "b.txt"],
+        "every asked path, as asked"
+    );
+    assert!(gone.deleted.iter().all(|d| d.disposal == Disposal::Unlink));
+    assert!(!root.join("a.txt").exists() && !root.join("pkg").exists());
+    assert!(!root.join("b.txt").exists());
+    assert!(
+        root.join("c.txt").is_file() && root.join("hollow").is_dir(),
+        "what was not asked stays"
+    );
+    // One announcement per move: the folder's, never its child's apart; a
+    // path named twice once.
+    let mut removed = Vec::new();
+    while let Ok(Ok(e)) = tokio::time::timeout(Duration::from_millis(200), bus.recv()).await {
+        if let EnginePayload::FileChanged {
+            kind: FileChangeKind::Removed,
+            path,
+            ..
+        } = e.payload
+        {
+            removed.push(path);
+        }
+    }
+    assert_eq!(removed, vec!["a.txt", "pkg", "b.txt"]);
+
+    // A failure midway: what went before it is answered and announced, the
+    // entry it halted on is named, the one after it is left alone.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        files::write_file(inner, ws, &pid, "locked/held.txt", "x", None).unwrap();
+        files::write_file(inner, ws, &pid, "d.txt", "x", None).unwrap();
+        while bus.try_recv().is_ok() {}
+        let locked = root.join("locked");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let outcome = files::delete_entries(
+            inner,
+            ws,
+            &pid,
+            &[
+                ask("c.txt", false),
+                ask("locked/held.txt", false),
+                ask("d.txt", false),
+            ],
+            Disposal::Unlink,
+        );
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let outcome = outcome.unwrap();
+        if root.join("locked/held.txt").is_file() {
+            let halted = outcome.halted.expect("the locked file halted the batch");
+            assert_eq!(halted.path, "locked/held.txt");
+            let answered: Vec<&str> = outcome.deleted.iter().map(|d| d.path.as_str()).collect();
+            assert_eq!(answered, vec!["c.txt"], "what went before the halt");
+            assert!(
+                root.join("d.txt").is_file(),
+                "the entry after the halt was left alone"
+            );
+            let mut removed = Vec::new();
+            while let Ok(Ok(e)) = tokio::time::timeout(Duration::from_millis(200), bus.recv()).await
+            {
+                if let EnginePayload::FileChanged {
+                    kind: FileChangeKind::Removed,
+                    path,
+                    ..
+                } = e.payload
+                {
+                    removed.push(path);
+                }
+            }
+            assert_eq!(removed, vec!["c.txt"], "only what went is announced");
+        } else {
+            // A read-only folder holds nothing back from root: the batch
+            // simply went, and the halt is not exercised here.
+            eprintln!("the read-only folder held nothing back (running as root?)");
+            assert!(outcome.halted.is_none());
+        }
+    }
+    engine.shutdown().await;
+}
+
 /// The path index is a cached walk, and every write the engine makes under a
 /// root is what forgets it: a file written, made, moved, copied and deleted is
 /// in the very next index — never the one from before. A project that is

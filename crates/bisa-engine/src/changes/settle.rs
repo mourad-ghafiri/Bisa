@@ -6,7 +6,9 @@
 //! guarded by the hash of the file just read, announced as `FileChanged` so
 //! an open buffer reloads and a dirty one gets its three-way affordance. A
 //! file the agent made is disposed of the way the explorer disposes of one,
-//! never unlinked behind a person's back.
+//! never unlinked behind a person's back — and the files of one word go as
+//! one act (`ide::files::delete_entries`), once the walk is done: one move
+//! to the Trash, not one per file.
 //!
 //! An Undo never discards somebody else's work: a turn is taken back out
 //! with a three-way merge, and where that would conflict — or where the file
@@ -84,9 +86,29 @@ struct Settler<'a> {
     force: bool,
     files: usize,
     skipped: Vec<Skipped>,
+    /// The files the word unmakes, gathered along the walk and disposed of
+    /// as one act by [`Self::dispose`].
+    unmade: Vec<RelPath>,
 }
 
-impl Settler<'_> {
+impl<'a> Settler<'a> {
+    fn new(
+        inner: &'a Arc<Inner>,
+        checkout: &'a Checkout,
+        disposal: Disposal,
+        force: bool,
+    ) -> Settler<'a> {
+        Settler {
+            inner,
+            checkout,
+            disposal,
+            force,
+            files: 0,
+            skipped: Vec::new(),
+            unmade: Vec::new(),
+        }
+    }
+
     fn conversation(&self) -> ConversationId {
         self.checkout.conversation
     }
@@ -99,9 +121,10 @@ impl Settler<'_> {
     }
 
     /// Make the file on disk `bytes` — or make it go when `None` — stating
-    /// what was just read of it.
+    /// what was just read of it. A file to make go is gathered, not deleted
+    /// here: the files of one word go as one act, once the walk is done.
     fn write_back(
-        &self,
+        &mut self,
         path: &RelPath,
         disk: &Option<Vec<u8>>,
         bytes: Option<&[u8]>,
@@ -111,8 +134,8 @@ impl Settler<'_> {
         match (disk, bytes) {
             (None, None) => Ok(()),
             (Some(_), None) => {
-                files::delete_entry(self.inner, scope, &id, path.as_str(), false, self.disposal)
-                    .map(|_| ())
+                self.unmade.push(path.clone());
+                Ok(())
             }
             (on_disk, Some(bytes)) => {
                 let base_hash = on_disk.as_deref().map(content_hash);
@@ -126,6 +149,34 @@ impl Settler<'_> {
                 )
                 .map(|_| ())
             }
+        }
+    }
+
+    /// The files the word unmade, disposed of as one act once the walk is
+    /// done — one move to the Trash, one sound — where a call per file was
+    /// one of each. A halt is the error it was, and leaves the ledger
+    /// unwritten, as a delete failing mid-walk left it before.
+    fn dispose(&mut self) -> Result<(), EngineError> {
+        if self.unmade.is_empty() {
+            return Ok(());
+        }
+        let asked: Vec<files::ToDelete> = std::mem::take(&mut self.unmade)
+            .into_iter()
+            .map(|path| files::ToDelete {
+                path: path.as_str().to_string(),
+                recursive: false,
+            })
+            .collect();
+        let deletions = files::delete_entries(
+            self.inner,
+            FileScope::Workstream,
+            &self.checkout.workstream.to_string(),
+            &asked,
+            self.disposal,
+        )?;
+        match deletions.halted {
+            Some(halted) => Err(halted.error),
+            None => Ok(()),
         }
     }
 
@@ -348,14 +399,7 @@ pub fn settle(
     force: bool,
 ) -> Result<Settled, EngineError> {
     let checkout = Checkout::of(inner, conversation)?;
-    let mut settler = Settler {
-        inner,
-        checkout: &checkout,
-        disposal,
-        force,
-        files: 0,
-        skipped: Vec::new(),
-    };
+    let mut settler = Settler::new(inner, &checkout, disposal, force);
     let pending = with_ledger(inner, &checkout, |ledger| {
         fold_drift(inner, &checkout, ledger)?;
         match &target {
@@ -388,6 +432,7 @@ pub fn settle(
                 disk_hash,
             } => settler.hunk(ledger, path, hunk, disk_hash, verdict)?,
         }
+        settler.dispose()?;
         Ok((ledger.pending(), true))
     })?;
     let settled = Settled {
@@ -410,14 +455,7 @@ pub fn restore(
     disposal: Disposal,
 ) -> Result<Settled, EngineError> {
     let checkout = Checkout::of(inner, conversation)?;
-    let mut settler = Settler {
-        inner,
-        checkout: &checkout,
-        disposal,
-        force: true,
-        files: 0,
-        skipped: Vec::new(),
-    };
+    let mut settler = Settler::new(inner, &checkout, disposal, true);
     let pending = with_ledger(inner, &checkout, |ledger| {
         fold_drift(inner, &checkout, ledger)?;
         let plan = ledger.restore_plan(turn);
@@ -473,6 +511,7 @@ pub fn restore(
                 }
             }
         }
+        settler.dispose()?;
         Ok((ledger.pending(), true))
     })?;
     let settled = Settled {

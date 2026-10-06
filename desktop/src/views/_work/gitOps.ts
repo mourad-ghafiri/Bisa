@@ -57,10 +57,14 @@ async function guarded(scope: string, busy: GitBusy, run: () => Promise<void>): 
   }
 }
 
+/** A failure in a sentence the node said: the toast, and the card to retry `paths` from. */
+function stoppedBy(scope: string, kind: FailureKind, sentence: string, paths: readonly string[] = []): void {
+  toaster.error(sentence);
+  patchSession(scope, { failure: failureOf(kind, sentence, paths) });
+}
+
 function failed(scope: string, kind: FailureKind, e: unknown, paths: readonly string[] = []): void {
-  const error = words(e);
-  toaster.error(error);
-  patchSession(scope, { failure: failureOf(kind, error, paths) });
+  stoppedBy(scope, kind, words(e), paths);
 }
 
 /**
@@ -157,28 +161,28 @@ export function discard(scope: string, wid: string, paths: string[]): Promise<bo
 
 /**
  * Delete files git has never seen — one, a folder's untracked ones, or
- * every one in the checkout — through the IDE's disposal, one after
- * another, stopping at the first
- * refusal: what was deleted is deleted, what was not is the failure's to
- * retry. The rows are re-read either way.
+ * every one in the checkout — through the IDE's disposal as **one act**
+ * (`POST …/delete`): one move to the Trash, one sound, where a call per
+ * file was one of each. The node checks the whole list before anything
+ * goes and halts at the first failure after: what went is deleted, what
+ * did not is the failure's to retry. The rows are re-read either way.
  */
 export function remove(scope: string, wid: string, paths: readonly string[], disposal: Disposal | null): Promise<boolean> {
   if (paths.length === 0) return Promise.resolve(false);
   return guarded(scope, "delete", async () => {
-    const done: string[] = [];
-    let how: Disposal | null = null;
+    let done: readonly string[] = [];
+    let how: Disposal | null = disposal;
     try {
-      for (const path of paths) {
-        const r = await api.ideDelete("workstream", wid, path, false);
-        how = r.disposal ?? how;
-        done.push(path);
-      }
-      patchSession(scope, { failure: null });
+      const r = await api.ideDeleteMany("workstream", wid, paths.map((path) => ({ path, recursive: false })));
+      done = r.deleted.map((d) => d.path);
+      how = r.disposal;
+      if (r.failed) stoppedBy(scope, "delete", r.failed.reason, paths.filter((p) => !done.includes(p)));
+      else patchSession(scope, { failure: null });
     } catch (e) {
-      failed(scope, "delete", e, paths.slice(done.length));
+      failed(scope, "delete", e, paths);
     }
     if (done.length > 0) {
-      toaster.ok(deletedWords(done, how ?? disposal ?? "unlink"));
+      toaster.ok(deletedWords(done, how ?? "unlink"));
       patchSession(scope, (s) => ({ ...s, selection: s.selection && done.includes(s.selection.path) ? null : s.selection }));
     }
     moved(scope);

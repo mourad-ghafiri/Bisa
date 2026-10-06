@@ -361,7 +361,9 @@ what you have open; *Reveal in Finder* (`⌘⌥R`) shows it to the OS. Every act
 tree, a checkout, a goal's or a run's scratch folder), so `..` and a symlink out are one refusal. A delete goes
 to the **Trash** by default (`editor.delete.trash`), and the confirmation says which will happen
 before you click — *Move to Trash*, or *Delete* with the words about what has no copy; a folder shows
-what it holds. A duplicate is named the way the Finder names one (`foo copy.txt`, `foo copy 2.txt`).
+what it holds. A selection of several goes as one move, so the Trash sound plays once and the
+Finder's *Put Back* brings the lot back. A duplicate is named the way the Finder names one
+(`foo copy.txt`, `foo copy 2.txt`).
 The tree follows the disk: an agent's write appears without a click, rows your `.gitignore` covers
 are dimmed rather than hidden, a rename moves the open document's tab with it (a dirty one is saved
 first), and a delete closes the tabs under it — asking about unsaved text.
@@ -498,8 +500,8 @@ drawn — *Stage all* still stages everything — and a word that hides every ro
 Above them, **Stage all**
 stages everything git has not got yet, and its `▾` offers *Stage tracked* (the modified tracked
 files alone), *Stage untracked*, *Unstage all* and, apart, *Discard all changes…* and *Delete all
-untracked files…* — every file git has never seen, to the Trash or gone as the root says, after a
-confirmation that counts and names them — each with its count. Select a row for the file's patch — the working-tree side when it has one — or click a chip
+untracked files…* — every file git has never seen, to the Trash or gone as the root says, as one
+move, after a confirmation that counts and names them — each with its count. Select a row for the file's patch — the working-tree side when it has one — or click a chip
 for that side's patch; for the primary that is the project's own tree. **The patch opens in the
 middle of the screen**, as a document at full width and height — a glance, so clicking down the list keeps one
 tab; double-click a row to keep it — with its header: the path, which side, `+n −m`, the **View**
@@ -676,7 +678,8 @@ it should go too) — as an icon beside the row's stage toggle, red on hover, an
 the unstaged side for a hunk or for the lines you picked — every one asked about first, and every
 one saving what was there under Safety before it moves. A file git has never seen has **Delete
 file…** instead: it goes to the Trash when the root says so (the *Delete to Trash* editor setting),
-else it is gone, and the dialog says which. The commit graph's row menu and the commit document offer
+else it is gone, and the dialog says which; a folder's files go together, as one move, so the Trash
+sound plays once. The commit graph's row menu and the commit document offer
 *Checkout* (detached), *Cherry-pick*, *Revert*, *Create branch here* and *Create tag here*.
 
 Agents cannot reach any of this: the type the consented tier requires is minted in one place in the
