@@ -217,12 +217,12 @@ impl AgentRegistry {
     }
 
     /// Forget a run that is over. Refused while it could still be running:
-    /// only an `Idle` or `Aborted` ref leaves, and only presence's retention
-    /// timer asks.
+    /// only an `Idle`, a `Parked` (disposed, revived by nothing here) or an
+    /// `Aborted` ref leaves, and only presence's retention timer asks.
     pub fn remove(&self, id: LiveRunId) -> Result<(), RegistryError> {
         match self.agents.get(&id).map(|a| a.status) {
             None => Err(RegistryError::NotFound(id.to_string())),
-            Some(AgentStatus::Idle) | Some(AgentStatus::Aborted) => {
+            Some(AgentStatus::Idle) | Some(AgentStatus::Parked) | Some(AgentStatus::Aborted) => {
                 self.agents.remove(&id);
                 Ok(())
             }

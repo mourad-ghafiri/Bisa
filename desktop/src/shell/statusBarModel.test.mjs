@@ -38,8 +38,8 @@ test("the caret reads as line and column, the language by name or as plain text,
 test("a count trigger says its number in its name — the popover's name stands in for what it draws — one and many in their own words", () => {
   assert.equal(countWords("terminals", 1), "1 open terminal");
   assert.equal(countWords("terminals", 3), "3 open terminals");
-  assert.equal(countWords("harnesses", 0), "0 running harnesses");
-  assert.equal(countWords("harnesses", 1), "1 running harness");
+  assert.equal(countWords("harnesses", 0), "0 live harnesses");
+  assert.equal(countWords("harnesses", 1), "1 live harness");
   assert.equal(countWords("ports", 2), "2 open ports");
   assert.equal(countWords("ports", Number.NaN), "0 open ports", "a count that is no count is none");
   const bar = readFileSync(new URL("./StatusBar.tsx", import.meta.url), "utf8");

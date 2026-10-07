@@ -2008,6 +2008,12 @@
     "SessionKind": {
       "$ref": "#/definitions/SessionKind"
     },
+    "SessionOrigin": {
+      "$ref": "#/definitions/SessionOrigin"
+    },
+    "AskPurpose": {
+      "$ref": "#/definitions/AskPurpose"
+    },
     "SessionState": {
       "$ref": "#/definitions/SessionState"
     },
@@ -2510,7 +2516,7 @@
         "guided",
         "manual"
       ],
-      "description": "How a goal moves — chosen at capture, from `goals.default_mode`.\n\n- `Auto`: the Workflow Agent designs the workflow, and the platform adopts\n  it, starts the run, repairs a failed run and restarts by itself; the\n  run is unattended, so a tool permission above the step's tier ceiling\n  that no guard rule decides is read by the classifier\n  (`goals.auto.permissions`) rather than put to a person, and every\n  step's agent is told to decide rather than ask. Only what a person\n  alone can do waits for one: a `human`, `approval` or `wait { release }`\n  step the workflow declares, the guard's `ask` and `deny`, a call the\n  classifier finds harmful or gives no verdict on, a push or a pull\n  request under a gated project, a question an agent still chooses to\n  ask, a design whose required inputs have no default, and a goal\n  repaired more times than `goals.auto.repair_limit` allows.\n- `Guided`: the Workflow Agent proposes; the person adopts, asks for\n  changes or declines, and approves every amendment.\n- `Manual`: the person designs on the goal's Workflow tab, with the\n  Workflow Agent on request — a proposal it makes is the goal's own\n  draft, never a gate."
+      "description": "How a goal moves — chosen at capture, from `goals.default_mode`.\n\n- `Auto`: the Workflow Agent designs the workflow, and the platform adopts\n  it, starts the run, repairs a failed run and restarts by itself; the\n  run is unattended, so a step that may write may also run commands\n  (`goals.auto.ceiling`, [`GoalMode::ceiling`]), a tool permission above\n  the step's tier ceiling that no guard rule decides is read by the\n  classifier (`goals.auto.permissions`) rather than put to a person, and\n  every step's agent is told to decide rather than ask. Only what a person\n  alone can do waits for one: a `human`, `approval` or `wait { release }`\n  step the workflow declares, the guard's `ask` and `deny`, a call the\n  classifier finds harmful or gives no verdict on, a push or a pull\n  request under a gated project, a question an agent still chooses to\n  ask, a design whose required inputs have no default, and a goal\n  repaired more times than `goals.auto.repair_limit` allows.\n- `Guided`: the Workflow Agent proposes; the person adopts, asks for\n  changes or declines, and approves every amendment.\n- `Manual`: the person designs on the goal's Workflow tab, with the\n  Workflow Agent on request — a proposal it makes is the goal's own\n  draft, never a gate."
     },
     "Assignee": {
       "oneOf": [
@@ -7276,6 +7282,13 @@
           "maximum": 255,
           "description": "Failed attempts in the current visit.",
           "default": 0
+        },
+        "interruptions": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "How many restarts cut this step short while it ran. Past\n[`MAX_INTERRUPTIONS`] the step fails instead of running again: a step\nthat takes the node down with it is not resumed on every boot."
         },
         "seq": {
           "type": "integer",
@@ -28832,9 +28845,193 @@
           "type": "string",
           "const": "terminal",
           "description": "A harness a person opened in a desktop terminal, reporting through its\nown hooks; never driven by the engine, never recorded here."
+        },
+        {
+          "type": "string",
+          "const": "ask",
+          "description": "One bounded question put to a model and nothing else — the\nclassifier's reading, the Decision-Making Agent's judgement, a\nsuggested commit message: on the roster while it runs, never recorded\nhere (it holds no door to the platform and ends with its deadline)."
         }
       ],
       "description": "What a session is a run of: the durable answer to \"what kind of session\nwas this?\", written when the row is. One vocabulary for the store, the\nengine's roster and the wire."
+    },
+    "SessionOrigin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "step": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/StepId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resumed": {
+              "type": "boolean",
+              "default": false
+            },
+            "origin": {
+              "type": "string",
+              "const": "step"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "description": "A run's `agent` step: the step by id and by its name in the workflow,\nand whether this session resumed a work item a restart cut short. The\nid and the name are absent only for a work item made outside a run's\nstep — a spawned sub-item."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "phase": {
+              "$ref": "#/definitions/GuidancePhase"
+            },
+            "origin": {
+              "type": "string",
+              "const": "design"
+            }
+          },
+          "required": [
+            "origin",
+            "phase"
+          ],
+          "description": "The Workflow Agent, woken for a goal: designing its workflow, or\nrepairing it after a failed run."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string"
+            },
+            "on_behalf_of": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/PrincipalId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "origin": {
+              "type": "string",
+              "const": "turn"
+            }
+          },
+          "required": [
+            "origin",
+            "scope"
+          ],
+          "description": "One turn of a conversation. `scope` is the conversation's scope as the\nbus spells it in `agent_thinking`, so a screen pairs the two;\n`on_behalf_of` is the person on another node whose message woke the\nturn, absent for the owner's own."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "const": "terminal"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "description": "A harness a person opened in a desktop terminal."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "purpose": {
+              "$ref": "#/definitions/AskPurpose"
+            },
+            "origin": {
+              "type": "string",
+              "const": "ask"
+            }
+          },
+          "required": [
+            "origin",
+            "purpose"
+          ],
+          "description": "One bounded question put to a model and nothing else — no tools, a\nread-only ceiling, a deadline."
+        }
+      ],
+      "description": "What woke a session, and for what."
+    },
+    "AskPurpose": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "classifier"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The Tool & Commands Guard's classifier reading a call, a message or\ncontent an agent is about to read."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "point": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/DecisionPoint"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "decision"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The Decision-Making Agent judging at one of its points — or at none,\nfor a *Try it* from Settings."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "commit_message"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "A commit message suggested for a workstream's changes."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "pull_request_message"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "A pull request's title and body suggested for a branch."
+        }
+      ],
+      "description": "What a one-shot ask is for."
     },
     "SessionState": {
       "oneOf": [
@@ -29853,6 +30050,14 @@
         "kind": {
           "$ref": "#/definitions/SessionKind"
         },
+        "origin": {
+          "description": "Why the session exists — what woke it and for what: a run's step by\nid and name, the Workflow Agent's phase, a turn's scope and who woke\nit, a terminal, a one-shot ask's purpose. Said at registration, said\nagain when it changes.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SessionOrigin"
+            }
+          ]
+        },
         "state": {
           "$ref": "#/definitions/SessionState"
         },
@@ -29965,6 +30170,13 @@
             }
           ]
         },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where the session stands on disk — the harness's working directory:\na checkout, a goal's or an agent's scratch folder. Absent for a\nterminal, whose folder is its tab's own."
+        },
         "transcript_path": {
           "type": [
             "string",
@@ -30011,6 +30223,7 @@
       "required": [
         "id",
         "kind",
+        "origin",
         "state",
         "since",
         "harness",

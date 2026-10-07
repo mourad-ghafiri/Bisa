@@ -336,6 +336,7 @@ impl InteractiveDesk {
             session,
             SessionMeta {
                 kind: SessionKind::Terminal,
+                origin: bisa_core::SessionOrigin::Terminal,
                 harness: req.harness.clone(),
                 // A harness a person opened is theirs: the platform passes it
                 // no model and no effort, and the row claims neither.
@@ -349,6 +350,8 @@ impl InteractiveDesk {
                 run: about.run,
                 workstream: about.workstream,
                 project: about.project,
+                // The tab's folder is the desktop's; the row names none.
+                cwd: None,
                 transcript_path: None,
             },
         );

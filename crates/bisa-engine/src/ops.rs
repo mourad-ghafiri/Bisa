@@ -2126,6 +2126,12 @@ pub fn close_goal(
     effects::release_goal_workstreams(inner, goal_id);
     waits::child_finished(inner, goal_id, None);
     inner.security.forget_home(&Home::Goal { goal: goal_id });
+    // Whatever was running for the goal stops with it — its workers, its
+    // design wake, the turns in its thread, the asks read for it — before
+    // the wake's standing is forgotten, so the stop still finds it: a closed
+    // goal holds nothing, whatever it was running.
+    let workstreams = workstreams_of_goal(inner, goal_id).unwrap_or_default();
+    sessions::stop_for(inner, Scope::Goal(goal_id), &workstreams);
     inner.guided.forget_goal(goal_id);
     inner.emit(EngineEvent::scoped(
         goal_id,

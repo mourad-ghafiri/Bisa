@@ -195,21 +195,58 @@ engine (`presence.rs`) and served as `GET /sessions`. Adapters map their wire in
 `starting · idle · thinking · running { tool } · waiting { on } · done · aborted · failed · parked`
 — per `LiveRunId`, with the harness, the model, the effort it runs at, the agent definition, the session id, the work
 item, the goal, the run (`SessionMeta.run` — how the roster names a workspace run's worker, which no
-goal holds, and links its run's page), the workstream, the project, the accumulated cost and the
+goal holds, and links its run's page), the workstream, the project, **where it stands on disk**
+(`cwd` — the checkout, or the scratch folder a design wake or an ask runs in), **why it exists**
+(`origin`, a typed `SessionOrigin` in the core: a run's `step` by id and name and whether this
+session *resumed* an item a restart cut short; the Workflow Agent's `design` with its phase,
+*design* or *repair*; a `turn` of a conversation with its scope — the string `agent_thinking`
+spells, so a screen can pair the two — and the person on another node who woke it; a `terminal`;
+an `ask` with its purpose — the classifier, a decision at its point, a commit or a pull-request
+message), the accumulated cost and the
 **sub-agents** the
 harness spawned (`SubagentStarted`, the `Nested` events under it, `SubagentEnded`). A
 `SessionState` frame goes out on a change — never per token — and a finished session stays in the
 roster for `retain_ended_secs` (60) before `SessionGone`; a parked one is resumable and stays. The
-registry keeps its four control statuses; presence is what a person reads.
+registry keeps its four control statuses; presence is what a person reads. The origin is said at
+registration and said again — a bumped revision — when it changes: a chat's *woken by* on every
+wake, a design wake's phase on a follow-up (`Presence::origin`).
 
-A session is one of four **kinds** (`SessionKind` — the store's word, on the roster as `kind`):
+A session is one of five **kinds** (`SessionKind` — the store's word, on the roster as `kind`):
 `worker`, a step's work item; `guided`, the Workflow Agent's design or repair wake; `conversation`,
 a turn of a conversation, naming it (`conversation`) — a conversation about a note or a drawing is
 one of these, there is no kind of its own; `terminal`, a harness
-a person opened in a terminal, reporting through its hooks. Presence carries every kind; which are
+a person opened in a terminal, reporting through its hooks; `ask`, **one bounded question to a
+model and nothing else** (`ask.rs`) — the classifier reading a command, the Decision-Making Agent
+judging a point, a commit or a pull-request message suggested — a row of the roster while it
+runs, with its purpose, its harness, its model and its pid, stoppable from its row like any other
+(a stopped ask answers *no verdict*, *no judgement* or a failed suggestion, never a guess), and
+never a row of the sessions index: it runs at the read tier in a scratch folder under a deadline,
+so a crash's orphan can hurt no checkout ([08 — Persistence](08-persistence.md)). **Every session
+the engine drives is a row**, and every row knows its harness child: the broadcaster replays a
+`ProcessStarted` announced before anybody listened, so a worker's, a design wake's, a chat turn's
+and an ask's pid are on the row and the record, what the resources overlay attributes a process
+by and what a restart terminates. Presence carries every kind; which are
 drawn where is the reader's rule — the IDE's rail draws work sessions and terminals, and a
 conversation's turn is shown, followed and stopped on its conversation
-([13 — Conversations](13-conversations.md#the-rail-draws-work-sessions-and-terminals)).
+([13 — Conversations](13-conversations.md#the-rail-draws-work-sessions-and-terminals)); the
+desktop's footer lists every harness process the engine drives — a design wake and an ask among
+them, having no checkout to be found by — each saying who it is, what for, where and since when
+([ide/09](ide/09-agents-in-the-ide.md)).
+
+**A session that is stopped while it waits is released.** A worker or a design wake at a
+permission, a question or a gate is blocked on the Inbox's answer; a stop — the roster's
+*Terminate*, `bisa sessions abort`, a goal's stop or close, a retirement — or a cancelled step
+(`cancel_work`, a divert, an amendment) withdraws every gate the session opened
+(`GateEntry.session`, `Gates::pending_for_session`), journals a `withdrawn` fact on the home, and
+answers the harness a refusal in words (`GateResolution.withdrawn`; `inputs::WITHDRAWN`) that is
+**never remembered as the person's *no*** — the guard's record of a person's decision is not
+written for it — so the driver's next pass sees the stop and the harness is aborted. A row that
+reads *aborted* has no harness behind it, whatever the session was doing. A driver that leaves by
+an early return or a panic ends its row and its record (`sessions::Driven`, *the session's driver
+went away*), so no row is left in *starting*; a parked row loses its pid and leaves the roster
+after the retention; a chat turn has the workers' wall clock (`default_wall_clock_secs`); a step a
+restart cut short three times fails on the fourth (`MAX_INTERRUPTIONS`, *interrupted too often*)
+rather than resuming on every boot.
 
 **A harness that stops for a person raises an `InputRequested`** — a permission, a question, a
 sign-in — and blocks until the engine calls `HarnessSession::answer` (capability `INPUT_REQUESTS`).

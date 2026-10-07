@@ -1,11 +1,16 @@
 /**
- * The footer's terminals and harnesses, as the rail draws them: the two
- * rosters reconciled through the one rule every surface reads
- * (`claimedSessions` / `isDrawn`, `workstreamSessionsModel.mjs`) — a harness
- * a person opened in a terminal that has reported to the engine is **one**
- * row, the harness's, remembering its tab; a tab nothing claims is a
- * terminal row; a terminal session no tab claims is nowhere, and a
- * conversation's turn is its conversation's, never a harness row here.
+ * The footer's terminals and harnesses: the two rosters reconciled through
+ * the counting rule every surface reads (`isHarnessProcess`,
+ * `sessionCountsModel.mjs`) — every harness process the engine drives or a
+ * tab claims. A harness a person opened in a terminal that has reported to
+ * the engine is **one** row, the harness's, remembering its tab; a tab
+ * nothing claims is a terminal row; a terminal session no tab claims is
+ * nowhere; the Workflow Agent's design wake and a one-shot ask — the
+ * classifier reading, a judgement, a commit message suggested — are rows
+ * here, having no checkout and no rail row to be found by; a conversation's
+ * turn is its conversation's, never a harness row here. The words a row
+ * wears — who, what for — are `sessionOriginModel`'s, read by the footer
+ * itself.
  *
  * A terminal is **open** while its tab has not exited — live, or
  * unverifiable (contact lost; never evidence of death, ide/06). An exited
@@ -18,10 +23,11 @@
  * checkout alike.
  */
 
+import { isHarnessProcess } from "./sessionCountsModel.mjs";
 import { harnessOf, livenessWord, settledRoster } from "./terminalsModel.mjs";
 import { isLive } from "../ui/sessionState.mjs";
 import { cardTitle } from "../views/_work/workstreamCardModel.mjs";
-import { claimedSessions, isDrawn } from "../views/_workbench/workstreamSessionsModel.mjs";
+import { claimedSessions } from "../views/_workbench/workstreamSessionsModel.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
 /** Whether a tab still stands: anything but a reported exit. */
@@ -89,20 +95,29 @@ export function placeWords(scope, id, index) {
     case "machine":
       return tr("shell-footer-sessions-machine");
     default:
-      return `${scope} ·${tail(id)}`;
+      return tr("shell-footer-sessions-scope-tail", { scope, tail: tail(id) });
   }
 }
 
-/** Where a harness stands: its workstream's place, else its project's name, else nowhere. */
+/** The last `n` segments of a path, for a folder said in a few words. */
+function lastSegments(path, n) {
+  const parts = String(path ?? "")
+    .split(/[\\/]+/)
+    .filter(Boolean);
+  return parts.slice(-n).join("/");
+}
+
+/** Where a harness stands: its workstream's place, else its project's name, else the folder it runs in, else nowhere. */
 function harnessPlace(s, index) {
   if (s.workstream) return placeWords("workstream", s.workstream, index);
   if (s.project) return placeWords("project", s.project, index);
+  if (s.cwd) return tr("shell-session-cwd", { dir: lastSegments(s.cwd, 2) });
   return tr("shell-footer-sessions-checkout");
 }
 
 /**
  * @typedef {{key: string, scope: string, id: string, harness: string | null, liveness: object, open: boolean, word: string, place: string}} TerminalRow
- * @typedef {{id: string, agent: string | null, harness: string | null, workstream: string | null, state: unknown, terminalKey: string | null, place: string}} HarnessRow
+ * @typedef {{id: string, kind: string, agent: string | null, harness: string | null, workstream: string | null, state: unknown, started: number | null, terminalKey: string | null, place: string, row: object}} HarnessRow
  */
 
 /**
@@ -120,9 +135,10 @@ export function footerSessions(terminals, sessions, index = emptyPlaceIndex()) {
     .map((t) => ({ key: t.key, scope: t.scope, id: t.id, harness: harnessOf(t), liveness: t.liveness, open: isOpen(t.liveness), word: livenessWord(t.liveness), place: placeWords(t.scope, t.id, index) }))
     .sort((a, b) => (ORDER[a.liveness?.status] ?? 3) - (ORDER[b.liveness?.status] ?? 3));
   // As the claiming tab says (`settledRoster`): a harness whose tab exited
-  // is not a live harness row, whatever its last frame said.
+  // is not a live harness row, whatever its last frame said. The row itself
+  // rides along, for the words the footer puts on it (`originOf`).
   const harnesses = settledRoster(sessions ?? [], terminals ?? [])
-    .filter((s) => isDrawn(s, claimed) && isLive(s.state))
-    .map((s) => ({ id: s.id, agent: s.agent ?? null, harness: s.harness ?? null, workstream: s.workstream ?? null, state: s.state, terminalKey: claimed.get(s.id) ?? null, place: harnessPlace(s, index) }));
+    .filter((s) => isHarnessProcess(s, claimed) && isLive(s.state))
+    .map((s) => ({ id: s.id, kind: s.kind, agent: s.agent ?? null, harness: s.harness ?? null, workstream: s.workstream ?? null, state: s.state, started: s.started ?? null, terminalKey: claimed.get(s.id) ?? null, place: harnessPlace(s, index), row: s }));
   return { terminals: terminalRows, harnesses, openTerminals: terminalRows.filter((t) => t.open).length };
 }

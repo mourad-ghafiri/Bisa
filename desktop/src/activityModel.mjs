@@ -35,6 +35,7 @@
  */
 
 import { describe as describeState, label as stateLabel } from "./ui/sessionState.mjs";
+import { titleOf } from "./shell/sessionOriginModel.mjs";
 import { bornWords } from "./views/_work/projectOriginModel.mjs";
 import { formatBytes } from "./views/_studio/attachmentModel.mjs";
 import { answerSummary, askOptions, isAnswerAsk } from "./askModel.mjs";
@@ -780,7 +781,7 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
     // the streaming states are the roster's, not the activity's.
     case "session_state": {
       const pr = p.presence ?? {};
-      const who = pr.agent ?? pr.harness ?? "a session";
+      const who = titleOf(pr);
       const d = describeState(pr.state);
       const word = pr.state?.state;
       if (word === "waiting" || word === "failed" || word === "aborted" || word === "done" || word === "parked") {
@@ -789,7 +790,7 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
           key,
           tone: d.tone === "accent" ? "wait" : d.tone === "danger" ? "fail" : "dim",
           icon: d.icon,
-          text: `${who} ${stateLabel(pr.state)}`,
+          text: t("app-activity-session-said", { who, state: stateLabel(pr.state) }),
         };
       }
       return null;

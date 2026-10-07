@@ -23,6 +23,7 @@
  * interruption; `app` is under the master alone.
  */
 
+import { titleOf } from "./sessionOriginModel.mjs";
 import { boolOf } from "./settingsModel.mjs";
 import { isNotifiable, waitWords } from "../ui/sessionState.mjs";
 import { madeByAgentStep } from "../views/_work/projectOriginModel.mjs";
@@ -109,7 +110,7 @@ function remember(memory, gateId) {
  * @param {{gates: string[]}} memory
  */
 export function onTransition(prev, row, memory) {
-  const who = row.agent ?? row.harness;
+  const who = titleOf(row);
   const gateId = row.state?.state === "waiting" ? row.state.on?.gate_id ?? null : null;
   const next = remember(memory, gateId);
   if (!isNotifiable(prev, row.state)) return { notice: null, memory: next };

@@ -775,8 +775,12 @@ fn a_session_row_says_its_kind_and_the_conversation_it_is_a_turn_of() {
     assert!(!SessionKind::Conversation.is_work());
     assert_eq!(
         SessionKind::ALL.len(),
-        4,
-        "a note's answer is a conversation's turn now"
+        5,
+        "a note's answer is a conversation's turn now; a one-shot ask is the fifth kind"
     );
     assert!(!SessionKind::Guided.is_work());
+    assert!(
+        !SessionKind::Ask.is_work(),
+        "an ask stands in no checkout: never a row of one"
+    );
 }

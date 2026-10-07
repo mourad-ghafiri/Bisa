@@ -274,6 +274,11 @@ async fn a_session_row_carries_the_effort_it_runs_at_and_none_when_it_has_none()
     let without = LiveRunId::mint();
     let meta = |model: &str, effort: Option<Effort>| SessionMeta {
         kind: SessionKind::Worker,
+        origin: bisa_core::SessionOrigin::Step {
+            step: None,
+            name: None,
+            resumed: false,
+        },
         harness: "mock".into(),
         model: Some(model.into()),
         effort,
@@ -285,6 +290,7 @@ async fn a_session_row_carries_the_effort_it_runs_at_and_none_when_it_has_none()
         run: None,
         workstream: None,
         project: None,
+        cwd: None,
         transcript_path: None,
     };
     let (_dir, socket, stop) = boot_with(vec![MockAdapter::default()], |engine| {

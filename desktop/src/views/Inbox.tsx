@@ -60,6 +60,8 @@ import { navigate, setSearch, useSearchValue } from "../router";
 import { openHarnessSession } from "../shell/sessionDoors";
 import { tabOfSession } from "../shell/terminalsModel.mjs";
 import { useHarnessLabels } from "../shell/useHarnesses";
+import { placeIndex } from "../shell/footerSessionsModel.mjs";
+import { boardLabel } from "./_work/types";
 import { useTerminals } from "../shell/useTerminals";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
@@ -135,7 +137,7 @@ import {
   unreadNoticesOf,
   visibleRows,
   waitingOf,
-  waitingWords,
+  waitingAbout, waitingWords,
   channelOfRow,
   scopeKindOf,
   wantsList,
@@ -201,6 +203,9 @@ function open(row: InboxRow): void {
 function WaitingSessionCard({ row }: { row: InboxRow }) {
   const labels = useHarnessLabels();
   const { sessions: terminals } = useTerminals();
+  const ws = useWorkspace();
+  // What the wait is for — the goal, else the project — in the window's own names.
+  const about = waitingAbout(row, placeIndex({ workstreams: ws.workstreams, projects: ws.projects, goals: ws.goals.map((g) => ({ id: g.id, label: boardLabel(g) })) }));
   const waiting = waitingOf(row);
   if (!waiting) return null;
   const Mark = harnessMark(waiting.harness);
@@ -212,7 +217,10 @@ function WaitingSessionCard({ row }: { row: InboxRow }) {
     <section className="border-b border-hairline px-3 py-2" aria-label={tr("screens-inbox-waiting-terminal")}>
       <div className="flex items-center gap-2 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5">
         <Mark size={13} aria-hidden className="shrink-0 text-accent-ink" />
-        <span className="min-w-0 flex-1 truncate text-xs">{waitingWords(row, labels)}</span>
+        <span className="min-w-0 flex-1 truncate text-xs">
+          {waitingWords(row, labels)}
+          {about && <span className="text-text-dim"> · {about}</span>}
+        </span>
         <RelativeTime at={waiting.since} className="tnum shrink-0 text-2xs text-text-dim" />
         <Button size="sm" variant="primary" disabled={!waiting.workstream} disabledReason={tr("screens-inbox-open-terminal-no-checkout")} onClick={openTerminal}>{tr("screens-inbox-open-terminal")}</Button>
       </div>

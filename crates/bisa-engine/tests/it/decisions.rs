@@ -711,6 +711,7 @@ async fn a_one_shot_question_never_asks_how_hard_to_work() {
     let _answer = bisa_engine::ask::ask_agent_once(
         engine.inner(),
         &reader,
+        bisa_engine::ask::Asking::of(bisa_core::AskPurpose::Decision { point: None }),
         "What is this?",
         Duration::from_secs(10),
     )

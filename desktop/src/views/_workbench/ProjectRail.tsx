@@ -5,6 +5,7 @@
  * `projectRailModel.mjs`; this file is paint, menus and dialogs.
  */
 
+import { originIndex, originOf } from "../../shell/sessionOriginModel.mjs";
 import { readPref, switchPref, switchWord, webStorage, writePref } from "../../shell/storedPrefModel.mjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, inDesktopShell, openExternal, revealPath } from "../../api";
@@ -159,6 +160,11 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [clockTick, sessions, terminals]);
   const harnessLabels = useHarnessLabels();
+  // What each session is for, in the window's names — the rail row's tooltip (`sessionOriginModel`).
+  const originIdx = useMemo(
+    () => originIndex({ workstreams: ws.workstreams, projects: ws.projects, goals: ws.goals.map((g) => ({ id: g.id, label: boardLabel(g) })), agents: ws.agents, channels: ws.channels, dms: ws.dms, nameOf: ws.nameOf }, harnessLabels),
+    [ws.workstreams, ws.projects, ws.goals, ws.agents, ws.channels, ws.dms, ws.nameOf, harnessLabels],
+  );
   // A tree row's height from the theme, live: the list's estimate; a project
   // card measures taller and the list takes its word.
   const rowHeight = useTokenPx(rowHeightToken("workstream"), 28);
@@ -667,6 +673,7 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
             rs={rs}
             menu={agentMenu(row)}
             harnessLabels={harnessLabels}
+            origin={row.session ? originOf(row.session, originIdx).origin : null}
             folded={key ? collapsed.has(key) : false}
             onToggle={toggle}
             // A harness in a terminal is answered in that terminal: the row

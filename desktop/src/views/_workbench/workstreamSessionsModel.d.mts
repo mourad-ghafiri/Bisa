@@ -31,6 +31,8 @@ export interface WorkstreamSessionRow {
   terminalKey?: string | null;
   /** The session id a sub-agent nests under; null otherwise. */
   parent: string | null;
+  /** The roster row itself, on a session's own row (never a sub-agent's). */
+  session?: SessionRow | null;
 }
 
 export declare function claimedSessions(sessions: readonly SessionRow[], terminals: readonly TerminalSessionState[]): Map<string, string>;

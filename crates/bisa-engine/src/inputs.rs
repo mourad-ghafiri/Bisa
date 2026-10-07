@@ -86,6 +86,10 @@ pub struct ConversationReach {
     pub mode: bisa_core::ConversationMode,
 }
 
+/// What an agent hears when the question it asked was taken back — the
+/// session was stopped, the step cancelled — before anybody answered.
+pub const WITHDRAWN: &str = "the question was withdrawn: the session that asked was stopped";
+
 /// What an agent hears when a plan is asked to change a file.
 pub const PLAN_REFUSAL: &str = "this conversation is in plan mode: read, ask, and reply with the plan — nothing is changed until the person builds it";
 
@@ -197,6 +201,11 @@ pub async fn decide(inner: &Inner, ctx: &InputContext, request: &InputRequest) -
             };
             let resolution =
                 escalate(inner, ctx, home, request, subject, text.clone(), expects).await;
+            if resolution.withdrawn {
+                return InputAnswer::Deny {
+                    reason: WITHDRAWN.into(),
+                };
+            }
             match resolution
                 .answer
                 .and_then(|a| a.text.or_else(|| a.selected.into_iter().next()))
@@ -351,6 +360,14 @@ async fn decide_permission(
                 AskKind::Decision,
             )
             .await;
+            // The question went with its asker — a stop, a cancel — and the
+            // answer is nobody's: not remembered as the person's, and the
+            // harness hears a refusal in words while its driver winds down.
+            if resolution.withdrawn {
+                return InputAnswer::Deny {
+                    reason: WITHDRAWN.into(),
+                };
+            }
             security::record_person(inner, &judge, tool, &input, resolution.approve);
             if resolution.approve {
                 InputAnswer::Allow { input: Some(input) }
@@ -429,7 +446,8 @@ async fn escalate(
     question: String,
     expects: AskKind,
 ) -> crate::gates::GateResolution {
-    let (gate_id, rx) = inner.gates.open(
+    let (gate_id, rx) = inner.gates.open_for_session(
+        Some(ctx.live_run),
         home,
         ctx.work_item,
         Gate::Escalation,

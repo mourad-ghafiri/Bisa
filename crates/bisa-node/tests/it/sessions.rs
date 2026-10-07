@@ -372,6 +372,15 @@ async fn the_sessions_doors_refuse_the_control_plane_token_and_a_wrong_secret() 
         .req("GET", &format!("/sessions/{session}"), TOKEN, None)
         .await;
     assert_eq!(v["state"]["state"], json!("starting"), "nothing moved");
+    assert_eq!(
+        v["origin"]["origin"],
+        json!("terminal"),
+        "the row says why it exists: {v}"
+    );
+    assert!(
+        v.get("cwd").is_none(),
+        "a terminal's folder is its tab's: {v}"
+    );
 
     // And a secret opens only the roster's doors, never the control plane.
     let (status, _) = node.req("GET", "/sessions", &secret, None).await;

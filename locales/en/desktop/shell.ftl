@@ -518,8 +518,14 @@ shell-resource-project = in no project
 shell-resource-run-sockets-terminals = Run (sockets, terminals)
 shell-resource-session-records = Session records
 shell-resource-session-records-transcripts-harness-s-own = session records; transcripts are the harness's own files
-shell-resource-sessions = { $n } sessions
-shell-resource-shells = { $n } shells
+shell-resource-sessions = { $n ->
+    [one] { $n } session
+   *[other] { $n } sessions
+  }
+shell-resource-shells = { $n ->
+    [one] { $n } shell
+   *[other] { $n } shells
+  }
 shell-resource-terminal = not in a terminal
 shell-resource-terminal-scrollback = Terminal scrollback
 shell-resource-window-s-process-renderer-runs-under = this window's process; its renderer runs under WebKit and is counted there
@@ -575,7 +581,7 @@ shell-sidebar-hosted-membership = Membership: { $state }
 shell-sidebar-unread = { $unread } unread
 shell-sidebar-workspace = Workspace
 shell-status-bar-document-s-language-editor-sees = The document's language, as the editor sees it
-shell-status-bar-harness-running = No harness is running.
+shell-status-bar-harness-running = No harness is live.
 shell-status-bar-hide-notes-button = Hide the notes button
 shell-status-bar-ln-col = Ln { $line }, Col { $column }
 shell-status-bar-no-open-ports = No open ports.
@@ -593,8 +599,8 @@ shell-status-bar-open-terminals = { $count ->
 shell-status-bar-pid = pid { $pid }
 shell-status-bar-plain-text = plain text
 shell-status-bar-running-harnesses = { $count ->
-    [one] { $count } running harness
-   *[other] { $count } running harnesses
+    [one] { $count } live harness
+   *[other] { $count } live harnesses
   }
 shell-status-bar-show-notes-button = Show the notes button
 shell-status-bar-stop = Stop it
@@ -606,7 +612,6 @@ shell-status-bar-stop-port = Stop the process on :{ $port }
 shell-status-bar-could-not-stop = The process on :{ $port } did not stop. The diagnostic log has the detail.
 shell-status-bar-a-session = A harness session
 shell-status-bar-shell = Shell
-shell-status-bar-session = Harness session
 shell-status-bar-port-owner-goal = Goal
 shell-status-bar-port-owner-project = Project
 shell-status-bar-port-owner-workstream = Workstream
@@ -1047,3 +1052,44 @@ shell-update-what-changed = What changed
 shell-update-see-releases = See releases on GitHub
 shell-update-whats-new = What's new in { $version }
 shell-update-download-hint = The release page holds the disk image and its SHA-256.
+shell-session-kind-worker = worker
+shell-session-kind-guided = design
+shell-session-kind-conversation = turn
+shell-session-kind-terminal = terminal
+shell-session-kind-ask = one-shot ask
+shell-session-origin-step = step { $step } of a run on { $where }
+shell-session-origin-step-resumed = step { $step }, resumed after a restart, of a run on { $where }
+shell-session-origin-step-unnamed = a step of a run on { $where }
+shell-session-origin-step-alone = step { $step } of a run
+shell-session-origin-design = the Workflow Agent designing { $where }
+shell-session-origin-design-alone = the Workflow Agent designing
+shell-session-origin-repair = the Workflow Agent repairing { $where }
+shell-session-origin-repair-alone = the Workflow Agent repairing
+shell-session-origin-turn-goal = a turn in the thread of { $goal }
+shell-session-origin-turn-channel = a turn in #{ $channel }
+shell-session-origin-turn-dm = a turn in a direct message
+shell-session-origin-turn-about = a turn about { $where }
+shell-session-origin-turn-conversation = a turn in a conversation
+shell-session-origin-turn-woken-by = woken by { $who }
+shell-session-origin-terminal = a terminal in { $where }
+shell-session-origin-terminal-alone = a terminal
+shell-session-origin-ask-classifier = the classifier reading a call for { $where }
+shell-session-origin-ask-classifier-alone = the classifier reading a call
+shell-session-origin-ask-decision = the Decision-Making Agent judging { $point } for { $where }
+shell-session-origin-ask-decision-alone = the Decision-Making Agent judging { $point }
+shell-session-origin-ask-commit = suggesting a commit message for { $where }
+shell-session-origin-ask-commit-alone = suggesting a commit message
+shell-session-origin-ask-pr = suggesting a pull request message for { $where }
+shell-session-origin-ask-pr-alone = suggesting a pull request message
+shell-session-origin-ask = one question put to a model for { $where }
+shell-session-origin-ask-alone = one question put to a model
+shell-session-ask-title-classifier = Classifier
+shell-session-ask-title-decision = Decision-Making Agent
+shell-session-ask-title-commit = Commit message
+shell-session-ask-title-pr = Pull request message
+shell-session-ask-no-point = a try from Settings
+shell-session-origin-unknown = a session
+shell-session-cwd = in { $dir }
+shell-footer-sessions-scope-tail = { $scope } ·{ $tail }
+shell-footer-sessions-line = { $origin } · { $place }
+shell-followed-session-who = { $state } · { $who }

@@ -135,6 +135,8 @@ export function workstreamSessionRows(sessions, terminals, workstream) {
         // The terminal tab this session lives in, when a person opened it there.
         terminalKey: tabOf.get(s.id)?.key ?? null,
         parent: null,
+        // The roster row itself, for the words a surface puts on it (`sessionOriginModel`).
+        session: s,
       },
       // A sub-agent is a row while it is live, or failed and not yet seen
       // past a turn boundary; one that finished has left.

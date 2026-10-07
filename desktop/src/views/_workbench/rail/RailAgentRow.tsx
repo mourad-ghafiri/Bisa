@@ -25,6 +25,7 @@ export function RailAgentRow({
   rs,
   menu,
   harnessLabels,
+  origin = null,
   folded,
   onToggle,
   onOpen,
@@ -35,6 +36,8 @@ export function RailAgentRow({
   rs: TreeRowState;
   menu: MenuItem[];
   harnessLabels: Record<string, string>;
+  /** What the session is for, in a sentence — the tooltip's last words. */
+  origin?: string | null;
   /** Whether this harness's sub-agents are folded under it. */
   folded: boolean;
   onToggle: () => void;
@@ -57,7 +60,7 @@ export function RailAgentRow({
         rs={rs}
         treatment={treatment}
         className="text-2xs"
-        title={t("workbench-rail-agent-row-words", { row: row.label, full: model?.full ?? "", flag: model ? "yes" : "no", harness: harnessLabels[row.harness] ?? row.harness, flag2: (row.harness) ? "yes" : "no", activity: row.activity })}
+        title={t("workbench-rail-agent-row-words", { row: row.label, full: model?.full ?? "", flag: model ? "yes" : "no", harness: harnessLabels[row.harness] ?? row.harness, flag2: (row.harness) ? "yes" : "no", activity: row.activity, origin: origin ?? "", flag3: origin ? "yes" : "no" })}
         onClick={onOpen}
       >
         <RailTwisty open={foldable ? !folded : null} onToggle={onToggle} />

@@ -72,10 +72,11 @@ export type StepId = string;
  *
  * - `Auto`: the Workflow Agent designs the workflow, and the platform adopts
  *   it, starts the run, repairs a failed run and restarts by itself; the
- *   run is unattended, so a tool permission above the step's tier ceiling
- *   that no guard rule decides is read by the classifier
- *   (`goals.auto.permissions`) rather than put to a person, and every
- *   step's agent is told to decide rather than ask. Only what a person
+ *   run is unattended, so a step that may write may also run commands
+ *   (`goals.auto.ceiling`, [`GoalMode::ceiling`]), a tool permission above
+ *   the step's tier ceiling that no guard rule decides is read by the
+ *   classifier (`goals.auto.permissions`) rather than put to a person, and
+ *   every step's agent is told to decide rather than ask. Only what a person
  *   alone can do waits for one: a `human`, `approval` or `wait { release }`
  *   step the workflow declares, the guard's `ask` and `deny`, a call the
  *   classifier finds harmful or gives no verdict on, a push or a pull
@@ -3659,7 +3660,59 @@ export type ConversationKind = "goal" | "channel" | "dm" | "conversation";
  * was this?", written when the row is. One vocabulary for the store, the
  * engine's roster and the wire.
  */
-export type SessionKind = "worker" | "guided" | "conversation" | "terminal";
+export type SessionKind = "worker" | "guided" | "conversation" | "terminal" | "ask";
+/**
+ * What woke a session, and for what.
+ */
+export type SessionOrigin =
+  | {
+      step?: StepId | null;
+      name?: string | null;
+      resumed?: boolean;
+      origin: "step";
+      [k: string]: unknown;
+    }
+  | {
+      phase: GuidancePhase;
+      origin: "design";
+      [k: string]: unknown;
+    }
+  | {
+      scope: string;
+      on_behalf_of?: PrincipalId | null;
+      origin: "turn";
+      [k: string]: unknown;
+    }
+  | {
+      origin: "terminal";
+      [k: string]: unknown;
+    }
+  | {
+      purpose: AskPurpose;
+      origin: "ask";
+      [k: string]: unknown;
+    };
+/**
+ * What a one-shot ask is for.
+ */
+export type AskPurpose =
+  | {
+      kind: "classifier";
+      [k: string]: unknown;
+    }
+  | {
+      point?: DecisionPoint | null;
+      kind: "decision";
+      [k: string]: unknown;
+    }
+  | {
+      kind: "commit_message";
+      [k: string]: unknown;
+    }
+  | {
+      kind: "pull_request_message";
+      [k: string]: unknown;
+    };
 /**
  * What a session is doing, as a person reads it. The same nine words on the
  * rail, the Agents pane, the Agents screen, the pet and the activity.
@@ -4471,6 +4524,8 @@ export interface BisaApi {
   SessionsResponse?: SessionsResponse;
   DrawingPending?: DrawingPending;
   SessionKind?: SessionKind;
+  SessionOrigin?: SessionOrigin;
+  AskPurpose?: AskPurpose;
   SessionState?: SessionState;
   ConversationId?: ConversationId;
   SessionCost?: SessionCost;
@@ -5201,6 +5256,12 @@ export interface StepRecord {
    * Failed attempts in the current visit.
    */
   attempts?: number;
+  /**
+   * How many restarts cut this step short while it ran. Past
+   * [`MAX_INTERRUPTIONS`] the step fails instead of running again: a step
+   * that takes the node down with it is not resumed on every boot.
+   */
+  interruptions?: number;
   /**
    * The run's `seq` when this record last changed state.
    */
@@ -11522,6 +11583,13 @@ export interface SessionsResponse {
 export interface SessionRow {
   id: LiveRunId;
   kind: SessionKind;
+  /**
+   * Why the session exists — what woke it and for what: a run's step by
+   * id and name, the Workflow Agent's phase, a turn's scope and who woke
+   * it, a terminal, a one-shot ask's purpose. Said at registration, said
+   * again when it changes.
+   */
+  origin: SessionOrigin;
   state: SessionState;
   /**
    * Unix seconds the current state was entered.
@@ -11555,6 +11623,12 @@ export interface SessionRow {
   run?: RunId | null;
   workstream?: WorkstreamId | null;
   project?: ProjectId | null;
+  /**
+   * Where the session stands on disk — the harness's working directory:
+   * a checkout, a goal's or an agent's scratch folder. Absent for a
+   * terminal, whose folder is its tab's own.
+   */
+  cwd?: string | null;
   transcript_path?: string | null;
   /**
    * Unix seconds the session was registered — never reset, unlike `since`.

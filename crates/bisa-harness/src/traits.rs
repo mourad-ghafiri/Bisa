@@ -172,22 +172,43 @@ pub trait HarnessSession: Send + Sync {
 /// resumes at the live edge — correct under the "snapshots are authoritative,
 /// events are advisory" rule.
 ///
-/// **One event is not advisory: the session's terminal end.** It is how a
-/// session says why it is over — a model it could not run, an agent that
-/// went away — and a session may end before anybody listens: an agent that
+/// **Two events are not advisory.** The session's **terminal end** is how
+/// it says why it is over — a model it could not run, an agent that went
+/// away — and a session may end before anybody listens: an agent that
 /// refuses the model during its handshake is done before the engine has
 /// subscribed. So the first terminal end is kept, and a subscriber that
 /// comes after it is handed it first. Without that the engine waits on a
 /// stream that will never say anything, and a model wall — which should
 /// walk the agent's plan to its next model — reads as a session that hung.
+/// The **process it announced** (`ProcessStarted`) is how a driver learns
+/// the pid a boot after a crash has to end, and a long-lived adapter
+/// announces it from its own task at launch, before the engine subscribes:
+/// so the last one is kept too, and handed over first.
 #[derive(Clone)]
 pub struct EventBroadcaster {
     tx: tokio::sync::broadcast::Sender<SessionEvent>,
-    /// The first terminal end the session said. Read and written under one
-    /// lock with the send and the subscribe, so every subscriber hears the
-    /// end exactly once: from the channel when it was there first, from here
+    /// What a late subscriber must still hear. Read and written under one
+    /// lock with the send and the subscribe, so every subscriber hears each
+    /// exactly once: from the channel when it was there first, from here
     /// when it was not.
-    ended: std::sync::Arc<std::sync::Mutex<Option<SessionEvent>>>,
+    kept: std::sync::Arc<std::sync::Mutex<Kept>>,
+}
+
+/// The events kept for whoever subscribes after they were said.
+#[derive(Clone, Default)]
+struct Kept {
+    /// The last process the session announced — a one-shot adapter announces
+    /// one per turn, and the latest is the one alive.
+    process: Option<SessionEvent>,
+    /// The first terminal end.
+    ended: Option<SessionEvent>,
+}
+
+impl Kept {
+    /// What a late subscriber hears first, in the order it was said.
+    fn said(&self) -> impl Iterator<Item = SessionEvent> {
+        self.process.clone().into_iter().chain(self.ended.clone())
+    }
 }
 
 impl EventBroadcaster {
@@ -195,23 +216,23 @@ impl EventBroadcaster {
         let (tx, _) = tokio::sync::broadcast::channel(capacity);
         Self {
             tx,
-            ended: Default::default(),
+            kept: Default::default(),
         }
     }
 
     /// Send; nobody listening is not an error (events are advisory) — a
-    /// terminal end is kept for whoever listens later.
+    /// terminal end and the last process announced are kept for whoever
+    /// listens later.
     pub fn emit(&self, event: SessionEvent) {
-        let mut ended = self.ended.locked();
-        let terminal = matches!(
-            &event,
+        let mut kept = self.kept.locked();
+        match &event {
             SessionEvent::Lifecycle(LifecycleEvent::Ended {
-                is_terminal: true,
-                ..
-            })
-        );
-        if terminal && ended.is_none() {
-            *ended = Some(event.clone());
+                is_terminal: true, ..
+            }) if kept.ended.is_none() => kept.ended = Some(event.clone()),
+            SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { .. }) => {
+                kept.process = Some(event.clone())
+            }
+            _ => {}
         }
         if self.tx.send(event).is_err() {
             tracing::trace!("no session listens; events are advisory");
@@ -228,12 +249,13 @@ impl EventBroadcaster {
         }));
     }
 
-    /// Every event from now on — and first, when the session is already
-    /// over, the terminal end it said before anybody was here.
+    /// Every event from now on — and first, what the session said before
+    /// anybody was here: the process it announced, and its terminal end when
+    /// it is already over.
     pub fn subscribe(&self) -> BoxEventStream {
         let (live, said) = {
-            let ended = self.ended.locked();
-            (self.tx.subscribe(), ended.clone())
+            let kept = self.kept.locked();
+            (self.tx.subscribe(), kept.said().collect::<Vec<_>>())
         };
         futures::stream::iter(said)
             .chain(
@@ -301,6 +323,43 @@ mod tests {
         let all = heard(&mut late).await;
         assert_eq!(all.len(), 1, "the end and nothing else: {all:?}");
         assert!(is_wall(&all[0]), "{all:?}");
+    }
+
+    /// A process the session announced before anybody listened is still
+    /// announced: a driver that subscribes after the launch records the pid
+    /// a boot after a crash would have to end — the last one, once, and
+    /// before the end. One who was there when it was announced hears it from
+    /// the session and not again from what is kept.
+    #[tokio::test]
+    async fn a_process_started_before_anybody_listened_is_replayed_once_before_the_end() {
+        let session = EventBroadcaster::default();
+        session.emit(SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted {
+            pid: Some(41),
+        }));
+        session.emit(SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted {
+            pid: Some(42),
+        }));
+        session.emit(SessionEvent::Progress(ProgressEvent::TurnStarted));
+        session.emit(wall());
+        let mut late = session.subscribe();
+        let all = heard(&mut late).await;
+        assert_eq!(all.len(), 2, "the last process, then the end: {all:?}");
+        assert!(
+            matches!(
+                &all[0],
+                SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { pid: Some(42) })
+            ),
+            "{all:?}"
+        );
+        assert!(is_wall(&all[1]), "{all:?}");
+
+        let session = EventBroadcaster::default();
+        let mut early = session.subscribe();
+        session.emit(SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted {
+            pid: Some(7),
+        }));
+        let all = heard(&mut early).await;
+        assert_eq!(all.len(), 1, "heard once, from the session: {all:?}");
     }
 
     /// One who was there when it ended hears it from the session, once — not

@@ -14,6 +14,7 @@
  * saying.
  */
 
+import { titleOf } from "./sessionOriginModel.mjs";
 import { attentionRank, isEnded, isLive } from "../ui/sessionState.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
 
@@ -77,6 +78,6 @@ export function terminalSessionOf(terminals, doc) {
  * @param {{ agent?: string | null, harness: string }} row
  */
 export function followWords(row) {
-  if (row.agent && row.agent !== row.harness) return tr("shell-followed-session-words", { agent: row.agent, harness: row.harness });
-  return row.harness;
+  if (row.agent && row.agent !== row.harness) return tr("shell-followed-session-words", { agent: titleOf(row), harness: row.harness });
+  return titleOf(row);
 }

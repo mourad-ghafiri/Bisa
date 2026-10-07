@@ -505,6 +505,7 @@ error-engine-invalid-could-not-move-trash = could not move { $a0 } to the trash:
 error-engine-invalid-could-not-move-trash-several = could not move { $n } entries to the trash: { $e }
 error-engine-invalid-device-answered-bytes-frame-most = the device answered { $a0 } bytes for a frame; the most is { $max_frame_bytes }
 error-engine-invalid-did-not-answer-within-s = { $agent } did not answer within { $a0 }s
+error-engine-invalid-stopped-before-answered = { $agent } was stopped before it answered
 error-engine-invalid-directory = { $relative } is a directory
 error-engine-invalid-directory-holding-entries-confirm-with-recursive-true = { $relative } is a directory holding { $n } entries; confirm with recursive=true
 error-engine-invalid-ended-turn-without-saying-anything = { $agent } ended its turn without saying anything

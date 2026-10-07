@@ -1239,6 +1239,11 @@ async fn a_parked_session_is_never_revived_and_its_row_keeps_what_it_ran_at() {
         run,
         SessionMeta {
             kind: SessionKind::Worker,
+            origin: bisa_core::SessionOrigin::Step {
+                step: None,
+                name: None,
+                resumed: false,
+            },
             harness: "mock".into(),
             model: Some("opus-5".into()),
             effort: Some(Effort::Xhigh),
@@ -1250,6 +1255,7 @@ async fn a_parked_session_is_never_revived_and_its_row_keeps_what_it_ran_at() {
             run: None,
             workstream: None,
             project: None,
+            cwd: None,
             transcript_path: None,
         },
     );
@@ -1295,7 +1301,7 @@ async fn a_parked_session_is_never_revived_and_its_row_keeps_what_it_ran_at() {
         "the token is the harness's to keep"
     );
     assert!(
-        !inner.lifecycle.follow_up(run, "go on").await,
+        !inner.lifecycle.follow_up(inner, run, "go on").await,
         "no live session takes a follow-up"
     );
     assert!(

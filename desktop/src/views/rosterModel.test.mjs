@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CORE_AGENT_IDS, answerOf, attachedTo, detailStacked, isImplicitMember, memberFace, respondsTo, rosterLine, storedMembers, withoutMember, KIND_SKILL, KIND_TEAM, absentRecord, skillMoved, teamMoved, teamOptionLine, teamTakesWork } from "./rosterModel.mjs";
+import { CORE_AGENT_IDS, answerOf, detailStacked, isImplicitMember, memberFace, respondsTo, rosterLine, storedMembers, withoutMember, KIND_SKILL, KIND_TEAM, absentRecord, skillMoved, teamMoved, teamOptionLine, teamTakesWork } from "./rosterModel.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -17,34 +17,6 @@ test("who an agent answers is one of two sentences", () => {
   assert.match(respondsTo({ respond: "owner_only" }), /Answers you only/);
   assert.equal(respondsTo({ respond: "anyone" }), "Answers any workspace member.");
   assert.equal(respondsTo(null), "Answers any workspace member.");
-});
-
-test("a session is attached to its goal first, then its run, then its work item, then its conversation, else its kind's word", () => {
-  assert.deepEqual(attachedTo({ goal: "01JGOAL000ABCDEF", work_item: "01JWI", kind: "run" }), {
-    label: "goal ABCDEF",
-    route: { name: "goal", id: "01JGOAL000ABCDEF" },
-  });
-  assert.deepEqual(attachedTo({ run: "01JRUN0000UVWXYZ", work_item: "01JWI", kind: "run" }), {
-    label: "run UVWXYZ",
-    route: { name: "run", id: "01JRUN0000UVWXYZ" },
-  });
-  assert.deepEqual(attachedTo({ goal: "01JGOAL000ABCDEF", run: "01JRUN0000UVWXYZ", kind: "run" }).route, { name: "goal", id: "01JGOAL000ABCDEF" });
-  assert.deepEqual(attachedTo({ work_item: "01JWORKITEM123456" }), { label: "work item 123456", route: null });
-  assert.deepEqual(attachedTo({ conversation: "01JC" }), { label: "a conversation", route: { name: "conversation", id: "01JC" } });
-  assert.equal(attachedTo({ kind: "terminal" }).label, "a terminal");
-  assert.equal(attachedTo({ kind: "note" }).label, "a note");
-  assert.equal(attachedTo({ kind: "conversation" }).label, "a channel or a goal's thread");
-  assert.deepEqual(attachedTo({ kind: "run" }), { label: "—", route: null });
-  assert.deepEqual(attachedTo(null), { label: "—", route: null });
-});
-
-test("a goal reads by its title when the window knows it, and by its id's tail when it does not", () => {
-  const titles = new Map([["01JGOAL000ABCDEF", "Ship the login page"], ["01JGOAL000BLANK0", "  "]]);
-  const titleOf = (id) => titles.get(id);
-  assert.deepEqual(attachedTo({ goal: "01JGOAL000ABCDEF" }, titleOf), { label: "Ship the login page", route: { name: "goal", id: "01JGOAL000ABCDEF" } });
-  assert.equal(attachedTo({ goal: "01JGOAL000UNREAD" }, titleOf).label, "goal UNREAD", "a goal the window has not read");
-  assert.equal(attachedTo({ goal: "01JGOAL000BLANK0" }, titleOf).label, "goal BLANK0", "a blank title is no title");
-  assert.equal(attachedTo({ run: "01JRUN0000UVWXYZ" }, titleOf).label, "run UVWXYZ", "the resolver names goals only");
 });
 
 test("a session's ask is answered on the Inbox row it lives under, and only a gate is an ask", () => {

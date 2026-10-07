@@ -137,51 +137,17 @@ pub struct GuidedState {
     pending: DashMap<GoalId, GuidedPhase>,
     sessions: DashMap<GoalId, LiveRunId>,
     last: DashMap<GoalId, (GuidancePhase, GuidanceStatus)>,
-    /// The stop of each wake in flight, by its run: what ending the run's
-    /// row tells the wake's driver by ([`stop_run`]).
-    driving: DashMap<LiveRunId, Arc<tokio::sync::Notify>>,
 }
 
 /// A wake's driver, reachable by its run for as long as it drives. Dropped
 /// — the wake settled, walked to another model, or panicked — the run is
 /// told nothing any more.
-struct Driving {
-    inner: Arc<Inner>,
-    run: LiveRunId,
-    stop: Arc<tokio::sync::Notify>,
-}
-
-impl Driving {
-    fn begin(inner: &Arc<Inner>, run: LiveRunId) -> Self {
-        let stop = Arc::new(tokio::sync::Notify::new());
-        inner.guided.driving.insert(run, Arc::clone(&stop));
-        Self {
-            inner: Arc::clone(inner),
-            run,
-            stop,
-        }
-    }
-
-    /// Resolves once the run was stopped; a stop that came before the driver
-    /// listened is kept for it (`Notify` holds one permit).
-    async fn stopped(&self) {
-        self.stop.notified().await;
-    }
-}
-
-impl Drop for Driving {
-    fn drop(&mut self) {
-        self.inner.guided.driving.remove(&self.run);
-    }
-}
-
 /// Stop the Workflow Agent's session one run names — what ending its row
 /// does. A wake in flight is told, and its driver aborts the harness on the
 /// spot and records why the design ended; a session kept for a follow-up is
 /// let go of. The roster's row is the caller's to end.
 pub(crate) fn stop_run(inner: &Arc<Inner>, run: LiveRunId) {
-    if let Some(stop) = inner.guided.driving.get(&run) {
-        stop.notify_one();
+    if inner.driving.stop(run) {
         return;
     }
     inner.guided.sessions.retain(|_, held| *held != run);
@@ -814,12 +780,16 @@ pub fn notify_answered(
     tokio::spawn(async move {
         if let Some(agent_id) = inner.guided.sessions.get(&goal_id).map(|a| *a) {
             let text = answer_steer(answer.as_ref(), clarify_rounds_left);
-            if inner.lifecycle.follow_up(agent_id, &text).await {
+            if inner.lifecycle.follow_up(&inner, agent_id, &text).await {
                 // Delivered into the live session: it is working again.
                 let phase = inner
                     .guided
                     .phase_of(goal_id)
                     .unwrap_or(GuidancePhase::Design);
+                // The row says which job the wake is on now.
+                inner
+                    .presence
+                    .origin(&inner, agent_id, bisa_core::SessionOrigin::Design { phase });
                 record(
                     &inner,
                     goal_id,
@@ -1471,7 +1441,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         // Register the wake in the runtime roster, then say it is working —
         // with the session's id, so a screen can follow it.
         let agent_id = LiveRunId::mint();
-        let driving = Driving::begin(inner, agent_id);
+        let driving = crate::sessions::Driving::begin(&inner.driving, agent_id);
         let session_id = SessionId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
         let transcript = session.resume_token().and_then(|t| t.transcript_path);
         debug_on_err(
@@ -1498,6 +1468,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
             agent_id,
             crate::presence::SessionMeta {
                 kind: SessionKind::Guided,
+                origin: bisa_core::SessionOrigin::Design { phase: tag },
                 harness: harness_id.clone(),
                 model: Some(model_key.clone()),
                 effort,
@@ -1509,6 +1480,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                 run: None,
                 workstream: None,
                 project: None,
+                cwd: Some(spec.cwd.display().to_string()),
                 transcript_path: transcript.as_ref().map(|p| p.display().to_string()),
             },
         );
@@ -1534,6 +1506,8 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
             inner.ws.record_session(&session_row),
             "recording a guided session",
         );
+        // Left live by an early return or a panic, the row ends as failed.
+        let driven = crate::sessions::Driven::begin(inner, agent_id, Some(session_id.to_string()));
         // Silent: the card's *working* state says it, and a line here on
         // every goal was the chatter the person read past.
         record(
@@ -1605,6 +1579,11 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                 Ok(Some(ev)) => ev,
             };
             inner.presence.apply(inner, agent_id, &event);
+            // The harness child announced: its pid goes on the record, so a
+            // boot after a crash can end it as it ends a worker's.
+            if let SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { pid }) = &event {
+                crate::sessions::process_started(inner, &session_id.to_string(), *pid);
+            }
             inner.emit(EngineEvent::scoped(
                 goal_id,
                 None,
@@ -1671,6 +1650,8 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         }
 
         drop(in_flight);
+        // The loop ended: the row is settled below, by hand.
+        driven.disarm();
         match wall {
             None => {
                 inner.models.note_success(&harness_id, &model_key);

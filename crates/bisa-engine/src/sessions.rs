@@ -20,9 +20,74 @@ use crate::presence::SessionPresence;
 use crate::registry::{LiveRunId, SessionKind};
 use crate::{executor, Inner};
 use bisa_core::{GoalId, ProjectId, RunId, WorkstreamId};
+use dashmap::DashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// The stop of every session driven without a work item — the Workflow
+/// Agent's wakes and the one-shot asks — by its run: what ending the run's
+/// row tells the driver by ([`stop_row`]). A worker's stop is its item's
+/// in-flight mark. The map is shared with every [`Driving`], which removes
+/// its own entry on the way out, so a stop after the driver left tells
+/// nobody.
+#[derive(Default)]
+pub struct Drivers {
+    stops: Arc<DashMap<LiveRunId, Arc<tokio::sync::Notify>>>,
+}
+
+impl Drivers {
+    /// Tell the driver of `run` to stop. Answers whether one was driving it;
+    /// a stop that comes before the driver listens is kept for it (`Notify`
+    /// holds one permit).
+    pub fn stop(&self, run: LiveRunId) -> bool {
+        match self.stops.get(&run) {
+            Some(stop) => {
+                stop.notify_one();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether a driver is driving `run` right now.
+    pub fn is_driving(&self, run: LiveRunId) -> bool {
+        self.stops.contains_key(&run)
+    }
+}
+
+/// A driver's standing in [`Drivers`] for the life of its loop: begun at the
+/// launch, dropped on every exit — answered, failed, panicked — so the map is
+/// the live drivers' alone.
+pub struct Driving {
+    stops: Arc<DashMap<LiveRunId, Arc<tokio::sync::Notify>>>,
+    run: LiveRunId,
+    stop: Arc<tokio::sync::Notify>,
+}
+
+impl Driving {
+    pub fn begin(drivers: &Drivers, run: LiveRunId) -> Self {
+        let stop = Arc::new(tokio::sync::Notify::new());
+        drivers.stops.insert(run, Arc::clone(&stop));
+        Self {
+            stops: Arc::clone(&drivers.stops),
+            run,
+            stop,
+        }
+    }
+
+    /// Resolves once the run was stopped; a stop that came before the driver
+    /// listened is kept for it.
+    pub async fn stopped(&self) {
+        self.stop.notified().await;
+    }
+}
+
+impl Drop for Driving {
+    fn drop(&mut self) {
+        self.stops.remove(&self.run);
+    }
+}
 
 /// A session this process drove is over: its row says so.
 pub fn ended(inner: &Inner, session_id: &str) {
@@ -272,7 +337,9 @@ pub fn stop_for(inner: &Arc<Inner>, scope: Scope, workstreams: &HashSet<Workstre
 /// - a **conversation** turn's session is let go of, and the next message
 ///   starts afresh ([`crate::conversation::stop_run`]);
 /// - the Workflow Agent's **guided** wake is told to stop, or the session it
-///   kept for a follow-up is let go of ([`crate::guided::stop_run`]).
+///   kept for a follow-up is let go of ([`crate::guided::stop_run`]);
+/// - a one-shot **ask**'s loop is told to stop, aborts its harness and
+///   answers its caller a refusal ([`crate::ask::stop_run`]).
 ///
 /// The registry's abort comes first: it is terminal, so nothing the driver
 /// does on its way out revives or parks the run. Answers whether the row
@@ -292,12 +359,119 @@ pub fn stop_row(inner: &Arc<Inner>, row: &SessionPresence) -> bool {
         }
         SessionKind::Conversation => crate::conversation::stop_run(inner, row.id),
         SessionKind::Guided => crate::guided::stop_run(inner, row.id),
+        SessionKind::Ask => {
+            crate::ask::stop_run(inner, row.id);
+        }
         SessionKind::Terminal => {}
     }
+    // A driver parked on a question it asked hears nothing of the stop
+    // until the question goes: withdrawn, it answers the harness and winds
+    // down on its next pass.
+    withdraw_questions_of(inner, row.id);
     inner
         .presence
         .ended(inner, row.id, &ExecutionOutcome::Aborted);
     true
+}
+
+/// Why a question is withdrawn when the session that asked it is stopped.
+pub const STOPPED: &str = "the session that asked was stopped";
+
+/// The questions a session was asking die with it: every pending gate the
+/// run asked through is withdrawn — its waiting driver hears a refusal that
+/// is nobody's, answers the harness, and goes on to hear the stop — and the
+/// journal says why, so the Inbox reads the question as settled and a later
+/// boot does not withdraw it again. Answers how many were withdrawn.
+pub fn withdraw_questions_of(inner: &Arc<Inner>, run: LiveRunId) -> usize {
+    let mut withdrawn = 0;
+    for gate in inner.gates.pending_for_session(run) {
+        if inner.gates.withdraw(&gate.id).is_none() {
+            continue;
+        }
+        let note = format!(
+            "a question the session was asking — \"{}\" — was withdrawn: {STOPPED}",
+            crate::recovery::first_line(&gate.question)
+        );
+        crate::recovery::withdraw_question(inner, gate.home, &gate.subject, STOPPED, note);
+        withdrawn += 1;
+    }
+    withdrawn
+}
+
+/// What a row reads when its driver left it live.
+pub const DRIVER_GONE: &str = "the session's driver went away";
+
+/// A session this process drives, held by its driver from the row's
+/// registration to its settle. Dropped while the row is still live — an
+/// early return, a panic unwinding through the driver — the row ends as
+/// failed and the durable record with it, so no row reads *starting* or
+/// *thinking* with nothing behind it. A driver that ended, forgot or parked
+/// the row itself drops it to no effect; one that hands the session on for
+/// a follow-up disarms it ([`Self::disarm`]).
+pub struct Driven {
+    inner: Arc<Inner>,
+    run: LiveRunId,
+    session_id: Option<String>,
+    armed: bool,
+}
+
+impl Driven {
+    pub fn begin(inner: &Arc<Inner>, run: LiveRunId, session_id: Option<String>) -> Self {
+        Self {
+            inner: Arc::clone(inner),
+            run,
+            session_id,
+            armed: true,
+        }
+    }
+
+    /// The row is somebody else's from here — kept for a follow-up — and
+    /// the guard's drop says nothing.
+    pub fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for Driven {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let live = self
+            .inner
+            .presence
+            .get(self.run)
+            .is_some_and(|row| row.state.is_live());
+        if !live {
+            return;
+        }
+        tracing::warn!(target: "bisa_engine", session = %self.run, "a driver left its session's row live: ending it");
+        // The record and the registry first, the row last: the row's change
+        // is what a reader sees, and what it then reads must already stand.
+        if let Some(id) = &self.session_id {
+            ended(&self.inner, id);
+        }
+        if let Some(agent) = self.inner.registry.get(self.run) {
+            if agent.status == crate::registry::AgentStatus::Running {
+                crate::debug_on_err(
+                    self.inner.registry.mutate(self.run, agent.generation, |a| {
+                        a.status = crate::registry::AgentStatus::Idle
+                    }),
+                    "idling a run its driver left",
+                );
+            }
+        }
+        let outcome = ExecutionOutcome::Failed {
+            reason: DRIVER_GONE.into(),
+        };
+        // The retention clock needs a runtime to run on; without one the
+        // row goes at once.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            self.inner.presence.ended(&self.inner, self.run, &outcome);
+        } else {
+            self.inner.presence.forget(&self.inner, self.run);
+        }
+    }
 }
 
 /// The roster has no row by this id.
@@ -430,6 +604,11 @@ mod tests {
             id,
             crate::presence::SessionMeta {
                 kind: SessionKind::Worker,
+                origin: bisa_core::SessionOrigin::Step {
+                    step: None,
+                    name: None,
+                    resumed: false,
+                },
                 harness: "mock".into(),
                 model: None,
                 effort: None,
@@ -441,6 +620,7 @@ mod tests {
                 run: None,
                 workstream: None,
                 project: None,
+                cwd: None,
                 transcript_path: None,
             },
         );

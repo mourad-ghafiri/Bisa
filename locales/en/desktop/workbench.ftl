@@ -627,7 +627,10 @@ workbench-rail-agent-row-words = { $row }{ $flag ->
   }{ $flag2 ->
     [yes] {" "}on { $harness }
    *[no] {""}
-  } — { $activity }
+  } — { $activity }{ $flag3 ->
+    [yes] {" "}· { $origin }
+   *[no] {""}
+  }
 workbench-rail-heading-row-project-projects = { $row } { $row ->
     [one] project
    *[other] projects

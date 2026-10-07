@@ -88,6 +88,8 @@ export type RailRow =
       terminalKey?: string | null;
       /** The session a sub-agent row nests under; `null` for a session. */
       parent: string | null;
+      /** The roster row itself, on a session's own row — the words its tooltip wears (`sessionOriginModel`). */
+      session?: SessionRow | null;
       depth: number;
     };
 

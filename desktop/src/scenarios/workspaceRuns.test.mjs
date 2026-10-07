@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 
 import { href, parse, section } from "../routeModel.mjs";
 import { doorOf } from "../views/_studio/inboxModel.mjs";
-import { attachedTo } from "../views/rosterModel.mjs";
+import { doorOf as sessionDoorOf } from "../shell/sessionOriginModel.mjs";
 import { historyLine, retireSections, runsLine } from "../views/_work/retireModel.mjs";
 import { progressRows, rowOpen } from "../views/_goal/progressModel.mjs";
 import { libraryReads } from "../views/_workflow/libraryModel.mjs";
@@ -242,7 +242,7 @@ test("the run's ask reaches the Inbox on its workflow's row, whose door is the r
   const inboxRow = { key: "01WF", kind: "workflow", title: "Nightly report", needs_action: [{ id: "step:r3/review", kind: "step", home: { home: "run", run: "r3" } }], notices: [] };
   assert.deepEqual(doorOf(inboxRow), { route: { name: "run", id: "r3" }, search: null });
   assert.deepEqual(doorOf({ ...inboxRow, needs_action: [] }), { route: { name: "workflow", id: "01WF" }, search: null }, "with nothing asked, the designer");
-  assert.deepEqual(attachedTo({ run: "01JRUN0000000R3ASK", kind: "run" }).route, { name: "run", id: "01JRUN0000000R3ASK" });
+  assert.deepEqual(sessionDoorOf({ run: "01JRUN0000000R3ASK", kind: "worker" }), { name: "run", id: "01JRUN0000000R3ASK" });
 });
 
 test("one run stopped, then every run: a press is taken once, and the confirm says a goal's run of it goes on", () => {

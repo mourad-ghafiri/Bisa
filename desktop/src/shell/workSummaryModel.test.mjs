@@ -30,12 +30,16 @@ test("a wait is counted once: the Inbox is the ledger, and a harness at its prom
 test("the pet and an addon's summary read the one rule: they never say two things about one moment", () => {
   const busy = workSummary({ inbox: [], waiting: 0, working: { c9: ["scout"] } }, { waiting: 0, working: 0 });
   assert.equal(standingState(busy), "running");
+  // With the rows to hand, a turn mid-thought and the hint its frame left are one count, not two.
+  const turn = { id: "s1", kind: "conversation", conversation: "c9", state: { state: "running" }, origin: { origin: "turn", scope: "c9" } };
+  assert.equal(workSummary({ inbox: [], waiting: 0, working: { c9: ["scout"] } }, { waiting: 0, working: 1 }, [turn]).working, 1, "the row and its scope's hint are one turn");
+  assert.equal(workSummary({ inbox: [], waiting: 0, working: { c9: ["scout"] } }, { waiting: 0, working: 1 }).working, 2, "without rows, the old sum stands — a caller of an older shape is not broken");
   assert.equal(standingState(workSummary({ inbox: [row("approval")], waiting: 0, working: { c9: ["scout"] } }, { waiting: 0, working: 0 })), "review", "a gate open outranks an agent working");
   assert.equal(standingState(workSummary({ inbox: [row("approval")], waiting: 1, working: {} }, { waiting: 1, working: 0 })), "waiting", "a session waiting on the person — its Inbox row — outranks both");
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
   for (const reader of ["../pet/PetCompanion.tsx", "../addons/AddonLayer.tsx"]) {
     const text = src(reader);
-    assert.ok(text.includes("workSummary(ws, sessionCounts(sessions))"), `${reader} asks the model`);
+    assert.ok(text.includes("workSummary(ws, sessionCounts(sessions), sessions)"), `${reader} asks the model, the roster's rows to hand`);
     assert.ok(!text.includes('gate_kind === "approval"'), `${reader} restates no part of the rule`);
   }
 });

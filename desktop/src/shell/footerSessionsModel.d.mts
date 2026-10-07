@@ -40,14 +40,20 @@ export interface FooterTerminalRow {
 
 export interface FooterHarnessRow {
   id: string;
+  /** The session's kind — a worker, a design wake, a one-shot ask, a terminal a tab claims. */
+  kind: string;
   agent: string | null;
   harness: string | null;
   workstream: string | null;
   state: SessionState;
+  /** When the session was registered, for how long it has stood. */
+  started: number | null;
   /** The tab that claims this session, when a person opened it in a terminal. */
   terminalKey: string | null;
-  /** Where the session stands — its workstream's place, its project, or *not in a checkout*. */
+  /** Where the session stands — its workstream's place, its project, its folder, or *not in a checkout*. */
   place: string;
+  /** The roster row itself, for the words the footer puts on it (`sessionOriginModel.originOf`). */
+  row: SessionRow;
 }
 
 export declare function isOpen(liveness: Liveness | null | undefined): boolean;

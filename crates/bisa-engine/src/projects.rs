@@ -2123,8 +2123,16 @@ pub async fn suggest_commit_message(
     inner: &Inner,
     id: WorkstreamId,
 ) -> Result<String, EngineError> {
-    let (_, path) = checkout_tree(inner, id)?;
-    suggest_for_tree(inner, path, MESSAGE_BRIEF, AgentId::GENERAL).await
+    let (project, path) = checkout_tree(inner, id)?;
+    suggest_for_tree(
+        inner,
+        path,
+        MESSAGE_BRIEF,
+        AgentId::GENERAL,
+        crate::ask::Asking::of(bisa_core::AskPurpose::CommitMessage)
+            .in_workstream(Some(id), Some(project.id)),
+    )
+    .await
 }
 
 /// The suggestion for any tree — a checkout's, the notes repository's —
@@ -2135,6 +2143,7 @@ pub(crate) async fn suggest_for_tree(
     path: std::path::PathBuf,
     brief: &str,
     agent: &str,
+    asking: crate::ask::Asking,
 ) -> Result<String, EngineError> {
     let (diff, files) = blocking(move || {
         let diff = git::diff(&path, true)?;
@@ -2169,7 +2178,8 @@ pub(crate) async fn suggest_for_tree(
         }
     );
 
-    let text = crate::ask::ask_agent_once(inner, agent, &prompt, SUGGESTION_DEADLINE).await?;
+    let text =
+        crate::ask::ask_agent_once(inner, agent, asking, &prompt, SUGGESTION_DEADLINE).await?;
 
     // Models like to wrap prose in a fence even when told not to. Unwrapping
     // one here is cheaper than a second round trip, and leaves anything else
@@ -2264,8 +2274,15 @@ pub async fn suggest_pull_request(
             ""
         }
     );
-    let text =
-        crate::ask::ask_agent_once(inner, AgentId::GENERAL, &prompt, SUGGESTION_DEADLINE).await?;
+    let text = crate::ask::ask_agent_once(
+        inner,
+        AgentId::GENERAL,
+        crate::ask::Asking::of(bisa_core::AskPurpose::PullRequestMessage)
+            .in_workstream(Some(id), Some(w.project)),
+        &prompt,
+        SUGGESTION_DEADLINE,
+    )
+    .await?;
     Ok(draft_of(&unfence(&text)))
 }
 

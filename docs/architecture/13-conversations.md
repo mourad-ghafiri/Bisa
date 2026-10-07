@@ -364,7 +364,12 @@ terminal is `kind: terminal` (`POST /sessions/terminal`) and stays where it was 
 and, for a turn, its `conversation`; which kinds are drawn where is the desktop's rule and the
 engine's status rule above, never presence's. The idle TTL parks a turn — the roster row and the
 store row alike — an abort ends it, and deleting or archiving a conversation stops its turns first
-(`conversations::stop_sessions`).
+(`conversations::stop_sessions`). A turn that is open has the workers' **wall clock**
+(`default_wall_clock_secs`, measured from the turn's start; the idle TTL owns the gaps between
+turns): past it the session is aborted and its row reads *failed: wall clock exceeded*, one note
+on the conversation — a harness that never answers cannot hold a conversation's turn for ever.
+The roster row says the turn's origin: its scope — the string `agent_thinking` spells — and the
+person on another node whose message woke it.
 
 ---
 

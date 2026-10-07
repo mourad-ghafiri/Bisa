@@ -993,11 +993,25 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             "registering a worker run",
         );
         last_run = Some(agent_id);
+        // The step's own name, from the run's workflow: what the row says the
+        // session is for, beside the step's id.
+        let step_name = spec.run.zip(spec.step.as_ref()).and_then(|(run, step)| {
+            inner
+                .ws
+                .get_run(run)
+                .ok()
+                .and_then(|r| r.workflow.step(step).map(|d| d.name.clone()))
+        });
         inner.presence.register(
             &inner,
             agent_id,
             crate::presence::SessionMeta {
                 kind: SessionKind::Worker,
+                origin: bisa_core::SessionOrigin::Step {
+                    step: spec.step.clone(),
+                    name: step_name,
+                    resumed: spec.interruptions > 0,
+                },
                 harness: harness_id.clone(),
                 model: Some(model_key.clone()),
                 effort: launched.effort,
@@ -1009,6 +1023,7 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
                 run: spec.run,
                 workstream: placement.workstream().map(|w| w.id),
                 project: placement.workstream().map(|w| w.project),
+                cwd: Some(placement.cwd().display().to_string()),
                 transcript_path: transcript.as_ref().map(|p| p.display().to_string()),
             },
         );
@@ -1035,6 +1050,10 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             }),
             "recording a worker session",
         );
+        // From here the row is this attempt's to settle; left live by an
+        // early return or a panic, it ends as failed rather than reading
+        // *starting* for good.
+        let driven = crate::sessions::Driven::begin(&inner, agent_id, Some(session_id.to_string()));
 
         // Claim + mark in progress, through the item's transitions.
         match mark_in_progress(
@@ -1133,7 +1152,9 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             .await
         };
 
-        // Tear this attempt down before deciding whether there is another.
+        // Tear this attempt down before deciding whether there is another —
+        // the row is settled below, by hand.
+        driven.disarm();
         if let Some(agent) = inner.registry.get(agent_id) {
             debug_on_err(
                 inner
@@ -1830,7 +1851,11 @@ impl InFlight {
 
 impl Drop for InFlight {
     fn drop(&mut self) {
+        // The reservation and the item's place among the executing go
+        // together, on a settle as on a panic: `active_items` is what is
+        // executing now, never the engine's whole history.
         self.inner.inflight.remove(&self.item);
+        self.inner.active_items.remove(&self.item);
     }
 }
 
@@ -1901,8 +1926,12 @@ pub(crate) fn cancel_item(inner: &Arc<Inner>, home: &Home, item: WorkItemId, why
             .transition_work_item(home, item, &WorkItemTransition::Cancel)
     });
     // The session hears it now — an abort at once, not on the harness's next
-    // event — and the mark goes.
+    // event — and the mark goes. A question the session was asking dies with
+    // the step: its driver, parked on it, hears a refusal and then the stop.
     stop_item(inner, item);
+    if let Some(run) = inner.presence.by_work_item(item) {
+        crate::sessions::withdraw_questions_of(inner, run);
+    }
     inner.inflight.remove(&item);
     inner.active_items.remove(&item);
     match cancelled {

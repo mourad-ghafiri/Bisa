@@ -8,12 +8,15 @@
  * Plain `.mjs` with a `.d.mts` beside it, so `node --test` reads it.
  */
 
+import { workingCount } from "./sessionCountsModel.mjs";
+
 /**
  * @param {{inbox: readonly {needs_action?: readonly {gate_kind?: string | null}[] | null}[], waiting: number, working: Readonly<Record<string, readonly string[]>>}} workspace the shell's lists — `waiting` the Inbox's count of what waits on the person
  * @param {{waiting: number, working: number}} sessions the roster's tally (`sessionState.counts`) — its `working` counts here; its `waiting` is already the Inbox's
+ * @param {readonly object[]} [rows] the roster's rows themselves, when the caller holds them: then `working` is `sessionCountsModel.workingCount`'s, a turn counted once
  * @returns {{waiting: number, review: number, working: number, busyScope: string | null}}
  */
-export function workSummary(workspace, sessions) {
+export function workSummary(workspace, sessions, rows) {
   // Something finished, or was proposed, and is waiting to be looked at: an approval gate.
   const review = (workspace.inbox ?? []).filter((row) => (row.needs_action ?? []).some((ask) => ask.gate_kind === "approval")).length;
   // The conversations an agent is mid-turn in; the first is where a click lands.
@@ -26,7 +29,9 @@ export function workSummary(workspace, sessions) {
     // work even when no conversation moves.
     waiting: workspace.waiting ?? 0,
     review,
-    working: busy.length + (sessions?.working ?? 0),
+    // With the roster's rows to hand, a turn is counted once — by its row,
+    // never again by the scope's hint (`sessionCountsModel.workingCount`).
+    working: rows ? workingCount(rows, workspace.working) : busy.length + (sessions?.working ?? 0),
     busyScope: busy[0]?.[0] ?? null,
   };
 }

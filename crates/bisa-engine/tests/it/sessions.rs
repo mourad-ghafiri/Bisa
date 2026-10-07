@@ -9,15 +9,22 @@
 
 use crate::common;
 
-use bisa_core::event::JournalPayload;
-use bisa_core::{AgentId, GuidanceStatus, MessageBody, RosterPolicy, WorkItemState};
+use bisa_core::event::{GuardJudge, JournalPayload};
+use bisa_core::{
+    AgentId, ClosureReason, GuidanceStatus, MessageBody, RosterPolicy, SessionOrigin, ToolTier,
+    WorkItemState,
+};
 use bisa_engine::registry::SessionKind;
 use bisa_engine::{
     AgentStatus, Engine, EngineConfig, EnginePayload, SessionPresence, SessionState,
 };
 use bisa_harness::mock::{Close, MockAdapter};
+use bisa_harness::{
+    InputAnswer, InputRequest, LifecycleEvent, Outcome, ProgressEvent, SessionEvent,
+};
 use bisa_store::PostOrigin;
 use common::*;
+use serde_json::json;
 use std::sync::{Arc, Mutex};
 
 /// A harness whose session starts and never ends by itself — an agent at
@@ -264,5 +271,378 @@ async fn a_goal_stopped_while_it_is_designed_stops_the_workflow_agents_harness()
     })
     .await;
     assert_eq!(state_of(&engine, &row), Some(SessionState::Aborted));
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// What a row carries, and what a stop reaches
+// ---------------------------------------------------------------------------
+
+/// A worker whose turn stops on one permission and, once answered, ends.
+fn asking_worker(id: &str) -> MockAdapter {
+    MockAdapter {
+        id: id.into(),
+        input_request: Some(InputRequest::permission(
+            "p1",
+            "Bash",
+            ToolTier::Exec,
+            "fake-tool build",
+            json!({ "command": "fake-tool build" }),
+        )),
+        script: Some(vec![
+            SessionEvent::Progress(ProgressEvent::TurnEnded),
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Completed,
+                is_terminal: true,
+            }),
+        ]),
+        ..Default::default()
+    }
+}
+
+fn journal_of(engine: &Engine, goal: bisa_core::GoalId) -> Vec<JournalPayload> {
+    engine
+        .workspace()
+        .journal(&bisa_core::Home::from(goal))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.payload)
+        .collect()
+}
+
+/// A long-lived harness announces its child from its own task at launch,
+/// before the driver listens: the announcement is still heard, and the pid
+/// lands on the row and on the record a boot after a crash reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_whose_harness_announced_its_process_at_launch_has_its_pid_on_the_row_and_the_record(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let (adapter, _closes) = at_work("mock");
+    let adapter = MockAdapter {
+        pid: Some(4242),
+        ..adapter
+    };
+    let engine = engine_with(&dir, vec![adapter]);
+    run_on(
+        &engine,
+        "announced",
+        new_workflow("announced", vec![agent_step("work", "mock")]),
+    );
+    let row = until("the row to carry the pid", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|r| r.kind == SessionKind::Worker && r.pid == Some(4242))
+    })
+    .await;
+    let session_id = row
+        .session_id
+        .expect("a worker's row names its session")
+        .to_string();
+    // The row moves a moment before the record is written: read the record
+    // as the boot would, once it says so.
+    let record = until("the record to carry the pid a boot would end", || {
+        engine
+            .workspace()
+            .session_by_id(&session_id)
+            .unwrap()
+            .filter(|r| r.pid == Some(4242))
+    })
+    .await;
+    assert!(record.pid_seen_at.is_some());
+    engine.shutdown().await;
+}
+
+/// A worker's permission question reaches the Inbox; a stop while it waits
+/// takes the question back — a `withdrawn` fact under its subject, never a
+/// guard fact in the person's name — the harness hears a refusal and then
+/// the stop, and the row reads *aborted*.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_stopped_while_it_waits_on_a_permission_is_aborted_and_its_question_withdrawn_and_not_remembered(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = asking_worker("mock");
+    let closes = Arc::clone(&adapter.closes);
+    let answered = Arc::clone(&adapter.answered);
+    let engine = engine_with(&dir, vec![adapter]);
+    let (goal, _) = run_on(
+        &engine,
+        "asks, then is stopped",
+        new_workflow("asks", vec![agent_step("work", "mock")]),
+    );
+    let gate = until("the permission's gate", || {
+        engine
+            .inner()
+            .gates
+            .pending()
+            .into_iter()
+            .find(|g| g.subject == "permission:Bash")
+    })
+    .await;
+    let row = live_row(&engine, SessionKind::Worker).await;
+    assert_eq!(
+        gate.session,
+        Some(row.id),
+        "the gate names the session that asked"
+    );
+    assert!(
+        matches!(row.state, SessionState::Waiting { .. }),
+        "{:?}",
+        row.state
+    );
+
+    bisa_engine::sessions::stop_one(engine.inner(), row.id).unwrap();
+
+    assert!(
+        engine.inner().gates.get(&gate.id).is_none(),
+        "the gate is gone, not decided"
+    );
+    until("the harness to be told to stop", || {
+        closed(&closes).contains(&Close::Aborted).then_some(())
+    })
+    .await;
+    let answers = answered.lock().unwrap().clone();
+    assert!(
+        answers.iter().any(|(_, a)| matches!(
+            a,
+            InputAnswer::Deny { reason } if reason == bisa_engine::inputs::WITHDRAWN
+        )),
+        "the harness heard the withdrawal: {answers:?}"
+    );
+    let journal = journal_of(&engine, goal.id);
+    assert!(
+        journal.iter().any(|p| matches!(
+            p,
+            JournalPayload::Withdrawn { subject, reason }
+                if subject == "permission:Bash" && reason == bisa_engine::sessions::STOPPED
+        )),
+        "a withdrawn fact under the question's subject: {journal:?}"
+    );
+    assert!(
+        !journal.iter().any(|p| matches!(
+            p,
+            JournalPayload::Guard {
+                by: GuardJudge::Person,
+                ..
+            }
+        )),
+        "nothing was remembered as the person's answer: {journal:?}"
+    );
+    until("the item to settle", || {
+        items_of(&engine, goal.id)
+            .into_iter()
+            .find(|i| matches!(i.state, WorkItemState::Blocked { .. }))
+            .map(|_| ())
+    })
+    .await;
+    assert_eq!(state_of(&engine, &row), Some(SessionState::Aborted));
+    engine.shutdown().await;
+}
+
+/// A goal stopped while its worker waits on a permission: the step's cancel
+/// reaches the question too — withdrawn, the driver hears it and the stop.
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_a_goal_releases_a_worker_waiting_on_a_permission() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = asking_worker("mock");
+    let closes = Arc::clone(&adapter.closes);
+    let engine = engine_with(&dir, vec![adapter]);
+    let (goal, _) = run_on(
+        &engine,
+        "asks, then its goal is stopped",
+        new_workflow("asks-stopped", vec![agent_step("work", "mock")]),
+    );
+    let gate = until("the permission's gate", || {
+        engine
+            .inner()
+            .gates
+            .pending()
+            .into_iter()
+            .find(|g| g.subject == "permission:Bash")
+    })
+    .await;
+    let row = live_row(&engine, SessionKind::Worker).await;
+
+    engine.stop_goal(goal.id, None).await.unwrap();
+
+    assert!(
+        engine.inner().gates.get(&gate.id).is_none(),
+        "the gate went"
+    );
+    until("the harness to be told to stop", || {
+        closed(&closes).contains(&Close::Aborted).then_some(())
+    })
+    .await;
+    assert!(
+        journal_of(&engine, goal.id).iter().any(|p| matches!(
+            p,
+            JournalPayload::Withdrawn { subject, .. } if subject == "permission:Bash"
+        )),
+        "the question is withdrawn in the journal"
+    );
+    until("the row to end", || {
+        state_of(&engine, &row).filter(|s| s.is_ended()).map(|_| ())
+    })
+    .await;
+    engine.shutdown().await;
+}
+
+/// Closing a goal stops what was running for it beyond its workers: the
+/// turn in its thread is let go of, and its row says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_goal_stops_the_turn_in_its_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::general(), "endless");
+    let goal = ws
+        .create_goal(bisa_store::NewGoal::captured("ship the demo"))
+        .unwrap();
+    let (adapter, closes) = at_work("endless");
+    let engine = Engine::start(ws, catalog_with(vec![adapter]), design_off_config()).unwrap();
+    engine
+        .workspace()
+        .post_message(
+            &goal.id.to_string(),
+            MessageBody::post("how is it going?"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let row = live_row(&engine, SessionKind::Conversation).await;
+    assert_eq!(row.goal, Some(goal.id));
+    assert!(
+        matches!(&row.origin, SessionOrigin::Turn { scope, on_behalf_of: None } if scope == &goal.id.to_string()),
+        "the turn's row names the thread it is a turn of: {:?}",
+        row.origin
+    );
+
+    engine
+        .close_goal(goal.id, ClosureReason::Abandoned { rationale: None })
+        .unwrap();
+
+    until("the session to be let go of", || {
+        (!closed(&closes).is_empty()).then_some(())
+    })
+    .await;
+    assert_eq!(state_of(&engine, &row), Some(SessionState::Aborted));
+    engine.shutdown().await;
+}
+
+/// A driver that panics after the row was registered — an adapter bug on
+/// the first prompt — ends the row as failed and the record with it: no row
+/// reads *starting* for good with nothing behind it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_panicking_driver_ends_its_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = MockAdapter {
+        id: "mock".into(),
+        panic_on_prompt: true,
+        ..Default::default()
+    };
+    let engine = engine_with(&dir, vec![adapter]);
+    let (goal, _) = run_on(
+        &engine,
+        "panics",
+        new_workflow("panics", vec![agent_step("work", "mock")]),
+    );
+    let row = until("the row to end as its driver went", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|r| {
+                r.kind == SessionKind::Worker
+                    && matches!(&r.state, SessionState::Failed { reason } if reason == bisa_engine::sessions::DRIVER_GONE)
+            })
+    })
+    .await;
+    let record = engine
+        .workspace()
+        .session_by_id(&row.session_id.unwrap().to_string())
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.status, bisa_store::SessionStatus::Ended);
+    let run = finished_run(&engine, goal.id).await;
+    assert_eq!(run.outcome, Some(bisa_core::RunOutcome::Failed));
+    engine.shutdown().await;
+}
+
+/// A turn whose harness refuses its first prompt: the wake returns early,
+/// and the row it registered ends as failed rather than reading *starting*.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_whose_prompt_is_refused_leaves_no_row_in_starting() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::general(), "refusing");
+    let channel = ws
+        .create_channel("quiet", None, RosterPolicy::default(), Default::default())
+        .unwrap();
+    let adapter = MockAdapter {
+        id: "refusing".into(),
+        refuse_prompt: true,
+        ..Default::default()
+    };
+    let engine = Engine::start(ws, catalog_with(vec![adapter]), design_off_config()).unwrap();
+    engine
+        .workspace()
+        .post_message(
+            channel.id.as_str(),
+            MessageBody::post("anyone there?"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let row = until("the turn's row to end", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|r| r.kind == SessionKind::Conversation && r.state.is_ended())
+    })
+    .await;
+    assert!(
+        matches!(&row.state, SessionState::Failed { reason } if reason == bisa_engine::sessions::DRIVER_GONE),
+        "{:?}",
+        row.state
+    );
+    let session_id = row.session_id.unwrap().to_string();
+    until("the record to be ended", || {
+        engine
+            .workspace()
+            .session_by_id(&session_id)
+            .unwrap()
+            .filter(|r| r.status == bisa_store::SessionStatus::Ended)
+            .map(|_| ())
+    })
+    .await;
+    engine.shutdown().await;
+}
+
+/// The executing set is what is executing now: an item that settled is not
+/// in it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_executing_set_is_empty_once_an_item_settled() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![yielding("mock", json!({ "ok": true }))]);
+    let (goal, _) = run_on(
+        &engine,
+        "settles",
+        new_workflow("settles", vec![agent_step("work", "mock")]),
+    );
+    finished_run(&engine, goal.id).await;
+    until("the executing set to be empty", || {
+        engine.inner().active_items.is_empty().then_some(())
+    })
+    .await;
     engine.shutdown().await;
 }

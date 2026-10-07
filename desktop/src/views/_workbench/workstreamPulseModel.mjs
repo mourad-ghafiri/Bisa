@@ -14,7 +14,8 @@
  * (`ui/sessionState.mjs`), so the dot and the line never disagree.
  */
 
-import { settledByTab, harnessOf } from "../../shell/terminalsModel.mjs";
+import { titleOf } from "../../shell/sessionOriginModel.mjs";
+import { settledByTab, harnessOf, shellWord } from "../../shell/terminalsModel.mjs";
 import { liveChildren, attentionRank, gateOf, isAttention, isLive, isStoppable, label, stateOf, toneOf } from "../../ui/sessionState.mjs";
 import { claimedSessions, isDrawn } from "./workstreamSessionsModel.mjs";
 import { durationPrecise, relative } from "../../i18n/format.mjs";
@@ -98,7 +99,7 @@ function subjects(sessions, terminals, workstream) {
     const children = liveChildren(s);
     // `start` is the session's registration instant (never reset), the anchor
     // for total open time and a run's completed-in duration.
-    out.push({ kind: "session", id: s.id, state: s.state, since: s.since, start: s.started ?? s.since, last_activity: s.last_activity ?? s.since, who: s.agent ?? s.harness, harness: s.harness, parent: null, children });
+    out.push({ kind: "session", id: s.id, state: s.state, since: s.since, start: s.started ?? s.since, last_activity: s.last_activity ?? s.since, who: titleOf(s), harness: s.harness, parent: null, children });
     for (const c of children) {
       // A sub-agent's `started` is its spawn instant, never reset; `since`
       // the state it is in — the same two clocks as its parent.
@@ -113,7 +114,7 @@ function subjects(sessions, terminals, workstream) {
       if (word !== "failed") continue;
       // A shell's end instant is its `exitedAt`, and its start its `openedAt`:
       // the failed line reads how long it ran.
-      out.push({ kind: "shell", id: t.key, state: { state: "failed", reason: tr("workbench-workstream-pulse-shell-exited", { code: t.liveness.code }) }, since: t.exitedAt ?? 0, start: t.openedAt ?? 0, last_activity: t.exitedAt ?? 0, who: harnessOf(t) ?? "shell", harness: harnessOf(t), parent: null, children: [] });
+      out.push({ kind: "shell", id: t.key, state: { state: "failed", reason: tr("workbench-workstream-pulse-shell-exited", { code: t.liveness.code }) }, since: t.exitedAt ?? 0, start: t.openedAt ?? 0, last_activity: t.exitedAt ?? 0, who: harnessOf(t) ?? shellWord(), harness: harnessOf(t), parent: null, children: [] });
     }
   }
   return out;

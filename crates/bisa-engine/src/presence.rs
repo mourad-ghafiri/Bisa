@@ -16,14 +16,16 @@
 //! enforces. A finished session stays here for
 //! [`crate::config::EngineConfig::retain_ended_secs`] so its `done` or
 //! `failed` is seen, then leaves the roster with a [`EnginePayload::SessionGone`].
-//! A `parked` session is resumable and never dropped.
+//! A `parked` session — disposed, its durable row resumable by its token,
+//! revived by nothing in this process ([`crate::lifecycle`]) — leaves after
+//! the same window, its pid gone with the process.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bisa_core::{
-    AgentId, ConversationId, Effort, Gate, GoalId, ProjectId, RunId, SessionId, ToolTier,
-    WorkItemId, WorkstreamId,
+    AgentId, ConversationId, Effort, Gate, GoalId, ProjectId, RunId, SessionId, SessionOrigin,
+    ToolTier, WorkItemId, WorkstreamId,
 };
 use bisa_harness::{
     InputKind, InputRequest, LifecycleEvent, Outcome, ProgressEvent, SessionCost, SessionEvent,
@@ -165,6 +167,11 @@ pub struct SubagentPresence {
 pub struct SessionPresence {
     pub id: LiveRunId,
     pub kind: SessionKind,
+    /// Why the session exists — what woke it and for what: a run's step by
+    /// id and name, the Workflow Agent's phase, a turn's scope and who woke
+    /// it, a terminal, a one-shot ask's purpose. Said at registration, said
+    /// again when it changes.
+    pub origin: SessionOrigin,
     pub state: SessionState,
     /// Unix seconds the current state was entered.
     pub since: u64,
@@ -198,6 +205,11 @@ pub struct SessionPresence {
     pub workstream: Option<WorkstreamId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<ProjectId>,
+    /// Where the session stands on disk — the harness's working directory:
+    /// a checkout, a goal's or an agent's scratch folder. Absent for a
+    /// terminal, whose folder is its tab's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transcript_path: Option<String>,
     /// Unix seconds the session was registered — never reset, unlike `since`.
@@ -223,6 +235,8 @@ pub struct SessionPresence {
 #[derive(Debug, Clone)]
 pub struct SessionMeta {
     pub kind: SessionKind,
+    /// Why the session exists ([`SessionOrigin`]).
+    pub origin: SessionOrigin,
     pub harness: String,
     pub model: Option<String>,
     /// The effort the session was launched at (`Launched::effort`).
@@ -235,6 +249,8 @@ pub struct SessionMeta {
     pub run: Option<RunId>,
     pub workstream: Option<WorkstreamId>,
     pub project: Option<ProjectId>,
+    /// The harness's working directory, when the session has one of its own.
+    pub cwd: Option<String>,
     pub transcript_path: Option<String>,
 }
 
@@ -399,6 +415,7 @@ impl Presence {
             pid: None,
             id,
             kind: meta.kind,
+            origin: meta.origin,
             state: SessionState::Starting,
             since: now,
             harness: meta.harness,
@@ -412,6 +429,7 @@ impl Presence {
             run: meta.run,
             workstream: meta.workstream,
             project: meta.project,
+            cwd: meta.cwd,
             transcript_path: meta.transcript_path,
             cost: SessionCost::default(),
             children: Vec::new(),
@@ -480,6 +498,20 @@ impl Presence {
             );
             let state = session_word(entry);
             set_state(entry, state, now)
+        });
+    }
+
+    /// The session's origin changed — a turn woken again for someone else,
+    /// the Workflow Agent's wake carried from a design into a repair — and
+    /// the row is said again with the new fact. The same fact twice says
+    /// nothing.
+    pub fn origin(&self, inner: &Inner, id: LiveRunId, origin: SessionOrigin) {
+        self.change(inner, id, |entry, _now| {
+            if entry.presence.origin == origin {
+                return false;
+            }
+            entry.presence.origin = origin;
+            true
         });
     }
 
@@ -634,18 +666,39 @@ impl Presence {
         }
     }
 
-    /// Disposed but resumable: kept, never dropped.
+    /// Disposed, its durable row resumable by its token — and revived by
+    /// nothing in this process (`lifecycle`): the process is gone, so the pid
+    /// goes, and the row stays for the retention window like an ended one,
+    /// then leaves with `SessionGone`.
     pub fn parked(&self, inner: &Inner, id: LiveRunId) {
+        let epoch = {
+            let Some(mut entry) = self.rows.get_mut(&id) else {
+                return;
+            };
+            entry.presence.pid = None;
+            entry.pid_seen_at = None;
+            entry.epoch += 1;
+            entry.epoch
+        };
         self.transition(inner, id, SessionState::Parked);
+        // The retention clock needs an owned handle to run on; while the
+        // engine is still being built there is none, and the row stays.
+        if let Some(owned) = inner.arc() {
+            let retain = self.retain_ended;
+            tokio::spawn(async move {
+                tokio::time::sleep(retain).await;
+                owned.presence.drop_ended(&owned, id, epoch);
+            });
+        }
     }
 
-    /// The retention window closed on a finished session: it leaves the
-    /// roster — unless it moved since (the epoch moved).
+    /// The retention window closed on a finished — or a parked — session:
+    /// it leaves the roster, unless it moved since (the epoch moved).
     fn drop_ended(&self, inner: &Inner, id: LiveRunId, epoch: u64) {
-        let Some((_, gone)) = self
-            .rows
-            .remove_if(&id, |_, e| e.epoch == epoch && e.presence.state.is_ended())
-        else {
+        let Some((_, gone)) = self.rows.remove_if(&id, |_, e| {
+            e.epoch == epoch
+                && (e.presence.state.is_ended() || e.presence.state == SessionState::Parked)
+        }) else {
             return;
         };
         // An interactive session has no registry entry: the roster row and
@@ -1534,6 +1587,11 @@ mod tests {
                 pid: None,
                 id: LiveRunId::mint(),
                 kind: SessionKind::Worker,
+                origin: SessionOrigin::Step {
+                    step: None,
+                    name: None,
+                    resumed: false,
+                },
                 state: SessionState::Starting,
                 since: 0,
                 harness: "mock".into(),
@@ -1547,6 +1605,7 @@ mod tests {
                 run: None,
                 workstream: None,
                 project: None,
+                cwd: None,
                 transcript_path: None,
                 cost: SessionCost::default(),
                 children: vec![],

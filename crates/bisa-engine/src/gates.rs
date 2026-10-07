@@ -11,6 +11,7 @@
 //! waiting session, including the third outcome: "I'm not sure", which
 //! resolves the gate without deciding it.
 
+use crate::registry::LiveRunId;
 use bisa_core::{Answer, AskKind, Gate};
 use bisa_core::{GoalId, Home, RunId, StepId, WorkItemId};
 use dashmap::{DashMap, DashSet};
@@ -36,6 +37,11 @@ pub struct GateResolution {
     /// way to never finish.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clarify_rounds_left: Option<u8>,
+    /// The gate was taken back without a decision — the step it asked for
+    /// was cancelled, the session that asked was stopped. A waiter reads it
+    /// as a refusal that is nobody's: not remembered as the person's answer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub withdrawn: bool,
 }
 
 impl GateResolution {
@@ -60,6 +66,11 @@ pub struct GateEntry {
     pub run: Option<RunId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<StepId>,
+    /// The session that asked, when a session did — a worker's or a design
+    /// wake's permission, a question, a sign-in: what a stop of that session
+    /// withdraws ([`Gates::pending_for_session`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<LiveRunId>,
     pub gate: Gate,
     /// What is being decided: `approval:<run>/<step>`, `step:<run>/<step>`,
     /// `adopt:<workflow>@<rev>`, `amend:<run>@<workflow>`, `permission:<tool>`,
@@ -147,6 +158,33 @@ impl Gates {
             home,
             work_item,
             None,
+            None,
+            gate,
+            subject.into(),
+            question.into(),
+            expects,
+        )
+    }
+
+    /// Open a gate a live session asks through — a permission, a question, a
+    /// sign-in, a page to read — so a stop of that session can take the
+    /// question back ([`Self::pending_for_session`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_for_session(
+        &self,
+        session: Option<LiveRunId>,
+        home: Home,
+        work_item: Option<WorkItemId>,
+        gate: Gate,
+        subject: impl Into<String>,
+        question: impl Into<String>,
+        expects: AskKind,
+    ) -> (String, watch::Receiver<Option<GateResolution>>) {
+        self.open_entry(
+            home,
+            work_item,
+            session,
+            None,
             gate,
             subject.into(),
             question.into(),
@@ -170,6 +208,7 @@ impl Gates {
         self.open_entry(
             home,
             None,
+            None,
             Some((run, step)),
             gate,
             subject.into(),
@@ -183,6 +222,7 @@ impl Gates {
         &self,
         home: Home,
         work_item: Option<WorkItemId>,
+        session: Option<LiveRunId>,
         step: Option<(RunId, StepId)>,
         gate: Gate,
         subject: String,
@@ -200,6 +240,7 @@ impl Gates {
             work_item,
             run,
             step,
+            session,
             gate,
             subject,
             question,
@@ -268,6 +309,14 @@ impl Gates {
             .collect()
     }
 
+    /// The pending gates one live session asked through.
+    pub fn pending_for_session(&self, session: LiveRunId) -> Vec<GateEntry> {
+        self.pending()
+            .into_iter()
+            .filter(|g| g.session == Some(session))
+            .collect()
+    }
+
     /// The pending gates of one home — a goal, or a run of the workspace.
     pub fn pending_for_home(&self, home: &Home) -> Vec<GateEntry> {
         self.pending()
@@ -316,6 +365,7 @@ impl Gates {
             answer,
             decision_event_id,
             clarify_rounds_left,
+            withdrawn: false,
         };
         entry.resolution = Some(resolution.clone());
         let tx = slot.tx.clone();
@@ -338,12 +388,14 @@ impl Gates {
                 return d;
             }
             if rx.changed().await.is_err() {
-                // Sender dropped without decision — treat as denial.
+                // The slot went without a decision — withdrawn: a refusal
+                // that is nobody's.
                 return GateResolution {
                     approve: false,
                     answer: None,
                     decision_event_id: String::new(),
                     clarify_rounds_left: None,
+                    withdrawn: true,
                 };
             }
         }

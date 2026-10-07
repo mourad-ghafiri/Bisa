@@ -42,6 +42,7 @@ app-activity-event-started-run-goal = an event started run { $run } on goal { $g
 app-activity-event-started-run-workspace = an event started run { $run } in the workspace
 app-activity-event-started-this-run = { $source } event started this run
 app-activity-execution-ended = execution ended → { $outcome }{ $why }
+app-activity-session-said = { $who } { $state }
 app-activity-expects = Expects
 app-activity-fact = Fact
 app-activity-failed = { $pre }{ $ev } failed

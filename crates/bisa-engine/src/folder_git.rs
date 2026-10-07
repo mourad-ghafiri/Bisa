@@ -334,7 +334,14 @@ impl FolderGit {
         })
         .await?;
         self.invalidate();
-        crate::projects::suggest_for_tree(inner, path, self.folder.brief(), AgentId::GENERAL).await
+        crate::projects::suggest_for_tree(
+            inner,
+            path,
+            self.folder.brief(),
+            AgentId::GENERAL,
+            crate::ask::Asking::of(bisa_core::AskPurpose::CommitMessage),
+        )
+        .await
     }
 
     /// Push the branch to `origin`, setting the upstream the first time. The

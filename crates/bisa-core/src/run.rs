@@ -180,6 +180,11 @@ pub struct StepRecord {
     /// Failed attempts in the current visit.
     #[serde(default)]
     pub attempts: u8,
+    /// How many restarts cut this step short while it ran. Past
+    /// [`MAX_INTERRUPTIONS`] the step fails instead of running again: a step
+    /// that takes the node down with it is not resumed on every boot.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub interruptions: u8,
     /// The run's `seq` when this record last changed state.
     #[serde(default)]
     pub seq: u64,
@@ -474,6 +479,19 @@ pub fn judged_branch(kind: &StepKind, output: &serde_json::Value) -> Option<Bran
 
 /// The one reason a restart writes on a step it interrupted.
 pub const INTERRUPTED: &str = "interrupted by a restart";
+
+/// How many restarts may cut one step short before it fails for it
+/// ([`StepRecord::interruptions`]).
+pub const MAX_INTERRUPTIONS: u8 = 3;
+
+/// The reason a step fails once restarts cut it short past
+/// [`MAX_INTERRUPTIONS`].
+pub const INTERRUPTED_TOO_OFTEN: &str =
+    "interrupted by a restart too many times; the step is not resumed again";
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
+}
 
 /// The reason an `end` step with `finish = "failed"` records on itself.
 pub const ENDED_FAILED: &str = "the workflow ends here as failed";
@@ -1312,15 +1330,31 @@ impl WorkflowRun {
                     max_visits: 1,
                     position: None,
                 });
-                let (attempts, work_item) = self
+                let (attempts, work_item, too_often) = self
                     .steps
                     .get_mut(&step)
                     .map(|r| {
-                        r.error = Some(INTERRUPTED.to_string());
-                        (r.attempts, r.work_item)
+                        r.interruptions = r.interruptions.saturating_add(1);
+                        let too_often = r.interruptions > MAX_INTERRUPTIONS;
+                        r.error = Some(
+                            if too_often {
+                                INTERRUPTED_TOO_OFTEN
+                            } else {
+                                INTERRUPTED
+                            }
+                            .to_string(),
+                        );
+                        (r.attempts, r.work_item, too_often)
                     })
-                    .unwrap_or((u8::MAX, None));
+                    .unwrap_or((u8::MAX, None, false));
                 match &def.kind {
+                    // Cut short once too often: whatever its kind, the step
+                    // fails rather than running again on every boot.
+                    _ if too_often => {
+                        self.mark(&step, StepState::Failed, now, |_| {});
+                        self.fail_out(&def, now, &mut effects);
+                        self.settle(now, &mut effects);
+                    }
                     // The work is in the item's checkout; the session is not
                     // the work. Resume on the item, or start one when the
                     // restart came before an item existed.
@@ -2709,6 +2743,67 @@ mod tests {
         );
         assert_eq!(state(&r, "b"), &StepState::Cancelled);
         assert_eq!(r.status(), RunStatus::Failed);
+    }
+
+    /// A restart may cut a step short three times; the fourth fails it with
+    /// its own reason, so a step that takes the node down is not resumed on
+    /// every boot — and none of it costs an attempt.
+    #[test]
+    fn the_fourth_interruption_fails_the_step_with_the_reason() {
+        let (mut r, _) = started(workflow(vec![agent("a", &["b"]), agent("b", &[])]));
+        let item = WorkItemId::from_ulid(ulid::Ulid::from_parts(7, 7));
+        r.apply(
+            RunEvent::StepStarted {
+                step: sid("a"),
+                work_item: Some(item),
+            },
+            101,
+        )
+        .unwrap();
+        for n in 1..=MAX_INTERRUPTIONS {
+            let e = r
+                .apply(
+                    RunEvent::StepInterrupted { step: sid("a") },
+                    101 + u64::from(n),
+                )
+                .unwrap();
+            assert_eq!(
+                e,
+                vec![RunEffect::ResumeAgent {
+                    step: sid("a"),
+                    work_item: item
+                }],
+                "cut short {n} times: resumed"
+            );
+            assert_eq!(state(&r, "a"), &StepState::Running);
+            assert_eq!(r.steps[&sid("a")].interruptions, n);
+            assert_eq!(r.steps[&sid("a")].error.as_deref(), Some(INTERRUPTED));
+        }
+        let e = r
+            .apply(RunEvent::StepInterrupted { step: sid("a") }, 110)
+            .unwrap();
+        assert_eq!(state(&r, "a"), &StepState::Failed);
+        assert_eq!(
+            r.steps[&sid("a")].error.as_deref(),
+            Some(INTERRUPTED_TOO_OFTEN)
+        );
+        assert_eq!(
+            e,
+            vec![RunEffect::Finished {
+                outcome: RunOutcome::Failed
+            }]
+        );
+        assert_eq!(
+            r.steps[&sid("a")].attempts,
+            0,
+            "an interruption costs no attempt"
+        );
+        // The count rides the snapshot, and a record that never was cut
+        // short does not spell it.
+        let wire = serde_json::to_value(&r.steps[&sid("a")]).unwrap();
+        assert_eq!(wire["interruptions"], serde_json::json!(4));
+        let fresh = serde_json::to_value(&r.steps[&sid("b")]).unwrap();
+        assert!(fresh.get("interruptions").is_none(), "{fresh}");
     }
 
     #[test]

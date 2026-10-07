@@ -16,6 +16,7 @@
  * never to a session.
  */
 
+import { titleOf } from "../../shell/sessionOriginModel.mjs";
 import { projectConversations, runsHere } from "../_studio/conversationsModel.mjs";
 import { counts, isLive, isStoppable, loudest, sortRows } from "../../ui/sessionState.mjs";
 import { headlineOf } from "./workstreamPulseModel.mjs";
@@ -89,7 +90,7 @@ export function sessionsOf(sessions, conversation) {
   if (!conversation) return [];
   return sortRows((sessions ?? []).filter((s) => s.conversation === conversation)).map((s) => ({
     id: s.id,
-    label: s.agent ?? s.harness,
+    label: titleOf(s),
     kind: s.kind,
     state: s.state,
     since: s.since,

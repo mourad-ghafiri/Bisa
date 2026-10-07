@@ -180,7 +180,10 @@ Version 14 is the restart mark: `sessions.status` is one of `live` · `parked` �
 `CHECK`, indexed, beside `pid`, `pid_seen_at` and `ended_at`; the signal queue's counts live in the
 queue. Version 15 is the conversations mark: a `conversations` table with its `conversation_agents`,
 a message's scope is a `channel`, a `goal` or a `conversation`, and a session row says its `kind`
-and the `conversation` it is a turn of. Version 17 is the thinking mark: a message carries the
+and the `conversation` it is a turn of (the roster's fifth kind, `ask` — one bounded question to a
+model — is never written here: it runs at the read tier in a scratch folder under a deadline, so
+a crash's orphan can hurt no checkout and no restart needs its record; it is a row of the roster
+alone, [06](06-agents-and-teams.md#sessions-and-presence)). Version 17 is the thinking mark: a message carries the
 `thinking` its author's harness streamed before the words (null for a person's post), a body kind
 is `post` or `membership` and nothing else, and a conversation keeps no compaction counters — the
 harness compacts its own context. Version 18 is the project-list mark: `conversations` gains

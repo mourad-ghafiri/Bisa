@@ -297,33 +297,60 @@ pub fn withdraw_dead_questions(inner: &Arc<Inner>) -> usize {
     let mut withdrawn = 0;
     for home in homes {
         for (subject, text) in open_dead_questions(inner, &home) {
-            let (signer, attestation) = ops::signer_for(&inner.ws, None);
-            if let Err(e) = inner.ws.append_journal(
-                &home,
-                JournalPayload::Withdrawn {
-                    subject: subject.clone(),
-                    reason: INTERRUPTED.to_string(),
-                },
-                &signer,
-                attestation,
-            ) {
-                tracing::warn!(target: "bisa_engine", %home, "restart recovery could not withdraw a question: {e}");
-                continue;
-            }
             let note = format!(
                 "a decision you were asked for was interrupted by a restart — \"{}\" — ask again from where it came",
-                text.lines().next().unwrap_or_default().chars().take(160).collect::<String>()
+                first_line(&text)
             );
-            if let Err(e) = ops::add_note(inner, home, note, None) {
-                tracing::warn!(target: "bisa_engine", %home, "restart recovery could not note a withdrawn question: {e}");
+            if withdraw_question(inner, home, &subject, INTERRUPTED, note) {
+                withdrawn += 1;
             }
-            withdrawn += 1;
         }
     }
     if withdrawn > 0 {
         tracing::info!(target: "bisa_engine", withdrawn, "restart recovery withdrew the questions the last process was asking");
     }
     withdrawn
+}
+
+/// The first line of a question, as a note quotes it.
+pub(crate) fn first_line(text: &str) -> String {
+    text.lines()
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .take(160)
+        .collect()
+}
+
+/// Withdraw one journaled question on `home` without deciding it: a
+/// `Withdrawn` fact under its subject with `reason`, and `note` on the home
+/// saying so — the Inbox reads the withdrawal as a decision would be, and a
+/// later boot does not withdraw it again. Answers whether the fact was
+/// written; a journal that cannot be written is logged, never a panic.
+pub(crate) fn withdraw_question(
+    inner: &Arc<Inner>,
+    home: Home,
+    subject: &str,
+    reason: &str,
+    note: String,
+) -> bool {
+    let (signer, attestation) = ops::signer_for(&inner.ws, None);
+    if let Err(e) = inner.ws.append_journal(
+        &home,
+        JournalPayload::Withdrawn {
+            subject: subject.to_string(),
+            reason: reason.to_string(),
+        },
+        &signer,
+        attestation,
+    ) {
+        tracing::warn!(target: "bisa_engine", %home, "could not withdraw a question: {e}");
+        return false;
+    }
+    if let Err(e) = ops::add_note(inner, home, note, None) {
+        tracing::warn!(target: "bisa_engine", %home, "could not note a withdrawn question: {e}");
+    }
+    true
 }
 
 /// `(subject, text)` of every question on the home whose asker died with the

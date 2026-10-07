@@ -839,14 +839,20 @@ pub enum SessionKind {
     /// A harness a person opened in a desktop terminal, reporting through its
     /// own hooks; never driven by the engine, never recorded here.
     Terminal,
+    /// One bounded question put to a model and nothing else — the
+    /// classifier's reading, the Decision-Making Agent's judgement, a
+    /// suggested commit message: on the roster while it runs, never recorded
+    /// here (it holds no door to the platform and ends with its deadline).
+    Ask,
 }
 
 impl SessionKind {
-    pub const ALL: [SessionKind; 4] = [
+    pub const ALL: [SessionKind; 5] = [
         SessionKind::Worker,
         SessionKind::Guided,
         SessionKind::Conversation,
         SessionKind::Terminal,
+        SessionKind::Ask,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -855,6 +861,7 @@ impl SessionKind {
             SessionKind::Guided => "guided",
             SessionKind::Conversation => "conversation",
             SessionKind::Terminal => "terminal",
+            SessionKind::Ask => "ask",
         }
     }
 

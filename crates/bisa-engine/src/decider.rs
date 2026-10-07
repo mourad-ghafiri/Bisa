@@ -258,9 +258,11 @@ pub fn is_on_globally(inner: &Inner, point: DecisionPoint) -> bool {
     is_on(inner, point, &Standing::default())
 }
 
-/// The engine's one-shot session, as the providers' [`Asker`].
+/// The engine's one-shot session, as the providers' [`Asker`] — asking for
+/// what the judgement is for, so its roster row says so.
 struct EngineAsker<'a> {
     inner: &'a Inner,
+    asking: crate::ask::Asking,
 }
 
 #[async_trait]
@@ -285,6 +287,7 @@ impl Asker for EngineAsker<'_> {
         ask_once(
             self.inner,
             &whom,
+            self.asking.clone(),
             prompt,
             Some(output_schema.clone()),
             deadline,
@@ -404,11 +407,27 @@ fn redacted(inner: &Inner, request: &DecisionRequest) -> DecisionRequest {
 }
 
 /// Ask the provider the settings name — or the one standing in — with nothing
-/// decided about what becomes of the answer. `POST /decisions/try` and
-/// [`judge`] both come through here.
+/// decided about what becomes of the answer: `POST /decisions/try`, a
+/// judgement at no point.
 pub async fn ask(
     inner: &Inner,
     request: &DecisionRequest,
+) -> (ProviderDescriptor, Result<DecisionResponse, ProviderError>) {
+    ask_for(
+        inner,
+        request,
+        crate::ask::Asking::of(bisa_core::AskPurpose::Decision { point: None }),
+    )
+    .await
+}
+
+/// [`ask`], saying what the judgement is for — the roster row of the
+/// session it may launch names the point and its home. `POST /decisions/try`
+/// and [`judge`] both come through here.
+pub async fn ask_for(
+    inner: &Inner,
+    request: &DecisionRequest,
+    asking: crate::ask::Asking,
 ) -> (ProviderDescriptor, Result<DecisionResponse, ProviderError>) {
     let wait = deadline(inner);
     if let Some(provider) = inner.decider.standing_in() {
@@ -417,7 +436,7 @@ pub async fn ask(
         return (provider.descriptor(), provider.decide(request, wait).await);
     }
     let settings = settings(inner);
-    let asker = EngineAsker { inner };
+    let asker = EngineAsker { inner, asking };
     let keystore = Keystore { inner };
     // The endpoint a person named is the one host this call declares; the
     // node's deny list still comes first.
@@ -489,7 +508,13 @@ pub async fn judge(
     }
     let request = redacted(inner, &request);
     let started = Instant::now();
-    let (descriptor, result) = ask(inner, &request).await;
+    let (descriptor, result) = ask_for(
+        inner,
+        &request,
+        crate::ask::Asking::of(bisa_core::AskPurpose::Decision { point: Some(point) })
+            .on(standing.home),
+    )
+    .await;
     let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let bar = standing
         .min_confidence

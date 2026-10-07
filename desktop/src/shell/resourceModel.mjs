@@ -166,10 +166,10 @@ export function platformRows(shares, host, cores, metric) {
 }
 
 function sessionsWord(n) {
-  return n === 1 ? "1 session" : tr("shell-resource-sessions", { n });
+  return tr("shell-resource-sessions", { n });
 }
 function tabsWord(n) {
-  return n === 1 ? "1 shell" : tr("shell-resource-shells", { n });
+  return tr("shell-resource-shells", { n });
 }
 
 /** A percent for a legend or a tooltip: whole, and *<1%* for a share that rounds to nothing. */

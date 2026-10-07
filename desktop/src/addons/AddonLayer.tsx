@@ -38,7 +38,7 @@ export function AddonLayer() {
   const ws = useWorkspace();
   const sessions = useSettledSessions();
   const summary: AddonSummary = useMemo(() => {
-    const { waiting, review, working } = workSummary(ws, sessionCounts(sessions));
+    const { waiting, review, working } = workSummary(ws, sessionCounts(sessions), sessions);
     return { waiting, review, working };
     // Keyed on the three facts `workSummary` reads: `ws` is a new object on
     // every workspace fact, and following it would wake every listening

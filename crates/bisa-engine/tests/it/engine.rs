@@ -616,7 +616,7 @@ async fn park_then_nothing_revives_and_tombstone() {
 
     // Nothing revives it: the next wake launches afresh. A follow-up finds
     // no live session to take it.
-    assert!(!inner.lifecycle.follow_up(agent_id, "continue").await);
+    assert!(!inner.lifecycle.follow_up(inner, agent_id, "continue").await);
     // Tombstone: the hard-kill survives.
     inner.registry.abort(agent_id).unwrap();
     assert_eq!(
@@ -626,6 +626,85 @@ async fn park_then_nothing_revives_and_tombstone() {
     // The live handle round-trips as text and is not a workflow run id.
     let text = agent_id.to_string();
     assert_eq!(text.parse::<LiveRunId>().unwrap(), agent_id);
+    engine.shutdown().await;
+}
+
+/// A delivered follow-up is a touch: the idle clock starts again from it,
+/// and the session still parks once nobody talks to it — it is not kept for
+/// good by the one follow-up that invalidated the clock armed at adoption.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_follow_up_re_arms_the_idle_clock_and_the_session_still_parks() {
+    use bisa_engine::registry::{AgentRef, AgentStatus, SessionKind};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let inner = engine.inner();
+    let adapter = inner.catalog.get("mock").unwrap();
+    let spec = bisa_harness::SessionSpec {
+        skills: vec![],
+        work_item: None,
+        cwd: dir.path().to_path_buf(),
+        prompt: "hi".into(),
+        model: None,
+        effort: None,
+        mcp_servers: vec![],
+        env: Default::default(),
+        env_remove: Vec::new(),
+        tier_ceiling: ToolTier::Read,
+        output_schema: None,
+    };
+    let session = adapter.launch(spec).await.unwrap();
+    let agent_id = LiveRunId::mint();
+    inner
+        .registry
+        .register_if(
+            AgentRef {
+                id: agent_id,
+                kind: SessionKind::Worker,
+                status: AgentStatus::Idle,
+                generation: 1,
+                session_id: None,
+                work_item: None,
+                conversation: None,
+                goal: None,
+                workstream: None,
+                transcript_path: None,
+                last_activity: 0,
+            },
+            None,
+        )
+        .unwrap();
+    inner
+        .ws
+        .record_session(&bisa_store::SessionRow {
+            id: "sess-2".into(),
+            adapter: "mock".into(),
+            kind: SessionKind::Worker,
+            status: bisa_store::SessionStatus::Live,
+            ..Default::default()
+        })
+        .unwrap();
+    inner.lifecycle.adopt(
+        inner,
+        agent_id,
+        session,
+        "sess-2".into(),
+        Duration::from_millis(200),
+    );
+    assert!(
+        inner.lifecycle.follow_up(inner, agent_id, "go on").await,
+        "delivered into the live session"
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            if inner.registry.get(agent_id).unwrap().status == AgentStatus::Parked {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the session parks after the follow-up's own idle time");
+    assert!(!inner.lifecycle.is_live(agent_id).await);
     engine.shutdown().await;
 }
 

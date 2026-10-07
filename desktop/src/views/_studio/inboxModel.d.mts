@@ -9,6 +9,7 @@ import type { Tone } from "../../activityModel.mjs";
 import type { GateKind, InboxKind, InboxRow, NeedsAction, NoticeDto, PulseSource } from "../../types";
 import type { InboxFrame } from "../../types";
 import type { Route } from "../../router";
+import type { PlaceIndex } from "../../shell/footerSessionsModel.mjs";
 
 export type FilterId = "needs_you" | "unread" | "all";
 export type SourceId = "any" | "messages" | "projects" | "workflows" | "goals" | "people";
@@ -45,6 +46,8 @@ export declare function rowState(row: InboxRow): RowState;
 export declare function joinOf(row: Pick<InboxRow, "join"> | null | undefined): InboxRow["join"] | null;
 export declare function waitingOf(row: Pick<InboxRow, "waiting"> | null | undefined): InboxRow["waiting"] | null;
 export declare function waitingWords(row: Pick<InboxRow, "waiting" | "title">, labels?: Record<string, string>): string | null;
+/** What the waiting session works for — its goal by label, else its project by name — or `null` when it names neither. */
+export declare function waitingAbout(row: Pick<InboxRow, "waiting">, index: PlaceIndex): string | null;
 /** What the join card says: who asks, as what. */
 export declare function joinWords(row: InboxRow): string | null;
 export declare function isHandled(row: InboxRow): boolean;

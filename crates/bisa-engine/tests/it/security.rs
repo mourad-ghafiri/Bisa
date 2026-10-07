@@ -764,6 +764,7 @@ async fn a_one_shot_ask_answers_a_read_permission_instead_of_stalling() {
     let answer = bisa_engine::ask::ask_agent_once(
         engine.inner(),
         AgentId::GENERAL,
+        bisa_engine::ask::Asking::of(bisa_core::AskPurpose::Classifier),
         "which file?",
         std::time::Duration::from_secs(20),
     )

@@ -181,6 +181,7 @@ async fn prompted(
     let asked: Result<crate::ask::Asked, EngineError> = Box::pin(ask_once(
         inner,
         &whom,
+        crate::ask::Asking::of(bisa_core::AskPurpose::Classifier).on(reading.home),
         &reading.prompt,
         None,
         settings.deadline(),

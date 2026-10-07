@@ -424,7 +424,7 @@ test("what the pet is doing is said in the catalog's words for every row of the 
   assert.equal(new Set(["waiting", "review", "running", "idle", "failed", "waving", "jumping"].map(stateWords)).size, 7, "each standing and each once-through state reads differently");
   const { readFileSync } = await import("node:fs");
   const companion = readFileSync(new URL("./PetCompanion.tsx", import.meta.url), "utf8");
-  assert.ok(companion.includes("const saying = followed ? `${stateWords(state)} · ${followWords(followed)}` : stateWords(state);"), "the label a person hears is worded");
+  assert.ok(companion.includes('const saying = followed ? t("shell-followed-session-who", { state: stateWords(state), who: followWords(followed) }) : stateWords(state);'), "the label a person hears is worded, the join a catalog message");
   assert.ok(companion.includes("useReloadOnReconnect(() => void refreshPets());"), "a node that was away at boot is asked for the pets once it is back");
   const model = readFileSync(new URL("./petModel.mjs", import.meta.url), "utf8");
   assert.ok(!model.includes('"yours"'), "no word of its own");

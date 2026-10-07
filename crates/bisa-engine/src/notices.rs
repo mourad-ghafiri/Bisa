@@ -754,6 +754,14 @@ mod tests {
         let presence = |kind: crate::registry::SessionKind| crate::presence::SessionPresence {
             id: crate::registry::LiveRunId::mint(),
             kind,
+            origin: match kind {
+                crate::registry::SessionKind::Terminal => bisa_core::SessionOrigin::Terminal,
+                _ => bisa_core::SessionOrigin::Step {
+                    step: None,
+                    name: None,
+                    resumed: false,
+                },
+            },
             state: crate::presence::SessionState::Waiting {
                 on: crate::presence::WaitingOn::Permission {
                     tool: "Bash".into(),
@@ -772,6 +780,7 @@ mod tests {
             run: None,
             workstream: None,
             project: None,
+            cwd: None,
             transcript_path: None,
             started: 1,
             pid: None,

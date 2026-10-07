@@ -22,6 +22,8 @@ struct Slot {
     /// Bumped on every touch; a pending TTL task only parks when its epoch is
     /// still current (this is the park/revive race resolution).
     epoch: u64,
+    /// How long the session idles before it parks — re-armed by every touch.
+    idle_ttl: Duration,
 }
 
 /// Owns live sessions for adopted agents.
@@ -49,6 +51,7 @@ impl Lifecycle {
             session: Some(session),
             session_row_id,
             epoch: 0,
+            idle_ttl,
         }));
         self.slots.insert(agent_id, Arc::clone(&slot));
         self.arm_ttl(inner, agent_id, slot, 0, idle_ttl);
@@ -100,20 +103,28 @@ impl Lifecycle {
 
     /// Deliver a follow-up message into the agent's live session, if it is
     /// live and the session accepts follow-ups. Returns whether delivery
-    /// happened (false = caller should wake fresh instead).
-    pub async fn follow_up(&self, agent_id: LiveRunId, text: &str) -> bool {
+    /// happened (false = caller should wake fresh instead). A delivered
+    /// follow-up is a touch: the idle clock starts again from it, so a
+    /// session a person keeps talking to parks once they stop, never never.
+    pub async fn follow_up(&self, inner: &Arc<Inner>, agent_id: LiveRunId, text: &str) -> bool {
         let Some(slot) = self.slots.get(&agent_id).map(|s| Arc::clone(&s)) else {
             return false;
         };
         let mut guard = slot.lock().await;
         guard.epoch += 1; // touched: invalidate any pending TTL
-        match &guard.session {
+        let delivered = match &guard.session {
             Some(session) => session
                 .follow_up(bisa_harness::Steer::from(text.to_string()))
                 .await
                 .is_ok(),
             None => false,
+        };
+        let (epoch, idle_ttl) = (guard.epoch, guard.idle_ttl);
+        drop(guard);
+        if delivered {
+            self.arm_ttl(inner, agent_id, slot, epoch, idle_ttl);
         }
+        delivered
     }
 
     /// Let go of an adopted session for good — what stopping its row does:

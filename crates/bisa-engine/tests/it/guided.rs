@@ -2465,3 +2465,60 @@ async fn a_manual_capture_wakes_nobody_and_a_proposal_is_its_draft() {
     assert!(err.to_string().contains("is manual"), "{err}");
     engine.shutdown().await;
 }
+
+/// A design wake's row says which job it is on, that it stands in the goal's
+/// own scratch folder, and the pid its harness announced at launch — on the
+/// row and on the record a boot after a crash reads.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_design_wakes_row_says_its_phase_its_scratch_folder_and_its_pid() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "hanging-harness");
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::new(MockAdapter {
+        id: "hanging-harness".into(),
+        pid: Some(1618),
+        script: Some(vec![]),
+        ..Default::default()
+    }));
+    let engine = Engine::start(
+        ws,
+        catalog,
+        EngineConfig {
+            guided_wake_timeout_secs: 30,
+            ..guided_config()
+        },
+    )
+    .unwrap();
+    let goal = engine.submit_goal(guided("who am I for")).unwrap();
+    let row =
+        until("the wake's row with its pid", || {
+            engine.inner().presence.snapshot().into_iter().find(|r| {
+                r.kind == bisa_engine::registry::SessionKind::Guided && r.pid == Some(1618)
+            })
+        })
+        .await;
+    assert_eq!(
+        row.origin,
+        bisa_core::SessionOrigin::Design {
+            phase: GuidancePhase::Design
+        }
+    );
+    assert_eq!(row.goal, Some(goal.id));
+    let cwd = row
+        .cwd
+        .clone()
+        .expect("a wake stands in the goal's scratch folder");
+    assert!(cwd.contains(&goal.id.to_string()), "{cwd}");
+    let session_id = row.session_id.unwrap().to_string();
+    until("the record to carry the pid", || {
+        engine
+            .workspace()
+            .session_by_id(&session_id)
+            .unwrap()
+            .filter(|r| r.pid == Some(1618))
+            .map(|_| ())
+    })
+    .await;
+    engine.shutdown().await;
+}

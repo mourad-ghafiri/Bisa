@@ -393,7 +393,11 @@ async fn escalate_to_inbox(
     question: String,
 ) -> bool {
     let subject = format!("content:{source_words}");
-    let (gate_id, rx) = inner.gates.open(
+    // The session that reads, when one does: a stop of it takes the
+    // question back.
+    let asker = work_item.and_then(|wi| inner.presence.by_work_item(wi));
+    let (gate_id, rx) = inner.gates.open_for_session(
+        asker,
         home,
         work_item,
         Gate::Escalation,
@@ -409,7 +413,7 @@ async fn escalate_to_inbox(
         &question,
         AskKind::Decision,
     );
-    if let Some(live_run) = work_item.and_then(|wi| inner.presence.by_work_item(wi)) {
+    if let Some(live_run) = asker {
         inner.presence.waiting(
             inner,
             live_run,

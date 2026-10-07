@@ -34,6 +34,31 @@ export function openTerminalTab(tab: { key: string; scope: TerminalScope; id: st
  * (`terminalKey`), else the workstream with the Agents pane on it and the
  * session followed. A session in no checkout has nowhere to open: false.
  */
+/**
+ * Open a session where it comes from (`sessionOriginModel.doorOf`): its tab
+ * when a person opened it in a terminal, else the route its origin names —
+ * a goal's page, a run's, a thread, a channel, a conversation, a workstream
+ * (followed, with the Agents pane on it). A session with no door: false.
+ */
+export function openSessionDoor(
+  session: { id: string; workstream: string | null; terminalKey?: string | null },
+  door: { name: string; id?: string; scope?: string } | null,
+): boolean {
+  if (session.terminalKey && session.workstream) {
+    openTerminalTab({ key: session.terminalKey, scope: "workstream", id: session.workstream });
+    return true;
+  }
+  if (!door) return false;
+  if (door.name === "workbench" && door.scope === "workstream" && door.id) {
+    followSession(door.id, session.id);
+    navigate({ name: "workbench", scope: "workstream", id: door.id });
+    showRightPanel("agents", `workstream:${door.id}`);
+    return true;
+  }
+  navigate(door as Parameters<typeof navigate>[0]);
+  return true;
+}
+
 export function openHarnessSession(session: { id: string; workstream: string | null; terminalKey?: string | null }): boolean {
   if (!session.workstream) return false;
   if (session.terminalKey) {

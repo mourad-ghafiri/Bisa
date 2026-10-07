@@ -35,7 +35,7 @@ import { stopPort } from "../terminal/session";
 import { boardLabel } from "../views/_work/types";
 import { globalPorts, groupPorts, portUrl, portsKeptWords, portsSummary, stopPlacedPrompt } from "../views/_workbench/portsModel.mjs";
 import type { PlacedPort, PortGroup, PortOwner } from "../views/_workbench/portsModel.mjs";
-import { ConfirmDialog, ICON, Popover, SessionMark, Tooltip, cn, harnessMark, useToast } from "../ui";
+import { ConfirmDialog, ICON, Popover, SessionMark, Tooltip, cn, harnessMark, useToast, LiveDuration } from "../ui";
 import { rescanPorts, usePorts, usePortsStale } from "./portsStore";
 import { useHarnessLabels } from "./useHarnesses";
 import { useSessions } from "./sessionsStore";
@@ -51,8 +51,9 @@ import { NodeStat } from "./NodeStat";
 import { metricWords, staleWords } from "./resourceModel.mjs";
 import { NetworkStat } from "./NetworkStat";
 import { ResourceStat } from "./ResourceStat";
-import { footerSessions, placeIndex, placeWords } from "./footerSessionsModel.mjs";
-import { openHarnessSession, openTerminalTab } from "./sessionDoors";
+import { footerSessions, placeWords } from "./footerSessionsModel.mjs";
+import { openSessionDoor, openTerminalTab } from "./sessionDoors";
+import { originIndex, originOf } from "./sessionOriginModel.mjs";
 import { useEditorStatus } from "../views/_workbench/editorStatusStore";
 import { UsageStat } from "./UsageStat";
 import { t as tr } from "../i18n/l10n.mjs";
@@ -120,8 +121,11 @@ export function StatusBar({ conn }: { conn: ConnState }) {
 
   const placed = useMemo(() => globalPorts(scanned, terminals, sessions), [scanned, terminals, sessions]);
   const portGroups = useMemo(() => groupPorts(placed), [placed]);
-  // Where a session stands — its project and workstream — from the workspace index, once.
-  const places = useMemo(() => placeIndex({ workstreams: ws.workstreams, projects: ws.projects, goals: ws.goals.map((g) => ({ id: g.id, label: boardLabel(g) })) }), [ws.workstreams, ws.projects, ws.goals]);
+  // Where a session stands and what it is for — its project and workstream, its goal, its agent's name — from the workspace index, once.
+  const places = useMemo(
+    () => originIndex({ workstreams: ws.workstreams, projects: ws.projects, goals: ws.goals.map((g) => ({ id: g.id, label: boardLabel(g) })), agents: ws.agents, channels: ws.channels, dms: ws.dms, nameOf: ws.nameOf }, harnessLabels),
+    [ws.workstreams, ws.projects, ws.goals, ws.agents, ws.channels, ws.dms, ws.nameOf, harnessLabels],
+  );
   // The rail's rows: the two rosters reconciled, a reported harness once, each with its place.
   const live = useMemo(() => footerSessions(terminals, sessions, places), [terminals, sessions, places]);
 
@@ -199,16 +203,22 @@ export function StatusBar({ conn }: { conn: ConnState }) {
         {(close) => (
           <PopList
             empty={tr("shell-status-bar-harness-running")}
-            rows={live.harnesses.map((s) => ({
-              key: s.id,
-              dot: <SessionMark state={s.state} />,
-              label: s.agent ?? (s.harness ? (harnessLabels[s.harness] ?? s.harness) : tr("shell-status-bar-session")),
-              sub: s.place,
-              disabled: !s.workstream,
-              onClick: () => {
-                if (openHarnessSession(s)) close();
-              },
-            }))}
+            rows={live.harnesses.map((s) => {
+              // Who it is, what it is for, where it stands, how long it has stood — and where it opens.
+              const words = originOf(s.row, places);
+              return {
+                key: s.id,
+                dot: <SessionMark state={s.state} />,
+                label: words.title,
+                sub: tr("shell-footer-sessions-line", { origin: words.origin, place: s.place }),
+                trailing: s.started !== null ? <span className="tnum text-text-dim"><LiveDuration since={s.started} /></span> : undefined,
+                dim: s.state.state === "idle",
+                disabled: !words.door && !s.terminalKey,
+                onClick: () => {
+                  if (openSessionDoor({ id: s.id, workstream: s.workstream, terminalKey: s.terminalKey }, words.door)) close();
+                },
+              };
+            })}
           />
         )}
       </CountButton>

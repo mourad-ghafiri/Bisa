@@ -296,16 +296,23 @@ the desktop does not wait to be told: a session whose claiming tab has exited re
 (`terminalsModel.settledByTab` — *done* on a clean status, else *failed*, as of the exit, no
 sub-agents), so the rail never shows a harness counting up under a tab that reads *exited*.
 
-**The footer counts the same rows.** The window footer's *open terminals* and *running harnesses*
-are `shell/footerSessionsModel.mjs` over the same `claimedSessions` / `isDrawn` rule the rail
-reads: a reported harness is one row, its tab remembered; an unclaimed interactive row is nowhere;
-a tab is open while it has not exited — a restored tab counts before its terminal mounts, since
-loss of contact is never evidence of death. Every row says where it stands, compactly — the
-project and the workstream, *Bisa › feat/a* — from one index over the workspace
-(`placeIndex` / `placeWords`), the workstream's word the cards' own rule (`cardTitle`). The footer's resource overlays read the same claim: a terminal's share of CPU, memory or disk activity is its shell's whole process tree, and a harness a tab claims is the harness's share, not the tab's (`shell/resourceModel.mjs`). Every row is a door through `shell/sessionDoors.ts`,
+**The footer counts the checkout's rows and the engine's off-checkout harnesses.** The window
+footer's *open terminals* and *live harnesses* are `shell/footerSessionsModel.mjs` over the same
+`claimedSessions` rule the rail reads and the counting rule every surface shares
+(`shell/sessionCountsModel.mjs`, `isHarnessProcess`): a reported harness is one row, its tab
+remembered; an unclaimed interactive row is nowhere; a conversation's turn is its conversation's
+and never a row here; the Workflow Agent's design wake and a one-shot ask — the classifier, a
+judgement, a commit message suggested — are rows, having no checkout and no rail row to be found
+by; a tab is open while it has not exited — a restored tab counts before its terminal mounts, since
+loss of contact is never evidence of death. Every row says who it is, what it is for, where it
+stands and since when (`shell/sessionOriginModel.mjs`, [ide/09](09-agents-in-the-ide.md)) — the
+place compactly, the project and the workstream, *Bisa › feat/a*, from one index over the
+workspace (`placeIndex` / `placeWords`), the workstream's word the cards' own rule (`cardTitle`),
+else the folder the harness runs in. The footer's resource overlays attribute by pid — a turn's process takes CPU too — and name each row by the same model: a terminal's share of CPU, memory or disk activity is its shell's whole process tree, and a harness a tab claims is the harness's share, not the tab's (`shell/resourceModel.mjs`). Every row is a door through `shell/sessionDoors.ts`,
 the one way anything — the rail, the footer, a menu — opens a terminal tab (focus it, then the
-route to its place with `?doc=terminal:<key>`) or a harness session (its tab, else the session
-followed and the Agents pane on its workstream).
+route to its place with `?doc=terminal:<key>`) or a session where it comes from
+(`openSessionDoor`: its tab when one claims it, else the goal, the run, the thread, the channel or
+the conversation its origin names, else followed with the Agents pane on its workstream).
 
 `terminal_close` returns as soon as the entry is marked *closing*; the escalation and the report run
 off the UI thread, and quitting the app waits at most 1.5 s for every tab's process to be gone. A

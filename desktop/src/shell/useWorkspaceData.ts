@@ -9,6 +9,8 @@
  * is then free, and a badge is correct wherever it appears.
  */
 
+import { onSessionTransition, sessionRows } from "./sessionsStore";
+import { clearedByRow, rebuilt, sameWorking, withReplied, withThinking } from "./workingModel.mjs";
 import {
   createContext,
   useCallback,
@@ -193,9 +195,10 @@ export function refreshWorkspace(): void {
 }
 
 /**
- * Frames the sibling's conversation work will emit (`agent_thinking` /
- * `agent_replied`). They are not in the generated union yet, so read them
- * structurally rather than pretending the union already has them.
+ * The two frames the working dot reads (`agent_thinking` / `agent_replied`,
+ * typed in `types.hand.ts`), read structurally here: the handler below
+ * switches on `type` across every engine frame, and a loose shape keeps it
+ * one `if` chain.
  */
 interface LoosePayload {
   type: string;
@@ -316,7 +319,18 @@ export function useWorkspaceState(): WorkspaceData {
     setLoadFailed(failed);
     setOffline(unreachable ? offlineWords(nodeFailureReason()) : null);
     setReady(true);
+    // The roster as it stands is the truth the working dot is held to: a
+    // scope is working where a busy row stands, and a hint whose end was
+    // lost stops showing (`workingModel`).
+    setWorking((w) => {
+      const next = rebuilt(sessionRows());
+      return sameWorking(w, next) ? w : next;
+    });
   }, []);
+
+  // A row that ended, parked or went idle clears its agent from its scope —
+  // whatever frame was lost on the way.
+  useEffect(() => onSessionTransition((_prev, row) => setWorking((w) => clearedByRow(w, row))), []);
 
   /** The hosted sections read again on their own: a host that could not answer is named in the chrome, as at a load, and one that answers again is un-named. */
   const readHosted = useCallback(async () => {
@@ -433,14 +447,10 @@ export function useWorkspaceState(): WorkspaceData {
         // through the context. Same state, same reference, no commit.
         if (p.type === "agent_thinking" && p.scope && p.agent) {
           const { scope, agent } = p;
-          setWorking((w) => (w[scope]?.includes(agent) ? w : { ...w, [scope]: [...(w[scope] ?? []), agent] }));
+          setWorking((w) => withThinking(w, scope, agent));
         } else if (p.type === "agent_replied" && p.scope) {
           const { scope, agent } = p;
-          setWorking((w) => {
-            const before = w[scope] ?? [];
-            const after = before.filter((a) => a !== agent);
-            return after.length === before.length ? w : { ...w, [scope]: after };
-          });
+          setWorking((w) => withReplied(w, scope, agent ?? null));
         } else if (p.type === "paused" || p.type === "resumed") {
           // Not a reload: pausing changes what the engine will do next, not
           // what any list currently holds.

@@ -5,14 +5,20 @@
 //! exercise the whole path: resolve the agent, launch through the executor,
 //! accumulate the text, settle on the turn end, dispose.
 
-use bisa_core::AgentId;
-use bisa_engine::ask::ask_agent_once;
-use bisa_engine::{Engine, EngineConfig};
-use bisa_harness::mock::MockAdapter;
+use bisa_core::{AgentId, AskPurpose, SessionOrigin};
+use bisa_engine::ask::{ask_agent_once, Asking};
+use bisa_engine::registry::SessionKind;
+use bisa_engine::{Engine, EngineConfig, SessionState};
+use bisa_harness::mock::{Close, MockAdapter};
 use bisa_harness::{HarnessCatalog, LifecycleEvent, Outcome, SessionEvent};
 use bisa_store::{MemoryKeyStore, Workspace};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// What these questions are for — one word on the roster row, nothing else.
+fn asking() -> Asking {
+    Asking::of(AskPurpose::Decision { point: None })
+}
 
 fn config() -> EngineConfig {
     EngineConfig {
@@ -50,6 +56,7 @@ async fn asking_once_returns_the_text_of_the_turn() {
     let answer = ask_agent_once(
         engine.inner(),
         AgentId::GENERAL,
+        asking(),
         "write a commit message",
         Duration::from_secs(20),
     )
@@ -72,6 +79,7 @@ async fn asking_once_returns_the_text_of_the_turn() {
     ask_agent_once(
         engine.inner(),
         AgentId::GENERAL,
+        asking(),
         "and another",
         Duration::from_secs(20),
     )
@@ -113,6 +121,7 @@ async fn a_timeout_is_an_error_and_never_an_empty_answer() {
     let err = ask_agent_once(
         engine.inner(),
         AgentId::GENERAL,
+        asking(),
         "say nothing",
         Duration::from_secs(2),
     )
@@ -147,6 +156,7 @@ async fn a_silent_turn_is_an_error() {
     let err = ask_agent_once(
         engine.inner(),
         AgentId::GENERAL,
+        asking(),
         "nothing to say",
         Duration::from_secs(20),
     )
@@ -173,6 +183,7 @@ async fn an_unavailable_harness_refuses_by_name() {
     let err = ask_agent_once(
         engine.inner(),
         AgentId::GENERAL,
+        asking(),
         "anybody there?",
         Duration::from_secs(20),
     )
@@ -184,6 +195,7 @@ async fn an_unavailable_harness_refuses_by_name() {
     let err = ask_agent_once(
         engine.inner(),
         "no-such-agent",
+        asking(),
         "hello?",
         Duration::from_secs(20),
     )
@@ -191,5 +203,184 @@ async fn an_unavailable_harness_refuses_by_name() {
     .expect_err("nobody to ask");
     assert!(err.to_string().contains("missing or disabled"), "{err}");
 
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// An ask is a row of the roster
+// ---------------------------------------------------------------------------
+
+/// [`engine_on`], with finished rows leaving the roster after one second.
+fn engine_on_retaining_briefly(
+    dir: &tempfile::TempDir,
+    adapter: MockAdapter,
+) -> (Engine, Arc<MockAdapter>) {
+    let ws =
+        Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+    let mut def = ws.get_agent(&AgentId::general()).unwrap();
+    def.harness = adapter.id.clone();
+    ws.update_agent(def).unwrap();
+    let adapter = Arc::new(adapter);
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&adapter) as Arc<_>);
+    let config = EngineConfig {
+        retain_ended_secs: 1,
+        ..config()
+    };
+    (Engine::start(ws, catalog, config).unwrap(), adapter)
+}
+
+fn ask_row(engine: &Engine) -> Option<bisa_engine::SessionPresence> {
+    engine
+        .inner()
+        .presence
+        .snapshot()
+        .into_iter()
+        .find(|r| r.kind == SessionKind::Ask)
+}
+
+/// While it runs, a one-shot ask is a row of the roster of its own kind —
+/// what it is for, who reads, where it stands — so the harness process a
+/// person sees has a name; over, the row reads *done* and leaves after the
+/// retention window, its registry entry with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_shot_ask_is_a_row_of_the_roster_with_its_purpose_and_leaves_after_retention() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, _adapter) = engine_on_retaining_briefly(
+        &dir,
+        MockAdapter {
+            turn_delay: Duration::from_millis(800),
+            ..Default::default()
+        },
+    );
+    let ask = ask_agent_once(
+        engine.inner(),
+        AgentId::GENERAL,
+        asking(),
+        "think it over",
+        Duration::from_secs(20),
+    );
+    let seen = async {
+        loop {
+            if let Some(row) = ask_row(&engine).filter(|r| r.state.is_live()) {
+                return row;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    let (answer, row) = tokio::join!(ask, seen);
+    answer.expect("an answer");
+    assert_eq!(
+        row.origin,
+        SessionOrigin::Ask {
+            purpose: AskPurpose::Decision { point: None }
+        }
+    );
+    assert_eq!(row.agent, Some(AgentId::general()), "who reads");
+    assert!(row.cwd.is_some(), "where it stands");
+    let wire = serde_json::to_value(&row).unwrap();
+    assert_eq!(wire["kind"], serde_json::json!("ask"));
+    assert_eq!(wire["origin"]["origin"], serde_json::json!("ask"));
+    assert_eq!(
+        wire["origin"]["purpose"]["kind"],
+        serde_json::json!("decision")
+    );
+
+    let done = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match engine.inner().presence.get(row.id) {
+                Some(r) if r.state == SessionState::Done => return true,
+                Some(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+                None => return false,
+            }
+        }
+    })
+    .await
+    .expect("the row reads done before it leaves");
+    assert!(done);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while engine.inner().presence.get(row.id).is_some() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the row leaves after retention");
+    assert!(
+        engine.inner().registry.get(row.id).is_none(),
+        "its registry entry went with it"
+    );
+    engine.shutdown().await;
+}
+
+/// *Terminate* on an ask's row reaches it: the harness is told to stop, the
+/// caller is answered a refusal, and the row reads *aborted*.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_terminated_ask_tells_its_harness_to_stop_and_answers_a_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = MockAdapter {
+        script: Some(vec![]),
+        ..Default::default()
+    };
+    let closes = Arc::clone(&adapter.closes);
+    let (engine, _adapter) = engine_on(&dir, adapter);
+    let ask = ask_agent_once(
+        engine.inner(),
+        AgentId::GENERAL,
+        asking(),
+        "never answered",
+        Duration::from_secs(20),
+    );
+    let stop = async {
+        let row = loop {
+            if let Some(row) = ask_row(&engine).filter(|r| r.state.is_live()) {
+                break row;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        bisa_engine::sessions::stop_one(engine.inner(), row.id).unwrap();
+        row
+    };
+    let (err, row) = tokio::join!(ask, stop);
+    let err = err.expect_err("a stopped ask answers nothing");
+    assert!(err.to_string().contains("was stopped"), "{err}");
+    assert!(
+        closes.lock().unwrap().contains(&Close::Aborted),
+        "the harness was told to stop"
+    );
+    assert_eq!(
+        engine.inner().presence.get(row.id).map(|r| r.state),
+        Some(SessionState::Aborted)
+    );
+    engine.shutdown().await;
+}
+
+/// An ask past its deadline is an error — and its row reads *failed* with
+/// the reason, for the retention window.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ask_past_its_deadline_ends_its_row_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, _adapter) = engine_on(
+        &dir,
+        MockAdapter {
+            script: Some(vec![]),
+            ..Default::default()
+        },
+    );
+    let err = ask_agent_once(
+        engine.inner(),
+        AgentId::GENERAL,
+        asking(),
+        "take your time",
+        Duration::from_secs(1),
+    )
+    .await
+    .expect_err("no answer in time");
+    assert!(err.to_string().contains("did not answer"), "{err}");
+    let row = ask_row(&engine).expect("the row stays for the retention window");
+    assert!(
+        matches!(&row.state, SessionState::Failed { reason } if reason.contains("did not answer")),
+        "{:?}",
+        row.state
+    );
     engine.shutdown().await;
 }

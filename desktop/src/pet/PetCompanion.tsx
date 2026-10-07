@@ -137,7 +137,7 @@ export function PetCompanion() {
   // Keyed on the three facts `workSummary` reads, not the `ws` object a
   // workspace fact the pet never shows would remake.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const summary = useMemo(() => workSummary(ws, sessionCounts(sessions)), [ws.inbox, ws.waiting, ws.working, sessions]);
+  const summary = useMemo(() => workSummary(ws, sessionCounts(sessions), sessions), [ws.inbox, ws.waiting, ws.working, sessions]);
   const busyScope = summary.busyScope;
   const standing: PetState = followed ? petStateOfSession(followed.state) : standingState(summary);
 
@@ -172,7 +172,7 @@ export function PetCompanion() {
   // The state is the useful half of the label: which pet it is does not
   // change, and what it is doing is the reason to look at it — and, while
   // it follows a harness, whose doing it is.
-  const saying = followed ? `${stateWords(state)} · ${followWords(followed)}` : stateWords(state);
+  const saying = followed ? t("shell-followed-session-who", { state: stateWords(state), who: followWords(followed) }) : stateWords(state);
 
   return createPortal(
     <button

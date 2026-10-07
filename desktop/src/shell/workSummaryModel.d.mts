@@ -3,6 +3,8 @@
  * can import it without a build step.
  */
 
+import type { SessionRow } from "../types";
+
 /** What waits on the person, what is open for review, what is being worked on — and the first conversation an agent is mid-turn in. */
 export interface WorkSummary {
   waiting: number;
@@ -23,4 +25,6 @@ export declare function workSummary(
     working: Readonly<Record<string, readonly string[]>>;
   },
   sessions: { waiting: number; working: number },
+  /** The roster's rows, when the caller holds them: `working` is then `sessionCountsModel.workingCount`'s, a turn counted once. */
+  rows?: readonly SessionRow[] | null,
 ): WorkSummary;

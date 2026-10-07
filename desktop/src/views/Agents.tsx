@@ -55,6 +55,9 @@ import { useSettledSessions } from "../shell/useSettledSessions";
 import { stopWords } from "../shell/sessionRosterModel.mjs";
 import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
+import { useHarnessLabels } from "../shell/useHarnesses";
+import { originIndex, originOf } from "../shell/sessionOriginModel.mjs";
+import { boardLabel } from "./_work/types";
 import { placeOf, useViewState } from "../shell/viewMemoryStore";
 import { textValue } from "../shell/viewValuesModel.mjs";
 import { settingsSearch } from "./_settings/settingsLink.mjs";
@@ -62,7 +65,7 @@ import { coreLine, movesStatus } from "./_settings/decisionsModel.mjs";
 import type { AgentDef, SessionRow } from "../types";
 import { isCoreAgent, planSummary } from "../types";
 import { coreAgents, rosterable } from "./_studio/addressModel.mjs";
-import { answerOf, attachedTo, detailStacked, respondsTo } from "./rosterModel.mjs";
+import { answerOf, detailStacked, respondsTo } from "./rosterModel.mjs";
 import {
   AnimatedList,
   Avatar,
@@ -526,10 +529,16 @@ function Sessions() {
   // on the rail.
   const sessions = sessionState.sortRows(useSettledSessions());
   const [aborting, setAborting] = useState<SessionRow | null>(null);
-  // A goal a session works on reads by its title, from the goals the window already holds.
-  const { goals } = useWorkspace();
-  const titles = useMemo(() => new Map(goals.map((g) => [g.id, g.title] as const)), [goals]);
-  const titleOf = (goal: string) => titles.get(goal);
+  // Who a session is and what it is for, in the window's own names: its goal by title, its agent by name, its channel by name.
+  const ws = useWorkspace();
+  const harnessLabels = useHarnessLabels();
+  const index = useMemo(
+    () => originIndex({ workstreams: ws.workstreams, projects: ws.projects, goals: ws.goals.map((g) => ({ id: g.id, label: boardLabel(g) })), agents: ws.agents, channels: ws.channels, dms: ws.dms, nameOf: ws.nameOf }, harnessLabels),
+    [ws.workstreams, ws.projects, ws.goals, ws.agents, ws.channels, ws.dms, ws.nameOf, harnessLabels],
+  );
+  // Live rows first; what settled — done, failed, aborted, parked — under its own heading, so the tab reads as its name.
+  const live = sessions.filter((s) => sessionState.isLive(s.state));
+  const settled = sessions.filter((s) => !sessionState.isLive(s.state));
 
   if (sessions.length === 0) {
     return (
@@ -543,18 +552,10 @@ function Sessions() {
     );
   }
 
-  return (
-    <>
-      {/* Sessions start and end while this list is on screen, which is the one
-          case the animated list is for: a row that simply appears is
-          indistinguishable from a row you had not noticed. */}
-      <AnimatedList
-        className="flex flex-col gap-1.5"
-        items={sessions}
-        keyOf={(s) => s.id}
-        render={(s) => {
-          const at = attachedTo(s, titleOf);
-          const link = at.route ? href(at.route) : null;
+  const renderRow = (s: SessionRow) => {
+          // Who, what for, where it opens — the one reading every surface shares.
+          const words = originOf(s, index);
+          const link = words.door ? href(words.door) : null;
           // The rail's rule: only a gate is an ask, answered on the Inbox row it lives under.
           const ask = answerOf(s);
           return (
@@ -562,17 +563,18 @@ function Sessions() {
               <div className="flex items-center gap-2">
                 <SessionMark state={s.state} />
                 <SessionStateChip state={s.state} />
-                <Chip>{s.agent ?? s.harness}</Chip>
-                <span className="text-2xs text-text-dim">{s.kind}</span>
+                <Chip>{words.title}</Chip>
+                <span className="text-2xs text-text-dim">{words.kindWord}</span>
                 {link ? (
                   // A place in this app, so an ordinary link — as Teams' goal rows are — never a door out of the window.
                   <a href={link} className="min-w-0 truncate text-2xs text-text underline decoration-text-dim underline-offset-2 hover:decoration-text">
-                    {at.label}
+                    {words.origin}
                   </a>
                 ) : (
-                  <span className="min-w-0 truncate text-2xs text-text-dim">{at.label}</span>
+                  <span className="min-w-0 truncate text-2xs text-text-dim">{words.origin}</span>
                 )}
-                <RelativeTime at={s.since} className="ml-auto shrink-0" />
+                {/* Since the session began — not since its state last moved. */}
+                <RelativeTime at={s.started} className="ml-auto shrink-0" />
                 {/* A per-row action: default, so a list of waiting sessions is not a column of primaries. */}
                 {/* Every session waiting on the person keeps its door; a gate opens its own Inbox row. */}
                 {s.state.state === "waiting" && s.state.on.on !== "auth" && (
@@ -598,8 +600,21 @@ function Sessions() {
               )}
             </div>
           );
-        }}
-      />
+  };
+
+  return (
+    <>
+      {/* Sessions start and end while this list is on screen, which is the one
+          case the animated list is for: a row that simply appears is
+          indistinguishable from a row you had not noticed. */}
+      {live.length > 0 && settled.length > 0 && <h3 className="text-2xs font-medium text-text-dim">{t("screens-agents-live")}</h3>}
+      {live.length > 0 && <AnimatedList className="flex flex-col gap-1.5" items={live} keyOf={(s) => s.id} render={renderRow} />}
+      {settled.length > 0 && (
+        <>
+          <h3 className="mt-3 text-2xs font-medium text-text-dim">{t("screens-agents-settled")}</h3>
+          <AnimatedList className="flex flex-col gap-1.5" items={settled} keyOf={(s) => s.id} render={renderRow} />
+        </>
+      )}
       <ConfirmDialog
         open={aborting !== null}
         onClose={() => setAborting(null)}

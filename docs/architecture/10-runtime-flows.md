@@ -70,13 +70,17 @@ rebuilt if damaged and reconciled with every live run's snapshot. The engine the
 in this order, before it serves anyone:
 
 1. **Sessions** (`sessions::end_stale`). Every row still `live` belonged to the dead process. The
-   harness child it recorded is terminated if — and only if — the pid is still the process that was
+   harness child it recorded — every driver records one, a worker's, a design wake's, a chat turn's,
+   an ask's; the broadcaster replays a start announced before the driver listened — is terminated
+   if — and only if — the pid is still the process that was
    seen (`ps -o etime=` against `pid_seen_at`; a recycled pid is somebody else's), so nothing keeps
    writing into a checkout the engine is about to resume. Then the row is `ended`.
 2. **The walk** (`recovery::sweep`). For every unfinished run of every open goal, and every live
    workspace run (`live_workspace_runs`), read from its snapshot: its waits and its live steps' boundary events are re-armed (`waits::rearm_run`, which ends in `waits::sync_boundaries` — a reminder that already fired three times of five has two left); every `Running` step whose kind dies with
    the process gets **`StepInterrupted`** through the run funnel — an `agent` step with a work item
-   **resumes on that item**, in the same checkout, with one line in its prompt saying so; an `agent`
+   **resumes on that item**, in the same checkout, with one line in its prompt saying so — the
+   step's record counts its `interruptions`, and the fourth fails it, *interrupted too often*
+   (`MAX_INTERRUPTIONS`, 3), so a step that kills the node is not resumed on every boot; an `agent`
    step with none, and a `check`, start again; an `emit` runs again, its dedupe key making the repeat the same signal; a `connector`, `judge`, `notify` or `spawn` runs again only
    within its `retries` and otherwise fails once — and no attempt is charged for the interruption —
    except a `connector` **write with no idempotency key**, which is **stopped** (`StepStopped`)
@@ -151,7 +155,13 @@ sequenceDiagram
 (`listen::turn::turn_off`), withdraws every queued run, cancels the live one (`Cancel { stopped }`)
 and ends the goal's sessions (`sessions::stop_for`), in that order — so nothing its events start
 slips in and the last settle finds nothing to advance — then waits a bounded time for the
-sessions to be gone; the goal reads `draft`. `POST /goals/{id}/restart` (`ops::restart_goal`)
+sessions to be gone; the goal reads `draft`. Every stop goes through `sessions::stop_row`: the
+registry's abort, the driver's own stop, then **every question the session was waiting on is
+withdrawn** (`sessions::withdraw_questions_of` — a `withdrawn` fact on the home, the harness
+answered a refusal the guard never records as the person's), so a worker blocked at a permission
+is released and aborted, never left at work behind a row that reads *aborted*. A close
+(`ops::close_goal`) stops the goal's sessions the same way — the design wake's and the thread's
+turns' — before it forgets the goal. `POST /goals/{id}/restart` (`ops::restart_goal`)
 reads where the last run began before it cancels anything (`restart_entry`: the start it entered
 and the event that began it — refused, the run left as it is, when that start is gone from the
 workflow as it stands), cancels the live run with `restarted` — a settle that advances nothing —
@@ -573,7 +583,9 @@ already `fired`, a reminder never past its `max`, and nothing for a step that is
    disarm harmless.
 3. **A divert stops the step.** It becomes `Diverted { by }` — terminal — and only the flows
    labelled with the boundary's name are taken. `CancelWork` ends what the step held
-   (`effects::cancel_work`): the work item is cancelled and its session ended, the gate withdrawn,
+   (`effects::cancel_work`): the work item is cancelled and its session ended — with every
+   permission or question that session was waiting on withdrawn (`executor::cancel_item`), so a
+   worker mid-ask is released — the gate withdrawn,
    the wait disarmed; a `spawn` stops waiting and the child goes on.
 4. **An act happens beside the step.** `RunEffect::BoundaryAct` posts the message a `notify` step
    would (`post_as`) or raises a named signal through the emit door, its dedupe key

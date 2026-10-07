@@ -406,6 +406,9 @@ struct ConvSession {
     /// (14-collaboration). Set on every wake; the owner's own is `None`.
     woken_by: std::sync::Mutex<Option<(bisa_core::PrincipalId, bisa_core::MemberRole)>>,
     agent_id: LiveRunId,
+    /// The row's guard, carried from the wake that registered it to the pump
+    /// that settles it (`sessions::Driven`); taken and disarmed there.
+    driven: std::sync::Mutex<Option<crate::sessions::Driven>>,
     /// The durable row's id, so parking and ending reach the store.
     session_id: SessionId,
     /// The goal the scope is about, for what a permission escalates to.
@@ -1348,6 +1351,15 @@ async fn wake_attempt(
     {
         if conv.supports_follow_up {
             conv.set_woken_by(on_behalf_of.clone());
+            // Woken again, perhaps for someone else: the row says so.
+            inner.presence.origin(
+                inner,
+                conv.agent_id,
+                bisa_core::SessionOrigin::Turn {
+                    scope: scope.to_string(),
+                    on_behalf_of: on_behalf_of.as_ref().map(|(p, _)| p.clone()),
+                },
+            );
             let reach = conv.reach(inner);
             if let (Some(reach), Some((_, tracker))) = (reach, conv.review.as_ref()) {
                 begin_tracked_turn(inner, scope, tracker, reach.mode).await;
@@ -1556,6 +1568,10 @@ async fn wake_attempt(
         agent_uid,
         crate::presence::SessionMeta {
             kind: SessionKind::Conversation,
+            origin: bisa_core::SessionOrigin::Turn {
+                scope: scope.to_string(),
+                on_behalf_of: on_behalf_of.as_ref().map(|(p, _)| p.clone()),
+            },
             harness: harness_id.clone(),
             model: Some(model_key.clone()),
             effort,
@@ -1567,6 +1583,7 @@ async fn wake_attempt(
             run: None,
             workstream: facts.workstream(),
             project: facts.project(),
+            cwd: Some(spec.cwd.display().to_string()),
             transcript_path: transcript_path.as_ref().map(|p| p.display().to_string()),
         },
     );
@@ -1591,6 +1608,8 @@ async fn wake_attempt(
         }),
         "recording a chat session",
     );
+    // Left live by an early return or a panic, the row ends as failed.
+    let driven = crate::sessions::Driven::begin(inner, agent_uid, Some(session_id.to_string()));
 
     let events = session.subscribe();
     let mut prompt = format!(
@@ -1694,6 +1713,7 @@ async fn wake_attempt(
         supports_follow_up,
         cwd,
         woken_by: std::sync::Mutex::new(on_behalf_of),
+        driven: std::sync::Mutex::new(Some(driven)),
         review,
     });
     inner
@@ -1781,6 +1801,11 @@ fn report_chat_switches(
     }
 }
 
+/// What is left of a turn's wall clock, from when it started.
+fn wall_left(turn_started: u64, wall_clock: Duration) -> Duration {
+    Duration::from_secs((turn_started + wall_clock.as_secs()).saturating_sub(now_secs()))
+}
+
 fn emit_thinking(inner: &Arc<Inner>, scope: &str, agent_id: &str) {
     inner.emit(EngineEvent::global(EnginePayload::AgentThinking {
         scope: scope.to_string(),
@@ -1835,6 +1860,13 @@ fn spawn_reply_pump(
         let mut spoken_before = agent_posts(&inner, &scope, &agent_id);
         let mut wall: Option<executor::ModelWall> = None;
         let mut progressed = false;
+        // A turn runs under the workers' wall clock, measured from its start
+        // while it is open — the idle clock owns the gaps between turns. A
+        // turn past it is one nobody is reading any more: the harness is
+        // aborted, and the row says so once its stream closes.
+        let wall_clock = Duration::from_secs(inner.config.default_wall_clock_secs);
+        let mut turn_open = false;
+        let mut exceeded = false;
         loop {
             // The next event — or, while something gathered waits for a
             // frame, the interval's end: a frame is at most `STREAM_FLUSH`
@@ -1848,8 +1880,34 @@ fn spawn_reply_pump(
                     flush_stream(&inner, &scope, &agent_id, &mut streamer);
                     continue;
                 }
+                () = tokio::time::sleep(wall_left(turn_started, wall_clock)), if turn_open => {
+                    tracing::warn!(
+                        agent = %agent_id, scope = %scope,
+                        "chat turn past the wall clock ({}s): aborting it", wall_clock.as_secs()
+                    );
+                    exceeded = true;
+                    flush_stream(&inner, &scope, &agent_id, &mut streamer);
+                    inner.conversation.live.remove(&key);
+                    if let Some(session) = conv.session.lock().await.as_ref() {
+                        warn_on_err(session.abort().await, "aborting a chat turn past the wall clock");
+                    }
+                    // Out before the harness's own end arrives: the row says
+                    // the wall clock, not what the abort made the harness say.
+                    break;
+                }
             };
             inner.presence.apply(&inner, conv.agent_id, &event);
+            turn_open = match &event {
+                SessionEvent::Progress(ProgressEvent::TurnEnded) => false,
+                SessionEvent::Lifecycle(LifecycleEvent::Ended { .. }) => false,
+                SessionEvent::Progress(_) => true,
+                _ => turn_open,
+            };
+            // The harness child announced: its pid goes on the record, so a
+            // boot after a crash can end it as it ends a worker's.
+            if let SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { pid }) = &event {
+                crate::sessions::process_started(&inner, &conv.session_id.to_string(), *pid);
+            }
             inner.emit(EngineEvent::global(EnginePayload::Session {
                 event: event.clone(),
             }));
@@ -2025,6 +2083,10 @@ fn spawn_reply_pump(
         // Stream closed: the session is gone. Its row says so — unless the
         // idle TTL took the session and parked it, in which case the stream
         // closing is the parking's consequence, and the parked row stands.
+        // Either way the row is settled here, by hand.
+        if let Some(driven) = conv.driven.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            driven.disarm();
+        }
         inner.conversation.live.remove(&key);
         forget_session(&inner, &key, &conv);
         // Nobody is left to hear an answer: the session's asks are a no.
@@ -2045,9 +2107,10 @@ fn spawn_reply_pump(
             inner.presence.ended(
                 &inner,
                 conv.agent_id,
-                &match &wall {
-                    None => crate::events::ExecutionOutcome::Completed,
-                    Some(w) => crate::events::ExecutionOutcome::Failed {
+                &match (&wall, exceeded) {
+                    (_, true) => crate::events::ExecutionOutcome::WallClockExceeded,
+                    (None, false) => crate::events::ExecutionOutcome::Completed,
+                    (Some(w), false) => crate::events::ExecutionOutcome::Failed {
                         reason: w.sentence(),
                     },
                 },

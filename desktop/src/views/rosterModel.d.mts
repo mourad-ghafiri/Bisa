@@ -2,11 +2,6 @@ import type { AgentDef, Assignee, AttachmentRef, SessionRow, TeamDef } from "../
 
 export declare const CORE_AGENT_IDS: readonly string[];
 export declare function respondsTo(agent: Pick<AgentDef, "respond"> | null | undefined): string;
-export declare function attachedTo(
-  session: Pick<SessionRow, "goal" | "run" | "work_item" | "conversation" | "kind"> | null | undefined,
-  /** A goal's title, when the window knows it; the id's tail stands in otherwise. */
-  titleOf?: (goal: string) => string | null | undefined,
-): { label: string; route: { name: "goal" | "run" | "conversation"; id: string } | null };
 /** Where a session's ask is answered — the Inbox row it lives under — or `null` when nothing waits on you. */
 export declare function answerOf(
   session: Pick<SessionRow, "state" | "goal" | "conversation" | "workstream"> | null | undefined,

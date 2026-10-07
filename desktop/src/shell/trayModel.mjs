@@ -15,8 +15,8 @@
  * sessions roster; the roster only says how many are *working*.
  */
 
+import { workingCount as countWorking } from "./sessionCountsModel.mjs";
 import { connected } from "../busModel.mjs";
-import { counts } from "../ui/sessionState.mjs";
 import { boolOf } from "./settingsModel.mjs";
 import { inboxBadge, needsWords } from "./sidebarModel.mjs";
 import { t } from "../i18n/l10n.mjs";
@@ -83,8 +83,7 @@ export function closeVerb(prefs) {
  * @param {Readonly<Record<string, readonly string[]>> | null | undefined} working
  */
 export function workingCount(sessions, working) {
-  const busyScopes = Object.values(working ?? {}).filter((who) => Array.isArray(who) && who.length > 0).length;
-  return counts(Array.isArray(sessions) ? sessions : []).working + busyScopes;
+  return countWorking(sessions, working);
 }
 
 /**

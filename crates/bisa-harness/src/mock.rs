@@ -256,6 +256,18 @@ pub struct MockAdapter {
     /// Panic inside `launch` — the shape of an adapter bug, for the engine's
     /// guards to be tested against a real unwind.
     pub panic_on_launch: bool,
+    /// Panic inside `prompt` — an adapter bug after the session was
+    /// registered, for the engine's row guard to be tested against a real
+    /// unwind in a driver.
+    pub panic_on_prompt: bool,
+    /// Refuse the first prompt with `Terminated` — a harness that died
+    /// between its launch and its first word, for the drivers' early
+    /// returns.
+    pub refuse_prompt: bool,
+    /// The process id every session of this mock announces at launch — as a
+    /// long-lived adapter announces its child from its own task, before the
+    /// engine listens — so a test can see the driver record it.
+    pub pid: Option<u32>,
     /// When set, a turn raises this request right after it starts and parks
     /// until [`HarnessSession::answer`] is called; then `InputResolved` is
     /// emitted and the turn goes on with `script` (or the echo). What every
@@ -330,6 +342,9 @@ impl Default for MockAdapter {
             intake_script: None,
             end_on_steer: false,
             panic_on_launch: false,
+            panic_on_prompt: false,
+            refuse_prompt: false,
+            pid: None,
             input_request: None,
             answered: Arc::new(Mutex::new(Vec::new())),
             interactive: None,
@@ -558,6 +573,17 @@ impl HarnessAdapter for MockAdapter {
         session.adapter_id = self.id.clone();
         session.turn_delay = self.turn_delay;
         session.closes = Arc::clone(&self.closes);
+        session.panic_on_prompt = self.panic_on_prompt;
+        session.refuse_prompt = self.refuse_prompt;
+        // Announced at launch, before anybody subscribes — the shape of a
+        // long-lived adapter's child.
+        if let Some(pid) = self.pid {
+            session
+                .broadcaster
+                .emit(SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted {
+                    pid: Some(pid),
+                }));
+        }
         if let Some(r) = refusal
             .as_ref()
             .filter(|r| r.how == DeadModel::BeforeListening)
@@ -623,6 +649,10 @@ pub struct MockSession {
     pub intake_script: Option<IntakeScript>,
     /// See [`MockAdapter::end_on_steer`].
     pub end_on_steer: bool,
+    /// See [`MockAdapter::panic_on_prompt`].
+    pub panic_on_prompt: bool,
+    /// See [`MockAdapter::refuse_prompt`].
+    pub refuse_prompt: bool,
     /// See [`MockAdapter::input_request`].
     pub input_request: Option<InputRequest>,
     /// See [`MockAdapter::answered`].
@@ -654,6 +684,8 @@ impl MockSession {
             script: None,
             intake_script: None,
             end_on_steer: false,
+            panic_on_prompt: false,
+            refuse_prompt: false,
             input_request: None,
             answered: Arc::new(Mutex::new(Vec::new())),
             answer_tx: Arc::new(Mutex::new(None)),
@@ -689,6 +721,12 @@ impl HarnessSession for MockSession {
     async fn prompt(&self, input: PromptInput) -> Result<(), HarnessError> {
         if self.phase() == Phase::Turn {
             return Err(HarnessError::Busy);
+        }
+        if self.panic_on_prompt {
+            panic!("the mock harness panics on its prompt, as the test asked");
+        }
+        if self.refuse_prompt {
+            return Err(HarnessError::Terminated);
         }
         self.prompts.locked().push(input.text.clone());
         // Over before anybody listened: the prompt is taken and nothing more

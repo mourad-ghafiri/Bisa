@@ -10,6 +10,24 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- Every session says where it comes from. A roster row (`GET /sessions`) now carries its
+  `origin` — a run's step by id and name, and whether the session resumed an item a restart cut
+  short; the Workflow Agent's phase, *design* or *repair*; a conversation turn's scope and the
+  person on another node who woke it; a terminal; a one-shot ask's purpose — and its `cwd`, the
+  folder the harness runs in. The desktop reads one model of it everywhere a session is named:
+  the footer's harness rows say who, what for (*step Build of a run on Ship the cart*, *the
+  Workflow Agent designing Ship the cart*, *a turn in #general — woken by Ada*, *the classifier
+  reading a command for Ship the cart*), where and since when, and open where the session comes
+  from — its goal, its run, its thread, its channel; the Agents screen's *Running* tab lists what
+  is live first and what settled under its own heading, each with a link to its origin; the rail
+  row's tooltip, the Inbox's waiting card (its goal, else its project), the pet, a notification
+  and a transcript's title say the same.
+- One-shot asks are sessions of the roster. The classifier reading a command, the
+  Decision-Making Agent judging a point, a commit or a pull-request message being suggested each
+  run as a row of kind `ask` with their purpose, harness, model and pid while they run, leave
+  after the retention, and can be stopped from the row like any other session — a stopped ask
+  answers *no verdict*, *no judgement* or a failed suggestion, never a guess. They are never
+  written to the sessions index.
 - `goals.auto.ceiling`, under Settings › Automation › Goals as *A step's ceiling in an auto goal*:
   where a step's ceiling is in a goal that runs unattended. *Runs commands* (`exec`, the default) —
   a step that may change files may also run commands and the MCP tools that act; *The step's own*
@@ -19,6 +37,17 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- The footer counts *live harnesses* — every harness process the engine drives: the checkout's
+  rows as before, and the ones no checkout holds, the Workflow Agent's design wake and the one-shot
+  asks, so the footer, the node overlay and the resources overlay agree on what is running. An
+  idle harness reads dim. The tray's and the pet's working count no longer counts a conversation
+  turn twice — once by its row and again by its scope's hint.
+- A conversation turn has the workers' wall clock (`default_wall_clock_secs`): a harness that
+  never answers is aborted at the bound and the row says *wall clock exceeded*, with one note on
+  the conversation. The idle time to live between turns is unchanged, and a delivered follow-up
+  re-arms it.
+- A step a restart cut short three times fails on the fourth — *interrupted too often* — instead
+  of resuming on every boot; the step's record counts its interruptions.
 - An auto goal no longer asks about ordinary commands. Every `agent` step defaults to a `write`
   ceiling, so on an auto goal every shell command — `cargo test`, `npm install` — was above it and
   went to the classifier, and any no-verdict (a slow or absent classifier, one switched off) landed
@@ -32,6 +61,24 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- Stopping a session that was waiting on you now stops it. *Terminate* on the roster, `bisa
+  sessions abort`, a goal's stop, a retirement or a cancelled step left a worker blocked at a
+  permission or a question with its row reading *aborted*, its harness still running and its
+  question still in the Inbox. The question is now withdrawn, the harness answered a refusal and
+  aborted, and the withdrawal is never remembered as your *no*.
+- Closing a goal stopped nothing: its design wake and the turns in its thread ran on. They are
+  stopped first now.
+- A worker's harness process was unknown to its row and its record whenever the adapter announced
+  it before the engine listened — which Claude Code and Codex always do — so the resources
+  overlay could not attribute it and a restart could not terminate it; the broadcaster now
+  replays the announcement, and a chat turn's and a design wake's process are recorded too.
+- A session whose launch was refused, whose prompt failed or whose driver panicked could leave a
+  row stuck in *starting* and a live record on disk; every driver now ends its row and its record
+  on the way out. A parked session kept a stale pid and stayed on the roster; it now leaves after
+  the retention like an ended one. A goal's `active_items` never shrank on a normal settle.
+- The *agent writing* dot stayed on after one lost `agent_replied` frame until the window was
+  reloaded; it is now cleared by the roster too — a row that ended, parked or went idle, and the
+  roster read whole.
 - Settings › Automation › Goals drew *Above a step's ceiling in an auto goal* twice — as the
   panel's switch and again as a registry row under it; the row is gone.
 

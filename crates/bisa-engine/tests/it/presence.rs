@@ -4,8 +4,12 @@
 
 use crate::common;
 
-use bisa_core::{Gate, ToolTier};
-use bisa_engine::{Engine, EngineConfig, EnginePayload, ExecutionOutcome, SessionState, WaitingOn};
+use bisa_core::{Gate, GuidancePhase, SessionOrigin, ToolTier};
+use bisa_engine::presence::SessionMeta;
+use bisa_engine::registry::SessionKind;
+use bisa_engine::{
+    Engine, EngineConfig, EnginePayload, ExecutionOutcome, LiveRunId, SessionState, WaitingOn,
+};
 use bisa_harness::mock::{subagent_script, MockAdapter};
 use bisa_harness::{
     InputAnswer, InputRequest, LifecycleEvent, Outcome, ProgressEvent, SessionEvent,
@@ -270,5 +274,163 @@ async fn a_sub_agent_nests_under_its_parent_and_the_parent_delegates_until_it_le
             if presence.children.is_empty())
     })
     .await;
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// Why a row exists, and where it stands
+// ---------------------------------------------------------------------------
+
+/// A row that stands for nothing but the test — a design wake's shape.
+fn design_meta(phase: GuidancePhase) -> SessionMeta {
+    SessionMeta {
+        kind: SessionKind::Guided,
+        origin: SessionOrigin::Design { phase },
+        harness: "mock".into(),
+        model: None,
+        effort: None,
+        agent: None,
+        session_id: None,
+        work_item: None,
+        conversation: None,
+        goal: None,
+        run: None,
+        workstream: None,
+        project: None,
+        cwd: Some("/tmp/scratch".into()),
+        transcript_path: None,
+    }
+}
+
+/// A worker's row says which step it is for — by id and by name — that it
+/// was not resumed, its goal and its run, and the folder it stands in; the
+/// wire spells each the same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workers_row_says_its_step_its_goal_and_its_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = MockAdapter {
+        id: "mock".into(),
+        script: Some(vec![]),
+        ..Default::default()
+    };
+    let engine = engine_with(&dir, vec![adapter]);
+    let (goal, run) = run_on(
+        &engine,
+        "placed",
+        new_workflow("placed", vec![agent_step("build-it", "mock")]),
+    );
+    let row = until("the worker's row", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|r| r.kind == SessionKind::Worker && r.state.is_live())
+    })
+    .await;
+    let named = run.workflow.step(&sid("build-it")).unwrap().name.clone();
+    assert_eq!(
+        row.origin,
+        SessionOrigin::Step {
+            step: Some(sid("build-it")),
+            name: Some(named.clone()),
+            resumed: false,
+        }
+    );
+    assert_eq!(row.goal, Some(goal.id));
+    assert_eq!(row.run, Some(run.id));
+    let cwd = row.cwd.clone().expect("a worker stands somewhere");
+    assert!(std::path::Path::new(&cwd).is_absolute(), "{cwd}");
+    let wire = serde_json::to_value(&row).unwrap();
+    assert_eq!(wire["origin"]["origin"], serde_json::json!("step"));
+    assert_eq!(wire["origin"]["step"], serde_json::json!("build-it"));
+    assert_eq!(wire["origin"]["name"], serde_json::json!(named));
+    assert_eq!(wire["origin"]["resumed"], serde_json::json!(false));
+    assert_eq!(wire["cwd"], serde_json::json!(cwd));
+    engine.shutdown().await;
+}
+
+/// A row's origin said again with a new fact bumps its revision and goes
+/// out as a frame; the same fact twice says nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_origin_re_said_bumps_the_rows_revision_and_the_same_one_says_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let inner = engine.inner();
+    let mut rx = engine.events();
+    let id = LiveRunId::mint();
+    inner
+        .presence
+        .register(inner, id, design_meta(GuidancePhase::Design));
+    let before = inner.presence.get(id).unwrap().revision;
+
+    inner.presence.origin(
+        inner,
+        id,
+        SessionOrigin::Design {
+            phase: GuidancePhase::Repair,
+        },
+    );
+    let said = wait_for(&mut rx, "the row said again", |e| {
+        matches!(&e.payload, EnginePayload::SessionState { presence, .. } if presence.id == id && presence.revision > before)
+    })
+    .await;
+    let EnginePayload::SessionState { presence, .. } = said.payload else {
+        unreachable!()
+    };
+    assert_eq!(
+        presence.origin,
+        SessionOrigin::Design {
+            phase: GuidancePhase::Repair
+        }
+    );
+    assert_eq!(presence.revision, before + 1);
+
+    inner.presence.origin(
+        inner,
+        id,
+        SessionOrigin::Design {
+            phase: GuidancePhase::Repair,
+        },
+    );
+    assert_eq!(
+        inner.presence.get(id).unwrap().revision,
+        before + 1,
+        "the same fact twice is no change"
+    );
+    engine.shutdown().await;
+}
+
+/// A parked row loses its pid — the process went with the park — and leaves
+/// the roster after the retention window, like an ended one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parked_row_loses_its_pid_and_leaves_after_retention() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_retaining_briefly(&dir, vec![MockAdapter::default()]);
+    let inner = engine.inner();
+    let mut rx = engine.events();
+    let id = LiveRunId::mint();
+    inner
+        .presence
+        .register(inner, id, design_meta(GuidancePhase::Design));
+    inner.presence.apply(
+        inner,
+        id,
+        &SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { pid: Some(31337) }),
+    );
+    assert_eq!(inner.presence.get(id).unwrap().pid, Some(31337));
+
+    inner.presence.parked(inner, id);
+
+    let row = inner.presence.get(id).unwrap();
+    assert_eq!(row.state, SessionState::Parked);
+    assert_eq!(row.pid, None, "the process went with the park");
+    wait_for(
+        &mut rx,
+        "the parked row to leave",
+        |e| matches!(&e.payload, EnginePayload::SessionGone { live_run } if *live_run == id),
+    )
+    .await;
+    assert!(inner.presence.get(id).is_none());
     engine.shutdown().await;
 }

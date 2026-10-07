@@ -6,6 +6,7 @@
  * Pure: the roster row in, words out.
  */
 
+import { titleOf } from "../../shell/sessionOriginModel.mjs";
 import { isLive } from "../../ui/sessionState.mjs";
 import { headlineOf } from "../_workbench/workstreamPulseModel.mjs";
 import { modelWords } from "../../ui/modelWords.mjs";
@@ -19,7 +20,7 @@ import { t } from "../../i18n/l10n.mjs";
  */
 export function transcriptTitle(row) {
   if (!row) return t("work-session-transcript-transcript");
-  const who = row.agent ?? row.harness ?? "session";
+  const who = titleOf(row);
   const behind = [row.agent ? row.harness : null, modelWords(row.model, row.effort)?.short ?? null].filter(Boolean);
   return [who, ...behind].join(" · ");
 }

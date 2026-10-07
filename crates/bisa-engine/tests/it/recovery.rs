@@ -407,6 +407,12 @@ async fn every_live_session_row_is_ended_at_boot_and_only_the_child_that_is_stil
         .arg("300")
         .spawn()
         .unwrap();
+    // A chat turn's child, recorded as a worker's is now: ended at boot the
+    // same way.
+    let mut turn = std::process::Command::new("sleep")
+        .arg("300")
+        .spawn()
+        .unwrap();
     {
         let ws = store(&dir);
         ws.record_session(&SessionRow {
@@ -414,6 +420,16 @@ async fn every_live_session_row_is_ended_at_boot_and_only_the_child_that_is_stil
             adapter: "mock".into(),
             status: SessionStatus::Live,
             pid: Some(ours.id()),
+            pid_seen_at: Some(now()),
+            ..Default::default()
+        })
+        .unwrap();
+        ws.record_session(&SessionRow {
+            id: "sess-turn".into(),
+            adapter: "mock".into(),
+            kind: bisa_store::SessionKind::Conversation,
+            status: SessionStatus::Live,
+            pid: Some(turn.id()),
             pid_seen_at: Some(now()),
             ..Default::default()
         })
@@ -453,6 +469,10 @@ async fn every_live_session_row_is_ended_at_boot_and_only_the_child_that_is_stil
     );
     until("our child to be terminated", || {
         ours.try_wait().ok().flatten().map(|_| ())
+    })
+    .await;
+    until("the turn's child to be terminated", || {
+        turn.try_wait().ok().flatten().map(|_| ())
     })
     .await;
     assert!(

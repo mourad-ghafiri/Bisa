@@ -278,7 +278,21 @@ exited ends the session it hosts as of its exit (`terminalsModel.settledByTab`),
 that marks or counts sessions reads the roster through that rule — the rail's rows and the pulse
 through their own models, the footer and the activity dot inside theirs, the pet, the tray, the
 Agents screen and an addon's summary through `useSettledSessions` (`settledRoster`) — so a mark and
-its pill, the footer and the pet never disagree about one session.
+its pill, the footer and the pet never disagree about one session. **One origin model** says what
+every surface says of a row (`shell/sessionOriginModel.mjs`, over the row's `origin` and `cwd` from
+the engine, [06](../06-agents-and-teams.md#sessions-and-presence)): who it is — its agent's name,
+else its harness's label, an ask by its purpose — what it is for in one sentence — *step Build of a
+run on Ship the cart*, *the Workflow Agent designing Ship the cart*, *a turn in #general — woken by
+Ada*, *the classifier reading a command for Ship the cart* — where it stands, since when, and where
+it opens; the footer's rows, the Agents screen's (live first, what settled under its own heading),
+the rail row's tooltip, the Inbox's waiting card (its goal, else its project), the pet, a
+notification, a transcript's title and the pulse line read it, so a person never meets a session
+without its origin. **One counting rule** (`shell/sessionCountsModel.mjs`): the footer lists every
+harness process the engine drives — a worker, a design wake, a one-shot ask, a terminal a tab
+claims — a working count is the busy rows plus the `working` scopes no busy row already names, and
+the *agent writing* dot (`shell/workingModel.mjs`) is cleared by the roster as well as by the
+reply — a row that ended, parked or went idle, the roster read whole — so one lost frame never
+leaves it on.
 
 **The transcript.** A session's transcript is the harness's own file as the node tails it
 (`GET /sessions/{id}/transcript?from_byte=`, `admin.rs`), read by `SessionTranscript`

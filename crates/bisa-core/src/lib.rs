@@ -62,6 +62,7 @@ pub mod placement;
 pub mod project;
 pub mod review_note;
 pub mod run;
+pub mod session;
 pub mod settings;
 pub mod signal;
 pub mod skill;
@@ -199,6 +200,7 @@ pub use run::{
     CancelCause, Fired, LoopCursor, NoWayIn, RunEffect, RunEntry, RunError, RunEvent, RunScope,
     RunStatus, StepRecord, StepState, WayIn, WorkflowRun, AMBIGUOUS_WRITE, ENDED_FAILED,
 };
+pub use session::{AskPurpose, SessionOrigin};
 pub use settings::{
     check_write as check_setting_write, resolve as resolve_setting,
     resolve_all as resolve_settings, Resolved as ResolvedSetting, Scope as SettingScope,

@@ -33,6 +33,7 @@
  * locally is what lets a row change under you without moving.
  */
 
+import { placeWords } from "../../shell/footerSessionsModel.mjs";
 import { pulseLine } from "../../activityModel.mjs";
 import { isAnswerAsk } from "../../askModel.mjs";
 import { namesAdoption } from "../_goal/proposalRouting.mjs";
@@ -189,6 +190,19 @@ export function waitingWords(row, labels = {}) {
   const w = waitingOf(row);
   if (!w) return null;
   return t("studio-inbox-waiting", { harness: labels[w.harness] ?? w.harness, words: waitWordsOf(w) });
+}
+
+/**
+ * What the waiting session works for — its goal by label, else its project
+ * by name — or `null` when it names neither. The card's second line.
+ * @param {object} row @param {import("../../shell/footerSessionsModel.mjs").PlaceIndex} index
+ */
+export function waitingAbout(row, index) {
+  const w = waitingOf(row);
+  if (!w) return null;
+  if (w.goal) return t("studio-inbox-waiting-for-goal", { goal: placeWords("goal", w.goal, index) });
+  if (w.project) return t("studio-inbox-waiting-in-project", { project: placeWords("project", w.project, index) });
+  return null;
 }
 
 /**

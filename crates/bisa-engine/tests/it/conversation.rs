@@ -9,9 +9,10 @@ use crate::common;
 use bisa_core::{
     AgentId, MemberRole, MessageBody, PrincipalId, RespondPolicy, RosterPolicy, SettingScope,
 };
-use bisa_engine::{Engine, EngineConfig};
-use bisa_harness::mock::MockAdapter;
-use bisa_harness::HarnessCatalog;
+use bisa_engine::registry::SessionKind;
+use bisa_engine::{Engine, EngineConfig, SessionState};
+use bisa_harness::mock::{Close, MockAdapter};
+use bisa_harness::{HarnessCatalog, LifecycleEvent, ProgressEvent, SessionEvent};
 use bisa_store::{MemoryKeyStore, NewAgent, PostOrigin, Workspace};
 
 /// The platform's own agent, as the wire spells it.
@@ -1580,6 +1581,142 @@ async fn deleting_a_channel_stops_the_turn_running_in_it() {
     assert!(engine.workspace().get_channel(&channel.id).is_err());
     until("the turn is stopped with the channel", || {
         (live(inner) == 0).then_some(())
+    })
+    .await;
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// A turn's row, and its wall clock
+// ---------------------------------------------------------------------------
+
+/// A turn's row says the scope it is a turn of — the string the bus spells
+/// in `agent_thinking`, so a screen pairs the two — who woke it, where its
+/// harness stands, and the pid its harness announced at launch; the record
+/// carries the pid too, for a boot after a crash.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turns_row_says_its_scope_its_place_and_its_pid() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    let agent = ws
+        .add_agent(new_agent("Scout", RespondPolicy::OwnerOnly))
+        .unwrap();
+    let dm = ws.open_dm(std::slice::from_ref(&agent.pubkey)).unwrap();
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::new(MockAdapter {
+        id: "chat-harness".into(),
+        pid: Some(2718),
+        script: Some(vec![]),
+        ..Default::default()
+    }));
+    let engine = Engine::start(ws, catalog, config()).unwrap();
+    engine
+        .workspace()
+        .post_message(
+            dm.id.as_str(),
+            MessageBody::post("where are you?"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let row = until("the turn's row with its pid", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|r| r.kind == SessionKind::Conversation && r.pid == Some(2718))
+    })
+    .await;
+    assert!(
+        matches!(&row.origin, bisa_core::SessionOrigin::Turn { scope, on_behalf_of: None } if scope == dm.id.as_str()),
+        "{:?}",
+        row.origin
+    );
+    assert!(row.cwd.is_some(), "where its harness stands");
+    let session_id = row.session_id.unwrap().to_string();
+    until("the record to carry the pid", || {
+        engine
+            .workspace()
+            .session_by_id(&session_id)
+            .unwrap()
+            .filter(|r| r.pid == Some(2718))
+            .map(|_| ())
+    })
+    .await;
+    engine.shutdown().await;
+}
+
+/// A turn past the wall clock is one nobody is reading any more: the
+/// harness is aborted, and the row reads *failed: wall clock exceeded*.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_past_the_wall_clock_is_aborted_and_its_row_reads_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    let agent = ws
+        .add_agent(new_agent("Slow", RespondPolicy::OwnerOnly))
+        .unwrap();
+    let dm = ws.open_dm(std::slice::from_ref(&agent.pubkey)).unwrap();
+    let adapter = MockAdapter {
+        id: "chat-harness".into(),
+        // A turn that starts and never ends.
+        script: Some(vec![
+            SessionEvent::Lifecycle(LifecycleEvent::Started),
+            SessionEvent::Progress(ProgressEvent::TurnStarted),
+        ]),
+        ..Default::default()
+    };
+    let closes = Arc::clone(&adapter.closes);
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::new(adapter));
+    let engine = Engine::start(
+        ws,
+        catalog,
+        EngineConfig {
+            default_wall_clock_secs: 1,
+            ..config()
+        },
+    )
+    .unwrap();
+    engine
+        .workspace()
+        .post_message(
+            dm.id.as_str(),
+            MessageBody::post("take forever"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let row = until("the turn's row", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|r| r.kind == SessionKind::Conversation && r.state.is_live())
+    })
+    .await;
+    until("the harness to be aborted", || {
+        closes
+            .lock()
+            .unwrap()
+            .contains(&Close::Aborted)
+            .then_some(())
+    })
+    .await;
+    until("the row to read failed on the wall clock", || {
+        engine
+            .inner()
+            .presence
+            .get(row.id)
+            .filter(|r| matches!(&r.state, SessionState::Failed { reason } if reason == "wall clock exceeded"))
+            .map(|_| ())
     })
     .await;
     engine.shutdown().await;

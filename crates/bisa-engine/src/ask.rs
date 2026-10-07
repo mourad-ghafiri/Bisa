@@ -27,16 +27,27 @@
 //!    are each an `Err`. There is no path here that returns a plausible
 //!    string the agent did not say.
 //!
-//! It is deliberately not on the bus. A work item's session events belong to
-//! a work item and a chat's to a scope; this one has neither, and a `Session`
-//! envelope with nothing to attach it to is noise on every surface that
-//! renders one.
+//! It is on the roster, not on the bus. Each attempt is a row of kind `ask`
+//! ([`Asking`]: what the question is for, on what, where its harness stands),
+//! so the process a person sees in the machine's resources has a name, a
+//! `SessionState` frame goes out when the row moves as for every session,
+//! and *Terminate* reaches it ([`stop_run`]). Its harness events are not
+//! re-broadcast as `Session` envelopes: a work item's belong to a work item
+//! and a chat's to a scope; this one has neither, and an envelope with
+//! nothing to attach it to is noise on every surface that renders one.
 
+use crate::events::ExecutionOutcome;
 use crate::executor::{self, Attempts, LaunchPlan};
-use crate::{warn_on_err, EngineError, Inner};
-use bisa_core::{AgentId, Effort, EffortChoice, ModelPlan, ToolTier};
+use crate::presence::SessionMeta;
+use crate::registry::{AgentRef, AgentStatus, LiveRunId, SessionKind};
+use crate::{debug_on_err, warn_on_err, EngineError, Inner};
+use bisa_core::{
+    AgentId, AskPurpose, Effort, EffortChoice, Home, ModelPlan, ProjectId, SessionOrigin, ToolTier,
+    WorkstreamId,
+};
 use bisa_harness::{LifecycleEvent, Outcome, ProgressEvent, SessionEvent, SessionSpec};
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Whom one question is put to.
@@ -81,17 +92,168 @@ pub struct Asked {
     pub model: String,
 }
 
+/// What a one-shot ask is for, and what it is about — said on its roster row
+/// (`SessionOrigin::Ask`), and what a stop of its goal, its run, its project
+/// or its workstream reaches it by.
+#[derive(Clone, Debug)]
+pub struct Asking {
+    pub purpose: AskPurpose,
+    /// The goal, or the run of the workspace, the question is asked for.
+    pub home: Option<Home>,
+    pub workstream: Option<WorkstreamId>,
+    pub project: Option<ProjectId>,
+}
+
+impl Asking {
+    pub fn of(purpose: AskPurpose) -> Self {
+        Self {
+            purpose,
+            home: None,
+            workstream: None,
+            project: None,
+        }
+    }
+
+    /// Asked for a goal, or a run of the workspace.
+    pub fn on(mut self, home: Option<Home>) -> Self {
+        self.home = home;
+        self
+    }
+
+    /// Asked about a workstream's tree.
+    pub fn in_workstream(
+        mut self,
+        workstream: Option<WorkstreamId>,
+        project: Option<ProjectId>,
+    ) -> Self {
+        self.workstream = workstream;
+        self.project = project;
+        self
+    }
+}
+
+/// Stop the one-shot ask a run names — what ending its row does: the loop
+/// hears it, aborts the harness and answers its caller a refusal. Answers
+/// whether an ask was driving the run.
+pub(crate) fn stop_run(inner: &Arc<Inner>, run: LiveRunId) -> bool {
+    inner.driving.stop(run)
+}
+
+/// One row of the roster for one attempt of an ask: what it is for, on what,
+/// where it stands — and a registry entry, so a stop through its row works as
+/// for every engine session.
+#[allow(clippy::too_many_arguments)]
+fn register_ask(
+    inner: &Inner,
+    run: LiveRunId,
+    asking: &Asking,
+    harness: &str,
+    model: &str,
+    effort: Option<Effort>,
+    agent: Option<&str>,
+    cwd: &std::path::Path,
+) {
+    let goal = asking.home.and_then(|h| h.goal());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    debug_on_err(
+        inner.registry.register_if(
+            AgentRef {
+                id: run,
+                kind: SessionKind::Ask,
+                status: AgentStatus::Running,
+                generation: 1,
+                session_id: None,
+                work_item: None,
+                conversation: None,
+                goal,
+                workstream: asking.workstream,
+                transcript_path: None,
+                last_activity: now,
+            },
+            None,
+        ),
+        "registering an ask",
+    );
+    inner.presence.register(
+        inner,
+        run,
+        SessionMeta {
+            kind: SessionKind::Ask,
+            origin: SessionOrigin::Ask {
+                purpose: asking.purpose.clone(),
+            },
+            harness: harness.to_string(),
+            model: Some(model.to_string()),
+            effort,
+            agent: agent.and_then(|a| AgentId::new(a).ok()),
+            session_id: None,
+            work_item: None,
+            conversation: None,
+            goal,
+            run: asking.home.and_then(|h| h.run()),
+            workstream: asking.workstream,
+            project: asking.project,
+            cwd: Some(cwd.display().to_string()),
+            transcript_path: None,
+        },
+    );
+}
+
+/// The ask's row ends as `outcome` and leaves after retention, as every
+/// session's does — or at once, while the engine is still being built. The
+/// registry entry reads *idle* from here: an ask resumes nothing, and the
+/// retention clock forgets it as it forgets a worker's.
+fn end_ask(inner: &Inner, run: LiveRunId, outcome: ExecutionOutcome) {
+    settle_registry(inner, run);
+    match inner.arc() {
+        Some(owned) => inner.presence.ended(&owned, run, &outcome),
+        None => forget_ask(inner, run),
+    }
+}
+
+/// The registry's word on an ask that is over: *idle* — what lets it be
+/// forgotten (`AgentRegistry::remove` keeps a running ref) — unless a stop
+/// made it *aborted*, which is terminal and stays.
+fn settle_registry(inner: &Inner, run: LiveRunId) {
+    if let Some(agent) = inner.registry.get(run) {
+        if agent.status == AgentStatus::Running {
+            debug_on_err(
+                inner
+                    .registry
+                    .mutate(run, agent.generation, |a| a.status = AgentStatus::Idle),
+                "settling an ask's registry entry",
+            );
+        }
+    }
+}
+
+/// An attempt that never really ran leaves no trace: its row and its registry
+/// entry go at once.
+fn forget_ask(inner: &Inner, run: LiveRunId) {
+    inner.presence.forget(inner, run);
+    settle_registry(inner, run);
+    debug_on_err(
+        inner.registry.remove(run),
+        "forgetting an ask that never ran",
+    );
+}
+
 /// Launch `agent`, put one prompt to it, and return the text of its first
 /// turn. [`ask_once`] with an agent and no schema.
 pub async fn ask_agent_once(
     inner: &Inner,
     agent: &str,
+    asking: Asking,
     prompt: &str,
     deadline: Duration,
 ) -> Result<String, EngineError> {
     ask_once(
         inner,
         &Whom::Agent(agent.to_string()),
+        asking,
         prompt,
         None,
         deadline,
@@ -113,6 +275,7 @@ pub async fn ask_agent_once(
 pub async fn ask_once(
     inner: &Inner,
     whom: &Whom,
+    asking: Asking,
     prompt: &str,
     output_schema: Option<serde_json::Value>,
     deadline: Duration,
@@ -222,6 +385,25 @@ pub async fn ask_once(
         let (harness, model_key) = (launched.harness.clone(), launched.model_key.clone());
         let session = launched.session;
         let in_flight = launched.in_flight;
+        // One row of the roster per attempt — what the ask is for, on what,
+        // where its harness stands — and a stop that reaches this loop.
+        let run = LiveRunId::mint();
+        let driving = crate::sessions::Driving::begin(&inner.driving, run);
+        register_ask(
+            inner,
+            run,
+            &asking,
+            &harness,
+            &model_key,
+            launched.effort,
+            judged_as.as_deref(),
+            &spec.cwd,
+        );
+        // Every exit below ends the row itself; a panic through the loop
+        // does not, and the guard does.
+        let _driven = inner
+            .arc()
+            .map(|owned| crate::sessions::Driven::begin(&owned, run, None));
         let mut events = session.subscribe();
 
         // Skills the harness cannot host natively ride the first prompt, the
@@ -233,6 +415,9 @@ pub async fn ask_once(
         if let Err(e) = session.prompt(text.as_str().into()).await {
             warn_on_err(session.dispose().await, "disposing a failed ask session");
             drop(in_flight);
+            drop(driving);
+            // An attempt that never ran leaves no trace.
+            forget_ask(inner, run);
             return Err(EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-asking-failed",
                 agent = agent.to_string(),
@@ -243,16 +428,24 @@ pub async fn ask_once(
         let mut buf = String::new();
         let mut wall = None;
         let mut timed_out = false;
+        let mut stopped = false;
         loop {
-            let event =
-                match tokio::time::timeout(left(), futures::StreamExt::next(&mut events)).await {
+            let event = tokio::select! {
+                biased;
+                () = driving.stopped() => {
+                    stopped = true;
+                    break;
+                }
+                next = tokio::time::timeout(left(), futures::StreamExt::next(&mut events)) => match next {
                     Err(_) => {
                         timed_out = true;
                         break;
                     }
                     Ok(None) => break,
                     Ok(Some(event)) => event,
-                };
+                },
+            };
+            inner.presence.apply(inner, run, &event);
             match &event {
                 SessionEvent::Progress(ProgressEvent::TurnStarted) => buf.clear(),
                 SessionEvent::Progress(ProgressEvent::TextDelta { text }) => buf.push_str(text),
@@ -265,7 +458,7 @@ pub async fn ask_once(
                     crate::inputs::answer_request(
                         inner,
                         crate::inputs::InputContext {
-                            live_run: crate::registry::LiveRunId::mint(),
+                            live_run: run,
                             home: None,
                             work_item: None,
                             tier_ceiling: ToolTier::Read,
@@ -312,15 +505,25 @@ pub async fn ask_once(
 
         // Abort before dispose so a harness that is still generating stops
         // generating, rather than being detached and left running.
-        if timed_out {
-            warn_on_err(session.abort().await, "aborting a timed-out ask session");
+        if timed_out || stopped {
+            warn_on_err(session.abort().await, "aborting an ask session");
         }
         warn_on_err(session.dispose().await, "disposing an ask session");
         drop(in_flight);
+        drop(driving);
+
+        if stopped {
+            // The row already reads *aborted*: the stop came through it.
+            return Err(EngineError::Invalid(bisa_core::text!(
+                "error-engine-invalid-stopped-before-answered",
+                agent = agent.to_string()
+            )));
+        }
 
         if let Some(wall) = wall {
             // The model died, not the question. Come round on the next one,
-            // on whatever clock is left.
+            // on whatever clock is left — this attempt never ran.
+            forget_ask(inner, run);
             tracing::info!(agent = %agent, "{} unavailable ({})", wall.model, wall.reason);
             if !attempts.spent() && !left().is_zero() {
                 continue;
@@ -334,6 +537,13 @@ pub async fn ask_once(
         }
 
         if timed_out {
+            end_ask(
+                inner,
+                run,
+                ExecutionOutcome::Failed {
+                    reason: format!("did not answer within {}s", deadline.as_secs()),
+                },
+            );
             return Err(EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-did-not-answer-within-s",
                 agent = agent.to_string(),
@@ -342,12 +552,20 @@ pub async fn ask_once(
         }
         let answer = buf.trim().to_string();
         if answer.is_empty() {
+            end_ask(
+                inner,
+                run,
+                ExecutionOutcome::Failed {
+                    reason: "ended its turn without saying anything".into(),
+                },
+            );
             return Err(EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-ended-turn-without-saying-anything",
                 agent = agent.to_string()
             )));
         }
         inner.models.note_success(&harness, &model_key);
+        end_ask(inner, run, ExecutionOutcome::Completed);
         return Ok(Asked {
             text: answer,
             model: model_key,

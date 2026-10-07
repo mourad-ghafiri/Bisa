@@ -467,6 +467,15 @@ pub struct Inner {
     pub pause: PauseGate,
     pub caps: scheduler::ConcurrencyCaps,
     pub lifecycle: lifecycle::Lifecycle,
+    /// The stop of every session driven without a work item — the Workflow
+    /// Agent's wakes, the one-shot asks — by its run: what ending the run's
+    /// row tells its driver by. A worker's stop is its item's mark in
+    /// `inflight`.
+    pub driving: sessions::Drivers,
+    /// A weak handle on this very state, set once at start: for a path that
+    /// holds a plain reference and must hand an owned one to a task — ending
+    /// a roster row with its retention clock from a one-shot ask.
+    me: std::sync::OnceLock<std::sync::Weak<Inner>>,
     /// The items executing right now, by the home each is filed in.
     pub active_items: DashMap<WorkItemId, Home>,
     /// Items reserved for execution right now (reservation happens
@@ -557,6 +566,12 @@ impl Inner {
 
     /// What an event about `home` says it is about: the goal, or the
     /// workflow of the run of the workspace — read from its folder.
+    /// An owned handle on this state, for a path that holds only a
+    /// reference to it; `None` only while the engine is still being built.
+    pub(crate) fn arc(&self) -> Option<Arc<Inner>> {
+        self.me.get().and_then(std::sync::Weak::upgrade)
+    }
+
     pub(crate) fn home_scope(&self, home: &Home) -> EventScope {
         match home {
             Home::Goal { goal } => EventScope::of_goal(*goal),
@@ -766,6 +781,8 @@ impl Engine {
             mcp_health: mcp_health::McpHealth::new(mcp_probe),
             pause: PauseGate::new(),
             lifecycle: lifecycle::Lifecycle::new(),
+            driving: sessions::Drivers::default(),
+            me: std::sync::OnceLock::new(),
             active_items: DashMap::new(),
             inflight: DashMap::new(),
             executors: std::sync::Mutex::new(Vec::new()),
@@ -794,6 +811,13 @@ impl Engine {
             socket_path,
             bus,
         });
+        // Set once: the state knows itself, for the paths that hold only a
+        // reference to it. The cell is fresh, so the set cannot have been
+        // beaten to it.
+        inner
+            .me
+            .set(Arc::downgrade(&inner))
+            .expect("a fresh engine state has no self-reference yet");
         // The machine's `logging.*` settings reach the file layer now; until
         // here the process wrote errors only.
         logging::apply(&inner);
