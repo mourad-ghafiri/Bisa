@@ -1334,7 +1334,9 @@ turns that off, and the session then waits at its prompt. What the tab then tell
 harness's to give: Claude Code, Codex, OpenCode, pi, OMP and GitHub Copilot CLI each report what
 they are doing — Copilot through a plugin the platform mounts for that one launch, which waits *in
 Copilot's own words* when it asks you something — and Claude Code and Copilot CLI ask the guard
-before a tool runs; **Grok Build and Gemini CLI open as plain terminals**: neither takes a hook for
+before a tool runs — the refusals that protect your machine; the rules that steer an agent to the
+platform's own tools, the embedded browser's among them, leave your terminal harness be, since nothing
+of the platform's is injected into it, and it keeps your browser and its own prompt; **Grok Build and Gemini CLI open as plain terminals**: neither takes a hook for
 one launch, so nothing is reported and each one's own prompt is the only one. A project's `terminal.default_harness`
 setting makes the plain control open that harness instead. From the palette, `Terminal: Claude Code here` and friends open the same
 things without a pointer.

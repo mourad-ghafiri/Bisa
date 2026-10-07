@@ -9,7 +9,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { ACTIONS, KEYS, REMEMBERED_REASON, SCALARS, actionWords, blankGuardRule, blankRedactRule, classifierFieldsFor, detectorWords, envDetectorWords, guardRuleProblem, harnessGuardWords, judgeWords, matcherWords, moveRule, offWords, problemLines, readinessLine, redactRuleProblem, slugOf, toggleBuiltin, verdictWords, draftOf, withDraft, withoutDraft, rowKey, keepRowKey } from "./securityRules.mjs";
+import { ACTIONS, HOSTS, KEYS, REMEMBERED_REASON, SCALARS, actionWords, appliesWords, blankGuardRule, blankRedactRule, classifierFieldsFor, detectorWords, envDetectorWords, guardRuleProblem, harnessGuardWords, judgeWords, matcherWords, moveRule, offWords, problemLines, readinessLine, redactRuleProblem, ruleWords, slugOf, toggleBuiltin, verdictWords, draftOf, withDraft, withoutDraft, rowKey, keepRowKey } from "./securityRules.mjs";
 
 test("the keys are the registry's twenty, and each panel shows its own scalars", () => {
   const all = [
@@ -68,6 +68,25 @@ test("a guard rule needs an action and a matcher that says something", () => {
   assert.equal(guardRuleProblem({ ...named, matcher: { kind: "any" } }), null);
   assert.match(guardRuleProblem({ ...named, action: "maybe", matcher: { kind: "any" } }), /what the rule does/);
   assert.match(guardRuleProblem({ ...named, matcher: { kind: "regexp" } }), /what the rule looks at/);
+  // Where it applies is optional, and either host when said; "everywhere" is the absence of a word, never a stored value.
+  assert.equal(guardRuleProblem({ ...named, matcher: { kind: "any" }, applies_to: "platform" }), null);
+  assert.equal(guardRuleProblem({ ...named, matcher: { kind: "any" }, applies_to: "terminal" }), null);
+  assert.equal(guardRuleProblem({ ...named, matcher: { kind: "any" }, applies_to: null }), null);
+  assert.match(guardRuleProblem({ ...named, matcher: { kind: "any" }, applies_to: "everywhere" }), /where the rule applies/);
+  assert.deepEqual(HOSTS, ["platform", "terminal"]);
+  assert.equal(blank.applies_to, undefined, "a new rule applies everywhere until its person says otherwise");
+});
+
+test("a rule says where it applies: the platform's agents, a terminal's harnesses, or nothing for everywhere", () => {
+  assert.equal(appliesWords({ applies_to: "platform" }), "the platform's agents only");
+  assert.equal(appliesWords({ applies_to: "terminal" }), "harnesses in a terminal only");
+  assert.equal(appliesWords({}), "");
+  assert.equal(appliesWords({ applies_to: null }), "");
+  // A built-in that steers an agent to the platform's own tools wears the third phrase; one that protects the machine does not.
+  const steering = { action: "deny", matcher: { kind: "command", regex: "--headless" }, applies_to: "platform" };
+  assert.equal(ruleWords(steering), "refused — the agent hears why · the platform's agents only · commands matching --headless", "the scope before the pattern, which is what a row truncates");
+  const protecting = { action: "deny", matcher: { kind: "path", glob: "~/.ssh/**" } };
+  assert.equal(ruleWords(protecting), "refused — the agent hears why · paths matching ~/.ssh/**");
 });
 
 test("rules move one place and stay put at the ends; built-ins toggle by id", () => {

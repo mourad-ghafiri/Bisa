@@ -261,6 +261,7 @@ pub(crate) async fn screen(
             .work_item
             .and_then(|wi| inner.presence.by_work_item(wi)),
         cwd: None,
+        host: bisa_security::Host::Platform,
         classifier: false,
         on_behalf_of: None,
     };

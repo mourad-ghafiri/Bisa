@@ -480,6 +480,23 @@ async fn a_terminal_harness_asks_the_guard_under_its_sessions_secret() {
         "no opinion: the harness's own prompt stands: {v}"
     );
 
+    // The machine's browser is the person's own in a terminal: the rule that
+    // steers an agent to the platform's embedded browser passes a terminal
+    // harness over, and the guard says nothing.
+    let (status, v) = node
+        .req(
+            "POST",
+            &guard,
+            &secret,
+            Some(asking("open https://example.com")),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert!(
+        v.get("decision").is_none_or(Value::is_null),
+        "a terminal harness keeps the machine's browser: {v}"
+    );
+
     for bearer in [TOKEN, "not-the-secret"] {
         let (status, v) = node
             .req("POST", &guard, bearer, Some(asking("ls -la")))

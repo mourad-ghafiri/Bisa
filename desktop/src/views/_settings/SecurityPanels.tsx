@@ -46,7 +46,9 @@ import { RegistryPanel } from "./RegistryPanel";
 import { settingsPath, settingsSearch } from "./settingsLink.mjs";
 import {
   ACTIONS,
+  HOSTS,
   actionWords,
+  appliesWords,
   blankGuardRule,
   blankRedactRule,
   classifierFieldsFor,
@@ -58,12 +60,12 @@ import {
   judgeWords,
   KEYS,
   MATCHERS,
-  matcherWords,
   moveRule,
   offWords,
   problemLines,
   readinessLine,
   redactRuleProblem,
+  ruleWords,
   slugOf,
   toggleBuiltin,
   verdictWords,
@@ -485,7 +487,7 @@ export function GuardPanel() {
           <div className={isOff ? "opacity-60" : undefined}>
             <Builtins
               rules={builtins}
-              words={(r) => `${actionWords(r.action)} · ${matcherWords(r.matcher)}`}
+              words={ruleWords}
               scope={scope}
               off={off}
               offKey={KEYS.guard.builtinsOff}
@@ -532,6 +534,23 @@ export function GuardPanel() {
                 {MATCHERS.map((m) => (
                   <option key={m} value={m}>
                     {m === "command" ? tr("settings-security-panels-commands-matching") : m === "path" ? tr("settings-security-panels-paths-matching") : m === "tool" ? tr("settings-security-panels-tool-named") : tr("settings-security-panels-every-call")}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                value={r.applies_to ?? "everywhere"}
+                aria-label={tr("settings-security-panels-applies")}
+                onChange={(e) => {
+                  // Everywhere is the absence of a scope: the field is left off the stored rule, as it always was.
+                  const { applies_to: _was, ...rest } = r;
+                  const host = e.target.value;
+                  patch(HOSTS.includes(host) ? { ...rest, applies_to: host as GuardRule["applies_to"] } : (rest as GuardRule));
+                }}
+              >
+                <option value="everywhere">{tr("settings-security-panels-everywhere")}</option>
+                {HOSTS.map((h) => (
+                  <option key={h} value={h}>
+                    {appliesWords({ applies_to: h as GuardRule["applies_to"] })}
                   </option>
                 ))}
               </Select>

@@ -364,6 +364,7 @@ fn main() {
     add!(bisa_engine::security::GuardRule, "GuardRule");
     add!(bisa_engine::security::Matcher, "GuardMatcher");
     add!(bisa_engine::security::Action, "GuardAction");
+    add!(bisa_engine::security::GuardHost, "GuardHost");
     add!(bisa_engine::security::PolicyProblem, "PolicyProblem");
     add!(bisa_engine::security::Feature, "SecurityFeature");
     add!(bisa_core::event::GuardVerdict, "GuardVerdict");

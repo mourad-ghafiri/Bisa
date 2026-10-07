@@ -245,7 +245,7 @@ fn user_guard(mut rule: GuardRule) -> GuardRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::guard::{Action, Matcher, ToolCall, Verdict};
+    use crate::guard::{Action, Host, Matcher, ToolCall, Verdict};
     use crate::redact::{Detector, Origin, Vault};
     use serde_json::json;
 
@@ -319,6 +319,8 @@ mod tests {
             input: &input,
             cwd: None,
             home: None,
+            host: Host::Platform,
+            canonical: None,
         };
         assert_eq!(
             policy.guard.evaluate(&call),
@@ -414,10 +416,33 @@ mod tests {
                 name: "WebFetch".into(),
             },
             hint: None,
+            applies_to: None,
             origin: Origin::User,
         };
-        let back: GuardRule = serde_json::from_value(serde_json::to_value(&rule).unwrap()).unwrap();
+        let json = serde_json::to_value(&rule).unwrap();
+        assert!(
+            json.get("applies_to").is_none(),
+            "a rule that applies everywhere is stored as it always was: {json}"
+        );
+        let back: GuardRule = serde_json::from_value(json).unwrap();
         assert_eq!(back, rule);
+        let scoped = GuardRule {
+            applies_to: Some(Host::Terminal),
+            ..rule.clone()
+        };
+        let json = serde_json::to_value(&scoped).unwrap();
+        assert_eq!(json["applies_to"], serde_json::json!("terminal"));
+        let back: GuardRule = serde_json::from_value(json).unwrap();
+        assert_eq!(back, scoped);
+        let stored_before: GuardRule = serde_json::from_value(serde_json::json!({
+            "id": "old", "label": "old", "action": "deny",
+            "matcher": {"kind": "command", "regex": "^x"}
+        }))
+        .unwrap();
+        assert_eq!(
+            stored_before.applies_to, None,
+            "a rule written before the field reads as everywhere"
+        );
         let rule = RedactRule {
             id: "e".into(),
             label: "e".into(),
@@ -444,6 +469,7 @@ mod tests {
             action: Action::Deny,
             matcher: Matcher::Tool { name: tool.into() },
             hint: None,
+            applies_to: None,
             origin: Origin::User,
         };
         let workspace = SettingsLayer {

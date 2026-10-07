@@ -42,7 +42,7 @@ use bisa_harness::{
     ProgressEvent, PromptInput, ResumeToken, SessionEvent, SessionSnapshot, Steer,
 };
 use bisa_security::classify::{Subject, Verdict as ClassifierVerdict};
-use bisa_security::guard::{unresolved_deny, ToolCall, Verdict as RuleVerdict};
+use bisa_security::guard::{unresolved_deny, Host, ToolCall, Verdict as RuleVerdict};
 use bisa_security::policy::{Problem, SecurityPolicy, SettingsLayer};
 use bisa_security::redact::Vault;
 use bisa_store::Workspace;
@@ -58,7 +58,7 @@ use crate::Inner;
 
 // The rule types, re-exported so the node and its schema generator can name
 // them without a dependency of their own on the security crate.
-pub use bisa_security::guard::{Action, GuardRule, Matcher};
+pub use bisa_security::guard::{Action, GuardRule, Host as GuardHost, Matcher};
 pub use bisa_security::policy::{Feature, Problem as PolicyProblem};
 pub use bisa_security::redact::{Detector, Origin, RedactRule};
 
@@ -744,6 +744,10 @@ pub struct Judge<'a> {
     pub home: Option<Home>,
     pub session: Option<LiveRunId>,
     pub cwd: Option<&'a Path>,
+    /// Where the call comes from — a session the platform drives or the
+    /// platform's own command, or a person's harness in a terminal — which
+    /// is what a rule's `applies_to` is read against.
+    pub host: Host,
     /// Whether a `classify` rule may ask the classifier. Off for the
     /// classifier's own session (and any other one-shot ask), so a verdict
     /// can never wait on another verdict: there, `classify` reads as `ask`.
@@ -763,6 +767,7 @@ impl<'a> Judge<'a> {
             home,
             session: None,
             cwd,
+            host: Host::Platform,
             classifier: true,
             on_behalf_of: None,
         }
@@ -811,11 +816,15 @@ pub enum Outcome {
 
 /// The redacted rendering of a call — what a journal, a gate and a screen see.
 fn subject_of(inner: &Inner, tool: &str, input: &Value) -> String {
+    // Only the command is read here; who calls and what the tool is also
+    // called bear on no subject.
     let call = ToolCall {
         tool,
         input,
         cwd: None,
         home: None,
+        host: Host::Platform,
+        canonical: None,
     };
     let raw = call.command().unwrap_or_else(|| {
         if input.is_null() {
@@ -953,7 +962,12 @@ pub const CEILING_RULE: &str = "tier_ceiling";
 /// classifier where a rule says so, settle what no rule decided against the
 /// session's reach when one is given, and record what was decided. With no
 /// reach — the platform's own commands, a terminal's hook — no rule's
-/// opinion is `Fallthrough`, the caller's to settle.
+/// opinion is `Fallthrough`, the caller's to settle. The call says where it
+/// comes from (`Judge::host`): a rule that applies to one host alone is
+/// passed over for a call from the other. The tool is read by its own name
+/// and by its harness-neutral one (`bisa_core::caps::canonical_tool`), so a
+/// rule written in the tiers' words reads Claude Code's `WebFetch` as
+/// `fetch`.
 pub async fn decide_tool(
     inner: &Inner,
     tool: &str,
@@ -991,6 +1005,8 @@ pub async fn decide_tool(
         };
     }
     let home = home();
+    // The harness's own name and its neutral one: a `Tool` rule reads both.
+    let canonical = bisa_core::caps::canonical_tool(tool);
     if !policy.guard_enabled {
         // No rules: the reach alone stands, as it does for a call no rule
         // had an opinion on.
@@ -999,6 +1015,8 @@ pub async fn decide_tool(
             input: &restored_input,
             cwd: judge.cwd,
             home: home.as_deref(),
+            host: judge.host,
+            canonical,
         };
         return beyond_the_rules(
             inner,
@@ -1018,6 +1036,8 @@ pub async fn decide_tool(
         input: &restored_input,
         cwd: judge.cwd,
         home: home.as_deref(),
+        host: judge.host,
+        canonical,
     };
     // A session woken by a person on another node: a classify verdict is a
     // question for the owner, whatever the classifier would have said — an
@@ -1448,6 +1468,8 @@ pub fn record_person(inner: &Inner, judge: &Judge<'_>, tool: &str, input: &Value
         input,
         cwd: judge.cwd,
         home: home.as_deref(),
+        host: judge.host,
+        canonical: bisa_core::caps::canonical_tool(tool),
     };
     let model = model_subject(inner, tool, &subject, &call, home.as_deref());
     inner.security.remember_answer(
@@ -1577,6 +1599,8 @@ pub fn refuse_by_rules(inner: &Inner, command: &str) -> Option<String> {
         input: &input,
         cwd: None,
         home: home.as_deref(),
+        host: Host::Platform,
+        canonical: None,
     };
     match policy.rules.guard.evaluate(&call) {
         RuleVerdict::Deny { reason, .. } => Some(reason),
@@ -1626,7 +1650,10 @@ pub struct GuardReply {
     pub updated_input: Option<Value>,
 }
 
-/// Judge one hook payload from a terminal-hosted harness.
+/// Judge one hook payload from a terminal-hosted harness. The desk hosts a
+/// person's own harnesses alone, so every payload here is a terminal's
+/// ([`Host::Terminal`]): the rules that steer an agent to the platform's own
+/// tools pass it over, and what protects the machine reads it as anyone's.
 pub async fn guard_hook(inner: &Inner, session: LiveRunId, payload: &Value) -> GuardReply {
     let tool = payload
         .get("tool_name")
@@ -1642,6 +1669,7 @@ pub async fn guard_hook(inner: &Inner, session: LiveRunId, payload: &Value) -> G
         home: None,
         session: Some(session),
         cwd: cwd.as_deref(),
+        host: Host::Terminal,
         classifier: true,
         on_behalf_of: None,
     };
@@ -1842,6 +1870,8 @@ pub struct GuardPreview {
     pub paths: Vec<String>,
 }
 
+/// What the rules alone say about a call, as a session the platform drives
+/// would meet them — no classifier, no restore, nothing recorded.
 pub fn guard_preview(inner: &Inner, tool: &str, input: &Value, cwd: Option<&Path>) -> GuardPreview {
     let policy = inner.security.policy();
     let home = home();
@@ -1850,6 +1880,8 @@ pub fn guard_preview(inner: &Inner, tool: &str, input: &Value, cwd: Option<&Path
         input,
         cwd,
         home: home.as_deref(),
+        host: Host::Platform,
+        canonical: bisa_core::caps::canonical_tool(tool),
     };
     let paths = call.paths();
     let (verdict, rule, reason) = match policy.rules.guard.evaluate(&call) {

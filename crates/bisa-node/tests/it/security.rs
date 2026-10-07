@@ -135,6 +135,28 @@ async fn the_status_lists_the_rules_and_carries_no_secret() {
             "the harness's own web tools are asked, since what they fetch is not screened: {id}"
         );
     }
+    // The four rules that steer an agent to the platform's own tools say so:
+    // they apply to the platform's sessions alone, and a terminal harness is
+    // passed over. Every other rule carries no scope and applies everywhere.
+    for id in [
+        "machine_browser",
+        "browser_test_runner",
+        "harness_fetch",
+        "harness_web_search",
+    ] {
+        assert!(
+            guard
+                .iter()
+                .any(|r| r["id"] == id && r["applies_to"] == "platform"),
+            "{id} applies to the platform's sessions alone: {guard:?}"
+        );
+    }
+    assert!(
+        guard
+            .iter()
+            .any(|r| r["id"] == "privilege_escalation" && r.get("applies_to").is_none()),
+        "a rule that protects the machine names no scope: it applies everywhere"
+    );
     assert_eq!(
         status["content"]["screen"],
         json!(true),
@@ -231,6 +253,36 @@ async fn a_guard_preview_names_the_rule_and_records_nothing() {
     assert_eq!(read["verdict"], "deny");
     assert_eq!(read["rule"], "dotenv");
     assert_eq!(read["paths"], json!(["/proj/.env.local"]));
+    // The preview judges as a session the platform drives would be judged:
+    // the machine's browser is refused with the tools named, and the
+    // harness's own page fetch is asked under its harness-neutral name.
+    let (_, opened) = request(
+        &socket,
+        "POST",
+        "/security/guard-preview",
+        Some(json!({ "tool": "Bash", "input": { "command": "open https://example.com" } })),
+        TOKEN,
+    )
+    .await;
+    assert_eq!(opened["verdict"], "deny", "{opened}");
+    assert_eq!(opened["rule"], "machine_browser");
+    assert!(
+        opened["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("browser_open"),
+        "{opened}"
+    );
+    let (_, fetch) = request(
+        &socket,
+        "POST",
+        "/security/guard-preview",
+        Some(json!({ "tool": "WebFetch", "input": { "url": "https://example.com" } })),
+        TOKEN,
+    )
+    .await;
+    assert_eq!(fetch["verdict"], "ask", "{fetch}");
+    assert_eq!(fetch["rule"], "harness_fetch", "WebFetch is read as fetch");
     let (_, quiet) = request(
         &socket,
         "POST",

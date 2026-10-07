@@ -322,13 +322,13 @@ setting-security-guard-enabled = Guard tool calls
     .help = Every command, path and tool an agent asks its harness to run is judged against the rules before it runs: allowed, refused with the reason, sent to you in the Inbox, or read by the classifier first.
 
 setting-security-guard-rules = Your guard rules
-    .help = Rules of your own, tried in order after the built-ins: a command pattern, a path glob or a tool name, and what to do when it matches. Workspace rules come before this machine's.
+    .help = Rules of your own, tried in order after the built-ins: a command pattern, a path glob or a tool name — as the harness calls it, or its harness-neutral name, fetch for WebFetch — what to do when it matches, and where it applies: everywhere, the platform's agents only, or harnesses opened in a terminal only. Workspace rules come before this machine's.
 
 setting-security-guard-builtins_off = Built-in guard rules switched off
     .help = The ids of the shipped guard rules that should not apply.
 
 setting-security-guard-terminal_hooks = Guard harnesses opened in a terminal
-    .help = A Claude Code or GitHub Copilot CLI session opened in the IDE's terminal asks the node before each tool runs. When the node does not answer in time, the harness's own prompt stands — you are at the keyboard.
+    .help = A Claude Code or GitHub Copilot CLI session opened in the IDE's terminal asks the node before each tool runs. When the node does not answer in time, the harness's own prompt stands — you are at the keyboard. The rules that steer an agent to the platform's own tools — the embedded browser's — leave a terminal harness be: nothing of the platform's is injected into it, so it keeps the machine's browser and its own prompt.
 
 setting-security-classifier-enabled = Ask a model about unsure commands
     .help = A rule with the *classify* action puts the redacted command to an agent for one line — safe, or harmful and why. No verdict, or a harmful one, goes to you; the classifier never allows what the rules did not.

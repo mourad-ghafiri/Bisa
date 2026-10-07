@@ -10,6 +10,12 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- A guard rule says where it applies. `GuardRule.applies_to` — unset for everywhere, `platform` for
+  the sessions the platform drives, `terminal` for a person's own harness in a terminal — is read
+  against where a call comes from; `GET /security/status` carries it, Settings › Security shows it
+  on the built-ins' lines and offers it on your own rules, and a rule stored before the field reads
+  as everywhere. A tool rule now reads the harness's own tool name and its harness-neutral one, so
+  `fetch` names Claude Code's `WebFetch` and `web_search` its `WebSearch`.
 - Every verb that ends work says what it ended. A goal's stop, restart, close, archive and
   delete, a run's stop and restart, a workflow's *Stop every run* and *Restart every run*, and a
   session's Abort answer an `ended` block — the sessions told to stop, the harnesses that ignored
@@ -60,7 +66,8 @@ notes (`docs/contributing/release.md`).
 - A verb that stops sessions answers only once their processes are gone — or were terminated by
   the engine at a five-second deadline, and said; a close waits too. A stopped conversation turn is
   aborted where it stands, not let finish. `Engine::stop` ends every session it drives the same
-  way, so a node that stops leaves no harness behind.
+  way — a terminal's excepted, whose process is the desktop's and goes on in its tab, left alone
+  by the node's stop and by the next boot — so a node that stops leaves no harness of its own behind.
 - The footer counts *live harnesses* — every harness process the engine drives: the checkout's
   rows as before, and the ones no checkout holds, the Workflow Agent's design wake and the one-shot
   asks, so the footer, the node overlay and the resources overlay agree on what is running. An
@@ -85,6 +92,15 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A Claude Code or GitHub Copilot CLI session opened in the IDE's terminal was refused the
+  machine's browser, a headless one and a project's test runner with a hint about `browser_*` tools
+  it does not have — nothing of the platform's is injected into a terminal harness. The four guard
+  rules that steer an agent to the platform's own tools now apply to the platform's sessions alone,
+  and a terminal harness keeps the machine's browser and its own prompt; what protects the machine
+  still reads its calls as anyone's.
+- The two built-in asks on a harness's own page fetch and web search never fired for Claude Code:
+  the rules read the raw tool names, `WebFetch` and `WebSearch`, and were written in the neutral
+  ones. They ask now, as the docs promised, in every session the platform drives.
 - A row read *aborted* beside a harness still at work, and every stop, close, restart and
   deletion answered at once whatever the harness did: the stop ended the row before the harness
   and the wait watched the rows alone. The engine now keeps every stopped session in a ledger

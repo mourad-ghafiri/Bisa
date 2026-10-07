@@ -290,10 +290,14 @@ async fn decide_permission(
     tier: ToolTier,
     input: &serde_json::Value,
 ) -> InputAnswer {
+    // Every session this funnel serves is one the platform drives — a
+    // worker's, a turn's, a wake's, a one-shot ask's — so the platform's
+    // rules about its own agents apply.
     let judge = Judge {
         home: ctx.home,
         session: Some(ctx.live_run),
         cwd: ctx.cwd.as_deref(),
+        host: bisa_security::Host::Platform,
         classifier: ctx.classifier,
         on_behalf_of: ctx.on_behalf_of.clone(),
     };

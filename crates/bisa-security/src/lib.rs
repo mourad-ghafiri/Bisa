@@ -38,7 +38,9 @@ pub use classify::{
     message_digest, message_prompt, parse_verdict, subject_digest, MessageSubject, NoVerdict,
     Subject, Verdict as ClassifierVerdict,
 };
-pub use guard::{Action, Guard, GuardRule, Matcher, RefusedLine, ToolCall, Verdict as RuleVerdict};
+pub use guard::{
+    Action, Guard, GuardRule, Host, Matcher, RefusedLine, ToolCall, Verdict as RuleVerdict,
+};
 pub use policy::{Feature, Problem, SecurityPolicy, SettingsLayer};
 pub use redact::{
     has_placeholder, Detector, Origin, Placeholder, RedactRule, Redaction, Redactor, Restored,

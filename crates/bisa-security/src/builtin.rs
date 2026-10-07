@@ -16,7 +16,7 @@
 
 use regex::Regex;
 
-use crate::guard::{Action, GuardRule, Matcher};
+use crate::guard::{Action, GuardRule, Host, Matcher};
 use crate::redact::{Detector, Origin, RedactRule};
 
 fn redact(id: &str, label: &str, regex: &str) -> RedactRule {
@@ -155,6 +155,7 @@ fn command(id: &str, label: &str, action: Action, regex: &str) -> GuardRule {
             regex: regex.to_string(),
         },
         hint: None,
+        applies_to: None,
         origin: Origin::Builtin,
     }
 }
@@ -178,6 +179,7 @@ fn path(id: &str, label: &str, glob: &str) -> GuardRule {
             glob: glob.to_string(),
         },
         hint: None,
+        applies_to: None,
         origin: Origin::Builtin,
     }
 }
@@ -193,7 +195,19 @@ fn tool_ask_with_hint(id: &str, label: &str, name: &str, hint: &str) -> GuardRul
             name: name.to_string(),
         },
         hint: Some(hint.to_string()),
+        applies_to: None,
         origin: Origin::Builtin,
+    }
+}
+
+/// A rule that steers an agent to a tool of the platform's own. It has
+/// nothing to say to a harness a person opens in a terminal: nothing of the
+/// platform's is injected there, so the harness has none of those tools and
+/// keeps the machine's own — and the person is at the keyboard.
+fn platform_only(rule: GuardRule) -> GuardRule {
+    GuardRule {
+        applies_to: Some(Host::Platform),
+        ..rule
     }
 }
 
@@ -336,42 +350,49 @@ pub fn guard_rules() -> Vec<GuardRule> {
             "Shell startup files",
             "~/.{bashrc,zshrc,profile,bash_profile,zprofile,zshenv}",
         ),
+        // The browser family — the four rules below — steers an agent to the
+        // platform's embedded browser and applies to the platform's own
+        // sessions alone: a harness a person opens in a terminal has none of
+        // the browser tools and keeps the machine's browser (11-security).
+        //
         // A project's own end-to-end suite runs in a browser of its own —
         // playwright, cypress, webdriver — which is the person's call, not
         // the agent's: asked, before the refusal below can read it as a
         // headless browser of the agent's own.
-        command(
+        platform_only(command(
             "browser_test_runner",
             "A project's own end-to-end suite, in a browser of its own",
             Action::Ask,
             r"\b(?:playwright|cypress|wdio|webdriverio|selenium)\b",
-        ),
+        )),
         // The platform's embedded browser is where an agent browses (ide/18):
         // opening the machine's, or driving a headless one, is refused, and
         // the refusal names the tools to use instead.
-        refuse_with_hint(
+        platform_only(refuse_with_hint(
             "machine_browser",
             "The machine's browser, or a headless one",
             BROWSER_HINT,
             &format!(
                 r#"{START}(?:open|xdg-open|start|gio\s+open)\s+(?:-a\s+\S+\s+)?["']?https?://|{START}open\s+-a\s+["']?(?:Safari|Google\s+Chrome|Chromium|Firefox|Arc|Brave|Microsoft\s+Edge)\b|\b(?:puppeteer|chromium(?:-browser)?|google-chrome|chrome|firefox|msedge|brave(?:-browser)?|safaridriver|chromedriver|geckodriver)\b|--headless\b"#
             ),
-        ),
+        )),
         // A harness's own web tools bring text onto the machine that the
         // platform never sees: asked, and the hint names the browser tools
-        // whose pages are screened (11-security).
-        tool_ask_with_hint(
+        // whose pages are screened (11-security). The names are the
+        // harness-neutral ones; Claude Code's `WebFetch` and `WebSearch`
+        // reach them through the call's canonical name.
+        platform_only(tool_ask_with_hint(
             "harness_fetch",
             "The harness's own page fetch, whose result is not screened",
             "fetch",
             HARNESS_WEB_HINT,
-        ),
-        tool_ask_with_hint(
+        )),
+        platform_only(tool_ask_with_hint(
             "harness_web_search",
             "The harness's own web search, whose results are not screened",
             "web_search",
             HARNESS_WEB_HINT,
-        ),
+        )),
         // A store submission leaves the machine for good — an App Store
         // build under review, a Play release rolling out — and a simulator
         // wipe takes every one with it: both are the person's call (ide/19).
@@ -407,7 +428,7 @@ pub fn guard_rules() -> Vec<GuardRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::guard::{Guard, ToolCall, Verdict};
+    use crate::guard::{Guard, Host, ToolCall, Verdict};
     use crate::redact::{Redactor, Vault};
     use serde_json::json;
     use std::collections::HashSet;
@@ -438,20 +459,36 @@ mod tests {
     #[test]
     fn the_harnesss_own_web_tools_are_asked_and_pointed_at_the_browser_tools() {
         let (g, _) = Guard::compile(&guard_rules());
-        for (tool, rule) in [
-            ("fetch", "harness_fetch"),
-            ("web_search", "harness_web_search"),
+        let input = serde_json::json!({"url": "https://example.com"});
+        for (tool, canonical, rule) in [
+            ("fetch", None, "harness_fetch"),
+            ("web_search", None, "harness_web_search"),
+            ("WebFetch", Some("fetch"), "harness_fetch"),
+            ("WebSearch", Some("web_search"), "harness_web_search"),
         ] {
-            let input = serde_json::json!({"url": "https://example.com"});
             match g.evaluate(&ToolCall {
                 tool,
                 input: &input,
                 cwd: None,
                 home: None,
+                host: Host::Platform,
+                canonical,
             }) {
                 Verdict::Ask { rule: hit } => assert_eq!(hit, rule),
                 other => panic!("{tool}: {other:?}"),
             }
+            assert_eq!(
+                g.evaluate(&ToolCall {
+                    tool,
+                    input: &input,
+                    cwd: None,
+                    home: None,
+                    host: Host::Terminal,
+                    canonical,
+                }),
+                Verdict::Fallthrough,
+                "{tool}: a terminal harness's own web tools are its own"
+            );
         }
         let fetch = guard_rules()
             .into_iter()
@@ -470,7 +507,9 @@ mod tests {
                     tool: "Read",
                     input: &input,
                     cwd: None,
-                    home: None
+                    home: None,
+                    host: Host::Platform,
+                    canonical: None,
                 }),
                 Verdict::Fallthrough
             ),
@@ -589,6 +628,10 @@ mod tests {
     }
 
     fn verdict(command: &str) -> Verdict {
+        verdict_from(Host::Platform, command)
+    }
+
+    fn verdict_from(host: Host, command: &str) -> Verdict {
         let (g, _) = Guard::compile(&guard_rules());
         let input = json!({ "command": command });
         g.evaluate(&ToolCall {
@@ -596,6 +639,8 @@ mod tests {
             input: &input,
             cwd: Some(Path::new("/Users/someone/work/proj")),
             home: Some(Path::new("/Users/someone")),
+            host,
+            canonical: None,
         })
     }
 
@@ -775,6 +820,78 @@ mod tests {
         denied("source ~/.bashrc", "shell_startup");
     }
 
+    /// The four rules that steer an agent to the platform's own tools apply
+    /// to the platform's sessions alone; every other built-in — the ones that
+    /// protect the machine — reads a terminal harness's call as anyone's.
+    #[test]
+    fn the_rules_that_steer_to_the_platforms_tools_apply_to_its_sessions_alone() {
+        let steering = [
+            "browser_test_runner",
+            "machine_browser",
+            "harness_fetch",
+            "harness_web_search",
+        ];
+        for rule in guard_rules() {
+            let names_a_platform_tool =
+                rule.hint.as_deref().is_some_and(|h| h.contains("browser_"));
+            if steering.contains(&rule.id.as_str()) {
+                assert_eq!(
+                    rule.applies_to,
+                    Some(Host::Platform),
+                    "{}: steers to the platform's tools",
+                    rule.id
+                );
+            } else {
+                assert_eq!(
+                    rule.applies_to, None,
+                    "{}: protects the machine everywhere",
+                    rule.id
+                );
+                assert!(
+                    !names_a_platform_tool,
+                    "{}: a hint naming a platform tool belongs to a platform-only rule",
+                    rule.id
+                );
+            }
+        }
+        // From a terminal: the machine's browser, a headless one and a test
+        // runner are the person's own business, and the guard says nothing.
+        for own in [
+            "open https://example.com",
+            "open -a Safari https://example.com",
+            "xdg-open http://localhost:5173",
+            "node scrape.js --headless",
+            "flutter run -d chrome",
+            "npx playwright test",
+            "npx cypress run --headless",
+        ] {
+            assert_eq!(
+                verdict_from(Host::Terminal, own),
+                Verdict::Fallthrough,
+                "{own:?} from a terminal"
+            );
+        }
+        // …while what protects the machine still does.
+        for protected in [
+            "sudo ls",
+            "rm -rf /",
+            "cat .env",
+            "cat ~/.ssh/id_ed25519",
+            "git push --force",
+        ] {
+            assert!(
+                matches!(
+                    verdict_from(Host::Terminal, protected),
+                    Verdict::Deny { .. }
+                ),
+                "{protected:?} from a terminal is still refused"
+            );
+        }
+        // And from the platform's own session the family reads as before.
+        denied("open https://example.com", "machine_browser");
+        asked("npx playwright test", "browser_test_runner");
+    }
+
     #[test]
     fn path_rules_read_the_inputs_of_file_tools_too() {
         let (g, _) = Guard::compile(&guard_rules());
@@ -784,6 +901,8 @@ mod tests {
             input: &read,
             cwd: Some(Path::new("/Users/someone/work/proj")),
             home: Some(Path::new("/Users/someone")),
+            host: Host::Platform,
+            canonical: None,
         };
         assert!(matches!(g.evaluate(&call), Verdict::Deny { .. }));
         let write = json!({ "file_path": "/Users/someone/.ssh/authorized_keys", "content": "x" });
@@ -792,6 +911,8 @@ mod tests {
             input: &write,
             cwd: None,
             home: Some(Path::new("/Users/someone")),
+            host: Host::Platform,
+            canonical: None,
         };
         assert!(matches!(g.evaluate(&call), Verdict::Deny { .. }));
     }

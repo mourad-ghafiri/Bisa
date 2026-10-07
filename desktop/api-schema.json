@@ -967,6 +967,9 @@
     "GuardMatcher": {
       "$ref": "#/definitions/GuardMatcher"
     },
+    "GuardHost": {
+      "$ref": "#/definitions/GuardHost"
+    },
     "PolicyProblem": {
       "$ref": "#/definitions/PolicyProblem"
     },
@@ -14965,6 +14968,17 @@
           ],
           "description": "What a refusal by this rule adds after its label — the way the agent\nshould take instead, in a sentence it reads as the tool's answer.\nOnly a refusal carries it; an ask or a classify has nothing to add."
         },
+        "applies_to": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GuardHost"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the rule applies: everywhere when unset; `platform` for a rule\nthat steers an agent to a tool only the platform's own sessions have\n(the browser family); `terminal` for a rule about a person's own\nharness alone. A rule stored before this field reads as everywhere."
+        },
         "origin": {
           "default": "user",
           "allOf": [
@@ -15058,7 +15072,7 @@
             "kind",
             "name"
           ],
-          "description": "An exact tool name — `Bash`, `Write`, `mcp__bisa__post_message` — or\na prefix ending in `*`: `mcp__gh__*` is every tool of one MCP\nserver, `mcp__*` every tool of every MCP server."
+          "description": "An exact tool name — `Bash`, `Write`, `mcp__bisa__post_message` — or\na prefix ending in `*`: `mcp__gh__*` is every tool of one MCP\nserver, `mcp__*` every tool of every MCP server. A name is read as\nthe harness calls it and by its harness-neutral name when the two\ndiffer ([`ToolCall::canonical`]): `fetch` names Claude Code's\n`WebFetch`, `web_search` its `WebSearch`."
         },
         {
           "type": "object",
@@ -15075,6 +15089,21 @@
         }
       ],
       "description": "What a rule looks at."
+    },
+    "GuardHost": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "platform",
+          "description": "A session the platform drives — a worker, a turn, a wake, a one-shot\nask — or the platform's own command: the platform's rules about its\nown agents apply, the embedded browser is where they browse."
+        },
+        {
+          "type": "string",
+          "const": "terminal",
+          "description": "A person's own harness in a terminal: nothing of the platform's is\ninjected into it, and the person is at the keyboard."
+        }
+      ],
+      "description": "Who hosts the harness a call comes from — what a rule's `applies_to` is\nread against. It says *who*, not which tools the session mounts."
     },
     "PolicyProblem": {
       "type": "object",

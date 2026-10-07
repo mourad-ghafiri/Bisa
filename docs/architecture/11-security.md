@@ -176,7 +176,15 @@ for every `cargo test` was the one thing that made it attended; the rules come f
 `deny` still refuses and an `ask` still asks whatever the mode, and the classifier never allows what
 a rule refused. A session woken by an outsider asks above its (read-only) ceiling whatever the mode:
 their words do not spend the owner's classifier. The platform's own commands (`decide_command`) and
-a terminal's hook carry no reach: no match is *fallthrough* there, as before. A session outside any
+a terminal's hook carry no reach: no match is *fallthrough* there, as before. A call also says **where
+it comes from** (`Judge::host`, `bisa_security::Host::{Platform, Terminal}`): a rule that applies to one
+host alone (`GuardRule.applies_to`; unset is everywhere) is passed over for a call from the other, as if
+it were not there, and the rules after it still read the call. The four built-ins that steer an agent
+to the platform's own tools — the browser family below — apply to the platform's sessions alone, so a
+harness a person opens in a terminal, into which nothing of the platform's is injected, hears nothing
+from them and keeps the machine's browser. `platform` says *who*, not which tools: a one-shot ask
+mounts no server, and a harness without `MCP_SERVERS` mounts none, yet both are the platform's own and
+meet its rules, hint and all. A session outside any
 goal or workspace run has nobody to ask, so `ask` there is a refusal — except a terminal-hosted session, where the
 person is at the keyboard and the harness's own prompt is the ask, and except a turn of a
 conversation about a checkout, which has no goal either but is not refused: the call is asked **in
@@ -230,7 +238,14 @@ browser_press and browser_wait by ref, browser_read and browser_screenshot it; i
 mode the tab is out of sight* — so an agent that reaches
 for the wrong browser reads the right one (ide/18). The harness's own `fetch` and `web_search` are
 **asked** (`harness_fetch`, `harness_web_search`) with a hint of their own — what they bring back
-cannot be screened, the browser tools' pages can ([below](#what-an-agent-reads-from-outside)). A
+cannot be screened, the browser tools' pages can ([below](#what-an-agent-reads-from-outside)); a
+tool rule reads the harness's own name and its harness-neutral one (`ToolCall.canonical`,
+`bisa_core::caps::canonical_tool`), so Claude Code's `WebFetch` and `WebSearch` are them. These four
+— `machine_browser`, `browser_test_runner`, `harness_fetch`, `harness_web_search` — are
+**`applies_to: platform`** (`builtin::platform_only`): they steer an agent to the platform's own
+tools, so they apply to the sessions the platform drives and pass over a harness a person opens in a
+terminal, which has none of the `browser_*` tools and keeps the machine's browser, its own prompt
+standing ([below](#a-claude-code-session-in-a-terminal)). A
 project's own end-to-end suite — `playwright`,
 `cypress`, `wdio`, `selenium` — is **asked** of the person first (`browser_test_runner`): the
 person's suite, not the agent's browser. So is a **store submission** (`store_submission`:
@@ -264,7 +279,10 @@ stands); `effects::run_check` for a `check` step's command (a refusal fails the 
 reason; `ask` and `classify` go to the person through the run's home — its goal or the workspace
 run — as they would for a permission);
 the ticker for a `check` start's command at every fire (`listen/sources.rs` — a refusal is a
-failed check that says so); and `InteractiveDesk::guard`, the terminal guard hook's route. The
+failed check that says so); and `InteractiveDesk::guard`, the terminal guard hook's route. Each
+caller says whose call it is: every engine-driven session, the platform's commands and the previews
+judge as `Host::Platform`, the terminal hook alone as `Host::Terminal` — so a rule's `applies_to` has
+one place to be read, `Guard::evaluate`. The
 rules alone are read in three more places: a `check` start at the moment its host is turned on
 (`listen::turn::check`, `refuse_by_rules` — a command a rule refuses is never armed), a workstream
 script's lines (`refuse_by_rules_lines`) and a connector step's rendered parameters (a placeholder
@@ -332,6 +350,18 @@ runs the two in parallel, so neither waits on the other. The hook is
 emitted only while `security.guard.terminal_hooks` is on (machine scope). Held from end to end by
 the journey `crates/bisa-cli/tests/it/e2e/a_harness_in_a_terminal.rs`: the hook is the command line
 the node wrote, run as a harness runs it, and what it prints is what the harness reads.
+
+**What a terminal harness is not told.** Nothing of the platform's is injected into it — no MCP
+server, no skill, nothing under `~/.claude` or `~/.copilot` — so it has none of the `browser_*` tools,
+and the four built-ins that steer an agent to them (`machine_browser`, `browser_test_runner`,
+`harness_fetch`, `harness_web_search`; `applies_to: platform`) pass it over: `open https://…`, a
+headless browser, a project's test runner or the harness's own `WebFetch` meet no opinion from the
+guard, the hook prints nothing, and the harness's own prompt stands — the person is at the keyboard.
+What protects the machine — `sudo`, a recursive delete, a credential path — reads a terminal's call as
+anyone's. The hook's half is `guard_hook`, which judges every payload as `Host::Terminal`, since the
+desk hosts a person's own harnesses alone; held by
+`the_guard_hook_answers_deny_ask_or_nothing_and_a_report_is_redacted` and by the journey, where
+`open https://example.com` prints nothing and `sudo ls` a `deny`.
 
 **GitHub Copilot CLI is guarded the same way, in its own shape.** Its recipe
 (`adapters/hooks/copilot.rs`) is a plugin mounted for the one launch; the guard is the second
@@ -435,8 +465,9 @@ over their union: dropped whole, the later match's tail would stay in the text. 
 the status says so, and the panel draws a banner over its rules, which stand idle.
 
 Settings › Security is three panels — Redactor, Guard, Classifier — each a
-hand-written editor (the built-ins with switches, the person's rules as rows with a name, a matcher
-and an action, moved up and down, saved to the scope they chose) above the registry-generated
+hand-written editor (the built-ins with switches — each one's line saying where it applies when it
+is scoped to the platform's agents or to terminals — the person's rules as rows with a name, a matcher,
+an action and where it applies, moved up and down, saved to the scope they chose) above the registry-generated
 switches and numbers, with a *Try it* box that previews a redaction or a rule on the node
 (`POST /security/redact-preview`, `POST /security/guard-preview`). The Redactor panel adds *This
 node's environment* — the count of armed variables and their names as switchable built-ins; the
@@ -546,10 +577,13 @@ Two keys, on by default: `security.content.screen` (`true`) and `security.conten
 (`ask` · `deny`), drawn on Settings › Security › Classifier under *What agents read from outside*.
 
 **What it cannot see.** A harness's own web tools — Claude Code's `WebFetch` and `WebSearch`
-(normalised to `fetch` and `web_search`), Codex's and OpenCode's web search — bring text onto the
-machine that never crosses the intake. On a guarded harness two built-in rules ask before them
-(`harness_fetch`, `harness_web_search`) and the hint names the browser tools whose pages *are*
-screened; on an observe-only harness the platform only sees the call. The same is true of a
+(read as `fetch` and `web_search` through the call's harness-neutral name,
+`bisa_core::caps::canonical_tool`; an ACP agent's fetch tool is matched by the name the agent gives
+it), Codex's and OpenCode's web search — bring text onto the
+machine that never crosses the intake. On a guarded harness the platform drives, two built-in rules
+ask before them (`harness_fetch`, `harness_web_search`) and the hint names the browser tools whose
+pages *are* screened; in a terminal the two pass the harness over, as every rule of the browser
+family does; on an observe-only harness the platform only sees the call. The same is true of a
 person-installed MCP server, mounted on the harness directly. These are documented gaps, closed only
 by routing reading through the platform's browser. Held by `crates/bisa-engine/src/content.rs`,
 `tests/it/content.rs` (a hostile page is a string answered by a fake desktop, the classifier a

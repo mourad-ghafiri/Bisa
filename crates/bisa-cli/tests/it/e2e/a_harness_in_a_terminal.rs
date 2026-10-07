@@ -373,6 +373,29 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
     );
     tab.reads(&ws, "thinking");
 
+    // The machine's browser is the person's own here. The built-in that
+    // steers an agent to the platform's embedded browser applies to the
+    // sessions the platform drives alone — nothing of the platform's is
+    // injected into this harness — so the guard prints nothing, and the
+    // harness's own prompt stands.
+    assert_eq!(
+        tab.asks_before(
+            &ws,
+            "Bash",
+            "toolu_open",
+            json!({"command": "open https://example.com"})
+        ),
+        None,
+        "a terminal harness keeps the machine's browser"
+    );
+    tab.reads(&ws, "running");
+    tab.reports(
+        &ws,
+        "PostToolUse",
+        json!({"tool_name": "Bash", "tool_use_id": "toolu_open"}),
+    );
+    tab.reads(&ws, "thinking");
+
     // One the journey's rule asks about: the verdict hands the call to the
     // person at the keyboard, and the harness stops at its own prompt.
     let asked = tab

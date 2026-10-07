@@ -112,9 +112,59 @@ impl ToolTier {
     }
 }
 
+/// The harness-neutral name of a harness's own tool, when it differs: Claude
+/// Code's and GitHub Copilot CLI's TitleCase names in the snake_case the tiers
+/// and the built-in guard rules speak — `fetch` for `WebFetch`, `web_search`
+/// for `WebSearch`. `None` for a name that is already its own: `Bash`, an MCP
+/// tool, an ACP agent's.
+pub fn canonical_tool(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "Read" => "read",
+        "Grep" => "grep",
+        "Glob" => "glob",
+        "LS" => "ls",
+        "WebSearch" => "web_search",
+        "WebFetch" => "fetch",
+        "Edit" => "edit",
+        "MultiEdit" => "multi_edit",
+        "Write" => "write",
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_harnesss_own_tool_name_has_one_neutral_name_or_none() {
+        for (own, neutral) in [
+            ("Read", "read"),
+            ("Grep", "grep"),
+            ("Glob", "glob"),
+            ("LS", "ls"),
+            ("WebSearch", "web_search"),
+            ("WebFetch", "fetch"),
+            ("Edit", "edit"),
+            ("MultiEdit", "multi_edit"),
+            ("Write", "write"),
+        ] {
+            assert_eq!(canonical_tool(own), Some(neutral), "{own}");
+            assert!(
+                ToolTier::classify(neutral) <= ToolTier::classify(own),
+                "{own}: the neutral name is the one the tiers read"
+            );
+        }
+        for own in [
+            "Bash",
+            "mcp__bisa__post_message",
+            "read_file",
+            "fetch",
+            "web_search",
+        ] {
+            assert_eq!(canonical_tool(own), None, "{own} is already its own name");
+        }
+    }
 
     #[test]
     fn unknown_tools_are_exec() {

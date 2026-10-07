@@ -49,6 +49,30 @@ impl Action {
     }
 }
 
+/// Who hosts the harness a call comes from — what a rule's `applies_to` is
+/// read against. It says *who*, not which tools the session mounts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(rename = "GuardHost")]
+pub enum Host {
+    /// A session the platform drives — a worker, a turn, a wake, a one-shot
+    /// ask — or the platform's own command: the platform's rules about its
+    /// own agents apply, the embedded browser is where they browse.
+    Platform,
+    /// A person's own harness in a terminal: nothing of the platform's is
+    /// injected into it, and the person is at the keyboard.
+    Terminal,
+}
+
+impl Host {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Host::Platform => "platform",
+            Host::Terminal => "terminal",
+        }
+    }
+}
+
 /// What a rule looks at.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -61,7 +85,10 @@ pub enum Matcher {
     Path { glob: String },
     /// An exact tool name — `Bash`, `Write`, `mcp__bisa__post_message` — or
     /// a prefix ending in `*`: `mcp__gh__*` is every tool of one MCP
-    /// server, `mcp__*` every tool of every MCP server.
+    /// server, `mcp__*` every tool of every MCP server. A name is read as
+    /// the harness calls it and by its harness-neutral name when the two
+    /// differ ([`ToolCall::canonical`]): `fetch` names Claude Code's
+    /// `WebFetch`, `web_search` its `WebSearch`.
     Tool { name: String },
     /// Every call.
     Any,
@@ -81,6 +108,12 @@ pub struct GuardRule {
     /// Only a refusal carries it; an ask or a classify has nothing to add.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    /// Where the rule applies: everywhere when unset; `platform` for a rule
+    /// that steers an agent to a tool only the platform's own sessions have
+    /// (the browser family); `terminal` for a rule about a person's own
+    /// harness alone. A rule stored before this field reads as everywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applies_to: Option<Host>,
     #[serde(default)]
     pub origin: Origin,
 }
@@ -107,6 +140,13 @@ pub struct ToolCall<'a> {
     pub input: &'a Value,
     pub cwd: Option<&'a Path>,
     pub home: Option<&'a Path>,
+    /// Who hosts the harness making the call.
+    pub host: Host,
+    /// The tool's harness-neutral name, when the harness's own differs —
+    /// `fetch` for Claude Code's `WebFetch` — so a `Tool` rule written in the
+    /// vocabulary the tiers speak reads the call too. `None` when the name is
+    /// already its own.
+    pub canonical: Option<&'a str>,
 }
 
 const COMMAND_KEYS: &[&str] = &["command", "cmd"];
@@ -362,17 +402,26 @@ impl Guard {
         self.rules.is_empty()
     }
 
-    /// The first enabled rule that matches decides.
+    /// The first enabled rule that matches decides. A rule that applies to
+    /// one host alone ([`GuardRule::applies_to`]) is passed over for a call
+    /// from the other, as if it were not there; a `Tool` rule reads the
+    /// call's own name and its harness-neutral one.
     pub fn evaluate(&self, call: &ToolCall<'_>) -> Verdict {
         let command = call.command();
         let paths = call.paths();
         for CompiledRule { rule, matcher } in &self.rules {
+            if rule.applies_to.is_some_and(|host| host != call.host) {
+                continue;
+            }
             let hit = match matcher {
                 Compiled::Command(re) => command.as_deref().is_some_and(|c| re.is_match(c)),
                 Compiled::Path(glob) => paths
                     .iter()
                     .any(|p| call.candidates(p).iter().any(|c| glob.is_match(c))),
-                Compiled::Tool(name) => tool_matches(name, call.tool),
+                Compiled::Tool(name) => {
+                    tool_matches(name, call.tool)
+                        || call.canonical.is_some_and(|c| tool_matches(name, c))
+                }
                 Compiled::Any => true,
             };
             if hit {
@@ -403,10 +452,10 @@ impl Guard {
     }
 
     /// Reads a script line by line, each non-empty, non-comment line as a
-    /// `sh` call, and names the first one a rule refuses. Only a refusal
-    /// counts: a script runs whole or not at all, so an *ask* or a *classify*
-    /// on one line is not a question anyone can answer for it, and the
-    /// caller's own trust decides the rest.
+    /// `sh` call of the platform's own, and names the first one a rule
+    /// refuses. Only a refusal counts: a script runs whole or not at all, so
+    /// an *ask* or a *classify* on one line is not a question anyone can
+    /// answer for it, and the caller's own trust decides the rest.
     pub fn evaluate_lines(
         &self,
         script: &str,
@@ -425,6 +474,8 @@ impl Guard {
                     input: &input,
                     cwd,
                     home,
+                    host: Host::Platform,
+                    canonical: None,
                 }) {
                     Verdict::Deny { rule, reason } => Some(RefusedLine {
                         line: number,
@@ -498,6 +549,8 @@ mod tests {
             input: &input,
             cwd: None,
             home: None,
+            host: Host::Platform,
+            canonical: None,
         }) {
             Verdict::Deny { reason, .. } => assert!(reason.ends_with("use the browser tools")),
             other => panic!("{other:?}"),
@@ -512,6 +565,7 @@ mod tests {
             action,
             matcher,
             hint: None,
+            applies_to: None,
             origin: Origin::User,
         }
     }
@@ -557,6 +611,8 @@ mod tests {
             input: &input,
             cwd: None,
             home: None,
+            host: Host::Platform,
+            canonical: None,
         };
         assert_eq!(
             g.evaluate(&call),
@@ -570,7 +626,9 @@ mod tests {
                 tool: "Bash",
                 input: &input,
                 cwd: None,
-                home: None
+                home: None,
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Ask {
                 rule: "ask_git".into()
@@ -582,7 +640,9 @@ mod tests {
                 tool: "Bash",
                 input: &input,
                 cwd: None,
-                home: None
+                home: None,
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Classify {
                 rule: "classify_curl".into()
@@ -594,7 +654,9 @@ mod tests {
                 tool: "Bash",
                 input: &input,
                 cwd: None,
-                home: None
+                home: None,
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Fallthrough
         );
@@ -620,6 +682,8 @@ mod tests {
             input: &input,
             cwd: None,
             home: None,
+            host: Host::Platform,
+            canonical: None,
         }) {
             Verdict::Deny { rule, reason } => {
                 assert_eq!(rule, "no_sudo");
@@ -655,7 +719,9 @@ mod tests {
                 tool: "Read",
                 input: &read,
                 cwd: Some(cwd),
-                home: Some(home)
+                home: Some(home),
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Deny { .. }
         ));
@@ -665,7 +731,9 @@ mod tests {
                 tool: "Bash",
                 input: &cat,
                 cwd: Some(cwd),
-                home: Some(home)
+                home: Some(home),
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Deny { .. }
         ));
@@ -675,7 +743,9 @@ mod tests {
                 tool: "Bash",
                 input: &rel,
                 cwd: Some(cwd),
-                home: Some(home)
+                home: Some(home),
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Deny { .. }
         ));
@@ -685,7 +755,9 @@ mod tests {
                 tool: "Bash",
                 input: &dotdot,
                 cwd: Some(cwd),
-                home: Some(home)
+                home: Some(home),
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Deny { .. }
         ));
@@ -695,7 +767,9 @@ mod tests {
                 tool: "Read",
                 input: &fine,
                 cwd: Some(cwd),
-                home: Some(home)
+                home: Some(home),
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Fallthrough
         );
@@ -705,7 +779,9 @@ mod tests {
                 tool: "Bash",
                 input: &flag,
                 cwd: Some(cwd),
-                home: Some(home)
+                home: Some(home),
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Deny { .. }
         ));
@@ -729,7 +805,9 @@ mod tests {
                 tool: "WebFetch",
                 input: &empty,
                 cwd: None,
-                home: None
+                home: None,
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Deny { .. }
         ));
@@ -738,7 +816,9 @@ mod tests {
                 tool: "WebFetchX",
                 input: &empty,
                 cwd: None,
-                home: None
+                home: None,
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Ask {
                 rule: "rest".into()
@@ -770,6 +850,8 @@ mod tests {
             input: &empty,
             cwd: None,
             home: None,
+            host: Host::Platform,
+            canonical: None,
         };
         assert_eq!(
             g.evaluate(&call("mcp__gh__create_issue")),
@@ -811,7 +893,9 @@ mod tests {
                 tool: "Bash",
                 input: &empty,
                 cwd: None,
-                home: None
+                home: None,
+                host: Host::Platform,
+                canonical: None,
             }),
             Verdict::Allow { rule: "ok".into() }
         );
@@ -836,6 +920,8 @@ mod tests {
             input: &input,
             cwd: None,
             home: None,
+            host: Host::Platform,
+            canonical: None,
         };
         assert_eq!(call.paths(), vec!["./out.txt"]);
         let none = json!({ "cmd": "ls" });
@@ -843,10 +929,154 @@ mod tests {
             tool: "Bash",
             input: &none,
             cwd: None,
-            home: None
+            home: None,
+            host: Host::Platform,
+            canonical: None,
         }
         .paths()
         .is_empty());
+    }
+
+    /// A rule for one host alone is passed over for a call from the other —
+    /// the rules after it still read the call, so the skip is never a verdict.
+    #[test]
+    fn a_rule_for_one_host_is_skipped_for_the_other() {
+        let mut in_a_terminal = rule(
+            "terminal_asks_git",
+            Action::Ask,
+            Matcher::Command {
+                regex: r"^git\b".into(),
+            },
+        );
+        in_a_terminal.applies_to = Some(Host::Terminal);
+        let mut platform_only = rule(
+            "platform_refuses_git",
+            Action::Deny,
+            Matcher::Command {
+                regex: r"^git push\b".into(),
+            },
+        );
+        platform_only.applies_to = Some(Host::Platform);
+        let g = guard(vec![
+            in_a_terminal,
+            platform_only,
+            rule(
+                "everyone_classifies_git",
+                Action::Classify,
+                Matcher::Command {
+                    regex: r"^git\b".into(),
+                },
+            ),
+        ]);
+        let input = bash("git push origin main");
+        let from = |host: Host| ToolCall {
+            tool: "Bash",
+            input: &input,
+            cwd: None,
+            home: None,
+            host,
+            canonical: None,
+        };
+        assert_eq!(
+            g.evaluate(&from(Host::Terminal)),
+            Verdict::Ask {
+                rule: "terminal_asks_git".into()
+            },
+            "a terminal reads its own rule first"
+        );
+        assert!(
+            matches!(
+                g.evaluate(&from(Host::Platform)),
+                Verdict::Deny { ref rule, .. } if rule == "platform_refuses_git"
+            ),
+            "the platform skips the terminal's rule and meets its own"
+        );
+        let status = bash("git status");
+        assert_eq!(
+            g.evaluate(&ToolCall {
+                tool: "Bash",
+                input: &status,
+                cwd: None,
+                home: None,
+                host: Host::Platform,
+                canonical: None,
+            }),
+            Verdict::Classify {
+                rule: "everyone_classifies_git".into()
+            },
+            "a skipped rule hands the call on to the rules after it"
+        );
+    }
+
+    /// A tool rule names the tool as the harness calls it, or by the
+    /// harness-neutral name the tiers speak; the two never mix with a prefix.
+    #[test]
+    fn a_tool_rule_reads_the_harnesss_own_name_and_the_neutral_one() {
+        let g = guard(vec![
+            rule(
+                "ask_fetch",
+                Action::Ask,
+                Matcher::Tool {
+                    name: "fetch".into(),
+                },
+            ),
+            rule(
+                "deny_claude_name",
+                Action::Deny,
+                Matcher::Tool {
+                    name: "WebSearch".into(),
+                },
+            ),
+            rule(
+                "mcp_rest",
+                Action::Classify,
+                Matcher::Tool {
+                    name: "mcp__*".into(),
+                },
+            ),
+        ]);
+        let empty = json!({});
+        let call = |tool: &'static str, canonical: Option<&'static str>| ToolCall {
+            tool,
+            input: &empty,
+            cwd: None,
+            home: None,
+            host: Host::Platform,
+            canonical,
+        };
+        assert_eq!(
+            g.evaluate(&call("WebFetch", Some("fetch"))),
+            Verdict::Ask {
+                rule: "ask_fetch".into()
+            },
+            "the neutral name reads the rule written in the tiers' words"
+        );
+        assert_eq!(
+            g.evaluate(&call("fetch", None)),
+            Verdict::Ask {
+                rule: "ask_fetch".into()
+            },
+            "a harness that already calls it fetch matches by its own name"
+        );
+        assert_eq!(
+            g.evaluate(&call("WebFetch", None)),
+            Verdict::Fallthrough,
+            "without the neutral name the harness's own is all there is"
+        );
+        assert!(
+            matches!(
+                g.evaluate(&call("WebSearch", Some("web_search"))),
+                Verdict::Deny { .. }
+            ),
+            "the harness's own name still matches a rule that spells it"
+        );
+        assert_eq!(
+            g.evaluate(&call("mcp__gh__fetch_issue", None)),
+            Verdict::Classify {
+                rule: "mcp_rest".into()
+            },
+            "a prefix pattern reads the raw name alone"
+        );
     }
 
     #[test]

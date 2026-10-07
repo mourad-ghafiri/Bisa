@@ -35,7 +35,8 @@ Files on the path: `desktop/src-tauri/src/second_launch.rs`, `desktop/src-tauri/
 `crates/bisa-store/src/workspace.rs`, `crates/bisa-engine/src/lib.rs`,
 `crates/bisa-engine/src/sessions.rs` (`end_stale`: every session row still `live` is a dead
 session — its harness child, when the row's `pid` is still the process seen at `pid_seen_at`, is
-terminated first, `SIGTERM` then `SIGKILL` — and ended), `crates/bisa-engine/src/recovery.rs`
+terminated first, `SIGTERM` then `SIGKILL`, except a terminal's, which is the desktop's and is left
+alone — and ended), `crates/bisa-engine/src/recovery.rs`
 (`sweep`, the restart walk below), `crates/bisa-engine/src/waits.rs` (`rearm_run` arms a run's
 `Waiting` `wait` steps and its live steps' boundary events from its snapshot — a schedule from the
 step's `started_at`, a signal wait replayed against the durable signals since then, a boundary
@@ -74,7 +75,10 @@ in this order, before it serves anyone:
    an ask's; the broadcaster replays a start announced before the driver listened — is terminated
    if — and only if — the pid is still the process that was
    seen (`ps -o etime=` against `pid_seen_at`; a recycled pid is somebody else's), so nothing keeps
-   writing into a checkout the engine is about to resume. Then the row is `ended`.
+   writing into a checkout the engine is about to resume. A **terminal's** process is the desktop's,
+   not the node's: its tab goes on without the node and ends it by closing, so its row is ended and
+   the process left alone (the journey `a_node_that_starts_again_has_forgotten_every_terminal_and_kept_nothing_of_them`
+   holds it). Then the row is `ended`.
 2. **The walk** (`recovery::sweep`). For every unfinished run of every open goal, and every live
    workspace run (`live_workspace_runs`), read from its snapshot: its waits and its live steps' boundary events are re-armed (`waits::rearm_run`, which ends in `waits::sync_boundaries` — a reminder that already fired three times of five has two left); every `Running` step whose kind dies with
    the process gets **`StepInterrupted`** through the run funnel — an `agent` step with a work item

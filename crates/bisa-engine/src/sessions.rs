@@ -394,13 +394,17 @@ pub fn end_stale(inner: &Arc<Inner>) -> usize {
     let now = now_secs();
     let mut ended_rows = 0;
     for row in rows {
-        if let (Some(pid), Some(seen_at)) = (row.pid, row.pid_seen_at) {
-            if child::is_still_ours(pid, seen_at, now) {
-                tracing::warn!(target: "bisa_engine", session = %row.id, pid, "terminating a harness child the last process left running");
-                // A child the engine spawned leads a group of its own — its
-                // tools' commands and its MCP server in it; a terminal's
-                // child is the desktop's, one pid.
-                child::terminate(pid, row.kind != SessionKind::Terminal);
+        // A terminal's process is the desktop's, not this node's: the tab
+        // that holds it goes on without the node and ends it by closing, so
+        // the row is forgotten and the process left alone. A child the engine
+        // spawned leads a group of its own — its tools' commands and its MCP
+        // server in it — and is ended with the group.
+        if row.kind != SessionKind::Terminal {
+            if let (Some(pid), Some(seen_at)) = (row.pid, row.pid_seen_at) {
+                if child::is_still_ours(pid, seen_at, now) {
+                    tracing::warn!(target: "bisa_engine", session = %row.id, pid, "terminating a harness child the last process left running");
+                    child::terminate(pid, true);
+                }
             }
         }
         if let Err(e) = inner.ws.end_session(&row.id, now) {
@@ -414,10 +418,12 @@ pub fn end_stale(inner: &Arc<Inner>) -> usize {
     match inner.ws.list_sessions_with_process() {
         Ok(rows) => {
             for row in rows {
-                if let (Some(pid), Some(seen_at)) = (row.pid, row.pid_seen_at) {
-                    if child::is_still_ours(pid, seen_at, now) {
-                        tracing::warn!(target: "bisa_engine", session = %row.id, pid, "terminating a harness child that outlived its session");
-                        child::terminate(pid, row.kind != SessionKind::Terminal);
+                if row.kind != SessionKind::Terminal {
+                    if let (Some(pid), Some(seen_at)) = (row.pid, row.pid_seen_at) {
+                        if child::is_still_ours(pid, seen_at, now) {
+                            tracing::warn!(target: "bisa_engine", session = %row.id, pid, "terminating a harness child that outlived its session");
+                            child::terminate(pid, true);
+                        }
                     }
                 }
                 if let Err(e) = inner.ws.set_session_process(&row.id, None, now) {
@@ -599,6 +605,8 @@ pub enum Scope {
     /// other checkouts — the primary's sessions above all.
     Workstream(WorkstreamId),
     /// Every session this process drives — what the engine's own stop ends.
+    /// A terminal's row is not among them: its process is the desktop's,
+    /// and a node going down leaves the person's tabs as they are.
     Node,
     /// One row, by its id — what the roster's *Terminate* waits for.
     Session(LiveRunId),
@@ -632,6 +640,10 @@ pub fn stops(place: Place, scope: Scope, workstreams: &HashSet<WorkstreamId>) ->
 fn row_on(row: &SessionPresence, scope: Scope, workstreams: &HashSet<WorkstreamId>) -> bool {
     match scope {
         Scope::Session(id) => row.id == id,
+        // The node drives every row but a terminal's: that process is the
+        // desktop's, which ends it by closing the tab, so the node's own
+        // stop neither tells it nor waits for it.
+        Scope::Node => row.kind != SessionKind::Terminal,
         _ => stops(
             Place {
                 goal: row.goal,

@@ -386,6 +386,101 @@ async fn the_built_in_privilege_rule_refuses_without_asking_anyone() {
     engine.shutdown().await;
 }
 
+/// A session the platform drives is steered to the platform's embedded
+/// browser: the machine's is refused by the built-in, with the tools named,
+/// and nobody is asked. The terminal's half of this promise is pinned in
+/// `the_guard_hook_answers_deny_ask_or_nothing_and_a_report_is_redacted`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_the_platform_runs_is_refused_the_machines_browser_and_told_the_tools() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = asking_worker("open https://example.com");
+    let answered = Arc::clone(&worker.answered);
+    let engine = engine_with(&dir, vec![worker]);
+    let mut rx = engine.events();
+    let (goal, _) = run_on(
+        &engine,
+        "opens",
+        new_workflow("opens", vec![agent_step("run", "mock")]),
+    );
+    wait_for(&mut rx, "the item ends", |e| {
+        matches!(&e.payload, EnginePayload::ExecutionEnded { .. })
+    })
+    .await;
+    let answers = answered.lock().unwrap().clone();
+    match &answers[0].1 {
+        InputAnswer::Deny { reason } => {
+            assert!(
+                reason.starts_with("refused by the guard rule “The machine's browser"),
+                "{reason}"
+            );
+            assert!(
+                reason.contains("browser_open") && reason.contains("browser_snapshot"),
+                "the refusal names the tools to use instead: {reason}"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    let facts = guard_facts(&engine, goal.id);
+    assert!(
+        facts.iter().any(|f| f.0 == GuardVerdict::Denied
+            && f.1 == GuardJudge::Rule
+            && f.2.as_deref() == Some("machine_browser")),
+        "{facts:?}"
+    );
+    assert!(
+        facts.iter().all(|f| f.0 != GuardVerdict::Asked),
+        "a refusal asks nobody: {facts:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// The harness's own page fetch is asked before it runs — by the name the
+/// harness gives the tool: Claude Code's `WebFetch` is read as `fetch`, the
+/// name the built-in rule is written in.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_harnesss_own_page_fetch_is_asked_before_it_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = asking_for(
+        "WebFetch",
+        "https://example.com",
+        json!({ "url": "https://example.com" }),
+    );
+    let answered = Arc::clone(&worker.answered);
+    let engine = engine_with(&dir, vec![worker]);
+    let mut rx = engine.events();
+    let (goal, _) = run_on(
+        &engine,
+        "fetches",
+        new_workflow("fetches", vec![agent_step("run", "mock")]),
+    );
+    let (gate_id, question) = opened_gate(&mut rx).await;
+    assert!(question.starts_with("Allow `WebFetch`?"), "{question}");
+    assert!(
+        question.contains("The harness's own page fetch"),
+        "the rule's label is the reason: {question}"
+    );
+    assert_eq!(engine.gate(&gate_id).unwrap().subject, "guard:WebFetch");
+    engine.decide(&gate_id, true, None, None, None).unwrap();
+    wait_for(&mut rx, "the item ends", |e| {
+        matches!(&e.payload, EnginePayload::ExecutionEnded { .. })
+    })
+    .await;
+    let answers = answered.lock().unwrap().clone();
+    assert!(
+        matches!(&answers[0].1, InputAnswer::Allow { .. }),
+        "{:?}",
+        answers[0].1
+    );
+    let facts = guard_facts(&engine, goal.id);
+    assert!(
+        facts.iter().any(|f| f.0 == GuardVerdict::Asked
+            && f.1 == GuardJudge::Rule
+            && f.2.as_deref() == Some("harness_fetch")),
+        "{facts:?}"
+    );
+    engine.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ask_rule_opens_a_gate_whose_question_carries_the_placeholder_and_the_person_decides() {
     let dir = tempfile::tempdir().unwrap();
@@ -1005,6 +1100,28 @@ async fn the_guard_hook_answers_deny_ask_or_nothing_and_a_report_is_redacted() {
         quiet.decision.is_none() && quiet.updated_input.is_none(),
         "no opinion: the harness's own prompt stands"
     );
+
+    // The rules that steer an agent to the platform's own tools — the
+    // machine's browser refused, a test runner and the harness's own page
+    // fetch asked — apply to the sessions the platform drives alone. Nothing
+    // of the platform's is injected into a terminal harness, so it keeps the
+    // machine's browser and its own tools, and the guard says nothing.
+    for (tool, input) in [
+        ("Bash", json!({ "command": "open https://example.com" })),
+        ("Bash", json!({ "command": "node scrape.js --headless" })),
+        ("Bash", json!({ "command": "npx playwright test" })),
+        ("WebFetch", json!({ "url": "https://example.com" })),
+    ] {
+        let own = inner
+            .interactive
+            .guard(inner, opened.session, &secret, &hook(tool, input.clone()))
+            .await
+            .unwrap();
+        assert!(
+            own.decision.is_none() && own.updated_input.is_none(),
+            "{tool} {input}: a terminal harness's own business, nothing said: {own:?}"
+        );
+    }
 
     assert!(inner
         .interactive

@@ -95,6 +95,8 @@ export function envDetectorWords(status) {
 
 export const ACTIONS = ["allow", "deny", "ask", "classify"];
 export const MATCHERS = ["command", "path", "tool", "any"];
+/** Where a guard rule may be scoped to (`GuardRule.applies_to`); unset is everywhere. */
+export const HOSTS = ["platform", "terminal"];
 
 /** A blank redaction rule, for *Add a rule*. */
 export function blankRedactRule() {
@@ -138,13 +140,14 @@ export function redactRuleProblem(rule, taken = []) {
 
 /**
  * What stops a guard rule being saved, or `null`.
- * @param {{ id: string, label: string, action: string, matcher: { kind: string, regex?: string, glob?: string, name?: string } }} rule
+ * @param {{ id: string, label: string, action: string, matcher: { kind: string, regex?: string, glob?: string, name?: string }, applies_to?: string | null }} rule
  * @param {readonly string[]} [taken]
  */
 export function guardRuleProblem(rule, taken = []) {
   const base = ruleIdProblem(rule, taken);
   if (base) return base;
   if (!ACTIONS.includes(rule.action)) return tr("settings-security-rules-pick-what-rule-does");
+  if (rule.applies_to != null && !HOSTS.includes(rule.applies_to)) return tr("settings-security-rules-pick-where-rule-applies");
   const m = rule.matcher ?? {};
   switch (m.kind) {
     case "command":
@@ -318,6 +321,34 @@ export function matcherWords(matcher) {
     default:
       return "";
   }
+}
+
+/**
+ * Where a guard rule applies, in a phrase — or nothing for a rule that
+ * applies everywhere, which is most of them and needs no saying.
+ * @param {{ applies_to?: string | null }} rule
+ */
+export function appliesWords(rule) {
+  switch (rule?.applies_to) {
+    case "platform":
+      return tr("settings-security-rules-platforms-agents-only");
+    case "terminal":
+      return tr("settings-security-rules-harnesses-terminal-only");
+    default:
+      return "";
+  }
+}
+
+/**
+ * A guard rule's one line: what it does, where it applies when it is scoped,
+ * then what it looks at — the pattern last, since a long one is what the row
+ * truncates, and the scope must stay in view.
+ * @param {{ action: string, matcher: object, applies_to?: string | null }} rule
+ */
+export function ruleWords(rule) {
+  const where = appliesWords(rule);
+  const matcher = matcherWords(rule.matcher);
+  return where ? `${actionWords(rule.action)} · ${where} · ${matcher}` : `${actionWords(rule.action)} · ${matcher}`;
 }
 
 /** One phrase for how a redaction rule recognises a secret. */

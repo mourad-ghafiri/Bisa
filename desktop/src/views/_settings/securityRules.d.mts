@@ -15,6 +15,7 @@ export declare function envDetectorWords(status: Pick<SecurityStatus, "env_auto"
 export declare function judgeWords(d: Pick<GuardDecision, "by" | "rule" | "reason">): string;
 export declare const ACTIONS: readonly string[];
 export declare const MATCHERS: readonly string[];
+export declare const HOSTS: readonly string[];
 
 export declare function blankRedactRule(): RedactRule;
 export declare function blankGuardRule(): GuardRule;
@@ -30,6 +31,8 @@ export declare function toggleBuiltin(off: readonly string[], id: string, enable
 export declare function verdictWords(verdict: string): { tone: LineTone; text: string };
 export declare function actionWords(action: string): string;
 export declare function matcherWords(matcher: GuardRule["matcher"]): string;
+export declare function appliesWords(rule: Pick<GuardRule, "applies_to">): string;
+export declare function ruleWords(rule: Pick<GuardRule, "action" | "matcher" | "applies_to">): string;
 export declare function detectorWords(detector: RedactRule["detector"]): string;
 export declare function harnessGuardWords(h: { tool_guard: boolean; input_rewrite: boolean }): { tone: LineTone; text: string };
 export declare function readinessLine(status: SecurityStatus | null | undefined): { tone: LineTone; text: string };

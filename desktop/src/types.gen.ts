@@ -2199,6 +2199,11 @@ export type GuardMatcher =
       [k: string]: unknown;
     };
 /**
+ * Who hosts the harness a call comes from — what a rule's `applies_to` is
+ * read against. It says *who*, not which tools the session mounts.
+ */
+export type GuardHost = "platform" | "terminal";
+/**
  * Which feature a problem belongs to.
  */
 export type SecurityFeature = "redactor" | "guard";
@@ -4177,6 +4182,7 @@ export interface BisaApi {
   GuardRule?: GuardRule;
   GuardAction?: GuardAction;
   GuardMatcher?: GuardMatcher;
+  GuardHost?: GuardHost;
   PolicyProblem?: PolicyProblem;
   SecurityFeature?: SecurityFeature;
   ClassifierSettings?: ClassifierSettings;
@@ -7577,6 +7583,13 @@ export interface GuardRule {
    * Only a refusal carries it; an ask or a classify has nothing to add.
    */
   hint?: string | null;
+  /**
+   * Where the rule applies: everywhere when unset; `platform` for a rule
+   * that steers an agent to a tool only the platform's own sessions have
+   * (the browser family); `terminal` for a rule about a person's own
+   * harness alone. A rule stored before this field reads as everywhere.
+   */
+  applies_to?: GuardHost | null;
   origin?: RuleOrigin & string;
   [k: string]: unknown;
 }

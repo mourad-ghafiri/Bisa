@@ -957,20 +957,13 @@ fn result_failure(shared: &Shared, value: &serde_json::Value, subtype: &str) -> 
 }
 
 /// Claude tool names are TitleCase; the shared classifier speaks snake_case.
+/// The table is the platform's (`bisa_core::caps::canonical_tool`), so the
+/// guard reads the same neutral name the tier does; a name the table does
+/// not know is lowered for the tier alone.
 pub(crate) fn normalize_tool(name: &str) -> String {
-    match name {
-        "Read" => "read",
-        "Grep" => "grep",
-        "Glob" => "glob",
-        "LS" => "ls",
-        "WebSearch" => "web_search",
-        "WebFetch" => "fetch",
-        "Edit" => "edit",
-        "MultiEdit" => "multi_edit",
-        "Write" => "write",
-        other => return other.to_ascii_lowercase(),
-    }
-    .to_string()
+    bisa_core::caps::canonical_tool(name)
+        .map(str::to_string)
+        .unwrap_or_else(|| name.to_ascii_lowercase())
 }
 
 pub struct ClaudeCodeSession {

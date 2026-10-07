@@ -296,7 +296,8 @@ fn process_exists(pid: u32) -> bool {
 fn a_goal_stopped_while_its_worker_holds_the_turn_ends_the_worker() {
     let mut ws = Sealed::with_script(&holding_worker());
     let definition = ws.file("build.json", &one_agent_step().to_string());
-    let workflow = ws.json(&["workflow", "new", "--from", &definition.to_string_lossy()])["workflow"]["id"]
+    let workflow = ws.json(&["workflow", "new", "--from", &definition.to_string_lossy()])
+        ["workflow"]["id"]
         .as_str()
         .expect("the workflow")
         .to_string();
@@ -313,12 +314,18 @@ fn a_goal_stopped_while_its_worker_holds_the_turn_ends_the_worker() {
         .as_u64()
         .and_then(|p| u32::try_from(p).ok())
         .expect("the agent says its pid");
-    assert!(process_exists(pid), "the worker's process is there while it holds");
+    assert!(
+        process_exists(pid),
+        "the worker's process is there while it holds"
+    );
 
     let stopped = ws.json(&["stop", &goal]);
 
     assert_eq!(stopped["ended"]["sessions"], 1, "{stopped}");
-    assert_eq!(stopped["ended"]["terminated"], 0, "a harness that stops when told is never terminated: {stopped}");
+    assert_eq!(
+        stopped["ended"]["terminated"], 0,
+        "a harness that stops when told is never terminated: {stopped}"
+    );
     assert_eq!(stopped["ended"]["still_live"], 0, "{stopped}");
     assert!(
         !process_exists(pid),

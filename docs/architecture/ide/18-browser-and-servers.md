@@ -612,14 +612,17 @@ unattended goal's session reads one more (`BROWSER_UNATTENDED_NOTE`,
 person should watch. The note and the catalog skill also say what each problem a tool answers asks
 for — a silent read is retried once, an act never, a gone tab is `browser_tabs` then `browser_open`,
 a silent desktop is one more try, a platform fault is reported once and the task carries on — and
-that the person is never asked twice whether to retry. The guard **refuses** the machine's browser and a headless one
+that the person is never asked twice whether to retry. For every session the platform drives, the guard **refuses** the machine's browser and a headless one
 (`machine_browser`, `Action::Deny` with a `hint`: `open`, `xdg-open`, `start` of a URL, `open -a` a
 browser, `chrome`, `chromium`, `firefox`, `msedge`, `brave`, `puppeteer`, the drivers, anything
 `--headless`) and the refusal names the tools — *refused by the guard rule “The machine's browser,
 or a headless one” — the platform's embedded browser is yours: browser_open the page,
 browser_snapshot its outline, …*; a project's own end-to-end suite (`playwright`, `cypress`, `wdio`,
 `selenium`) is **asked** of the person first (`browser_test_runner`, `Action::Ask`), since it is the
-person's suite and not the agent's browser. The catalog skill *Embedded Browser* says how to browse
+person's suite and not the agent's browser. A harness a person opens in the IDE's terminal is none of
+this: nothing of the platform's is injected into it, so it has no browser tools, and these rules —
+`applies_to: platform`, with `harness_fetch` and `harness_web_search` — pass it over: it keeps the
+machine's browser and its own prompt ([11 — Security](../11-security.md#a-claude-code-session-in-a-terminal)). The catalog skill *Embedded Browser* says how to browse
 like a person and how to test a feature with the tools — every catalog agent carries it — and with
 `browser.agents` at *assigned* carrying it is the assignment (§Who may ask).
 
@@ -744,8 +747,9 @@ page's network. The tools do not pretend to them.
 - A tab kept out of sight renders offstage and answers every tool, the screenshot too; whether it
   is kept out of sight is the engine's decision — the agent's word, else the policy, else the
   goal's mode — and nothing an agent does reveals it: only the person, or its own `headless: false`.
-- The machine's browser and a headless one are refused with the tools named; a project's own
-  end-to-end suite is asked of the person.
+- The machine's browser and a headless one are refused with the tools named, and a project's own
+  end-to-end suite is asked of the person — for the sessions the platform drives; a harness in a
+  terminal keeps the machine's browser.
 - A screenshot is the webview's own render, never the screen; it reaches an agent as a path the
   node named and the person as a copy; no bytes cross the bridge.
 - An artifact opens in the browser on an origin of its own, never the node's.

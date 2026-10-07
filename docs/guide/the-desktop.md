@@ -537,7 +537,8 @@ wand, and annotations you started in the IDE wait there for you.
 the platform's own and every one from the catalog, on whatever harness it runs — reads and drives
 pages through this browser and no other: the guard refuses the machine's browser and headless
 browsers and tells the agent which tools to use instead; only a project's own end-to-end suite is
-put to you. An agent opens a page, reads its outline the way you see it — every heading, link,
+put to you. A harness you open yourself in the IDE's terminal is not an agent of the platform's:
+nothing is injected into it, so the guard leaves it your browser and its own prompt. An agent opens a page, reads its outline the way you see it — every heading, link,
 button and field — clicks, types a keystroke at a time, presses Enter, chooses an option, hovers,
 scrolls, waits for the page to settle, reads the console and takes a screenshot; a dialog the page
 raises is answered for it and it reads what the page said. A tab an agent opens beside you — in a
@@ -955,7 +956,9 @@ own rules — a pattern, or the name of an environment variable whose value must
 — and a *Try it* box that shows what a pasted text would become. *Guard* (the Tool & Commands
 Guard): the shipped refusals with their switches, your own rules in the order they are tried (a
 command pattern, a path glob, a tool name or every call, each `allow` · `deny` · `ask` ·
-`classify`), a *Try it* box that judges a command or a path by the rules alone, which harnesses the
+`classify`, and where it applies — everywhere, the platform's agents only, or harnesses in a terminal
+only; the shipped rules that steer an agent to the embedded browser say *the platform's agents only*
+on their line), a *Try it* box that judges a command or a path by the rules alone, which harnesses the
 guard can stop (*judged before it runs* or *observed only*), the last decisions (a *you ·
 remembered* row is an earlier answer standing in for a new question — the Inbox card says under
 its verbs that your answer is kept for the goal, or for the run in the workspace), and the two host

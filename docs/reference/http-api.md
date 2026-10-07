@@ -690,9 +690,9 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 
 | Route | What it does |
 |---|---|
-| `GET /security/status` | The security policy as this node runs it: the redaction and guard rules in order (built-ins with `origin: builtin`, switched-off ones with `enabled: false`), the rules that could not be read (`problems`), the classifier's settings and whether its agent can be launched, which harnesses the guard can veto (`tool_guard`) and hand a restored input to (`input_rewrite`), the last fifty decisions with their redacted subjects, and the vault's size. Never a secret or an environment value. |
+| `GET /security/status` | The security policy as this node runs it: the redaction and guard rules in order (built-ins with `origin: builtin`, switched-off ones with `enabled: false`, where each guard rule applies as `applies_to` — everywhere when absent, `platform` for the sessions the platform drives, `terminal` for a person's harness in a terminal), the rules that could not be read (`problems`), the classifier's settings and whether its agent can be launched, which harnesses the guard can veto (`tool_guard`) and hand a restored input to (`input_rewrite`), the last fifty decisions with their redacted subjects, and the vault's size. Never a secret or an environment value. |
 | `POST /security/redact-preview` | Try the redaction rules on a text: `{text}` → `{text, count, kinds}`. Runs on a scratch vault, so the real one learns nothing; the text never leaves the node. |
-| `POST /security/guard-preview` | Try the guard rules on a tool call: `{tool, input}` → `{verdict: allow \| deny \| ask \| classify \| fallthrough, rule?, label?, reason?, paths}`. The rules alone — no classifier call, no restore, nothing recorded. |
+| `POST /security/guard-preview` | Try the guard rules on a tool call: `{tool, input}` → `{verdict: allow \| deny \| ask \| classify \| fallthrough, rule?, label?, reason?, paths}`. The rules alone, as a session the platform drives would meet them — no classifier call, no restore, nothing recorded. |
 
 ## Decisions
 
