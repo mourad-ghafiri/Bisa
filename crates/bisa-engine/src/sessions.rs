@@ -133,10 +133,13 @@ impl StoppingEntry {
 
 /// The ledger of sessions told to stop whose process is not yet known to be
 /// gone (module doc). Entered by [`stop_row`] with the row's pid before the
-/// row is ended — the end clears the roster's — and left by the driver's
-/// teardown ([`ended`], [`Driven`], `Presence::forget`, an ask's end) or by
-/// the deadline ([`await_stopped`]). An entry left for ten minutes is a
-/// driver that never said: dropped with a warning, so the map stays small.
+/// row is ended — the end clears the roster's — and, before a run is
+/// cancelled, by [`note_stopping`] for every live row of the scope, so a row
+/// the cancel's effects end through its driver is waited for all the same;
+/// left by the driver's teardown ([`ended`], [`Driven`], `Presence::forget`,
+/// an ask's end) or by the deadline ([`await_stopped`]). An entry left for
+/// ten minutes is a driver that never said: dropped with a warning, so the
+/// map stays small.
 #[derive(Default)]
 pub struct Stopping {
     entries: DashMap<LiveRunId, StoppingEntry>,
@@ -709,11 +712,45 @@ pub fn stop_for(
 /// not know is stopped by its kind all the same. Answers whether the row
 /// was stopped; idempotent.
 pub fn stop_row(inner: &Arc<Inner>, row: &SessionPresence, cause: EndCause) -> bool {
-    // Entered in the ledger only when somebody is there to tear the session
-    // down and say so — its driver, still driving — or, a terminal's, when
-    // its process is known: a row whose driver has already let go of the
-    // session (torn down, the row's end a moment behind) is ended here and
-    // waited on by nobody, since its process is gone already.
+    enter_ledger(inner, row, cause);
+    if row.kind == SessionKind::Terminal {
+        return inner.interactive.abort(inner, row.id);
+    }
+    if let Err(e) = inner.registry.abort(row.id) {
+        tracing::debug!(target: "bisa_engine", session = %row.id, "the registry does not know the row; stopping it by its kind: {e}");
+    }
+    match row.kind {
+        SessionKind::Worker => {
+            if let Some(item) = row.work_item {
+                executor::stop_item(inner, item);
+            }
+        }
+        SessionKind::Conversation => crate::conversation::stop_run(inner, row.id),
+        SessionKind::Guided => crate::guided::stop_run(inner, row.id),
+        SessionKind::Ask => {
+            crate::ask::stop_run(inner, row.id);
+        }
+        SessionKind::Terminal => {}
+    }
+    // A driver parked on a question it asked hears nothing of the stop
+    // until the question goes: withdrawn, it answers the harness and winds
+    // down on its next pass.
+    withdraw_questions_of(inner, row.id);
+    inner
+        .presence
+        .ended(inner, row.id, &ExecutionOutcome::Aborted);
+    true
+}
+
+/// Enter the row in the ledger of sessions told to stop — the one place a
+/// stop learns what it is waiting on. Entered only when somebody is there to
+/// tear the session down and say so — its driver, still driving — or, a
+/// terminal's, when its process is known: a row whose driver has already let
+/// go of the session (torn down, the row's end a moment behind) is waited on
+/// by nobody, since its process is gone already. Re-read against the durable
+/// record once the entry is in, so a driver that tore down meanwhile leaves
+/// no wait behind. Answers whether the row was entered.
+fn enter_ledger(inner: &Arc<Inner>, row: &SessionPresence, cause: EndCause) -> bool {
     let record = row
         .session_id
         .as_ref()
@@ -757,33 +794,33 @@ pub fn stop_row(inner: &Arc<Inner>, row: &SessionPresence, cause: EndCause) -> b
             inner.ending.gone(row.id);
         }
     }
-    if row.kind == SessionKind::Terminal {
-        return inner.interactive.abort(inner, row.id);
-    }
-    if let Err(e) = inner.registry.abort(row.id) {
-        tracing::debug!(target: "bisa_engine", session = %row.id, "the registry does not know the row; stopping it by its kind: {e}");
-    }
-    match row.kind {
-        SessionKind::Worker => {
-            if let Some(item) = row.work_item {
-                executor::stop_item(inner, item);
-            }
+    driven
+}
+
+/// Enter every live session on the scope in the ledger, with its process,
+/// without stopping it yet — what a stop does **before** it cancels the run.
+/// The cancel's effects end the rows through their drivers, racing the stop's
+/// own pass ([`stop_for`]): a row a driver ended first was never entered, so
+/// nothing waited for its process, and a harness that ignored its abort was
+/// nobody's to terminate at the deadline — left running until the next
+/// start found it. Entered first, the deadline has every row whichever way
+/// the two interleave. Answers how many live rows the scope had: the
+/// sessions the stop tells, one way or the other.
+pub fn note_stopping(
+    inner: &Arc<Inner>,
+    scope: Scope,
+    workstreams: &HashSet<WorkstreamId>,
+    cause: EndCause,
+) -> usize {
+    let mut live = 0;
+    for row in inner.presence.snapshot() {
+        if !row_on(&row, scope, workstreams) || !row.state.is_live() {
+            continue;
         }
-        SessionKind::Conversation => crate::conversation::stop_run(inner, row.id),
-        SessionKind::Guided => crate::guided::stop_run(inner, row.id),
-        SessionKind::Ask => {
-            crate::ask::stop_run(inner, row.id);
-        }
-        SessionKind::Terminal => {}
+        live += 1;
+        enter_ledger(inner, &row, cause);
     }
-    // A driver parked on a question it asked hears nothing of the stop
-    // until the question goes: withdrawn, it answers the harness and winds
-    // down on its next pass.
-    withdraw_questions_of(inner, row.id);
-    inner
-        .presence
-        .ended(inner, row.id, &ExecutionOutcome::Aborted);
-    true
+    live
 }
 
 /// Why a question is withdrawn when the session that asked it is stopped.

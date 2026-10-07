@@ -103,6 +103,11 @@ impl Localize for crate::error::StoreError {
                 what = what.to_string(),
                 reason = reason.to_string()
             ),
+            crate::error::StoreError::OwnerKeyUnreadable { path, reason } => bisa_core::text!(
+                "error-store-owner-key-unreadable",
+                path = path.to_string(),
+                reason = reason.to_string()
+            ),
             crate::error::StoreError::Run(inner) => inner.text(),
             crate::error::StoreError::WorkItem(inner) => inner.text(),
             crate::error::StoreError::Workstream(inner) => inner.text(),

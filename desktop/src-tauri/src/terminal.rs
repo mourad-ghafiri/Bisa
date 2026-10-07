@@ -55,7 +55,7 @@
 //! it on its own side and hands the node `(scope, id, relative)` as ever.
 //!
 //! Both lookups speak raw HTTP over a `TcpStream`, for the reason
-//! `sidecar::wait_for_health` does: the desktop shell has no HTTP
+//! `sidecar::probe_health` does: the desktop shell has no HTTP
 //! client dependency, and two GETs against loopback do not justify adding
 //! one.
 //!

@@ -282,6 +282,18 @@ impl Shared {
         self.group.gone_or_killed(grace).await;
     }
 
+    /// End the child's whole group the way every `abort` ends, after the
+    /// cancel the harness understands was sent and the session ended: its
+    /// stdin closed — the EOF a `dispose` gives — then half of `grace` to
+    /// leave on it, `SIGTERM`, the other half, `SIGKILL`. A harness that
+    /// leaves on EOF ends on its own terms and says so; `SIGTERM` first cut
+    /// it off mid-word, an agent's record of its own end among the losses.
+    /// Answers whether it left on its own.
+    pub async fn abort_group(&self, grace: Duration) -> bool {
+        self.close_stdin_quietly().await;
+        self.group.leave_or_terminate(grace).await
+    }
+
     /// The same handle, for a session launched at `effort`.
     pub fn at_effort(mut self, effort: Option<Effort>) -> Self {
         self.effort = effort;

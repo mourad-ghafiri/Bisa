@@ -157,7 +157,12 @@ impl Workspace {
     pub(crate) fn materialise_goal_documents(&self, goal: GoalId) -> Result<(), StoreError> {
         for (file, name) in named(self.document_facts(goal)?) {
             if self.attachment_path(&file.sha256).is_some() {
-                self.materialise_document(goal, &file.sha256, &name)?;
+                // The folder is derived from the facts: one document that
+                // cannot be linked or copied is said, and the next pass
+                // tries again — never a rebuild that stops.
+                if let Err(e) = self.materialise_document(goal, &file.sha256, &name) {
+                    tracing::warn!("goal {goal}: document {name} could not be materialised: {e}");
+                }
             } else {
                 tracing::debug!(
                     "goal {goal}: document {name} waits for its bytes {}",

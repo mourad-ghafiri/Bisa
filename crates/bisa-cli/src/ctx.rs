@@ -52,15 +52,44 @@ impl Ctx {
     }
 
     pub fn workspace(&self) -> Result<Workspace> {
-        let ws = if self.file_keys {
-            Workspace::open_with_keystore(
-                &self.data_dir,
-                Box::new(FileKeyStore::new(
-                    bisa_store::Paths::new(&self.data_dir).identity_dir(),
-                )),
-            )
-        } else {
-            Workspace::open(&self.data_dir)
+        self.workspace_observed(&bisa_store::Quiet)
+    }
+
+    /// [`Self::workspace`], saying each phase of the open to `observer` —
+    /// what the node prints for the shell that waits on it. A panic inside
+    /// the open — a bug the store's own tolerance did not reach — is caught
+    /// here and said as a refusal naming the folder, so the process ends
+    /// with words a supervisor relays rather than code 101 and none.
+    pub fn workspace_observed(&self, observer: &dyn bisa_store::BootObserver) -> Result<Workspace> {
+        let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if self.file_keys {
+                Workspace::open_with_keystore_observed(
+                    &self.data_dir,
+                    Box::new(FileKeyStore::new(
+                        bisa_store::Paths::new(&self.data_dir).identity_dir(),
+                    )),
+                    observer,
+                )
+            } else {
+                Workspace::open_observed(&self.data_dir, observer)
+            }
+        }));
+        let ws = match opened {
+            Ok(ws) => ws,
+            Err(panic) => {
+                let said = panic
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| {
+                        bisa_core::text!("cli-ctx-panic-with-no-message").to_string()
+                    });
+                anyhow::bail!(bisa_core::text!(
+                    "cli-ctx-workspace-open-panicked",
+                    path = self.data_dir.display().to_string(),
+                    panic = said
+                ));
+            }
         };
         let ws = ws.with_context(|| {
             bisa_core::text!(
@@ -125,9 +154,13 @@ impl Ctx {
 
     /// The engine the daemon runs: the listening runtime with it — the
     /// ticker and the signal worker, under the person's `events.enabled`.
-    /// The one engine that starts runs from events.
-    pub async fn node_engine(&self) -> Result<Engine> {
-        self.start(EngineConfig::default())
+    /// The one engine that starts runs from events — saying each phase of
+    /// the boot to `observer`, for the shell that waits on it.
+    pub async fn node_engine_observed(
+        &self,
+        observer: &dyn bisa_store::BootObserver,
+    ) -> Result<Engine> {
+        self.start_observed(EngineConfig::default(), observer)
     }
 
     /// An embedded engine that hears no start event and designs nothing: what
@@ -145,7 +178,18 @@ impl Ctx {
 
     /// An embedded engine on this workspace, `base` deciding what it runs.
     fn start(&self, base: EngineConfig) -> Result<Engine> {
-        let ws = self.workspace()?;
+        self.start_observed(base, &bisa_store::Quiet)
+    }
+
+    /// [`Self::start`], saying the phases of the boot to `observer`: the
+    /// workspace's own, then *starting the engine* before the recovery walk.
+    fn start_observed(
+        &self,
+        base: EngineConfig,
+        observer: &dyn bisa_store::BootObserver,
+    ) -> Result<Engine> {
+        let ws = self.workspace_observed(observer)?;
+        observer.phase(bisa_store::BootPhase::StartingEngine);
         // One set of HTTP clients under the `network.*` settings, made before
         // the engine so the adapters — a harness's usage endpoint, an A2A
         // peer — the code host CLIs and the engine's own calls share it and

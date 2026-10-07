@@ -32,6 +32,16 @@ test("the question comes before the save, and the save before the way out", asyn
   assert.deepEqual(h.said, ["ask", "save", "keep", "finish"]);
 });
 
+test("while the root has crashed the way out is bare: nothing asked, nothing saved, what is remembered kept, then gone", async () => {
+  const h = hands({ confirms: true, dirty: true });
+  const flow = closeFlow({ ...h, bare: () => true });
+  assert.equal(await flow.run(finish(h)), "closed");
+  assert.deepEqual(h.said, ["keep", "finish"], "no question nobody can see, no save of editors that are gone");
+  const whole = hands();
+  assert.equal(await closeFlow({ ...whole, bare: () => false }).run(finish(whole)), "closed");
+  assert.deepEqual(whole.said, ["ask", "save", "keep", "finish"], "a standing tree asks and saves as ever");
+});
+
 test("a no writes nothing and goes nowhere", async () => {
   const h = hands({ answer: false });
   assert.equal(await closeFlow(h).run(finish(h)), "cancelled");

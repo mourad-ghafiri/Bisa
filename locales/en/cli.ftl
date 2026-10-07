@@ -223,6 +223,8 @@ cli-conversations-takes-no = takes no
 cli-conversations-unknown-mode-one-manual-auto-plan = unknown mode { $word }: one of manual, auto, plan
 cli-conversations-unknown-origin-one = unknown origin { $kind }: one of { $a0 }
 cli-ctx-another-engine-holds-workspace-did-not = another engine holds this workspace ({ $path }{ $who }).  It did not answer on its socket in time; wait and retry, or stop it.  Refusing to start a second engine on the same workspace.
+cli-ctx-panic-with-no-message = a panic with no message
+cli-ctx-workspace-open-panicked = opening the workspace at { $path } failed inside the store ({ $panic }); nothing was changed — run `bisa workspace check` and see the log
 cli-ctx-opening-workspace = opening workspace at { $a0 }
 cli-ctx-starting-engine = starting engine
 cli-decisions-acts-from-calls-command-safe-from = {" "}acts from { $a0 } · calls a command safe from { $a1 } · within { $a2 }s
@@ -330,6 +332,9 @@ cli-main-bisa-node-listening-press-ctrl-c = bisa node listening on { $a0 }{ $a1 
 cli-main-cannot-read = cannot read { $a0 }: { $e }
 cli-main-collaboration-pump-running = collaboration pump running
 cli-main-conversation-requires-agent-id = --conversation requires --agent <id>
+cli-main-node-boot-opening-workspace = opening the workspace…
+cli-main-node-boot-rebuilding-index = rebuilding the index ({ $done } of { $of } goals)…
+cli-main-node-boot-starting-engine = picking up what was running…
 cli-main-data-dir-logs-dir = data dir { $data_dir }{"\u000A"}logs dir { $logs_dir }
 cli-main-everything-platform-needs-here = everything the platform needs is here
 cli-main-fix-desktop = {" "}fix (desktop): { $label }
@@ -508,6 +513,18 @@ cli-projects-workstream = workstream { $a0 } on { $a1 } at { $a2 }
 cli-projects-workstream-clean-nothing-commit = workstream is clean — nothing to commit
 cli-projects-workstream-closed-stopped-checkout = workstream { $id } closed; { $a0 } stopped; checkout { $a1 }
 cli-projects-workstream-project-kind-goal-branch-base = workstream { $a0 }{"\u000A"} project { $a1 }{"\u000A"} kind { $a2 }{"\u000A"} goal { $a3 }{"\u000A"} branch { $a4 }{"\u000A"} base { $a5 }{"\u000A"} state { $a6 }{"\u000A"} path { $a7 }
+cli-check-finding = ! { $text }
+cli-check-clean = every file of the workspace reads, and nothing is quarantined
+cli-check-problems = { $n ->
+    [one] 1 problem
+   *[other] { $n } problems
+} — a file the next open cannot read is moved under quarantine/ and the node comes up without it; restore one from there by hand, or remove it
+cli-main-workspace-has-problems = ! the workspace's files have { $n ->
+    [one] 1 problem
+   *[other] { $n } problems
+} — `bisa workspace check` lists them
+cli-reindex-rebuilding-goals = rebuilding the index: { $done } of { $of } goals…
+cli-reindex-problem = ! { $text }
 cli-reindex-index-rebuilt-from-truth-files-s = index rebuilt from the truth files in { $secs } s — { $a0 } goals, { $a1 } projects
 cli-reindex-node-holds-workspace-pid-stop-first = a node holds this workspace (pid { $a0 }) — stop it first; a running node rebuilds a damaged index by itself at its next start
 cli-run-bad-runs-payload-from-node = bad runs payload from node
@@ -1709,6 +1726,8 @@ cli-cmd-workspace-people =
     .about = Everyone in this workspace: the owner and the people hosted here
 cli-cmd-workspace-reindex =
     .about = Throw the index away and rebuild it from the truth files — for a cache you have reason to doubt. Refused while a node holds the workspace
+cli-cmd-workspace-check =
+    .about = Read every file of the workspace as the next open would, without opening it: what a crash tore, and what earlier opens moved aside. Exit 1 while anything is found
 cli-cmd-workspace-remove =
     .about = Remove a person. What they already received cannot be un-sent
 cli-cmd-workspace-revoke =

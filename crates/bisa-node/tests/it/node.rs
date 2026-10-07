@@ -4958,10 +4958,20 @@ impl Node {
     }
 
     /// A bare repository standing in for `origin`, wired to `root`.
+    /// A bare origin for `root`, whose HEAD names the branch `root` is on:
+    /// the node made `root` with git's own default — `init.defaultBranch` on
+    /// this machine, `master` without one — and the sealed git here knows no
+    /// such setting, so an origin made by its default alone could name a
+    /// branch never pushed; a clone of it would then have no such branch to
+    /// push back.
     fn origin_for(&self, root: &std::path::Path, slug: &str) -> PathBuf {
+        let branch = raw_git(root, &["symbolic-ref", "--short", "HEAD"]);
         let origin = self.ws.root().join(format!("{slug}-origin.git"));
         std::fs::create_dir_all(&origin).unwrap();
-        raw_git(&origin, &["init", "--bare", "--quiet"]);
+        raw_git(
+            &origin,
+            &["init", "--bare", "--quiet", "--initial-branch", &branch],
+        );
         raw_git(root, &["remote", "add", "origin", origin.to_str().unwrap()]);
         origin
     }

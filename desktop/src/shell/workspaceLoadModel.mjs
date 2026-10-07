@@ -11,7 +11,10 @@
  * So each read settles on its own. A route that answered is applied; one
  * that did not keeps the last value the shell had and is named in
  * `degraded`, for the chrome to say. *Offline* is one fact only: the node
- * itself could not be reached.
+ * itself could not be reached. An answer of the wrong shape — a build in
+ * between, a proxy's page, a route that answered something else — is a read
+ * that did not answer too (`LOAD_SHAPES`): applied, it threw in the one
+ * hook above every inner boundary and took the whole window.
  *
  * Plain `.mjs` with a `.d.mts` beside it, so `node --test` reads it.
  */
@@ -19,20 +22,45 @@
 import { t } from "../i18n/l10n.mjs";
 
 /**
+ * What each read's answer must look like before it is applied — the one
+ * field the hook reads of it, present and of its kind. Anything else is a
+ * failed read with its own words, never a throw.
+ */
+export const LOAD_SHAPES = Object.freeze({
+  workspace: (v) => typeof v?.pubkey === "string",
+  agents: (v) => Array.isArray(v?.agents),
+  teams: (v) => Array.isArray(v?.teams),
+  goals: (v) => Array.isArray(v?.goals),
+  channels: (v) => Array.isArray(v?.channels),
+  dms: (v) => Array.isArray(v?.dms),
+  inbox: (v) => Array.isArray(v?.rows),
+  projects: (v) => Array.isArray(v?.projects),
+  workstreams: (v) => Array.isArray(v?.workstreams),
+  paused: (v) => typeof v?.paused === "boolean",
+  hosts: (v) => Array.isArray(v?.sections) && Array.isArray(v?.failed),
+});
+
+/**
  * The reads, settled.
  * @template T
  * @param {readonly string[]} names one per read, in the order the results come
  * @param {readonly PromiseSettledResult<T>[]} results
  * @param {(reason: unknown) => boolean} isOffline whether a rejection is "the node could not be reached"
+ * @param {Readonly<Record<string, (value: unknown) => boolean>> | null} [shapes] what an answer must look like, by name; a name without one is taken as it came
  * @returns {{ok: Record<string, T>, degraded: string[], offline: boolean}}
  */
-export function settleLoads(names, results, isOffline) {
+export function settleLoads(names, results, isOffline, shapes = null) {
   const ok = {};
   const degraded = [];
   let offline = false;
   names.forEach((name, i) => {
     const r = results[i];
     if (r && r.status === "fulfilled") {
+      const fits = shapes?.[name];
+      if (fits && !fits(r.value)) {
+        degraded.push(failedRead(name, new Error(t("shell-workspace-load-answer-wrong-shape"))));
+        return;
+      }
       ok[name] = r.value;
       return;
     }
@@ -154,14 +182,20 @@ export function offlineWords(reason) {
  * when one is made, and none is while no frame arrives. So a node that goes
  * away under an open window is said at once, and the line stands until the
  * stream is back and the load it starts has answered.
+ * While the node is away and the shell is saying what its node is doing —
+ * booting, phase by phase, or why it is not running and when it tries
+ * again (`nodeBootModel.bootLine`) — that line is the one shown: it is the
+ * true account, where *waiting for the node…* is only the wait.
  * @param {string | null} loadSaid what the last load left: its offline line, or `null`
  * @param {"connecting" | "open" | "closed" | "lagged"} conn the bus's word
  * @param {string | null} reason why the shell has no node, when it said
+ * @param {string | null} [bootLine] the shell's own line about its node, while there is one
  * @returns {string | null}
  */
-export function offlineLine(loadSaid, conn, reason) {
-  if (conn === "closed") return offlineWords(reason);
-  return loadSaid ?? null;
+export function offlineLine(loadSaid, conn, reason, bootLine = null) {
+  if (conn === "closed") return bootLine ?? offlineWords(reason);
+  if (loadSaid == null) return null;
+  return bootLine ?? loadSaid;
 }
 
 /** The toast when the lists were read again after the node came back. */

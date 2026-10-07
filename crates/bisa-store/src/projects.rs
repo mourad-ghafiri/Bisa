@@ -310,10 +310,20 @@ impl Workspace {
     /// Every project in the workspace that is not archived, oldest first.
     pub fn list_projects(&self) -> Result<Vec<Project>, StoreError> {
         let ids = self.idx().list_project_ids()?;
-        ids.into_iter()
+        let mut out = Vec::new();
+        for id in ids
+            .into_iter()
             .filter_map(|id| id.parse::<ProjectId>().ok())
-            .map(|id| self.get_project(id))
-            .collect()
+        {
+            // One project record this build cannot read costs its row, never
+            // the list.
+            if let Some(p) =
+                self.tolerated_record("project", &id.to_string(), self.get_project(id))?
+            {
+                out.push(p);
+            }
+        }
+        Ok(out)
     }
 
     /// The projects put away, newest first — what a list shows only when asked.
@@ -594,6 +604,10 @@ impl Workspace {
             match self.read_project(&slug) {
                 Ok(p) => self.index_project(&p)?,
                 Err(StoreError::ProjectNotFound(_)) => {} // a folder with no record
+                Err(e @ StoreError::Unreadable { .. }) => {
+                    // Named and skipped: the rebuild goes on without it.
+                    self.tolerated_record::<()>("project", slug.as_str(), Err(e))?;
+                }
                 Err(e) => return Err(e),
             }
         }

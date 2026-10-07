@@ -17,13 +17,17 @@ sequenceDiagram
     participant N as node
     participant W as webview
     T->>T: build — the single-instance plugin, first: a second launch of the app hands its arguments to the running one and ends here, before any node
-    T->>T: setup — sidecar::boot: the log file under the workspace the binary names, then NodeState::start — mint a token, find a free loopback port
-    T->>C: bisa node --listen 127.0.0.1:port (BISA_API_TOKEN)
+    T->>T: setup — sidecar::boot: the log file under the workspace the binary names (bisa paths --json, which also names who holds the engine), then NodeState::start — mint a token, find a free loopback port
+    T->>C: reclaim — a node this desktop spawned and left behind (run/desktop-node.json names it) is stopped first · somebody else's is named to the webview and never signalled
+    T->>C: bisa --json node --listen 127.0.0.1:port (BISA_API_TOKEN · BISA_STOP_ON_STDIN_CLOSE=1 — stdin a pipe the shell holds, so the node ends when the shell does, however it ends)
+    T->>T: the window opens at once — nothing waits on the node in setup
     C->>C: EngineLock::holder — a workspace another engine holds is refused at the door, naming the holder and the node's socket
-    C->>S: Workspace::open — owner member, rebuild if stale or damaged, reconcile the live runs, the General and Workflow Agents, general channel
-    C->>E: Engine::start — flock run/engine.lock, bind the intake socket, end stale sessions, the restart walk, resume guided, withdraw dead questions, spawn tasks (the wait ticker and the ear always · the event ticker and the signal worker when events run)
+    C-->>T: {"boot": {"phase": "opening_workspace"}} on stdout — relayed to the webview as node:boot
+    C->>S: Workspace::open — the owner key alone can refuse · a torn members.json, governance.json or general is quarantined or read as the owner's and named (problems) · rebuild if stale or damaged, unstamped first, every record it cannot read skipped — {"boot": {"phase": "rebuilding_index", "done", "of"}} every twenty-five goals · reconcile the live runs, stale rows repaired · the General and Workflow Agents, general channel
+    C-->>T: {"boot": {"phase": "starting_engine"}}
+    C->>E: Engine::start — flock run/engine.lock, bind the intake socket, end the orphan runs (a run the last process started whose goal never recorded it — the lock's holder alone may), end stale sessions, the restart walk, resume guided, withdraw dead questions, spawn tasks (the wait ticker and the ear always · the event ticker and the signal worker when events run)
     C->>N: serve — ensure run/token, mount every routes()
-    T->>N: GET /health until it answers — or the child ends first, and the wait ends with it
+    T->>N: the watchdog probes GET /health once a second, waiting as long as the node keeps speaking — 180 s since its last word, 15 min in all · a child that ends or falls silent is stopped gracefully and said as node:failed with the next try · the first answer is node:boot ready (and node:restarted after a restart)
     T->>T: window_state — read window.json, fit it to the screens there are, build the window there
     W->>W: installRouter — with no hash, stand on the last place remembered, else the home
     W->>T: invoke api_base, api_token
@@ -112,8 +116,17 @@ ones nobody can commit in back on the committer desk (*unresolved*), so the who-
 again after a relaunch. The intake socket serves after the walk, so no session settles an item the
 walk is judging. On the desktop, the sidecar's watchdog restarts the node on the same port and the
 page reads every list again when the event stream comes back, with a toast saying so; a node that
-cannot start at all still gets a window — the shell says why, and the watchdog keeps trying on the
-same curve.
+cannot start at all still gets a window — the shell says why and when it tries again (`node:failed`;
+the sidebar's footer, the rail's tooltip and Settings › Node say the same line, with *Restart now*,
+*Reveal the log*, *Open the data folder* and *Quit* beside it), and the watchdog keeps trying on the
+same curve. A node is stopped gracefully before it is killed — the leash dropped, `SIGTERM`, ten
+seconds for a restart and five at the quit — and a node the desktop spawned ends with the desktop
+however the desktop ends: its stdin is a pipe the shell holds (`BISA_STOP_ON_STDIN_CLOSE=1`), closed
+by a quit, a crash and a Force Quit alike, so no stray node holds the workspace against the next
+launch; one left behind all the same is stopped by the next launch before its own starts. And the
+window is never a trap: a throw in the shell's own tree draws one card whose six doors work without
+the node, the ways out stand above the boundary, and a close or quit the page cannot hear stands
+after five seconds (`quit.rs`, `ACK_DEADLINE`).
 
 **What listens comes back from the files too.** The listener registry is a projection — built on
 first use from `workflows/listening/`, the open goals' `listening` and the definitions
@@ -164,7 +177,7 @@ one order: listening off and the queue withdrawn; no re-wake — the Workflow Ag
 and the thread's queued message go; the live run cancelled, the run first and the sessions after, so
 an aborted worker finds its item cancelled and nothing retries; **the goals it spawned, recursively**
 — stopped by a stop or a restart, closed by a close or a retirement, each told why; the run's
-connector calls and `check`/`judge` tasks aborted; every session told — the in-flight marks of the
+connector calls and `check`/`judge` tasks aborted; every session told — every live row of the scope entered in the `Stopping` ledger before the run was cancelled (`sessions::note_stopping`), so a row the cancel's effects end through its driver is waited for all the same; the in-flight marks of the
 home first, since a worker still launching has a mark and no row, then every row of the scope
 (`sessions::stop_row`: the registry's abort, the driver's own stop, every question the session was
 waiting on withdrawn — a `withdrawn` fact on the home, the harness answered a refusal the guard

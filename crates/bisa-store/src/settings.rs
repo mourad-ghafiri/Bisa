@@ -6,6 +6,7 @@
 //! writes the layers.
 
 use crate::error::StoreError;
+use crate::problems::{ProblemKind, WorkspaceProblem};
 use crate::workspace::Workspace;
 use bisa_core::settings::{Layer, Resolved, Scope};
 use bisa_core::ProjectId;
@@ -47,6 +48,73 @@ impl Workspace {
         }
     }
 
+    /// Whether a read's refusal is *this file is not a settings file* —
+    /// the one trouble a layer can have that the resolution works around.
+    fn is_not_a_settings_file(e: &StoreError) -> bool {
+        matches!(e, StoreError::Invalid(text) if text.id == "error-store-invalid-not-settings-file")
+    }
+
+    /// A layer for the resolution: one this build cannot read costs its
+    /// values and is named once, never the whole resolution — an engine, a
+    /// pump and a logger all read `settings()` at boot, and a torn
+    /// `machine.json` must not be the reason none of them starts. The strict
+    /// read stays for [`Self::settings_layer`], whose callers fail closed on
+    /// their own terms.
+    fn read_layer_tolerant(
+        &self,
+        scope: Scope,
+        project: Option<ProjectId>,
+    ) -> Result<Layer, StoreError> {
+        match self.read_layer(scope, project) {
+            Err(e) if Self::is_not_a_settings_file(&e) => {
+                let path = self.settings_path(scope, project)?;
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::SettingsLayerUnreadable,
+                    path.display().to_string(),
+                    bisa_core::text!(
+                        "error-store-problem-settings-layer",
+                        scope = scope.as_str().to_string(),
+                        path = path.display().to_string(),
+                        reason = e.to_string()
+                    ),
+                    None,
+                ));
+                Ok(Layer::new())
+            }
+            other => other,
+        }
+    }
+
+    /// A layer for a write: one this build cannot read is moved under
+    /// `quarantine/` and the write starts from an empty layer, so a person
+    /// can repair a broken scope from Settings instead of a text editor.
+    fn read_layer_or_quarantine(
+        &self,
+        scope: Scope,
+        project: Option<ProjectId>,
+    ) -> Result<Layer, StoreError> {
+        match self.read_layer(scope, project) {
+            Err(e) if Self::is_not_a_settings_file(&e) => {
+                let path = self.settings_path(scope, project)?;
+                let to = self.paths.quarantine(&path, crate::workspace::now_secs())?;
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::Quarantined,
+                    path.display().to_string(),
+                    bisa_core::text!(
+                        "error-store-problem-quarantined",
+                        path = path.display().to_string(),
+                        what = "settings file",
+                        reason = e.to_string(),
+                        to = to.display().to_string()
+                    ),
+                    Some(&to),
+                ));
+                Ok(Layer::new())
+            }
+            other => other,
+        }
+    }
+
     fn write_layer(
         &self,
         scope: Scope,
@@ -57,12 +125,14 @@ impl Workspace {
         crate::paths::write_atomic(&path, &serde_json::to_vec_pretty(layer)?)
     }
 
-    /// Every setting, resolved for `project` (or with no project layer).
+    /// Every setting, resolved for `project` (or with no project layer). A
+    /// layer this build cannot read costs its values and is named in
+    /// [`Workspace::problems`]; the resolution stands on the others.
     pub fn settings(&self, project: Option<ProjectId>) -> Result<Vec<Resolved>, StoreError> {
-        let machine = self.read_layer(Scope::Machine, None)?;
-        let workspace = self.read_layer(Scope::Workspace, None)?;
+        let machine = self.read_layer_tolerant(Scope::Machine, None)?;
+        let workspace = self.read_layer_tolerant(Scope::Workspace, None)?;
         let project_layer = match project {
-            Some(id) => self.read_layer(Scope::Project, Some(id))?,
+            Some(id) => self.read_layer_tolerant(Scope::Project, Some(id))?,
             None => Layer::new(),
         };
         Ok(bisa_core::resolve_settings(&[
@@ -103,7 +173,7 @@ impl Workspace {
             .settings_writes
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let mut layer = self.read_layer(scope, project)?;
+        let mut layer = self.read_layer_or_quarantine(scope, project)?;
         layer.insert(key.to_string(), value);
         self.write_layer(scope, project, &layer)?;
         self.setting(key, project)
@@ -120,7 +190,7 @@ impl Workspace {
             .settings_writes
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let mut layer = self.read_layer(scope, project)?;
+        let mut layer = self.read_layer_or_quarantine(scope, project)?;
         layer.remove(key);
         self.write_layer(scope, project, &layer)?;
         self.setting(key, project)

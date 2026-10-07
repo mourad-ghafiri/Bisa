@@ -270,7 +270,7 @@ impl HarnessSession for CustomJsonSession {
         // and killed past the grace.
         self.shared.end(Outcome::Aborted);
         self.shared
-            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .abort_group(bisa_harness::proc::ABORT_GRACE)
             .await;
         Ok(())
     }

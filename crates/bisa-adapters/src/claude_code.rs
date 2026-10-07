@@ -1087,11 +1087,12 @@ impl HarnessSession for ClaudeCodeSession {
     async fn abort(&self) -> Result<(), HarnessError> {
         // The session is over now — whatever the driver reads of the exit
         // later is not its end — then the whole group — the CLI, the
-        // commands its tools run, the MCP server it was handed — is told to
-        // leave, and killed past the grace.
+        // commands its tools run, the MCP server it was handed — is given
+        // the EOF and the grace to leave on it, told with `SIGTERM`, and
+        // killed past the grace.
         self.shared.end(Outcome::Aborted);
         self.shared
-            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .abort_group(bisa_harness::proc::ABORT_GRACE)
             .await;
         Ok(())
     }

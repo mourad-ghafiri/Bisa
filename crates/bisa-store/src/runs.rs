@@ -29,6 +29,7 @@ use crate::error::StoreError;
 use crate::index::{RunRow, RunStepRow};
 use crate::journal::{EventLog, JournalAddr};
 use crate::paths::Paths;
+use crate::problems::{ProblemKind, WorkspaceProblem};
 use crate::syntax::StoreSyntaxChecks;
 use crate::workspace::{mint_ulid, now_secs, StoreEvent, Workspace};
 use bisa_core::event::{JournalEvent, JournalPayload, RunFact, StepFact};
@@ -67,7 +68,7 @@ struct Making {
 impl Workspace {
     /// The one writer at a time. A poisoned lock is taken over: the run on
     /// disk is whatever the last write left, and the next write re-reads it.
-    fn run_writer(&self) -> MutexGuard<'_, ()> {
+    pub(crate) fn run_writer(&self) -> MutexGuard<'_, ()> {
         self.run_writes.lock().unwrap_or_else(|poisoned| {
             tracing::warn!("run write lock was poisoned; continuing with the run as it stands");
             poisoned.into_inner()
@@ -260,6 +261,10 @@ impl Workspace {
         let at = now_secs();
         let (mut run, wf) = Self::new_run(scope, startable, making, at);
         let addr = self.goal_addr(&goal);
+        // The goal's snapshot names the run before either is indexed, and
+        // the two rows land in one transaction: a crash between the run's
+        // record and the goal's is the one window that left a run no goal
+        // named, and the reconcile ends what is left in it.
         if queues {
             run.revision = 1;
             self.write_run_snapshot(&run, 0, at)?;
@@ -271,12 +276,21 @@ impl Workspace {
                 },
                 run.id,
             )?;
-            self.index_run(&run)?;
             goal.runs.push(run.id);
             self.trim_goal_runs(&mut goal)?;
             goal.revision += 1;
             self.write_goal_snapshot(&goal, at)?;
-            self.index_goal(&goal, None)?;
+            // The goal's row keeps the live run's status: resolved before the
+            // index is locked, since nothing reads through the workspace
+            // while it is.
+            let current = goal.run.and_then(|id| self.get_run(id).ok());
+            {
+                let idx = self.idx();
+                idx.in_transaction(|| {
+                    self.index_run_in(&idx, &run)?;
+                    self.index_goal_in(&idx, &goal, current.as_ref())
+                })?;
+            }
             return Ok((run, Vec::new()));
         }
         let before = run.steps.clone();
@@ -289,7 +303,6 @@ impl Workspace {
         if run.is_finished() {
             self.journal_finish_fact(&addr, &run)?;
         }
-        self.index_run(&run)?;
 
         goal.workflow = Some(workflow);
         goal.run = Some(run.id);
@@ -297,7 +310,13 @@ impl Workspace {
         self.trim_goal_runs(&mut goal)?;
         goal.revision += 1;
         self.write_goal_snapshot(&goal, at)?;
-        self.index_goal(&goal, Some(&run))?;
+        {
+            let idx = self.idx();
+            idx.in_transaction(|| {
+                self.index_run_in(&idx, &run)?;
+                self.index_goal_in(&idx, &goal, Some(&run))
+            })?;
+        }
         Ok((run, effects))
     }
 
@@ -431,7 +450,7 @@ impl Workspace {
     }
 
     /// [`Self::record_run_event`] for a caller that already holds the writer.
-    fn record_run_event_locked(
+    pub(crate) fn record_run_event_locked(
         &self,
         run_id: RunId,
         event: RunEvent,
@@ -1110,7 +1129,41 @@ impl Workspace {
                 })
             })
             .collect();
-        idx.upsert_run(&run_row(run))?;
+        let mut row = run_row(run);
+        // Two runs that began from one signal — a crash between a run's
+        // snapshot and its goal's left the first orphaned, and the signal was
+        // dispatched again — cannot both carry it: the index keeps the one
+        // that began first as the signal's record and takes the other
+        // without it, and says so, rather than refusing the rebuild and with
+        // it every later open.
+        if let Some(signal) = row.dispatched.clone() {
+            if let Some((other, other_queued_at)) =
+                idx.run_dispatched_from_with_queued_at(&signal)?
+            {
+                if other != d {
+                    let kept = if other_queued_at <= run.queued_at {
+                        row.dispatched = None;
+                        other.clone()
+                    } else {
+                        idx.clear_run_dispatched(&other)?;
+                        d.clone()
+                    };
+                    let lost = if kept == d { other.clone() } else { d.clone() };
+                    self.record_problem(WorkspaceProblem::new(
+                        ProblemKind::DuplicateDispatch,
+                        lost.clone(),
+                        bisa_core::text!(
+                            "error-store-problem-duplicate-dispatch",
+                            kept = kept,
+                            other = lost,
+                            signal = signal
+                        ),
+                        None,
+                    ));
+                }
+            }
+        }
+        idx.upsert_run(&row)?;
         idx.replace_run_steps(&d, &rows)
     }
 
@@ -1158,7 +1211,10 @@ impl Workspace {
     /// Rebuild support: every run snapshot of a goal, with its steps.
     pub(crate) fn reindex_runs_of(&self, goal: GoalId) -> Result<(), StoreError> {
         for run in self.list_runs(goal)? {
-            self.index_run(&run)?;
+            // A row the index cannot take costs that run's row, named, never
+            // the rebuild.
+            let indexed = self.index_run(&run);
+            self.tolerated_index("run", &run.id.to_string(), indexed)?;
         }
         Ok(())
     }
@@ -1321,6 +1377,122 @@ mod tests {
             tags: Tags::default(),
             decision_making: false,
         }
+    }
+
+    /// A run that was running when the last node ended and that its goal
+    /// never recorded — the crash fell between the run's snapshot and the
+    /// goal's — is ended by the engine's repair and named; the signal that
+    /// began it is known to the index again, so it is not dispatched twice.
+    /// A plain open ends nothing: a verb opens the workspace beside a running
+    /// node, whose newest run looks exactly like an orphan for a moment.
+    #[test]
+    fn an_orphan_running_run_is_ended_by_the_engines_repair_and_its_signal_is_not_dispatched_twice()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let open = || {
+            Workspace::open_with_keystore(
+                dir.path(),
+                Box::new(crate::identity::FileKeyStore::new(
+                    Paths::new(dir.path()).identity_dir(),
+                )),
+            )
+            .unwrap()
+        };
+        let (goal, run, wf) = {
+            let ws = open();
+            staffed(&ws);
+            let wf = ws
+                .create_workflow(approval_workflow(), bisa_core::WorkflowOrigin::Workspace)
+                .unwrap();
+            let goal = ws.create_goal(NewGoal::captured("orphaned")).unwrap();
+            // Begun by an event, as every dispatched run is: the row carries
+            // the signal only beside the listener it came from.
+            let began = bisa_core::RunEntry {
+                step: None,
+                event: Some(bisa_core::Signal {
+                    id: "signal-9".into(),
+                    listener: Some(bisa_core::ListenerKey {
+                        host: bisa_core::ListenerHost::Goal { goal: goal.id },
+                        step: sid("build"),
+                    }),
+                    source: bisa_core::SignalSource::Schedule,
+                    name: None,
+                    at: 10,
+                    payload: json!({}),
+                    scope: bisa_core::SignalScope::Goal { goal: goal.id },
+                    chain: bisa_core::Chain::default(),
+                    dedupe_key: None,
+                }),
+            };
+            let (run, _) = ws
+                .create_run(
+                    on_goal(goal.id),
+                    wf.id,
+                    BTreeMap::new(),
+                    began,
+                    Some("signal-9".into()),
+                )
+                .unwrap();
+            assert_eq!(run.status(), RunStatus::Running);
+            // The crash: the goal's snapshot as it was before the run — it
+            // names no run — written back over the one that named it, and
+            // the index with it.
+            let mut before = ws.get_goal(goal.id).unwrap();
+            before.run = None;
+            before.runs.clear();
+            before.revision += 1;
+            ws.write_goal_snapshot(&before, crate::workspace::now_secs())
+                .unwrap();
+            ws.index_goal(&before, None).unwrap();
+            ws.idx().delete_run_row(&run.id.to_string()).unwrap();
+            (goal.id, run.id, wf.id)
+        };
+
+        let ws = open();
+        let as_left = ws
+            .list_runs(goal)
+            .unwrap()
+            .into_iter()
+            .find(|r| r.id == run)
+            .expect("the record is there");
+        assert_eq!(
+            as_left.status(),
+            RunStatus::Running,
+            "a plain open ends nothing"
+        );
+        assert_eq!(
+            ws.end_orphan_runs().unwrap(),
+            vec![run],
+            "the repair names what it ended"
+        );
+        let orphan = ws
+            .get_run(run)
+            .expect("the record is there, and indexed again");
+        assert_eq!(orphan.status(), RunStatus::Cancelled, "ended by the repair");
+        assert_eq!(ws.end_orphan_runs().unwrap(), vec![], "and nothing twice");
+        let problems = ws.problems();
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.kind == crate::problems::ProblemKind::OrphanRun
+                    && p.path == run.to_string()),
+            "{problems:?}"
+        );
+        assert!(
+            ws.get_goal(goal).unwrap().run.is_none(),
+            "the goal is as the crash left it: free for a new run"
+        );
+        let again = ws.create_run(
+            on_goal(goal),
+            wf,
+            BTreeMap::new(),
+            bisa_core::RunEntry::by_hand(),
+            Some("signal-9".into()),
+        );
+        assert!(
+            matches!(again, Err(StoreError::AlreadyDispatched { .. })),
+            "the signal is not dispatched twice: {again:?}"
+        );
     }
 
     /// A goal's run history is a list: a run file this build cannot read is

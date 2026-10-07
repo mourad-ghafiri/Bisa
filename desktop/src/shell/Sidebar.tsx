@@ -42,9 +42,9 @@
  */
 
 import { href, navigate, section, useRoute } from "../router";
-import { Avatar, CountBadge, ICON, SortableList, WorkingDot, navRowDrag, useArrivals } from "../ui";
+import { Avatar, Button, CountBadge, ICON, SortableList, WorkingDot, navRowDrag, useArrivals } from "../ui";
 import type { SortableHandle } from "../ui";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { NavEntry } from "./nav";
 import { placeNav, usePrimaryNav } from "./navOrderStore";
 import { useSectionHref } from "./sectionDoor";
@@ -56,6 +56,9 @@ import { hostedNameOf, isMember, orderSections, sectionTitle, stateWords, unread
 import { SidebarRail } from "./SidebarRail";
 import { inboxBadge } from "./sidebarModel.mjs";
 import { listUnread } from "./workspaceLoadModel.mjs";
+import { doorFailedWords, doorWords, failureWords, nodeDoors } from "./nodeBootModel.mjs";
+import { useNodeBoot } from "./nodeBootStore";
+import { openNodeDoor } from "./nodeDoors";
 import { settingsPath, settingsSearch } from "../views/_settings/settingsLink.mjs";
 import { sortChannels, sortDms } from "../views/_studio/channelListModel.mjs";
 import type { SidebarMode } from "./sidebarModel.mjs";
@@ -256,17 +259,44 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
  * else lives here — the person's own destinations (Identity, Settings,
  * About) are the top chrome's profile menu, out of the work's way — so with
  * the node reachable the sidebar ends with its last section. A status: a
- * screen reader hears it once, when the node goes away.
+ * screen reader hears it once, when the node goes away. Under the line —
+ * the shell's own account of its node while it has one: the boot's phase,
+ * or why it is not running and when the next try comes — a fold with what
+ * the node said before it died, and the doors that need no node
+ * (`nodeBootModel.nodeDoors`): restart it now, the log, the data folder,
+ * the way out. Before this a node that would not start was *waiting for
+ * the node…* for ever, with nothing to do about it.
  */
 function SidebarFooter() {
   const ws = useWorkspace();
+  const boot = useNodeBoot();
+  const [said, setSaid] = useState<string | null>(null);
   if (!ws.offline) return null;
+  const failure = failureWords(boot.failure);
+  const open = (door: Parameters<typeof openNodeDoor>[0]) => {
+    setSaid(null);
+    openNodeDoor(door).catch((e: unknown) => setSaid(doorFailedWords(door, e)));
+  };
   return (
     <div className="shrink-0 border-t border-hairline p-2">
       <div role="status" className="rounded-control border border-border bg-danger-soft px-2 py-1.5">
         <p className="flex items-center gap-1.5 text-2xs font-medium text-danger">
           <ICON.warn size={11} aria-hidden />{t("shell-sidebar-node-unreachable")}</p>
         <p className="mt-0.5 text-2xs text-danger">{ws.offline}</p>
+        {failure?.details && (
+          <details className="mt-1 text-2xs text-danger">
+            <summary className="cursor-pointer underline-offset-2 hover:underline">{t("shell-node-doors-details")}</summary>
+            <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-3xs">{failure.details}</pre>
+          </details>
+        )}
+        {said && <p className="mt-1 text-2xs text-danger">{said}</p>}
+        <div className="mt-1.5 flex flex-wrap gap-x-1 gap-y-0.5">
+          {nodeDoors(boot).map((door) => (
+            <Button key={door} size="sm" variant="ghost" className="h-6 px-1.5 text-2xs text-danger hover:bg-danger-soft hover:text-danger" onClick={() => open(door)}>
+              {doorWords(door)}
+            </Button>
+          ))}
+        </div>
       </div>
     </div>
   );

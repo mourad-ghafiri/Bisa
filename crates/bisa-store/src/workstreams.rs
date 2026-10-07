@@ -320,8 +320,18 @@ impl Workspace {
                 let path = entry.path();
                 let bytes = std::fs::read(&path)
                     .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-                let w: Workstream = serde_json::from_slice(&bytes)
-                    .map_err(|e| StoreError::unreadable(&path, "workstream record", e))?;
+                // A record written by another shape of the code is named and
+                // skipped — the rebuild goes on; a single read of it still
+                // refuses by name.
+                let Some(w) = self.tolerated_record::<Workstream>(
+                    "workstream record",
+                    &path.display().to_string(),
+                    serde_json::from_slice(&bytes)
+                        .map_err(|e| StoreError::unreadable(&path, "workstream record", e)),
+                )?
+                else {
+                    continue;
+                };
                 self.index_workstream(&w)?;
             }
         }
@@ -368,14 +378,15 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_workstream_record_refuses_by_name() {
+    fn an_unreadable_workstream_record_costs_its_own_row_and_is_named() {
         let (_dir, ws) = ws();
         let p = ws
             .create_project(NewProject::managed("app").unwrap())
             .unwrap();
         // A record written by another shape of the code: a path and a
         // backing, no kind. Nothing converts it; the rebuild names it and
-        // stops.
+        // goes on, so an upgrade never turns one torn record into a
+        // workspace that will not open.
         let id = WorkstreamId::from_ulid(ulid::Ulid::from_parts(3, 1));
         let path = ws
             .project_paths(&p)
@@ -390,12 +401,17 @@ mod tests {
             ),
         )
         .unwrap();
-        let err = ws.reindex_workstreams().unwrap_err();
-        assert!(matches!(err, StoreError::Unreadable { .. }), "{err}");
-        let text = err.to_string();
-        assert!(text.contains(&path.display().to_string()), "{text}");
+        ws.reindex_workstreams().expect("the rebuild goes on");
+        let problems = ws.problems();
+        let named = problems
+            .iter()
+            .find(|p| p.path == path.display().to_string())
+            .unwrap_or_else(|| panic!("the record is named: {problems:?}"));
+        assert_eq!(named.kind, crate::problems::ProblemKind::RebuildSkipped);
+        let text = named.text.to_string();
         assert!(text.contains("not a workstream record"), "{text}");
-        assert!(text.contains("another shape of the code"), "{text}");
+        // The primary workstream is still there: one record cost its own row.
+        assert!(ws.primary_workstream(p.id).is_ok());
     }
 
     #[test]

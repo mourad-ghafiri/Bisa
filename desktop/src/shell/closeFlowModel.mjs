@@ -8,10 +8,16 @@
  * they left, and a keep that fails never holds the window: a memory is
  * furniture, a way out is not;
  * a second request while one is being answered is dropped, since the red
- * button, ⌘Q and the menu bar's Quit can land together. `useCloseGuard`
+ * button, ⌘Q and the menu bar's Quit can land together. `installCloseGuard`
  * hands in the window's own hands; a test hands in fakes. The shell holds
  * every close request before this runs (`main.rs`), so nothing here decides
  * whether the window is held — only how it goes.
+ *
+ * **The bare way out.** While the root of the tree has crashed
+ * (`rootCrashModel`) there is no dialog host to ask in and no editor to
+ * save, so the flow is bare: what is remembered is kept, and the way out is
+ * taken — never a question nobody can see, never a save of documents that
+ * are gone. Before this a crashed window could not be closed at all.
  */
 
 /**
@@ -57,9 +63,11 @@ export function declines(outcome) {
  * the question, answered yes or no; `dirty` — whether anything is unsaved;
  * `save` — save it all, true when all of it saved; `unsaved` — say that the
  * window stays; `keep` — write what is remembered, and wait for it to
- * settle; `keepFailed` — hear why a keep failed. The returned function runs
- * the flow and ends with `finish`; it answers how it ended.
- * @param {{confirms: () => boolean, ask: () => Promise<boolean>, dirty: () => boolean, save: () => Promise<boolean>, unsaved: () => void, keep: () => Promise<void>, keepFailed?: (error: unknown) => void}} hands
+ * settle; `keepFailed` — hear why a keep failed; `bare` — whether the tree
+ * that would ask and save is gone (the root crashed), so neither is tried.
+ * The returned function runs the flow and ends with `finish`; it answers
+ * how it ended.
+ * @param {{confirms: () => boolean, ask: () => Promise<boolean>, dirty: () => boolean, save: () => Promise<boolean>, unsaved: () => void, keep: () => Promise<void>, keepFailed?: (error: unknown) => void, bare?: () => boolean}} hands
  */
 export function closeFlow(hands) {
   let running = false;
@@ -67,8 +75,9 @@ export function closeFlow(hands) {
     if (running) return "busy";
     running = true;
     try {
-      if (hands.confirms() && !(await hands.ask())) return "cancelled";
-      if (hands.dirty() && !(await hands.save())) {
+      const bare = hands.bare?.() === true;
+      if (!bare && hands.confirms() && !(await hands.ask())) return "cancelled";
+      if (!bare && hands.dirty() && !(await hands.save())) {
         hands.unsaved();
         return "unsaved";
       }

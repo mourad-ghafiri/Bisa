@@ -866,6 +866,20 @@ impl Engine {
         contain("terminal session files", || {
             interactive::put_away_what_was_left(&inner)
         });
+        // A run the last process started whose goal never recorded it — a
+        // crash between the run's snapshot and the goal's — is ended here,
+        // under the lock this process holds: a plain open must never end
+        // one, since a verb opening the workspace beside a running node would
+        // end the run that node is in the middle of starting.
+        contain("orphan runs", || match inner.ws.end_orphan_runs() {
+            Ok(ended) if !ended.is_empty() => {
+                tracing::warn!(target: "bisa_engine", ended = ended.len(), "orphan runs ended at start");
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!(target: "bisa_engine", "the orphan runs could not be ended: {e}");
+            }
+        });
         // Then one walk over the unfinished runs, from the snapshots: waits
         // re-armed, every live step interrupted through the funnel (the
         // machine resumes, re-runs or fails it), orphans cancelled, a note

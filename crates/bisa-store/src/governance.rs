@@ -22,10 +22,13 @@
 use crate::error::StoreError;
 #[cfg(test)]
 use crate::members::Admission;
+use crate::problems::{ProblemKind, WorkspaceProblem};
+use crate::workspace::now_secs;
 use crate::workspace::Workspace;
 use bisa_core::{Gate, MemberRole, PrincipalId};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(
@@ -106,12 +109,58 @@ impl Workspace {
         }
     }
 
+    /// The governance document at the open: the defaults — every gate the
+    /// owner's alone, the strictest policy there is — when the file cannot
+    /// be read, and a problem naming it. [`Self::governance`] stays strict,
+    /// so a gate check refuses by name until the file is fixed or written
+    /// again from Settings › Governance; the open itself goes on. Closed,
+    /// never open.
+    pub(crate) fn governance_or_default_at_open(&self) -> Result<Governance, StoreError> {
+        match self.governance() {
+            Err(StoreError::Unreadable { path, reason, .. }) => {
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::Unreadable,
+                    path.clone(),
+                    bisa_core::text!(
+                        "error-store-problem-governance-default",
+                        path = path,
+                        reason = reason
+                    ),
+                    None,
+                ));
+                Ok(Governance::default())
+            }
+            other => other,
+        }
+    }
+
     pub fn set_gate_policy(
         &self,
         gate: Gate,
         policy: GatePolicy,
     ) -> Result<Governance, StoreError> {
-        let mut gov = self.governance()?;
+        // A document this build cannot read is moved aside and written anew
+        // from the defaults with this one change: the one door out of an
+        // owner-only workspace nobody can read the policy of.
+        let mut gov = match self.governance() {
+            Err(StoreError::Unreadable { path, what, reason }) => {
+                let to = self.paths.quarantine(Path::new(&path), now_secs())?;
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::Quarantined,
+                    path.clone(),
+                    bisa_core::text!(
+                        "error-store-problem-quarantined",
+                        path = path,
+                        what = what.to_string(),
+                        reason = reason,
+                        to = to.display().to_string()
+                    ),
+                    Some(&to),
+                ));
+                Governance::default()
+            }
+            other => other?,
+        };
         gov.set(gate, policy);
         crate::paths::write_atomic(
             &self.paths.governance_file(),

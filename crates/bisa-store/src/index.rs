@@ -1114,6 +1114,16 @@ impl Index {
         Ok(())
     }
 
+    /// Take the stamp off **before** a rebuild wipes the tables: a rebuild
+    /// of an index that was stamped — `bisa workspace reindex` — that is cut
+    /// short or fails half-way would otherwise leave an empty index the next
+    /// open trusts, and the workspace would read as wiped with every file
+    /// intact. Unstamped, it is rebuilt again at the next open.
+    pub fn mark_building(&self) -> Result<(), StoreError> {
+        self.conn.pragma_update(None, "user_version", 0)?;
+        Ok(())
+    }
+
     /// Run `f` inside one transaction — every statement it issues lands or
     /// none does. Joins the transaction already open on this connection when
     /// there is one, so a caller that batches several indexers is one unit
@@ -1472,6 +1482,32 @@ impl Index {
             .optional()?)
     }
 
+    /// The run a signal was dispatched as and when it was queued, for the
+    /// clash two runs on one signal make at a rebuild.
+    pub fn run_dispatched_from_with_queued_at(
+        &self,
+        signal: &str,
+    ) -> Result<Option<(String, u64)>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT id, queued_at FROM workflow_runs WHERE dispatched = ?1")?;
+        Ok(stmt
+            .query_row(params![signal], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.max(0) as u64))
+            })
+            .optional()?)
+    }
+
+    /// Take the signal off a run's row — the second of two runs on one
+    /// signal keeps its row and loses the dispatch.
+    pub fn clear_run_dispatched(&self, id: &str) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE workflow_runs SET dispatched = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
     /// How many runs one listener began are unfinished — queued, running or
     /// waiting: what its guard counts.
     pub fn live_runs_of_listener(&self, listener: &str) -> Result<u32, StoreError> {
@@ -1497,6 +1533,28 @@ impl Index {
         ))?;
         let rows = stmt.query_map(params![listener, limit as i64], row_to_run)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Every row that says its run is still going — queued, running or
+    /// waiting — for the reconcile to read back against the records.
+    pub fn live_run_rows(&self) -> Result<Vec<RunRow>, StoreError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM workflow_runs WHERE status IN ('queued','running','waiting')
+             ORDER BY queued_at, id",
+            Self::RUN_COLUMNS
+        ))?;
+        let rows = stmt.query_map([], row_to_run)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Drop one run's row and its step rows — a row the records no longer
+    /// back. The work items and decisions that name the run keep their rows:
+    /// they are records of their own.
+    pub fn delete_run_row(&self, id: &str) -> Result<(), StoreError> {
+        self.replace_run_steps(id, &[])?;
+        self.conn
+            .execute("DELETE FROM workflow_runs WHERE id = ?1", params![id])?;
+        Ok(())
     }
 
     /// Every run of a goal in queue order: `(queued_at, id)`.

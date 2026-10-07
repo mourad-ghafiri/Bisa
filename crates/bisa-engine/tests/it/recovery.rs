@@ -690,3 +690,66 @@ async fn a_restart_with_nothing_running_writes_nothing() {
         .is_err());
     engine.shutdown().await;
 }
+
+/// A run the last process started whose goal never recorded it — the crash
+/// fell between the run's snapshot and the goal's — is ended when the next
+/// engine starts, under its lock, and named on the workspace's problems; the
+/// goal is free for a new run. Staged the only way a test can: the goal's
+/// snapshot put back as it was before the run, and the index read from the
+/// files again.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_orphan_run_the_crash_left_is_ended_when_the_engine_starts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (goal, run) = {
+        let ws = store(&dir);
+        let wf = ws
+            .create_workflow(
+                new_workflow("A", vec![agent_step("work", "mock")]),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let goal = ws
+            .create_goal(bisa_store::NewGoal::captured("orphaned by a crash"))
+            .unwrap();
+        ws.set_goal_workflow(goal.id, Some(wf.id)).unwrap();
+        let snapshot = Paths::new(dir.path())
+            .state_dir(&Paths::ns_goal(goal.id))
+            .join(format!("{}-{}.json", bisa_core::kind::KIND_GOAL, goal.id));
+        let before = std::fs::read(&snapshot).expect("the goal's snapshot before the run");
+        let (run, _) = ws
+            .create_run(
+                bisa_core::RunScope::Goal { goal: goal.id },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        // The crash: the goal's snapshot as it was before the run, and the
+        // index read from the files again, as the next open would read it.
+        std::fs::write(&snapshot, before).unwrap();
+        ws.rebuild_index().unwrap();
+        assert!(ws.get_goal(goal.id).unwrap().run.is_none());
+        (goal.id, run.id)
+    };
+
+    let engine = engine_with(&dir, vec![endless("mock")]);
+    let ended = engine.workspace().get_run(run).unwrap();
+    assert_eq!(
+        ended.status(),
+        bisa_core::RunStatus::Cancelled,
+        "ended at the start: {ended:?}"
+    );
+    assert!(
+        engine.workspace().get_goal(goal).unwrap().run.is_none(),
+        "the goal is free for a new run"
+    );
+    let problems = engine.workspace().problems();
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.kind == bisa_store::ProblemKind::OrphanRun && p.path == run.to_string()),
+        "{problems:?}"
+    );
+    engine.shutdown().await;
+}

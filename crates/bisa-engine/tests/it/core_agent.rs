@@ -468,8 +468,10 @@ async fn create_project_makes_a_repository_attached_to_the_goal() {
     assert_eq!(reply["attached_to"], json!(goal.to_string()));
     // The one creation path gives it a root commit, so its first workstream
     // is a branch of its own — or, on a machine with no commit identity, a
-    // note on the goal saying why there is none yet.
-    match bisa_vcs::git::identity(&path).unwrap().source {
+    // note on the goal saying why there is none yet. Read with the engine's
+    // own git, the one that decided: the free function reads this machine's
+    // global config, which the engine's isolated git never sees.
+    match engine.inner().git().identity(&path).unwrap().source {
         bisa_vcs::IdentitySource::None => assert!(
             common::notes(&engine, goal)
                 .iter()

@@ -20,6 +20,7 @@ use crate::index::{
 };
 use crate::journal::{EventLog, JournalAddr, JsonlEventLog};
 use crate::paths::Paths;
+use crate::problems::{ProblemKind, ProblemSink, WorkspaceProblem};
 use crate::snapshots::SnapshotStore;
 use crate::workstreams::WorkstreamFilter;
 use bisa_core::event::{JournalEvent, JournalPayload};
@@ -31,6 +32,7 @@ use bisa_core::{
     Assignee, Gate, Goal, GoalEdgeKind, GoalId, GoalMode, GoalOrigin, GoalStatus, Home,
     PrincipalId, RunId, SessionId, Tags, WorkItemId, WorkflowRun,
 };
+use bisa_core::{CancelCause, RunEvent};
 use nostr::event::Tag;
 use nostr::key::Keys;
 use serde::{Deserialize, Serialize};
@@ -243,6 +245,11 @@ pub struct Workspace {
     /// offline tool), and then the harness checks are skipped.
     known_runtime: RwLock<KnownRuntime>,
     pub(crate) store_events: tokio::sync::broadcast::Sender<StoreEvent>,
+    /// What this open and its rebuild found wrong and worked around — a
+    /// file quarantined, a record skipped, a row the index could not take.
+    /// Recomputed at every open; the quarantine folder is the durable record.
+    /// Shared with the snapshot store, which names a file it moves aside.
+    problems: ProblemSink,
 }
 
 /// The runtime as validation needs to know it. See
@@ -267,9 +274,17 @@ pub struct KnownRuntime {
 impl Workspace {
     /// Open (or initialize) a workspace with the OS keyring + file fallback.
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, StoreError> {
+        Self::open_observed(root, &crate::boot::Quiet)
+    }
+
+    /// [`Self::open`], saying each phase of the open to `observer`.
+    pub fn open_observed(
+        root: impl Into<PathBuf>,
+        observer: &dyn crate::boot::BootObserver,
+    ) -> Result<Self, StoreError> {
         let root: PathBuf = root.into();
         let ks = AutoKeyStore::new(Paths::new(&root).identity_dir());
-        Self::open_with_keystore(root, Box::new(ks))
+        Self::open_with_keystore_observed(root, Box::new(ks), observer)
     }
 
     /// Open with an injected key store (tests use `MemoryKeyStore`).
@@ -277,6 +292,18 @@ impl Workspace {
         root: impl Into<PathBuf>,
         ks: Box<dyn KeyStore>,
     ) -> Result<Self, StoreError> {
+        Self::open_with_keystore_observed(root, ks, &crate::boot::Quiet)
+    }
+
+    /// [`Self::open_with_keystore`], saying each phase of the open to
+    /// `observer` — what a process waiting on the open relays to a person,
+    /// so a long rebuild reads as work and not as a node that wedged.
+    pub fn open_with_keystore_observed(
+        root: impl Into<PathBuf>,
+        ks: Box<dyn KeyStore>,
+        observer: &dyn crate::boot::BootObserver,
+    ) -> Result<Self, StoreError> {
+        observer.phase(crate::boot::BootPhase::OpeningWorkspace);
         let root: PathBuf = root.into();
         let paths = Paths::new(&root);
         for dir in [
@@ -294,9 +321,10 @@ impl Workspace {
         let index = Index::open(&paths.index_db())?;
         let rebuild = index.is_fresh();
         let (store_events, _) = tokio::sync::broadcast::channel(1024);
+        let problems = ProblemSink::default();
         let ws = Self {
             log: JsonlEventLog::new(paths.clone()),
-            snapshots: SnapshotStore::new(paths.clone()),
+            snapshots: SnapshotStore::with_problems(paths.clone(), problems.clone()),
             index: Mutex::new(index),
             item_writes: Mutex::new(()),
             run_writes: Mutex::new(()),
@@ -309,22 +337,31 @@ impl Workspace {
             identity,
             owner,
             store_events,
+            problems,
         };
         // Bootstrap, in this order and nowhere else: the owner is a member,
         // the cache is rebuilt if it was discarded, then the three permanent
         // objects are ensured. `ensure_*` is idempotent and runs on every
         // open, which is what makes it the guarantee rather than the schema's
-        // triggers. A governance document this build cannot read stops the
-        // open here, loudly.
+        // triggers.
+        //
+        // **The owner key alone stops an open.** Every other file this build
+        // cannot read is quarantined or skipped and named in
+        // [`Self::problems`]: a torn member file is moved aside and the
+        // owner is a member again, a governance document is read as the
+        // owner's alone until it is fixed, a `general` channel is made again,
+        // a settings layer costs its values and not the resolution, and a
+        // rebuild skips the records it cannot read. A crash never costs the
+        // workspace, and never asks for the folder to be deleted.
         ws.ensure_owner_member()?;
         if rebuild {
-            ws.rebuild_index()?;
+            ws.rebuild_index_observed(observer)?;
         }
         // A snapshot written a moment before a crash can be ahead of its
         // projection; the live runs are re-indexed from truth at every open,
         // so the engine's first read never trusts a row the crash left stale.
         ws.reconcile_live()?;
-        ws.governance()?;
+        ws.governance_or_default_at_open()?;
         ws.ensure_core_agents()?;
         ws.ensure_general_channel()?;
         // A built-in addon this binary ships at a version other than the one
@@ -1505,7 +1542,29 @@ impl Workspace {
     /// (`docs/architecture/08-persistence.md` § Rebuild order). Read markers are local-only
     /// and deliberately lost.
     pub fn rebuild_index(&self) -> Result<(), StoreError> {
-        self.idx().clear()?;
+        self.rebuild_index_observed(&crate::boot::Quiet)
+    }
+
+    /// [`Self::rebuild_index`], saying how far it is to `observer` — at the
+    /// start, every few goals, and at the end — and to the log.
+    ///
+    /// One bad record never stops it: a file this build cannot read is
+    /// skipped and named in [`Self::problems`], the way the goal and run
+    /// walks always did, so an upgrade that rebuilds the index never turns a
+    /// torn note or session record into a workspace that will not open. The
+    /// stamp comes off first and goes back on last, so a rebuild cut short
+    /// is rebuilt again at the next open rather than trusted half-empty.
+    pub fn rebuild_index_observed(
+        &self,
+        observer: &dyn crate::boot::BootObserver,
+    ) -> Result<(), StoreError> {
+        use crate::boot::BootPhase;
+        let started = std::time::Instant::now();
+        {
+            let idx = self.idx();
+            idx.mark_building()?;
+            idx.clear()?;
+        }
         // 1. agents · teams · skills · mcp_servers · members · channels
         self.reindex_agents()?;
         self.reindex_teams()?;
@@ -1525,14 +1584,19 @@ impl Workspace {
         // edges. A goal's row is built with its current run so the cached
         // status is the truth's.
         let goal_ids = self.goal_ids_on_disk()?;
+        let of = goal_ids.len();
+        observer.phase(BootPhase::RebuildingIndex { done: 0, of });
+        tracing::info!(target: "bisa_store::rebuild", goals = of, "rebuilding the index from the files");
         for id in &goal_ids {
             let ns = Paths::ns_goal(*id);
-            let Some((goal, _)) = tolerated(
-                "goal",
-                &id.to_string(),
-                self.snapshots.get::<Goal>(&ns, KIND_GOAL, &id.to_string()),
-            )?
-            .flatten() else {
+            let Some((goal, _)) = self
+                .tolerated_record(
+                    "goal",
+                    &id.to_string(),
+                    self.snapshots.get::<Goal>(&ns, KIND_GOAL, &id.to_string()),
+                )?
+                .flatten()
+            else {
                 tracing::warn!("goal dir {id} has no goal snapshot; skipping");
                 continue;
             };
@@ -1540,29 +1604,35 @@ impl Workspace {
             // run — the read routes say `run_unreadable` — never a failed
             // rebuild.
             let current = match goal.run {
-                Some(run) => tolerated(
-                    "run",
-                    &run.to_string(),
-                    self.snapshots.get::<WorkflowRun>(
-                        &ns,
-                        bisa_core::kind::KIND_WORKFLOW_RUN,
+                Some(run) => self
+                    .tolerated_record(
+                        "run",
                         &run.to_string(),
-                    ),
-                )?
-                .flatten()
-                .map(|(r, _)| r),
+                        self.snapshots.get::<WorkflowRun>(
+                            &ns,
+                            bisa_core::kind::KIND_WORKFLOW_RUN,
+                            &run.to_string(),
+                        ),
+                    )?
+                    .flatten()
+                    .map(|(r, _)| r),
                 None => None,
             };
             self.index_goal(&goal, current.as_ref())?;
         }
-        for id in &goal_ids {
+        for (n, id) in goal_ids.iter().enumerate() {
+            if n > 0 && n % 25 == 0 {
+                observer.phase(BootPhase::RebuildingIndex { done: n, of });
+            }
             let ns = Paths::ns_goal(*id);
-            let Some((goal, _)) = tolerated(
-                "goal",
-                &id.to_string(),
-                self.snapshots.get::<Goal>(&ns, KIND_GOAL, &id.to_string()),
-            )?
-            .flatten() else {
+            let Some((goal, _)) = self
+                .tolerated_record(
+                    "goal",
+                    &id.to_string(),
+                    self.snapshots.get::<Goal>(&ns, KIND_GOAL, &id.to_string()),
+                )?
+                .flatten()
+            else {
                 continue;
             };
             let d = id.to_string();
@@ -1613,6 +1683,8 @@ impl Workspace {
         // Stamped last: an index whose rebuild a crash cut short reads as
         // unstamped and is rebuilt again at the next open.
         self.idx().mark_built()?;
+        observer.phase(BootPhase::RebuildingIndex { done: of, of });
+        tracing::info!(target: "bisa_store::rebuild", goals = of, secs = started.elapsed().as_secs_f64(), "the index is rebuilt");
         Ok(())
     }
 
@@ -1646,6 +1718,64 @@ impl Workspace {
             }
         }
         Ok(())
+    }
+
+    /// End every **orphan run**: a run still running whose goal never
+    /// recorded it — a crash fell between the run's snapshot and the goal's,
+    /// before `create_goal_run` wrote the goal's first — so nothing waits on
+    /// it and the signal that began it is not dispatched twice. Indexed
+    /// first, since the funnel resolves a run by its row; ended as stopped
+    /// through the funnel's locked path; named ([`ProblemKind::OrphanRun`]).
+    /// Answers the runs it ended.
+    ///
+    /// **The engine's, under its lock — never an open's.** A workspace is
+    /// opened by every verb, beside a running node as well, and a run that
+    /// node is in the middle of starting — its snapshot written, its goal's
+    /// a moment behind — looks exactly like an orphan to a second process.
+    /// Only the process that holds `run/engine.lock` knows nothing else is
+    /// starting runs here.
+    pub fn end_orphan_runs(&self) -> Result<Vec<RunId>, StoreError> {
+        let mut ended_runs = Vec::new();
+        for goal in self.list_goals(None)? {
+            if goal.is_closed() {
+                continue;
+            }
+            for run in self.list_runs(goal.id)? {
+                if run.is_finished()
+                    || run.is_queued()
+                    || goal.run == Some(run.id)
+                    || goal.runs.contains(&run.id)
+                {
+                    continue;
+                }
+                let indexed = self.index_run(&run);
+                self.tolerated_index("run", &run.id.to_string(), indexed)?;
+                let ended = {
+                    let _one_writer = self.run_writer();
+                    self.record_run_event_locked(
+                        run.id,
+                        RunEvent::Cancel {
+                            cause: CancelCause::Stopped { rationale: None },
+                        },
+                    )
+                };
+                if let Err(e) = ended {
+                    tracing::warn!(goal = %goal.id, run = %run.id, "an orphan run could not be ended: {e}");
+                }
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::OrphanRun,
+                    run.id.to_string(),
+                    bisa_core::text!(
+                        "error-store-problem-orphan-run",
+                        run = run.id.to_string(),
+                        goal = goal.id.to_string()
+                    ),
+                    None,
+                ));
+                ended_runs.push(run.id);
+            }
+        }
+        Ok(ended_runs)
     }
 
     /// Re-index, from their snapshots, every unfinished run — of every open
@@ -1694,14 +1824,16 @@ impl Workspace {
                 tracing::warn!(goal = %goal.id, items = ?unreadable, "reconcile skipped work items it cannot read");
             }
             let idx = self.idx();
-            idx.in_transaction(|| {
+            let indexed = idx.in_transaction(|| {
                 self.index_run_in(&idx, &run)?;
                 self.index_goal_in(&idx, &goal, Some(&run))?;
                 for spec in items.iter().filter(|s| s.run == Some(run.id)) {
                     self.index_work_item_in(&idx, spec, now_secs())?;
                 }
                 Ok(())
-            })?;
+            });
+            drop(idx);
+            self.tolerated_index("run", &run.id.to_string(), indexed)?;
             runs += 1;
         }
         // The runs of the workspace, straight from their folders: the index
@@ -1718,13 +1850,60 @@ impl Workspace {
                 tracing::warn!(run = %run.id, items = ?unreadable, "reconcile skipped work items it cannot read");
             }
             let idx = self.idx();
-            idx.in_transaction(|| {
+            let indexed = idx.in_transaction(|| {
                 self.index_run_in(&idx, &run)?;
                 for spec in &items {
                     self.index_work_item_in(&idx, spec, now_secs())?;
                 }
                 Ok(())
-            })?;
+            });
+            drop(idx);
+            self.tolerated_index("run", &run.id.to_string(), indexed)?;
+            runs += 1;
+        }
+        // A run no goal names — the orphan a crash between the run's snapshot
+        // and the goal's leaves — is not touched here: an open is made by
+        // every verb, beside a running node as well, and the run that node is
+        // in the middle of starting looks exactly like one. The engine ends
+        // orphans once it holds the lock ([`Self::end_orphan_runs`]).
+        // Stale rows: the index says a run is live; its record says
+        // otherwise — a finished run whose index update a crash lost, a run
+        // whose record is gone. The row is brought back in step with the
+        // record, so a listener's guard never counts it forever.
+        let live_rows = self.idx().live_run_rows()?;
+        for row in live_rows {
+            let Ok(id) = row.id.parse::<RunId>() else {
+                continue;
+            };
+            let what = match self.get_run(id) {
+                Ok(run) if run.is_finished() => {
+                    let indexed = self.index_run(&run);
+                    self.tolerated_index("run", &row.id, indexed)?;
+                    "finished"
+                }
+                Ok(_) => continue,
+                Err(StoreError::RunNotFound(_)) => {
+                    let deleted = self.idx().delete_run_row(&row.id);
+                    self.tolerated_index("run", &row.id, deleted)?;
+                    "gone"
+                }
+                Err(e) => {
+                    // An unreadable record is named by the list reads; the
+                    // row is left as the only trace of the run.
+                    tracing::warn!(run = %row.id, "a live row's record could not be read: {e}");
+                    continue;
+                }
+            };
+            self.record_problem(WorkspaceProblem::new(
+                ProblemKind::StaleRow,
+                row.id.clone(),
+                bisa_core::text!(
+                    "error-store-problem-stale-row",
+                    run = row.id.clone(),
+                    what = what.to_string()
+                ),
+                None,
+            ));
             runs += 1;
         }
         if runs > 0 {
@@ -1835,8 +2014,15 @@ impl Workspace {
                 let path = f.path();
                 let bytes = std::fs::read(&path)
                     .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-                let v: serde_json::Value = serde_json::from_slice(&bytes)
-                    .map_err(|e| StoreError::unreadable(&path, "session record", e))?;
+                let Some(v) = self.tolerated_record::<serde_json::Value>(
+                    "session record",
+                    &path.display().to_string(),
+                    serde_json::from_slice(&bytes)
+                        .map_err(|e| StoreError::unreadable(&path, "session record", e)),
+                )?
+                else {
+                    continue;
+                };
                 let row = SessionRow {
                     id: v["id"].as_str().unwrap_or_default().to_string(),
                     adapter: v["adapter"].as_str().unwrap_or_default().to_string(),
@@ -1970,6 +2156,76 @@ pub(crate) fn searchable_text(payload: &JournalPayload) -> Option<String> {
         JournalPayload::Result { output, .. } => Some(output.to_string()),
         JournalPayload::Document { file } => Some(file.name.clone()),
         _ => None,
+    }
+}
+
+impl Workspace {
+    /// What this open and its rebuild found wrong and worked around, in the
+    /// order found. Empty for a workspace nothing is wrong with.
+    pub fn problems(&self) -> Vec<WorkspaceProblem> {
+        self.problems.all()
+    }
+
+    /// Note one problem, once: a read made many times a boot — a settings
+    /// layer's — says its trouble once.
+    pub(crate) fn record_problem(&self, problem: WorkspaceProblem) {
+        self.problems.record(problem);
+    }
+
+    /// [`tolerated`], and the skipped record named in [`Self::problems`]:
+    /// the rebuild's and the reconcile's reads, which a person should hear
+    /// about once rather than find in a log.
+    pub(crate) fn tolerated_record<T>(
+        &self,
+        what: &'static str,
+        id: &str,
+        read: Result<T, StoreError>,
+    ) -> Result<Option<T>, StoreError> {
+        match read {
+            Err(StoreError::Unreadable { path, what, reason }) => {
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::RebuildSkipped,
+                    path.clone(),
+                    bisa_core::text!(
+                        "error-store-problem-rebuild-skipped",
+                        path = path,
+                        what = what.to_string(),
+                        reason = reason
+                    ),
+                    None,
+                ));
+                Ok(None)
+            }
+            other => tolerated(what, id, other),
+        }
+    }
+
+    /// One index transaction of the reconcile. A constraint the cache cannot
+    /// keep for one record — two runs on one signal, a row the files no
+    /// longer back — costs that record's row, said and named, never the open.
+    pub(crate) fn tolerated_index(
+        &self,
+        what: &'static str,
+        id: &str,
+        result: Result<(), StoreError>,
+    ) -> Result<(), StoreError> {
+        match result {
+            Err(StoreError::Sqlite(e)) => {
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::IndexDisagrees,
+                    id,
+                    bisa_core::text!(
+                        "error-store-problem-index-disagrees",
+                        what = what.to_string(),
+                        id = id.to_string(),
+                        reason = e.to_string()
+                    ),
+                    None,
+                ));
+                Ok(())
+            }
+            other => other,
+        }
     }
 }
 

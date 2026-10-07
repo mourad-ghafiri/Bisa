@@ -299,6 +299,27 @@ impl ProcGroup {
         self.wait_gone(REAP_GRACE).await;
         false
     }
+
+    /// End the group the way an abort does, once the cancel the harness
+    /// understands was sent and its stdin closed: half of `grace` to leave on
+    /// the EOF it was given, then `SIGTERM` and the other half, then
+    /// `SIGKILL` and a moment to be reaped. A harness that leaves on EOF —
+    /// most CLIs, and an agent that records its own end — ends on its own
+    /// terms, as a disposed one does, where `SIGTERM` first cut it off
+    /// mid-word; one that ignores both is ended within the same grace.
+    /// Answers whether it left on its own.
+    pub async fn leave_or_terminate(&self, grace: Duration) -> bool {
+        let half = grace / 2;
+        if self.wait_gone(half).await {
+            return true;
+        }
+        self.term();
+        if !self.wait_gone(half).await {
+            self.kill();
+            self.wait_gone(REAP_GRACE).await;
+        }
+        false
+    }
 }
 
 /// Run a command to completion in a process group of its own, so that

@@ -73,6 +73,30 @@ test("the shell installs the hold last in setup, and every way out ends in quit_
   assert.ok(main.includes("RunEvent::ExitRequested {") && main.includes("api.prevent_exit()"), "Tauri's own exit request stays held, for the letter of it");
 });
 
+test("the ways out stand above the root boundary, installed once from main.tsx, and every request is acknowledged before it is asked about", () => {
+  const guard = read("shell/useCloseGuard.ts");
+  assert.ok(guard.includes("export function installCloseGuard(): () => void {") && !guard.includes("useEffect"), "a module function for the life of the page, not a hook of App's");
+  const main = read("main.tsx");
+  assert.ok(main.includes("installCloseGuard();") && main.indexOf("installCloseGuard();") < main.indexOf("createRoot("), "installed before the first render");
+  const app = read("App.tsx");
+  assert.ok(!app.includes("useCloseGuard()") && !app.includes('shell/useCloseGuard"'), "App no longer carries the listeners a throw there would take");
+  const close = between(guard, "ev.listen(TRAY_EVENTS.close, () => {", "});");
+  assert.ok(close.includes("heard();") && close.indexOf("heard();") < close.indexOf("closeVerb("), "the close is acknowledged first, whatever is done with it");
+  const quitRequested = between(guard, "ev.listen(TRAY_EVENTS.quit, () => {", "});");
+  assert.ok(quitRequested.includes("heard();") && quitRequested.indexOf("heard();") < quitRequested.indexOf("leave("), "and so is the quit");
+  assert.ok(guard.includes('tellShell("quit_heard")'), "the shell's word for it");
+  assert.ok(guard.includes("bare: () => rootCrash.crashed()"), "while the root has crashed the flow is bare");
+  const quit = read("../src-tauri/src/quit.rs");
+  assert.ok(quit.includes("pub const ACK_DEADLINE: Duration = Duration::from_secs(5);"), "five seconds to say it heard");
+  assert.ok(quit.includes("pub fn ask_webview(") && quit.includes("HOLD.overdue(seq)") && quit.includes("exit_now("), "a request nobody hears is an exit that stands");
+  const shell = read("../src-tauri/src/main.rs");
+  assert.ok(shell.includes("quit::ask_webview(window.app_handle(), window, CLOSE_REQUESTED)"), "the window's close goes through the deadline");
+  assert.ok(shell.includes("quit::ask_webview(app, &window, QUIT_REQUESTED)"), "and Tauri's own exit request");
+  assert.ok(between(shell, "fn quit_heard(", "\n}\n").includes("quit::heard()"), "the command");
+  assert.ok(between(shell, "invoke_handler(", ".build(context)").includes("quit_heard,"), "registered");
+  assert.ok(between(read("../src-tauri/src/tray/mod.rs"), "fn request_quit(", "\n}\n").includes("crate::quit::ask_webview(app, &window, crate::QUIT_REQUESTED)"), "the icon's Quit too");
+});
+
 test("the webview answers the shell: ready once it listens, a no on a cancelled quit or a failed save, nothing on a dropped second request", () => {
   const guard = read("shell/useCloseGuard.ts");
   assert.ok(guard.includes('tellShell("quit_ready")') && guard.includes("off = [close, quitRequested, keyboard];"), "said once the three listeners stand");

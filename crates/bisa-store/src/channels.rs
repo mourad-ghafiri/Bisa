@@ -12,6 +12,7 @@
 
 use crate::error::StoreError;
 use crate::paths::Paths;
+use crate::problems::{ProblemKind, WorkspaceProblem};
 use crate::workspace::{mint_ulid, now_secs, EventAudience, StoreEvent, Workspace};
 use bisa_core::kind::KIND_CHANNEL;
 use bisa_core::tags::TagEntity;
@@ -20,6 +21,7 @@ use bisa_core::{
     PrincipalId, RosterPolicy, Tags, TeamId,
 };
 use serde::Deserialize;
+use std::path::Path;
 
 /// `library/core/general.toml` — the copy for the one permanent channel.
 const GENERAL_TOML: &str = include_str!("../../../library/core/general.toml");
@@ -321,9 +323,16 @@ impl Workspace {
     pub fn list_channels(&self) -> Result<Vec<Channel>, StoreError> {
         let mut out = Vec::new();
         for d in self.snapshots.list_ds(Paths::NS_CHANNELS, KIND_CHANNEL)? {
-            if let Some((c, _)) =
-                self.snapshots
-                    .get::<Channel>(Paths::NS_CHANNELS, KIND_CHANNEL, &d)?
+            // One channel this build cannot read costs its row, never the
+            // list — nor the rebuild, nor the Inbox that lists the rooms.
+            if let Some((c, _)) = self
+                .tolerated_record(
+                    "channel",
+                    &d,
+                    self.snapshots
+                        .get::<Channel>(Paths::NS_CHANNELS, KIND_CHANNEL, &d),
+                )?
+                .flatten()
             {
                 out.push(c);
             }
@@ -487,8 +496,27 @@ impl Workspace {
     /// if it does. Called at every open; the only mechanism that restores it.
     pub fn ensure_general_channel(&self) -> Result<(), StoreError> {
         let id = ChannelId::general();
-        if self.get_channel(&id).is_ok() {
-            return Ok(());
+        match self.get_channel(&id) {
+            Ok(_) => return Ok(()),
+            // A `general` this build cannot read is moved aside and made
+            // again: the room every workspace has is never the reason a
+            // workspace does not open.
+            Err(StoreError::Unreadable { path, what, reason }) => {
+                let to = self.paths.quarantine(Path::new(&path), now_secs())?;
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::Recreated,
+                    path.clone(),
+                    bisa_core::text!(
+                        "error-store-problem-quarantined",
+                        path = path,
+                        what = what.to_string(),
+                        reason = reason,
+                        to = to.display().to_string()
+                    ),
+                    Some(&to),
+                ));
+            }
+            Err(_) => {}
         }
         let copy: GeneralFile = toml::from_str(GENERAL_TOML).map_err(|e| {
             StoreError::Invalid(bisa_core::text!(

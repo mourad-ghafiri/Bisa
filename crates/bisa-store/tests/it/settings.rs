@@ -3,7 +3,7 @@
 //! scope at once — every key each of them set is there afterwards.
 
 use bisa_core::SettingScope as Scope;
-use bisa_store::{MemoryKeyStore, Workspace};
+use bisa_store::{MemoryKeyStore, ProblemKind, Workspace};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -14,8 +14,13 @@ fn ws() -> (tempfile::TempDir, Workspace) {
     (dir, ws)
 }
 
+/// A layer file that does not parse: the layer's own read refuses by name;
+/// the resolution stands on the other layers and names the file as a
+/// problem rather than failing every reader of `settings()` — an engine, a
+/// pump, a logger at boot; and a write repairs the scope by moving the torn
+/// file aside whole, never writing over the evidence.
 #[test]
-fn a_settings_file_that_does_not_parse_is_a_refusal_naming_the_file_not_an_empty_layer() {
+fn a_settings_file_that_does_not_parse_is_named_costs_its_values_and_is_moved_aside_by_a_write() {
     let (_d, ws) = ws();
     ws.set_setting(Scope::Workspace, None, "editor.tab_size", json!(2))
         .unwrap();
@@ -28,14 +33,35 @@ fn a_settings_file_that_does_not_parse_is_a_refusal_naming_the_file_not_an_empty
         read.to_string().contains(&path.display().to_string()),
         "names the file: {read}"
     );
-    // Resolution does not quietly fall back to the defaults either.
-    assert!(ws.settings(None).is_err());
-    // A write does not paper over it: the layer is read first, and refused,
-    // so the torn file stays as evidence rather than being overwritten.
-    assert!(ws
-        .set_setting(Scope::Workspace, None, "editor.tab_size", json!(4))
-        .is_err());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), torn);
+    // The resolution does not fail: the torn layer costs its values and is
+    // named, and the defaults stand where it would have spoken.
+    let resolved = ws.settings(None).unwrap();
+    let tab = resolved
+        .iter()
+        .find(|r| r.key == "editor.tab_size")
+        .expect("the key");
+    assert_ne!(tab.value, json!(2), "the torn layer's value is not applied");
+    assert!(
+        ws.problems()
+            .iter()
+            .any(|p| p.kind == ProblemKind::SettingsLayerUnreadable
+                && p.path == path.display().to_string()),
+        "{:?}",
+        ws.problems()
+    );
+    // A write repairs the scope: the torn file is moved aside with its bytes
+    // as they were, and the layer is written anew with this one key.
+    ws.set_setting(Scope::Workspace, None, "editor.tab_size", json!(4))
+        .unwrap();
+    let moved = ws
+        .problems()
+        .iter()
+        .find_map(|p| (p.kind == ProblemKind::Quarantined).then(|| p.quarantined.clone()))
+        .flatten()
+        .expect("moved aside");
+    assert_eq!(std::fs::read_to_string(moved).unwrap(), torn);
+    let layer = ws.settings_layer(Scope::Workspace, None).unwrap();
+    assert_eq!(layer.get("editor.tab_size"), Some(&json!(4)));
 }
 
 #[test]

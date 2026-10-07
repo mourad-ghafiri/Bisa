@@ -91,6 +91,12 @@ const IRREGULAR_WRITERS: &[&str] = &[
     // `journal_signal` files the occurrence that began a run on its home.
     "journal_signal",
     "end_session",
+    // `end_session_keeping_process` ends the row and keeps its pid for the
+    // next boot to end the process.
+    "end_session_keeping_process",
+    // `end_orphan_runs` ends every run no goal names — the engine's repair at
+    // its start, under its lock; a writer by what it does, not by its verb.
+    "end_orphan_runs",
     // `admit_claimed` adds the member a claimed invite names.
     "admit_claimed",
     // `drop_held_of` lets a removed person's held messages go.
@@ -141,6 +147,8 @@ const READER_VERBS: &[&str] = &[
     "member",
     "next",
     "people",
+    // `problems`: what the open and the rebuild worked around, read.
+    "problems",
     "queued",
     "transcript",
     "decisions",
@@ -232,7 +240,10 @@ fn workspace_methods() -> BTreeSet<String> {
         let mut in_impl = false;
         for line in text.lines() {
             let code = line.split("//").next().unwrap_or("");
-            if depth == 0 && code.trim_start().starts_with("impl Workspace") {
+            let head = code.trim_start();
+            if depth == 0
+                && (head.starts_with("impl Workspace {") || head.starts_with("impl Workspace<"))
+            {
                 in_impl = true;
             }
             if in_impl && depth == 1 {

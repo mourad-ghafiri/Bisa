@@ -275,8 +275,10 @@ impl Workspace {
 
     pub(crate) fn reindex_seen(&self) -> Result<(), StoreError> {
         let path = self.paths.seen_file();
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
+        // Read lossily: a torn multi-byte character costs its line, never
+        // the file or the rebuild.
+        let content = match std::fs::read(&path) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(StoreError::io(path.display().to_string(), e)),
         };

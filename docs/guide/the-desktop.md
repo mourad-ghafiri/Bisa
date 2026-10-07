@@ -131,7 +131,9 @@ nothing is saved, because nothing is lost. The window comes back from a left cli
 *Open Bisa*, from the Dock, from `⌘Tab` — the same doors that bring back any hidden app — and a
 browser tab open in the IDE changes none of that. Quitting is deliberate — *Quit Bisa* in the icon's
 menu, `⌘Q`, the Dock's *Quit*, a logout, or `Ctrl+Q` on Linux and Windows — and asks and saves as
-[Settings › Capabilities › Desktop](#settings) says; the window comes forward for the question. Turn the switch off and the
+[Settings › Capabilities › Desktop](#settings) says; the window comes forward for the question. A window that cannot hear the
+question — its page crashed or hung — does not hold the app: the quit stands after five seconds,
+where you were is kept, and the node is stopped with it. Turn the switch off and the
 red button quits, as it always did.
 
 **One Bisa.** Launching Bisa again while it runs — from a terminal, with `open -n`, from a second
@@ -791,13 +793,17 @@ Relays & sync — the switch that turns the wire on (off by default), each relay
 Governance — who decides each gate, and the role matrix), **Capabilities** (Skills, MCP servers, Connectors, Harnesses, System, Desktop, Network, Browser, Mobile Development), **Library** (one panel per kind — Agents, Skills, Teams, Channels, Connectors, Workflows, Addons — the catalog a workspace installs from), **Git & code hosts** (Identity, SSH keys, GitHub, GitLab,
 Bitbucket), **Security** (Redactor, Guard, Classifier — the classifier's own panel now picks who reads: an agent, a bare harness, or the Decision-Making Agent), **Decision Settings** (Decision Making — [the Decision-Making Agent](decisions.md)'s one panel: the agent and its readiness, who answers and only the fields that provider takes, an API key sent once and never displayed, `decisions.enabled` then every decision point with its own switch, the deadline and the two confidence thresholds, *Try it*, and the newest judgements), **Automation** (Events — whether this machine listens, its tick, a check's timeout, a file scan's bounds, whether public hooks are answered, how often pull requests are asked about, the chain depth, the rate and the backlog; what starts a workflow is a step of it, and whether it listens is its own switch — Goals — how a new goal moves, auto · guided · manual, where a step's ceiling is in an auto goal — a step that may write runs commands too, or each step's own stands — what an auto goal does above it — the classifier reads it, or you are asked — and how many failed runs an auto goal repairs alone — Workflows — Budgets, the workspace's default
 ceiling for a goal or a run in the workspace made without a budget of its own), **Project IDE** (IDE, Editor, Terminal, Workstreams, Board, Diagrams, Artifacts, Agents, Keymap, Language servers — the workspace-scope defaults a project's About › Settings can override), **Performance** (Cache — every named cache's hits, misses and entries from `GET /cache/stats`, and *Clear caches*), **Node** (pause/resume,
-restart the sidecar — which also restarts itself: a node that exits on its own is started again on the same port after a short delay, and the lists are read again with a toast saying so; **Logging** — the diagnostic log on this machine: the newest crash first — one sentence, *Show details* for
+restart the sidecar — which also restarts itself: a node that exits on its own is started again on the same port after a short delay, and the lists are read again with a toast saying so; the node is stopped gracefully before it is killed, and a boot is waited for as long as the node reports what it is doing — *Opening the workspace…*, *Rebuilding the index — 25 of 300 goals…*, *Starting the engine…* — said here, in the sidebar's footer and in the rail's tooltip; a node that will not start says why and when the next try comes, with *Restart now*, *Reveal the log*, *Open the data folder* and *Quit Bisa* beside the line; **Workspace** — what the last open worked around, shown only when there is something: each file a crash tore, moved under `quarantine/` or skipped, with where it went, and `bisa workspace check` for the whole list without the node; **Logging** — the diagnostic log on this machine: the newest crash first — one sentence, *Show details* for
 where it was, on which thread, its backtrace, what the node last said and the last lines before it, the
 file manager's reveal on the report — then where the files are, one block per process with how big each file
 is and when it was written, the crash reports, the file manager's reveal on the folder, then the four
 `logging.*` dials — the switch, the level, the rotation, the files kept — errors only by default and never
 sent anywhere). A screen that hits an error says so in place, that the details are in the diagnostic log,
-and offers *Try again*, *Reload* and *Reveal the log*. **Connectors**, under Capabilities, is where an outside platform gets an account on this
+and offers *Try again*, *Reload* and *Reveal the log*. The whole window hitting an error — the chrome
+itself, above every screen — is one card with six doors, none of them needing the node: *Try again*,
+*Reload*, *Restart the node*, *Reveal the log*, *Open the data folder* and *Quit Bisa*, with the
+node's own line under them while it is away; moving to another screen clears the card, and the red
+button and `⌘Q` still work from it. **Connectors**, under Capabilities, is where an outside platform gets an account on this
 machine: one card per installed connector, its accounts by label with which secret fields are set and where they
 live, *Connect* for an OAuth2 platform (the browser opens; a code can be pasted instead), *Set secrets…* (a PEM
 key pasted whole for a `jwt` platform), *Check*,

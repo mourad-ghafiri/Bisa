@@ -316,13 +316,19 @@ impl Workspace {
                 continue;
             };
             let path = entry.path();
-            let def = read_note_file(&path, id, scope.clone()).map_err(|e| match e {
+            // A note this build cannot read — a merge left in it, a hand edit
+            // — is named and skipped; the rebuild goes on.
+            let read = read_note_file(&path, id, scope.clone()).map_err(|e| match e {
                 ReadError::Missing | ReadError::Io(_) => StoreError::io(
                     path.display().to_string(),
                     std::io::Error::other("unreadable"),
                 ),
                 ReadError::Unreadable(e) => StoreError::unreadable(&path, "note", e),
-            })?;
+            });
+            let Some(def) = self.tolerated_record("note", &path.display().to_string(), read)?
+            else {
+                continue;
+            };
             // A goal note whose goal is gone cannot be indexed (its home_goal
             // row would dangle); the file is an orphan.
             if let OwnerScope::Goal { id } = &def.scope {

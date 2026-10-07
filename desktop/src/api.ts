@@ -592,12 +592,27 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 /**
- * Show the diagnostic log's folder in the file manager — the crash card's
- * way out, from any screen: the node names the folder, the shell reveals it.
+ * Open the diagnostic log's folder in the file manager — the crash card's
+ * way out, from any screen. In the desktop shell the shell knows the folder
+ * on its own (`folders.rs`: the file it writes, else what the binary named),
+ * so this works with no node — the node may be what is not there. Off the
+ * shell the node names the folder.
  */
 export async function revealLog(): Promise<void> {
+  if (isTauri()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("reveal_logs_dir");
+    return;
+  }
   const view = await api.logs();
   await revealPath(view.dir);
+}
+
+/** Open the workspace's data folder in the file manager — the shell's own knowledge, no node needed. */
+export async function revealDataFolder(): Promise<void> {
+  if (!isTauri()) throw new Error("Showing a folder needs the desktop app.");
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("reveal_data_dir");
 }
 
 export async function revealPath(path: string): Promise<void> {

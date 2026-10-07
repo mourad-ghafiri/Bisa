@@ -60,6 +60,7 @@ const OWNED_NAMES: &[&str] = &[
     "github",
     "profiles",
     "run",
+    "quarantine",
     "ide",
     "logs",
     "layout",

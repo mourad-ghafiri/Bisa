@@ -105,8 +105,9 @@ fn port_root(chain: crate::attribution::Chain) -> Option<PortRoot> {
     }
 }
 
-/// The process table, read once per scan.
-fn processes() -> System {
+/// The process table, read once per scan — and once per question the
+/// sidecar asks of a pid (`sidecar.rs`: a stray node's name and start).
+pub(crate) fn processes() -> System {
     System::new_with_specifics(RefreshKind::new().with_processes(ProcessRefreshKind::new()))
 }
 

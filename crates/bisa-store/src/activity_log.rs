@@ -12,7 +12,6 @@
 
 use crate::error::StoreError;
 use bisa_core::ActivityFact;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The month's file a fact at `at` (unix seconds) is appended to.
@@ -31,20 +30,14 @@ pub fn file_for(dir: &Path, at: u64) -> PathBuf {
     dir.join(format!("{year:04}-{m:02}.jsonl"))
 }
 
-/// Append one fact to the month's file, creating the directory on first use.
+/// Append one fact to the month's file, creating the directory on first use
+/// — through [`crate::paths::append_line`], so the line is fsynced and a torn
+/// tail mended like every other log's.
 pub fn append(dir: &Path, fact: &ActivityFact) -> Result<(), StoreError> {
-    std::fs::create_dir_all(dir).map_err(|e| StoreError::io(dir.display().to_string(), e))?;
     let path = file_for(dir, fact.at);
-    let mut line = serde_json::to_string(fact)?;
-    line.push('\n');
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-    file.write_all(line.as_bytes())
-        .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-    Ok(())
+    // No fsync: a row here is history the Pulse reads, never a fact a caller
+    // was told was kept, and the engine writes several per stop and settle.
+    crate::paths::append_line_unsynced(&path, &serde_json::to_string(fact)?)
 }
 
 /// Every fact in the log, oldest first: the month files in name order, each
@@ -64,7 +57,10 @@ pub fn read_all(dir: &Path) -> Result<Vec<ActivityFact>, StoreError> {
     files.sort();
     let mut out = Vec::new();
     for path in files {
-        let content = std::fs::read_to_string(&path)
+        // Read lossily: a torn multi-byte character costs its line, never
+        // the file or the rebuild.
+        let content = std::fs::read(&path)
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
             .map_err(|e| StoreError::io(path.display().to_string(), e))?;
         for line in content.lines().filter(|l| !l.trim().is_empty()) {
             match serde_json::from_str::<ActivityFact>(line) {
@@ -80,6 +76,7 @@ pub fn read_all(dir: &Path) -> Result<Vec<ActivityFact>, StoreError> {
 mod tests {
     use super::*;
     use bisa_core::{ActivityConcept, ActivitySource};
+    use std::io::Write;
 
     fn fact(at: u64, kind: &str) -> ActivityFact {
         ActivityFact {

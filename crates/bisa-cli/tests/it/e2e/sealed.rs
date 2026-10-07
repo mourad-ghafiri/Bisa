@@ -49,6 +49,10 @@ const KEPT: [&str; 3] = [
 pub struct Sealed {
     root: tempfile::TempDir,
     daemon: Option<Child>,
+    /// The daemon's stdin, held while it was started leashed
+    /// ([`Self::start_leashed`]): letting go of it is the desktop shell
+    /// going away, and the daemon's cue to stop.
+    leash: Option<std::process::ChildStdin>,
     /// The folder is left behind for a person to read (`BISA_JOURNEY_KEEP=1`).
     kept: bool,
 }
@@ -69,6 +73,7 @@ impl Sealed {
         let sealed = Self {
             root,
             daemon: None,
+            leash: None,
             kept,
         };
         for folder in [sealed.data(), sealed.home(), sealed.agents(), sealed.tmp()] {
@@ -347,6 +352,18 @@ impl Sealed {
     }
 
     fn start_with(&mut self, listening: &[&str], environment: &[(&str, &str)]) {
+        self.spawn_daemon(listening, environment, false);
+    }
+
+    /// [`Self::start`] the way the desktop shell starts its node: `--json`,
+    /// so the boot's phases come as lines on stdout, and leashed — its stdin
+    /// a pipe this harness holds, `BISA_STOP_ON_STDIN_CLOSE=1` — so the
+    /// daemon stops when the pipe closes ([`Self::drop_leash`]).
+    pub fn start_leashed(&mut self) {
+        self.spawn_daemon(&[], &[("BISA_STOP_ON_STDIN_CLOSE", "1")], true);
+    }
+
+    fn spawn_daemon(&mut self, listening: &[&str], environment: &[(&str, &str)], leashed: bool) {
         assert!(self.daemon.is_none(), "the daemon is already up");
         let said = |name: &str| {
             std::fs::OpenOptions::new()
@@ -355,16 +372,26 @@ impl Sealed {
                 .open(self.root.path().join(name))
                 .expect("the daemon's own words, kept")
         };
-        let mut daemon = self
-            .command()
-            .envs(environment.iter().copied())
+        let mut command = self.command();
+        command.envs(environment.iter().copied());
+        if leashed {
+            command.arg("--json");
+        }
+        let mut daemon = command
             .arg("node")
             .args(listening)
-            .stdin(Stdio::null())
+            .stdin(if leashed {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(said("daemon.out"))
             .stderr(said("daemon.err"))
             .spawn()
             .expect("the daemon starts");
+        if leashed {
+            self.leash = daemon.stdin.take();
+        }
         let deadline = Instant::now() + PATIENCE;
         while !self.socket().exists() {
             let ended = daemon.try_wait().expect("the daemon's state");
@@ -427,11 +454,60 @@ impl Sealed {
         );
     }
 
+    /// Let go of the leash — the desktop shell going away, a Force Quit
+    /// among its ways — and wait for the daemon to stop on its own: it ends
+    /// well and leaves no socket behind, as a stop asks of it.
+    pub fn drop_leash(&mut self) {
+        let mut daemon = self.daemon.take().expect("a daemon to let go of");
+        let socket = self.socket();
+        drop(self.leash.take().expect("a daemon started leashed"));
+        let deadline = Instant::now() + GOODBYE;
+        let status = loop {
+            if let Some(status) = daemon.try_wait().expect("the daemon's state") {
+                break status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the daemon's leash was dropped and it did not stop:\n{}",
+                self.what_happened(),
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(
+            status.success(),
+            "a daemon whose parent went ends well, not {status}:\n{}",
+            self.what_happened(),
+        );
+        assert!(
+            !socket.exists(),
+            "the daemon left its socket behind at {}",
+            socket.display()
+        );
+    }
+
+    /// What the daemon wrote to its stdout so far — under `--json`, one JSON
+    /// object a line.
+    pub fn daemon_out(&self) -> String {
+        std::fs::read_to_string(self.root.path().join("daemon.out")).unwrap_or_default()
+    }
+
     /// End the daemon where it stands, as a crash or a power cut would: no
     /// goodbye, nothing flushed that was not already on disk.
     pub fn crash(&mut self) {
         let mut daemon = self.daemon.take().expect("a daemon to end");
         end_abruptly(&mut daemon);
+        // The socket a killed daemon leaves behind: nothing listens there,
+        // and the next [`Self::start`] waits for a socket to appear — left
+        // in place, it would return before the new daemon has opened the
+        // workspace, and a verb run then would embed an engine of its own
+        // over the same files. A real node removes a stale socket when it
+        // binds; the harness removes it here so the wait means something.
+        if let Err(e) = std::fs::remove_file(self.socket()) {
+            assert!(
+                e.kind() == std::io::ErrorKind::NotFound,
+                "the crashed daemon's socket could not be removed: {e}"
+            );
+        }
     }
 
     // --- the node, called --------------------------------------------------------

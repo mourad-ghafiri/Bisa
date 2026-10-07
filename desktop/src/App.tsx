@@ -20,7 +20,6 @@ import { pushShellWords } from "./shell/shellWords";
 import { readPref, webStorage, writePref } from "./shell/storedPrefModel.mjs";
 import { LAYOUT_CHANGED, notifyLayoutChanged } from "./shell/layerSlots";
 import { publishContentBox } from "./shell/contentBox";
-import { useCloseGuard } from "./shell/useCloseGuard";
 import { LinkProvider } from "./shell/linkHandler";
 import { useNotifications } from "./shell/notifications";
 import { useNotifySettings } from "./shell/notifySettings";
@@ -67,10 +66,9 @@ import { syncCacheTuningFromNode } from "./shell/cacheTuning";
 import { syncLocaleFromNode } from "./i18n/localeStore";
 import { OPEN_PLACES, useGlobalShortcuts } from "./shell/shortcuts";
 import { WorkspaceContext, useWorkspaceState } from "./shell/useWorkspaceData";
-import { gonePaths, leftHosts, membershipsKnown } from "./shell/gonePlacesModel.mjs";
+import { gonePaths, leftHosts, memberHostKeys, membershipsKnown } from "./shell/gonePlacesModel.mjs";
 import { rootOfPath } from "./views/_workbench/idePlacesModel.mjs";
 import { forgetRootMemory } from "./views/_workbench/workbenchStore";
-import { isMember } from "./shell/hostedModel.mjs";
 import { placesNow } from "./shell/placeMemoryStore";
 import { adoptMemoryOwner, forgetPlaceMemory } from "./shell/viewMemoryStore";
 import { t as tr } from "./i18n/l10n.mjs";
@@ -272,7 +270,8 @@ export default function App() {
   const hostsKnown = membershipsKnown(workspace);
   useEffect(() => {
     if (!hostsKnown) return;
-    const hosts = workspace.hosted.filter((s) => isMember(s.host)).map((s) => s.host.host.pubkey);
+    // Above the root boundary's reach in effect: a section without its host's key is left out, never a throw that takes the window.
+    const hosts = memberHostKeys(workspace.hosted);
     const paths = placesNow().queries.map(([path]) => path);
     for (const path of leftHosts(paths, hosts)) forgetPlaceMemory(path);
   }, [hostsKnown, workspace.hosted]);
@@ -348,8 +347,8 @@ export default function App() {
   useNotifications();
   // The menu bar icon and the Dock badge: what the platform is doing, how many things need you.
   useTray(conn);
-  // The red button hides the window or quits; ⌘Q and the menu bar's Quit ask, save, quit.
-  useCloseGuard();
+  // The ways out — the red button, ⌘Q, the menu bar's Quit — stand above
+  // this tree (`main.tsx`, `installCloseGuard`), so a throw here never takes them.
 
   const auxOpen = aux.kind !== null;
   // The route as one key: the screen's boundary resets on it, and so does

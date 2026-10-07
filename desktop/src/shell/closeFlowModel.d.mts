@@ -17,6 +17,8 @@ export interface CloseHands {
   keep: () => Promise<void>;
   /** Hear why a keep failed; the way out goes on. */
   keepFailed?: (error: unknown) => void;
+  /** The tree that would ask and save is gone (the root crashed): neither is tried. */
+  bare?: () => boolean;
 }
 
 export interface CloseFlow {

@@ -12,6 +12,8 @@
  * Plain `.mjs`, so `node --test` reads it.
  */
 
+import { isMember } from "./hostedModel.mjs";
+
 import { href } from "../routeModel.mjs";
 
 /** A route's path, without its hash mark. */
@@ -76,6 +78,26 @@ export function leftHosts(remembered, hosts) {
     if (!hosts.includes(host)) out.add(`/hosts/${m[1]}`);
   }
   return [...out];
+}
+
+/**
+ * The keys of the hosts the person is a member of, from the hosted sections
+ * as the node answered them. A section missing its host or its key — an
+ * answer of another shape, a build in between — is left out rather than
+ * thrown on: this is read in an effect of `App`'s, above every inner
+ * boundary, where a throw took the whole window.
+ * @param {readonly { host?: { host?: { pubkey?: unknown } | null, state?: { state?: string } | null } | null }[] | null | undefined} hosted
+ * @returns {string[]}
+ */
+export function memberHostKeys(hosted) {
+  const out = [];
+  for (const section of hosted ?? []) {
+    const host = section?.host;
+    if (!isMember(host)) continue;
+    const key = host?.host?.pubkey;
+    if (typeof key === "string" && key) out.push(key);
+  }
+  return out;
 }
 
 /**

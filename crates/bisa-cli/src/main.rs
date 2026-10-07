@@ -20,6 +20,7 @@ mod addons;
 mod agent_context;
 mod agents;
 mod catalog;
+mod check;
 mod client;
 mod connector;
 mod conversations;
@@ -602,6 +603,8 @@ enum WorkspaceCmd {
     /// Throw the index away and rebuild it from the truth files — for a
     /// cache you have reason to doubt. Refused while a node holds the workspace.
     Reindex,
+    /// Read every file of the workspace as the next open would, without opening it: what a crash tore, and what earlier opens moved aside. Exit 1 while anything is found
+    Check,
 }
 
 #[derive(Subcommand)]
@@ -675,7 +678,21 @@ fn paths(ctx: &Ctx, out: &Out) -> Result<()> {
     let paths = bisa_store::Paths::new(&ctx.data_dir);
     let data_dir = paths.root().display().to_string();
     let logs_dir = paths.logs_dir().display().to_string();
-    out.json_value(json!({ "data_dir": data_dir, "logs_dir": logs_dir }));
+    // Who holds the workspace's engine right now, without taking it: what
+    // the desktop shell reads before it starts a node, to stop a stray node
+    // of its own or to name somebody else's. Nothing is made: a lock file
+    // that is not there answers nobody.
+    let engine_holder = match bisa_engine::EngineLock::holder(&paths) {
+        Ok(Some(holder)) => json!({ "pid": holder.pid, "started_at": holder.started_at }),
+        Ok(None) => serde_json::Value::Null,
+        Err(e) => {
+            tracing::warn!(target: "bisa_cli", "the engine lock could not be read: {e}");
+            serde_json::Value::Null
+        }
+    };
+    out.json_value(
+        json!({ "data_dir": data_dir, "logs_dir": logs_dir, "engine_holder": engine_holder }),
+    );
     out.say(&bisa_core::text!(
         "cli-main-data-dir-logs-dir",
         data_dir = data_dir.to_string(),
@@ -974,6 +991,7 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
             WorkspaceCmd::Role { pubkey, role } => net::set_role(ctx, out, &pubkey, &role).await,
             WorkspaceCmd::Remove { pubkey } => net::remove_person(ctx, out, &pubkey).await,
             WorkspaceCmd::Reindex => reindex::reindex(ctx, out),
+            WorkspaceCmd::Check => check::check(ctx, out),
         },
         Command::Node {
             listen,
@@ -2069,7 +2087,14 @@ async fn node(
             socket = answering
         ));
     }
-    let engine = ctx.node_engine().await?;
+    // The desktop shell that started this node holds the other end of its
+    // stdin: when the shell goes — a quit, a crash, a Force Quit — the pipe
+    // closes and the node stops as gracefully as on SIGTERM, so no stray
+    // node is left holding the workspace against the next launch. Opt-in by
+    // environment, never a flag: an older binary on PATH ignores a variable
+    // and would refuse a flag.
+    let leashed = std::env::var("BISA_STOP_ON_STDIN_CLOSE").is_ok_and(|v| v == "1");
+    let engine = ctx.node_engine_observed(&BootWords { out }).await?;
     let socket = paths.node_socket();
     out.say(&bisa_core::text!(
         "cli-main-bisa-node-listening-press-ctrl-c",
@@ -2149,7 +2174,7 @@ async fn node(
         {
             let stopped = std::sync::Arc::clone(&stopped);
             async move {
-                let reason = stop_signal().await;
+                let reason = stop_signal(leashed).await;
                 tracing::info!(target: "bisa_cli", reason, "stop signal received");
                 // The first reason stands; a second signal changes nothing.
                 let _first_reason_stands = stopped.set(reason);
@@ -2162,33 +2187,101 @@ async fn node(
     Ok(())
 }
 
-/// The daemon's stop: ctrl-c (`SIGINT`) or `SIGTERM` — what launchd, a
-/// supervisor and the desktop shell send — each named for the goodbye.
-async fn stop_signal() -> &'static str {
+/// The daemon's stop: ctrl-c (`SIGINT`), `SIGTERM` — what launchd, a
+/// supervisor and the desktop shell send — or, `leashed`, the end of its
+/// stdin, which is the desktop shell going away; each named for the goodbye.
+async fn stop_signal(leashed: bool) -> &'static str {
+    let leash = async move {
+        if !leashed {
+            std::future::pending::<()>().await;
+        }
+        // Read stdin to its end on a blocking thread: the shell writes
+        // nothing, so the first thing read is the end — the shell's own end.
+        let read = tokio::task::spawn_blocking(|| {
+            let stdin = std::io::stdin();
+            let mut lock = stdin.lock();
+            let mut scratch = [0u8; 1024];
+            loop {
+                match std::io::Read::read(&mut lock, &mut scratch) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+            }
+        })
+        .await;
+        // A reader that could not run to its end is a leash that cannot be
+        // held: the same cue, said.
+        if let Err(e) = read {
+            tracing::warn!(target: "bisa_cli", "the stdin leash could not be read: {e}");
+        }
+    };
     #[cfg(unix)]
     {
-        let mut term =
-            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-                Ok(term) => term,
-                Err(e) => {
-                    tracing::warn!(target: "bisa_cli", "SIGTERM is not listened for: {e}");
-                    if let Err(e) = tokio::signal::ctrl_c().await {
-                        tracing::warn!(target: "bisa_cli", "Ctrl-C is not listened for: {e}");
-                    }
-                    return "interrupted";
+        let term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(term) => Some(term),
+            Err(e) => {
+                tracing::warn!(target: "bisa_cli", "SIGTERM is not listened for: {e}");
+                None
+            }
+        };
+        let terminated = async move {
+            match term {
+                Some(mut term) => {
+                    term.recv().await;
                 }
-            };
+                None => std::future::pending::<()>().await,
+            }
+        };
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => "interrupted",
-            _ = term.recv() => "terminated",
+            r = tokio::signal::ctrl_c() => {
+                if let Err(e) = r {
+                    tracing::warn!(target: "bisa_cli", "Ctrl-C is not listened for: {e}");
+                }
+                "interrupted"
+            }
+            _ = terminated => "terminated",
+            _ = leash => "parent gone", // for the log: the goodbye's reason, beside "terminated"
         }
     }
     #[cfg(not(unix))]
     {
-        if let Err(e) = tokio::signal::ctrl_c().await {
-            tracing::warn!(target: "bisa_cli", "Ctrl-C is not listened for: {e}");
+        tokio::select! {
+            r = tokio::signal::ctrl_c() => {
+                if let Err(e) = r {
+                    tracing::warn!(target: "bisa_cli", "Ctrl-C is not listened for: {e}");
+                }
+                "interrupted"
+            }
+            _ = leash => "parent gone", // for the log: the goodbye's reason, beside "terminated"
         }
-        "interrupted"
+    }
+}
+
+/// The boot's phases, said as they pass: a JSON line under `--json` — what
+/// the desktop shell reads to tell a person the node is working, not
+/// wedged — and a sentence otherwise.
+struct BootWords<'a> {
+    out: &'a Out,
+}
+
+impl bisa_store::BootObserver for BootWords<'_> {
+    fn phase(&self, phase: bisa_store::BootPhase) {
+        use bisa_store::BootPhase;
+        let (done, of) = match phase {
+            BootPhase::RebuildingIndex { done, of } => (Some(done), Some(of)),
+            _ => (None, None),
+        };
+        self.out
+            .json_value(json!({"boot": {"phase": phase.name(), "done": done, "of": of}}));
+        self.out.say(&match phase {
+            BootPhase::OpeningWorkspace => bisa_core::text!("cli-main-node-boot-opening-workspace"),
+            BootPhase::RebuildingIndex { done, of } => bisa_core::text!(
+                "cli-main-node-boot-rebuilding-index",
+                done = done.to_string(),
+                of = of.to_string()
+            ),
+            BootPhase::StartingEngine => bisa_core::text!("cli-main-node-boot-starting-engine"),
+        });
     }
 }
 
@@ -2753,6 +2846,20 @@ async fn doctor(ctx: &Ctx, out: &Out) -> Result<()> {
     } else {
         bisa_core::text!("cli-main-something-missing-desktop-s-setup-gate")
     });
+    // The workspace's files, read without opening them: a torn file is not
+    // a missing tool, and does not move the exit code — but a person running
+    // the doctor after a crash is owed the one line that says to look.
+    let problems = bisa_store::check_files(&bisa_store::Paths::new(&ctx.data_dir))
+        .map(|findings| findings.len())
+        .unwrap_or(0);
+    if problems > 0 {
+        out.say(&bisa_core::text!(
+            "cli-main-workspace-has-problems",
+            n = problems.to_string()
+        ));
+    }
+    let mut readiness = readiness;
+    readiness["workspace_problems"] = json!(problems);
     out.json_value(readiness);
     if !ready {
         std::process::exit(1);

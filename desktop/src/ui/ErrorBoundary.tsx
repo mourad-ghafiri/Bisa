@@ -16,6 +16,7 @@
 
 import { errorFields, log } from "../log";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { t } from "../i18n/l10n.mjs";
 import { toaster } from "./Toast";
 
 interface Props {
@@ -64,9 +65,9 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="max-w-lg rounded-card border border-border bg-surface p-4">
-          <p className="text-xs font-semibold text-text">This screen hit an error.</p>
+          <p className="text-xs font-semibold text-text">{t("ui-error-boundary-screen-hit-error")}</p>
           <p className="mt-1 text-2xs text-text-dim">
-            The rest of the app is fine — move to another screen, or reload. {CRASH_WRITTEN_WORDS}
+            {t("ui-error-boundary-rest-of-app-fine")} {t("ui-error-boundary-details-in-log")}
           </p>
           <pre className="mt-3 max-h-40 overflow-auto rounded-control bg-surface-2 p-2 text-2xs text-text-dim">
             {error.message}
@@ -77,14 +78,14 @@ export class ErrorBoundary extends Component<Props, State> {
               onClick={() => this.setState({ error: null })}
               className="anim h-8 rounded-control border border-border bg-surface px-3 text-xs font-medium hover:bg-surface-2"
             >
-              Try again
+              {t("ui-error-boundary-try-again")}
             </button>
             <button
               type="button"
               onClick={() => window.location.reload()}
               className="anim h-8 rounded-control border border-accent bg-accent px-3 text-xs font-medium text-accent-contrast hover:opacity-90"
             >
-              Reload
+              {t("ui-error-boundary-reload")}
             </button>
             {this.props.onReveal && (
               <button
@@ -92,7 +93,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={this.props.onReveal}
                 className="anim ml-auto h-8 rounded-control border border-border bg-surface px-3 text-xs font-medium hover:bg-surface-2"
               >
-                Reveal the log
+                {t("ui-error-boundary-reveal-log")}
               </button>
             )}
           </div>
@@ -101,9 +102,6 @@ export class ErrorBoundary extends Component<Props, State> {
     );
   }
 }
-
-/** The sentence the card owes: where the crash went. */
-const CRASH_WRITTEN_WORDS = "The details are in the diagnostic log.";
 
 /** A closed host draws nothing. */
 const NOTHING = (): ReactNode => null;
@@ -140,5 +138,5 @@ export function OverlayBoundary({
 
 /** The one sentence a closed host leaves behind. */
 export function overlayClosedWords(name: string): string {
-  return `The ${name} hit an error and was closed. It opens again on the next screen.`;
+  return t("ui-error-boundary-overlay-closed", { name });
 }

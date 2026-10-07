@@ -1,6 +1,12 @@
 //! The cache management surface over HTTP: stats are read and the
 //! caches clear. A request warms a cache; `/cache/stats` reports it;
 //! `/cache/clear` empties the entries while the counters stand.
+//!
+//! The registry the surface reads is the process's: every node this test
+//! binary has booted registers a `harness.listing` of its own under the one
+//! name, and any of them may be read while this runs. So what is asserted
+//! here holds whoever else is reading — sums over every row of the name, and
+//! counters that only grow — never one row's exact entry count.
 
 use bisa_engine::{Engine, EngineConfig};
 use bisa_harness::HarnessCatalog;
@@ -92,38 +98,53 @@ async fn request(socket: &std::path::Path, method: &str, path: &str) -> (u16, Va
 async fn stats_report_caches_and_clear_empties_them() {
     let (_dir, socket, _stop) = boot().await;
 
-    // Warm a cache: two `GET /harnesses` share the harness listing (the second
-    // is a hit within the 30 s default TTL).
-    let _ = request(&socket, "GET", "/harnesses").await;
-    let _ = request(&socket, "GET", "/harnesses").await;
+    /// Every `harness.listing` row summed: entries, hits, misses.
+    fn listing(stats: &Value) -> (u64, u64, u64) {
+        stats
+            .as_array()
+            .expect("an array of cache stats")
+            .iter()
+            .filter(|r| r["name"] == "harness.listing")
+            .fold((0, 0, 0), |(e, h, m), r| {
+                (
+                    e + r["entries"].as_u64().unwrap_or(0),
+                    h + r["hits"].as_u64().unwrap_or(0),
+                    m + r["misses"].as_u64().unwrap_or(0),
+                )
+            })
+    }
 
-    let (status, stats) = request(&socket, "GET", "/cache/stats").await;
-    assert_eq!(status, 200, "{stats}");
-    let rows = stats.as_array().expect("an array of cache stats");
-    let listing = rows
-        .iter()
-        .find(|r| r["name"] == "harness.listing")
-        .expect("the harness listing cache is registered");
-    assert_eq!(listing["entries"], Value::from(1), "the listing is held");
+    let (status, before) = request(&socket, "GET", "/cache/stats").await;
+    assert_eq!(status, 200, "{before}");
     assert!(
-        listing["hits"].as_u64().unwrap() >= 1,
-        "the second request was a hit"
+        before
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|r| r["name"] == "harness.listing")),
+        "the harness listing cache is registered: {before}"
     );
+    let (_, hits_before, _) = listing(&before);
+
+    // Warm the cache: two `GET /harnesses` share the harness listing (the
+    // second is a hit within the 30 s default TTL).
+    let _ = request(&socket, "GET", "/harnesses").await;
+    let _ = request(&socket, "GET", "/harnesses").await;
+    let (_, warmed) = request(&socket, "GET", "/cache/stats").await;
+    let (entries, hits, misses) = listing(&warmed);
+    assert!(entries >= 1, "the listing is held: {warmed}");
+    assert!(hits > hits_before, "the second request was a hit: {warmed}");
 
     let (status, cleared) = request(&socket, "POST", "/cache/clear").await;
     assert_eq!(status, 200, "{cleared}");
     assert_eq!(cleared["cleared"], Value::Bool(true));
 
+    // Cleared: the next read computes again — a miss of this node's own,
+    // whatever another node in the process is doing — and the counters stand.
+    let _ = request(&socket, "GET", "/harnesses").await;
     let (_status, after) = request(&socket, "GET", "/cache/stats").await;
-    let listing = after
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|r| r["name"] == "harness.listing")
-        .expect("still registered after a clear");
-    assert_eq!(listing["entries"], Value::from(0), "cleared to empty");
+    let (_, hits_after, misses_after) = listing(&after);
     assert!(
-        listing["hits"].as_u64().unwrap() >= 1,
-        "counters stand across a clear"
+        misses_after > misses,
+        "cleared to empty: the read after the clear computed again: {after}"
     );
+    assert!(hits_after >= hits, "counters stand across a clear: {after}");
 }

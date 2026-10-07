@@ -23,14 +23,26 @@
  * cannot be kept never does. The window put away writes its memories too:
  * a hidden app may be ended from the menu bar. A browser dev session keeps
  * `beforeunload`'s question; there is no other hook there.
+ *
+ * **Installed once, from `main.tsx`, above the root boundary** — not a hook
+ * of `App`'s. A throw in the shell's own tree unmounts `App`; a hook there
+ * took the listeners with it, and the shell, still holding every close for
+ * the webview's answer, had nobody to hand it to: the red button did
+ * nothing, ⌘Q hung, only a Force Quit ended Bisa. The listeners now outlive
+ * the tree, and while the root has crashed the flow is bare
+ * (`closeFlowModel`, `rootCrashModel`): nothing asked, nothing saved, the
+ * way out taken. **Every request is acknowledged first** (`quit_heard`):
+ * the shell gives the webview five seconds to say it heard before the exit
+ * stands without it (`quit.rs` `ACK_DEADLINE`) — a webview that is gone
+ * altogether must not hold the app either.
  */
 import { errorFields, log } from "../log";
-import { useEffect } from "react";
 import { anyDirty, dirtyCount, flushAll } from "../views/_workbench/editorRegistry";
 import { closeFlow, declines } from "./closeFlowModel.mjs";
 import { deliverAppNotice } from "./notifications";
 import { quitQuestion } from "./closeGuardModel.mjs";
 import { confirmPrefs } from "./closeGuardSettings";
+import { rootCrash } from "./rootCrashModel.mjs";
 import { QUIT_APP, onDoor } from "./shortcuts";
 import { askClose } from "./terminalCloseGuard";
 import { harnessOf, isLive } from "./terminalsModel.mjs";
@@ -40,13 +52,18 @@ import { terminalSessions } from "./useTerminals";
 import { flushMemories, settleMemories } from "./viewMemoryStore";
 import { t } from "../i18n/l10n.mjs";
 
-/** Which door the request came through — for the log line alone; the flow is one. */
-type Door = "window" | "quit" | "keyboard";
+/** Which door the request came through — for the log line alone; the flow is one. `footer` is the sidebar's *Quit* beside a node that is away; `crash` the root crash card's. */
+export type Door = "window" | "quit" | "keyboard" | "footer" | "crash";
 
-/** The shell's two words back about a held quit (`quit.rs`): that the webview listens, and a no. */
-async function tellShell(command: "quit_ready" | "quit_declined"): Promise<void> {
+/** The shell's words back about a held request (`quit.rs`): that the webview listens, that it heard, and a no. */
+async function tellShell(command: "quit_ready" | "quit_heard" | "quit_declined"): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke(command);
+}
+
+/** The request was heard: the shell's deadline on it is off, and the flow has it. */
+function heard(): void {
+  tellShell("quit_heard").catch((e: unknown) => log.warn("close", "the shell did not hear that the request was heard; its deadline stands", errorFields(e)));
 }
 
 /** The OS asked and is told no — nothing held is nothing, and the shell knows which. */
@@ -76,6 +93,8 @@ const flow = closeFlow({
   unsaved: () => void say(t("shell-use-close-guard-document-did-save-stays-open-save")),
   keep: settleMemories,
   keepFailed: (e) => log.warn("close", "what was remembered could not be kept; the way out goes on", errorFields(e)),
+  // The root crashed: no dialog to ask in, no editor to save.
+  bare: () => rootCrash.crashed(),
 });
 
 /** The programmatic exit the shell lets through (`quit_app`). */
@@ -112,31 +131,45 @@ function hide(): void {
     );
 }
 
-export function useCloseGuard(): void {
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return;
-    let off: (() => void)[] = [];
-    let gone = false;
-    void import("@tauri-apps/api/event").then(async (ev) => {
-      const close = await ev.listen(TRAY_EVENTS.close, () => {
-        if (closeVerb(trayPrefs()) === "hide") hide();
-        else leave("window");
-      });
-      const quitRequested = await ev.listen(TRAY_EVENTS.quit, () => leave("quit"));
-      const keyboard = onDoor(QUIT_APP, () => leave("keyboard"));
-      if (gone) {
-        close();
-        quitRequested();
-        keyboard();
-        return;
-      }
-      off = [close, quitRequested, keyboard];
-      // Listening now: a quit the OS asks for can be held for the question.
-      tellShell("quit_ready").catch((e: unknown) => log.warn("close", "the shell was not told the webview listens; a quit the OS asks for stands", errorFields(e)));
+/**
+ * A quit asked for from inside the page — the sidebar's door beside a node
+ * that is away, the root crash card's — through the one flow.
+ */
+export function requestQuit(door: Door): void {
+  leave(door);
+}
+
+/**
+ * Stand at the three doors for the life of the page. Returns the way to
+ * leave them, for a test; the page itself never does.
+ */
+export function installCloseGuard(): () => void {
+  if (!("__TAURI_INTERNALS__" in window)) return () => {};
+  let off: (() => void)[] = [];
+  let gone = false;
+  void import("@tauri-apps/api/event").then(async (ev) => {
+    const close = await ev.listen(TRAY_EVENTS.close, () => {
+      heard();
+      if (closeVerb(trayPrefs()) === "hide") hide();
+      else leave("window");
     });
-    return () => {
-      gone = true;
-      for (const f of off) f();
-    };
-  }, []);
+    const quitRequested = await ev.listen(TRAY_EVENTS.quit, () => {
+      heard();
+      leave("quit");
+    });
+    const keyboard = onDoor(QUIT_APP, () => leave("keyboard"));
+    if (gone) {
+      close();
+      quitRequested();
+      keyboard();
+      return;
+    }
+    off = [close, quitRequested, keyboard];
+    // Listening now: a quit the OS asks for can be held for the question.
+    tellShell("quit_ready").catch((e: unknown) => log.warn("close", "the shell was not told the webview listens; a quit the OS asks for stands", errorFields(e)));
+  });
+  return () => {
+    gone = true;
+    for (const f of off) f();
+  };
 }

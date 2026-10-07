@@ -102,6 +102,17 @@ export function overlaySections(conn, { info, status, workspace, sync, checks, p
       ],
     });
   }
+  // What the last open worked around (`GET /workspace`'s `problems`): one
+  // row with the count, in the warn tone — a condition to know about, not
+  // one that blocks; the list is the node panel's in the settings.
+  const problems = workspace?.problems?.length ?? 0;
+  if (problems > 0) {
+    const node = sections.find((s) => s.key === "node");
+    if (node) {
+      node.tone = "warn";
+      node.rows.push({ label: t("shell-node-stat-problems"), value: t("shell-node-stat-problems-count", { n: problems }) });
+    }
+  }
 
   // The wire (14-collaboration): what `GET /sync` said, when a workspace
   // was read at all — every configured relay with its state, then the counts.

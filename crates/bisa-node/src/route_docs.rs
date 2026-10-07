@@ -53,7 +53,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/workspace",
-        summary: "This node's identity, data and logs directories, and its members (the owner first). Relays are the `sync.relays` setting; the wire is `GET /sync`.",
+        summary: "This node's identity, data and logs directories, its members (the owner first), and `problems`: what the last open and index rebuild found wrong and worked around — `[{kind, path, text, quarantined?, at}]`, `kind` one of `unreadable`, `quarantined`, `recreated`, `index_disagrees`, `rebuild_skipped`, `settings_layer_unreadable`, `orphan_run`, `stale_row`, `duplicate_dispatch`; empty for a sound workspace. Relays are the `sync.relays` setting; the wire is `GET /sync`.",
     },
 ];
 

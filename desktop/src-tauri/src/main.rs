@@ -6,6 +6,7 @@ mod attribution;
 mod browser;
 mod disk;
 mod edit_menu;
+mod folders;
 mod gpu;
 mod logging;
 mod login_env;
@@ -41,7 +42,7 @@ use sidecar::{NodeState, NodeStatus};
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager, RunEvent, Runtime, State, WindowEvent};
+use tauri::{Manager, RunEvent, Runtime, State, WindowEvent};
 
 /// Where the node answers. An error is the reason it is not running yet;
 /// the webview shows it and waits for `node:restarted`.
@@ -89,6 +90,15 @@ fn quit_declined(app: tauri::AppHandle) {
 #[tauri::command]
 fn quit_ready() {
     quit::ready();
+}
+
+/// The webview heard the request just put to it — `bisa:quit-requested`
+/// or `bisa:close-requested` — and is asking or saving; the deadline on it
+/// is off (`quit.rs`). A request nobody hears within `quit::ACK_DEADLINE`
+/// is a webview that is gone, and the exit stands.
+#[tauri::command]
+fn quit_heard() {
+    quit::heard();
 }
 
 /// The event that hands a person's ⌘Q — or the menu bar's *Quit Bisa* — to
@@ -282,14 +292,15 @@ fn set_window_appearance(
         .map_err(|e| e.to_string())
 }
 
+/// Settings › Node › *Restart*: the node asked to go, given its grace, and
+/// started again on its port. Off the main thread — the stop may take its
+/// grace — and the answer is the shell's view of the new child, booting;
+/// the webview hears `node:restarted` from the watchdog when it answers.
 #[tauri::command]
-fn restart_node(app: tauri::AppHandle, node: State<NodeState>) -> Result<NodeStatus, String> {
-    let (status, restarted) = node.restart()?;
-    sidecar::reattach_log(&app, &node);
-    if let Err(e) = app.emit(sidecar::NODE_RESTARTED, restarted) {
-        tracing::warn!(target: "bisa_desktop", "the restart did not reach the webview: {e}");
-    }
-    Ok(status)
+async fn restart_node(app: tauri::AppHandle) -> Result<NodeStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<NodeState>().restart())
+        .await
+        .map_err(|e| format!("the restart did not finish: {e}"))?
 }
 
 /// The application menu on macOS, built by hand rather than taken from
@@ -465,7 +476,10 @@ fn main() {
             WindowEvent::CloseRequested { api, .. } if window.label() == tray::MAIN_WINDOW => {
                 api.prevent_close();
                 window_state::keep(window.app_handle());
-                if let Err(e) = window.emit(CLOSE_REQUESTED, ()) {
+                // The webview has `quit::ACK_DEADLINE` to say it heard; a
+                // close nobody hears is a webview that is gone, and the exit
+                // stands — a hidden dead window would be a trap.
+                if let Err(e) = quit::ask_webview(window.app_handle(), window, CLOSE_REQUESTED) {
                     tracing::warn!(target: "bisa_desktop", "the close request did not reach the webview: {e}");
                 }
             }
@@ -498,6 +512,9 @@ fn main() {
             quit_app,
             quit_declined,
             quit_ready,
+            quit_heard,
+            folders::reveal_logs_dir,
+            folders::reveal_data_dir,
             hide_window,
             licence_files,
             tray_report,
@@ -565,7 +582,7 @@ fn main() {
             } => {
                 if let Some(window) = tray::main_window(app) {
                     api.prevent_exit();
-                    if let Err(e) = window.emit(QUIT_REQUESTED, ()) {
+                    if let Err(e) = quit::ask_webview(app, &window, QUIT_REQUESTED) {
                         tracing::warn!(target: "bisa_desktop", "the quit request did not reach the webview: {e}");
                     }
                 }

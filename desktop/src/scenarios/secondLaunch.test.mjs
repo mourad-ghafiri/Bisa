@@ -72,10 +72,13 @@ test("a second launch brings the window back through the icon's one door, on the
   assert.ok(logged.includes("link = link_in(&argv).is_some()") && !logged.includes("cwd"), "whether there was a link, never the link or the folder");
 });
 
-test("the sidecar's wait on a node ends the moment the node does, with what it said", () => {
+test("the sidecar's wait on a node is the watchdog's, tick by tick, and ends the moment the node does, with what it said", () => {
   const sidecar = read("../src-tauri/src/sidecar.rs");
   assert.ok(sidecar.includes("pub fn boot<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> NodeState"), "the boot is the sidecar's");
-  assert.ok(sidecar.includes("fn await_health(") && sidecar.includes("Awaited::Exited(exit) =>"), "a child that ended is seen on the tick that sees it");
+  const watch = between(sidecar, "fn watch(&self) -> Watch {", "\n    }\n");
+  assert.ok(watch.includes("child.try_wait()") && watch.includes("inner.boot_ended(pid, exit)"), "a child that ended is seen on the tick that sees it");
+  assert.ok(watch.includes("let healthy = probe_health(port);") && !between(watch, "let (pid, port) = {", "let healthy = probe_health(port);").includes("probe_health("), "the probe runs outside the lock");
+  assert.ok(sidecar.includes("before answering its health check"), "its end is said in the reason");
   const spawn = between(sidecar, "fn spawn_node(", "\n}\n");
-  assert.ok(spawn.includes("child.try_wait()") && spawn.includes("before answering its health check"), "the child is read each tick, and its end is said in the reason");
+  assert.ok(!spawn.includes("try_wait") && !spawn.includes("sleep"), "the spawn waits for nothing: the window opens at once");
 });

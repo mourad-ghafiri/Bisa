@@ -208,8 +208,9 @@ test("the wire's sources keep to the models: one stream, the token in the query,
   assert.ok(bus.includes("new EventSource(withToken(`${apiBaseSync()}/events`))"), "an EventSource sends no header: the token rides in the query");
   assert.ok(bus.includes("retryDelay(attempt++, Math.random())"), "the wait is the model's");
   assert.ok(bus.includes('if (frame.stream === "system")') && bus.includes('setState("lagged")'), "a system frame is the bus's own");
-  const main = src("../main.tsx");
-  assert.ok(main.includes('"node:restarted"') && main.includes("forgetApiBase()"), "a port that moved is resolved again");
+  assert.ok(src("../main.tsx").includes("installNodeBootStore();"), "the shell's node events are listened for from the first render");
+  const bootStore = src("../shell/nodeBootStore.ts");
+  assert.ok(bootStore.includes("NODE_EVENTS.restarted") && bootStore.includes("forgetApiBase()"), "a port that moved is resolved again");
   const store = src("../shell/useWorkspaceData.ts");
   assert.ok(store.includes("toaster.ok(reconnectWords())"), "the lists are read again with a word saying why");
 });

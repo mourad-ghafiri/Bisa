@@ -25,6 +25,7 @@
 
 import type {
   AgentOrigin,
+  Text,
   AskKind,
   Audience,
   ChannelKind,
@@ -874,6 +875,21 @@ export interface WorkspaceInfo {
   logs_dir: string;
   /** The owner first, then the people hosted here. Relays are the `sync.relays` setting; the wire is `GET /sync`. */
   members: MemberRow[];
+  /** What the last open and index rebuild found wrong and worked around; empty for a sound workspace. An older node says nothing. */
+  problems?: WorkspaceProblem[];
+}
+
+/** One thing the open or the rebuild found wrong and worked around — a file moved under `quarantine/`, a record skipped, a run ended at the open (`bisa_store::WorkspaceProblem`). */
+export interface WorkspaceProblem {
+  kind: "unreadable" | "quarantined" | "recreated" | "index_disagrees" | "rebuild_skipped" | "settings_layer_unreadable" | "orphan_run" | "stale_row" | "duplicate_dispatch";
+  /** The file or record it is about — a path, or an id when no file names it. */
+  path: string;
+  /** The sentence a person reads. */
+  text: Text;
+  /** Where the file was moved, when it was. */
+  quarantined?: string;
+  /** Unix seconds, when it was found. */
+  at: number;
 }
 
 export interface SearchHit {

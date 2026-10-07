@@ -481,5 +481,10 @@ fresh repository needs one real commit. `bisa inbox` is always the answer to "wh
 from me?". The log is `~/.bisa/logs/` — errors only by default, a crash report under `crashes/` for every
 death; `bisa logs` names them, `bisa settings set machine logging.level '"debug"'` writes
 everything ([Operating](operating.md#the-log)). `index.sqlite` rebuilds from the
-filesystem — delete it any time. A second machine not seeing decisions is almost always governance
-(`bisa governance show`).
+filesystem — delete it any time. The node will not start after a crash, or the desktop opens on an
+error card? Run `bisa workspace check`: it reads every file as the next open would and names what
+the crash tore; a torn file is moved under `quarantine/` at the next open and the node comes up
+without it — deleting `index.sqlite` is safe at any time, deleting anything else is not, and the
+card's doors (*Try again*, *Reload*, *Restart the node*, *Reveal the log*, *Open the data folder*,
+*Quit Bisa*) work with no node ([Operating § After a crash](operating.md#after-a-crash)). A second
+machine not seeing decisions is almost always governance (`bisa governance show`).

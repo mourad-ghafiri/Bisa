@@ -473,7 +473,7 @@ impl HarnessSession for OmpSession {
         }
         self.shared.end(bisa_harness::Outcome::Aborted);
         self.shared
-            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .abort_group(bisa_harness::proc::ABORT_GRACE)
             .await;
         Ok(())
     }

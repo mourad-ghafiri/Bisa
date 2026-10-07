@@ -12,9 +12,11 @@
 pub mod activity_log;
 pub mod addons;
 pub mod agents;
+pub mod boot;
 pub mod catalog;
 pub mod changes;
 pub mod channels;
+pub mod check;
 pub mod connectors;
 pub mod conversation;
 pub mod conversations;
@@ -39,6 +41,7 @@ pub mod notes;
 pub mod owner;
 pub mod paths;
 pub mod pets;
+pub mod problems;
 pub use pets::PetSprite;
 pub mod projects;
 pub mod recall;
@@ -59,11 +62,13 @@ pub mod workstreams;
 
 pub use addons::{AddonEntry, AddonOffer};
 pub use agents::NewAgent;
+pub use boot::{BootObserver, BootPhase, Quiet};
 pub use catalog::{
     BuiltinAddon, BuiltinPet, Catalog, CatalogDescription, CatalogDetail, CatalogEntry,
     CatalogKind, Installed, CATALOG,
 };
 pub use changes::{MAX_CHANGE_BLOB, UNREADABLE_LEDGER};
+pub use check::{check_files, Finding, FindingKind};
 pub use connectors::{AccountSecrets, NewConnector, NewConnectorAccount, SecretSource};
 pub use conversation::{MessageArtifact, MessageAttachment, PageBefore, ScopeRef};
 pub use conversations::{ConversationFilter, NewConversation};
@@ -95,6 +100,7 @@ pub use paths::{
     append_line, resolve_within, resolve_within_new, sanitise_file_name, write_atomic, AgentPaths,
     GoalPaths, HomePaths, Paths, ProjectPaths,
 };
+pub use problems::{ProblemKind, WorkspaceProblem};
 pub use projects::NewProject;
 pub use recall::RecallRecord;
 pub use review::NewReviewNote;

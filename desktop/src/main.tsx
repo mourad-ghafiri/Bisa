@@ -4,10 +4,12 @@ import { bootLocale } from "./i18n/boot";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { forgetApiBase, inDesktopShell, revealLog } from "./api";
 import { errorFields, installGlobalLogHandlers, log } from "./log";
 import { installEditMenu } from "./shell/editMenu";
-import { installRouter } from "./router";
+import { installRouter, useAddress } from "./router";
+import { installNodeBootStore } from "./shell/nodeBootStore";
+import { RootCrashCard } from "./shell/RootCrashCard";
+import { installCloseGuard } from "./shell/useCloseGuard";
 import { followWindowForMemories } from "./shell/viewMemoryStore";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import "./styles.css";
@@ -20,18 +22,12 @@ installGlobalLogHandlers();
 // the call is the guard's word for it and does nothing twice.
 bootLocale();
 
-// The sidecar restarted the node — by its watchdog after a crash, or because
-// a person asked. The base is resolved again on the next call, so a port
-// that moved is never dialled from memory; the lists are read again by the
-// shell when the bus comes back (`useWorkspaceData`).
-if (inDesktopShell()) {
-  void import("@tauri-apps/api/event").then((ev) =>
-    ev.listen<{ port: number; attempt: number; requested: boolean }>("node:restarted", (e) => {
-      forgetApiBase();
-      log.warn("shell", e.payload.requested ? "the node was restarted" : "the node restarted after exiting on its own", { port: e.payload.port, attempt: e.payload.attempt });
-    }),
-  );
-}
+// What the shell says of its node — booting, failed, restarted, ready —
+// kept for every reader above and below the boundary (`nodeBootStore`): the
+// sidebar's footer, Settings › Node and the root crash card say the same
+// line, and a restart drops the cached API base so a port that moved is
+// never dialled from memory.
+installNodeBootStore();
 
 // The native Edit menu's verbs, replayed as the chords the keymap knows (ide/15).
 installEditMenu();
@@ -42,16 +38,36 @@ installEditMenu();
 installRouter();
 followWindowForMemories();
 
-// The shell's own boundary: the screen has one of its own (`App.tsx`), but
-// the chrome, the sidebar and the overlays render above it, and one throw
-// there used to blank the window with the error only in the console.
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
+// The ways out — the window's red button, ⌘Q, the menu bar's Quit, Ctrl+Q
+// — stand here, above the root boundary, for the life of the page: a throw
+// in the tree below must never take the listeners the shell is waiting on
+// (`useCloseGuard.ts`).
+installCloseGuard();
+
+/**
+ * The shell's own boundary: the screen has one of its own (`App.tsx`), but
+ * the chrome, the sidebar and the overlays render above it, and one throw
+ * there used to blank the window with the error only in the console — and
+ * leave it there: the card never reset, and nothing on it worked without
+ * the node. Now the card is `RootCrashCard` — six doors, none of them
+ * needing the node — and the boundary resets on the address, so moving to
+ * another screen is a way out too.
+ */
+function Root() {
+  const address = useAddress();
+  return (
     <ErrorBoundary
-      onError={(error, info) => log.error("shell", "the shell crashed", { ...errorFields(error), component_stack: info.componentStack })}
-      onReveal={() => void revealLog().catch((e: unknown) => log.warn("shell", "the log could not be revealed", errorFields(e)))}
+      resetKey={address}
+      onError={(error, info) => log.error("shell", "the shell crashed", { ...errorFields(error), address, component_stack: info.componentStack })}
+      fallback={(error, reset) => <RootCrashCard error={error} reset={reset} />}
     >
       <App />
     </ErrorBoundary>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <Root />
   </React.StrictMode>,
 );

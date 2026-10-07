@@ -461,6 +461,72 @@ async fn a_child_that_ignores_eof_and_term_is_killed_at_the_grace() {
     );
 }
 
+/// An abort gives the group the EOF first: a child that leaves on it is
+/// gone before any signal, on its own terms; one that ignores EOF and
+/// `SIGTERM` alike is killed within the same grace.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_abort_lets_a_child_leave_on_eof_and_kills_one_that_ignores_it_within_the_grace() {
+    // `cat` leaves the moment its input ends.
+    let mut leaver = ProcHandle::spawn(
+        ProcSpec::new("sh")
+            .arg("-c")
+            .arg("echo $$; echo $$; exec cat"),
+    )
+    .expect("spawn sh");
+    let (pid, _) = two_pids(&mut leaver).await;
+    leaver.close_stdin().await.expect("stdin closed");
+    let group = leaver.group();
+    let started = std::time::Instant::now();
+    assert!(
+        group.leave_or_terminate(Duration::from_secs(4)).await,
+        "left on EOF"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "and well within the first half of the grace"
+    );
+    // Reaped by whoever holds the child — here the test — then gone for good.
+    let status = tokio::time::timeout(Duration::from_secs(2), leaver.wait())
+        .await
+        .expect("reaped in time")
+        .expect("a status");
+    assert!(status.success(), "cat left cleanly on EOF: {status}");
+    assert!(gone_within(pid, Duration::from_secs(1)).await);
+
+    // The sleeper ignores `SIGTERM` and never reads stdin.
+    let mut stayer = ProcHandle::spawn(
+        ProcSpec::new("sh")
+            .arg("-c")
+            .arg("trap '' TERM; echo $$; echo $$; exec sleep 300"),
+    )
+    .expect("spawn sh");
+    let (pid, _) = two_pids(&mut stayer).await;
+    stayer.close_stdin().await.expect("stdin closed");
+    let group = stayer.group();
+    let started = std::time::Instant::now();
+    let left = tokio::time::timeout(
+        Duration::from_secs(5),
+        group.leave_or_terminate(Duration::from_millis(600)),
+    )
+    .await
+    .expect("answers before the deadline");
+    assert!(!left, "it did not leave on its own");
+    assert!(
+        started.elapsed() >= Duration::from_millis(600),
+        "both halves of the grace were given before the kill"
+    );
+    let status = tokio::time::timeout(Duration::from_secs(2), stayer.wait())
+        .await
+        .expect("reaped in time")
+        .expect("a status");
+    assert!(!status.success(), "killed, not left: {status}");
+    assert!(
+        gone_within(pid, Duration::from_secs(2)).await,
+        "killed past the grace"
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_dropped_handle_takes_its_running_childs_group_with_it() {

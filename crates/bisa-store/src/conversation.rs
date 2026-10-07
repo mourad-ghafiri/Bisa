@@ -999,7 +999,10 @@ impl Workspace {
                 tracing::warn!("conversation/{name}: unknown scope, skipping");
                 continue;
             };
-            let content = std::fs::read_to_string(entry.path())
+            // Read lossily: one torn multi-byte character — a crash mid-write
+            // — costs its line, never the file or the rebuild.
+            let content = std::fs::read(entry.path())
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
                 .map_err(|e| StoreError::io(entry.path().display().to_string(), e))?;
             for line in content.lines().filter(|l| !l.trim().is_empty()) {
                 let event: Event = match serde_json::from_str(line) {

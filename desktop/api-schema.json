@@ -28946,6 +28946,7 @@
       "oneOf": [
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "step": {
               "anyOf": [
@@ -28979,6 +28980,7 @@
         },
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "phase": {
               "$ref": "#/definitions/GuidancePhase"
@@ -28996,6 +28998,7 @@
         },
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "scope": {
               "type": "string"
@@ -29032,10 +29035,12 @@
           "required": [
             "origin"
           ],
+          "additionalProperties": false,
           "description": "A harness a person opened in a desktop terminal."
         },
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "purpose": {
               "$ref": "#/definitions/AskPurpose"
@@ -29067,10 +29072,12 @@
           "required": [
             "kind"
           ],
+          "additionalProperties": false,
           "description": "The Tool & Commands Guard's classifier reading a call, a message or\ncontent an agent is about to read."
         },
         {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "point": {
               "anyOf": [
@@ -29103,6 +29110,7 @@
           "required": [
             "kind"
           ],
+          "additionalProperties": false,
           "description": "A commit message suggested for a workstream's changes."
         },
         {
@@ -29116,6 +29124,7 @@
           "required": [
             "kind"
           ],
+          "additionalProperties": false,
           "description": "A pull request's title and body suggested for a branch."
         }
       ],

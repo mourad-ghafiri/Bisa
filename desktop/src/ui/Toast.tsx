@@ -15,7 +15,8 @@
  */
 
 import { Toaster, toast as sonner } from "sonner";
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { Component, createContext, useContext, useMemo, type ErrorInfo, type ReactNode } from "react";
+import { errorFields, log } from "../log";
 
 interface ToastApi {
   info: (text: string) => void;
@@ -45,12 +46,36 @@ export const toaster: ToastApi = Object.freeze({
 const BASE =
   "pointer-events-auto flex w-full items-start gap-2 rounded-control border px-3 py-2 text-xs shadow-lg";
 
+/**
+ * The rail's own boundary, silent: it is mounted above every screen's and
+ * every overlay's boundary, so a throw in it used to reach the root and
+ * take the window. A rail that threw draws nothing until the next mount;
+ * the line is in the log. Not the kit's `ErrorBoundary`, which toasts
+ * through this very rail.
+ */
+class RailBoundary extends Component<{ children: ReactNode }, { fell: boolean }> {
+  state = { fell: false };
+
+  static getDerivedStateFromError(): { fell: boolean } {
+    return { fell: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    log.error("view", "the toast rail crashed", { ...errorFields(error), component_stack: info.componentStack ?? undefined });
+  }
+
+  render(): ReactNode {
+    return this.state.fell ? null : this.props.children;
+  }
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const api = useMemo<ToastApi>(() => toaster, []);
 
   return (
     <Ctx.Provider value={api}>
       {children}
+      <RailBoundary>
       <Toaster
         position="bottom-center"
         // Above the window's footer, whatever its density: sonner's own 24px
@@ -68,6 +93,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           },
         }}
       />
+      </RailBoundary>
     </Ctx.Provider>
   );
 }

@@ -181,3 +181,18 @@ test("the footer's words for the node are the catalog's: connected, connecting, 
   for (const word of ["connected", "connecting", "unreachable"]) assert.ok(said.includes(`t("shell-node-stat-word-${word}")`) && !said.includes(`word: "${word}"`), word);
   assert.ok(model.includes('t("shell-node-stat-engine-paused")') && model.includes('t("shell-node-stat-engine-running")') && !model.includes('label: "paused"') && !model.includes('label: "running"'));
 });
+
+test("what the last open worked around is one warn row of the node section, and nothing on a sound workspace", () => {
+  const sound = overlaySections("open", facts());
+  const node = sound.find((s) => s.key === "node");
+  assert.equal(rows(node).Problems, undefined);
+  assert.notEqual(node.tone, "warn");
+  const torn = overlaySections("open", facts({ workspace: { ...facts().workspace, problems: [{ kind: "recreated", path: "/w/members.json", text: { id: "x" }, at: 1 }, { kind: "stale_row", path: "r", text: { id: "y" }, at: 1 }] } }));
+  const section = torn.find((s) => s.key === "node");
+  assert.equal(rows(section).Problems, "2 files worked around at the last open");
+  assert.equal(section.tone, "warn");
+  const one = overlaySections("open", facts({ workspace: { ...facts().workspace, problems: [{ kind: "quarantined", path: "/w/x.json", text: { id: "x" }, at: 1 }] } }));
+  assert.equal(rows(one.find((s) => s.key === "node")).Problems, "1 file worked around at the last open");
+  const older = overlaySections("open", facts({ workspace: { ...facts().workspace, problems: undefined } }));
+  assert.equal(rows(older.find((s) => s.key === "node")).Problems, undefined, "an older node says nothing of problems");
+});

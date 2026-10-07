@@ -30,7 +30,9 @@ import { applyDelta, needsOf, joinOf, waitingOf } from "../views/_studio/inboxMo
 import { withLatest } from "../views/_studio/channelListModel.mjs";
 import { nameIn, principalNames } from "./namesModel.mjs";
 import { rowRead } from "../views/_studio/readModel.mjs";
-import { degradedReads, failedRead, hostedFailure, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads } from "./workspaceLoadModel.mjs";
+import { LOAD_SHAPES, degradedReads, failedRead, hostedFailure, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads } from "./workspaceLoadModel.mjs";
+import { bootLine } from "./nodeBootModel.mjs";
+import { useNodeBoot } from "./nodeBootStore";
 import { createLatest } from "./latestModel.mjs";
 import { channelDefOf, hostName, hostedRead, type HostedEntry, type HostedSection } from "./hostedModel.mjs";
 import type {
@@ -264,10 +266,14 @@ export function useWorkspaceState(): WorkspaceData {
       loadHosted(ac.signal),
     ]);
     if (ac.signal.aborted) return;
+    // An answer of the wrong shape is a failed read, never applied
+    // (`LOAD_SHAPES`): this hook runs above every inner boundary, and a
+    // `.filter` on something that is not a list took the whole window.
     const { ok, degraded: failed, offline: unreachable } = settleLoads(
       LOAD_NAMES,
       settled as PromiseSettledResult<unknown>[],
       (reason) => reason instanceof ApiError && reason.offline,
+      LOAD_SHAPES,
     );
     const ws = ok.workspace as WorkspaceInfo | undefined;
     const ag = ok.agents as Awaited<ReturnType<typeof api.agents>> | undefined;
@@ -508,9 +514,13 @@ export function useWorkspaceState(): WorkspaceData {
 
   useWorkspaceRefresher(load);
 
+  // The shell's own account of its node — booting, failed, ready — is the
+  // line while the node is away (`nodeBootModel`).
+  const boot = useNodeBoot();
+
   return {
     ready,
-    offline: offlineLine(offline, conn, nodeFailureReason()),
+    offline: offlineLine(offline, conn, nodeFailureReason(), bootLine(boot)),
     degraded,
     paused,
     me: info?.pubkey ?? "",

@@ -88,14 +88,19 @@ pub enum StoreError {
     #[error(transparent)]
     Inputs(#[from] InputError),
     /// A record on disk that this build cannot read. There is no migration
-    /// path: the workspace was written by another shape of the
-    /// code and is moved aside, never converted.
-    #[error("{path}: not a {what} this build can read ({reason}). The workspace was written by another shape of the code; move it aside with scripts/reset-dev-workspace and start fresh")]
+    /// path: it was written by another shape of the code and is skipped by a
+    /// list, moved aside by the open when it must be, never converted.
+    #[error("{path}: not a {what} this build can read ({reason}). It was written by another shape of the code: a list skips it, the open moves it aside under quarantine/ when it must, and `bisa workspace check` names every such file")]
     Unreadable {
         path: String,
         what: &'static str,
         reason: String,
     },
+    /// The owner's key is there and is not a key. The one file that stops an
+    /// open: every record here is signed by it, and a new key would orphan
+    /// them all — so none is minted, and nothing else is touched.
+    #[error("{path}: not a key this build can read ({reason}); no new key is minted, since every record here is signed by the old one — restore the file from a backup or the keyring, nothing else is touched")]
+    OwnerKeyUnreadable { path: String, reason: String },
     #[error(transparent)]
     Run(#[from] RunError),
     #[error(transparent)]

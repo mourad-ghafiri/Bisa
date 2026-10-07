@@ -9,12 +9,14 @@
 //! gave them ([`bisa_core::MemberRole`]).
 
 use crate::error::StoreError;
+use crate::problems::{ProblemKind, WorkspaceProblem};
 use crate::workspace::{now_secs, Workspace};
 use bisa_core::{check_member_change, AttachmentRef, MemberRole, PrincipalId, WorkspaceMember};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Serialize, Deserialize, Default)]
-struct MemberFile {
+pub(crate) struct MemberFile {
     members: Vec<WorkspaceMember>,
 }
 
@@ -43,6 +45,34 @@ impl Workspace {
         }
     }
 
+    /// The member file for the open and the rebuild. A file that is there
+    /// and does not parse is moved under `quarantine/` and the owner alone
+    /// is a member again — the people it named, and their roles, are kept
+    /// in the moved file for the person to admit again, and the open says
+    /// so. Every other read stays strict: a write while the file is broken
+    /// happens after the open repaired it.
+    fn read_member_file_or_quarantine(&self) -> Result<MemberFile, StoreError> {
+        match self.read_member_file() {
+            Err(StoreError::Unreadable { path, what, reason }) => {
+                let to = self.paths.quarantine(Path::new(&path), now_secs())?;
+                self.record_problem(WorkspaceProblem::new(
+                    ProblemKind::Recreated,
+                    path.clone(),
+                    bisa_core::text!(
+                        "error-store-problem-recreated",
+                        what = what.to_string(),
+                        path = path,
+                        reason = reason,
+                        to = to.display().to_string()
+                    ),
+                    Some(&to),
+                ));
+                Ok(MemberFile::default())
+            }
+            other => other,
+        }
+    }
+
     fn write_member_file(&self, file: &MemberFile) -> Result<(), StoreError> {
         crate::paths::write_atomic(
             &self.paths.members_file(),
@@ -62,7 +92,7 @@ impl Workspace {
     /// Called at `open()`: the workspace owner identity is always a member.
     pub(crate) fn ensure_owner_member(&self) -> Result<(), StoreError> {
         let owner = self.owner_principal();
-        let mut file = self.read_member_file()?;
+        let mut file = self.read_member_file_or_quarantine()?;
         if !file.members.iter().any(|m| m.pubkey == owner) {
             file.members.push(WorkspaceMember {
                 pubkey: owner.clone(),
@@ -269,7 +299,7 @@ impl Workspace {
     }
 
     pub(crate) fn reindex_members(&self) -> Result<(), StoreError> {
-        for m in &self.read_member_file()?.members {
+        for m in &self.read_member_file_or_quarantine()?.members {
             self.index_member(m)?;
         }
         Ok(())

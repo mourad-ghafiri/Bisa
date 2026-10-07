@@ -239,6 +239,13 @@ pub(crate) fn signal_goal_work(
     // 2. No re-wake while the work is ended.
     inner.guided.begin_stopping(goal);
     crate::conversation::forget_pending_of_goal(inner, goal);
+    // Every live session of the goal enters the ledger now, before the run
+    // is cancelled: the cancel's effects end the rows through their drivers,
+    // racing the stop's own pass in 6, and a row ended first was never
+    // waited for — its harness, if it ignored the abort, nobody's to
+    // terminate at the deadline. Entered first, the deadline has it.
+    out.workstreams = ops::workstreams_of_goal(inner, goal)?;
+    let noted = sessions::note_stopping(inner, Scope::Goal(goal), &out.workstreams, cause);
     // 3. The run first, the sessions after.
     if matches!(cause, EndCause::Stop | EndCause::Restart) {
         if let Some(live) = inner.ws.live_run(goal)? {
@@ -267,8 +274,12 @@ pub(crate) fn signal_goal_work(
             mark.stop();
         }
     }
-    out.workstreams = ops::workstreams_of_goal(inner, goal)?;
-    out.told = sessions::stop_for(inner, Scope::Goal(goal), &out.workstreams, cause);
+    out.told = noted.max(sessions::stop_for(
+        inner,
+        Scope::Goal(goal),
+        &out.workstreams,
+        cause,
+    ));
     Ok(out)
 }
 
@@ -343,6 +354,10 @@ pub async fn end_run_work(
     cancel: CancelCause,
 ) -> Result<(WorkflowRun, WorkEnded), EngineError> {
     let cause = EndCause::of_cancel(&cancel);
+    // Every live session of the run enters the ledger before the cancel, for
+    // the reason `signal_goal_work` gives.
+    let workstreams = ops::workstreams_of_run(inner, run_id)?;
+    let noted = sessions::note_stopping(inner, Scope::Run(run_id), &workstreams, cause);
     let run = ops::record_run_event(inner, run_id, RunEvent::Cancel { cause: cancel })?;
     let mut done = WorkEnded {
         run: Some(run_id),
@@ -375,8 +390,12 @@ pub async fn end_run_work(
             mark.stop();
         }
     }
-    let workstreams = ops::workstreams_of_run(inner, run_id)?;
-    let told = sessions::stop_for(inner, Scope::Run(run_id), &workstreams, cause);
+    let told = noted.max(sessions::stop_for(
+        inner,
+        Scope::Run(run_id),
+        &workstreams,
+        cause,
+    ));
     let settled = sessions::await_stopped(
         inner,
         Scope::Run(run_id),

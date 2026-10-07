@@ -12,6 +12,12 @@ fn a_second_node_on_a_held_workspace_is_refused_at_the_door_naming_the_holder() 
     let mut ws = Sealed::bare();
     ws.start();
     let pid = ws.pid();
+    // `paths` names the holder without opening anything — what the desktop
+    // shell reads before it starts a node of its own.
+    assert_eq!(
+        ws.json(&["paths"])["engine_holder"]["pid"],
+        serde_json::json!(pid)
+    );
 
     let asked = Instant::now();
     let said = ws.refused(&["node"]);
@@ -48,4 +54,8 @@ fn a_second_node_on_a_held_workspace_is_refused_at_the_door_naming_the_holder() 
     assert_eq!(status, 200, "{node}");
     assert_eq!(node["pid"], serde_json::json!(pid), "{node}");
     ws.stop();
+    assert!(
+        ws.json(&["paths"])["engine_holder"].is_null(),
+        "a stopped node holds nothing"
+    );
 }

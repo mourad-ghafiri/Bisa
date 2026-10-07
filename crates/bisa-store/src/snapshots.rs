@@ -29,11 +29,62 @@ use std::path::{Path, PathBuf};
 
 pub struct SnapshotStore {
     paths: Paths,
+    /// Where a file moved aside on a write is named; a store with none
+    /// says it in the log alone.
+    problems: Option<crate::problems::ProblemSink>,
 }
 
 impl SnapshotStore {
     pub fn new(paths: Paths) -> Self {
-        Self { paths }
+        Self {
+            paths,
+            problems: None,
+        }
+    }
+
+    /// A store that names what it moves aside in the workspace's problems.
+    pub(crate) fn with_problems(paths: Paths, problems: crate::problems::ProblemSink) -> Self {
+        Self {
+            paths,
+            problems: Some(problems),
+        }
+    }
+
+    /// The stored event at `path` for a write that replaces it, or `None`
+    /// for a file this build cannot read — moved under `quarantine/` and
+    /// named, so the object can be written again rather than blocked for
+    /// good by one torn file. A caller that read the object first never
+    /// gets here with such a file; this is for the writes that do not.
+    fn existing_or_quarantined(
+        &self,
+        path: &Path,
+        wire_kind: u16,
+        d: &str,
+    ) -> Result<Option<Event>, StoreError> {
+        match self.load_event(path) {
+            Ok(existing) => Ok(existing),
+            Err(StoreError::Unreadable { what, reason, .. }) => {
+                let to = self.paths.quarantine(path, crate::workspace::now_secs())?;
+                let problem = crate::problems::WorkspaceProblem::new(
+                    crate::problems::ProblemKind::Quarantined,
+                    path.display().to_string(),
+                    bisa_core::text!(
+                        "error-store-problem-quarantined",
+                        path = path.display().to_string(),
+                        what = format!("{what} of kind {wire_kind} ({d})"),
+                        reason = reason,
+                        to = to.display().to_string()
+                    ),
+                    Some(&to),
+                );
+                match &self.problems {
+                    Some(sink) => sink.record(problem),
+                    None => tracing::error!(target: "bisa_store", "{}", problem.text),
+                }
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub(crate) fn state_dir(&self, ns: &str) -> PathBuf {
@@ -101,7 +152,7 @@ impl SnapshotStore {
             return Err(StoreError::EncryptionRequired(wire_kind));
         }
         let path = self.path_for(ns, wire_kind, d)?;
-        if let Some(existing) = self.load_event(&path)? {
+        if let Some(existing) = self.existing_or_quarantined(&path, wire_kind, d)? {
             let newer =
                 (Self::revision_of(&existing), existing.created_at.as_secs()) >= (revision, at);
             if newer {
@@ -260,7 +311,7 @@ impl SnapshotStore {
         Ok(true)
     }
 
-    fn load_event(&self, path: &Path) -> Result<Option<Event>, StoreError> {
+    pub(crate) fn load_event(&self, path: &Path) -> Result<Option<Event>, StoreError> {
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),

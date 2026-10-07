@@ -92,6 +92,12 @@ pub trait KeyStore: Send + Sync {
         self.set(name, secret_hex)
     }
     fn delete(&self, name: &str) -> Result<(), StoreError>;
+    /// The file a name is kept in, when a file is where it lives — what a
+    /// refusal of the owner's key can name. `None` for a keyring and for a
+    /// store in memory.
+    fn path_of(&self, _name: &str) -> Option<PathBuf> {
+        None
+    }
     /// Whether values live in the OS keyring rather than in files — what a
     /// route may say about a secret: where it is, never what it is.
     fn uses_keyring(&self) -> bool {
@@ -156,25 +162,53 @@ pub(crate) fn ensure_private_dir(dir: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Remove the temporary a secret was written through. A temporary that
+/// cannot be removed is a stray file under `identity/`, said at `debug`, and
+/// never the reason the write fails: the key itself is in place or not.
+fn forget_temporary(tmp: &Path) {
+    if let Err(e) = std::fs::remove_file(tmp) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::debug!(target: "bisa_store", path = %tmp.display(), "a key's temporary was not removed: {e}");
+        }
+    }
+}
+
 /// Write `bytes` to a **new** file with mode `0600`. Fails if the file exists.
+///
+/// Whole or not there: the bytes land in a temporary beside the file, are
+/// synced, and reach the name by one hard link — so a crash between the
+/// create and the write can never leave an empty key under the name every
+/// later open reads, and a key already there is never overwritten (the link
+/// refuses with `AlreadyExists`, as the plain create did).
 pub(crate) fn write_secret_file(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     if let Some(parent) = path.parent() {
         ensure_private_dir(parent)?;
     }
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(format!(".tmp.{}", std::process::id()));
+    let tmp = path.with_file_name(tmp_name);
+    let written = (|| -> std::io::Result<()> {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp)?;
+        std::io::Write::write_all(&mut f, bytes)?;
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        forget_temporary(&tmp);
+        return Err(StoreError::io(tmp.display().to_string(), e));
     }
-    let mut f = opts
-        .open(path)
-        .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-    std::io::Write::write_all(&mut f, bytes)
-        .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-    f.sync_all()
-        .map_err(|e| StoreError::io(path.display().to_string(), e))?;
+    let linked = std::fs::hard_link(&tmp, path);
+    forget_temporary(&tmp);
+    linked.map_err(|e| StoreError::io(path.display().to_string(), e))?;
+    if let Some(parent) = path.parent() {
+        crate::paths::sync_dir(parent);
+    }
     Ok(())
 }
 
@@ -195,6 +229,10 @@ impl FileKeyStore {
 }
 
 impl KeyStore for FileKeyStore {
+    fn path_of(&self, name: &str) -> Option<PathBuf> {
+        Some(self.path_for(name))
+    }
+
     fn get(&self, name: &str) -> Result<Option<String>, StoreError> {
         let path = self.path_for(name);
         match std::fs::read_to_string(&path) {
@@ -271,6 +309,10 @@ impl AutoKeyStore {
 impl KeyStore for AutoKeyStore {
     fn uses_keyring(&self) -> bool {
         AutoKeyStore::uses_keyring(self)
+    }
+
+    fn path_of(&self, name: &str) -> Option<PathBuf> {
+        self.file.path_of(name)
     }
 
     fn get(&self, name: &str) -> Result<Option<String>, StoreError> {
@@ -367,7 +409,23 @@ impl Identity {
 
     fn load(&self, name: &str) -> Result<Option<Keys>, StoreError> {
         match self.store.get(name)? {
-            Some(secret) => Keys::parse(&secret).map(Some).map_err(StoreError::nostr),
+            Some(secret) => Keys::parse(&secret).map(Some).map_err(|e| {
+                // The owner's key is the one file that stops an open, and
+                // the refusal names it: a torn or empty key is restored from
+                // a backup or the keyring, never minted over.
+                if name == OWNER_KEY_NAME {
+                    StoreError::OwnerKeyUnreadable {
+                        path: self
+                            .store
+                            .path_of(name)
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| name.to_string()),
+                        reason: e.to_string(),
+                    }
+                } else {
+                    StoreError::nostr(e)
+                }
+            }),
             None => Ok(None),
         }
     }

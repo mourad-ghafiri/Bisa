@@ -10,6 +10,27 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- `bisa workspace check` reads every file of the workspace as the next open would, without opening
+  it, without the engine lock and without the index — the owner key, `members.json`,
+  `governance.json`, every settings layer, every snapshot, every journal tail, and what earlier
+  opens moved under `quarantine/` — one line a finding, `--json` the list, exit 1 while anything is
+  found; `bisa doctor` points at it in one line when the files have problems.
+- `GET /workspace` answers `problems`: what the last open and index rebuild found wrong and worked
+  around — a file quarantined or recreated, a settings layer unreadable, a record the rebuild
+  skipped, an orphan run ended, a stale row repaired, two runs on one signal — each with its path,
+  its sentence and where the file went. Settings › Node gains a *Workspace* section listing them,
+  shown only when there is something; the footer's node overlay counts them.
+- `quarantine/<stamp>/` under the workspace: where a file an open could not read is moved aside
+  whole, with its relative path, never deleted.
+- `bisa paths --json` names `engine_holder` — the pid and start of the process holding the
+  workspace's engine, or null — without opening anything.
+- `bisa node` stops when its stdin closes under `BISA_STOP_ON_STDIN_CLOSE=1`, as gracefully as on
+  `SIGTERM`, and under `--json` says each phase of its boot as a line before the socket line.
+- `bisa workspace reindex` prints each stage as it passes and every record it skipped.
+- The desktop's node overlay and the sidebar's footer say what the node is doing while it boots —
+  *Opening the workspace…*, *Rebuilding the index — 25 of 300 goals…*, *Starting the engine…* —
+  and, when it will not start, why and when the next try comes, with *Restart now*, *Reveal the
+  log*, *Open the data folder* and *Quit Bisa* beside the line.
 - A guard rule says where it applies. `GuardRule.applies_to` — unset for everywhere, `platform` for
   the sessions the platform drives, `terminal` for a person's own harness in a terminal — is read
   against where a call comes from; `GET /security/status` carries it, Settings › Security shows it
@@ -92,6 +113,49 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A stop entered a session in its ledger only after the run's cancel, which ends the rows through
+  their drivers; a row ended first was never waited for, and a harness that ignored its abort was
+  left running until the next start found it. Every live session of the goal or run is entered
+  before the cancel now, so the deadline terminates what lingers whichever way the two interleave,
+  and the stop's answer counts every session it told.
+- A stopped harness was sent `SIGTERM` before it had read the end of its input, so an agent that
+  leaves cleanly on EOF — and records its own end — was cut off mid-word. An abort now closes the
+  harness's stdin first and gives it half the grace to leave, then `SIGTERM`, then `SIGKILL`; one
+  that ignores both is ended within the same grace as before.
+- A crash in the desktop's own tree — a hook of the shell's, a provider, the toast rail — stranded
+  the window: the card had no doors that worked without the node and had taken the close and quit
+  listeners down with the tree, so the red button did nothing, ⌘Q and the Dock's Quit hung, and only
+  a Force Quit ended Bisa. The ways out now stand above the boundary for the life of the page, the
+  card offers *Try again*, *Reload*, *Restart the node*, *Reveal the log*, *Open the data folder*
+  and *Quit Bisa* — none needing the node — moving to another screen clears it, and a close or quit
+  the page does not acknowledge within five seconds stands anyway, the window's place kept and the
+  node stopped.
+- A Force Quit of the desktop left its node alive holding the workspace's engine lock, so every
+  later launch was refused at the door — *an engine already holds this workspace* — until the
+  machine was restarted or the folder deleted. The node now lives and dies with the desktop that
+  spawned it (its stdin is a pipe the shell holds), a stray node the desktop itself left behind is
+  stopped before a new one starts, and a node a person runs themselves is named in the footer and
+  never signalled.
+- The desktop killed a node that had not answered `/health` within twenty seconds and tried again
+  for ever, so a rebuild of the index after an upgrade — or any boot longer than that — never
+  finished, and every killed boot interrupted the running steps again until they failed as
+  *interrupted too often*. The shell now waits as long as the node reports progress, stops a node
+  gracefully before it kills one, and says a failed restart to the window instead of retrying in
+  silence.
+- One file a crash tore stopped the workspace from opening: a torn `members.json`,
+  `governance.json`, settings layer or `general` channel snapshot, a constraint error while
+  reconciling the index, or one unreadable record met by the index rebuild — and the refusal
+  told the person to move the workspace aside and start fresh. The owner key alone refuses an
+  open now; every other torn file is quarantined or skipped and named, governance is read as the
+  owner's alone until written again, a settings layer costs its values until a setting is saved
+  there, and `index.sqlite` is never trusted stamped and empty after a rebuild cut short.
+- A journal tail a crash tore swallowed the next fact written after it; the next write now starts
+  a new line.
+- A crash between a run's snapshot and its goal's left an orphan run that no sweep visited, whose
+  signal was dispatched again, and whose duplicate `dispatched` row failed every later index
+  rebuild — a workspace that never booted again. The goal's snapshot is written before either is
+  indexed, an orphan is ended when the engine next starts, two runs on one signal are both indexed, and a
+  finished run whose index row still said *running* is brought back in step.
 - A Claude Code or GitHub Copilot CLI session opened in the IDE's terminal was refused the
   machine's browser, a headless one and a project's test runner with a hint about `browser_*` tools
   it does not have — nothing of the platform's is injected into a terminal harness. The four guard

@@ -243,7 +243,9 @@ impl Workspace {
             let Ok(id) = d.parse::<DrawingId>() else {
                 continue;
             };
-            let def = self.get_drawing(id)?;
+            let Some(def) = self.tolerated_record("drawing", &d, self.get_drawing(id))? else {
+                continue;
+            };
             self.adopt_drawing(&def);
         }
         Ok(())

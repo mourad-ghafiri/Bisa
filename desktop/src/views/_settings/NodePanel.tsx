@@ -11,8 +11,11 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Button, Card, Chip, ReadLine, Section, useToast } from "../../ui";
 import { attempt, useAsync } from "../_work/useAsync";
+import { bootLine } from "../../shell/nodeBootModel.mjs";
+import { useNodeBoot } from "../../shell/nodeBootStore";
+import { useWorkspace } from "../../shell/useWorkspaceData";
 import { readWords } from "./loadModel.mjs";
-import { t } from "../../i18n/l10n.mjs";
+import { t, tx } from "../../i18n/l10n.mjs";
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -31,6 +34,14 @@ export function NodePanel() {
     if (flag.data) setPaused(flag.data.paused);
   }, [flag.data]);
   const [busy, setBusy] = useState(false);
+  // The shell's own account of its node while it is away: the boot's phase,
+  // or why it is not running and when the next try comes.
+  const boot = useNodeBoot();
+  const account = bootLine(boot);
+  // What the last open worked around (`GET /workspace`): a file moved under
+  // quarantine/, a record skipped, a run ended. Nothing when the workspace
+  // is sound — most of the time, the section is not there.
+  const problems = useWorkspace().info?.problems ?? [];
 
   const setPause = async (want: boolean) => {
     setBusy(true);
@@ -88,6 +99,11 @@ export function NodePanel() {
             </span>
             <Button size="sm" onClick={() => void restart()}>{t("settings-node-panel-restart-sidecar")}</Button>
           </div>
+          {account && (
+            <p role="status" className={`mt-2 max-w-measure text-2xs leading-relaxed ${boot.failure ? "text-danger" : "text-text-dim"}`}>
+              {account}
+            </p>
+          )}
           <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">
             {isTauri()
               ? t("settings-node-panel-app-runs-node-child-process-restarting")
@@ -95,6 +111,27 @@ export function NodePanel() {
           </p>
         </Card>
       </Section>
+
+      {problems.length > 0 && (
+        <Section title={t("settings-node-panel-workspace")}>
+          <Card>
+            <div className="flex items-center gap-2">
+              <Chip tone="warn">{t("settings-node-panel-workspace-problems-count", { n: problems.length })}</Chip>
+            </div>
+            <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-node-panel-workspace-problems-lead")}</p>
+            <ul className="mt-2 flex flex-col divide-y divide-hairline" aria-label={t("settings-node-panel-workspace")}>
+              {problems.map((p, i) => (
+                <li key={`${p.kind}:${p.path}:${i}`} className="py-2 first:pt-0 last:pb-0">
+                  <p className="max-w-measure text-2xs leading-relaxed text-text">{tx(p.text)}</p>
+                  <p className="mt-0.5 break-all font-mono text-3xs text-text-dim">{p.path}</p>
+                  {p.quarantined && <p className="mt-0.5 break-all font-mono text-3xs text-text-dim">{t("settings-node-panel-workspace-moved-to", { path: p.quarantined })}</p>}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 max-w-measure text-2xs leading-relaxed text-text-dim">{t("settings-node-panel-workspace-problems-check")}</p>
+          </Card>
+        </Section>
+      )}
     </div>
   );
 }

@@ -28,16 +28,38 @@
 //! takes the same lock (`AppState::exit`). One question at a time: a second
 //! `terminate:` while one is held is refused — the question up answers for
 //! both — which a logout arriving over a ⌘Q question is told as a no.
+//!
+//! **A request the webview cannot hear is not held forever.** Every request
+//! handed to the webview — a quit's, the window's close — goes through
+//! [`ask_webview`], and the webview says it heard it (`quit_heard`) before
+//! it asks or saves anything. A request nobody hears within
+//! [`ACK_DEADLINE`] is a webview that is gone — its listeners unmounted by
+//! a crash in its own tree, its process hung — and the exit stands: the
+//! window's place is kept, the node is stopped, and the process ends
+//! ([`exit_now`]). Before this a crashed webview left ⌘Q, the Dock's Quit
+//! and the red button doing nothing, and only a Force Quit — which left
+//! the node alive holding the workspace — ended Bisa.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
-use tauri::AppHandle;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
 
-/// Whether a `terminate:` is held for the webview's answer, and whether the
-/// webview is there to ask — it says so once it listens (`quit_ready`).
+/// How long the webview has to say it heard a request before the exit
+/// stands without it.
+pub const ACK_DEADLINE: Duration = Duration::from_secs(5);
+
+/// Whether a `terminate:` is held for the webview's answer, whether the
+/// webview is there to ask — it says so once it listens (`quit_ready`) —
+/// and whether it heard the last request put to it.
 pub struct Hold {
     held: AtomicBool,
     ready: AtomicBool,
+    /// How many requests have been put to the webview; a deadline is for
+    /// one of them, and a later request supersedes it.
+    asked: AtomicU64,
+    /// The webview heard the last request.
+    heard: AtomicBool,
 }
 
 impl Hold {
@@ -45,7 +67,27 @@ impl Hold {
         Self {
             held: AtomicBool::new(false),
             ready: AtomicBool::new(false),
+            asked: AtomicU64::new(0),
+            heard: AtomicBool::new(false),
         }
+    }
+
+    /// A request is put to the webview: not heard yet, and this is its
+    /// number.
+    pub fn ask(&self) -> u64 {
+        self.heard.store(false, Ordering::SeqCst);
+        self.asked.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// The webview heard the last request.
+    pub fn heard(&self) {
+        self.heard.store(true, Ordering::SeqCst);
+    }
+
+    /// Request `seq` is still the last one put, and nobody heard it. Zero
+    /// is no request: nothing is overdue before anything was asked.
+    pub fn overdue(&self, seq: u64) -> bool {
+        seq != 0 && self.asked.load(Ordering::SeqCst) == seq && !self.heard.load(Ordering::SeqCst)
     }
 
     /// The webview listens for `bisa:quit-requested` from now on.
@@ -103,9 +145,65 @@ pub fn answer(app: &AppHandle, go: bool) -> bool {
     true
 }
 
+/// The webview heard the last request put to it (`quit_heard`): the
+/// deadline on that request is off.
+pub fn heard() {
+    HOLD.heard();
+}
+
+/// Put a request — `crate::QUIT_REQUESTED`, `crate::CLOSE_REQUESTED` — to
+/// the webview in `window`, and give it [`ACK_DEADLINE`] to say it heard.
+/// A request nobody hears by then is a webview that is gone, and the exit
+/// stands through [`exit_now`]. The error is the emit's own: nothing was
+/// sent, and the caller decides what stands.
+pub fn ask_webview(app: &AppHandle, window: &tauri::Window, event: &str) -> tauri::Result<()> {
+    let seq = HOLD.ask();
+    window.emit(event, ())?;
+    let app = app.clone();
+    let event = event.to_string();
+    let spawned = std::thread::Builder::new()
+        .name("quit-ack".into())
+        .spawn(move || {
+            std::thread::sleep(ACK_DEADLINE);
+            if HOLD.overdue(seq) {
+                exit_now(
+                    &app,
+                    &format!(
+                        "the webview did not hear {event} within {} s; the exit stands",
+                        ACK_DEADLINE.as_secs()
+                    ),
+                );
+            }
+        });
+    if let Err(e) = spawned {
+        tracing::warn!(target: "bisa_desktop", "no deadline on the webview's answer: {e}");
+    }
+    Ok(())
+}
+
+/// End the app now, from any thread, without the webview: everything
+/// `RunEvent::Exit` would do — where the window stood, the terminals, the
+/// node, the goodbye — then the process ends. Not AppKit's road: a *yes* to
+/// a held `terminate:` must be sent on the main thread, which a dead
+/// webview may be holding, and this is the way out when nothing else is.
+pub fn exit_now(app: &AppHandle, why: &str) -> ! {
+    tracing::error!(target: "bisa_desktop", "{why}");
+    crate::window_state::keep(app);
+    if let Some(terminals) = app.try_state::<std::sync::Arc<crate::terminal::TerminalRegistry>>() {
+        terminals.shutdown_all();
+    }
+    if let Some(node) = app.try_state::<crate::sidecar::NodeState>() {
+        node.shutdown();
+    }
+    if let Some(log) = app.try_state::<bisa_log::Handle>() {
+        log.goodbye("quit");
+    }
+    std::process::exit(0)
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{APP, HOLD};
+    use super::{ask_webview, APP, HOLD};
     use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
     use objc2::{sel, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationTerminateReply};
@@ -187,9 +285,11 @@ mod platform {
             return NSApplicationTerminateReply::TerminateCancel;
         }
         // The question is asked in the window: a window minimised, or an app
-        // put away and quit from the Dock's menu, comes forward first.
+        // put away and quit from the Dock's menu, comes forward first. The
+        // webview has `ACK_DEADLINE` to say it heard; past that the exit
+        // stands without it (`ask_webview`).
         crate::tray::show_window(app);
-        if let Err(e) = tauri::Emitter::emit(&window, crate::QUIT_REQUESTED, ()) {
+        if let Err(e) = ask_webview(app, &window, crate::QUIT_REQUESTED) {
             HOLD.release();
             tracing::error!(target: "bisa_desktop", "the quit request did not reach the webview, so the exit stands: {e}");
             return NSApplicationTerminateReply::TerminateNow;
@@ -267,6 +367,28 @@ mod tests {
         hold.ready();
         assert!(hold.is_ready());
         assert!(!hold.release(), "ready is not held");
+    }
+
+    /// A request is overdue when it is the last one put and nobody heard
+    /// it; one the webview heard is not, and one a later request superseded
+    /// is the later one's to be overdue for.
+    #[test]
+    fn a_request_is_overdue_until_heard_and_a_later_request_supersedes_it() {
+        let hold = Hold::new();
+        assert!(!hold.overdue(0), "nothing was asked");
+        let first = hold.ask();
+        assert_eq!(first, 1);
+        assert!(hold.overdue(first), "asked, not heard");
+        hold.heard();
+        assert!(!hold.overdue(first), "heard");
+        let second = hold.ask();
+        assert_eq!(second, 2);
+        assert!(hold.overdue(second), "a new request starts unheard");
+        assert!(!hold.overdue(first), "the first is superseded, not overdue");
+        let third = hold.ask();
+        assert!(!hold.overdue(second), "and so is the second");
+        assert!(hold.overdue(third));
+        assert_eq!(ACK_DEADLINE, Duration::from_secs(5));
     }
 
     #[test]

@@ -391,6 +391,54 @@ impl Paths {
         self.run_dir().join("node.sock")
     }
 
+    // ------------------------------------------------------------------
+    // Quarantine
+    // ------------------------------------------------------------------
+
+    /// Where a file this build could not read is moved aside — never
+    /// deleted: `quarantine/<unix-stamp>/<the file's path under the root>`.
+    /// This machine's, never synced, never indexed; a person restores from
+    /// it by hand.
+    pub fn quarantine_dir(&self) -> PathBuf {
+        self.root.join("quarantine")
+    }
+
+    /// Move `path` aside under a stamped quarantine folder, keeping its path
+    /// under the root (a file from outside the root keeps its name alone),
+    /// and answer where it went. A rename, so the bytes are untouched; the
+    /// two folders are synced so the move survives the power going out.
+    pub fn quarantine(&self, path: &Path, at: u64) -> Result<PathBuf, StoreError> {
+        let relative: PathBuf = match path.strip_prefix(&self.root) {
+            Ok(rel) => rel.to_path_buf(),
+            Err(_) => PathBuf::from(path.file_name().unwrap_or(path.as_os_str())),
+        };
+        let stamped = self.quarantine_dir().join(at.to_string());
+        let mut dest = stamped.join(&relative);
+        // A second file of the same name in the same second keeps both.
+        let mut n = 1;
+        while dest.exists() {
+            let mut name = relative
+                .file_name()
+                .map(|s| s.to_os_string())
+                .unwrap_or_default();
+            name.push(format!(".{n}"));
+            dest = stamped.join(relative.with_file_name(name));
+            n += 1;
+        }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| StoreError::io(parent.display().to_string(), e))?;
+        }
+        std::fs::rename(path, &dest).map_err(|e| StoreError::io(path.display().to_string(), e))?;
+        if let Some(parent) = dest.parent() {
+            sync_dir(parent);
+        }
+        if let Some(parent) = path.parent() {
+            sync_dir(parent);
+        }
+        Ok(dest)
+    }
+
     /// Where the desktop shell keeps a terminal tab's scrollback checkpoints
     /// (ide/06). The shell writes there by name — it cannot depend on this
     /// crate — so nothing in the workspace calls this; it stands as the
@@ -600,6 +648,25 @@ impl Paths {
         ProjectPaths {
             dir: self.projects_dir().join(slug),
         }
+    }
+
+    /// Every project folder on disk, by the folders alone — for a reader
+    /// that must not open the index (`check.rs`). An absent `projects/` is
+    /// no project; a folder that cannot be listed is the error.
+    pub fn project_dirs(&self) -> Result<Vec<ProjectPaths>, StoreError> {
+        let projects = self.projects_dir();
+        if !projects.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut out: Vec<ProjectPaths> = std::fs::read_dir(&projects)
+            .map_err(|e| StoreError::io(projects.display().to_string(), e))?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|dir| dir.is_dir())
+            .map(|dir| ProjectPaths { dir })
+            .collect();
+        out.sort_by(|a, b| a.dir.cmp(&b.dir));
+        Ok(out)
     }
 
     pub fn agent(&self, id: &AgentId) -> AgentPaths {
@@ -1035,7 +1102,25 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
 /// signal queue — and a line the caller was told landed has to survive the
 /// power going out a moment later, the same promise [`write_atomic`] keeps
 /// for a snapshot.
+///
+/// A tail a crash tore — a line without its newline — is mended first: the
+/// write starts a new line when the file does not end in one, so the torn
+/// line stays one unparsable line a reader skips, and the next fact is never
+/// glued to it and lost with it.
 pub fn append_line(path: &Path, line: &str) -> Result<(), StoreError> {
+    append_line_with(path, line, true)
+}
+
+/// [`append_line`] without the `sync_data`: for the activity log, whose
+/// rows are the Pulse's history and not a fact a caller was told was kept —
+/// an fsync per engine fact would cost every stop and every settle a disk
+/// round-trip, and the engine's stop reads its rows against the clock. The
+/// torn tail is mended all the same.
+pub(crate) fn append_line_unsynced(path: &Path, line: &str) -> Result<(), StoreError> {
+    append_line_with(path, line, false)
+}
+
+fn append_line_with(path: &Path, line: &str, sync: bool) -> Result<(), StoreError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| StoreError::io(parent.display().to_string(), e))?;
@@ -1043,19 +1128,43 @@ pub fn append_line(path: &Path, line: &str) -> Result<(), StoreError> {
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(path)
         .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-    std::io::Write::write_all(&mut f, format!("{line}\n").as_bytes())
+    let torn =
+        tail_lacks_newline(&mut f).map_err(|e| StoreError::io(path.display().to_string(), e))?;
+    let mut bytes = Vec::with_capacity(line.len() + 2);
+    if torn {
+        bytes.push(b'\n');
+    }
+    bytes.extend_from_slice(line.as_bytes());
+    bytes.push(b'\n');
+    // `O_APPEND`: the write lands at the end whatever the read position.
+    std::io::Write::write_all(&mut f, &bytes)
         .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-    f.sync_data()
-        .map_err(|e| StoreError::io(path.display().to_string(), e))?;
+    if sync {
+        f.sync_data()
+            .map_err(|e| StoreError::io(path.display().to_string(), e))?;
+    }
     Ok(())
+}
+
+/// Whether a non-empty file's last byte is not a newline.
+pub(crate) fn tail_lacks_newline(f: &mut std::fs::File) -> std::io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    if f.metadata()?.len() == 0 {
+        return Ok(false);
+    }
+    f.seek(SeekFrom::End(-1))?;
+    let mut last = [0u8; 1];
+    f.read_exact(&mut last)?;
+    Ok(last[0] != b'\n')
 }
 
 /// Make a rename durable: the directory entry lives in the parent, and the
 /// parent has to reach the disk too. Best effort — a filesystem that refuses
 /// to fsync a directory is not a reason to fail a write that already landed.
-fn sync_dir(dir: &Path) {
+pub(crate) fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     {
         if let Ok(d) = std::fs::File::open(dir) {

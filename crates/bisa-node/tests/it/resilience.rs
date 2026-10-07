@@ -606,3 +606,117 @@ async fn an_unreadable_listening_workflow_costs_its_own_listeners_only() {
     assert_ne!(code, 200, "a single read refuses it");
     node.shutdown().await;
 }
+
+/// A torn member file and a torn `general` channel snapshot — the two files
+/// the open once refused the whole workspace over — are moved aside at the
+/// next start, made again, and named on `GET /workspace` so a person can
+/// see what was moved and where. The channels list answers, with `general`
+/// in it; the owner is a member. Before this the node did not start, and
+/// the desktop opened on nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_torn_member_file_and_general_channel_are_made_again_and_named_on_workspace() {
+    let node = Node::start().await;
+    assert_eq!(node.get("/workspace").await["problems"], json!([]), "sound");
+    let paths = Paths::new(node.data_dir());
+    let general = paths
+        .state_dir(Paths::NS_CHANNELS)
+        .join(format!("{}-general.json", bisa_core::kind::KIND_CHANNEL));
+    assert!(general.is_file(), "{}", general.display());
+    poison(&paths.members_file());
+    poison(&general);
+
+    let node = node.restart().await;
+    let ws = node.get("/workspace").await;
+    let problems = ws["problems"].as_array().expect("a list");
+    let recreated: Vec<&str> = problems
+        .iter()
+        .filter(|p| p["kind"] == "recreated")
+        .filter_map(|p| p["path"].as_str())
+        .collect();
+    assert!(
+        recreated.iter().any(|p| p.ends_with("members.json"))
+            && recreated.iter().any(|p| p.ends_with("-general.json")),
+        "{problems:?}"
+    );
+    for p in problems {
+        assert!(
+            p["quarantined"]
+                .as_str()
+                .is_some_and(|q| q.contains("quarantine")),
+            "{p}"
+        );
+        assert!(
+            p["text"]["id"].as_str().is_some(),
+            "a catalog sentence: {p}"
+        );
+    }
+    assert_eq!(
+        ws["members"].as_array().map(|m| m.len()),
+        Some(1),
+        "the owner alone: {ws}"
+    );
+    let channels = node.get("/channels").await;
+    assert!(
+        channels["channels"]
+            .as_array()
+            .is_some_and(|c| c.iter().any(|ch| ch["channel"]["id"] == "general")),
+        "{channels}"
+    );
+    assert!(
+        paths.quarantine_dir().is_dir(),
+        "the files are kept under quarantine/"
+    );
+}
+
+/// A machine settings layer this build cannot read leaves the node up: the
+/// resolution comes from the readable layers, the layer is named on
+/// `GET /workspace`, and a write to that scope repairs it — the torn file
+/// moved aside, a fresh one written. Before this the collaboration pump
+/// read the settings at boot and the node exited.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_broken_machine_settings_layer_leaves_the_node_up_named_and_repairable() {
+    let node = Node::start().await;
+    let paths = Paths::new(node.data_dir());
+    let machine = paths.machine_settings();
+    std::fs::create_dir_all(machine.parent().unwrap()).unwrap();
+    std::fs::write(&machine, "{\"values\": [this is not a settings file").unwrap();
+
+    let node = node.restart().await;
+    let ws = node.get("/workspace").await;
+    let named = ws["problems"].as_array().expect("a list").iter().any(|p| {
+        p["kind"] == "settings_layer_unreadable" && p["path"] == json!(machine.to_string_lossy())
+    });
+    assert!(named, "{ws}");
+    let resolved = node.get("/settings/resolved").await;
+    assert!(resolved.is_object(), "the resolution answers: {resolved}");
+
+    let (status, answer) = node
+        .req(
+            "PUT",
+            "/settings/machine",
+            Some(json!({"values": {"logging.level": "debug"}})),
+        )
+        .await;
+    assert_eq!(status, 200, "{answer}");
+    let layer: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&machine).unwrap()).expect("a settings file again");
+    assert!(
+        layer.is_object(),
+        "a fresh layer, not the torn text: {layer}"
+    );
+    let read_back = node.get("/settings/machine").await;
+    assert!(
+        read_back.to_string().contains("debug"),
+        "the value lands at the scope: {read_back}"
+    );
+    let node = node.restart().await;
+    let ws = node.get("/workspace").await;
+    assert!(
+        !ws["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["kind"] == "settings_layer_unreadable"),
+        "repaired: {ws}"
+    );
+}

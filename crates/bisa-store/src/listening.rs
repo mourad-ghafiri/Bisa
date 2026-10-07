@@ -328,7 +328,14 @@ impl Workspace {
             else {
                 continue;
             };
-            let Some(listening) = self.workflow_listening(workflow)? else {
+            let Some(listening) = self
+                .tolerated_record(
+                    "listening record",
+                    &workflow.to_string(),
+                    self.workflow_listening(workflow),
+                )?
+                .flatten()
+            else {
                 continue;
             };
             let idx = self.idx();

@@ -38,48 +38,41 @@ pub fn install() -> Handle {
     bisa_log::install(Process::Desktop, env!("CARGO_PKG_VERSION"))
 }
 
-/// Ask the `bisa` binary where the workspace's log folder is and attach
-/// the file layer there, at the default — errors only — until the webview
+/// What `bisa paths --json` answers: the workspace's folders, and who holds
+/// its engine right now — a node, by pid and start — or nobody.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathsAnswer {
+    pub data_dir: PathBuf,
+    pub logs_dir: PathBuf,
+    pub engine_holder: Option<Holder>,
+}
+
+/// The process holding the workspace's engine lock, as the binary read it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct Holder {
+    pub pid: u32,
+    /// Unix seconds at the holder's start.
+    pub started_at: u64,
+}
+
+/// Ask the `bisa` binary where the workspace is and attach the file layer
+/// under its log folder, at the default — errors only — until the webview
 /// forwards the settings. The first candidate binary that answers wins;
-/// answers the folder. No binary that answers is the error, with what each
-/// said.
-pub fn attach_from_binary(log: &Handle) -> Result<PathBuf, String> {
-    let login_path = crate::login_env::login_path();
+/// answers what it said. No binary that answers is the error, with what
+/// each said.
+pub fn attach_from_binary(log: &Handle) -> Result<PathsAnswer, String> {
     let mut errors = Vec::new();
     for bin in crate::sidecar::candidate_binaries() {
-        let mut cmd = Command::new(&bin);
-        cmd.args(["paths", "--json"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        if let Some(path) = &login_path {
-            cmd.env("PATH", path);
-        }
-        let output = match cmd.output() {
-            Ok(o) => o,
+        let answer = match ask_paths(&bin) {
+            Ok(answer) => answer,
             Err(e) => {
                 errors.push(format!("{}: {e}", bin.display()));
                 continue;
             }
         };
-        if !output.status.success() {
-            errors.push(format!(
-                "{}: paths answered {}",
-                bin.display(),
-                output.status
-            ));
-            continue;
-        }
-        let dir = match logs_dir_of(&String::from_utf8_lossy(&output.stdout)) {
-            Ok(dir) => dir,
-            Err(e) => {
-                errors.push(format!("{}: {e}", bin.display()));
-                continue;
-            }
-        };
-        log.attach(&dir, LogConfig::default())
+        log.attach(&answer.logs_dir, LogConfig::default())
             .map_err(|e| e.to_string())?;
-        return Ok(dir);
+        return Ok(answer);
     }
     Err(format!(
         "no bisa binary named the workspace. Tried:\n{}",
@@ -87,15 +80,50 @@ pub fn attach_from_binary(log: &Handle) -> Result<PathBuf, String> {
     ))
 }
 
-/// The `logs_dir` of an `bisa paths --json` answer.
-fn logs_dir_of(text: &str) -> Result<PathBuf, String> {
+/// One `bisa paths --json` with `bin`: the workspace's folders and the
+/// engine's holder, without a node and without touching the workspace.
+pub fn ask_paths(bin: &std::path::Path) -> Result<PathsAnswer, String> {
+    let mut cmd = Command::new(bin);
+    cmd.args(["paths", "--json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if let Some(path) = crate::login_env::login_path() {
+        cmd.env("PATH", path);
+    }
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(format!("paths answered {}", output.status));
+    }
+    paths_answer_of(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// A `bisa paths --json` answer, read. An older binary says nothing of the
+/// holder: nobody.
+fn paths_answer_of(text: &str) -> Result<PathsAnswer, String> {
     let answer: serde_json::Value =
         serde_json::from_str(text).map_err(|e| format!("the paths answer is not JSON: {e}"))?;
-    answer["logs_dir"]
-        .as_str()
-        .filter(|d| !d.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| "the paths answer names no logs_dir".to_string())
+    let dir = |key: &str| {
+        answer[key]
+            .as_str()
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .ok_or_else(|| format!("the paths answer names no {key}"))
+    };
+    let logs_dir = dir("logs_dir")?;
+    let data_dir = dir("data_dir")?;
+    let engine_holder = match &answer["engine_holder"] {
+        serde_json::Value::Null => None,
+        holder => Some(
+            serde_json::from_value::<Holder>(holder.clone())
+                .map_err(|e| format!("the paths answer's engine_holder is not a holder: {e}"))?,
+        ),
+    };
+    Ok(PathsAnswer {
+        data_dir,
+        logs_dir,
+        engine_holder,
+    })
 }
 
 /// Ask the node where this machine's log folder is and attach the file
@@ -254,17 +282,44 @@ mod tests {
     }
 
     #[test]
-    fn the_paths_answer_names_the_log_folder_or_says_why_not() {
+    fn the_paths_answer_names_the_folders_and_the_holder_or_says_why_not() {
+        let bare =
+            paths_answer_of(r#"{"data_dir":"/x/.bisa","logs_dir":"/x/.bisa/logs"}"#).unwrap();
+        assert_eq!(bare.logs_dir, PathBuf::from("/x/.bisa/logs"));
+        assert_eq!(bare.data_dir, PathBuf::from("/x/.bisa"));
+        assert_eq!(bare.engine_holder, None, "an older binary names no holder");
+        let free = paths_answer_of(
+            r#"{"data_dir":"/x/.bisa","logs_dir":"/x/.bisa/logs","engine_holder":null}"#,
+        )
+        .unwrap();
+        assert_eq!(free.engine_holder, None);
+        let held = paths_answer_of(
+            r#"{"data_dir":"/x/.bisa","logs_dir":"/x/.bisa/logs","engine_holder":{"pid":4242,"started_at":1700000000}}"#,
+        )
+        .unwrap();
         assert_eq!(
-            logs_dir_of(r#"{"data_dir":"/x/.bisa","logs_dir":"/x/.bisa/logs"}"#).unwrap(),
-            PathBuf::from("/x/.bisa/logs")
+            held.engine_holder,
+            Some(Holder {
+                pid: 4242,
+                started_at: 1_700_000_000
+            })
         );
-        assert!(logs_dir_of(r#"{"data_dir":"/x"}"#)
+        assert!(paths_answer_of(r#"{"data_dir":"/x"}"#)
             .unwrap_err()
             .contains("names no logs_dir"));
-        assert!(logs_dir_of(r#"{"logs_dir":""}"#)
+        assert!(paths_answer_of(r#"{"logs_dir":"/x/logs"}"#)
+            .unwrap_err()
+            .contains("names no data_dir"));
+        assert!(paths_answer_of(r#"{"logs_dir":"","data_dir":"/x"}"#)
             .unwrap_err()
             .contains("names no logs_dir"));
-        assert!(logs_dir_of("not json").unwrap_err().contains("not JSON"));
+        assert!(paths_answer_of("not json")
+            .unwrap_err()
+            .contains("not JSON"));
+        assert!(paths_answer_of(
+            r#"{"data_dir":"/x","logs_dir":"/x/logs","engine_holder":{"pid":"four"}}"#
+        )
+        .unwrap_err()
+        .contains("not a holder"));
     }
 }

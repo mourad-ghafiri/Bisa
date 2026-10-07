@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gonePaths, leftHosts, membershipsKnown } from "./gonePlacesModel.mjs";
+import { gonePaths, leftHosts, memberHostKeys, membershipsKnown } from "./gonePlacesModel.mjs";
 
 test("a thing deleted names the paths that stood on it", () => {
   assert.deepEqual(gonePaths({ type: "goal_deleted", goal: "01G" }), ["/goals/01G", "/projects/goal/01G"]);
@@ -62,4 +62,13 @@ test("a host's places are given up only on memberships the node answered: a read
   assert.ok(!app.includes('degraded.includes("hosts")'), "a degraded line is `hosts: <reason>` — it was never equal to `hosts`, so the guard could not fail");
   const shell = readFileSync(new URL("./useWorkspaceData.ts", import.meta.url), "utf8");
   assert.ok(shell.includes("setHostsRead(!!hs);") && shell.includes("setHostsRead(true);") && shell.includes("setHostsRead(false);"), "the load and the re-read both say whether the memberships answered");
+});
+
+test("the member hosts' keys are read without a throw: a section missing its host, its key or its state is left out", () => {
+  const member = (pubkey) => ({ host: { host: { pubkey }, state: { state: "member" } } });
+  assert.deepEqual(memberHostKeys([member("aa"), member("bb")]), ["aa", "bb"]);
+  assert.deepEqual(memberHostKeys([member("aa"), { host: { host: { pubkey: "left" }, state: { state: "left" } } }]), ["aa"], "a host the person left is no member");
+  assert.deepEqual(memberHostKeys([member("aa"), { host: null }, {}, null, { host: { state: { state: "member" } } }, { host: { host: { pubkey: 7 }, state: { state: "member" } } }]), ["aa"], "a shape the build does not know costs its row, never the window");
+  assert.deepEqual(memberHostKeys(null), []);
+  assert.deepEqual(memberHostKeys(undefined), []);
 });

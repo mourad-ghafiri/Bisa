@@ -59,13 +59,32 @@ damaged. The next start reads the files and does, before it serves anyone:
 Read the goal's Activity for that note — a run in the workspace keeps it in its own journal. In the desktop the sidecar restarts the node itself, on the
 same port, after a delay that doubles to thirty seconds while it keeps dying, and the page reads
 every list again when the stream comes back (*The node came back — everything was read again*).
+It waits for a boot as long as the node reports progress — the sidebar's footer says *Opening the
+workspace…*, *Rebuilding the index — 25 of 300 goals…*, *Starting the engine…* — so a rebuild after
+an upgrade is never killed half-way, and it stops a node gracefully before it kills one. A node
+that will not start says why there, and when the next try comes, with *Restart now*, *Reveal the
+log*, *Open the data folder* and *Quit Bisa* beside the line.
+
+**A file the crash tore never stops the open.** The owner key alone can — nothing is minted over
+it; restore it from a backup or the keyring. Every other file this build cannot read — the member
+file, the governance document, a settings layer, the `general` channel's snapshot, a goal's or a
+run's snapshot, a journal's last line — is moved under `quarantine/<stamp>/` or skipped, named in
+Settings › Node's *Workspace* section and on `GET /workspace`, and the node comes up without it:
+the member file is made again with the owner alone (the people it named are kept in the moved
+file, to admit again), governance is read as the owner's alone until it is written again, a
+settings layer costs its values until a setting is saved there. Nothing is deleted. `bisa workspace
+check` reads every file the same way ahead of an open — without the lock, without the index, beside
+a running node — and names what a crash tore and what earlier opens moved aside; `bisa doctor`
+points at it in one line. Deleting `index.sqlite` is safe at any time; deleting anything else is
+not, and deleting the workspace is never the answer.
 The window itself loses nothing to a node that restarts: where you were and how each screen stood
 are the desktop's own memory ([The desktop §Where you were](the-desktop.md#where-you-were)), written
 as you go and when the window is put away, so an app that was ended rather than quit still opens
 where it was — at most the last moment's scroll behind.
 
 ```sh
-bisa workspace reindex     # rebuild the index by hand; refused while a node holds the workspace
+bisa workspace check       # every file read as the next open would read it; exit 1 while anything is torn or quarantined
+bisa workspace reindex     # rebuild the index by hand, printing its stages; refused while a node holds the workspace
 ```
 
 A second engine never runs beside a first: `run/engine.lock` is held for the node's life, and a
@@ -89,7 +108,7 @@ attach the newest report and the file of the day yourself — `bisa logs` names 
 ```sh
 bisa logs            # the folder, each process's files, the crash reports, the newest one in a line
 bisa logs --json     # the same as the node's GET /logs answers
-bisa paths --json    # { "data_dir", "logs_dir" } — nothing opened, nothing made
+bisa paths --json    # { "data_dir", "logs_dir", "engine_holder": {pid, started_at} | null } — nothing opened, nothing made
 ```
 
 Four machine-scope settings, under Settings › Node › Logging or the CLI, change what is written
@@ -110,7 +129,11 @@ error's sentence, never a message, a file's text or a secret
 `logging.keep_files`, a crash report past fifty and a stale run marker are the things the platform
 removes on its own. `RUST_LOG=debug bisa node` still prints to the terminal as well — the
 environment governs stderr, the settings govern the file. The daemon stops on ctrl-c or `SIGTERM`
-and says which in its goodbye. It waits on nobody to do so: the event streams a desktop or a script
+— and, started with `BISA_STOP_ON_STDIN_CLOSE=1` as the desktop starts it, when its stdin closes
+(*parent gone*): the desktop's node lives and dies with the desktop, however the desktop ends —
+and says which in its goodbye. Under `--json` it writes each phase of its boot as a line
+(`{"boot": {"phase": "opening_workspace" | "rebuilding_index" | "starting_engine", "done", "of"}}`)
+before the socket line, which is what the desktop reads to say what the node is doing. It waits on nobody to do so: the event streams a desktop or a script
 holds open are ended — each listener reads the end of its stream — the engine is stopped, and the
 socket goes with the node. What was running is the next start's to pick up. An open desktop reads
 the end of its stream as the node going away, never as an error: the top of the window says
@@ -123,10 +146,13 @@ be read — the node is there — and the rest of the screen stands.
 binds anything and records its PID there. A second `bisa node` is refused at the door — before it
 opens the workspace — naming the holder's PID and the socket the running node answers on; a CLI
 command that would embed an engine while a daemon is busy and slow to answer is refused with the
-holder's PID rather than started. A dead holder releases the lock with its process. The desktop
-launched beside a node you run yourself says so in its footer within a second and starts its own
-the moment yours stops; and the desktop itself runs once — launching it again brings its window
-back ([The menu bar icon](the-desktop.md#the-menu-bar-icon)).
+holder's PID rather than started. A dead holder releases the lock with its process; `bisa paths
+--json` names the holder without taking anything. The desktop launched beside a node you run
+yourself says so in its footer within a second — naming the pid, and never signalling your node —
+and starts its own the moment yours stops; a node the desktop itself started and left behind — a
+Force Quit — is stopped by the next launch before its own starts (`run/desktop-node.json` names it,
+and a pid the system has since given to something else is left alone); and the desktop itself runs
+once — launching it again brings its window back ([The menu bar icon](the-desktop.md#the-menu-bar-icon)).
 
 **The control plane is behind a bearer token** in `run/token` (mode `0600`), minted on first start
 and reused, presented as `Authorization: Bearer <token>` or `?token=` for an `EventSource` or an

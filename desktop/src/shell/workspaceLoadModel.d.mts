@@ -12,10 +12,14 @@ export interface Settled<T> {
   offline: boolean;
 }
 
+/** What each read's answer must look like before it is applied, by name. */
+export declare const LOAD_SHAPES: Readonly<Record<string, (value: unknown) => boolean>>;
+
 export declare function settleLoads<T>(
   names: readonly string[],
   results: readonly PromiseSettledResult<T>[],
   isOffline: (reason: unknown) => boolean,
+  shapes?: Readonly<Record<string, (value: unknown) => boolean>> | null,
 ): Settled<T>;
 
 /** The name a read that did not answer goes under: `name: reason`. */
@@ -35,8 +39,8 @@ export declare function reloadOnReconnect(
 export declare function hostedFailure(hostLabel: string, what: "channels" | "dms", reason: unknown): string;
 /** The shell's line while the node cannot be reached. */
 export declare function offlineWords(reason: string | null): string;
-/** The shell's line while the node is away — by the last load's word or the bus's — `null` while it is there. */
-export declare function offlineLine(loadSaid: string | null, conn: "connecting" | "open" | "closed" | "lagged", reason: string | null): string | null;
+/** The shell's line while the node is away — the shell's own account of its node when it has one, else the last load's word or the bus's — `null` while it is there. */
+export declare function offlineLine(loadSaid: string | null, conn: "connecting" | "open" | "closed" | "lagged", reason: string | null, bootLine?: string | null): string | null;
 export declare function reconnectWords(): string;
 export declare const RELOADS_WORKSPACE: readonly string[];
 export declare function reloadsWorkspace(type: unknown): boolean;

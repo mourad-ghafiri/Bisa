@@ -3675,27 +3675,22 @@ export type SessionOrigin =
       name?: string | null;
       resumed?: boolean;
       origin: "step";
-      [k: string]: unknown;
     }
   | {
       phase: GuidancePhase;
       origin: "design";
-      [k: string]: unknown;
     }
   | {
       scope: string;
       on_behalf_of?: PrincipalId | null;
       origin: "turn";
-      [k: string]: unknown;
     }
   | {
       origin: "terminal";
-      [k: string]: unknown;
     }
   | {
       purpose: AskPurpose;
       origin: "ask";
-      [k: string]: unknown;
     };
 /**
  * What a one-shot ask is for.
@@ -3703,20 +3698,16 @@ export type SessionOrigin =
 export type AskPurpose =
   | {
       kind: "classifier";
-      [k: string]: unknown;
     }
   | {
       point?: DecisionPoint | null;
       kind: "decision";
-      [k: string]: unknown;
     }
   | {
       kind: "commit_message";
-      [k: string]: unknown;
     }
   | {
       kind: "pull_request_message";
-      [k: string]: unknown;
     };
 /**
  * What a session is doing, as a person reads it. The same nine words on the

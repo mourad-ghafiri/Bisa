@@ -35,8 +35,8 @@
  * holds the sources to it exactly, so a file that gained a sentence fails and
  * one that lost a sentence asks for the baseline to be lowered (`just
  * i18n-baseline`). The baseline is empty — `{}` — and stays so, apart from
- * what is not for a person at all: the crash boundary and the prompts an
- * agent reads (`NOT_FOR_A_PERSON`). `node src/i18n/ratchet.mjs --list` prints
+ * what is not for a person at all: the prompts an agent reads
+ * (`NOT_FOR_A_PERSON`). `node src/i18n/ratchet.mjs --list` prints
  * each sentence as `path:line: literal`.
  *
  * Plain `.mjs`, so `node --test` reads it and `ratchet.mjs` runs it; this
@@ -328,7 +328,7 @@ export function bareProse(source, kind) {
  * speak with no catalog), the prompts handed to an agent, the browser tools'
  * answers to an agent.
  */
-const NOT_FOR_A_PERSON = Object.freeze(["ui/ErrorBoundary.tsx", "views/_work/agentReviewModel.mjs", "views/_work/prReviewModel.mjs", "ui/artifact/pageInspector.mjs"]);
+const NOT_FOR_A_PERSON = Object.freeze(["views/_work/agentReviewModel.mjs", "views/_work/prReviewModel.mjs", "ui/artifact/pageInspector.mjs"]);
 
 export function kindOf(file) {
   if (/\.test\.mjs$/.test(file) || file.endsWith(".d.mts") || file.endsWith("types.gen.ts") || file.endsWith("types.hand.ts")) return null;

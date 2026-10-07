@@ -215,9 +215,19 @@ async fn git_project(
     bisa_vcs::git::add_all(&root).unwrap();
     bisa_vcs::git::commit(&root, "baseline", false).unwrap();
 
+    // The bare origin's HEAD names the branch the source pushes: the
+    // platform made the source with git's own default — `init.defaultBranch`
+    // on this machine, `master` without one — and the sealed git here knows
+    // no such setting, so an origin made by its default alone could name a
+    // branch the source never pushes; a clone of it would check nothing out,
+    // and `switch -c … <base>` would find no base.
+    let branch = raw_git(&root, &["symbolic-ref", "--short", "HEAD"]);
     let origin = engine.workspace().root().join(format!("{slug}-origin.git"));
     std::fs::create_dir_all(&origin).unwrap();
-    raw_git(&origin, &["init", "--bare", "--quiet"]);
+    raw_git(
+        &origin,
+        &["init", "--bare", "--quiet", "--initial-branch", &branch],
+    );
     bisa_vcs::git::remote_add(&root, "origin", origin.to_str().unwrap()).unwrap();
 
     (goal, project, root, origin)

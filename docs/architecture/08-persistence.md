@@ -45,7 +45,7 @@ Every durable fact is a file.
 | A check start's folder | `events/scratch/<host kind>-<host id>-<step>/` | where a check start that names no project runs its command |
 | A session's record | `sessions/<adapter>/<id>.json` | the adapter, the `kind` (`worker` · `guided` · `conversation` — the fourth kind, `terminal`, lives in presence and is never recorded), the item, the workstream, the conversation it is a turn of, the transcript, `status` (`live` · `parked` · `ended`), the harness child's `pid` and when it was seen, `ended_at` |
 | Attachment bytes — an attachment's and an artifact's alike | `attachments/<2 hex>/<62 hex>` | content-addressed; `attachments/named/<sha256>/<name>` is a blob under its maker's name, made on demand for the file manager and the default app ([12 — Artifacts](12-artifacts.md)) |
-| Membership and governance | `members.json`, `governance.json` | the owner and the people hosted here, each at a role ([14](14-collaboration.md)); four gate policies — owner, admins, members, a list; an older shape, or a file that is there and does not parse, is refused at open — read whole or not at all, never read as empty and written back |
+| Membership and governance | `members.json`, `governance.json` | the owner and the people hosted here, each at a role ([14](14-collaboration.md)); four gate policies — owner, admins, members, a list; a file that is there and does not parse never stops the open: `members.json` is moved under `quarantine/<stamp>/` and made again with the owner alone — the people it named, and their roles, are kept in the moved file to admit again — and `governance.json` is read as the owner's alone, closed on every gate, until it is fixed or written again from Settings; both are named in `Workspace::problems()`. Every other read of them stays strict — read whole or not at all, never read as empty and written back |
 | Invitations and held messages | `invites.json` (mode `0600`), `held.json` | an invitation's record with its secret's hash and its state; the messages from outside no agent may hear yet, with the reason |
 | What this node holds of a workspace it joined | `hosts/<host-pubkey>/` | `bisa-guest`'s, apart from the store: the host's card, the channels and people the host said, the relayed facts one log per scope, the ids seen, the read marks |
 | The wire's ledger | `net_published.jsonl` | `(member, event)` pairs the host's pump delivered, so a fact is sent once across restarts |
@@ -115,6 +115,29 @@ answered with that, never as a reference to something nobody wrote. A list is a 
 the same way. The node's read routes carry the fact one step further: a goal whose current run
 cannot be read is a row with `run_unreadable: true`, drawn as a goal with no run.
 
+### One torn file never stops the open
+
+The rule `Workspace::open` keeps, written in its doc comment: **the owner key alone stops an
+open; every other file this build cannot read is quarantined or skipped, and named.** A torn
+`identity/owner.key` is `OwnerKeyUnreadable` — no new key is minted over it, since every record
+is signed by the old one, and the file is written atomically from now on (a temporary hard-linked
+into place), so it is never torn again by a crash. Everything else: `members.json` and the
+`general` channel's snapshot are moved under `quarantine/<unix stamp>/<relative path>` and made
+again; `governance.json` is read as the owner's alone, closed on every gate, until it is fixed or
+written again (`set_gate_policy` quarantines the torn file first); a settings layer costs its
+values and is named once — `settings()` resolves from the readable layers, so the engine, the pump
+and the logger still boot — and a write to that scope quarantines it and writes a fresh layer;
+every rebuild walker skips a record it cannot read by name; `reconcile_live` tolerates an index
+error per run. A snapshot a write would replace and cannot read is quarantined on that write
+(`SnapshotStore::existing_or_quarantined`), never a block for good. Each is a
+`WorkspaceProblem { kind, path, text, quarantined?, at }` (`problems.rs`, nine kinds), said once at
+`error`, kept for the process and answered on `GET /workspace` as `problems` — the desktop's
+Settings › Node lists them with where each file went, the footer's node overlay counts them — and
+`bisa workspace check` (`check.rs`) reads every file the same way ahead of an open, without the
+lock or the index: the owner key, the member file, governance, the settings layers, every snapshot
+under a `state/` folder, every line log's tail, and the quarantine. A quarantine moves a file and
+never deletes one.
+
 ### Ordering a snapshot
 
 An addressable snapshot is ordered **revision first**: the stored `(revision, created_at)` must be
@@ -140,11 +163,14 @@ One function, `write_atomic`, and it does three things the shape it replaces did
    platform whose model is *the filesystem is truth* needs.
 3. **A failed rename removes its temporary**, so a workspace does not fill with orphans.
 
-Append-only logs — the journal, the ledger, the signal queue, the conversation logs, the activity
-log — open with `O_APPEND`, write one line per call and `sync_data` it before returning
-(`append_line`): a fact acknowledged to a caller is on the disk, not in a page cache a power loss
-empties. The tail an interrupted write leaves is one partial line, and every reader skips a line it
-cannot parse.
+Append-only logs — the journal, the ledger, the signal queue, the conversation logs — open with
+`O_APPEND`, write one line per call and `sync_data` it before returning (`append_line`): a fact
+acknowledged to a caller is on the disk, not in a page cache a power loss empties. The activity
+log appends without the fsync (`append_line_unsynced`): its rows are the Pulse's history, not a
+fact a caller was told was kept, and the engine writes several per stop and settle — an fsync each
+would cost every stop a disk round-trip. The tail an interrupted write leaves is one partial line, and every reader skips a line it
+cannot parse — and the next `append_line` starts a new line when the file does not end in one, so
+the next fact is never glued to the torn line and lost with it.
 
 ### Where paths come from
 
@@ -238,7 +264,19 @@ the snapshots, so a snapshot written a moment before the crash is never ahead of
 its projection when the engine reads it. Both walks read every snapshot through `tolerated`: a run,
 goal, work item or workflow this build cannot read is one error line naming the file and a skipped
 row (`list_work_items_readable` names the skipped items), never a failed open — the single read of
-that record still refuses it by name. Only `governance.json` stops the open, by design. `wal_autocheckpoint = 1000` bounds the WAL a busy node
+that record still refuses it by name. An **orphan run** — a run still `running` whose goal never
+recorded it, the crash having fallen between the run's snapshot and the goal's — is left alone by
+the open and ended by the **engine once it holds the lock** (`Workspace::end_orphan_runs`, first
+of its boot walks): as stopped, through the run funnel, and named (`OrphanRun`). Never by the open,
+since every verb opens the workspace — beside a running node as well — and the run that node is in
+the middle of starting, its snapshot written and its goal's a moment behind, looks exactly like an
+orphan to a second process; `create_goal_run` writes the goal's snapshot before it indexes either,
+so the window is as narrow as two file writes. The open's walk also reads every `running` or
+`waiting` index row back through its record: a finished record brings the row in
+step, a record that is gone drops the row (`StaleRow`), so a listener's guard never counts a run
+that ended. Two runs on one dispatched signal keep the earlier as the signal's record and index the
+other without it (`DuplicateDispatch`) — the unique index is never the reason a boot fails. Only the
+owner key stops the open ([the rule](#one-torn-file-never-stops-the-open)). `wal_autocheckpoint = 1000` bounds the WAL a busy node
 grows.
 
 ### What the constraints are for
@@ -742,6 +780,9 @@ must insert in dependency order, because a child inserted before its parent is n
 than a dangling row.
 
 ```
+0. the stamp is cleared (mark_building) before the rows are: a rebuild cut short — or a
+   `bisa workspace reindex` that fails after the clear — reads as unstamped at the next
+   open, never as a stamped, empty index the open would trust
 1. agents · teams · skills · connectors · mcp_servers · members · channels (+ channel_roster)
 2. projects
 3. workflows                  (workflows/state/ and every goals/<id>/state/; a goal's row names the
@@ -772,6 +813,14 @@ than a dangling row.
                                and is rebuilt again at the next open)
 ```
 
+Every walker reads its records through `tolerated` — a project, channel, note, drawing,
+workstream, session, listening record, member or run this build cannot read is one row left out and
+one `RebuildSkipped` problem, never a failed rebuild — and a line log with one invalid byte is read
+lossily, the line that then fails to parse skipped as ever. `rebuild_index_observed` reports its
+progress (`BootPhase::RebuildingIndex { done, of }`, every twenty-five goals) to whoever started
+the node: `bisa workspace reindex` prints the stages, `bisa node --json` writes them as lines the
+desktop shell relays to the sidebar, so a long rebuild after an upgrade is waited for, not killed.
+
 `TABLES_IN_FK_ORDER` (`index.rs`) names the thirty-five tables in an order their foreign keys
 allow — a parent before its child, not the walkers' order above line for line — and `clear()`
 deletes in its reverse.
@@ -791,13 +840,15 @@ of its own, run by the person ([Migrations](../contributing/migrations.md)).
 graph TB
     open["Workspace::open"] --> dirs["create the directory skeleton"]
     dirs --> keys["load or mint the owner keypair"]
+    keys -->|"a key file this build cannot read"| stop["refused: OwnerKeyUnreadable — the one file that stops an open"]
     keys --> idx{"index.sqlite<br/>stamped SCHEMA_VERSION?"}
-    idx -->|"no or mismatched"| fresh["discard the file, create the schema"]
+    idx -->|"no or mismatched"| fresh["clear the stamp, discard the rows, create the schema"]
     idx -->|"yes"| ok["use it"]
-    fresh --> rebuild["rebuild from truth, in FK order"]
-    rebuild --> ensure
-    ok --> ensure
-    ensure["<b>ensure the permanent objects</b>"] --> a["ensure_owner_member()"]
+    fresh --> rebuild["rebuild from truth, in FK order — every record it cannot read skipped and named; the stamp last"]
+    rebuild --> reconcile
+    ok --> reconcile
+    reconcile["reconcile the live runs — stale rows repaired, a duplicate dispatch resolved; an orphan run is the engine's to end, under its lock"] --> ensure
+    ensure["<b>ensure the permanent objects</b> — a torn members.json or general quarantined and made again, a torn governance.json read as the owner's alone"] --> a["ensure_owner_member()"]
     a --> b["ensure_core_agents()"]
     b --> c["ensure_general_channel()"]
     c --> ready["ready"]

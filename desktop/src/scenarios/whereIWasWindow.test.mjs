@@ -70,7 +70,7 @@ test("every move, resize and change of scale of the main window is noted, and th
   assert.ok(!noted.includes("window_state::keep("), "no write on a move");
   // The held close still holds and still hands over; the write sits between.
   const close = between(events, "WindowEvent::CloseRequested { api, .. }", "WindowEvent::Moved(_)");
-  inOrder(close, ["window.label() == tray::MAIN_WINDOW", "api.prevent_close()", "window_state::keep(window.app_handle())", "window.emit(CLOSE_REQUESTED, ())"], "held, written, handed to the webview");
+  inOrder(close, ["window.label() == tray::MAIN_WINDOW", "api.prevent_close()", "window_state::keep(window.app_handle())", "quit::ask_webview(window.app_handle(), window, CLOSE_REQUESTED)"], "held, written, handed to the webview");
   const blurred = between(events, "WindowEvent::Focused(false)", "WindowEvent::Focused(true)");
   assert.ok(blurred.includes("window.label() == tray::MAIN_WINDOW") && blurred.includes("window_state::keep(window.app_handle())"), "written when the window loses focus");
   // The arm that was there is there still.

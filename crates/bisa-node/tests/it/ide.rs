@@ -1480,18 +1480,23 @@ async fn code_host_routes_are_honest_without_a_remote_and_conflicts_have_three_s
     // Without SSH configured the SSH routes say so, and spawn nothing.
     let (status, _) = request(&socket, "GET", "/git/ssh", None).await;
     assert_eq!(status, 503);
-    // Profiles: none yet, and a bad spec is refused by name.
+    // Profiles: none yet, and a bad spec is refused by name. An owner is a
+    // login, or logins joined by `/` — a GitLab group path — so a space in
+    // it is what is refused, never the slash.
     let (status, p) = request(&socket, "GET", "/git/profiles", None).await;
     assert_eq!(status, 200, "{p}");
     assert!(p["profiles"].as_array().is_some_and(|p| p.is_empty()));
-    let (status, _) = request(
+    let (status, refused) = request(
         &socket,
         "PUT",
         "/git/profiles/acme",
-        Some(json!({"label": "Acme", "host": "github.com", "owner": "acme/web", "name": "Ada", "email": "ada@acme.example"})),
+        Some(json!({"label": "Acme", "host": "github.com", "owner": "acme web", "name": "Ada", "email": "ada@acme.example"})),
     )
     .await;
-    assert_eq!(status, 400, "an owner with a slash is not an owner");
+    assert_eq!(
+        status, 400,
+        "an owner with a space is not an owner: {refused}"
+    );
 
     // A conflict: the same line changed on two branches, merged in the project tree.
     raw_git(&root, &["branch", "theirs"]);

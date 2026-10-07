@@ -1222,9 +1222,11 @@ impl HarnessSession for AcpSession {
 
     async fn abort(&self) -> Result<(), HarnessError> {
         // Told the way it understands first — the turn cancelled — then its
-        // whole group ended with a grace: an agent that goes on after its
-        // cancel, and the MCP server it was handed, are not left running.
-        // The session is over now, whatever the driver reads later.
+        // stdin closed and its whole group given the grace to leave on the
+        // EOF, ended past it: an agent that leaves on EOF ends on its own
+        // terms, and one that goes on after its cancel, with the MCP server
+        // it was handed, is not left running. The session is over now,
+        // whatever the driver reads later.
         if let Some(sid) = self.shared.native_id() {
             if let Err(e) = self
                 .shared
@@ -1238,7 +1240,7 @@ impl HarnessSession for AcpSession {
         }
         self.shared.end(Outcome::Aborted);
         self.shared
-            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .abort_group(bisa_harness::proc::ABORT_GRACE)
             .await;
         Ok(())
     }

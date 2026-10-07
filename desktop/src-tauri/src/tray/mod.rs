@@ -307,7 +307,7 @@ fn request_quit(app: &AppHandle) {
     match main_window(app) {
         Some(window) => {
             show_window(app);
-            if let Err(e) = window.emit(crate::QUIT_REQUESTED, ()) {
+            if let Err(e) = crate::quit::ask_webview(app, &window, crate::QUIT_REQUESTED) {
                 warn("could not hand the quit to the webview", e);
             }
         }

@@ -779,6 +779,14 @@ settings-node-panel-restart-sidecar = Restart sidecar
 settings-node-panel-resume = Resume
 settings-node-panel-sidecar-only-managed-desktop-app = The sidecar is only managed by the desktop app.
 settings-node-panel-v = v{ $version }
+settings-node-panel-workspace = Workspace
+settings-node-panel-workspace-problems-count = { $n ->
+    [one] 1 problem worked around
+   *[other] { $n } problems worked around
+}
+settings-node-panel-workspace-problems-lead = The last open found files it could not read and went on without them: each was moved under quarantine/ or skipped, and the node came up. What a moved file held is kept there for you.
+settings-node-panel-workspace-moved-to = moved to { $path }
+settings-node-panel-workspace-problems-check = To restore one, put the file back by hand and restart the node; to see the whole list without the node, run `bisa workspace check`.
 settings-notes-panel-button-corner-alt-n-still-opens = The button in the corner. Alt+N still opens the panel when this is off.
 settings-notes-panel-default-view = Default view
 settings-notes-panel-dock-has-been-dragged-from-corner = The dock has been dragged from its corner.

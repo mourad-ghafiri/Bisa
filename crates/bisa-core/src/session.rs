@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 /// What woke a session, and for what.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "origin", rename_all = "snake_case")]
+#[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SessionOrigin {
     /// A run's `agent` step: the step by id and by its name in the workflow,
     /// and whether this session resumed a work item a restart cut short. The
@@ -52,7 +52,7 @@ pub enum SessionOrigin {
 
 /// What a one-shot ask is for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AskPurpose {
     /// The Tool & Commands Guard's classifier reading a call, a message or
     /// content an agent is about to read.

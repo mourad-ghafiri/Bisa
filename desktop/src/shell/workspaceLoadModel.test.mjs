@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 
 import { FIRST_CONN, connAfter } from "../busModel.mjs";
-import { RELOADS_WORKSPACE, degradedWords, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads } from "./workspaceLoadModel.mjs";
+import { LOAD_SHAPES, RELOADS_WORKSPACE, degradedWords, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads } from "./workspaceLoadModel.mjs";
 
 const ok = (value) => ({ status: "fulfilled", value });
 const bad = (reason) => ({ status: "rejected", reason });
@@ -32,6 +32,31 @@ test("a missing result and a non-error rejection still read as one failed name",
   const s = settleLoads(["a", "b"], [bad("boom")], offline);
   assert.deepEqual(s.degraded, ["a: boom", "b: no answer"]);
   assert.deepEqual(s.ok, {});
+});
+
+test("an answer of the wrong shape is a read that did not answer — named, left out, never applied", () => {
+  const s = settleLoads(["workspace", "goals", "paused"], [ok({ pubkey: "me" }), ok({ items: [] }), ok("yes")], offline, LOAD_SHAPES);
+  assert.deepEqual(Object.keys(s.ok), ["workspace"], "the goals and the flag are not applied");
+  assert.equal(s.degraded.length, 2);
+  assert.ok(s.degraded[0].startsWith("goals: ") && s.degraded[0].includes("unexpected shape"), s.degraded[0]);
+  assert.ok(s.degraded[1].startsWith("paused: "), s.degraded[1]);
+  assert.equal(s.offline, false, "a wrong shape is not the node being away");
+  const whole = settleLoads(["goals"], [ok({ goals: [] })], offline, LOAD_SHAPES);
+  assert.deepEqual(whole, { ok: { goals: { goals: [] } }, degraded: [], offline: false });
+  const unshaped = settleLoads(["goals"], [ok({ items: [] })], offline);
+  assert.deepEqual(Object.keys(unshaped.ok), ["goals"], "no shapes handed in: taken as it came, as before");
+});
+
+test("every read the hook makes has a shape, and each shape asks for the one field the hook reads", () => {
+  const store = readFileSync(new URL("./useWorkspaceData.ts", import.meta.url), "utf8");
+  const names = /const LOAD_NAMES = \[([^\]]+)\]/.exec(store)[1].match(/"([a-z]+)"/g).map((s) => s.replaceAll('"', ""));
+  assert.deepEqual(Object.keys(LOAD_SHAPES).sort(), [...names].sort(), "one shape a read");
+  assert.ok(store.includes("LOAD_SHAPES,"), "and the hook hands them in");
+  assert.equal(LOAD_SHAPES.workspace({ pubkey: "p" }), true);
+  assert.equal(LOAD_SHAPES.workspace({}), false);
+  assert.equal(LOAD_SHAPES.hosts({ sections: [], failed: [] }), true);
+  assert.equal(LOAD_SHAPES.hosts({ sections: [] }), false);
+  assert.equal(LOAD_SHAPES.inbox(null), false, "null is not a list");
 });
 
 test("the chrome says how many lists failed, names them in the title, and says nothing when offline or whole", () => {
@@ -172,9 +197,18 @@ test("the node is said to be away by the last load or by the bus, whichever know
   assert.equal(offlineLine(undefined, "open", null), null);
 });
 
-test("the workspace's offline line is the model's, fed by the bus", () => {
+test("the shell's own account of its node is the line while the node is away, and never makes a node away by itself", () => {
+  assert.equal(offlineLine(null, "closed", null, "Rebuilding the index — 25 of 300 goals…"), "Rebuilding the index — 25 of 300 goals…", "the stream ended and the shell says why: its line");
+  assert.equal(offlineLine(null, "closed", "the node did not start: no binary", "Starting the node…"), "Starting the node…", "the shell's live word beats the reason it gave once");
+  assert.equal(offlineLine("waiting for the node…", "open", null, "Starting the engine…"), "Starting the engine…", "a load found nobody and the shell is booting one: the phase");
+  assert.equal(offlineLine(null, "open", null, "Starting the node…"), null, "the node is there and the last load answered: a stale boot line makes nothing away");
+  assert.equal(offlineLine(null, "connecting", null, "Opening the workspace…"), null);
+  assert.equal(offlineLine(null, "closed", null, null), "waiting for the node…", "no account: the plain wait");
+});
+
+test("the workspace's offline line is the model's, fed by the bus and the shell's account of its node", () => {
   const store = readFileSync(new URL("./useWorkspaceData.ts", import.meta.url), "utf8");
-  assert.ok(store.includes("offline: offlineLine(offline, conn, nodeFailureReason())"));
+  assert.ok(store.includes("offline: offlineLine(offline, conn, nodeFailureReason(), bootLine(boot))"));
   assert.ok(store.includes("useEffect(() => watchConnection(setConn), [])"));
 });
 

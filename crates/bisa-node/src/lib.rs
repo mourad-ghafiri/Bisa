@@ -1296,6 +1296,10 @@ async fn workspace_info(State(state): State<Shared>) -> Result<Json<serde_json::
         // desktop shell never spells a workspace folder itself.
         "logs_dir": ws.paths().logs_dir(),
         "members": members,
+        // What the open and the rebuild found wrong and worked around — a
+        // file moved under `quarantine/`, a record skipped, a run ended at
+        // the open — so the desktop can say it and a person can act on it.
+        "problems": ws.problems(),
     })))
 }
 
