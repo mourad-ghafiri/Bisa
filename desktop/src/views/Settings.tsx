@@ -43,7 +43,7 @@ import { AGENTS_KEY as MOBILE_DEVELOPMENT_AGENTS_KEY, ENABLED_KEY as MOBILE_DEVE
 import { CachePanel } from "./_settings/CachePanel";
 import { GoalsPanel } from "./_settings/GoalsPanel";
 import { IdePanel } from "./_settings/IdePanel";
-import { DEFAULT_MODE_KEY } from "./_goal/goalMode.mjs";
+import { AUTO_CEILING_KEY, AUTO_PERMISSIONS_KEY, DEFAULT_MODE_KEY } from "./_goal/goalMode.mjs";
 import { BOARD_KEYS } from "./_board/boardSettings.mjs";
 import { RegistryPanel } from "./_settings/RegistryPanel";
 import { GlobalGitPanel } from "./_settings/GlobalGitPanel";
@@ -379,7 +379,7 @@ export default function Settings() {
               {panel.id === "goals" && (
                 <>
                   <GoalsPanel />
-                  <RegistryPanel group="goals" omit={[DEFAULT_MODE_KEY]} />
+                  <RegistryPanel group="goals" omit={[DEFAULT_MODE_KEY, AUTO_CEILING_KEY, AUTO_PERMISSIONS_KEY]} />
                 </>
               )}
               {panel.id === "workflow" && <RegistryPanel group="workflow" />}

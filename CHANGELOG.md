@@ -8,6 +8,33 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Added
+
+- `goals.auto.ceiling`, under Settings › Automation › Goals as *A step's ceiling in an auto goal*:
+  where a step's ceiling is in a goal that runs unattended. *Runs commands* (`exec`, the default) —
+  a step that may change files may also run commands and the MCP tools that act; *The step's own*
+  (`step`) — every step keeps the ceiling its design gives it, and what is above it is
+  `goals.auto.permissions`'s to settle, as before. A `read` step stays read-only either way, and a
+  guided or manual goal keeps its step's ceiling.
+
+### Changed
+
+- An auto goal no longer asks about ordinary commands. Every `agent` step defaults to a `write`
+  ceiling, so on an auto goal every shell command — `cargo test`, `npm install` — was above it and
+  went to the classifier, and any no-verdict (a slow or absent classifier, one switched off) landed
+  in the Inbox as *Allow `Bash`?*. Now a `write` step on an auto goal runs commands on its own
+  (`goals.auto.ceiling`). The guard's rules still come first — a `deny` refuses, an `ask` asks, a
+  `classify` rule still reads the classifier — a `read` step still has the classifier read above
+  it, a harmful verdict still reaches you, and a `human`, `approval` or release step still waits.
+  A workspace that wants every command above a `write` ceiling read by the classifier, or asked
+  (`goals.auto.permissions = ask`), sets `goals.auto.ceiling` to `step`. The Workflow Agent's
+  auto-mode brief says so too.
+
+### Fixed
+
+- Settings › Automation › Goals drew *Above a step's ceiling in an auto goal* twice — as the
+  panel's switch and again as a registry row under it; the row is gone.
+
 ## [0.3.0] - 2026-10-06
 
 ### Added

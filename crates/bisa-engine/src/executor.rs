@@ -1423,13 +1423,17 @@ async fn drive_session(
             }
             // The harness stopped for an answer: one answerer for every driver.
             SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) => {
+                // How far this step goes on its own: its ceiling — an auto
+                // goal's `write` step runs commands too — and what happens
+                // above it, read together so the two can never disagree.
+                let reach = crate::inputs::step_reach(inner, home.goal(), spec.tier_ceiling);
                 crate::inputs::answer_request(
                     inner,
                     crate::inputs::InputContext {
                         live_run,
                         home: Some(home),
                         work_item: Some(item_id),
-                        tier_ceiling: spec.tier_ceiling,
+                        tier_ceiling: reach.ceiling,
                         agent: spec.agent.clone(),
                         // The workstream the session runs in, as the harness
                         // itself names it: what a relative path in a command
@@ -1437,7 +1441,7 @@ async fn drive_session(
                         cwd: session.resume_token().map(|t| t.cwd),
                         classifier: true,
                         on_behalf_of: None,
-                        above: crate::inputs::above_ceiling(inner, home.goal()),
+                        above: reach.above,
                         conversation: None,
                     },
                     session,

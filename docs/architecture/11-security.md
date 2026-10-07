@@ -158,8 +158,13 @@ it and the agent hears the rule's label; `ask` opens an Escalation gate on the s
 goal, or its workspace run — whose question shows the redacted command in a fenced block, subject
 `guard:<tool>`; `classify` asks the classifier
 first. No match falls to the **step's tier ceiling, inside the same funnel** (`Reach` on
-`decide_tool`; `inputs.rs` hands it the call's tier, the step's ceiling and what to do above it):
-a permission inside the step's `ToolTier` is allowed at once; above it, in a guided or manual goal —
+`decide_tool`; `inputs.rs` hands it the call's tier, the step's ceiling and what to do above it —
+`inputs::step_reach`, one reading of the goal's mode and the two `goals.auto.*` keys): **in an auto
+goal a `write` step's ceiling reads as `exec`** (`goals.auto.ceiling`, `exec` by default;
+`GoalMode::ceiling` — a step that may change files may also run commands and the MCP tools that
+act, a `read` step stays read-only, and `step` keeps every step's own), so an ordinary command is
+within it; a permission inside the ceiling is allowed at once and recorded nowhere, as any read is;
+above it, in a guided or manual goal —
 or a workspace run, which is attended: somebody started it and reads its questions — an escalation
 like an `ask` rule's — subject `permission:<tool>`, recorded under the rule name
 `tier_ceiling` — and **in an auto goal the classifier's reading first** (`goals.auto.permissions`,
@@ -415,8 +420,9 @@ agent it wakes may do — [14](14-collaboration.md)), `security.content.screen` 
 and `security.mcp.observed` (whether an
 installed MCP server is mounted on a harness the guard cannot judge; `refuse` by default) — and,
 beside them under the goals' own
-group, `goals.auto.permissions`, what an auto goal does above a step's ceiling (`classify` by
-default, `ask` to be asked as a guided goal is). The rule lists, the `builtins_off` lists and
+group, `goals.auto.ceiling`, where a step's ceiling is in an auto goal (`exec` by default — a
+`write` step runs commands too; `step` keeps every step's own), and `goals.auto.permissions`, what
+an auto goal does above it (`classify` by default, `ask` to be asked as a guided goal is). The rule lists, the `builtins_off` lists and
 the two host lists merge across the workspace and machine scopes; the scalars resolve as every other
 setting does. The engine keeps one compiled policy and rebuilds it when a `security.*` key changes
 (the classifier's cache and the remembered answers go with it); a rule it cannot read or compile is

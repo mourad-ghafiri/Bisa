@@ -1394,6 +1394,13 @@ fn run_on_auto(
     (goal, run)
 }
 
+/// Keep every step's own ceiling in an auto goal — `goals.auto.ceiling =
+/// step` — so a `write` step's command is above it and the classifier's to
+/// read, as every auto goal's was before a `write` step ran commands alone.
+fn keeps_step_ceiling(engine: &Engine) {
+    set(engine, "goals.auto.ceiling", json!("step"));
+}
+
 /// A worker that runs one turn and asks for nothing.
 fn quiet_worker() -> MockAdapter {
     MockAdapter {
@@ -1412,12 +1419,15 @@ fn quiet_worker() -> MockAdapter {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_auto_goal_runs_a_call_above_the_ceiling_when_the_classifier_says_safe() {
     let dir = tempfile::tempdir().unwrap();
-    // `Exec` above the step's `Write` ceiling, and no rule with an opinion.
+    // `Exec` above the step's `Write` ceiling, and no rule with an opinion —
+    // the step's own ceiling kept, since lifted a `write` step's command
+    // would not be above it at all.
     let worker = asking_worker("fake-tool build --release");
     let answered = Arc::clone(&worker.answered);
     let classifier = classifier_saying("SAFE");
     let asked = Arc::clone(&classifier.prompts);
     let engine = engine_with_classifier(&dir, worker, classifier);
+    keeps_step_ceiling(&engine);
     let mut rx = engine.events();
     let (goal, _) = run_on_auto(
         &engine,
@@ -1465,6 +1475,7 @@ async fn an_auto_goal_asks_above_the_ceiling_when_the_classifier_finds_it_harmfu
         worker,
         classifier_saying("HARMFUL: it wipes the working tree."),
     );
+    keeps_step_ceiling(&engine);
     let mut rx = engine.events();
     run_on_auto(
         &engine,
@@ -1502,6 +1513,7 @@ async fn an_auto_goal_refuses_above_the_ceiling_outright_when_harmful_means_deny
     let answered = Arc::clone(&worker.answered);
     let engine = engine_with_classifier(&dir, worker, classifier_saying("HARMFUL: it wipes"));
     set(&engine, "security.classifier.on_harmful", json!("deny"));
+    keeps_step_ceiling(&engine);
     let mut rx = engine.events();
     run_on_auto(
         &engine,
@@ -1533,6 +1545,7 @@ async fn an_auto_goal_asks_above_the_ceiling_when_the_classifier_is_off() {
     let worker = asking_worker("fake-tool build");
     let engine = engine_with_classifier(&dir, worker, classifier_saying("SAFE"));
     set(&engine, "security.classifier.enabled", json!(false));
+    keeps_step_ceiling(&engine);
     let mut rx = engine.events();
     run_on_auto(
         &engine,
@@ -1556,6 +1569,7 @@ async fn an_auto_goal_asks_above_the_ceiling_when_the_workspace_says_ask() {
     let asked = Arc::clone(&classifier.prompts);
     let engine = engine_with_classifier(&dir, worker, classifier);
     set(&engine, "goals.auto.permissions", json!("ask"));
+    keeps_step_ceiling(&engine);
     let mut rx = engine.events();
     run_on_auto(
         &engine,
@@ -1573,8 +1587,139 @@ async fn an_auto_goal_asks_above_the_ceiling_when_the_workspace_says_ask() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_auto_goal_runs_a_command_on_a_writing_step_with_nobody_asked_and_no_classifier() {
+    let dir = tempfile::tempdir().unwrap();
+    // `Exec` on a `write` step, no rule with an opinion — and an auto goal,
+    // whose `write` step runs commands on its own (`goals.auto.ceiling`'s
+    // default): within the ceiling, so neither the classifier nor a person
+    // hears of it, and nothing is recorded, as for any read.
+    let worker = asking_worker("fake-tool build --release");
+    let answered = Arc::clone(&worker.answered);
+    let classifier = classifier_saying("SAFE");
+    let asked = Arc::clone(&classifier.prompts);
+    let engine = engine_with_classifier(&dir, worker, classifier);
+    let mut rx = engine.events();
+    let (goal, _) = run_on_auto(
+        &engine,
+        "runs alone",
+        new_workflow("runs-alone", vec![agent_step("run", "mock")]),
+    );
+    let mut gate_opened = false;
+    wait_for(&mut rx, "the item ends", |e| {
+        gate_opened |= matches!(&e.payload, EnginePayload::GateOpened { .. });
+        matches!(&e.payload, EnginePayload::ExecutionEnded { .. })
+    })
+    .await;
+    let answers = answered.lock().unwrap().clone();
+    assert!(
+        matches!(&answers[0].1, InputAnswer::Allow { .. }),
+        "the command runs: {:?}",
+        answers[0].1
+    );
+    assert!(!gate_opened, "nobody was asked");
+    assert!(
+        asked.lock().unwrap().is_empty(),
+        "the classifier never read an ordinary command"
+    );
+    assert!(
+        guard_facts(&engine, goal.id).is_empty(),
+        "within the ceiling nothing is recorded: {:?}",
+        guard_facts(&engine, goal.id)
+    );
+    engine.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_auto_goals_read_only_step_still_has_the_classifier_read_above_it() {
+    let dir = tempfile::tempdir().unwrap();
+    // A `read` step is read-only by the design's word: a command above it is
+    // the classifier's to read, whatever a `write` step may do alone.
+    let worker = asking_worker("fake-tool build");
+    let answered = Arc::clone(&worker.answered);
+    let classifier = classifier_saying("SAFE");
+    let asked = Arc::clone(&classifier.prompts);
+    let engine = engine_with_classifier(&dir, worker, classifier);
+    let mut rx = engine.events();
+    let (goal, _) = run_on_auto(
+        &engine,
+        "reads only",
+        new_workflow(
+            "reads-only",
+            vec![agent_step_at("look", "mock", ToolTier::Read)],
+        ),
+    );
+    wait_for(&mut rx, "the item ends", |e| {
+        matches!(&e.payload, EnginePayload::ExecutionEnded { .. })
+    })
+    .await;
+    assert!(matches!(
+        &answered.lock().unwrap()[0].1,
+        InputAnswer::Allow { .. }
+    ));
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        1,
+        "the classifier read the call above the read ceiling"
+    );
+    let facts = guard_facts(&engine, goal.id);
+    assert!(
+        facts.iter().any(|f| f.0 == GuardVerdict::Allowed
+            && f.1 == GuardJudge::Classifier
+            && f.2.as_deref() == Some(bisa_engine::security::CEILING_RULE)),
+        "the classifier's allow under the ceiling's name: {facts:?}"
+    );
+    engine.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_classify_rule_still_reads_the_classifier_in_an_auto_goal_whatever_the_ceiling() {
+    let dir = tempfile::tempdir().unwrap();
+    // The rules come first: a `classify` rule sends the command to the
+    // classifier on a `write` step that would otherwise run it alone.
+    let worker = asking_worker("fake-tool push --to staging");
+    let answered = Arc::clone(&worker.answered);
+    let classifier = classifier_saying("SAFE");
+    let asked = Arc::clone(&classifier.prompts);
+    let engine = engine_with_classifier(&dir, worker, classifier);
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([command_rule("classify_fake_tool", "classify", "fake-tool")]),
+    );
+    let mut rx = engine.events();
+    let (goal, _) = run_on_auto(
+        &engine,
+        "classified first",
+        new_workflow("classified-first", vec![agent_step("run", "mock")]),
+    );
+    wait_for(&mut rx, "the item ends", |e| {
+        matches!(&e.payload, EnginePayload::ExecutionEnded { .. })
+    })
+    .await;
+    assert!(matches!(
+        &answered.lock().unwrap()[0].1,
+        InputAnswer::Allow { .. }
+    ));
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        1,
+        "a classify rule reads the classifier, lifted ceiling or not"
+    );
+    let facts = guard_facts(&engine, goal.id);
+    assert!(
+        facts.iter().any(|f| f.0 == GuardVerdict::Allowed
+            && f.1 == GuardJudge::Classifier
+            && f.2.as_deref() == Some("classify_fake_tool")),
+        "recorded as the classifier's allow under the rule's name: {facts:?}"
+    );
+    engine.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_rule_decides_before_the_ceiling_in_an_auto_goal_too() {
-    // A person's deny refuses without the classifier; a person's ask asks.
+    // A person's deny refuses without the classifier; a person's ask asks —
+    // before the lifted ceiling too: a `write` step that runs commands on
+    // its own still hears a rule's refusal and a rule's question.
     let dir = tempfile::tempdir().unwrap();
     let worker = asking_worker("fake-tool push --to production");
     let answered = Arc::clone(&worker.answered);

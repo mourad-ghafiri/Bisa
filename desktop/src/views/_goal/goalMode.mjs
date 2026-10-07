@@ -4,7 +4,8 @@
  *
  * - **auto**: the Workflow Agent designs the workflow, and the platform
  *   adopts it, starts the run, repairs a failed run and restarts by itself;
- *   the run is unattended, so a permission above a step's ceiling is the
+ *   the run is unattended, so a step that may write runs commands too
+ *   (`goals.auto.ceiling`) and a permission above a step's ceiling is the
  *   classifier's to read (`goals.auto.permissions`). Only what a person
  *   alone can do waits for one: a step the workflow hands to a person, a
  *   guard rule that asks or refuses, a call the classifier finds harmful, a
@@ -46,6 +47,16 @@ export const AUTO_PERMISSIONS_MEANING = Object.freeze({
   ask: t("goal-goal-mode-tool-above-step-s-ceiling-no-2"),
 });
 export const DEFAULT_AUTO_PERMISSIONS = "classify";
+/** The settings key saying the ceiling an auto goal's steps run under: a `write` step runs commands too, or each step's own stands. */
+export const AUTO_CEILING_KEY = "goals.auto.ceiling";
+/** Its two answers, in the control's order, and the core's default. */
+export const AUTO_CEILING = Object.freeze(["exec", "step"]);
+export const AUTO_CEILING_LABEL = Object.freeze({ exec: t("goal-goal-mode-runs-commands"), step: t("goal-goal-mode-step-s-own") });
+export const AUTO_CEILING_MEANING = Object.freeze({
+  exec: t("goal-goal-mode-step-may-change-files-may-also-run"),
+  step: t("goal-goal-mode-every-step-keeps-ceiling-its-design"),
+});
+export const DEFAULT_AUTO_CEILING = "exec";
 /** The core's default, for a workspace that says nothing. */
 export const DEFAULT_MODE = "auto";
 

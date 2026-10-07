@@ -81,8 +81,9 @@ before a connector operation that writes — the validator refuses a write \
 with no `approval` or `human` step upstream unless the step says \
 `unattended: true`, which is the person's word to give, not yours — and a \
 `human` step only where a person's judgement is genuinely the work. A step whose work runs commands \
-gets `tier_ceiling: exec`: above the ceiling the classifier reads each call, \
-not a person, so a low ceiling only slows the run.";
+gets `tier_ceiling: exec` — in an auto goal a `write` step runs commands too, \
+and above the ceiling the classifier reads each call, not a person, so a low \
+ceiling only slows the run; `read` alone keeps a step from changing anything.";
 
 /// What a guided goal adds: the person adopts, so a question is affordable
 /// but still rare — and this is the one place the wake teaches asking.

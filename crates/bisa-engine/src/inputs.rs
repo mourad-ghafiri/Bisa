@@ -12,7 +12,9 @@
 //!    restored input; `ask` becomes an Escalation gate a person answers in the
 //!    Inbox, whose question shows the redacted command.
 //! 2. A permission no rule had an opinion on falls to the tier ceiling, inside
-//!    the same funnel: within it, allowed at once (restored input included);
+//!    the same funnel ([`step_reach`]): within it, allowed at once (restored
+//!    input included) — and in an auto goal a `write` step's ceiling reads as
+//!    `exec` (`goals.auto.ceiling`), so an ordinary command is within it;
 //!    above it, in a guided or manual goal an escalation like the guard's
 //!    `ask` — answered once per goal and remembered — and in an auto goal
 //!    the classifier's reading first (`goals.auto.permissions`), since the
@@ -40,6 +42,8 @@ use crate::{warn_on_err, Inner};
 
 /// `goals.auto.permissions`: what an auto goal does above a step's ceiling.
 pub const AUTO_PERMISSIONS_KEY: &str = "goals.auto.permissions";
+/// `goals.auto.ceiling`: the ceiling an auto goal's steps run under.
+pub const AUTO_CEILING_KEY: &str = "goals.auto.ceiling";
 
 /// Who is asking, and how far it may go on its own.
 pub struct InputContext {
@@ -48,6 +52,8 @@ pub struct InputContext {
     /// workspace. `None` for a session about neither.
     pub home: Option<Home>,
     pub work_item: Option<WorkItemId>,
+    /// The ceiling the session runs under: the step's own, or what an
+    /// unattended run reads it as ([`step_reach`]).
     pub tier_ceiling: ToolTier,
     /// The agent definition behind the session, for the record.
     pub agent: Option<String>,
@@ -63,8 +69,8 @@ pub struct InputContext {
     /// tool beyond reading to the owner. `None` for the owner's own.
     pub on_behalf_of: Option<(bisa_core::PrincipalId, bisa_core::MemberRole)>,
     /// What a permission above the ceiling does when no rule decided it —
-    /// [`above_ceiling`] from the goal's mode; `Ask` where there is no goal
-    /// (a run of the workspace is attended).
+    /// [`step_reach`] from the goal's mode and `goals.auto.permissions`;
+    /// `Ask` where there is no goal (a run of the workspace is attended).
     pub above: AboveCeiling,
     /// The conversation about a checkout this session is a turn of, with
     /// its mode (ide/20): where an ask is answered in place rather than
@@ -83,28 +89,78 @@ pub struct ConversationReach {
 /// What an agent hears when a plan is asked to change a file.
 pub const PLAN_REFUSAL: &str = "this conversation is in plan mode: read, ask, and reply with the plan — nothing is changed until the person builds it";
 
-/// What a session on this goal does above its step's ceiling: the
-/// classifier reads it when the goal runs unattended and
-/// `goals.auto.permissions` says `classify`; a person answers otherwise —
-/// a guided or manual goal, no goal at all, or the setting on `ask`.
-pub fn above_ceiling(inner: &Inner, goal: Option<GoalId>) -> AboveCeiling {
-    let unattended = goal
+/// How far a step's session on this goal goes on its own: the ceiling it
+/// runs under, and what happens above it. Read from the goal's mode and the
+/// two `goals.auto.*` settings, once per call. A run of the workspace, or
+/// no goal at all, is attended: the step's own ceiling, and a person above
+/// it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StepReach {
+    /// The ceiling the session runs under: the step's own, or — in an auto
+    /// goal under `goals.auto.ceiling = exec` — what an unattended run reads
+    /// it as ([`bisa_core::GoalMode::ceiling`]: a `write` step runs commands
+    /// too, a `read` step stays read-only).
+    pub ceiling: ToolTier,
+    /// What a permission above the ceiling does when no rule decided it.
+    pub above: AboveCeiling,
+}
+
+impl StepReach {
+    /// A step on an attended goal — guided or manual — in a run of the
+    /// workspace, or on no goal: its own ceiling, and a person above it.
+    pub fn attended(step: ToolTier) -> Self {
+        StepReach {
+            ceiling: step,
+            above: AboveCeiling::Ask,
+        }
+    }
+}
+
+/// The reach of a step whose own ceiling is `step`, on `goal`. An attended
+/// goal, or none, keeps the step's ceiling and asks a person above it. An
+/// auto goal reads a `write` step as `exec` unless `goals.auto.ceiling`
+/// says `step`, and has the classifier read what is above the ceiling
+/// unless `goals.auto.permissions` says `ask`. The guard's rules come first
+/// either way, in `security::decide_tool`.
+pub fn step_reach(inner: &Inner, goal: Option<GoalId>, step: ToolTier) -> StepReach {
+    let Some(mode) = goal
         .and_then(|g| inner.ws.get_goal(g).ok())
-        .is_some_and(|g| g.mode.unattended());
-    if !unattended {
-        return AboveCeiling::Ask;
-    }
-    let classify = inner
-        .ws
-        .setting(AUTO_PERMISSIONS_KEY, None)
-        .ok()
-        .and_then(|r| r.value.as_str().map(|s| s == "classify"))
-        .unwrap_or(true);
-    if classify {
-        AboveCeiling::Classify
+        .map(|g| g.mode)
+        .filter(|m| m.unattended())
+    else {
+        return StepReach::attended(step);
+    };
+    let ceiling = if setting_is(inner, AUTO_CEILING_KEY, "step") {
+        step
     } else {
+        mode.ceiling(step)
+    };
+    let above = if setting_is(inner, AUTO_PERMISSIONS_KEY, "ask") {
         AboveCeiling::Ask
-    }
+    } else {
+        AboveCeiling::Classify
+    };
+    StepReach { ceiling, above }
+}
+
+/// Whether a choice setting reads `word` — false when it is unset or cannot
+/// be read, so the registry's default stands.
+fn setting_is(inner: &Inner, key: &str, word: &str) -> bool {
+    inner
+        .ws
+        .setting(key, None)
+        .ok()
+        .and_then(|r| r.value.as_str().map(|s| s == word))
+        .unwrap_or(false)
+}
+
+/// What a session on this goal does above its step's ceiling — the
+/// classifier reads it when the goal runs unattended and
+/// `goals.auto.permissions` says `classify`; a person answers otherwise.
+/// [`step_reach`]'s word on that alone, for a session whose ceiling is its
+/// own: the Workflow Agent's, a chat's.
+pub fn above_ceiling(inner: &Inner, goal: Option<GoalId>) -> AboveCeiling {
+    step_reach(inner, goal, ToolTier::Exec).above
 }
 
 /// Decide and answer one request. Never fails the caller: a session that

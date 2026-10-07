@@ -921,7 +921,8 @@ workspace's `goals.default_mode` (`auto` unless the workspace says otherwise), a
   run that ended done, so a goal that listens for a year is judged by its latest trouble), so a
   goal that keeps failing cannot loop with nobody watching. An adoption that makes a goal listen
   shows the secrets its public hooks were minted, once (`DecideOutcome.secrets`). The run itself is
-  **unattended**: a permission above
+  **unattended**: a `write` step runs commands too (`goals.auto.ceiling`, `GoalMode::ceiling` — a
+  `read` step stays read-only), a permission above
   a step's tier ceiling that no guard rule decides is read by the classifier
   (`goals.auto.permissions`, [11 §The guard's evaluation order](11-security.md#the-guards-evaluation-order))
   rather than put to a person, and every step's agent is told so after its instructions

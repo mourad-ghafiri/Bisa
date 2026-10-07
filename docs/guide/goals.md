@@ -155,12 +155,14 @@ disabled agent are never offered.
 **Auto** is the goal that runs itself. The Workflow Agent reads the goal, decides for itself where
 the shape is unclear, gives every input a default, starts from the closest template, validates its
 design — and the platform adopts it, starts the run, and, when a run fails, takes the agent's
-corrected workflow and starts again. The run is unattended, and behaves so: a tool an agent wants
-above its step's ceiling that no guard rule decides — `cargo test` on a step that allows writes —
-is read by the classifier, not put to you (Settings › Automation › Goals, *Above a step's ceiling
-in an auto goal*; the guard's rules and the redactor come first, and a call the classifier finds
-harmful still reaches you), and every step's agent is told to decide with defaults rather than
-ask. Its agents browse **out of sight**: a page they open renders and answers their tools without
+corrected workflow and starts again. The run is unattended, and behaves so: a step that may write
+runs commands too — `cargo test` on a step that allows writes runs on its own, the guard's rules
+and the redactor first as ever (Settings › Automation › Goals, *A step's ceiling in an auto goal*,
+`goals.auto.ceiling`; *The step's own* keeps each step's ceiling instead, and a `read` step stays
+read-only either way); a tool an agent wants above that ceiling that no guard rule decides is read
+by the classifier, not put to you (*Above a step's ceiling in an auto goal*,
+`goals.auto.permissions`; a call the classifier finds harmful still reaches you), and every step's
+agent is told to decide with defaults rather than ask. Its agents browse **out of sight**: a page they open renders and answers their tools without
 opening beside you, and the footer's Browser count shows it on request ([the
 desktop](the-desktop.md#the-browser-pane)). You are asked only where a person alone can act: a `human`, `approval` or release step the
 workflow hands to you, a guard rule's question or refusal, a command the classifier finds harmful

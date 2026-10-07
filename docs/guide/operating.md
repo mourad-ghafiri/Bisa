@@ -248,7 +248,8 @@ all on by default and all configured under `security.*`:
   workspace's `security.guard.rules`, then this machine's. The first match decides: `allow`, `deny`
   (the agent hears the rule's name), `ask` (a card in the Inbox — answered once per goal: the same
   call again is decided by your earlier answer), `classify`. No match falls to the step's tier
-  ceiling: within it the call runs; above it a guided or manual goal asks you — once per goal, the
+  ceiling — in an auto goal a step that may write runs commands too (`goals.auto.ceiling`), so an
+  ordinary command is within it: within it the call runs; above it a guided or manual goal asks you — once per goal, the
   answer remembered — and an auto goal has the classifier read it first (`goals.auto.permissions`),
   so an unattended run is not one you answer *Allow Bash?* for. A workstream script you approved is still read line by line, and a line a rule
   refuses stops the script. `security.guard.terminal_hooks` (machine scope) guards a Claude Code

@@ -179,6 +179,16 @@ pub fn agent_step(id: &str, harness: &str) -> Step {
     )
 }
 
+/// The same step, with the ceiling `ceiling` — a `read` step that may change
+/// nothing, an `exec` one that runs commands on its own.
+pub fn agent_step_at(id: &str, harness: &str, ceiling: ToolTier) -> Step {
+    let mut s = agent_step(id, harness);
+    if let StepKind::Agent { tier_ceiling, .. } = &mut s.kind {
+        *tier_ceiling = ceiling;
+    }
+    s
+}
+
 /// An `agent` step on `harness` whose output schema requires `fields` —
 /// what a later step may read of it (`{steps.<id>.output.<field>}`, an
 /// `output_equals` rule).

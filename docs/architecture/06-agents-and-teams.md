@@ -213,8 +213,9 @@ conversation's turn is shown, followed and stopped on its conversation
 
 **A harness that stops for a person raises an `InputRequested`** — a permission, a question, a
 sign-in — and blocks until the engine calls `HarnessSession::answer` (capability `INPUT_REQUESTS`).
-One answerer (`inputs.rs`) decides for every driver: a permission inside the step's tier ceiling is
-allowed at once; anything else on a goal or a workspace run becomes an escalation gate homed on it,
+One answerer (`inputs.rs`) decides for every driver: a permission inside the step's tier ceiling —
+in an auto goal a `write` step's reads as `exec` (`goals.auto.ceiling`), so an ordinary command is
+inside it — is allowed at once; anything else on a goal or a workspace run becomes an escalation gate homed on it,
 in the Inbox — the goal's row, or the workspace run's workflow's — the session's presence says
 *waiting* first, then the gate opens — and the decision goes back as `Allow`, `Deny { reason }` or
 `Text`; a workspace run is attended, so above the ceiling it always asks a person; a refusal is an answer the agent hears, not an abort. Claude Code speaks this
@@ -332,7 +333,7 @@ graph TB
 | the goal's documents — the files the person gave it as context, by the folder's absolute path and each name (`documents::note`; `get_goal` lists each with its path, type and size) | ✅ when the goal has any | ✅ when the goal has any | — | — |
 | the conversation transcript — its last fifty messages, oldest first; the harness holds the rest as its own context ([13 § Memory](13-conversations.md#memory)) | — | — | ✅ (it *is* the memory) | ✅ (it *is* the memory) |
 | placement | a project's workstream — the step's project or the goal's only one — or `goals/<id>/scratch/` when the goal has none; in a workspace run the project the step names, else `workflows/runs/<id>/scratch/` | `goals/<id>/scratch/` | the workstream's checkout — the project tree for the primary, the primary for a project origin | `agents/<id>/scratch/` |
-| tool tier | the step's `tier_ceiling` — above it, a person in a guided or manual goal or a workspace run, the classifier in an auto one ([11](11-security.md#the-guards-evaluation-order)) | `Exec` | the conversation's **mode** — manual `Write`, auto `Exec`, plan `Read`; above it the person is asked in the conversation itself ([ide/20](ide/20-reviewing-agent-changes.md#modes)) | `Exec` |
+| tool tier | the step's `tier_ceiling` — a `write` step's read as `exec` in an auto goal (`goals.auto.ceiling`); above it, a person in a guided or manual goal or a workspace run, the classifier in an auto one ([11](11-security.md#the-guards-evaluation-order)) | `Exec` | the conversation's **mode** — manual `Write`, auto `Exec`, plan `Read`; above it the person is asked in the conversation itself ([ide/20](ide/20-reviewing-agent-changes.md#modes)) | `Exec` |
 
 ### The project prompt says what it does not have
 

@@ -964,6 +964,18 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
             json!("classify"),
             S::MW
         ),
+        // The ceiling an auto goal's steps run under. `exec`: a step that may
+        // change files may also run commands and the MCP tools that act, so
+        // an unattended run is not one a person answers *Allow Bash?* for —
+        // the guard's rules first as ever, a `read` step read-only still;
+        // `step`: every step's own ceiling stands, and what is above it is
+        // `goals.auto.permissions`'s to settle — the earlier behaviour.
+        def!(
+            "goals.auto.ceiling",
+            Choice(&["exec", "step"]),
+            json!("exec"),
+            S::MW
+        ),
         // --- budget ---
         // The ceiling work that runs on its own — a goal, a run in the
         // workspace a schedule, a check or a project start begins daily for a
@@ -1601,6 +1613,19 @@ mod tests {
         assert!(
             check_write("goals.auto.permissions", Scope::Workspace, &json!("allow")).is_err(),
             "the classifier never allows what a rule did not; there is no `allow`"
+        );
+        // An auto goal's `write` step runs commands, at either scope; the
+        // ceiling is lifted or the step's own — a bare tier is no choice.
+        assert_eq!(
+            SettingDef::lookup("goals.auto.ceiling").unwrap().default,
+            json!("exec"),
+            "an auto goal's write step runs commands by default"
+        );
+        assert!(check_write("goals.auto.ceiling", Scope::Workspace, &json!("step")).is_ok());
+        assert!(check_write("goals.auto.ceiling", Scope::Machine, &json!("exec")).is_ok());
+        assert!(
+            check_write("goals.auto.ceiling", Scope::Workspace, &json!("write")).is_err(),
+            "the ceiling is lifted or the step's own; a tier name is not a choice"
         );
         assert!(check_write(
             "sync.relays",

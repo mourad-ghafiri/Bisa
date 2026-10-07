@@ -20,6 +20,14 @@ export declare const AUTO_PERMISSIONS_LABEL: Readonly<Record<AutoPermissions, st
 export declare const AUTO_PERMISSIONS_MEANING: Readonly<Record<AutoPermissions, string>>;
 export declare const DEFAULT_AUTO_PERMISSIONS: AutoPermissions;
 
+/** The ceiling an auto goal's steps run under: a `write` step runs commands too, or each step's own stands. */
+export type AutoCeiling = "exec" | "step";
+export declare const AUTO_CEILING_KEY: string;
+export declare const AUTO_CEILING: readonly AutoCeiling[];
+export declare const AUTO_CEILING_LABEL: Readonly<Record<AutoCeiling, string>>;
+export declare const AUTO_CEILING_MEANING: Readonly<Record<AutoCeiling, string>>;
+export declare const DEFAULT_AUTO_CEILING: AutoCeiling;
+
 export declare function designs(mode: GoalMode | null | undefined): boolean;
 export declare function modeOf(goal: { mode?: GoalMode | null } | null | undefined): GoalMode;
 export declare function modeSegments(): { id: GoalMode; label: string; icon: "run" | "coreAgent" | "person" }[];

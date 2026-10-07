@@ -405,6 +405,7 @@ settings-goals-panel-above-step-s-ceiling-auto-goal = Above a step's ceiling in 
 settings-goals-panel-default-mode = Default mode
 settings-goals-panel-how-new-goal-moves = How a new goal moves
 settings-goals-panel-new-goals-start = New goals start in
+settings-goals-panel-step-s-ceiling-auto-goal = A step's ceiling in an auto goal
 settings-harnesses-panel-asking = asking…
 settings-harnesses-panel-available = Available ({ $installed })
 settings-harnesses-panel-browser-did-open = The browser did not open.
@@ -1598,6 +1599,7 @@ settings-global-git-panel-read-from-git-global-config = Read from git's global c
 ## Settings › Automation › Goals (`views/_settings/GoalsPanel.tsx`) — words moved out of the markup.
 settings-goals-panel-goal-keeps-mode-captured-in = A goal keeps the mode it was captured in; the New Goal dialog starts on this one.
 settings-goals-panel-guided-manual-goal-always-asks = A guided or manual goal always asks.
+settings-goals-panel-guided-manual-goal-keeps-step-s-ceiling = A guided or manual goal keeps its step's ceiling.
 
 ## Settings › Capabilities › Harnesses — a harness's row (`views/_settings/HarnessesPanel.tsx`) — words moved out of the markup.
 settings-harnesses-panel-is-installed = installed

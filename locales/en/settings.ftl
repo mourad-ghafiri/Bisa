@@ -494,7 +494,7 @@ setting-agents-context-selection_max_lines = Selection chip max lines
 setting-agents-context-terminal_lines = Terminal chip lines
 
 setting-goals-default_mode = New goals start in
-    .help = The mode a goal is captured in when the capture does not say. `auto`: the Workflow Agent designs the workflow and the platform adopts it, starts the run, repairs and restarts it by itself; a permission above a step's ceiling is read by the classifier (`goals.auto.permissions`), and only a step a person must take, a guard rule that asks or refuses, a call the classifier finds harmful, a gated publish or a question the agent still asks wait for you. `guided`: the agent proposes and you adopt, ask for changes or decline. `manual`: you design on the goal's Workflow tab, with the agent on request.
+    .help = The mode a goal is captured in when the capture does not say. `auto`: the Workflow Agent designs the workflow and the platform adopts it, starts the run, repairs and restarts it by itself; a step that may write runs commands too (`goals.auto.ceiling`), a permission above a step's ceiling is read by the classifier (`goals.auto.permissions`), and only a step a person must take, a guard rule that asks or refuses, a call the classifier finds harmful, a gated publish or a question the agent still asks wait for you. `guided`: the agent proposes and you adopt, ask for changes or decline. `manual`: you design on the goal's Workflow tab, with the agent on request.
     .choice-auto = Auto
     .choice-guided = Guided
     .choice-manual = Manual
@@ -503,9 +503,14 @@ setting-goals-auto-repair_limit = Auto repairs before asking
     .help = How many failed runs an auto goal repairs and restarts on its own. Past the limit the Workflow Agent's corrected proposal waits for your decision, so a goal that keeps failing cannot loop unattended.
 
 setting-goals-auto-permissions = Above a step's ceiling in an auto goal
-    .help = What happens in an auto goal when an agent wants a tool above its step's ceiling and no guard rule decides it. `classify`: the classifier reads the redacted call — safe runs, harmful asks you or is refused as `security.classifier.on_harmful` says, no verdict asks you. `ask`: the call is put to you, as in a guided goal. The guard's rules and the redactor come first either way; a guided or manual goal always asks.
+    .help = What happens in an auto goal when an agent wants a tool above its step's ceiling — the ceiling `goals.auto.ceiling` sets — and no guard rule decides it. `classify`: the classifier reads the redacted call — safe runs, harmful asks you or is refused as `security.classifier.on_harmful` says, no verdict asks you. `ask`: the call is put to you, as in a guided goal. The guard's rules and the redactor come first either way; a guided or manual goal always asks.
     .choice-classify = Classify
     .choice-ask = Ask
+
+setting-goals-auto-ceiling = A step's ceiling in an auto goal
+    .help = The ceiling a step's session runs under in an auto goal, where nobody is watching. `exec`: a step that may change files may also run commands and the MCP tools that act — an ordinary command runs on its own, the guard's rules and the redactor first as ever, and a read-only step stays read-only. `step`: every step keeps the ceiling its design gives it, and what is above it is `goals.auto.permissions`'s to settle — the earlier behaviour. A guided or manual goal keeps its step's ceiling either way.
+    .choice-exec = Runs commands
+    .choice-step = The step's own
 
 setting-budget-default-max_usd_cents = Default budget — cost
     .help = The cost ceiling, in US cents, a goal or a run in the workspace made without a budget of its own is given — one an event starts every day included, unless the workflow was turned on with a budget of its own. Zero means no ceiling. When spend reaches it the run stops and a notice reaches you; a goal is not closed. A goal or a run made with its own budget keeps it.

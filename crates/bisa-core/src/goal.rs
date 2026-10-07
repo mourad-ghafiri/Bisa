@@ -12,6 +12,7 @@
 //! person says listen again.
 
 use crate::assignee::Assignee;
+use crate::caps::ToolTier;
 use crate::id::{GoalId, PrincipalId, RunId, WorkflowId};
 use crate::listen::Listening;
 use crate::run::{RunStatus, WorkflowRun};
@@ -95,10 +96,11 @@ pub struct Goal {
 ///
 /// - `Auto`: the Workflow Agent designs the workflow, and the platform adopts
 ///   it, starts the run, repairs a failed run and restarts by itself; the
-///   run is unattended, so a tool permission above the step's tier ceiling
-///   that no guard rule decides is read by the classifier
-///   (`goals.auto.permissions`) rather than put to a person, and every
-///   step's agent is told to decide rather than ask. Only what a person
+///   run is unattended, so a step that may write may also run commands
+///   (`goals.auto.ceiling`, [`GoalMode::ceiling`]), a tool permission above
+///   the step's tier ceiling that no guard rule decides is read by the
+///   classifier (`goals.auto.permissions`) rather than put to a person, and
+///   every step's agent is told to decide rather than ask. Only what a person
 ///   alone can do waits for one: a `human`, `approval` or `wait { release }`
 ///   step the workflow declares, the guard's `ask` and `deny`, a call the
 ///   classifier finds harmful or gives no verdict on, a push or a pull
@@ -144,11 +146,26 @@ impl GoalMode {
         matches!(self, GoalMode::Auto)
     }
 
-    /// The run is nobody's to watch: a permission above a step's ceiling is
-    /// the classifier's to read, and the step's agent is told to decide
-    /// rather than ask — `Auto` alone.
+    /// The run is nobody's to watch: a `write` step runs commands too
+    /// ([`GoalMode::ceiling`]), a permission above a step's ceiling is the
+    /// classifier's to read, and the step's agent is told to decide rather
+    /// than ask — `Auto` alone.
     pub fn unattended(self) -> bool {
         matches!(self, GoalMode::Auto)
+    }
+
+    /// The ceiling a step's session runs under on a goal in this mode. An
+    /// unattended run reads a `write` step as `exec`: a step that may change
+    /// files may also run commands, since the classifier, not a person,
+    /// stands above it, and a run nobody watches is not one a person answers
+    /// *Allow Bash?* for. A `read` step stays read-only — reading was the
+    /// design's word — and an attended goal keeps every step's own. The
+    /// engine applies it where `goals.auto.ceiling` says so.
+    pub fn ceiling(self, step: ToolTier) -> ToolTier {
+        match (self, step) {
+            (GoalMode::Auto, ToolTier::Write) => ToolTier::Exec,
+            (_, step) => step,
+        }
     }
 }
 
@@ -700,6 +717,29 @@ pub(crate) mod tests {
             serde_json::from_value::<Goal>(v).unwrap().mode,
             GoalMode::Auto
         );
+    }
+
+    /// An unattended run lets a step that may write run commands; a
+    /// read-only step stays read-only, and an attended goal keeps every
+    /// step's own ceiling.
+    #[test]
+    fn an_unattended_run_reads_a_write_step_as_exec_and_nothing_else_moves() {
+        assert_eq!(GoalMode::Auto.ceiling(ToolTier::Write), ToolTier::Exec);
+        assert_eq!(
+            GoalMode::Auto.ceiling(ToolTier::Read),
+            ToolTier::Read,
+            "reading was the design's word"
+        );
+        assert_eq!(GoalMode::Auto.ceiling(ToolTier::Exec), ToolTier::Exec);
+        for attended in [GoalMode::Guided, GoalMode::Manual] {
+            for step in [ToolTier::Read, ToolTier::Write, ToolTier::Exec] {
+                assert_eq!(
+                    attended.ceiling(step),
+                    step,
+                    "{attended:?} keeps a {step:?} step's own ceiling"
+                );
+            }
+        }
     }
 
     #[test]

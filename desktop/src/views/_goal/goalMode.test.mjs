@@ -10,10 +10,15 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  AUTO_CEILING,
+  AUTO_CEILING_KEY,
+  AUTO_CEILING_LABEL,
+  AUTO_CEILING_MEANING,
   AUTO_PERMISSIONS,
   AUTO_PERMISSIONS_KEY,
   AUTO_PERMISSIONS_LABEL,
   AUTO_PERMISSIONS_MEANING,
+  DEFAULT_AUTO_CEILING,
   DEFAULT_AUTO_PERMISSIONS,
   DEFAULT_MODE,
   DEFAULT_MODE_KEY,
@@ -64,7 +69,7 @@ test("the default is the core's default, and the keys are the registry's", () =>
   assert.ok(marked, "the core marks a default variant");
   assert.equal(DEFAULT_MODE, marked[1].toLowerCase());
   const settings = readFileSync(join(CORE, "settings.rs"), "utf8");
-  for (const key of [DEFAULT_MODE_KEY, AUTO_PERMISSIONS_KEY]) assert.ok(settings.includes(`"${key}"`), `${key} is registered`);
+  for (const key of [DEFAULT_MODE_KEY, AUTO_PERMISSIONS_KEY, AUTO_CEILING_KEY]) assert.ok(settings.includes(`"${key}"`), `${key} is registered`);
   assert.match(settings.match(new RegExp(`"${DEFAULT_MODE_KEY}",[\\s\\S]*?json!\\("([a-z]+)"\\)`))[1], /^auto$/, "the registry's default is auto");
 });
 
@@ -85,6 +90,25 @@ test("an auto goal's ceiling is the classifier's to read by default, and the wor
   }
   assert.match(MODE_MEANING.auto, /classifier/, "the auto sentence names who reads the ceiling");
   assert.match(AUTO_PERMISSIONS_MEANING.classify, /harmful/, "harmful still reaches a person");
+});
+
+test("an auto goal's write step runs commands by default, and the words say so", () => {
+  const settings = readFileSync(join(CORE, "settings.rs"), "utf8");
+  const def = settings.match(new RegExp(`"${AUTO_CEILING_KEY}",\\s*Choice\\(&\\[([^\\]]*)\\]\\),\\s*json!\\("([a-z]+)"\\)`));
+  assert.ok(def, "the key is a choice with a default");
+  assert.deepEqual(
+    def[1].split(",").map((s) => s.trim().replace(/"/g, "")),
+    [...AUTO_CEILING],
+    "the two answers are the registry's, in its order",
+  );
+  assert.equal(DEFAULT_AUTO_CEILING, def[2]);
+  assert.equal(DEFAULT_AUTO_CEILING, "exec", "ordinary commands run on their own by default");
+  for (const v of AUTO_CEILING) {
+    assert.ok(AUTO_CEILING_LABEL[v], `${v} has a word`);
+    assert.ok(AUTO_CEILING_MEANING[v].length > 40, `${v} says what happens`);
+  }
+  assert.match(AUTO_CEILING_MEANING.exec, /read-only/, "a read-only step stays read-only");
+  assert.match(MODE_MEANING.auto, /run on their own/, "the auto sentence says ordinary commands run");
 });
 
 test("the agent designs for auto and guided goals; a manual goal's person does", () => {
