@@ -626,8 +626,10 @@ function Sessions() {
           if (!aborting) return;
           const id = aborting.id;
           // The store's one door: a row the node no longer has is dropped, and said — never an error for a session that had ended.
-          void attempt(() => stopSession(id), toast.error, (how) => {
-            if (how === "gone") toast.ok(stopWords(how, ""));
+          void attempt(() => stopSession(id), toast.error, ({ how, ended }) => {
+            // The row says the rest; the toast speaks only of what else the stop did.
+            const said = stopWords(how, "", ended);
+            if (said) toast.ok(said);
           });
         }}
       />

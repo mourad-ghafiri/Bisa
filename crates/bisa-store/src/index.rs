@@ -2334,6 +2334,17 @@ impl Index {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Every session row that still names a harness child, whatever its
+    /// status: an ended row keeps its pid while the child outlives it.
+    pub fn sessions_with_process(&self) -> Result<Vec<SessionRow>, StoreError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM sessions WHERE pid IS NOT NULL ORDER BY id",
+            Self::SESSION_COLUMNS
+        ))?;
+        let rows = stmt.query_map([], Self::session_row)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     // --- approvals / ledger / fts ---
 
     pub fn add_approval(

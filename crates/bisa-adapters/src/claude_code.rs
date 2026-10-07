@@ -260,7 +260,8 @@ impl ClaudeCodeAdapter {
 
         let wire: WireState = Arc::default();
         let driver_wire = Arc::clone(&wire);
-        let driver_shared = shared.clone();
+        let shared = shared.in_group(proc.group());
+        let driver_shared = shared.for_driver();
         tokio::spawn(util::drive(
             proc,
             out_rx,
@@ -396,7 +397,8 @@ impl HarnessAdapter for ClaudeCodeAdapter {
         shared.set_phase(Phase::Idle);
         let wire: WireState = Arc::default();
         let driver_wire = Arc::clone(&wire);
-        let driver_shared = shared.clone();
+        let shared = shared.in_group(proc.group());
+        let driver_shared = shared.for_driver();
         tokio::spawn(util::drive(
             proc,
             out_rx,
@@ -1090,7 +1092,15 @@ impl HarnessSession for ClaudeCodeSession {
     }
 
     async fn abort(&self) -> Result<(), HarnessError> {
-        self.shared.send(OutMsg::Kill).await
+        // The session is over now — whatever the driver reads of the exit
+        // later is not its end — then the whole group — the CLI, the
+        // commands its tools run, the MCP server it was handed — is told to
+        // leave, and killed past the grace.
+        self.shared.end(Outcome::Aborted);
+        self.shared
+            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .await;
+        Ok(())
     }
 
     async fn answer(&self, request_id: &str, answer: InputAnswer) -> Result<(), HarnessError> {
@@ -1128,8 +1138,13 @@ impl HarnessSession for ClaudeCodeSession {
     }
 
     async fn dispose(self: Box<Self>) -> Result<(), HarnessError> {
-        // Graceful: EOF lets the CLI finish and exit; driver ends the session.
+        // Graceful: EOF lets the CLI finish and exit; the driver ends the
+        // session. A CLI that ignores it is ended with its group past the
+        // grace.
         self.shared.close_stdin_quietly().await;
+        self.shared
+            .leave_or_kill(bisa_harness::proc::DISPOSE_GRACE)
+            .await;
         Ok(())
     }
 }

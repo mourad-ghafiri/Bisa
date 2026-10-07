@@ -137,6 +137,10 @@ pub struct GuidedState {
     pending: DashMap<GoalId, GuidedPhase>,
     sessions: DashMap<GoalId, LiveRunId>,
     last: DashMap<GoalId, (GuidancePhase, GuidanceStatus)>,
+    /// The goals whose work is being ended right now: no wake is scheduled
+    /// for one, and a wake in flight ends at its next boundary — the stop
+    /// must not be answered by a re-wake.
+    stopping: DashMap<GoalId, ()>,
 }
 
 /// A wake's driver, reachable by its run for as long as it drives. Dropped
@@ -153,7 +157,7 @@ pub(crate) fn stop_run(inner: &Arc<Inner>, run: LiveRunId) {
     inner.guided.sessions.retain(|_, held| *held != run);
     let inner = Arc::clone(inner);
     tokio::spawn(async move {
-        inner.lifecycle.release(&inner, run).await;
+        inner.lifecycle.abort(&inner, run).await;
     });
 }
 
@@ -166,6 +170,25 @@ impl GuidedState {
         self.pending.remove(&goal);
         self.sessions.remove(&goal);
         self.last.remove(&goal);
+        self.stopping.remove(&goal);
+    }
+
+    /// The goal's work is being ended: nothing wakes for it until the end
+    /// is over, and a wake in flight ends at its next boundary. What a stop
+    /// says first, before it tells the sessions.
+    pub fn begin_stopping(&self, goal: GoalId) {
+        self.stopping.insert(goal, ());
+        self.pending.remove(&goal);
+    }
+
+    /// The end is over: the goal may be woken again — by a person, never
+    /// by the stop itself.
+    pub fn end_stopping(&self, goal: GoalId) {
+        self.stopping.remove(&goal);
+    }
+
+    pub fn is_stopping(&self, goal: GoalId) -> bool {
+        self.stopping.contains_key(&goal)
     }
 
     /// Is a guided turn running on this goal *right now*?
@@ -888,6 +911,11 @@ fn schedule(inner: &Arc<Inner>, goal_id: GoalId, phase: GuidedPhase) {
     if !applies(inner, &goal, &phase) {
         return;
     }
+    // A goal whose work is being ended, or that is closed, is woken by
+    // nothing: a stop is not answered by the cycle it stopped.
+    if inner.guided.is_stopping(goal_id) || goal.is_closed() {
+        return;
+    }
     let Some(waking) = Waking::take(inner, goal_id) else {
         inner.guided.pending.insert(goal_id, phase);
         return;
@@ -1314,6 +1342,10 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
     if !applies(inner, &goal, phase) {
         return WakeEnd::Moot;
     }
+    // The goal's work is being ended: no cycle starts on it.
+    if inner.guided.is_stopping(goal_id) {
+        return WakeEnd::Moot;
+    }
     inner.pause.wait_running().await;
     let tag = phase.tag();
 
@@ -1390,17 +1422,72 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
     // workstream and no result contract, so the loop is the bare shape: launch,
     // prompt, drive; a model wall relaunches, anything else settles the wake.
     let (harness_id, session, session_row, agent_id, end, aborted) = loop {
-        let launched = match executor::resolve_and_launch(
+        // The row and the driver's standing come before the launch: a stop
+        // that lands while the harness starts finds a row to end and a
+        // driver to tell, and the launch is raced against it. The launch
+        // says the rest of the row (`Presence::launched`).
+        let agent_id = LiveRunId::mint();
+        let driving = crate::sessions::Driving::begin(&inner.driving, agent_id);
+        let session_id = SessionId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
+        debug_on_err(
+            inner.registry.register_if(
+                AgentRef {
+                    id: agent_id,
+                    kind: SessionKind::Guided,
+                    status: AgentStatus::Running,
+                    generation: 1,
+                    session_id: Some(session_id),
+                    work_item: None,
+                    conversation: None,
+                    goal: Some(goal_id),
+                    workstream: None,
+                    transcript_path: None,
+                    last_activity: now_secs(),
+                },
+                None,
+            ),
+            "registering a guided run",
+        );
+        inner.presence.register(
             inner,
-            &launch_plan,
-            &mut tried,
-            &mut attempts,
-            &spec,
-        )
-        .await
-        {
-            Ok(ok) => ok,
-            Err(failure) => {
+            agent_id,
+            crate::presence::SessionMeta {
+                kind: SessionKind::Guided,
+                origin: bisa_core::SessionOrigin::Design { phase: tag },
+                harness: candidates.first().cloned().unwrap_or_default(),
+                model: None,
+                effort: None,
+                agent: Some(AgentId::workflow()),
+                session_id: Some(session_id),
+                work_item: None,
+                conversation: None,
+                goal: Some(goal_id),
+                run: None,
+                workstream: None,
+                project: None,
+                cwd: Some(spec.cwd.display().to_string()),
+                transcript_path: None,
+            },
+        );
+        // Left live by an early return or a panic, the row ends as failed.
+        let driven = crate::sessions::Driven::begin(inner, agent_id, Some(session_id.to_string()));
+        let launched = tokio::select! {
+            biased;
+            () = driving.stopped() => None,
+            launched = executor::resolve_and_launch(
+                inner,
+                &launch_plan,
+                &mut tried,
+                &mut attempts,
+                &spec,
+            ) => Some(launched),
+        };
+        let launched = match launched {
+            // Stopped while the harness was being chosen or started: the
+            // stop ended the row; the wake says it was stopped.
+            None => return WakeEnd::Failed(ended_words(&Outcome::Aborted)),
+            Some(Ok(ok)) => ok,
+            Some(Err(failure)) => {
                 pending_walls.extend(failure.walls);
                 executor::report_switches(
                     inner,
@@ -1438,49 +1525,26 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         let in_flight = launched.in_flight;
         let session = launched.session;
 
-        // Register the wake in the runtime roster, then say it is working —
-        // with the session's id, so a screen can follow it.
-        let agent_id = LiveRunId::mint();
-        let driving = crate::sessions::Driving::begin(&inner.driving, agent_id);
-        let session_id = SessionId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
+        // The launch's word on the row that stood for it: the harness and
+        // the model it runs on, its effort, its transcript.
         let transcript = session.resume_token().and_then(|t| t.transcript_path);
-        debug_on_err(
-            inner.registry.register_if(
-                AgentRef {
-                    id: agent_id,
-                    kind: SessionKind::Guided,
-                    status: AgentStatus::Running,
-                    generation: 1,
-                    session_id: Some(session_id),
-                    work_item: None,
-                    conversation: None,
-                    goal: Some(goal_id),
-                    workstream: None,
-                    transcript_path: transcript.clone(),
-                    last_activity: now_secs(),
-                },
-                None,
-            ),
-            "registering a guided run",
-        );
-        inner.presence.register(
+        if let Some(agent) = inner.registry.get(agent_id) {
+            let transcript = transcript.clone();
+            debug_on_err(
+                inner.registry.mutate(agent_id, agent.generation, |a| {
+                    a.transcript_path = transcript
+                }),
+                "recording a guided run's transcript",
+            );
+        }
+        inner.presence.launched(
             inner,
             agent_id,
-            crate::presence::SessionMeta {
-                kind: SessionKind::Guided,
-                origin: bisa_core::SessionOrigin::Design { phase: tag },
+            crate::presence::LaunchedFacts {
                 harness: harness_id.clone(),
                 model: Some(model_key.clone()),
                 effort,
-                agent: Some(AgentId::workflow()),
                 session_id: Some(session_id),
-                work_item: None,
-                conversation: None,
-                goal: Some(goal_id),
-                run: None,
-                workstream: None,
-                project: None,
-                cwd: Some(spec.cwd.display().to_string()),
                 transcript_path: transcript.as_ref().map(|p| p.display().to_string()),
             },
         );
@@ -1506,8 +1570,6 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
             inner.ws.record_session(&session_row),
             "recording a guided session",
         );
-        // Left live by an early return or a panic, the row ends as failed.
-        let driven = crate::sessions::Driven::begin(inner, agent_id, Some(session_id.to_string()));
         // Silent: the card's *working* state says it, and a line here on
         // every goal was the chatter the person read past.
         record(
@@ -1528,9 +1590,29 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
             Some(appendix) => format!("{base_prompt}\n\n{appendix}"),
             None => base_prompt.clone(),
         };
-        if let Err(e) = session.prompt(prompt.as_str().into()).await {
-            warn_on_err(session.dispose().await, "disposing a failed guided session");
-            return WakeEnd::Failed(format!("the session refused the prompt: {e}."));
+        let prompted = tokio::select! {
+            biased;
+            () = driving.stopped() => None,
+            prompted = session.prompt(prompt.as_str().into()) => Some(prompted),
+        };
+        match prompted {
+            // Stopped at its prompt: aborted before it says a word.
+            None => {
+                warn_on_err(
+                    session.abort().await,
+                    "aborting a guided wake stopped at its prompt",
+                );
+                warn_on_err(
+                    session.dispose().await,
+                    "disposing a guided wake stopped at its prompt",
+                );
+                return WakeEnd::Failed(ended_words(&Outcome::Aborted));
+            }
+            Some(Err(e)) => {
+                warn_on_err(session.dispose().await, "disposing a failed guided session");
+                return WakeEnd::Failed(format!("the session refused the prompt: {e}."));
+            }
+            Some(Ok(())) => {}
         }
 
         // Drive to settlement: a guided wake has no output contract, so the first
@@ -1678,6 +1760,10 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                 warn_on_err(session.dispose().await, "disposing a walled guided session");
                 inner.presence.forget(inner, agent_id);
                 pending_walls.push(wall);
+                // A stop that landed on the wall: no next attempt.
+                if driving.is_stopped() || inner.guided.is_stopping(goal_id) {
+                    return WakeEnd::Failed(ended_words(&Outcome::Aborted));
+                }
                 if attempts.spent() {
                     executor::report_switches(
                         inner,
@@ -1718,7 +1804,10 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         .unwrap_or(false);
     // A session is kept for the follow-up only while it can take one: not
     // once it was aborted, here or by whoever stopped its row.
-    let adopted = supports_follow_up && !aborted && !inner.registry.is_aborted(agent_id);
+    let adopted = supports_follow_up
+        && !aborted
+        && !inner.registry.is_aborted(agent_id)
+        && !inner.guided.is_stopping(goal_id);
     // Presence: an adopted session waits for the follow-up and reads as idle
     // (parked once the TTL runs out); a disposed one is over.
     match &end {

@@ -116,7 +116,7 @@ test("a goal run again and again: the list keeps a bound, the runs still to end 
 
   const run = { id: "r130", started_at: 130, outcome: null, cancelled: null, workflow: { steps: [{ id: "start" }, { id: "review" }] }, steps: { start: { state: { state: "done" } }, review: { state: { state: "waiting" } } } };
   const verbs = runVerbs({ goal, run, runs, guidance: guidanceOf("manual"), proposed: false, startable: true });
-  assert.deepEqual(verbs, { start: { label: "New run…", queues: true, adopt: false }, stop: { label: "Stop", live: true, queued: 2 }, restart: { label: "Restart" } });
+  assert.deepEqual(verbs, { start: { label: "New run…", queues: true, adopt: false }, stop: { label: "Stop", live: true, queued: 2, sessions: 0 }, restart: { label: "Restart" } });
   const row = { id: ID, status: "waiting", holder: "you", workflow: "01W", run: "r130", run_status: "waiting", queued: 2, mode: "manual" };
   assert.deepEqual(rowVerbs(row), verbs, "the card answers as the page does, from the row alone");
   assert.deepEqual([statusWord(row.status), queuedChip(row)], ["waiting", "queued 2"]);

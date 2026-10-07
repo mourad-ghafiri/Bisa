@@ -731,14 +731,32 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     // What everything this item's sessions emit is about, read once.
     let scope = inner.item_scope(&spec);
     inner.active_items.insert(item_id, home);
-    inner.pause.wait_running().await;
+    // The item's stop signal, held from here: a cancel, a close or a
+    // retirement that lands while the item is still being placed, waiting
+    // for a permit, judged or launched is honoured there (`unless_stopped`),
+    // never only at the next event. A mark already gone is a reason to run
+    // that went before the item started.
+    let Some(mark) = inner.inflight.get(&item_id).map(|m| m.clone()) else {
+        tracing::debug!(target: "bisa_engine", work_item = %item_id, "the item's reason to run went before it started");
+        return;
+    };
+    if unless_stopped(&mark, inner.pause.wait_running())
+        .await
+        .is_none()
+    {
+        settle_stopped_early(&inner, &mut spec, scope, None).await;
+        return;
+    }
 
     // Assignment resolves in one place (`assign::workers`): the item's
     // project, its goal and every ancestor, teams expanded, humans dropped.
     // Persisted on the item so the journal, the board and the transcript all
     // show who actually took it.
     if spec.agent.is_none() {
-        let pool = assign::workers(&inner, &spec).await;
+        let Some(pool) = unless_stopped(&mark, assign::workers(&inner, &spec)).await else {
+            settle_stopped_early(&inner, &mut spec, scope, None).await;
+            return;
+        };
         if let Some(agent) = assign::choose(&inner, &pool, &spec).await {
             let who = AgentId::new(&agent)
                 .ok()
@@ -819,9 +837,13 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         return;
     }
     let env = BTreeMap::from([("TMPDIR".to_string(), tmp.display().to_string())]);
-    let placement = match place(&inner, &mut spec).await {
-        Ok(placement) => placement,
-        Err(reason) => {
+    let placement = match unless_stopped(&mark, place(&inner, &mut spec)).await {
+        None => {
+            settle_stopped_early(&inner, &mut spec, scope, None).await;
+            return;
+        }
+        Some(Ok(placement)) => placement,
+        Some(Err(reason)) => {
             spec.state = settle_failed(&inner, &spec, reason).await;
             return;
         }
@@ -843,9 +865,13 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     //    mid-run relaunch draw on the same budget, so a run can never loop.
     let base_spec = build_session_spec(&inner, &spec, placement.cwd().to_path_buf(), env);
     let first_candidate = spec.harness_candidates.first().cloned().unwrap_or_default();
-    let _permits = match inner.caps.acquire(&first_candidate).await {
-        Ok(permits) => permits,
-        Err(e) => {
+    let _permits = match unless_stopped(&mark, inner.caps.acquire(&first_candidate)).await {
+        None => {
+            settle_stopped_early(&inner, &mut spec, scope, Some(placement)).await;
+            return;
+        }
+        Some(Ok(permits)) => permits,
+        Some(Err(e)) => {
             spec.state = settle_failed(&inner, &spec, e.to_string()).await;
             return;
         }
@@ -864,28 +890,35 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     // What the Decision-Making Agent names for the walk, asked once: the
     // model that leads — a pinned step is never routed, the pin is the
     // author's word — and the level of every attempt that comes to `auto`.
-    let judged = crate::decider::walk(
-        &inner,
-        &crate::decider::WalkAsk {
-            plan: &plan,
-            candidates: &spec.harness_candidates,
-            model_pin: spec.model.as_deref(),
-            effort_pin: spec.effort,
-            effort_setting,
-            rotation,
-            task: &spec.instructions,
-            agent: spec.agent.as_deref(),
-        },
-        &crate::decider::Standing {
-            home: Some(spec.home),
-            run: spec.run,
-            step: spec.step.clone(),
-            project: spec.project,
-            agent: spec.agent.clone(),
-            ..Default::default()
-        },
+    let Some(judged) = unless_stopped(
+        &mark,
+        crate::decider::walk(
+            &inner,
+            &crate::decider::WalkAsk {
+                plan: &plan,
+                candidates: &spec.harness_candidates,
+                model_pin: spec.model.as_deref(),
+                effort_pin: spec.effort,
+                effort_setting,
+                rotation,
+                task: &spec.instructions,
+                agent: spec.agent.as_deref(),
+            },
+            &crate::decider::Standing {
+                home: Some(spec.home),
+                run: spec.run,
+                step: spec.step.clone(),
+                project: spec.project,
+                agent: spec.agent.clone(),
+                ..Default::default()
+            },
+        ),
     )
-    .await;
+    .await
+    else {
+        settle_stopped_early(&inner, &mut spec, scope, Some(placement)).await;
+        return;
+    };
     let launch_plan = LaunchPlan {
         candidates: &spec.harness_candidates,
         plan: &plan,
@@ -919,32 +952,38 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
 
     let mut last_run: Option<LiveRunId> = None;
     let settled = loop {
-        let launched =
-            match resolve_and_launch(&inner, &launch_plan, &mut tried, &mut attempts, &base_spec)
-                .await
-            {
-                Ok(ok) => ok,
-                // No session this time round. Break rather than return: the
-                // teardown below is the *only* place the clock is banked and
-                // the workstream is settled, and a failover that already burned
-                // minutes and wrote half an edit must not skip either.
-                Err(failure) => {
-                    pending_walls.extend(failure.walls.iter().cloned());
-                    all_walls.extend(failure.walls);
-                    let reason = give_up_reason(&all_walls, &failure.message);
-                    report_switches(
-                        &inner,
-                        (home, scope),
-                        Some(item_id),
-                        &pending_walls,
-                        None,
-                        &signer,
-                        attestation.clone(),
-                    );
-                    tracing::warn!(work_item = %item_id, "work item failed: {reason}");
-                    break RunSettled::Failed(reason);
-                }
-            };
+        let launched = match unless_stopped(
+            &mark,
+            resolve_and_launch(&inner, &launch_plan, &mut tried, &mut attempts, &base_spec),
+        )
+        .await
+        {
+            // Stopped while the harness was being chosen or started: no
+            // session this time round, and no next — the teardown below
+            // settles what was opened.
+            None => break RunSettled::Aborted,
+            Some(Ok(ok)) => ok,
+            // No session this time round. Break rather than return: the
+            // teardown below is the *only* place the clock is banked and
+            // the workstream is settled, and a failover that already burned
+            // minutes and wrote half an edit must not skip either.
+            Some(Err(failure)) => {
+                pending_walls.extend(failure.walls.iter().cloned());
+                all_walls.extend(failure.walls);
+                let reason = give_up_reason(&all_walls, &failure.message);
+                report_switches(
+                    &inner,
+                    (home, scope),
+                    Some(item_id),
+                    &pending_walls,
+                    None,
+                    &signer,
+                    attestation.clone(),
+                );
+                tracing::warn!(work_item = %item_id, "work item failed: {reason}");
+                break RunSettled::Failed(reason);
+            }
+        };
         pending_walls.extend(launched.walls.iter().cloned());
         all_walls.extend(launched.walls.iter().cloned());
         report_switches(
@@ -957,6 +996,24 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             attestation.clone(),
         );
         pending_walls.clear();
+        // Stopped while the harness started: it is aborted before it is
+        // prompted, and no row ever stands for it.
+        if mark.is_stopped() || !inner.inflight.contains_key(&item_id) {
+            warn_on_err_for(
+                home,
+                Some(item_id),
+                launched.session.abort().await,
+                "aborting a worker stopped as it launched",
+            );
+            warn_on_err_for(
+                home,
+                Some(item_id),
+                launched.session.dispose().await,
+                "disposing a worker stopped as it launched",
+            );
+            drop(launched.in_flight);
+            break RunSettled::Aborted;
+        }
 
         let harness_id = launched.harness.clone();
         let model_key = launched.model_key.clone();
@@ -1066,15 +1123,46 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         ) {
             Ok(state) => spec.state = state,
             Err(e) => {
+                // The item could not be claimed — cancelled or stopped while
+                // the harness started, most often: the session is aborted
+                // and let go of, the row ends, and an item already settled
+                // keeps its verdict.
+                warn_on_err_for(
+                    home,
+                    Some(item_id),
+                    session.abort().await,
+                    "aborting an unclaimable session",
+                );
                 warn_on_err_for(
                     home,
                     Some(item_id),
                     session.dispose().await,
                     "disposing an unclaimable session",
                 );
+                crate::sessions::ended(&inner, &session_id.to_string());
                 drop(launched.in_flight);
-                spec.state =
-                    settle_failed(&inner, &spec, format!("cannot claim the work item: {e}")).await;
+                driven.disarm();
+                let settled_already = inner
+                    .ws
+                    .get_work_item(&home, item_id)
+                    .is_ok_and(|current| already_settled(&current.state));
+                let reason = format!("cannot claim the work item: {e}");
+                if settled_already {
+                    inner
+                        .presence
+                        .ended(&inner, agent_id, &ExecutionOutcome::Aborted);
+                    inner.emit(scope.event(
+                        Some(item_id),
+                        EnginePayload::ExecutionEnded {
+                            outcome: ExecutionOutcome::Aborted,
+                        },
+                    ));
+                } else {
+                    spec.state = settle_failed(&inner, &spec, reason.clone()).await;
+                    inner
+                        .presence
+                        .ended(&inner, agent_id, &ExecutionOutcome::Failed { reason });
+                }
                 return;
             }
         }
@@ -1131,26 +1219,38 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         }
         first_prompt.push_str(&result_protocol(&spec));
 
-        let outcome = if let Err(e) = session.prompt(first_prompt.as_str().into()).await {
-            RunSettled::Failed(format!("prompt failed: {e}"))
-        } else {
-            drive_session(
-                &inner,
-                scope,
-                agent_id,
-                session_id,
-                &spec,
-                session.as_ref(),
-                events,
-                &harness_id,
-                &model_key,
-                started_at,
-                wall_clock,
-                &signer,
-                attestation.clone(),
-            )
-            .await
-        };
+        let outcome =
+            match unless_stopped(&mark, session.prompt(first_prompt.as_str().into())).await {
+                // Stopped at its first prompt: aborted before it says a word.
+                None => {
+                    warn_on_err_for(
+                        home,
+                        Some(item_id),
+                        session.abort().await,
+                        "aborting a worker stopped at its first prompt",
+                    );
+                    RunSettled::Aborted
+                }
+                Some(Err(e)) => RunSettled::Failed(format!("prompt failed: {e}")),
+                Some(Ok(())) => {
+                    drive_session(
+                        &inner,
+                        scope,
+                        agent_id,
+                        session_id,
+                        &spec,
+                        session.as_ref(),
+                        events,
+                        &harness_id,
+                        &model_key,
+                        started_at,
+                        wall_clock,
+                        &signer,
+                        attestation.clone(),
+                    )
+                    .await
+                }
+            };
 
         // Tear this attempt down before deciding whether there is another —
         // the row is settled below, by hand.
@@ -1185,6 +1285,10 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
                 // This attempt never really ran: its row leaves at once.
                 inner.presence.forget(&inner, agent_id);
                 last_run = None;
+                // A stop that landed on the wall: no next attempt.
+                if mark.is_stopped() {
+                    break RunSettled::Aborted;
+                }
                 if attempts.spent() {
                     let reason = give_up_reason(&all_walls, "the attempt budget is spent");
                     report_switches(
@@ -1793,27 +1897,85 @@ pub(crate) fn block_item(inner: &Inner, spec: &WorkItemSpec, reason: String) -> 
 #[derive(Clone)]
 pub struct InFlightMark {
     pub home: Home,
-    stop: Arc<tokio::sync::Notify>,
+    stop: Arc<crate::sessions::StopSignal>,
 }
 
 impl InFlightMark {
     fn new(home: Home) -> Self {
         Self {
             home,
-            stop: Arc::new(tokio::sync::Notify::new()),
+            stop: Arc::new(crate::sessions::StopSignal::default()),
         }
     }
 
     /// Tell the session driver to abort now. Idempotent; a stop before the
-    /// driver listens is kept for it (`Notify` holds one permit).
+    /// driver listens is kept for it, and read wherever it stands.
     pub fn stop(&self) {
-        self.stop.notify_one();
+        self.stop.stop();
+    }
+
+    /// Whether the item was stopped — read between two waits, where a
+    /// consumed signal would say nothing.
+    pub fn is_stopped(&self) -> bool {
+        self.stop.is_stopped()
     }
 
     /// Resolves once `stop` was called — the driver's other arm.
     async fn stopped(&self) {
-        self.stop.notified().await;
+        self.stop.stopped().await;
     }
+}
+
+/// Run `fut` unless — or until — the item is stopped: `None` is the stop,
+/// read first. What every wait of the driver before the harness is driven
+/// goes through — the pause, the assignment, the placement, the permit, the
+/// judgement, the launch, the first prompt — so a stop that lands there is
+/// honoured there, never only at the next event.
+async fn unless_stopped<T>(
+    mark: &InFlightMark,
+    fut: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    tokio::select! {
+        biased;
+        () = mark.stopped() => None,
+        out = fut => Some(out),
+    }
+}
+
+/// The stop came before any session: the item was still being placed,
+/// waiting for a permit, or judged — its reason to run went. What was opened
+/// is settled, and the item reads as its cancel left it, or blocked by the
+/// stop; the bus hears the execution end aborted.
+async fn settle_stopped_early(
+    inner: &Arc<Inner>,
+    spec: &mut WorkItemSpec,
+    scope: crate::events::EventScope,
+    placement: Option<Placement>,
+) {
+    let home = spec.home;
+    let item_id = spec.id;
+    if let Some(Placement::Checkout(checkout)) = placement {
+        let Checkout {
+            workstream, iso, ..
+        } = *checkout;
+        let result = inner.ws.paths().home(&home).result(item_id);
+        capture_iso_result(spec, result, iso).await;
+        settle_workstream(inner, spec, &workstream).await;
+    }
+    if let Ok(current) = inner.ws.get_work_item(&home, item_id) {
+        *spec = current;
+    }
+    if !already_settled(&spec.state) {
+        let reason = "session aborted".to_string();
+        spec.state = block_item(inner, spec, reason.clone());
+        effects::item_settled(inner, spec, Err(reason));
+    }
+    inner.emit(scope.event(
+        Some(item_id),
+        EnginePayload::ExecutionEnded {
+            outcome: ExecutionOutcome::Aborted,
+        },
+    ));
 }
 
 /// Stop the mark of one item, if it is reserved. Answers whether it was.

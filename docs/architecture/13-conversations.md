@@ -369,7 +369,10 @@ store row alike — an abort ends it, and deleting or archiving a conversation s
 turns): past it the session is aborted and its row reads *failed: wall clock exceeded*, one note
 on the conversation — a harness that never answers cannot hold a conversation's turn for ever.
 The roster row says the turn's origin: its scope — the string `agent_thinking` spells — and the
-person on another node whose message woke it.
+person on another node whose message woke it. A turn that is **stopped** — its row's *Terminate*,
+its goal's stop, close or deletion — is aborted where it stands, then let go of: the harness's
+cancel, then its process group ended ([06](06-agents-and-teams.md#sessions-and-presence)); the
+next message starts afresh, and a closed goal's thread wakes no turn.
 
 ---
 

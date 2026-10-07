@@ -148,7 +148,7 @@ fn register_ask(
     run: LiveRunId,
     asking: &Asking,
     harness: &str,
-    model: &str,
+    model: Option<&str>,
     effort: Option<Effort>,
     agent: Option<&str>,
     cwd: &std::path::Path,
@@ -186,7 +186,7 @@ fn register_ask(
                 purpose: asking.purpose.clone(),
             },
             harness: harness.to_string(),
-            model: Some(model.to_string()),
+            model: model.map(str::to_string),
             effort,
             agent: agent.and_then(|a| AgentId::new(a).ok()),
             session_id: None,
@@ -207,6 +207,7 @@ fn register_ask(
 /// registry entry reads *idle* from here: an ask resumes nothing, and the
 /// retention clock forgets it as it forgets a worker's.
 fn end_ask(inner: &Inner, run: LiveRunId, outcome: ExecutionOutcome) {
+    inner.ending.gone(run);
     settle_registry(inner, run);
     match inner.arc() {
         Some(owned) => inner.presence.ended(&owned, run, &outcome),
@@ -233,6 +234,7 @@ fn settle_registry(inner: &Inner, run: LiveRunId) {
 /// An attempt that never really ran leaves no trace: its row and its registry
 /// entry go at once.
 fn forget_ask(inner: &Inner, run: LiveRunId) {
+    inner.ending.gone(run);
     inner.presence.forget(inner, run);
     settle_registry(inner, run);
     debug_on_err(
@@ -372,30 +374,19 @@ pub async fn ask_once(
     let left = || deadline.saturating_sub(started.elapsed());
 
     loop {
-        let launched =
-            executor::resolve_and_launch(inner, &launch, &mut tried, &mut attempts, &spec)
-                .await
-                .map_err(|f| {
-                    EngineError::Invalid(bisa_core::text!(
-                        "error-engine-invalid-no-session-agent",
-                        agent = agent.to_string(),
-                        a0 = (f.message).to_string()
-                    ))
-                })?;
-        let (harness, model_key) = (launched.harness.clone(), launched.model_key.clone());
-        let session = launched.session;
-        let in_flight = launched.in_flight;
         // One row of the roster per attempt — what the ask is for, on what,
-        // where its harness stands — and a stop that reaches this loop.
+        // where its harness stands — and a stop that reaches this loop, both
+        // before the launch, so a stop that lands while the harness starts
+        // finds a row to end and a driver to tell; the launch says the rest.
         let run = LiveRunId::mint();
         let driving = crate::sessions::Driving::begin(&inner.driving, run);
         register_ask(
             inner,
             run,
             &asking,
-            &harness,
-            &model_key,
-            launched.effort,
+            candidates.first().map(String::as_str).unwrap_or_default(),
+            None,
+            None,
             judged_as.as_deref(),
             &spec.cwd,
         );
@@ -404,6 +395,43 @@ pub async fn ask_once(
         let _driven = inner
             .arc()
             .map(|owned| crate::sessions::Driven::begin(&owned, run, None));
+        let launched = tokio::select! {
+            biased;
+            () = driving.stopped() => None,
+            launched = executor::resolve_and_launch(inner, &launch, &mut tried, &mut attempts, &spec) => Some(launched),
+        };
+        let launched = match launched {
+            // Stopped while the harness started: the row already reads
+            // *aborted*, the caller hears a refusal.
+            None => {
+                return Err(EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-stopped-before-answered",
+                    agent = agent.to_string()
+                )));
+            }
+            Some(launched) => launched.map_err(|f| {
+                forget_ask(inner, run);
+                EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-no-session-agent",
+                    agent = agent.to_string(),
+                    a0 = (f.message).to_string()
+                ))
+            })?,
+        };
+        let (harness, model_key) = (launched.harness.clone(), launched.model_key.clone());
+        let session = launched.session;
+        let in_flight = launched.in_flight;
+        inner.presence.launched(
+            inner,
+            run,
+            crate::presence::LaunchedFacts {
+                harness: harness.clone(),
+                model: Some(model_key.clone()),
+                effort: launched.effort,
+                session_id: None,
+                transcript_path: None,
+            },
+        );
         let mut events = session.subscribe();
 
         // Skills the harness cannot host natively ride the first prompt, the
@@ -412,7 +440,29 @@ pub async fn ask_once(
             Some(appendix) => format!("{prompt}\n\n{appendix}"),
             None => prompt.to_string(),
         };
-        if let Err(e) = session.prompt(text.as_str().into()).await {
+        let prompted = tokio::select! {
+            biased;
+            () = driving.stopped() => None,
+            prompted = session.prompt(text.as_str().into()) => Some(prompted),
+        };
+        if prompted.is_none() {
+            // Stopped at its prompt: aborted before it says a word.
+            warn_on_err(
+                session.abort().await,
+                "aborting an ask stopped at its prompt",
+            );
+            warn_on_err(
+                session.dispose().await,
+                "disposing an ask stopped at its prompt",
+            );
+            drop(in_flight);
+            drop(driving);
+            return Err(EngineError::Invalid(bisa_core::text!(
+                "error-engine-invalid-stopped-before-answered",
+                agent = agent.to_string()
+            )));
+        }
+        if let Some(Err(e)) = prompted {
             warn_on_err(session.dispose().await, "disposing a failed ask session");
             drop(in_flight);
             drop(driving);

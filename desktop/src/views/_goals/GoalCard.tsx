@@ -14,6 +14,8 @@
  * the goal page's retirement dialog reached from the list. The facts are
  * `goalCardModel.mjs`'s and `goalStripModel.mjs`'s; this file paints.
  */
+import { sessionsByGoal } from "../_goal/runControl.mjs";
+import { useSessions } from "../../shell/sessionsStore";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { errorFields, log } from "../../log";
@@ -69,7 +71,8 @@ export function GoalCard({
     return () => ctl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetched once per verb picked
   }, [verb, row.id]);
-  const verbs = rowVerbs(row);
+  const sessionRows = useSessions();
+  const verbs = rowVerbs(row, sessionsByGoal(sessionRows).get(row.id) ?? 0);
   // The menu's shape is the model's, the workflow card's too; the card binds each id to its door or dialog.
   const menu: MenuItem[] = cardMenu(verbs).map((item) => {
     if (item.id === "open") return { label: item.label, icon: ICON.forward, onSelect: () => navigate({ name: "goal", id: row.id }) };
@@ -224,7 +227,7 @@ export function GoalCard({
           open
           onClose={() => setDeleting(false)}
           onRetired={(done, choices) => {
-            toast.ok(retiredWords("goal", choices.thing, done.terminated));
+            toast.ok(retiredWords("goal", choices.thing, done.terminated, done.ended));
             onChanged();
           }}
         />

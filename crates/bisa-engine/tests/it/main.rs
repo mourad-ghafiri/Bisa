@@ -21,6 +21,7 @@ mod decisions;
 mod docs;
 mod documents;
 mod drawings;
+mod ending;
 mod engine;
 mod events;
 mod folder_git;

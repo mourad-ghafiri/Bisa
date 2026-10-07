@@ -9,7 +9,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { dropped, landedRead, latest, stopWords, stoppedAlready, upserted } from "./sessionRosterModel.mjs";
+import { dropped, landedRead, latest, stopWords, stoppedAlready, transitionsBetween, upserted } from "./sessionRosterModel.mjs";
 import { isStoppable } from "../ui/sessionState.mjs";
 
 const row = (id, state, extra = {}) => ({ id, harness: "claude", kind: "engine", since: 1, state: { state }, children: [], ...extra });
@@ -72,13 +72,19 @@ test("a Stop on a row the node no longer has is no failure: the row is dropped a
   assert.equal(stoppedAlready(null), false);
   assert.equal(stopWords("stopped", "Session aborted"), "Session aborted");
   assert.equal(stopWords("gone", "Session aborted"), "That session had already ended.");
+  // The node's word on what the stop ended rides after the surface's — never the session itself, which the surface said.
+  assert.equal(stopWords("stopped", "Session aborted", { sessions: 1, terminated: 1, still_live: 0, children: [] }), "Session aborted — 1 harness did not answer and was terminated");
+  assert.equal(stopWords("stopped", "", { sessions: 1, terminated: 0, still_live: 1, children: [] }), "1 session could not be ended — see Agents");
+  assert.equal(stopWords("stopped", "", { sessions: 1, terminated: 0, still_live: 0, children: [] }), "", "nothing beyond the session: nothing to say");
+  assert.equal(stopWords("gone", "", { sessions: 0, terminated: 0, still_live: 0, children: [] }), "That session had already ended.");
 });
 
 test("every Stop on the desktop goes through the one door, and the store holds a read to the frames that outran it", () => {
   const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
   const store = src("./sessionsStore.ts");
-  assert.ok(store.includes("if (!stoppedAlready(e)) throw e;") && store.includes('return "gone";'), "the node's 404 drops the row and throws nothing");
-  assert.ok(store.includes("commit(landedRead(r.sessions, heard));"), "a read lands under the frames heard while it was out");
+  assert.ok(store.includes("if (!stoppedAlready(e)) throw e;") && store.includes('return { how: "gone", ended: null };'), "the node's 404 drops the row and throws nothing");
+  assert.ok(store.includes("for (const [prev, row] of transitionsBetween(before, next))"), "a row a re-read moved is announced as a transition — a tab's harness is closed on an aborted the frame never brought");
+  assert.ok(store.includes("const next = landedRead(r.sessions, heard);") && store.includes("if (commit(next)) {"), "a read lands under the frames heard while it was out");
   assert.ok(store.includes("since.set(row.id, heard ? latest(heard, row) : row);") && store.includes("since?.set(id, null);"), "both kinds of frame are kept while a read is out, the newest word of each row");
   assert.ok(store.includes("if (next === state.sessions) return;"), "a frame older than the row held neither commits nor announces a transition");
   for (const surface of ["../views/Agents.tsx", "../views/_workbench/useConversationPane.tsx", "../views/_studio/ConversationThread.tsx", "../views/_workbench/ProjectRail.tsx", "../views/_work/useReviewRun.ts"]) {
@@ -86,4 +92,17 @@ test("every Stop on the desktop goes through the one door, and the store holds a
     assert.ok(text.includes("stopSession("), `${surface} stops through the store`);
     assert.ok(!text.includes("api.abortSession("), `${surface} never calls the route itself: a 404 there was an error toast on every press`);
   }
+});
+
+test("a read of the whole roster announces what it moved: a row whose state changed, a row that appeared — never one that stood still", () => {
+  const before = [row("s1", "running"), row("s2", "idle"), row("s3", "thinking")];
+  const after = [row("s4", "starting"), row("s1", "aborted"), row("s2", "idle")];
+  assert.deepEqual(
+    transitionsBetween(before, after).map(([prev, r]) => [prev?.state ?? null, `${r.id}:${r.state.state}`]),
+    [
+      [null, "s4:starting"],
+      ["running", "s1:aborted"],
+    ],
+  );
+  assert.deepEqual(transitionsBetween(before, before), [], "the same roster moves nothing");
 });

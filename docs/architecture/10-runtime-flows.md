@@ -155,13 +155,24 @@ sequenceDiagram
 (`listen::turn::turn_off`), withdraws every queued run, cancels the live one (`Cancel { stopped }`)
 and ends the goal's sessions (`sessions::stop_for`), in that order — so nothing its events start
 slips in and the last settle finds nothing to advance — then waits a bounded time for the
-sessions to be gone; the goal reads `draft`. Every stop goes through `sessions::stop_row`: the
-registry's abort, the driver's own stop, then **every question the session was waiting on is
-withdrawn** (`sessions::withdraw_questions_of` — a `withdrawn` fact on the home, the harness
-answered a refusal the guard never records as the person's), so a worker blocked at a permission
-is released and aborted, never left at work behind a row that reads *aborted*. A close
-(`ops::close_goal`) stops the goal's sessions the same way — the design wake's and the thread's
-turns' — before it forgets the goal. `POST /goals/{id}/restart` (`ops::restart_goal`)
+sessions to be gone; the goal reads `draft`. **Every verb goes through one door** (`ending.rs`), in
+one order: listening off and the queue withdrawn; no re-wake — the Workflow Agent's pending cycle
+and the thread's queued message go; the live run cancelled, the run first and the sessions after, so
+an aborted worker finds its item cancelled and nothing retries; **the goals it spawned, recursively**
+— stopped by a stop or a restart, closed by a close or a retirement, each told why; the run's
+connector calls and `check`/`judge` tasks aborted; every session told — the in-flight marks of the
+home first, since a worker still launching has a mark and no row, then every row of the scope
+(`sessions::stop_row`: the registry's abort, the driver's own stop, every question the session was
+waiting on withdrawn — a `withdrawn` fact on the home, the harness answered a refusal the guard
+never records as the person's); then **the wait** (`sessions::await_stopped`): until nothing of the
+scope stands — no live row, no session told to stop whose process is not known gone, no item in
+flight — or the deadline (`stop_deadline_ms`, 5 s) passes, when what still has a process of ours is
+terminated — its whole group — counted and noted on the home, and what has none is reported; then a
+closed goal's workstreams and gates are released. The verb answers `Ended { sessions, terminated,
+still_live, children }`, and the desktop words it. A close (`ops::close_goal`) signals the same at
+once and finishes on a task of its own — the node's route waits for it (`close_goal_settled`).
+A restart ends every session of the goal whether or not its last run is live, so a repair wake or a
+thread's turn never outlives the run it was about. `POST /goals/{id}/restart` (`ops::restart_goal`)
 reads where the last run began before it cancels anything (`restart_entry`: the start it entered
 and the event that began it — refused, the run left as it is, when that start is gone from the
 workflow as it stands), cancels the live run with `restarted` — a settle that advances nothing —
@@ -586,7 +597,8 @@ already `fired`, a reminder never past its `max`, and nothing for a step that is
    (`effects::cancel_work`): the work item is cancelled and its session ended — with every
    permission or question that session was waiting on withdrawn (`executor::cancel_item`), so a
    worker mid-ask is released — the gate withdrawn,
-   the wait disarmed; a `spawn` stops waiting and the child goes on.
+   the wait disarmed; a `spawn` stops waiting and the child goes on — a divert is not a stop; a
+   goal's stop, close or deletion reaches its spawned goals through the one door (§A stop, a restart).
 4. **An act happens beside the step.** `RunEffect::BoundaryAct` posts the message a `notify` step
    would (`post_as`) or raises a named signal through the emit door, its dedupe key
    `boundary:<run>:<step>:<entered>:<name>:<count>`; the step goes on whatever came of it, and

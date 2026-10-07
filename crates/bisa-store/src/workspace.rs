@@ -1328,6 +1328,24 @@ impl Workspace {
         self.record_session(&row)
     }
 
+    /// The session is over for its driver but its harness child is not
+    /// gone yet — it ignored its stop, or is still leaving: the row ends,
+    /// its pid kept, so a boot after a crash can still end the process.
+    pub fn end_session_keeping_process(&self, id: &str, at: u64) -> Result<(), StoreError> {
+        let mut row = self
+            .session_by_id(id)?
+            .ok_or_else(|| StoreError::SessionNotFound(id.to_string()))?;
+        row.status = SessionStatus::Ended;
+        row.ended_at = Some(at);
+        self.record_session(&row)
+    }
+
+    /// Every session row still naming a harness child, whatever its
+    /// status — what a boot terminates besides the live rows' children.
+    pub fn list_sessions_with_process(&self) -> Result<Vec<SessionRow>, StoreError> {
+        self.idx().sessions_with_process()
+    }
+
     /// The harness child a live session is driving, as the driver announced
     /// it — recorded with the moment, so a later boot can tell this process
     /// from another that inherited its pid.

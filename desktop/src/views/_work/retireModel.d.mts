@@ -52,7 +52,7 @@ export interface RetirePreview {
 }
 
 /** What is said once it happened: the thing, its fate, and what this app terminated with it. */
-export declare function retiredWords(kind: RetireKind, thing: "archive" | "delete", terminated: TerminationCounts | null | undefined): string;
+export declare function retiredWords(kind: RetireKind, thing: "archive" | "delete", terminated: TerminationCounts | null | undefined, nodeEnded?: import("../../shell/stopOutcomeModel.mjs").StopOutcomeBlock | null): string;
 export declare function titleWords(thing: ThingFate, name: string): string;
 
 export interface RetireChoices {

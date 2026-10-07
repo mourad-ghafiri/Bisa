@@ -127,9 +127,39 @@ impl Lifecycle {
         delivered
     }
 
-    /// Let go of an adopted session for good — what stopping its row does:
-    /// the slot leaves, the session is disposed and its durable row ended.
-    /// Answers whether a slot was held.
+    /// Abort an adopted session and let go of it for good — what stopping
+    /// its row does: the slot leaves, the harness is aborted, then disposed,
+    /// and the durable row ended. Answers whether a slot was held.
+    pub async fn abort(&self, inner: &Inner, agent_id: LiveRunId) -> bool {
+        let Some((_, slot)) = self.slots.remove(&agent_id) else {
+            return false;
+        };
+        let mut guard = slot.lock().await;
+        guard.epoch += 1; // a pending TTL finds its epoch stale
+        if let Some(session) = guard.session.take() {
+            crate::warn_on_err(session.abort().await, "aborting a stopped session");
+            crate::warn_on_err(session.dispose().await, "disposing a stopped session");
+        }
+        crate::sessions::ended(inner, &guard.session_row_id);
+        true
+    }
+
+    /// Whether a slot holds the agent's session — adopted, not yet parked.
+    pub fn holds(&self, agent_id: LiveRunId) -> bool {
+        self.slots.contains_key(&agent_id)
+    }
+
+    /// Every adopted session aborted and let go of — the engine's own stop.
+    pub async fn abort_all(&self, inner: &Inner) {
+        let held: Vec<LiveRunId> = self.slots.iter().map(|s| *s.key()).collect();
+        for agent_id in held {
+            self.abort(inner, agent_id).await;
+        }
+    }
+
+    /// Let go of an adopted session once it idled its time to live — the
+    /// park: the slot leaves, the session is disposed and its durable row
+    /// ended. Answers whether a slot was held.
     pub async fn release(&self, inner: &Inner, agent_id: LiveRunId) -> bool {
         let Some((_, slot)) = self.slots.remove(&agent_id) else {
             return false;

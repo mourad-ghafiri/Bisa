@@ -18,6 +18,13 @@ pub struct EngineConfig {
     /// How long a finished session stays in the roster (`GET /sessions`, the
     /// rail) so its `done` or `failed` is seen before it leaves.
     pub retain_ended_secs: u64,
+    /// How long a verb that stops sessions — a goal's stop, restart, close
+    /// or retirement, a run's, the roster's *Terminate*, the engine's own
+    /// stop — waits for their harness processes to be gone before it
+    /// terminates what is left itself and says so. Over the harness layer's
+    /// own grace (`bisa_harness::proc::ABORT_GRACE`), so a harness that
+    /// leaves when told is never terminated by the engine.
+    pub stop_deadline_ms: u64,
     /// Result-intake socket path override. Defaults to
     /// `<workspace>/run/engine.sock`, falling back to a short temp path when
     /// that exceeds the platform's unix-socket path limit.
@@ -168,6 +175,13 @@ pub struct EngineConfig {
     pub updates: Option<crate::updates::UpdatesSource>,
 }
 
+impl EngineConfig {
+    /// [`Self::stop_deadline_ms`] as a duration.
+    pub fn stop_deadline(&self) -> Duration {
+        Duration::from_millis(self.stop_deadline_ms)
+    }
+}
+
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
@@ -177,6 +191,7 @@ impl Default for EngineConfig {
             default_wall_clock_secs: 7200,
             idle_ttl: Duration::from_secs(300),
             retain_ended_secs: 60,
+            stop_deadline_ms: 5_000,
             socket_path: None,
             max_result_attempts: 3,
             max_clarify_rounds: 3,

@@ -282,8 +282,8 @@ async fn stop(
     let run = run_of(&state, &rid)?;
     let body = body.map(|crate::Body(b)| b).unwrap_or_default();
     let rationale = body.rationale.filter(|r| !r.trim().is_empty());
-    let run = state.engine.stop_run(run.id, rationale).await?;
-    Ok(Json(json!({"run": run})))
+    let (run, ended) = state.engine.stop_run_ended(run.id, rationale).await?;
+    Ok(Json(json!({"run": run, "ended": ended})))
 }
 
 /// Restart a run of the workspace → `{run, status}`: the new run.
@@ -292,8 +292,10 @@ async fn restart(
     AxPath(rid): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let run = run_of(&state, &rid)?;
-    let run = state.engine.restart_run(run.id).await?;
-    Ok(Json(made(&run)))
+    let (run, ended) = state.engine.restart_run_ended(run.id).await?;
+    let mut made = made(&run);
+    made["ended"] = json!(ended);
+    Ok(Json(made))
 }
 
 /// Decide what the run owes, through its home — the live gate when this
@@ -357,8 +359,8 @@ async fn mark_step_done(
 pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/runs/{rid}", summary: "One run — a goal's or the workspace's — whole: `{run, summary, holder, needs_actions}` — the frozen workflow and every step's record, its `RunSummary` (`scope`, `goal`, `number` among its goal's runs or its workflow's runs of the workspace, `started_by` — `{by: you}`, `{by: event, event, detail?}` or `{by: test, event}` — times, outcome, cause), who it waits on, and what it owes a person, each ask with the `home` it is decided through. 404 for an id that names no run." },
     RouteDoc { method: "GET", path: "/runs/{rid}/journal", summary: "The journal of the run's home, rendered, newest last (`?limit=`, default 100): `{run, home, events}` — a run of the workspace's own facts, or its goal's journal for a goal's run." },
-    RouteDoc { method: "POST", path: "/runs/{rid}/stop", summary: "Stop a run of the workspace: `{rationale?}` → `{run}` — cancelled (cause `stopped`), its sessions ended; a run already over is answered as it is. 409 for a goal's run: stop it from its goal." },
-    RouteDoc { method: "POST", path: "/runs/{rid}/restart", summary: "Restart a run of the workspace → `{run, status}` (the new run): a live one is cancelled first (cause `restarted`), then its workflow runs again at the same start, with the same inputs, event and ceiling. 409 for a goal's run: restart it from its goal." },
+    RouteDoc { method: "POST", path: "/runs/{rid}/stop", summary: "Stop a run of the workspace: `{rationale?}` → `{run}` — cancelled (cause `stopped`), its sessions ended; a run already over is answered as it is. 409 for a goal's run: stop it from its goal. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it. The goals born of the run are stopped with it." },
+    RouteDoc { method: "POST", path: "/runs/{rid}/restart", summary: "Restart a run of the workspace → `{run, status}` (the new run): a live one is cancelled first (cause `restarted`), then its workflow runs again at the same start, with the same inputs, event and ceiling. 409 for a goal's run: restart it from its goal. Answers `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it." },
     RouteDoc { method: "POST", path: "/runs/{rid}/decide", summary: "Decide what the run owes, through its home — a run of the workspace's own gate or question, or its goal's for a goal's run: `{approve, rationale?, answer?, gate?, step?}` → `DecideOutcome` (`home`, `gate`, `approve`, `status` — `{of: goal|run, status}` — and `secrets?`, the public hook secrets an adoption minted when it made its goal listen, shown once). `step` names the waiting step when several wait; a gate is decided once (a second decision is `409`), another home's gate is `400`." },
     RouteDoc { method: "POST", path: "/runs/{rid}/steps/{step}/answer", summary: "Answer a waiting `human` step of the run — of either kind: `{answer}` → `{run}`." },
     RouteDoc { method: "POST", path: "/runs/{rid}/steps/{step}/release", summary: "Release a `wait` step of the run a person is holding: `{payload?}` → `{run}` — a payload, when given, is the step's output." },

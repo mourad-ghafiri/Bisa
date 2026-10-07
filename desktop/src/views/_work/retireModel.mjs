@@ -17,6 +17,7 @@
  * of the workspace a workflow has going (retired before the workflow goes).
  */
 
+import { endedWords } from "../../shell/stopOutcomeModel.mjs";
 import { isLive as sessionIsLive } from "../../ui/sessionState.mjs";
 import { terminationWords } from "./closeWorkstreamModel.mjs";
 import { t as tr } from "../../i18n/l10n.mjs";
@@ -247,8 +248,13 @@ export function titleWords(thing, name) {
  * @param {"archive" | "delete"} thing the fate it met
  * @param {TerminationCounts | null | undefined} terminated
  */
-export function retiredWords(kind, thing, terminated) {
-  const ended = terminated ? terminationWords(terminated) : null;
+export function retiredWords(kind, thing, terminated, nodeEnded = null) {
+  // What this app ended — its tabs, its sessions, as the dialog promised —
+  // and after it the node's own word: a harness that had to be terminated,
+  // a session that could not be ended, the goals closed with the thing.
+  const own = terminated ? terminationWords(terminated) : null;
+  const node = endedWords(nodeEnded, { sessionsSaid: true, closed: true });
+  const ended = own && node ? tr("screens-retired-words-and", { own, node }) : (own ?? node);
   if (kind === "goal") {
     if (thing === "delete") return ended ? tr("screens-goal-detail-goal-deleted-2", { ended }) : tr("screens-goal-detail-goal-deleted-3");
     return ended ? tr("screens-goal-detail-goal-archived", { ended }) : tr("screens-goal-detail-goal-archived-2");

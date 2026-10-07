@@ -27,6 +27,7 @@
  * hand over once: each is taken into the memory and off the address.
  */
 
+import { useSessions } from "../../shell/sessionsStore";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../api";
 import { useEngineEvents } from "../../bus";
@@ -51,7 +52,7 @@ import { WorkflowPicker } from "./WorkflowPicker";
 import { DesigningCard } from "../_goal/DesigningCard";
 import { designs, modeOf } from "../_goal/goalMode.mjs";
 import { listeningFacts, pageFacts } from "../_goal/goalPageModel.mjs";
-import { runVerbs } from "../_goal/runControl.mjs";
+import { liveSessionsOf, runVerbs } from "../_goal/runControl.mjs";
 import { startInputs as askedAtStart } from "./forms/startForm.mjs";
 import { blankWorkflow } from "./stepKinds.mjs";
 import { useDesignDraft } from "./designDraftStore";
@@ -201,7 +202,8 @@ export function GoalWorkflowTab({
   // behind a live run, never while the Workflow Agent is designing or
   // repairing; a design that begins on events starts by listening.
   const { listens, manualEntry } = listeningFacts(goal, workflow);
-  const verbs = runVerbs({ goal, run, runs, guidance, proposed: !!proposed, startable: true, listens, manualEntry });
+  const sessionRows = useSessions();
+  const verbs = runVerbs({ goal, run, runs, guidance, proposed: !!proposed, startable: true, listens, manualEntry, liveSessions: liveSessionsOf(sessionRows, goal.id) });
   const offer = verbs.start;
   const listen = !!offer?.listen || (!!proposed && listens);
   const closed = !!goal.closed;

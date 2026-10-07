@@ -1093,3 +1093,40 @@ shell-session-cwd = in { $dir }
 shell-footer-sessions-scope-tail = { $scope } ·{ $tail }
 shell-footer-sessions-line = { $origin } · { $place }
 shell-followed-session-who = { $state } · { $who }
+
+# What a stop, a restart, a close, a retirement or an abort ended — the node's block, worded once (`stopOutcomeModel`).
+shell-stop-outcome-sessions-stopped = { $n ->
+    [one] 1 session stopped
+   *[other] { $n } sessions stopped
+  }
+shell-stop-outcome-terminated = { $n ->
+    [one] 1 harness did not answer and was terminated
+   *[other] { $n } harnesses did not answer and were terminated
+  }
+shell-stop-outcome-still-live = { $n ->
+    [one] 1 session could not be ended — see Agents
+   *[other] { $n } sessions could not be ended — see Agents
+  }
+shell-stop-outcome-children-stopped = { $n ->
+    [one] 1 spawned goal stopped too
+   *[other] { $n } spawned goals stopped too
+  }
+shell-stop-outcome-children-closed = { $n ->
+    [one] 1 spawned goal closed too
+   *[other] { $n } spawned goals closed too
+  }
+shell-stop-outcome-and = { $a } and { $b }
+shell-stop-outcome-comma = { $a }, { $b }
+shell-stop-outcome-said = { $lead } — { $ended }
+shell-stop-outcome-will-stop-sessions = { $n ->
+    [one] The 1 session working on it ends.
+   *[other] The { $n } sessions working on it end.
+  }
+shell-stop-outcome-will-stop-children-stopped = { $n ->
+    [one] The 1 goal it spawned is stopped with it.
+   *[other] The { $n } goals it spawned are stopped with it.
+  }
+shell-stop-outcome-will-stop-children-closed = { $n ->
+    [one] The 1 goal it spawned is closed with it.
+   *[other] The { $n } goals it spawned are closed with it.
+  }

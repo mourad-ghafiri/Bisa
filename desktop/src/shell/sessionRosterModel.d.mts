@@ -15,5 +15,7 @@ export declare function landedRead<R extends { id: string; revision?: number }>(
 export declare function stoppedAlready(error: unknown): boolean;
 /** What a *Stop* did: the node stopped the session, or there was none left to stop. */
 export type StopOutcome = "stopped" | "gone";
-/** The toast after a *Stop*: the surface's sentence, or the plain fact that the session had already ended. */
-export declare function stopWords(outcome: StopOutcome, stopped: string): string;
+/** The toast after a *Stop*: the surface's sentence — and after it the node's word on what the stop ended — or the plain fact that the session had already ended. */
+export declare function stopWords(outcome: StopOutcome, stopped: string, ended?: import("./stopOutcomeModel.mjs").StopOutcomeBlock | null): string;
+/** The rows a read of the whole roster moved, each as the transition a frame would have announced. */
+export declare function transitionsBetween<R extends { id: string; state: { state: string } }>(before: readonly R[], after: readonly R[]): [R["state"] | null, R][];

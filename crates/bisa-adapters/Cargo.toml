@@ -54,6 +54,7 @@ bisa-deps = { version = "0.3", path = "../bisa-deps" }
 [dev-dependencies]
 tempfile = { workspace = true }
 bisa-harness = { workspace = true, features = ["mock"] }
+rustix = { workspace = true }
 futures = { workspace = true }
 tokio-stream = { workspace = true }
 axum = { workspace = true }

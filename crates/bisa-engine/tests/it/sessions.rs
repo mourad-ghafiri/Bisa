@@ -133,7 +133,7 @@ async fn a_worker_stopped_by_its_row_is_told_to_stop_and_its_item_settles_failed
 /// go of — not only its row ended — and the next message is answered by a
 /// fresh one.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_turn_stopped_by_its_row_lets_go_of_its_session_and_the_next_message_starts_afresh() {
+async fn a_turn_stopped_by_its_row_is_aborted_then_let_go_of_and_the_next_message_starts_afresh() {
     let dir = tempfile::tempdir().unwrap();
     let ws = workspace(&dir);
     drive_on(&ws, &AgentId::general(), "endless");
@@ -167,8 +167,9 @@ async fn a_turn_stopped_by_its_row_lets_go_of_its_session_and_the_next_message_s
 
     bisa_engine::sessions::stop_one(engine.inner(), row.id).unwrap();
 
-    until("the session to be let go of", || {
-        closed(&closes).contains(&Close::Disposed).then_some(())
+    // Aborted — the turn ended where it stood — then let go of.
+    until("the session to be aborted, then let go of", || {
+        (closed(&closes) == vec![Close::Aborted, Close::Disposed]).then_some(())
     })
     .await;
     assert_eq!(state_of(&engine, &row), Some(SessionState::Aborted));
@@ -492,7 +493,7 @@ async fn stopping_a_goal_releases_a_worker_waiting_on_a_permission() {
 /// Closing a goal stops what was running for it beyond its workers: the
 /// turn in its thread is let go of, and its row says so.
 #[tokio::test(flavor = "multi_thread")]
-async fn closing_a_goal_stops_the_turn_in_its_thread() {
+async fn closing_a_goal_aborts_the_turn_in_its_thread() {
     let dir = tempfile::tempdir().unwrap();
     let ws = workspace(&dir);
     drive_on(&ws, &AgentId::general(), "endless");
@@ -525,8 +526,8 @@ async fn closing_a_goal_stops_the_turn_in_its_thread() {
         .close_goal(goal.id, ClosureReason::Abandoned { rationale: None })
         .unwrap();
 
-    until("the session to be let go of", || {
-        (!closed(&closes).is_empty()).then_some(())
+    until("the turn to be aborted", || {
+        closed(&closes).contains(&Close::Aborted).then_some(())
     })
     .await;
     assert_eq!(state_of(&engine, &row), Some(SessionState::Aborted));

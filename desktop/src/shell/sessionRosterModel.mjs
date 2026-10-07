@@ -7,6 +7,7 @@
  * Plain `.mjs` with a `.d.mts` beside it, so `node --test` reads it.
  */
 
+import { saidAfter } from "./stopOutcomeModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 
 /**
@@ -97,6 +98,28 @@ export function stoppedAlready(error) {
  * error for a session that had already ended.
  * @param {"stopped" | "gone"} outcome @param {string} stopped the surface's sentence for a session it stopped
  */
-export function stopWords(outcome, stopped) {
-  return outcome === "gone" ? t("shell-sessions-already-ended") : stopped;
+export function stopWords(outcome, stopped, ended = null) {
+  if (outcome === "gone") return t("shell-sessions-already-ended");
+  // The node's word on what the stop ended rides after the surface's: a
+  // harness that had to be terminated, a session that could not be ended.
+  return saidAfter(stopped, ended, { sessionsSaid: true });
+}
+
+/**
+ * The rows a read of the whole roster moved, beside the roster held before
+ * it — each as a transition a frame would have announced: `[prev, row]`
+ * for a row whose state changed, `[null, row]` for one that appeared.
+ * @template {{id: string, state: {state: string}}} R
+ * @param {readonly R[]} before @param {readonly R[]} after
+ * @returns {[R["state"] | null, R][]}
+ */
+export function transitionsBetween(before, after) {
+  const held = new Map(before.map((r) => [r.id, r]));
+  const moved = [];
+  for (const row of after) {
+    const prev = held.get(row.id);
+    if (!prev) moved.push([null, row]);
+    else if (prev.state.state !== row.state.state) moved.push([prev.state, row]);
+  }
+  return moved;
 }

@@ -884,10 +884,12 @@ When several steps are live, `you` beats `agents` beats `world`. The per-kind ar
 `match` over `StepKind`, so a nineteenth kind fails to compile.
 
 **Stop, restart, close** are the three moves a person makes on a goal's runs, all through
-`Cancel { cause }`. A **stop** (`ops::stop_goal`) ends the goal's listening, then its sessions,
-withdraws every queued run (`withdrawn`) and cancels the live one (`stopped { rationale? }`), in
-that order, so the last settle finds nothing to advance; the goal stays open and reads `draft`,
-ready for a new run. A **restart** (`ops::restart_goal`) cancels the live run (`restarted`) and
+`Cancel { cause }`, through one door (`ending.rs`, [10 — Runtime flows](10-runtime-flows.md)). A
+**stop** (`ops::stop_goal`) ends the goal's listening, withdraws every queued run (`withdrawn`),
+cancels the live one (`stopped { rationale? }`) — the run first, so the last settle finds nothing to
+advance and an aborted worker finds its item cancelled — stops the goals it spawned the same way,
+then ends every session of the goal and waits for their processes to be gone; the goal stays open
+and reads `draft`, ready for a new run. A **restart** (`ops::restart_goal`) cancels the live run (`restarted`) and
 starts a new run of the last run's workflow with its inputs — at the start it began at, on the
 event that began it — at once, ahead of the queue, which keeps its place; it is refused, before
 anything is cancelled, when that start is gone from the workflow as it stands. A queued

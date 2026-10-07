@@ -2451,3 +2451,5 @@ work-pr-form-undo = Undo
 work-pr-form-no-suggestion = Nothing was suggested — { $why }
 work-pr-form-no-suggestion-node = Nothing was suggested, and the node did not say why. Write it yourself.
 work-pr-form-empty-suggestion = The agent answered with no title. Write it yourself.
+
+work-work-item-panel-cancelled = Cancelled — its step was stopped, cancelled or amended away; the session working on it was ended.

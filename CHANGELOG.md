@@ -10,6 +10,17 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- Every verb that ends work says what it ended. A goal's stop, restart, close, archive and
+  delete, a run's stop and restart, a workflow's *Stop every run* and *Restart every run*, and a
+  session's Abort answer an `ended` block — the sessions told to stop, the harnesses that ignored
+  it and were terminated at the deadline, the sessions that could not be ended, the spawned goals
+  ended with the thing — and the desktop's toast words it after its own sentence: *Stopped. — 2
+  sessions stopped and 1 harness did not answer and was terminated*. `bisa stop` says the same.
+- Stop is offered on a goal whose Workflow Agent is designing it or whose thread has a turn going,
+  with no run at all; the confirm says how many sessions and spawned goals end with it, and the
+  close dialog says what it closes beside the run.
+- The goal page's work item panel reads its item again on the frames that move it, and draws a
+  cancelled item as such.
 - Every session says where it comes from. A roster row (`GET /sessions`) now carries its
   `origin` — a run's step by id and name, and whether the session resumed an item a restart cut
   short; the Workflow Agent's phase, *design* or *repair*; a conversation turn's scope and the
@@ -37,6 +48,19 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- A goal's stop or restart stops the goals it spawned, and a close, an archive or a deletion
+  closes them — recursively, each told why; a run of the workspace stopped stops the goals born of
+  it. A `spawn` step's boundary divert alone still leaves the child going.
+- Every harness the platform spawns runs in a process group of its own, and a stop is two-phased
+  everywhere: the cancel the harness understands, then `SIGTERM` to the whole group, three seconds
+  to leave, then `SIGKILL` — so the commands a tool was running, the injected MCP server and a dev
+  server go with the harness; a let-go gives EOF five seconds, then the same. ACP harnesses
+  (Gemini CLI, Grok Build, GitHub Copilot CLI, Goose and the others), pi and omp are ended on a
+  stop, not only asked; a cancelled ACP turn ends the session for good.
+- A verb that stops sessions answers only once their processes are gone — or were terminated by
+  the engine at a five-second deadline, and said; a close waits too. A stopped conversation turn is
+  aborted where it stands, not let finish. `Engine::stop` ends every session it drives the same
+  way, so a node that stops leaves no harness behind.
 - The footer counts *live harnesses* — every harness process the engine drives: the checkout's
   rows as before, and the ones no checkout holds, the Workflow Agent's design wake and the one-shot
   asks, so the footer, the node overlay and the resources overlay agree on what is running. An
@@ -61,6 +85,27 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A row read *aborted* beside a harness still at work, and every stop, close, restart and
+  deletion answered at once whatever the harness did: the stop ended the row before the harness
+  and the wait watched the rows alone. The engine now keeps every stopped session in a ledger
+  until its driver has torn the session down, waits on that, and terminates what is left.
+- Only the harness's own pid was ever signalled, so the commands its tools ran, the injected MCP
+  server and any server it started outlived the stop; ACP, pi and omp sessions were never signalled
+  at all; a `check` command ran to its timeout after its run was stopped; a cancelled work item did
+  not stop the mark before dropping it.
+- A session still starting when the stop landed ran on: a worker's row stood only after its
+  launch, a design wake checked its reason only before launching, a turn's session was inserted
+  after its row, an ask's stop began after its launch. Every driver's row now stands before the
+  launch, and the launch and the first prompt are raced against the stop; an item cancelled while
+  its harness started aborts the session rather than leaving the row guard to end the row.
+- A stopped goal could be woken again by the stop itself — the aborted wake's task re-scheduled
+  the Workflow Agent and drained the thread's queued message; a closed goal's thread could still
+  wake a turn; a restart stopped nothing when the last run was not live and never aborted connector
+  calls; a retirement stopped sessions before cancelling the run; a run's settle removed a copy
+  workstream's tree under a live harness; `delete_goal` hid survivors from the roster.
+- A terminal tab's harness survived a lost frame: the roster re-read now announces the rows it
+  moved. The goal page showed a stopped item *in progress* until reopened. The retirement toast
+  promised counts the node never confirmed.
 - Stopping a session that was waiting on you now stops it. *Terminate* on the roster, `bisa
   sessions abort`, a goal's stop, a retirement or a cancelled step left a worker blocked at a
   permission or a question with its row reading *aborted*, its harness still running and its

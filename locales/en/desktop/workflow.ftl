@@ -1008,7 +1008,7 @@ workflow-goal-workflow-tab-discard-body = The steps go back to the saved workflo
 
 ## Stopping one run asks first (`StopRunDialog.tsx`), and a pane with no runs (`WorkflowRunsPane.tsx`).
 workflow-stop-run-dialog-title = Stop this run?
-workflow-stop-run-dialog-body = The run is cancelled and its sessions end. Restart begins a new run with the same inputs.
+workflow-stop-run-dialog-body = The run is cancelled, its sessions end and are waited for, and the goals it spawned are stopped with it. Restart begins a new run with the same inputs.
 workflow-stop-run-dialog-confirm = Stop the run
 workflow-runs-pane-no-runs-title = No runs yet
 

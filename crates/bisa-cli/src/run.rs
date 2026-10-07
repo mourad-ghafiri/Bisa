@@ -347,13 +347,14 @@ pub async fn stop(ctx: &Ctx, out: &Out, id: &str, rationale: Option<String>) -> 
         let stopped = engine.stop_goal(id, rationale).await;
         engine.shutdown().await;
         let stopped = stopped?;
-        json!({"stopped": stopped.run, "withdrawn": stopped.withdrawn})
+        json!({"stopped": stopped.run, "withdrawn": stopped.withdrawn, "ended": stopped.ended})
     };
     out.human(&stopped_lines(id, &stopped, listened).join("\n"));
     out.json_value(json!({
         "goal": id.to_string(),
         "stopped": stopped["stopped"],
         "withdrawn": stopped["withdrawn"],
+        "ended": stopped["ended"],
         "listening_stopped": listened,
     }));
     Ok(())
@@ -394,6 +395,29 @@ fn stopped_lines(id: GoalId, stopped: &Value, listened: bool) -> Vec<String> {
         lines.push(bisa_i18n::say(&bisa_core::text!(
             "cli-run-goal-stopped-listening",
             id = id.to_string()
+        )));
+    }
+    // What the stop ended besides: a harness that had to be terminated, a
+    // session that could not be ended, the goals spawned by this one.
+    let ended = &stopped["ended"];
+    let count = |key: &str| ended[key].as_u64().unwrap_or(0);
+    let children = ended["children"].as_array().map_or(0, |c| c.len());
+    if count("terminated") > 0 {
+        lines.push(bisa_i18n::say(&bisa_core::text!(
+            "cli-run-goal-harnesses-terminated",
+            n = count("terminated").to_string()
+        )));
+    }
+    if count("still_live") > 0 {
+        lines.push(bisa_i18n::say(&bisa_core::text!(
+            "cli-run-goal-sessions-not-ended",
+            n = count("still_live").to_string()
+        )));
+    }
+    if children > 0 {
+        lines.push(bisa_i18n::say(&bisa_core::text!(
+            "cli-run-goal-spawned-stopped",
+            n = children.to_string()
         )));
     }
     lines

@@ -15,7 +15,8 @@ import { subscribe as busSubscribe, watchConnection } from "../bus";
 import { reloadOnReconnect } from "./workspaceLoadModel.mjs";
 import { isHidden, onVisibilityChange } from "./visibility";
 import { sameJsonList } from "./snapshotEqual.mjs";
-import { dropped, landedRead, latest, stoppedAlready, upserted, type StopOutcome } from "./sessionRosterModel.mjs";
+import { dropped, landedRead, latest, stoppedAlready, transitionsBetween, upserted, type StopOutcome } from "./sessionRosterModel.mjs";
+import { endedOf, type StopOutcomeBlock } from "./stopOutcomeModel.mjs";
 
 /** A frame the stream lost is caught here; nothing else refetches. Tunable via
  *  `cache.desktop.sessions_safety_ms`. */
@@ -82,7 +83,16 @@ function reloadSessions(): void {
     .sessions(ac.signal)
     .then((r) => {
       if (ac.signal.aborted) return;
-      commit(landedRead(r.sessions, heard));
+      // A row a re-read moved — a frame the stream lost — is announced as a
+      // transition too, so a tab's harness is closed on an `aborted` the
+      // frame never brought, and the working dot hears it.
+      const before = state.sessions;
+      const next = landedRead(r.sessions, heard);
+      if (commit(next)) {
+        for (const [prev, row] of transitionsBetween(before, next)) {
+          for (const t of transitions) t(prev, row);
+        }
+      }
     })
     .catch((e: unknown) => {
       // The last roster stands; the safety tick asks again.
@@ -126,14 +136,16 @@ function drop(id: string) {
  * row is dropped here and nothing is thrown — a press on it again would
  * otherwise be an error toast every time, until the safety read.
  */
-export async function stopSession(id: string): Promise<StopOutcome> {
+export async function stopSession(id: string): Promise<{ how: StopOutcome; ended: StopOutcomeBlock | null }> {
   try {
-    await api.abortSession(id);
-    return "stopped";
+    const answer = await api.abortSession(id);
+    // The node answers once the process is gone — or was terminated at the
+    // deadline — and says which (`ended`).
+    return { how: "stopped", ended: endedOf(answer) };
   } catch (e) {
     if (!stoppedAlready(e)) throw e;
     drop(id);
-    return "gone";
+    return { how: "gone", ended: null };
   }
 }
 

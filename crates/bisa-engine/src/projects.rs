@@ -1226,7 +1226,12 @@ pub async fn delete(
         .ws
         .list_workstreams(WorkstreamFilter::Project(project))?;
     let wids: std::collections::HashSet<WorkstreamId> = workstreams.iter().map(|w| w.id).collect();
-    crate::sessions::stop_for(inner, crate::sessions::Scope::Project(project), &wids);
+    crate::sessions::stop_for(
+        inner,
+        crate::sessions::Scope::Project(project),
+        &wids,
+        crate::sessions::EndCause::Retire,
+    );
     if tree {
         for w in workstreams.iter().filter(|w| !w.is_primary()) {
             if let Err(e) =
@@ -1302,7 +1307,12 @@ pub fn archive(
             .iter()
             .map(|w| w.id)
             .collect();
-        crate::sessions::stop_for(inner, crate::sessions::Scope::Project(project), &wids);
+        crate::sessions::stop_for(
+            inner,
+            crate::sessions::Scope::Project(project),
+            &wids,
+            crate::sessions::EndCause::Retire,
+        );
     }
     let p = inner.ws.set_project_archived(project, archived)?;
     inner.emit(EngineEvent::global(EnginePayload::ProjectArchived {

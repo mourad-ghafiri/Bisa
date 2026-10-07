@@ -240,7 +240,8 @@ impl OmpAdapter {
         shared.set_phase(Phase::Idle);
 
         let mut chunk: Option<ChunkState> = None;
-        let driver_shared = shared.clone();
+        let shared = shared.in_group(proc.group());
+        let driver_shared = shared.for_driver();
         tokio::spawn(util::drive(
             proc,
             out_rx,
@@ -263,7 +264,7 @@ impl OmpAdapter {
                             let negotiate = serde_json::json!({
                                 "id": "bisa-proto", "type": "negotiate_protocol", "protocolVersion": 2
                             });
-                            if let Err(e) = shared.out_tx.try_send(OutMsg::Json(negotiate)) {
+                            if let Err(e) = shared.try_send(OutMsg::Json(negotiate)) {
                                 tracing::warn!("omp: the protocol negotiation was not queued: {e}");
                             }
                         }
@@ -460,9 +461,21 @@ impl HarnessSession for OmpSession {
     }
 
     async fn abort(&self) -> Result<(), HarnessError> {
-        self.shared
+        // Told the way it understands first — the turn aborted — then its
+        // whole group ended with a grace: the process stays after an abort
+        // command, and a stop means it must not.
+        if let Err(e) = self
+            .shared
             .send(OutMsg::Json(pi_wire::command(None, "abort", None)))
             .await
+        {
+            tracing::debug!("the driver had already ended: {e}");
+        }
+        self.shared.end(bisa_harness::Outcome::Aborted);
+        self.shared
+            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .await;
+        Ok(())
     }
 
     fn subscribe(&self) -> BoxEventStream {
@@ -475,6 +488,9 @@ impl HarnessSession for OmpSession {
 
     async fn dispose(self: Box<Self>) -> Result<(), HarnessError> {
         self.shared.close_stdin_quietly().await;
+        self.shared
+            .leave_or_kill(bisa_harness::proc::DISPOSE_GRACE)
+            .await;
         Ok(())
     }
 }

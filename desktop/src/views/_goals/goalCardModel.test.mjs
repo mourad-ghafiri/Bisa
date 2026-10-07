@@ -93,15 +93,18 @@ test("the workflow word is the strip's name or nothing", () => {
 
 test("a row's run verbs come from the row alone: live stops, queued counts, a goal that ran restarts, designing blocks a start", () => {
   const row = (over = {}) => ({ id: "g", status: "running", holder: "agents", workflow: "wf", run: "r1", run_status: "running", queued: 0, ...over });
-  assert.deepEqual(rowVerbs(row()), { start: { label: "New run…", queues: true, adopt: false }, stop: { label: "Stop", live: true, queued: 0 }, restart: { label: "Restart" } });
-  assert.deepEqual(rowVerbs(row({ status: "waiting", run_status: "waiting", queued: 2 })).stop, { label: "Stop", live: true, queued: 2 });
+  assert.deepEqual(rowVerbs(row()), { start: { label: "New run…", queues: true, adopt: false }, stop: { label: "Stop", live: true, queued: 0, sessions: 0 }, restart: { label: "Restart" } });
+  assert.deepEqual(rowVerbs(row({ status: "waiting", run_status: "waiting", queued: 2 })).stop, { label: "Stop", live: true, queued: 2, sessions: 0 });
   assert.deepEqual(rowVerbs(row({ status: "done", run_status: "done", holder: "finished" })), { start: { label: "New run…", queues: false, adopt: false }, stop: null, restart: { label: "Restart" } });
-  assert.deepEqual(rowVerbs(row({ status: "draft", run_status: "cancelled", holder: "you", queued: 1 })).stop, { label: "Stop", live: false, queued: 1 }, "a queue alone is stopped");
+  assert.deepEqual(rowVerbs(row({ status: "draft", run_status: "cancelled", holder: "you", queued: 1 })).stop, { label: "Stop", live: false, queued: 1, sessions: 0 }, "a queue alone is stopped");
   assert.deepEqual(rowVerbs(row({ status: "draft", run: null, run_status: null, holder: "you" })), { start: null, stop: null, restart: null }, "a first start is the page's: an adoption may be owed");
   assert.deepEqual(rowVerbs(row({ status: "failed", run_status: "failed", holder: "design" })), { start: null, stop: null, restart: null }, "the Workflow Agent repairs; nobody starts over its head");
-  assert.deepEqual(rowVerbs(row({ status: "failed", run_status: "failed", holder: "design", queued: 1 })).stop, { label: "Stop", live: false, queued: 1 }, "a stop is never blocked");
+  assert.deepEqual(rowVerbs(row({ status: "failed", run_status: "failed", holder: "design", queued: 1 })).stop, { label: "Stop", live: false, queued: 1, sessions: 0 }, "a stop is never blocked");
   assert.deepEqual(rowVerbs(row({ status: "closed", closed: { reason: "abandoned" } })), { start: null, stop: null, restart: null });
   assert.deepEqual(rowVerbs(null), { start: null, stop: null, restart: null });
+  // A session working on the goal with no run going — a design wake, a turn in its thread — is a stop from the card too.
+  assert.deepEqual(rowVerbs(row({ status: "draft", run_status: "cancelled", holder: "you" }), 1).stop, { label: "Stop", live: false, queued: 0, sessions: 1 });
+  assert.deepEqual(rowVerbs(row({ status: "closed", closed: { reason: "abandoned" } }), 1).stop, null, "closed: nothing of it runs");
   assert.equal(queuedChip(row()), null);
   assert.equal(queuedChip(row({ queued: 3 })), "queued 3");
   assert.ok(readFileSync(join(HERE, "goalCardModel.mjs"), "utf8").includes('t("goals-goal-card-queued", { n })'), "the chip's word is the catalog's, never built in code");

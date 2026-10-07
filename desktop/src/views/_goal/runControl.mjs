@@ -24,6 +24,7 @@
  * and `node --test` reaches it here.
  */
 
+import { isStoppable } from "../../ui/sessionState.mjs";
 import { designInProgress } from "./designStatus.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -106,13 +107,16 @@ export function runIndex(runs, id) {
  * the design's start by hand (`manualEntry`), and none when only events
  * begin it; *Stop listening* and *Listen again* are `listenVerb`'s.
  */
-export function runVerbs({ goal, run, runs, guidance, proposed, startable, listens = false, manualEntry = null }) {
+export function runVerbs({ goal, run, runs, guidance, proposed, startable, listens = false, manualEntry = null, liveSessions = 0 }) {
   const none = { start: null, stop: null, restart: null };
   if (!goal || goal.closed) return none;
   const live = anyRunLive(run, runs);
   const queued = queuedRuns(runs).length;
   const designing = designInProgress(guidance, goal);
-  const stop = live || queued > 0 ? { label: t("goal-run-verb-dialogs-stop"), live, queued } : null;
+  // A stop is offered for a run going or queued — and for a session working
+  // on the goal with no run at all: the Workflow Agent's wake, a turn in its
+  // thread. Each ends with the goal.
+  const stop = live || queued > 0 || liveSessions > 0 ? { label: t("goal-run-verb-dialogs-stop"), live, queued, sessions: liveSessions } : null;
   let start = null;
   if (startable && !designing) {
     if (proposed) start = { label: t("goal-run-control-adopt-start"), queues: false, adopt: true };
@@ -199,24 +203,70 @@ export function runWords(summary) {
 }
 
 /** What a stop does, for the confirm. */
-export function stopWords({ live, queued, liveSteps }) {
+export function stopWords({ live, queued, liveSteps, sessions = 0, children = 0 }) {
   const parts = [];
   if (live) {
     const n = liveSteps ?? 0;
     parts.push(n > 0 ? t("goal-run-control-live-run-cancelled-live-work-stops", { n }) : t("goal-run-control-live-run-cancelled"));
   }
   if (queued > 0) parts.push(t("goal-run-control-queued-withdrawn", { queued }));
+  // No live run says it already: the sessions working on the goal — a
+  // design wake, a thread's turn — end with it.
+  if (!live && sessions > 0) parts.push(t("goal-run-control-sessions-end", { n: sessions }));
+  if (children > 0) parts.push(t("goal-run-control-spawned-stopped-too", { n: children }));
   parts.push(t("goal-run-control-goal-stays-open-ready-new-run"));
   return parts.join(" ");
+}
+
+/**
+ * The sessions working on a goal that a stop would end — running, or
+ * waiting on the person: the roster's own rule (`isStoppable`).
+ * @param {readonly {goal?: string | null, state: unknown}[] | null | undefined} rows @param {string} goalId
+ */
+export function liveSessionsOf(rows, goalId) {
+  return (rows ?? []).filter((r) => r.goal === goalId && isStoppable(r.state)).length;
+}
+
+/** `liveSessionsOf` for every goal at once — what a list of cards reads. @param {readonly {goal?: string | null, state: unknown}[] | null | undefined} rows */
+export function sessionsByGoal(rows) {
+  const counts = new Map();
+  for (const r of rows ?? []) {
+    if (!r.goal || !isStoppable(r.state)) continue;
+    counts.set(r.goal, (counts.get(r.goal) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * The open goals spawned by a goal, recursively — a `spawn` step's or an
+ * agent's — which a stop stops and a close closes with it. From the goal
+ * rows the window already holds, by their origin.
+ * @param {readonly {id: string, status?: string, closed?: unknown, origin?: {origin?: string, parent?: string} | null}[] | null | undefined} goals @param {string} id
+ */
+export function spawnedOpen(goals, id) {
+  const all = goals ?? [];
+  const seen = new Set();
+  const walk = (parent) => {
+    let n = 0;
+    for (const g of all) {
+      if (g.origin?.origin !== "spawned" || g.origin.parent !== parent || seen.has(g.id)) continue;
+      if (g.status === "closed" || g.closed) continue;
+      seen.add(g.id);
+      n += 1 + walk(g.id);
+    }
+    return n;
+  };
+  return walk(id);
 }
 
 /**
  * What a restart does, for the confirm — or `null` when nothing is live and
  * no confirm is owed: a restart of a finished goal only starts a run.
  */
-export function restartWords({ live, queued }) {
+export function restartWords({ live, queued, children = 0 }) {
   if (!live) return null;
-  return t("goal-run-control-live-run-cancelled-new-run-same", { queued: queued ?? 0 });
+  const said = t("goal-run-control-live-run-cancelled-new-run-same", { queued: queued ?? 0 });
+  return children > 0 ? `${said} ${t("goal-run-control-spawned-stopped-too", { n: children })}` : said;
 }
 
 /**

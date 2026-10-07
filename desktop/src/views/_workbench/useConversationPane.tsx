@@ -237,7 +237,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
 
   const abort = (id: string) =>
     void stopSession(id).then(
-      (how) => toast.ok(stopWords(how, tr("workbench-project-rail-session-aborted"))),
+      ({ how, ended }) => toast.ok(stopWords(how, tr("workbench-project-rail-session-aborted"), ended)),
       (e: unknown) => toast.error(failureText("workbench", "use-conversation-pane-failed", e)),
     );
 

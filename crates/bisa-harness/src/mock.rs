@@ -264,6 +264,10 @@ pub struct MockAdapter {
     /// between its launch and its first word, for the drivers' early
     /// returns.
     pub refuse_prompt: bool,
+    /// Swallow `abort`: it is recorded and nothing ends — a harness that
+    /// does not stop when told, for the engine's deadline and its
+    /// termination of the process to be tested against.
+    pub ignore_abort: bool,
     /// The process id every session of this mock announces at launch — as a
     /// long-lived adapter announces its child from its own task, before the
     /// engine listens — so a test can see the driver record it.
@@ -344,6 +348,7 @@ impl Default for MockAdapter {
             panic_on_launch: false,
             panic_on_prompt: false,
             refuse_prompt: false,
+            ignore_abort: false,
             pid: None,
             input_request: None,
             answered: Arc::new(Mutex::new(Vec::new())),
@@ -575,6 +580,7 @@ impl HarnessAdapter for MockAdapter {
         session.closes = Arc::clone(&self.closes);
         session.panic_on_prompt = self.panic_on_prompt;
         session.refuse_prompt = self.refuse_prompt;
+        session.ignore_abort = self.ignore_abort;
         // Announced at launch, before anybody subscribes — the shape of a
         // long-lived adapter's child.
         if let Some(pid) = self.pid {
@@ -653,6 +659,8 @@ pub struct MockSession {
     pub panic_on_prompt: bool,
     /// See [`MockAdapter::refuse_prompt`].
     pub refuse_prompt: bool,
+    /// See [`MockAdapter::ignore_abort`].
+    pub ignore_abort: bool,
     /// See [`MockAdapter::input_request`].
     pub input_request: Option<InputRequest>,
     /// See [`MockAdapter::answered`].
@@ -686,6 +694,7 @@ impl MockSession {
             end_on_steer: false,
             panic_on_prompt: false,
             refuse_prompt: false,
+            ignore_abort: false,
             input_request: None,
             answered: Arc::new(Mutex::new(Vec::new())),
             answer_tx: Arc::new(Mutex::new(None)),
@@ -899,6 +908,9 @@ impl HarnessSession for MockSession {
 
     async fn abort(&self) -> Result<(), HarnessError> {
         self.closes.locked().push(Close::Aborted);
+        if self.ignore_abort {
+            return Ok(());
+        }
         self.set_phase(Phase::Ended);
         self.broadcaster
             .emit(SessionEvent::Lifecycle(LifecycleEvent::Ended {

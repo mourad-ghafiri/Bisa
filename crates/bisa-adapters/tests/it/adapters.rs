@@ -855,10 +855,21 @@ async fn a_model_the_session_does_not_offer_ends_the_launch_as_model_unavailable
         .expect("a session that could not begin takes its first prompt");
     let mut late = session.subscribe();
     let after = collect_until_end(&mut late, STUB_DEADLINE).await;
-    assert_eq!(after.len(), 1, "the end, and nothing else: {after:?}");
+    // The process it was is replayed to a late listener too — what a
+    // restart would have to end — and then the end, once.
+    let ends: Vec<&SessionEvent> = after.iter().filter(|e| e.is_terminal_end()).collect();
+    assert_eq!(ends.len(), 1, "the end, once: {after:?}");
+    assert!(
+        after.iter().all(|e| e.is_terminal_end()
+            || matches!(
+                e,
+                SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { .. })
+            )),
+        "the process it was and the end, nothing else: {after:?}"
+    );
     assert!(
         matches!(
-            &after[0],
+            ends[0],
             SessionEvent::Lifecycle(LifecycleEvent::Ended {
                 outcome: Outcome::ModelUnavailable { model, .. },
                 is_terminal: true,
@@ -1582,4 +1593,219 @@ fn a_harness_that_speaks_acp_under_its_own_id_is_opened_bare_in_a_terminal() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// A stop ends the harness's process and what it started.
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    rustix::process::Pid::from_raw(i32::try_from(pid).expect("a pid fits"))
+        .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok())
+}
+
+/// Wait for the process to be gone, reaped included, or give up.
+#[cfg(unix)]
+async fn process_gone_within(pid: u32, within: Duration) -> bool {
+    let until = tokio::time::Instant::now() + within;
+    while process_exists(pid) {
+        if tokio::time::Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    true
+}
+
+/// The pids a stub wrote to `file`, once it has.
+#[cfg(unix)]
+async fn pids_written(file: &Path) -> Vec<u32> {
+    // Generous for the same reason `STUB_DEADLINE` is: a loaded machine
+    // starts a shell slowly, and a tight bound would read as a failure.
+    for _ in 0..200 {
+        if let Ok(text) = std::fs::read_to_string(file) {
+            let pids: Vec<u32> = text
+                .split_whitespace()
+                .filter_map(|w| w.parse().ok())
+                .collect();
+            if !pids.is_empty() {
+                return pids;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the stub never wrote its pids to {}", file.display());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn claude_abort_ends_the_cli_and_its_tool_grandchild() {
+    let dir = tempfile::tempdir().unwrap();
+    let pids = dir.path().join("pids");
+    let stub = write_stub(
+        dir.path(),
+        "claude",
+        &format!(
+            r#"
+read -r _line
+echo '{{"type":"system","subtype":"init","session_id":"sess-42","model":"m"}}'
+# A tool's command, running on: what a stop must reach beside the CLI.
+sleep 300 &
+echo "$! $$" > '{}'
+while read -r _l; do :; done
+"#,
+            pids.display()
+        ),
+    );
+    let adapter = bisa_adapters::claude_code::ClaudeCodeAdapter {
+        program: stub.display().to_string(),
+        ..Default::default()
+    };
+    let session = adapter
+        .launch(spec(dir.path(), "do the thing"))
+        .await
+        .unwrap();
+    let written = pids_written(&pids).await;
+    let (grandchild, child) = (written[0], written[1]);
+    assert!(process_exists(grandchild) && process_exists(child));
+    let mut stream = session.subscribe();
+    let started = std::time::Instant::now();
+    session.abort().await.unwrap();
+    assert!(
+        started.elapsed() < bisa_harness::proc::ABORT_GRACE + Duration::from_secs(2),
+        "an abort answers within its grace"
+    );
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Aborted,
+                is_terminal: true
+            })
+        )),
+        "the session ended aborted: {events:?}"
+    );
+    assert!(
+        process_gone_within(child, Duration::from_secs(2)).await,
+        "the CLI is gone"
+    );
+    assert!(
+        process_gone_within(grandchild, Duration::from_secs(2)).await,
+        "the tool's command went with the CLI's group"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn acp_cancel_on_a_stop_ends_the_session_terminally_and_its_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let pids = dir.path().join("pids");
+    let stub = write_stub(
+        dir.path(),
+        "acp-agent",
+        &format!(
+            r#"
+echo "$$" > '{}'
+while read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      echo '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1,"agentCapabilities":{{"loadSession":true}}}}}}'
+      ;;
+    *'"method":"session/new"'*)
+      echo '{{"jsonrpc":"2.0","id":2,"result":{{"sessionId":"acp-9"}}}}'
+      ;;
+    *'"method":"session/prompt"'*)
+      # A turn that holds: nothing answers the prompt until a cancel.
+      echo '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"acp-9","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"acp hello"}}}}}}}}'
+      ;;
+    *'"method":"session/cancel"'*)
+      echo '{{"jsonrpc":"2.0","id":3,"result":{{"stopReason":"cancelled"}}}}'
+      ;;
+  esac
+done
+"#,
+            pids.display()
+        ),
+    );
+    let adapter = bisa_adapters::acp::AcpAdapter::new(
+        "acp:stub",
+        "Stub ACP",
+        stub.display().to_string(),
+        vec![],
+    );
+    let session = adapter.launch(spec(dir.path(), "hello acp")).await.unwrap();
+    let mut stream = session.subscribe();
+    // The turn is under way: its words have streamed.
+    let mut before = Vec::new();
+    loop {
+        let ev = tokio::time::timeout(STUB_DEADLINE, stream.next())
+            .await
+            .expect("words before the deadline")
+            .expect("stream open");
+        let said = has_text_delta(std::slice::from_ref(&ev), "acp hello");
+        before.push(ev);
+        if said {
+            break;
+        }
+    }
+    let child = pids_written(&pids).await[0];
+    assert!(process_exists(child));
+    session.abort().await.unwrap();
+    let mut events = before;
+    events.extend(collect_until_end(&mut stream, STUB_DEADLINE).await);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Aborted,
+                is_terminal: true
+            })
+        )),
+        "a cancelled turn on a stop ends the session for good, never a turn end alone: {events:?}"
+    );
+    assert!(
+        process_gone_within(child, Duration::from_secs(2)).await,
+        "the agent's process is gone — a cancel alone left it running"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn dispose_ends_a_cli_that_ignores_eof_past_the_grace() {
+    let dir = tempfile::tempdir().unwrap();
+    let pids = dir.path().join("pids");
+    let stub = write_stub(
+        dir.path(),
+        "claude",
+        &format!(
+            r#"
+read -r _line
+echo '{{"type":"system","subtype":"init","session_id":"sess-42","model":"m"}}'
+echo "$$" > '{}'
+# Never reads stdin again: EOF means nothing to it.
+exec sleep 300
+"#,
+            pids.display()
+        ),
+    );
+    let adapter = bisa_adapters::claude_code::ClaudeCodeAdapter {
+        program: stub.display().to_string(),
+        ..Default::default()
+    };
+    let session = adapter
+        .launch(spec(dir.path(), "do the thing"))
+        .await
+        .unwrap();
+    let child = pids_written(&pids).await[0];
+    let started = std::time::Instant::now();
+    session.dispose().await.unwrap();
+    assert!(
+        started.elapsed() >= bisa_harness::proc::DISPOSE_GRACE,
+        "EOF was given its grace first"
+    );
+    assert!(
+        process_gone_within(child, Duration::from_secs(2)).await,
+        "a CLI that ignores EOF is killed past the grace"
+    );
 }

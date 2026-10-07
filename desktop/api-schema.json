@@ -82,6 +82,9 @@
     "ProjectFate": {
       "$ref": "#/definitions/ProjectFate"
     },
+    "SessionsStopped": {
+      "$ref": "#/definitions/SessionsStopped"
+    },
     "CacheStatsDto": {
       "$ref": "#/definitions/CacheStatsDto"
     },
@@ -2748,7 +2751,7 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Rows still live when the wait ran out: their process was told and\ntheir row is aborted; the retirement did not wait longer."
+          "description": "Sessions still there when the wait ran out, with no process of ours\nto terminate; the retirement did not wait longer."
         },
         "projects": {
           "type": "array",
@@ -2762,6 +2765,20 @@
             "$ref": "#/definitions/WorkstreamId"
           },
           "description": "The workstreams whose records went or were put away — the desktop closes the shells rooted at them."
+        },
+        "ended": {
+          "default": {
+            "sessions": 0,
+            "terminated": 0,
+            "still_live": 0,
+            "children": []
+          },
+          "description": "What the retirement ended, whole: the sessions, the processes it had\nto terminate, what it could not end, the spawned goals closed with\nthe thing.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SessionsStopped"
+            }
+          ]
         }
       },
       "required": [
@@ -2786,6 +2803,39 @@
         "id",
         "fate"
       ]
+    },
+    "SessionsStopped": {
+      "type": "object",
+      "properties": {
+        "sessions": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "terminated": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "still_live": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GoalId"
+          }
+        }
+      },
+      "required": [
+        "sessions",
+        "terminated",
+        "still_live",
+        "children"
+      ],
+      "description": "What ending work did — the block every verb that stops, closes, retires\nor aborts answers, so one sentence on the desktop words it: the sessions\ntold to stop; the harnesses that ignored it and were terminated at the\ndeadline; the sessions that could not be ended — still live when the\nwait ran out, with no process of ours to terminate; the goals spawned by\nthe thing, stopped or closed with it."
     },
     "CacheStatsDto": {
       "type": "object",
@@ -21158,12 +21208,21 @@
           "items": {
             "$ref": "#/definitions/RunId"
           }
+        },
+        "ended": {
+          "description": "The sessions told to stop, the harnesses terminated at the deadline,\nthe sessions that could not be ended, the spawned goals stopped with\nthe goal — the block every verb that ends work answers, so one\nsentence on the desktop words it.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SessionsStopped"
+            }
+          ]
         }
       },
       "required": [
-        "withdrawn"
+        "withdrawn",
+        "ended"
       ],
-      "description": "What a stop did: the live run it cancelled and the queued runs it\nwithdrew — `POST /goals/{id}/stop`'s answer."
+      "description": "What a stop did: the live run it cancelled, the queued runs it withdrew,\nand what it ended — `POST /goals/{id}/stop`'s answer."
     },
     "AmendBody": {
       "type": "object",

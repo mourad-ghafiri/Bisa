@@ -416,7 +416,8 @@ start that hears its runs uses it, and takes its runs in the workspace, and what
 with it. The designer's menu offers both,
 the card's `⋮` offers *Delete…*, and the dialog is the goal's: its runs in the workspace that are
 going, which the retirement cancels first (their cause *retired*, their sessions stopped and waited
-for) whatever you choose; what still uses it (then only archiving is possible — each goal a door, and
+for — their processes gone, or terminated at the deadline and said — and the goals born of them
+stopped with them) whatever you choose; what still uses it (then only archiving is possible — each goal a door, and
 one whose run is going says *(running)*: stopping it is that goal's retirement, never the
 workflow's); what becomes of its runs' history; and the projects its steps made with one choice for
 all of them, their sessions stopped and waited for like a goal's. The designer open on a workflow that is deleted or archived elsewhere hears it and
@@ -509,7 +510,8 @@ Workflows, workspace or machine scope, never below one), and the moment a run of
 beyond that go with their folders — a run that is still going is never counted, and a goal's runs
 are the goal's. *Stop every run* and *Restart every
 run* act on the workflow's runs in the workspace alone — a goal's run of it is its goal's, and goes
-on.
+on; each run stopped ends its sessions and waits for them, stops the goals born of it, and the toast
+says what was ended.
 
 A run that finishes — done or failed — a step that blocks, a budget spent and a design the Workflow
 Agent could not finish are notices on the goal's row in the Inbox: read there, opened from there,

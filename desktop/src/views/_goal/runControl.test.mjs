@@ -26,6 +26,9 @@ import {
   stopWords,
   summaryIsLive,
   summaryIsQueued,
+  liveSessionsOf,
+  sessionsByGoal,
+  spawnedOpen,
 } from "./runControl.mjs";
 
 const goal = { id: "01G", mode: "manual", closed: null };
@@ -99,15 +102,15 @@ test("the verb matrix: draft, live, queued, finished, closed, designing, adopt, 
   // Live: a new run queues, the goal can stop and restart.
   assert.deepEqual(runVerbs(args({ run: running, runs: [s("1", "running")] })), {
     start: { label: "New run…", queues: true, adopt: false },
-    stop: { label: "Stop", live: true, queued: 0 },
+    stop: { label: "Stop", live: true, queued: 0, sessions: 0 },
     restart: { label: "Restart" },
   });
   // Live with a queue: the stop counts the queue.
-  assert.deepEqual(runVerbs(args({ run: running, runs: [s("2", "queued", { position: 1 }), s("1", "running")] })).stop, { label: "Stop", live: true, queued: 1 });
+  assert.deepEqual(runVerbs(args({ run: running, runs: [s("2", "queued", { position: 1 }), s("1", "running")] })).stop, { label: "Stop", live: true, queued: 1, sessions: 0 });
   // Only a queue, nothing live (the moment between a run's end and the next start): a stop withdraws it; a new run starts now.
   assert.deepEqual(runVerbs(args({ run: done, runs: [s("2", "queued", { position: 1 }), s("1", "done")] })), {
     start: { label: "New run…", queues: false, adopt: false },
-    stop: { label: "Stop", live: false, queued: 1 },
+    stop: { label: "Stop", live: false, queued: 1, sessions: 0 },
     restart: { label: "Restart" },
   });
   // Finished: New run… and Restart, no stop.
@@ -123,7 +126,26 @@ test("the verb matrix: draft, live, queued, finished, closed, designing, adopt, 
   // Closed, or no workflow: nothing, or nothing to start.
   assert.deepEqual(runVerbs(args({ goal: { ...goal, closed: { reason: "abandoned" } }, run: running })), none);
   assert.deepEqual(runVerbs(args({ startable: false, run: done })), { start: null, stop: null, restart: null });
-  assert.deepEqual(runVerbs(args({ startable: false, run: running, runs: [s("1", "running")] })).stop, { label: "Stop", live: true, queued: 0 }, "a stop needs no workflow");
+  assert.deepEqual(runVerbs(args({ startable: false, run: running, runs: [s("1", "running")] })).stop, { label: "Stop", live: true, queued: 0, sessions: 0 }, "a stop needs no workflow");
+  // A session working on the goal with no run going — a design wake, a turn in its thread — is a stop too.
+  assert.deepEqual(runVerbs(args({ liveSessions: 1 })).stop, { label: "Stop", live: false, queued: 0, sessions: 1 }, "a wake or a turn alone offers a stop");
+  const rows = [
+    { goal: goal.id, state: { state: "thinking" } },
+    { goal: goal.id, state: { state: "idle" } },
+    { goal: "other", state: { state: "running" } },
+    { goal: goal.id, state: { state: "aborted" } },
+  ];
+  assert.equal(liveSessionsOf(rows, goal.id), 1, "running or waiting counts; idle and ended do not");
+  assert.deepEqual([...sessionsByGoal(rows).entries()], [[goal.id, 1], ["other", 1]]);
+  const spawned = [
+    { id: "p", origin: { origin: "captured" } },
+    { id: "c1", status: "running", origin: { origin: "spawned", parent: "p" } },
+    { id: "c2", status: "closed", origin: { origin: "spawned", parent: "p" } },
+    { id: "g1", status: "draft", origin: { origin: "spawned", parent: "c1" } },
+    { id: "x", status: "running", origin: { origin: "spawned", parent: "nobody" } },
+  ];
+  assert.equal(spawnedOpen(spawned, "p"), 2, "the open child and its open child; a closed child is not counted");
+  assert.equal(spawnedOpen(spawned, "c2"), 0);
   // The Workflow Agent at work blocks a start and a restart, never a stop.
   const guided = { ...goal, mode: "guided" };
   const designing = { mode: "guided", design_enabled: true, phase: "design", design: { phase: "design", status: "working", since: 1, detail: null, session: null, live: true }, open_questions: [] };
@@ -161,6 +183,10 @@ test("the words: a run's status, a cancel's cause, a stop's and a restart's cons
   assert.equal(stopWords({ live: true, queued: 0, liveSteps: 0 }), "The live run is cancelled. The goal stays open, ready for a new run.");
   assert.equal(stopWords({ live: true, queued: 2, liveSteps: 1 }), "The live run is cancelled — 1 step is live and its work stops. 2 queued runs are withdrawn. The goal stays open, ready for a new run.");
   assert.equal(stopWords({ live: false, queued: 1 }), "1 queued run is withdrawn. The goal stays open, ready for a new run.");
+  // No run, a session: the Workflow Agent's wake or a thread's turn ends with the goal — and so do the goals it spawned.
+  assert.equal(stopWords({ live: false, queued: 0, sessions: 1 }), "The 1 session working on it ends. The goal stays open, ready for a new run.");
+  assert.equal(stopWords({ live: true, queued: 0, liveSteps: 0, sessions: 2, children: 1 }), "The live run is cancelled. The 1 goal it spawned is stopped with it. The goal stays open, ready for a new run.");
+  assert.match(restartWords({ live: true, queued: 0, children: 2 }), /The 2 goals it spawned are stopped with it\.$/);
   assert.equal(restartWords({ live: false, queued: 0 }), null, "nothing live: no confirm");
   assert.equal(restartWords({ live: true, queued: 0 }), "The live run is cancelled and a new run of the same workflow starts at once with the same inputs.");
   assert.match(restartWords({ live: true, queued: 2 }), /the 2 queued runs keep their place behind it/);

@@ -25,6 +25,8 @@ export interface StopVerb {
   label: "Stop";
   live: boolean;
   queued: number;
+  /** The sessions working on the goal a stop ends — offered on them alone when no run is going. */
+  sessions: number;
 }
 export interface RestartVerb {
   label: "Restart";
@@ -73,12 +75,26 @@ export declare function runVerbs(args: {
   listens?: boolean;
   /** The design's start by hand, when it has one. */
   manualEntry?: string | null;
+  /** The sessions working on the goal (`liveSessionsOf`): a stop is offered on them too. */
+  liveSessions?: number;
 }): RunVerbs;
+/** The sessions working on a goal that a stop would end: running, or waiting on the person. */
+export declare function liveSessionsOf(rows: readonly { goal?: string | null; state: unknown }[] | null | undefined, goalId: string): number;
+/** `liveSessionsOf` for every goal at once. */
+export declare function sessionsByGoal(rows: readonly { goal?: string | null; state: unknown }[] | null | undefined): Map<string, number>;
+/** The open goals spawned by a goal, recursively, from the rows the window holds. */
+export declare function spawnedOpen(goals: readonly { id: string; status?: string; closed?: unknown; origin?: { origin?: string; parent?: string } | null }[] | null | undefined, id: string): number;
 export declare function listenVerb(goal: Goal | null | undefined): ListenVerb | null;
 export declare function cancelWords(cause: CancelCause | null | undefined): string;
 /** A run's status read off the run itself — the core's `WorkflowRun::status`; `null` for no run. */
 export declare function runStatus(run: Pick<WorkflowRun, "started_at" | "outcome" | "cancelled" | "steps"> | null | undefined): RunStatus | null;
 export declare function runWords(summary: RunSummary | null | undefined): RunWords;
-export declare function stopWords(args: { live: boolean; queued: number; liveSteps?: number }): string;
-export declare function restartWords(args: { live: boolean; queued: number }): string | null;
+export declare function stopWords(args: { live: boolean; queued: number; liveSteps?: number   /** The sessions working on the goal, said when no live run says it already. */
+  sessions?: number;
+  /** The open goals it spawned, stopped with it. */
+  children?: number;
+}): string;
+export declare function restartWords(args: { live: boolean; queued: number   /** The open goals it spawned, stopped with it. */
+  children?: number;
+}): string | null;
 export declare function runRows(runs: readonly RunSummary[] | null | undefined): RunRow[];

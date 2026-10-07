@@ -541,7 +541,7 @@ export default function WorkflowDesigner({ id }: { id: string }) {
           open
           onClose={() => setRetiring(null)}
           onRetired={(done, choices) => {
-            const said = retiredWords("workflow", choices.thing, done.terminated);
+            const said = retiredWords("workflow", choices.thing, done.terminated, done.ended);
             if (choices.thing === "delete") leave(said);
             else {
               toast.ok(said);

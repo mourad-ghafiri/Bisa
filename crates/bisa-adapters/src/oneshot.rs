@@ -26,6 +26,8 @@ pub struct OneShotSession {
     map: Arc<MapFn>,
     /// Kill switch for the current run.
     kill_tx: std::sync::Mutex<Option<mpsc::Sender<()>>>,
+    /// The current run's process group — what an abort waits on to be gone.
+    group: std::sync::Mutex<Option<Arc<bisa_harness::proc::ProcGroup>>>,
 }
 
 impl OneShotSession {
@@ -61,6 +63,7 @@ impl OneShotSession {
             spawn,
             map,
             kill_tx: std::sync::Mutex::new(None),
+            group: std::sync::Mutex::new(None),
         };
         if !spec.prompt.is_empty() {
             session.run(&spec.prompt).await?;
@@ -78,6 +81,7 @@ impl OneShotSession {
         let native = self.shared.native_id();
         let spec = (self.spawn)(prompt, native.as_deref());
         let mut proc = ProcHandle::spawn(spec)?;
+        *self.group.locked() = Some(proc.group());
         // Each run is its own process: announce it the way `util::drive`
         // does, so the driver records the pid a restart would have to end.
         self.shared
@@ -138,7 +142,9 @@ impl OneShotSession {
                         }
                     },
                     _ = kill_rx.recv() => {
-                        if let Err(e) = proc.kill().await {
+                        // The run's whole group — the CLI and what its tools
+                        // ran — told to leave, and killed past the grace.
+                        if let Err(e) = proc.terminate(bisa_harness::proc::ABORT_GRACE).await {
                             tracing::warn!("the harness child did not end on request: {e}");
                         }
                         shared.set_phase(Phase::Idle);
@@ -168,15 +174,18 @@ impl OneShotSession {
 
     pub async fn abort(&self) -> Result<(), HarnessError> {
         let tx = self.kill_tx.locked().clone();
-        match tx {
-            Some(tx) => {
-                if tx.send(()).await.is_err() {
-                    tracing::debug!("the one-shot session had already ended");
-                }
-                Ok(())
+        if let Some(tx) = tx {
+            if tx.send(()).await.is_err() {
+                tracing::debug!("the one-shot session had already ended");
             }
-            None => Ok(()),
         }
+        // Over only once the run's process is gone: the run's task ends the
+        // group, and what stayed past its grace is killed here.
+        let group = self.group.locked().clone();
+        if let Some(group) = group {
+            group.gone_or_killed(bisa_harness::proc::ABORT_GRACE).await;
+        }
+        Ok(())
     }
 
     pub fn subscribe(&self) -> BoxEventStream {

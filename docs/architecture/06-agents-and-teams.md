@@ -233,20 +233,39 @@ desktop's footer lists every harness process the engine drives — a design wake
 them, having no checkout to be found by — each saying who it is, what for, where and since when
 ([ide/09](ide/09-agents-in-the-ide.md)).
 
-**A session that is stopped while it waits is released.** A worker or a design wake at a
-permission, a question or a gate is blocked on the Inbox's answer; a stop — the roster's
-*Terminate*, `bisa sessions abort`, a goal's stop or close, a retirement — or a cancelled step
-(`cancel_work`, a divert, an amendment) withdraws every gate the session opened
-(`GateEntry.session`, `Gates::pending_for_session`), journals a `withdrawn` fact on the home, and
-answers the harness a refusal in words (`GateResolution.withdrawn`; `inputs::WITHDRAWN`) that is
-**never remembered as the person's *no*** — the guard's record of a person's decision is not
-written for it — so the driver's next pass sees the stop and the harness is aborted. A row that
-reads *aborted* has no harness behind it, whatever the session was doing. A driver that leaves by
-an early return or a panic ends its row and its record (`sessions::Driven`, *the session's driver
-went away*), so no row is left in *starting*; a parked row loses its pid and leaves the roster
-after the retention; a chat turn has the workers' wall clock (`default_wall_clock_secs`); a step a
-restart cut short three times fails on the fourth (`MAX_INTERRUPTIONS`, *interrupted too often*)
-rather than resuming on every boot.
+**A stop ends the harness, and says so only once it has.** Every harness the engine spawns leads a
+**process group of its own** (`bisa_harness::proc`), and a stop is two-phased everywhere: the cancel
+the harness understands — Claude Code's kill, an ACP `session/cancel`, pi's `abort` — then `SIGTERM`
+to the whole group, a grace (three seconds) to leave, then `SIGKILL`; a let-go is EOF, five seconds,
+then the same. So no command a tool was running, no injected MCP server and no dev server outlives
+the stop, and an ACP, pi or omp session is ended rather than only asked. The engine, for its part,
+keeps every row told to stop in a ledger until its driver has torn the session down — the process
+gone — and a verb that stops sessions (`ending.rs`: a goal's stop, restart, close, retirement; a
+run's; the roster's *Terminate*; the engine's own stop) **waits for that** before it answers: until
+nothing of the scope stands, or its deadline (`stop_deadline_ms`, five seconds) passes, when what
+still has a process of ours is terminated by the engine itself and said — `Ended { sessions,
+terminated, still_live, children }` on every answer, worded on the desktop. A row that reads
+*aborted* has no harness behind it, whatever the session was doing; a record that still names a pid
+is a process that outlived its driver, ended at the next boot if nothing else does.
+
+**A session that is stopped while it waits is released**, and one stopped while it starts never
+runs. A worker or a design wake at a permission, a question or a gate is blocked on the Inbox's
+answer; a stop or a cancelled step (`cancel_work`, a divert, an amendment) withdraws every gate the
+session opened (`GateEntry.session`, `Gates::pending_for_session`), journals a `withdrawn` fact on
+the home, and answers the harness a refusal in words (`GateResolution.withdrawn`;
+`inputs::WITHDRAWN`) that is **never remembered as the person's *no*** — the guard's record of a
+person's decision is not written for it — so the driver's next pass sees the stop and the harness is
+aborted. Every driver's row stands before its harness is launched and reads the stop wherever it
+waits — the pause, the placement, the permit, the judgement, the launch, the first prompt — so a
+stop that lands while a harness starts finds a row to end and a driver to tell, and a session that
+did start is aborted before it says a word. A driver that leaves by an early return or a panic ends
+its row and its record (`sessions::Driven`, *the session's driver went away*), so no row is left in
+*starting*; a parked row loses its pid and leaves the roster after the retention; a chat turn has
+the workers' wall clock (`default_wall_clock_secs`); a step a restart cut short three times fails on
+the fourth (`MAX_INTERRUPTIONS`, *interrupted too often*) rather than resuming on every boot. **A
+goal's stop stops the goals it spawned, and its close or deletion closes them**, recursively
+(`GoalOrigin::Spawned`; a run of the workspace's children by `GoalOrigin::Run`) — a stopped turn of a
+thread is aborted, not let finish.
 
 **A harness that stops for a person raises an `InputRequested`** — a permission, a question, a
 sign-in — and blocks until the engine calls `HarnessSession::answer` (capability `INPUT_REQUESTS`).

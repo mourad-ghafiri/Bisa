@@ -12,6 +12,7 @@
  * (`LibraryCard` as an `<a>`); the menu and the footer sit outside it.
  */
 
+import { endedOf, saidAfter, stopTone } from "../../shell/stopOutcomeModel.mjs";
 import { useState } from "react";
 import { api } from "../../api";
 import type { ProjectRow, WorkflowRow } from "../../types";
@@ -73,7 +74,8 @@ export function useWorkflowVerbs(row: WorkflowRow | null | undefined, onChanged?
         onConfirm={() => {
           close();
           void attempt(() => api.stopWorkflow(row.workflow.id), toast.error, (r) => {
-            toast.ok(r.runs.length === 0 ? t("workflow-workflow-card-nothing-running") : t("workflow-workflow-card-stopped-run-runs", { runs: r.runs.length }));
+            const ended = endedOf(r);
+            toast[stopTone(ended)](saidAfter(r.runs.length === 0 ? t("workflow-workflow-card-nothing-running") : t("workflow-workflow-card-stopped-run-runs", { runs: r.runs.length }), ended));
             onChanged?.();
           });
         }}
@@ -87,7 +89,8 @@ export function useWorkflowVerbs(row: WorkflowRow | null | undefined, onChanged?
         onConfirm={() => {
           close();
           void attempt(() => api.restartWorkflow(row.workflow.id), toast.error, (r) => {
-            toast.ok(r.runs.length === 0 ? t("workflow-workflow-card-nothing-running") : t("workflow-workflow-card-restarted-run-runs", { runs: r.runs.length }));
+            const ended = endedOf(r);
+            toast[stopTone(ended)](saidAfter(r.runs.length === 0 ? t("workflow-workflow-card-nothing-running") : t("workflow-workflow-card-restarted-run-runs", { runs: r.runs.length }), ended));
             onChanged?.();
           });
         }}
@@ -156,7 +159,7 @@ export function WorkflowCard({ row, projects = [], onChanged }: { row: WorkflowR
           open
           onClose={() => setDeleting(false)}
           onRetired={(done, choices) => {
-            toast.ok(retiredWords("workflow", choices.thing, done.terminated));
+            toast.ok(retiredWords("workflow", choices.thing, done.terminated, done.ended));
             onChanged?.();
           }}
         />

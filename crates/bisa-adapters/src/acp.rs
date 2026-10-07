@@ -370,7 +370,6 @@ pub fn revival(adapter_id: &str, token: &ResumeToken) -> Result<SessionSpec, Har
 /// prompt nobody will run, until a clock somewhere else notices.
 fn queued(shared: &Shared, what: &str, message: serde_json::Value) -> Result<(), Outcome> {
     shared
-        .out_tx
         .try_send(OutMsg::Json(message))
         .map_err(|e| Outcome::Failed {
             error: format!("the {what} was not queued: {e}"),
@@ -636,7 +635,8 @@ pub async fn open(
         )))
         .await?;
 
-    let driver_shared = shared.clone();
+    let shared = shared.in_group(proc.group());
+    let driver_shared = shared.for_driver();
     let began = Arc::clone(&beginning);
     tokio::spawn(util::drive_until(
         proc,
@@ -1221,15 +1221,26 @@ impl HarnessSession for AcpSession {
     }
 
     async fn abort(&self) -> Result<(), HarnessError> {
+        // Told the way it understands first — the turn cancelled — then its
+        // whole group ended with a grace: an agent that goes on after its
+        // cancel, and the MCP server it was handed, are not left running.
+        // The session is over now, whatever the driver reads later.
         if let Some(sid) = self.shared.native_id() {
-            self.shared
+            if let Err(e) = self
+                .shared
                 .send(OutMsg::Json(serde_json::json!({
                     "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": sid }
                 })))
                 .await
-        } else {
-            self.shared.send(OutMsg::Kill).await
+            {
+                tracing::debug!("the driver had already ended: {e}");
+            }
         }
+        self.shared.end(Outcome::Aborted);
+        self.shared
+            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .await;
+        Ok(())
     }
 
     fn subscribe(&self) -> BoxEventStream {
@@ -1241,7 +1252,12 @@ impl HarnessSession for AcpSession {
     }
 
     async fn dispose(self: Box<Self>) -> Result<(), HarnessError> {
+        // Graceful: EOF lets the agent finish and exit; one that ignores it
+        // is ended with its group past the grace.
         self.shared.close_stdin_quietly().await;
+        self.shared
+            .leave_or_kill(bisa_harness::proc::DISPOSE_GRACE)
+            .await;
         Ok(())
     }
 }

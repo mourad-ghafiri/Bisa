@@ -86,6 +86,7 @@ import type {
   PrBody,
   PrReview,
   Inspect,
+  SessionsStopped,
 } from "./types";
 import type {
   CommitSummary,
@@ -1099,7 +1100,7 @@ export const api = {
   /// Retire a goal on a plan: stop its work, close it, settle the projects born of it, archive or delete it.
   retireGoal: (id: string, plan: GoalPlan, s?: AbortSignal) => post<{ goal: string; retired: Retired }>(`/goals/${id}/retire`, plan, s),
   /// Put a goal away (closing it first) or take it back out.
-  archiveGoal: (id: string, archived: boolean, s?: AbortSignal) => post<{ goal: Goal }>(`/goals/${id}/archive`, { archived }, s),
+  archiveGoal: (id: string, archived: boolean, s?: AbortSignal) => post<{ goal: Goal; ended?: SessionsStopped }>(`/goals/${id}/archive`, { archived }, s),
   goal: (id: string, s?: AbortSignal) => get<GoalView>(`/goals/${id}`, s),
   /// Capture a goal. Without `workflow` a guided goal wakes the Workflow
   /// Agent to propose one; with `workflow` and `inputs` its work begins at
@@ -1132,7 +1133,7 @@ export const api = {
   stopGoal: (id: string, body?: StopBody, s?: AbortSignal) => post<StopOutcome>(`/goals/${id}/stop`, body ?? {}, s),
   /// Restart the goal: a new run of its last run's workflow and inputs,
   /// started at once ahead of the queue; a live run is cancelled first.
-  restartGoal: (id: string, s?: AbortSignal) => post<{ run: WorkflowRun; status: RunStatus }>(`/goals/${id}/restart`, {}, s),
+  restartGoal: (id: string, s?: AbortSignal) => post<{ run: WorkflowRun; status: RunStatus; ended?: SessionsStopped }>(`/goals/${id}/restart`, {}, s),
   /// Point the goal at a workflow (id or slug), at none, or — with a
   /// `definition` — record a design of the goal's own and point at it.
   /// Refused while a run is unfinished.
@@ -1151,7 +1152,7 @@ export const api = {
   /// Close for good: the live run and the queued runs are cancelled,
   /// questions withdrawn, workstreams released; the reason is recorded with
   /// the goal.
-  closeGoal: (id: string, body?: CloseGoalBody, s?: AbortSignal) => post<{ goal: Goal }>(`/goals/${id}/close`, body ?? {}, s),
+  closeGoal: (id: string, body?: CloseGoalBody, s?: AbortSignal) => post<{ goal: Goal; ended?: SessionsStopped }>(`/goals/${id}/close`, body ?? {}, s),
   /**
    * Decide a gate of a goal. `answer` is an {@link Answer}, not a string;
    * `inputs` matter for one gate — adopting a proposed workflow starts its
@@ -1210,17 +1211,17 @@ export const api = {
   /// The workflow's runs of the workspace, newest first, each numbered among them.
   workflowRuns: (wfid: string, s?: AbortSignal) => get<{ workflow: string; runs: RunSummary[] }>(`/workflows/${wfid}/runs`, s),
   /// Stop every run of the workspace of the workflow that is going; answers the runs stopped.
-  stopWorkflow: (wfid: string, s?: AbortSignal) => post<{ workflow: string; runs: string[] }>(`/workflows/${wfid}/stop`, {}, s),
+  stopWorkflow: (wfid: string, s?: AbortSignal) => post<{ workflow: string; runs: string[]; ended?: SessionsStopped }>(`/workflows/${wfid}/stop`, {}, s),
   /// Restart every run of the workspace of the workflow that is going; answers the new runs.
-  restartWorkflow: (wfid: string, s?: AbortSignal) => post<{ workflow: string; runs: string[] }>(`/workflows/${wfid}/restart`, {}, s),
+  restartWorkflow: (wfid: string, s?: AbortSignal) => post<{ workflow: string; runs: string[]; ended?: SessionsStopped }>(`/workflows/${wfid}/restart`, {}, s),
 
   // --- one run, by its id — a goal's or the workspace's -------------------
   /// One run, whole: its summary, who it waits on and what it owes a person.
   run: (rid: string, s?: AbortSignal) => get<RunView>(`/runs/${rid}`, s),
   /// Stop a run of the workspace. 409 for a goal's run — stop it from its goal.
-  stopRun: (rid: string, body?: StopBody, s?: AbortSignal) => post<{ run: WorkflowRun }>(`/runs/${rid}/stop`, body ?? {}, s),
+  stopRun: (rid: string, body?: StopBody, s?: AbortSignal) => post<{ run: WorkflowRun; ended?: SessionsStopped }>(`/runs/${rid}/stop`, body ?? {}, s),
   /// Restart a run of the workspace: a new run at the same start, with its inputs and its event. 409 for a goal's run.
-  restartRun: (rid: string, s?: AbortSignal) => post<{ run: WorkflowRun; status: RunStatus }>(`/runs/${rid}/restart`, {}, s),
+  restartRun: (rid: string, s?: AbortSignal) => post<{ run: WorkflowRun; status: RunStatus; ended?: SessionsStopped }>(`/runs/${rid}/restart`, {}, s),
   /// Answer a waiting `human` step of any run; through its gate when one is open.
   answerStep: (rid: string, step: string, answer: Answer, s?: AbortSignal) =>
     post<{ run: WorkflowRun }>(`/runs/${rid}/steps/${step}/answer`, { answer }, s),
@@ -1357,7 +1358,7 @@ export const api = {
 
   sessions: (s?: AbortSignal) => get<SessionsResponse>("/sessions", s),
   session: (id: string, s?: AbortSignal) => get<SessionRow>(`/sessions/${id}`, s),
-  abortSession: (id: string, s?: AbortSignal) => post<{ ok: boolean }>(`/sessions/${id}/abort`, {}, s),
+  abortSession: (id: string, s?: AbortSignal) => post<{ ok: boolean; ended?: SessionsStopped }>(`/sessions/${id}/abort`, {}, s),
   transcript: (id: string, fromByte?: number, s?: AbortSignal) =>
     get<{ text: string; next_byte: number }>(
       `/sessions/${id}/transcript${fromByte ? `?from_byte=${fromByte}` : ""}`,

@@ -165,3 +165,12 @@ goal-run-control-listen-again = Listen again
 goal-goal-header-stopped-listening = The goal stopped listening.
 goal-goal-header-untitled-goal = Untitled goal
 goal-goal-header-listening-again = The goal is listening again.
+
+goal-run-control-sessions-end = { $n ->
+    [one] The 1 session working on it ends.
+   *[other] The { $n } sessions working on it end.
+  }
+goal-run-control-spawned-stopped-too = { $n ->
+    [one] The 1 goal it spawned is stopped with it.
+   *[other] The { $n } goals it spawned are stopped with it.
+  }

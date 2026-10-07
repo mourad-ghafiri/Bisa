@@ -255,3 +255,77 @@ fn a_manual_goal_wakes_nobody_and_is_run_stopped_started_again_and_closed_by_its
     assert_eq!(ws.recorded("started"), Vec::<Value>::new());
     ws.stop();
 }
+
+/// A worker that holds its first turn — at work, saying nothing more.
+fn holding_worker() -> serde_json::Value {
+    serde_json::json!({
+        "turns": [
+            { "scope": "work_item", "say": ["Working on it."], "hold": true },
+        ],
+    })
+}
+
+fn one_agent_step() -> serde_json::Value {
+    serde_json::json!({
+        "name": "Build it",
+        "steps": [{
+            "id": "build",
+            "name": "Build",
+            "kind": "agent",
+            "instructions": "Build what the goal asks for.",
+            "harness": [AGENT_HARNESS],
+        }],
+    })
+}
+
+/// Whether a process with this pid is still there, by the one call every
+/// shell has — the test's own stand-in for a `ps` of the agent.
+fn process_exists(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// A goal stopped while its worker holds the turn: the stop answers once
+/// the worker's process is gone — and says it ended one session, terminated
+/// nothing and left nothing live — and the roster lists no live row.
+#[test]
+fn a_goal_stopped_while_its_worker_holds_the_turn_ends_the_worker() {
+    let mut ws = Sealed::with_script(&holding_worker());
+    let definition = ws.file("build.json", &one_agent_step().to_string());
+    let workflow = ws.json(&["workflow", "new", "--from", &definition.to_string_lossy()])["workflow"]["id"]
+        .as_str()
+        .expect("the workflow")
+        .to_string();
+    ws.start();
+    let goal = ws.json(&["new", "a thing to build", "--workflow", &workflow])["goal"]
+        .as_str()
+        .expect("the goal")
+        .to_string();
+    // The worker is in the middle of its turn.
+    ws.until("the worker to be at work", || {
+        (!ws.recorded("holding").is_empty()).then_some(())
+    });
+    let pid = ws.recorded("holding")[0]["pid"]
+        .as_u64()
+        .and_then(|p| u32::try_from(p).ok())
+        .expect("the agent says its pid");
+    assert!(process_exists(pid), "the worker's process is there while it holds");
+
+    let stopped = ws.json(&["stop", &goal]);
+
+    assert_eq!(stopped["ended"]["sessions"], 1, "{stopped}");
+    assert_eq!(stopped["ended"]["terminated"], 0, "a harness that stops when told is never terminated: {stopped}");
+    assert_eq!(stopped["ended"]["still_live"], 0, "{stopped}");
+    assert!(
+        !process_exists(pid),
+        "the worker's process is gone when the stop answers"
+    );
+    assert_eq!(ws.json(&["status", &goal])["status"], "draft");
+    let runs: Vec<String> = runs_of(&ws, &goal).into_iter().map(|(_, s)| s).collect();
+    assert_eq!(runs, vec!["cancelled"]);
+    ws.stop();
+}

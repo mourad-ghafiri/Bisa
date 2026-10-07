@@ -328,3 +328,185 @@ async fn proc_spawn_missing_binary_is_unavailable() {
         .expect("must fail");
     assert!(err.is_unavailable(), "{err:?}");
 }
+
+// ---------------------------------------------------------------------------
+// A harness's process group: a stop reaches what the harness started.
+
+/// A pid as the kernel's.
+#[cfg(unix)]
+fn kernel_pid(pid: u32) -> rustix::process::Pid {
+    rustix::process::Pid::from_raw(i32::try_from(pid).expect("a pid fits"))
+        .expect("a pid is not zero")
+}
+
+/// Whether a process with this pid exists — a zombie not yet reaped counts.
+#[cfg(unix)]
+fn exists(pid: u32) -> bool {
+    rustix::process::test_kill_process(kernel_pid(pid)).is_ok()
+}
+
+/// Wait for the process to be gone, reaped included, or give up.
+#[cfg(unix)]
+async fn gone_within(pid: u32, within: Duration) -> bool {
+    let until = tokio::time::Instant::now() + within;
+    while exists(pid) {
+        if tokio::time::Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    true
+}
+
+/// The next two lines a child prints, as pids.
+#[cfg(unix)]
+async fn two_pids(proc: &mut ProcHandle) -> (u32, u32) {
+    let mut pids = Vec::new();
+    while pids.len() < 2 {
+        let line = tokio::time::timeout(Duration::from_secs(5), proc.recv())
+            .await
+            .expect("a pid line before the deadline")
+            .expect("the child is still talking");
+        if let Line::Text(text) = line {
+            pids.push(text.trim().parse::<u32>().expect("a pid"));
+        }
+    }
+    (pids[0], pids[1])
+}
+
+/// A shell that starts a grandchild, says both pids, then becomes a sleeper.
+#[cfg(unix)]
+fn a_child_with_a_grandchild() -> ProcSpec {
+    ProcSpec::new("sh")
+        .arg("-c")
+        .arg("sleep 300 & echo $!; echo $$; exec sleep 300")
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_spawned_harness_leads_a_group_of_its_own() {
+    let mut proc = ProcHandle::spawn(ProcSpec::new("sleep").arg("300")).expect("spawn sleep");
+    let pid = proc.pid().expect("a running child has a pid");
+    assert_eq!(
+        rustix::process::getpgid(Some(kernel_pid(pid))).expect("a group"),
+        kernel_pid(pid),
+        "the child is the leader of its own group"
+    );
+    assert!(proc.group().alive());
+    proc.kill().await.expect("killed");
+    assert!(
+        !proc.group().alive(),
+        "a killed and reaped group is nobody's"
+    );
+    assert!(gone_within(pid, Duration::from_secs(2)).await);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn terminate_ends_a_child_and_its_grandchild() {
+    let mut proc = ProcHandle::spawn(a_child_with_a_grandchild()).expect("spawn sh");
+    let (grandchild, child) = two_pids(&mut proc).await;
+    assert_eq!(proc.pid(), Some(child));
+    assert!(exists(grandchild) && exists(child));
+    let status = tokio::time::timeout(
+        Duration::from_secs(5),
+        proc.terminate(Duration::from_millis(500)),
+    )
+    .await
+    .expect("terminate answers before the deadline")
+    .expect("the child is reaped");
+    assert!(
+        !status.success(),
+        "a terminated child did not succeed: {status}"
+    );
+    assert!(
+        gone_within(child, Duration::from_secs(2)).await,
+        "the child is gone"
+    );
+    assert!(
+        gone_within(grandchild, Duration::from_secs(2)).await,
+        "the grandchild went with the group — the one pid alone would have orphaned it"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_child_that_ignores_eof_and_term_is_killed_at_the_grace() {
+    // The ignored signal survives the `exec`: the sleeper ignores `SIGTERM`
+    // and never reads stdin — a harness that will not leave when asked.
+    let mut proc = ProcHandle::spawn(
+        ProcSpec::new("sh")
+            .arg("-c")
+            .arg("trap '' TERM; echo $$; echo $$; exec sleep 300"),
+    )
+    .expect("spawn sh");
+    let (pid, _) = two_pids(&mut proc).await;
+    proc.close_stdin().await.expect("stdin closed");
+    let started = std::time::Instant::now();
+    let status = tokio::time::timeout(
+        Duration::from_secs(5),
+        proc.terminate(Duration::from_millis(300)),
+    )
+    .await
+    .expect("terminate answers before the deadline")
+    .expect("the child is reaped");
+    assert!(
+        started.elapsed() >= Duration::from_millis(300),
+        "the grace was given before the kill"
+    );
+    assert!(!status.success());
+    assert!(
+        gone_within(pid, Duration::from_secs(2)).await,
+        "killed past the grace"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dropped_handle_takes_its_running_childs_group_with_it() {
+    let mut proc = ProcHandle::spawn(a_child_with_a_grandchild()).expect("spawn sh");
+    let (grandchild, child) = two_pids(&mut proc).await;
+    drop(proc);
+    assert!(
+        gone_within(child, Duration::from_secs(3)).await,
+        "tokio kills the leader on drop"
+    );
+    assert!(
+        gone_within(grandchild, Duration::from_secs(3)).await,
+        "the handle's drop takes the rest of the group"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_timed_out_command_takes_what_it_started_with_it() {
+    let dir = tempfile::tempdir().expect("a tempdir");
+    let file = dir.path().join("grandchild.pid");
+    let mut cmd = tokio::process::Command::new("sh");
+    cmd.arg("-c")
+        .arg(format!("sleep 300 & echo $! > '{}'; wait", file.display()));
+    let run = tokio::time::timeout(
+        Duration::from_millis(500),
+        bisa_harness::proc::group_output(cmd),
+    )
+    .await;
+    assert!(
+        run.is_err(),
+        "the command was still waiting at the deadline"
+    );
+    let mut grandchild = None;
+    for _ in 0..40 {
+        if let Ok(text) = std::fs::read_to_string(&file) {
+            if let Ok(pid) = text.trim().parse::<u32>() {
+                grandchild = Some(pid);
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let grandchild = grandchild.expect("the shell wrote its child's pid");
+    assert!(
+        gone_within(grandchild, Duration::from_secs(2)).await,
+        "the timed-out command's child went with its group"
+    );
+}

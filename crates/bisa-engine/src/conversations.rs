@@ -180,7 +180,7 @@ pub async fn stop_sessions(inner: &Arc<Inner>, id: ConversationId) -> usize {
         if row.conversation != Some(id) || !row.state.is_live() {
             continue;
         }
-        if crate::sessions::stop_row(inner, &row) {
+        if crate::sessions::stop_row(inner, &row, crate::sessions::EndCause::Close) {
             stopped += 1;
         }
     }

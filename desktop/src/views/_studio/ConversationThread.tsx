@@ -102,7 +102,7 @@ export function ConversationThread({
     ? {
         onStop: () =>
           void stopSession(stoppable.id).then(
-            (how) => toast.ok(stopWords(how, t("studio-conversation-thread-turn-stopped"))),
+            ({ how, ended }) => toast.ok(stopWords(how, t("studio-conversation-thread-turn-stopped"), ended)),
             (e: unknown) => toast.error(failureText("studio", "conversation-thread-failed", e)),
           ),
       }

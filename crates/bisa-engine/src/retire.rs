@@ -137,12 +137,17 @@ pub struct Retirement {
 #[derive(Clone, Debug, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct Retired {
     pub stopped_sessions: usize,
-    /// Rows still live when the wait ran out: their process was told and
-    /// their row is aborted; the retirement did not wait longer.
+    /// Sessions still there when the wait ran out, with no process of ours
+    /// to terminate; the retirement did not wait longer.
     pub unsettled_sessions: usize,
     pub projects: Vec<ProjectFate>,
     /// The workstreams whose records went or were put away — the desktop closes the shells rooted at them.
     pub workstreams_retired: Vec<WorkstreamId>,
+    /// What the retirement ended, whole: the sessions, the processes it had
+    /// to terminate, what it could not end, the spawned goals closed with
+    /// the thing.
+    #[serde(default)]
+    pub ended: sessions::Ended,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, schemars::JsonSchema)]
@@ -319,26 +324,27 @@ pub async fn retire_goal(
         inner.ws.goal_deletable(goal)?;
     }
     let born = inner.ws.projects_born_of_goal(goal)?;
-    // The sessions first: on the goal, and in the workstreams of the projects the plan touches.
     let touched = if plan.projects == Fate::Keep {
         HashSet::new()
     } else {
         workstreams_of(inner, &born)?
     };
-    let stopped = sessions::stop_for(inner, Scope::Goal(goal), &touched);
+    // The goal's work through the one door: closed first when it is open —
+    // the run cancelled, the goals it spawned closed with it, every session
+    // told and waited for — then what stands in the workstreams the plan
+    // touches, so the folders go only once nothing runs in them, or the
+    // deadline passed and the leftovers were terminated and said.
+    let mut ended = sessions::Ended::default();
     if !g.is_closed() {
-        ops::close_goal(inner, goal, ClosureReason::Abandoned { rationale: None })?;
+        let (_, closed) =
+            ops::close_goal_settled(inner, goal, ClosureReason::Abandoned { rationale: None })
+                .await?;
+        ended.add(closed);
     }
-    // Then the wait: the processes are told, and the folder goes only once
-    // the rows are no longer live — or the bound passed and it is said.
-    let settled = sessions::await_stopped(
-        inner,
-        Scope::Goal(goal),
-        &touched,
-        stopped,
-        sessions::STOP_DEADLINE,
-    )
-    .await;
+    let done =
+        crate::ending::end_goal_work(inner, goal, sessions::EndCause::Retire, None, &touched)
+            .await?;
+    ended.add(done.ended);
     let (projects, workstreams_retired) =
         settle_projects(inner, born, plan.projects, plan.tree).await?;
     match plan.goal {
@@ -374,17 +380,20 @@ pub async fn retire_goal(
         fate = ?plan.goal,
         projects = projects.len(),
         workstreams = workstreams_retired.len(),
-        stopped_sessions = settled.stopped,
+        stopped_sessions = ended.sessions,
+        terminated = ended.terminated,
+        children = ended.children.len(),
         "a goal was retired"
     );
-    if settled.still_live > 0 {
-        tracing::warn!(%goal, still_live = settled.still_live, "a goal was retired while sessions of it had not ended within the deadline");
+    if ended.still_live > 0 {
+        tracing::warn!(%goal, still_live = ended.still_live, "a goal was retired while sessions of it had not ended within the deadline");
     }
     Ok(Retired {
-        stopped_sessions: settled.stopped,
-        unsettled_sessions: settled.still_live,
+        stopped_sessions: ended.sessions,
+        unsettled_sessions: ended.still_live,
         projects,
         workstreams_retired,
+        ended,
     })
 }
 
@@ -440,26 +449,28 @@ pub async fn retire_workflow(
     } else {
         workstreams_of(inner, &born)?
     };
-    let mut stopped_sessions = 0;
-    let mut unsettled_sessions = 0;
+    let mut ended = sessions::Ended::default();
     for run in inner.ws.live_workspace_runs(Some(workflow))? {
-        let (_, settled) = ops::end_workspace_run(inner, run.id, CancelCause::Retired).await?;
-        stopped_sessions += settled.stopped;
-        unsettled_sessions += settled.still_live;
+        let (_, done) = ops::end_workspace_run(inner, run.id, CancelCause::Retired).await?;
+        ended.add(done.ended);
     }
     for p in &born {
         if plan.projects != Fate::Keep {
-            let stopped = sessions::stop_for(inner, Scope::Project(p.id), &touched);
+            let stopped = sessions::stop_for(
+                inner,
+                Scope::Project(p.id),
+                &touched,
+                sessions::EndCause::Retire,
+            );
             let settled = sessions::await_stopped(
                 inner,
                 Scope::Project(p.id),
                 &touched,
                 stopped,
-                sessions::STOP_DEADLINE,
+                inner.config.stop_deadline(),
             )
             .await;
-            stopped_sessions += settled.stopped;
-            unsettled_sessions += settled.still_live;
+            ended.add(sessions::Ended::of(settled));
         }
     }
     let (projects, workstreams_retired) =
@@ -476,9 +487,10 @@ pub async fn retire_workflow(
         }
     }
     Ok(Retired {
-        stopped_sessions,
-        unsettled_sessions,
+        stopped_sessions: ended.sessions,
+        unsettled_sessions: ended.still_live,
         projects,
         workstreams_retired,
+        ended,
     })
 }

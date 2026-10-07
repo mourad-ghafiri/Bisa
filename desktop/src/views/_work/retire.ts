@@ -18,6 +18,7 @@
  * a goal that no longer exists.
  */
 
+import { endedOf, type StopOutcomeBlock } from "../../shell/stopOutcomeModel.mjs";
 import { api } from "../../api";
 import { errorFields, log } from "../../log";
 import { sessionRows } from "../../shell/sessionsStore";
@@ -36,6 +37,8 @@ export interface Retirement {
   retired: Retired;
   /** What this app terminated with it — counted before the call, so it is what the dialog promised. */
   terminated: TerminationCounts;
+  /** The node's own word on what it ended — terminated, not ended, closed with it; `null` from an older node. */
+  ended: StopOutcomeBlock | null;
 }
 
 /** One after-effect, on its own: a throw is logged and the next one runs. */
@@ -61,5 +64,5 @@ export async function retire(kind: RetireKind, id: string, choices: RetireChoice
     }
   });
   after(t("work-retire-refreshing-workspace"), () => refreshWorkspace());
-  return { retired, terminated };
+  return { retired, terminated, ended: endedOf(answer) };
 }

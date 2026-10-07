@@ -291,6 +291,17 @@ struct Entry {
     pid_seen_at: Option<u64>,
 }
 
+/// What a launch says of a session whose row stood before it
+/// (`Presence::launched`).
+#[derive(Debug, Clone)]
+pub struct LaunchedFacts {
+    pub harness: String,
+    pub model: Option<String>,
+    pub effort: Option<Effort>,
+    pub session_id: Option<SessionId>,
+    pub transcript_path: Option<String>,
+}
+
 /// The tool a session is running while its sub-agents are the work.
 pub const DELEGATION_TOOL: &str = "sub-agent";
 
@@ -515,6 +526,24 @@ impl Presence {
         });
     }
 
+    /// The launch said what the row stood for before it: which harness and
+    /// model the session runs on, at what effort, its durable id and its
+    /// transcript. A row registered before the harness started — so a stop
+    /// that lands meanwhile finds it — is re-said, its revision bumped.
+    pub fn launched(&self, inner: &Inner, id: LiveRunId, facts: LaunchedFacts) {
+        self.change(inner, id, move |entry, _now| {
+            let presence = &mut entry.presence;
+            presence.harness = facts.harness;
+            presence.model = facts.model;
+            presence.effort = facts.effort;
+            if facts.session_id.is_some() {
+                presence.session_id = facts.session_id;
+            }
+            presence.transcript_path = facts.transcript_path;
+            true
+        });
+    }
+
     /// The person acted on what the session itself asked — the engine
     /// delivered an answer, a gate was decided: its own waits are over and
     /// it goes back to what it was doing.
@@ -661,9 +690,18 @@ impl Presence {
     /// with a fresh id), or an interactive session whose terminal tab closed
     /// — the tab was the row.
     pub fn forget(&self, inner: &Inner, id: LiveRunId) {
+        inner.ending.gone(id);
         if self.rows.remove(&id).is_some() {
             self.gone(inner, id);
         }
+    }
+
+    /// The row's harness child and the moment it was seen — what a stop
+    /// reads before it ends the row, which clears both.
+    pub(crate) fn process_of(&self, id: LiveRunId) -> Option<(u32, u64)> {
+        self.rows
+            .get(&id)
+            .and_then(|entry| entry.presence.pid.zip(entry.pid_seen_at))
     }
 
     /// Disposed, its durable row resumable by its token — and revived by

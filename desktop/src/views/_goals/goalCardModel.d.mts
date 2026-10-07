@@ -36,7 +36,7 @@ export interface RowVerbsLike {
   workflow?: string | null;
   listening?: unknown;
 }
-export declare function rowVerbs(row: RowVerbsLike | null | undefined): import("../_goal/runControl.mjs").RunVerbs;
+export declare function rowVerbs(row: RowVerbsLike | null | undefined, liveSessions?: number): import("../_goal/runControl.mjs").RunVerbs;
 /** What a goal card's `⋮` can do: open the goal, the run's verbs, delete it. */
 export type CardMenuId = "open" | "start" | "restart" | "stop" | "delete";
 export interface CardMenuItem {

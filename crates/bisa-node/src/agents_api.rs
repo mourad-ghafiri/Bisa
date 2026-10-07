@@ -540,14 +540,18 @@ async fn abort_session(
         ))
     })?;
     // The engine's one door: whatever drives the session is what stops it,
-    // so the row never reads aborted beside a harness still at work.
-    bisa_engine::sessions::stop_one(state.engine.inner(), id).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-agents_api-no-session",
-            id = id.to_string()
-        ))
-    })?;
-    Ok(Json(json!({"ok": true})))
+    // and the answer comes once its process is gone — or was terminated at
+    // the deadline — so the row never reads aborted beside a harness still
+    // at work, and the person is told which it was.
+    let ended = bisa_engine::sessions::stop_one_settled(state.engine.inner(), id)
+        .await
+        .map_err(|_| {
+            not_found(bisa_core::text!(
+                "error-node-agents_api-no-session",
+                id = id.to_string()
+            ))
+        })?;
+    Ok(Json(json!({"ok": true, "ended": ended})))
 }
 
 // --- interactive sessions: a harness in a desktop terminal ------------------
@@ -749,7 +753,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "DELETE", path: "/teams/{id}", summary: "Delete a team, or 409 while a goal or channel still names it." },
     RouteDoc { method: "GET", path: "/sessions", summary: "Every session — its `kind` one of `worker` (a step's work item), `guided` (the Workflow Agent's design wake), `conversation` (an agent's turn in a conversation, a channel or a goal's thread, naming its `conversation` when it is one) and `terminal` (a harness a person opened in a desktop terminal) — with its state (starting · idle · thinking · running · waiting · done · aborted · failed · parked), harness, model and the effort it runs at, agent, sub-agents and cost; a finished engine session stays a minute, a finished terminal harness stays as long as its tab." },
     RouteDoc { method: "GET", path: "/sessions/{id}", summary: "One session's presence; 404 once it has left the roster." },
-    RouteDoc { method: "POST", path: "/sessions/{id}/abort", summary: "Stop one session for good, whatever drives it: a worker's harness is aborted and its work item settles as failed; a conversation turn's session is let go of, and the next message is answered by a fresh one; the Workflow Agent's design wake is aborted and the goal says its design failed because it was stopped; a terminal session's row reads aborted and the desktop closes its terminal, which forgets the row. The row reads `aborted` at once and stays so. Stopping a session that is over changes nothing (200); 400 for an id that is none, 404 for one the roster does not have." },
+    RouteDoc { method: "POST", path: "/sessions/{id}/abort", summary: "Stop one session for good, whatever drives it: a worker's harness is aborted and its work item settles as failed; a conversation turn's session is let go of, and the next message is answered by a fresh one; the Workflow Agent's design wake is aborted and the goal says its design failed because it was stopped; a terminal session's row reads aborted and the desktop closes its terminal, which forgets the row. The row reads `aborted` at once and stays so. Stopping a session that is over changes nothing (200); 400 for an id that is none, 404 for one the roster does not have. Answers once the session's process is gone — or was terminated at the deadline — with `ended: {sessions, terminated, still_live, children}`." },
     RouteDoc { method: "POST", path: "/sessions/terminal", summary: "Register a harness a person is opening in a desktop terminal: `{scope, id, harness}` → the session (`kind: terminal`), and the environment (its secret among it) and arguments that make it report; no session when the harness cannot. A session stands where a terminal can open: a scope nobody knows, an id that is no id and a harness with no interactive form are a 400, an id of nothing the workspace has a 404 — and nothing is registered or written." },
     RouteDoc { method: "POST", path: "/sessions/{id}/report", summary: "Events a hook inside a terminal session reported: `{events}`. Bearer = the session's secret, never the control-plane token. What a harness says about its own tool calls is redacted before it reaches a roster row." },
     RouteDoc { method: "POST", path: "/sessions/{id}/guard", summary: "The guard hook inside a terminal-hosted harness asks before a tool runs: `{payload}` (the harness's `PreToolUse` payload) → `{decision?: allow | deny | ask, reason?, updated_input?}`; an empty answer means the guard has no opinion and the harness's own prompt stands. Bearer = the session's secret." },

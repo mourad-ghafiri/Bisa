@@ -7,6 +7,7 @@
  * the new run's page. The rule is the model's; this performs it.
  */
 
+import { endedOf, saidAfter, stopTone } from "../../shell/stopOutcomeModel.mjs";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../../api";
 import { navigate } from "../../router";
@@ -49,8 +50,9 @@ export function useRunVerbs(onMoved: () => void): RunVerbs {
       void act(
         run,
         () => api.stopRun(run),
-        () => {
-          toast.ok(t("workflow-runs-pane-stopped"));
+        (answer) => {
+          const ended = endedOf(answer);
+          toast[stopTone(ended)](saidAfter(t("workflow-runs-pane-stopped"), ended));
           moved.current();
         },
       ),
@@ -62,7 +64,8 @@ export function useRunVerbs(onMoved: () => void): RunVerbs {
         run,
         () => api.restartRun(run),
         (made) => {
-          toast.ok(t("workflow-runs-pane-restarted"));
+          const ended = endedOf(made);
+          toast[stopTone(ended)](saidAfter(t("workflow-runs-pane-restarted"), ended));
           moved.current();
           navigate({ name: "run", id: made.run.id });
         },

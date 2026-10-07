@@ -199,6 +199,12 @@ test("once it happened, one sentence says the thing, its fate and what stopped w
   assert.equal(retiredWords("workflow", "archive", some), "Workflow archived — 1 harness terminated and 2 agent sessions aborted.");
   assert.equal(retiredWords("workflow", "delete", NONE), "Workflow deleted.");
   assert.equal(retiredWords("workflow", "delete", some), "Workflow deleted — 1 harness terminated and 2 agent sessions aborted.");
+  // The node's own word rides after this app's: what had to be terminated, what could not be ended, the goals closed with it.
+  const node = { sessions: 2, terminated: 1, still_live: 0, children: ["c1"] };
+  assert.equal(retiredWords("goal", "delete", some, node), "Goal deleted — 1 harness terminated and 2 agent sessions aborted, and 1 harness did not answer and was terminated and 1 spawned goal closed too.");
+  assert.equal(retiredWords("goal", "archive", NONE, node), "Goal archived — 1 harness did not answer and was terminated and 1 spawned goal closed too.");
+  assert.equal(retiredWords("goal", "archive", NONE, { sessions: 3, terminated: 0, still_live: 0, children: [] }), "Goal archived.", "the sessions this app counted are not said twice");
+  assert.equal(retiredWords("goal", "archive", NONE, null), "Goal archived.", "an older node says nothing more");
   for (const screen of ["../GoalDetail.tsx", "../WorkflowDesigner.tsx", "../_workflow/WorkflowCard.tsx"]) {
     const text = readFileSync(new URL(screen, import.meta.url), "utf8");
     assert.ok(text.includes("retiredWords(") && !text.includes("terminationWords("), `${screen} says the model's sentence`);

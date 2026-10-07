@@ -981,6 +981,14 @@ fn schedule(
     on_behalf_of: Option<(bisa_core::PrincipalId, bisa_core::MemberRole)>,
 ) {
     let key = (scope.clone(), agent_id.clone());
+    // A closed goal's thread wakes nobody: a message queued behind a turn
+    // the close stopped is not answered after it.
+    if let Ok(goal) = <bisa_core::GoalId as std::str::FromStr>::from_str(&scope) {
+        if inner.ws.get_goal(goal).is_ok_and(|g| g.is_closed()) {
+            tracing::debug!(scope = %scope, agent = %agent_id, "the goal is closed: no turn is woken in its thread");
+            return;
+        }
+    }
     if inner.conversation.waking.insert(key.clone(), ()).is_some() {
         inner.conversation.pending.insert(key, on_behalf_of);
         return;
@@ -1514,36 +1522,12 @@ async fn wake_attempt(
         skills_in_prompt: false,
     };
     let mut tried = std::collections::HashSet::new();
-    let launched =
-        match executor::resolve_and_launch(inner, &launch_plan, &mut tried, &mut attempts, &spec)
-            .await
-        {
-            Ok(ok) => ok,
-            Err(failure) => {
-                let mut walls = pending_walls;
-                walls.extend(failure.walls);
-                report_chat_switches(inner, scope, agent_id, &walls, None);
-                tracing::warn!(
-                    agent = %agent_id, scope = %scope,
-                    "chat wake failed to launch: {}", failure.message
-                );
-                return;
-            }
-        };
-    let mut walls = pending_walls;
-    walls.extend(launched.walls.iter().cloned());
-    report_chat_switches(inner, scope, agent_id, &walls, Some(&launched.model_key));
-    let harness_id = launched.harness.clone();
-    let model_key = launched.model_key.clone();
-    let effort = launched.effort;
-    let skill_appendix = launched.skill_appendix;
-    let in_flight = launched.in_flight;
-    let session = launched.session;
-
     // Roster + session row: a chat instance is a first-class runtime agent.
+    // The row comes before the launch, so a stop that lands while the
+    // harness starts finds a row to end and aborts the registry entry the
+    // launch is checked against; the launch says the rest of the row.
     let agent_uid = LiveRunId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
     let session_id = SessionId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
-    let transcript_path = session.resume_token().and_then(|t| t.transcript_path);
     debug_on_err(
         inner.registry.register_if(
             AgentRef {
@@ -1556,7 +1540,7 @@ async fn wake_attempt(
                 conversation: facts.conversation_id(),
                 goal: facts.goal,
                 workstream: facts.workstream(),
-                transcript_path: transcript_path.clone(),
+                transcript_path: None,
                 last_activity: now_secs(),
             },
             None,
@@ -1572,9 +1556,9 @@ async fn wake_attempt(
                 scope: scope.to_string(),
                 on_behalf_of: on_behalf_of.as_ref().map(|(p, _)| p.clone()),
             },
-            harness: harness_id.clone(),
-            model: Some(model_key.clone()),
-            effort,
+            harness: agent.harness.clone(),
+            model: None,
+            effort: None,
             agent: Some(agent.id.clone()),
             session_id: Some(session_id),
             work_item: None,
@@ -1584,6 +1568,69 @@ async fn wake_attempt(
             workstream: facts.workstream(),
             project: facts.project(),
             cwd: Some(spec.cwd.display().to_string()),
+            transcript_path: None,
+        },
+    );
+    let launched =
+        match executor::resolve_and_launch(inner, &launch_plan, &mut tried, &mut attempts, &spec)
+            .await
+        {
+            Ok(ok) => ok,
+            Err(failure) => {
+                let mut walls = pending_walls;
+                walls.extend(failure.walls);
+                report_chat_switches(inner, scope, agent_id, &walls, None);
+                tracing::warn!(
+                    agent = %agent_id, scope = %scope,
+                    "chat wake failed to launch: {}", failure.message
+                );
+                // No session: the row that stood for it leaves at once.
+                inner.presence.forget(inner, agent_uid);
+                return;
+            }
+        };
+    // Stopped while the harness started: aborted before it is prompted,
+    // and no durable row ever stands for it.
+    if inner.registry.is_aborted(agent_uid) {
+        warn_on_err(
+            launched.session.abort().await,
+            "aborting a turn stopped as it launched",
+        );
+        warn_on_err(
+            launched.session.dispose().await,
+            "disposing a turn stopped as it launched",
+        );
+        return;
+    }
+    let mut walls = pending_walls;
+    walls.extend(launched.walls.iter().cloned());
+    report_chat_switches(inner, scope, agent_id, &walls, Some(&launched.model_key));
+    let harness_id = launched.harness.clone();
+    let model_key = launched.model_key.clone();
+    let effort = launched.effort;
+    let skill_appendix = launched.skill_appendix;
+    let in_flight = launched.in_flight;
+    let session = launched.session;
+
+    // The launch's word on the row that stood for it.
+    let transcript_path = session.resume_token().and_then(|t| t.transcript_path);
+    if let Some(entry) = inner.registry.get(agent_uid) {
+        let transcript = transcript_path.clone();
+        debug_on_err(
+            inner.registry.mutate(agent_uid, entry.generation, |a| {
+                a.transcript_path = transcript
+            }),
+            "recording a chat run's transcript",
+        );
+    }
+    inner.presence.launched(
+        inner,
+        agent_uid,
+        crate::presence::LaunchedFacts {
+            harness: harness_id.clone(),
+            model: Some(model_key.clone()),
+            effort,
+            session_id: Some(session_id),
             transcript_path: transcript_path.as_ref().map(|p| p.display().to_string()),
         },
     );
@@ -1694,6 +1741,20 @@ async fn wake_attempt(
     if let Err(e) = session.prompt(first_turn).await {
         tracing::warn!(agent = %agent_id, "chat prompt failed: {e}");
         warn_on_err(session.dispose().await, "disposing a failed chat session");
+        return;
+    }
+    // Stopped while it was prompted: aborted before it says a word; the
+    // stop ended the row, the record ends here.
+    if inner.registry.is_aborted(agent_uid) {
+        warn_on_err(
+            session.abort().await,
+            "aborting a turn stopped at its prompt",
+        );
+        warn_on_err(
+            session.dispose().await,
+            "disposing a turn stopped at its prompt",
+        );
+        crate::sessions::ended(inner, &session_id.to_string());
         return;
     }
     emit_thinking(inner, scope, agent_id);
@@ -2122,6 +2183,9 @@ fn spawn_reply_pump(
             Some(wall) => {
                 if attempts.spent() {
                     report_chat_switches(&inner, &scope, &agent_id, &[wall], None);
+                } else if inner.registry.is_aborted(conv.agent_id) {
+                    // Stopped on the wall: no next attempt.
+                    tracing::debug!(agent = %agent_id, scope = %scope, "the turn was stopped; not relaunched after its model wall");
                 } else {
                     let for_whom = conv.woken_by();
                     relaunch_after_wall(inner, scope, agent_id, wall, attempts, judged, for_whom);
@@ -2399,13 +2463,41 @@ pub(crate) fn stop_run(inner: &Arc<Inner>, run: LiveRunId) {
         return;
     };
     forget_session(inner, &key, &conv);
+    // A message queued behind the turn would wake it again: the stop takes it.
+    inner.conversation.pending.remove(&key);
     let inner = Arc::clone(inner);
     tokio::spawn(async move {
         if let Some(session) = conv.session.lock().await.take() {
+            // Aborted, not let finish: a stop ends the turn where it stands,
+            // then lets go of the session.
+            warn_on_err(session.abort().await, "aborting a stopped chat session");
             warn_on_err(session.dispose().await, "disposing a stopped chat session");
         }
         crate::sessions::ended(&inner, &conv.session_id.to_string());
     });
+}
+
+/// Whether a conversation holds the session one run names — a turn whose
+/// stop has somebody to tear it down and say so.
+pub(crate) fn drives(inner: &Inner, run: LiveRunId) -> bool {
+    inner
+        .conversation
+        .sessions
+        .iter()
+        .any(|entry| entry.value().agent_id == run)
+}
+
+/// The goal's work is being ended: a chat message queued behind a turn of
+/// its thread would wake the agent again, so the queue is dropped — the
+/// turns themselves are stopped by their rows. Answers how many were dropped.
+pub(crate) fn forget_pending_of_goal(inner: &Arc<Inner>, goal: bisa_core::GoalId) -> usize {
+    let scope = goal.to_string();
+    let before = inner.conversation.pending.len();
+    inner
+        .conversation
+        .pending
+        .retain(|(pending_scope, _), _| pending_scope != &scope);
+    before - inner.conversation.pending.len()
 }
 
 /// A chat session is parked: the registry, the roster and the row agree.

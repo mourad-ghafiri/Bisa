@@ -117,10 +117,16 @@ captured has a door to that run there.
 
 ## Stopping and restarting
 
-**Stop** ends what the goal is doing without closing it: it stops listening, every session on the
-goal is ended, every queued run is withdrawn, the live run is cancelled — its work items cancelled, its questions
-withdrawn, its waits disarmed — and the goal reads `draft`, its workflow still chosen, ready for
-*New run…* or *Restart*. The confirm says what goes: how many steps are live, how many runs wait.
+**Stop** ends what the goal is doing without closing it: it stops listening, every queued run is
+withdrawn, the live run is cancelled — its work items cancelled, its questions withdrawn, its waits
+disarmed — the goals it spawned are stopped with it, every session on the goal is ended — the
+Workflow Agent's wake, a turn in its thread, a worker's harness and every command the harness was
+running — and waited for, and the goal reads `draft`, its workflow still chosen, ready for *New
+run…* or *Restart*. Stop is offered while a run is going or queued, and while a session works on
+the goal with no run at all. The confirm says what goes: how many steps are live, how many runs
+wait, how many sessions and spawned goals end. The toast says what the node ended, and what it
+had to terminate: a harness that does not stop when told is terminated five seconds later, and a
+session that could not be ended is said, never hidden.
 **Restart** cancels the live run and starts a new run of the same workflow with the same inputs —
 at the start the last run began at, on the event that began it — at
 once, ahead of anything queued (which keeps its place); it is refused, and the run left as it is,
@@ -321,11 +327,13 @@ adopted folder is never moved); and the projects merely **attached**, which are 
 and never deleted. The one button reads the plan back — *Archive goal and 2 projects*, *Delete goal,
 keep projects* — and is red only when something is deleted.
 
-What happens when you press, in this order and no other: the refusal, if any; every session on the
-goal is stopped — an engine agent's harness process is aborted on the spot, not on its next word; a
-harness you opened in a terminal is terminated by closing its tab — and the run is cancelled; the
-node waits, up to five seconds, for the rows to end (a harness that ignores the termination signal is reported, never
-waited on for ever); the projects take their fate; then the goal is archived or its folder goes. The
+What happens when you press, in this order and no other: the refusal, if any; the goal is closed —
+its run cancelled, the goals it spawned closed with it — and every session on it is stopped: an
+engine agent's harness process is aborted on the spot, not on its next word, and its whole process
+group with it; a harness you opened in a terminal is terminated by closing its tab; the node waits,
+up to five seconds, for every process to be gone, and terminates itself what ignored the stop (said
+in the toast — a session it could not end is said too, never waited on for ever); the projects take
+their fate; then the goal is archived or its folder goes. The
 dialog closes the moment the node answers, the tabs close as one move without a second question,
 and the goal's screen leaves on its own — it hears the deletion on the bus, so it leaves the same
 way when the goal is deleted from a terminal or another desktop.

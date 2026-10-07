@@ -683,7 +683,9 @@ fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
         return Ok(());
     };
     let unwound = failed_by(inner, run_id, step);
+    let inner_ref = Arc::clone(inner);
     let inner = Arc::clone(inner);
+    let step_key = step.clone();
     let step = step.clone();
     let check = check.clone();
     let work = async move {
@@ -747,13 +749,18 @@ fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
                 ),
             },
         };
+        inner.step_tasks.remove(&(run_id, step.clone()));
         if passed {
             done_step(&inner, run_id, &step, json!({ "evidence": evidence }));
         } else {
             fail_step(&inner, run_id, &step, evidence.join("\n"));
         }
     };
-    crate::spawn_settling("check", work, unwound);
+    // Registered by run and step, as a connector call is: a run that is
+    // ended takes the check with it, shell command and all.
+    let key = (run_id, step_key);
+    let task = crate::spawn_settling("check", work, unwound);
+    inner_ref.step_tasks.insert(key, task.abort_handle());
     Ok(())
 }
 
@@ -881,7 +888,9 @@ fn judge(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineE
         ..Default::default()
     };
     let unwound = failed_by(inner, run_id, step);
+    let inner_ref = Arc::clone(inner);
     let inner = Arc::clone(inner);
+    let step_key = step.clone();
     let step = step.clone();
     let work = async move {
         let judged = crate::decider::judge(
@@ -910,10 +919,30 @@ fn judge(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineE
             "confidence": confidence,
             "judged": choice.is_some(),
         });
+        inner.step_tasks.remove(&(run_id, step.clone()));
         done_step(&inner, run_id, &step, output);
     };
-    crate::spawn_settling("judgement", work, unwound);
+    let key = (run_id, step_key);
+    let task = crate::spawn_settling("judgement", work, unwound);
+    inner_ref.step_tasks.insert(key, task.abort_handle());
     Ok(())
+}
+
+/// Abort every `check` and `judge` task of a run that is ended: the run's
+/// settle already decided its steps, and a shell command running on would
+/// only outlive the reason it ran. Answers how many were aborted.
+pub(crate) fn abort_step_tasks(inner: &Inner, run: RunId) -> usize {
+    let mut aborted = 0;
+    inner.step_tasks.retain(|(r, _), handle| {
+        if *r == run {
+            handle.abort();
+            aborted += 1;
+            false
+        } else {
+            true
+        }
+    });
+    aborted
 }
 
 /// Validate `instance` against a JSON Schema, returning every error as text.
@@ -936,14 +965,11 @@ pub async fn run_command_check(
     shown: &str,
     cwd: &std::path::Path,
 ) -> (bool, Vec<String>) {
-    match tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .current_dir(cwd)
-        .kill_on_drop(true)
-        .output()
-        .await
-    {
+    // In a group of its own: a check that times out, or whose run is
+    // stopped, takes what it started with it — never `sh` alone.
+    let mut cmd = tokio::process::Command::new("sh");
+    cmd.arg("-c").arg(command).current_dir(cwd);
+    match bisa_harness::proc::group_output(cmd).await {
         Ok(out) => {
             let passed = out.status.success();
             let mut ev = vec![format!("$ {shown} -> {}", out.status)];
@@ -1475,10 +1501,22 @@ fn release_workstreams(
             // The tree goes with the record — the clean script reported,
             // never a refusal, since a run ending has nobody to refuse to —
             // in a task of its own: the scripts and the disk are awaited.
+            // Nothing stands in the tree when it goes: a session still at
+            // work in it — a worker being aborted by the very cancel that
+            // ends the run — is stopped and waited for first.
             let inner = Arc::clone(inner);
             tokio::spawn(crate::survive(
                 "closing a copy when its run ended",
                 async move {
+                    let told = crate::sessions::stop_workstream(&inner, w.id);
+                    crate::sessions::await_stopped(
+                        &inner,
+                        crate::sessions::Scope::Workstream(w.id),
+                        &std::collections::HashSet::new(),
+                        told,
+                        inner.config.stop_deadline(),
+                    )
+                    .await;
                     if let Err(e) = crate::projects::close_workstream_with(
                         &inner,
                         w.id,

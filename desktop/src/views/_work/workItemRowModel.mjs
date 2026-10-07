@@ -28,3 +28,16 @@ export function headline(instructions) {
   }
   return NO_INSTRUCTIONS;
 }
+
+/**
+ * Whether an engine frame moved one work item — its execution ended, its
+ * state changed, a session of it moved — so a panel open on it reads it
+ * again. The frame is read by the item it names, never by its type alone.
+ * @param {{payload?: {type?: string, work_item?: string | null, presence?: {work_item?: string | null} | null} | null} | null | undefined} event @param {string} itemId
+ */
+export function movesItem(event, itemId) {
+  const p = event?.payload;
+  if (!p || !itemId) return false;
+  if (p.work_item === itemId) return true;
+  return p.type === "session_state" && p.presence?.work_item === itemId;
+}

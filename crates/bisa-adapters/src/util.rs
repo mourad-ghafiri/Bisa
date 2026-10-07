@@ -74,6 +74,7 @@ use bisa_harness::{
     Effort, HarnessError, LifecycleEvent, Outcome, Phase, ResumeToken, SessionCost, SessionEvent,
     SessionSnapshot,
 };
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Outbound instruction from a session method to its driver task.
@@ -171,12 +172,35 @@ impl ModelCtx {
     }
 }
 
+/// The session's way to its driver: the facade's, which keeps the channel
+/// open, or the driver's own, which does not — so a facade let go of closes
+/// the channel, and the driver sees it and ends the child.
+#[derive(Clone, Debug)]
+enum Outbound {
+    Facade(mpsc::Sender<OutMsg>),
+    Driver(mpsc::WeakSender<OutMsg>),
+}
+
+impl Outbound {
+    fn sender(&self) -> Option<mpsc::Sender<OutMsg>> {
+        match self {
+            Outbound::Facade(tx) => Some(tx.clone()),
+            Outbound::Driver(weak) => weak.upgrade(),
+        }
+    }
+}
+
 /// Shared handle between the session facade and its driver task.
 #[derive(Clone)]
 pub struct Shared {
     pub broadcaster: EventBroadcaster,
     pub state: Arc<Mutex<State>>,
-    pub out_tx: mpsc::Sender<OutMsg>,
+    out: Outbound,
+    /// The child's process group, when the session has a local process:
+    /// what a stop ends — the harness, the commands its tools run, the MCP
+    /// server it was handed — without the driver's help
+    /// (`bisa_harness::proc::ProcGroup`).
+    pub group: Arc<bisa_harness::proc::ProcGroup>,
     /// Harness + model, so any layer holding a `Shared` can report a model
     /// failure without threading the spec through.
     pub model_ctx: Arc<ModelCtx>,
@@ -205,11 +229,57 @@ impl Shared {
         Self {
             broadcaster: EventBroadcaster::default(),
             state: Arc::new(Mutex::new(State::default())),
-            out_tx,
+            out: Outbound::Facade(out_tx),
+            group: Arc::new(bisa_harness::proc::ProcGroup::none()),
             model_ctx: Arc::new(ModelCtx::new(harness, model)),
             cwd: Arc::new(cwd.into()),
             effort: None,
         }
+    }
+
+    /// The same handle, for a session whose child leads `group`.
+    pub fn in_group(mut self, group: Arc<bisa_harness::proc::ProcGroup>) -> Self {
+        self.group = group;
+        self
+    }
+
+    /// The handle the driver task holds: everything the facade's is, but
+    /// its way back to the driver does not keep the channel open — so once
+    /// every facade is gone the driver reads the end of its channel and ends
+    /// the child, rather than keeping it alive on its own clone.
+    pub fn for_driver(&self) -> Self {
+        let out = match &self.out {
+            Outbound::Facade(tx) => Outbound::Driver(tx.downgrade()),
+            Outbound::Driver(weak) => Outbound::Driver(weak.clone()),
+        };
+        Self {
+            out,
+            ..self.clone()
+        }
+    }
+
+    /// Queue one message for the driver without waiting; a channel full or
+    /// closed is the error, with the message.
+    pub fn try_send(&self, msg: OutMsg) -> Result<(), mpsc::error::TrySendError<OutMsg>> {
+        match self.out.sender() {
+            Some(tx) => tx.try_send(msg),
+            None => Err(mpsc::error::TrySendError::Closed(msg)),
+        }
+    }
+
+    /// End the child's whole group in two steps — `SIGTERM`, `grace`, then
+    /// `SIGKILL` — and wait for it to be gone. What every `abort` ends with,
+    /// after the cancel the harness understands: a harness that goes on
+    /// after its cancel, and the MCP server it was handed, are not left
+    /// running. Answers whether anything was there to end.
+    pub async fn terminate_group(&self, grace: Duration) -> bool {
+        self.group.terminate(grace).await
+    }
+
+    /// Give the child's group `grace` to leave on the EOF it was given,
+    /// then kill what stayed. What every `dispose` ends with.
+    pub async fn leave_or_kill(&self, grace: Duration) {
+        self.group.gone_or_killed(grace).await;
     }
 
     /// The same handle, for a session launched at `effort`.
@@ -335,10 +405,10 @@ impl Shared {
     }
 
     pub async fn send(&self, msg: OutMsg) -> Result<(), HarnessError> {
-        self.out_tx
-            .send(msg)
-            .await
-            .map_err(|_| HarnessError::Terminated)
+        let Some(tx) = self.out.sender() else {
+            return Err(HarnessError::Terminated);
+        };
+        tx.send(msg).await.map_err(|_| HarnessError::Terminated)
     }
 
     pub fn is_ended(&self) -> bool {
@@ -552,10 +622,14 @@ pub async fn drive_until<M, E>(
                     return;
                 }
                 None => {
-                    // Session facade dropped; keep reading until the child ends
-                    // so the transcript completes, but nothing can write anymore.
-                    // Simplest correct behavior: stop driving.
-                    if let Err(e) = proc.kill().await {
+                    // Every session facade is gone: nothing can write to the
+                    // child any more, and nobody will read its end. It is
+                    // given the let-go grace to leave on EOF, then ended with
+                    // its group.
+                    if let Err(e) = proc
+                        .terminate(bisa_harness::proc::DISPOSE_GRACE)
+                        .await
+                    {
                         tracing::warn!("the harness child did not end on request: {e}");
                     }
                     if !shared.is_ended() {

@@ -730,12 +730,17 @@ pub struct StopBody {
     pub rationale: Option<String>,
 }
 
-/// What a stop did: the live run it cancelled and the queued runs it
-/// withdrew — `POST /goals/{id}/stop`'s answer.
+/// What a stop did: the live run it cancelled, the queued runs it withdrew,
+/// and what it ended — `POST /goals/{id}/stop`'s answer.
 #[derive(Serialize, JsonSchema)]
 pub struct StopOutcome {
     pub stopped: Option<RunId>,
     pub withdrawn: Vec<RunId>,
+    /// The sessions told to stop, the harnesses terminated at the deadline,
+    /// the sessions that could not be ended, the spawned goals stopped with
+    /// the goal — the block every verb that ends work answers, so one
+    /// sentence on the desktop words it.
+    pub ended: bisa_engine::sessions::Ended,
 }
 
 impl From<bisa_engine::Stopped> for StopOutcome {
@@ -743,6 +748,7 @@ impl From<bisa_engine::Stopped> for StopOutcome {
         Self {
             stopped: s.run,
             withdrawn: s.withdrawn,
+            ended: s.ended,
         }
     }
 }

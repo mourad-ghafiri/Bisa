@@ -1,13 +1,23 @@
 //! Shared subprocess plumbing for line-framed (NDJSON/JSONL) harness CLIs.
 //!
-//! Spawns the harness with piped stdio, runs a reader task that frames stdout
-//! into lines (parsed as JSON when they are JSON), keeps a bounded tail of
-//! stderr for diagnostics, tracks last-activity for idle timeouts, and kills
-//! the child on drop.
+//! Spawns the harness with piped stdio — **in a process group of its own**,
+//! so a stop reaches what the harness started: the commands its tools run,
+//! the injected MCP server, a dev server — runs a reader task that frames
+//! stdout into lines (parsed as JSON when they are JSON), keeps a bounded
+//! tail of stderr for diagnostics, tracks last-activity for idle timeouts,
+//! and ends the whole group when told to, or when the handle is dropped
+//! with the child still running.
+//!
+//! Ending is two-phased everywhere ([`ProcHandle::terminate`],
+//! [`ProcGroup::terminate`]): `SIGTERM` to the group, a grace to leave, then
+//! `SIGKILL`. [`ABORT_GRACE`] bounds a stop and [`DISPOSE_GRACE`] a let-go,
+//! both under the engine's own wait for a stopped session's process to be
+//! gone.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -26,6 +36,24 @@ const LINE_CHANNEL_CAPACITY: usize = 1024;
 /// one: megabytes are ordinary, and past this a line is cut rather than grown
 /// without end in memory.
 pub const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+/// How long a stopped harness has to leave on its own: told the way it
+/// understands — a `session/cancel`, an `abort` command — and `SIGTERM` to
+/// its whole process group; past this, `SIGKILL`. Under the engine's wait
+/// for a stop (five seconds), so a verb that stops a session returns to a
+/// process that is gone.
+pub const ABORT_GRACE: Duration = Duration::from_secs(3);
+
+/// How long a disposed harness has to leave on EOF before its group is
+/// killed: a CLI that ignores a closed stdin is not left to run on.
+pub const DISPOSE_GRACE: Duration = Duration::from_secs(5);
+
+/// How long after `SIGKILL` a group is given for its leader to be reaped by
+/// whoever holds the child — the driver, on stdout closing.
+const REAP_GRACE: Duration = Duration::from_secs(1);
+
+/// How often a wait for a group to be gone looks.
+const GONE_POLL: Duration = Duration::from_millis(50);
 
 /// One line of a child's output, as text.
 #[derive(Debug, PartialEq, Eq)]
@@ -135,9 +163,170 @@ pub enum Line {
     Text(String),
 }
 
+/// The process group a harness was spawned into — its own, the child its
+/// leader — as a handle anything may signal without holding the child: a
+/// session facade whose child a driver task owns, a timer, a drop. A stop
+/// through it reaches the harness's tools, the shells they run and the MCP
+/// server it was handed, which die with the group and never with the one
+/// pid. A process that left the group (`setsid`) is beyond it — the one
+/// limit of a group, and none of ours does.
+#[derive(Debug)]
+pub struct ProcGroup {
+    #[cfg(unix)]
+    pgid: Option<rustix::process::Pid>,
+    /// The leader was reaped by whoever owned the child after an explicit
+    /// end: the group's number may be somebody else's from here on, so
+    /// nothing is signalled again.
+    reaped: AtomicBool,
+}
+
+impl ProcGroup {
+    /// No group: every signal is nothing — a session with no local process.
+    pub fn none() -> Self {
+        Self {
+            #[cfg(unix)]
+            pgid: None,
+            reaped: AtomicBool::new(true),
+        }
+    }
+
+    fn of_child(child: &Child) -> Self {
+        #[cfg(unix)]
+        let pgid = child
+            .id()
+            .and_then(|pid| i32::try_from(pid).ok())
+            .and_then(rustix::process::Pid::from_raw);
+        Self {
+            #[cfg(unix)]
+            pgid,
+            reaped: AtomicBool::new(false),
+        }
+    }
+
+    #[cfg(unix)]
+    fn signal(&self, signal: rustix::process::Signal) -> bool {
+        if self.reaped.load(Ordering::SeqCst) {
+            return false;
+        }
+        match self.pgid {
+            Some(pgid) => rustix::process::kill_process_group(pgid, signal).is_ok(),
+            None => false,
+        }
+    }
+
+    /// `SIGTERM` to the group. Whether anything was there to hear it.
+    pub fn term(&self) -> bool {
+        #[cfg(unix)]
+        {
+            self.signal(rustix::process::Signal::TERM)
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
+
+    /// `SIGKILL` to the group. Whether anything was there.
+    pub fn kill(&self) -> bool {
+        #[cfg(unix)]
+        {
+            self.signal(rustix::process::Signal::KILL)
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
+
+    /// Whether anything of the group is still there — a member, or the
+    /// leader not yet reaped.
+    pub fn alive(&self) -> bool {
+        #[cfg(unix)]
+        {
+            if self.reaped.load(Ordering::SeqCst) {
+                return false;
+            }
+            self.pgid
+                .is_some_and(|pgid| rustix::process::test_kill_process_group(pgid).is_ok())
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
+
+    /// The leader was reaped after an explicit end: the group is nobody's
+    /// to signal from here on.
+    pub fn reaped(&self) {
+        self.reaped.store(true, Ordering::SeqCst);
+    }
+
+    /// Wait until nothing of the group is left, or `within` passes. Whether
+    /// it is gone.
+    pub async fn wait_gone(&self, within: Duration) -> bool {
+        let until = tokio::time::Instant::now() + within;
+        while self.alive() {
+            if tokio::time::Instant::now() >= until {
+                return false;
+            }
+            tokio::time::sleep(GONE_POLL).await;
+        }
+        true
+    }
+
+    /// End the group in two steps: `SIGTERM`, `grace` to leave, then
+    /// `SIGKILL` — and a moment for the leader to be reaped by whoever
+    /// holds the child. Answers whether anything was there to end. What a
+    /// session facade does for a child its driver task owns.
+    pub async fn terminate(&self, grace: Duration) -> bool {
+        if !self.term() {
+            return false;
+        }
+        if !self.wait_gone(grace).await {
+            self.kill();
+            self.wait_gone(REAP_GRACE).await;
+        }
+        true
+    }
+
+    /// Let the group leave on its own — EOF was given — for `grace`, then
+    /// kill what stayed. Answers whether it left on its own.
+    pub async fn gone_or_killed(&self, grace: Duration) -> bool {
+        if self.wait_gone(grace).await {
+            return true;
+        }
+        self.kill();
+        self.wait_gone(REAP_GRACE).await;
+        false
+    }
+}
+
+/// Run a command to completion in a process group of its own, so that
+/// however this future ends — the command's exit, a timeout, an abort —
+/// everything it started goes with it: the `sh`, and what the `sh` ran.
+pub async fn group_output(mut cmd: Command) -> std::io::Result<std::process::Output> {
+    #[cfg(unix)]
+    cmd.process_group(0);
+    cmd.kill_on_drop(true);
+    let child = cmd.spawn()?;
+    let _sweep = GroupSweep(ProcGroup::of_child(&child));
+    child.wait_with_output().await
+}
+
+/// The group of a command goes with the future that ran it.
+struct GroupSweep(ProcGroup);
+
+impl Drop for GroupSweep {
+    fn drop(&mut self) {
+        self.0.kill();
+    }
+}
+
 /// A running harness subprocess.
 pub struct ProcHandle {
     child: Child,
+    /// The group the child leads — what a stop signals.
+    group: Arc<ProcGroup>,
     stdin: Option<ChildStdin>,
     lines: mpsc::Receiver<Line>,
     last_activity: Arc<Mutex<Instant>>,
@@ -158,6 +347,9 @@ impl ProcHandle {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // Its own group, led by the child: a stop reaches what it starts.
+        #[cfg(unix)]
+        cmd.process_group(0);
         for name in SCRUBBED_ENV {
             cmd.env_remove(name);
         }
@@ -179,6 +371,7 @@ impl ProcHandle {
             }
         })?;
 
+        let group = Arc::new(ProcGroup::of_child(&child));
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().expect("stdout piped");
         let stderr = child.stderr.take().expect("stderr piped");
@@ -250,11 +443,17 @@ impl ProcHandle {
 
         Ok(Self {
             child,
+            group,
             stdin,
             lines,
             last_activity,
             stderr_tail,
         })
+    }
+
+    /// The child's process group, to signal without holding the child.
+    pub fn group(&self) -> Arc<ProcGroup> {
+        Arc::clone(&self.group)
     }
 
     /// Write one JSON value as a single stdin line.
@@ -318,13 +517,53 @@ impl ProcHandle {
         self.child.id()
     }
 
+    /// `SIGKILL` the child and its whole group, and reap the child.
     pub async fn kill(&mut self) -> Result<(), HarnessError> {
-        self.child.kill().await.map_err(HarnessError::Io)
+        self.group.kill();
+        let killed = self.child.kill().await.map_err(HarnessError::Io);
+        // A member that lingered — a shell a tool ran, the MCP server — goes
+        // with its leader.
+        self.group.kill();
+        self.group.reaped();
+        killed
+    }
+
+    /// End the child and its group in two steps: stdin closed and `SIGTERM`
+    /// to the group, `grace` to leave, then `SIGKILL`; the child reaped, and
+    /// whatever of the group lingered killed with it.
+    pub async fn terminate(
+        &mut self,
+        grace: Duration,
+    ) -> Result<std::process::ExitStatus, HarnessError> {
+        drop(self.stdin.take());
+        self.group.term();
+        let status = match tokio::time::timeout(grace, self.child.wait()).await {
+            Ok(status) => status,
+            Err(_elapsed) => {
+                self.group.kill();
+                self.child.wait().await
+            }
+        };
+        self.group.kill();
+        self.group.reaped();
+        status.map_err(HarnessError::Io)
     }
 
     /// Wait for exit.
     pub async fn wait(&mut self) -> Result<std::process::ExitStatus, HarnessError> {
         self.child.wait().await.map_err(HarnessError::Io)
+    }
+}
+
+impl Drop for ProcHandle {
+    fn drop(&mut self) {
+        // A handle let go of with its child still running — a driver task
+        // dropped at teardown: tokio kills the leader it holds, and the rest
+        // of the group goes here rather than outliving the node. A child that
+        // exited and was reaped leaves what it started alone.
+        if self.child.id().is_some() {
+            self.group.kill();
+        }
     }
 }
 

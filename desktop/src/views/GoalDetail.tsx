@@ -23,6 +23,8 @@
  * is gone is left for the list (`useGonePlace`).
  */
 
+import { endedOf, saidAfter, stopTone, willStopWords } from "../shell/stopOutcomeModel.mjs";
+import { useSessions } from "../shell/sessionsStore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useEngineEvents } from "../bus";
@@ -41,7 +43,7 @@ import { ProgressTab } from "./_goal/ProgressTab";
 import { YourMoveBand, scrollToYourMove } from "./_goal/YourMoveBand";
 import { adoptAction, bandActions } from "./_goal/proposalRouting.mjs";
 import { designInProgress } from "./_goal/designStatus.mjs";
-import { panelFrozen, runVerbs } from "./_goal/runControl.mjs";
+import { panelFrozen, runVerbs, liveSessionsOf, spawnedOpen } from "./_goal/runControl.mjs";
 import { RunVerbDialogs, type RunVerb } from "./_goal/RunVerbDialogs";
 import { DEFAULT_TAB, GOAL_TABS, GOAL_TAB_LABEL, tabOf } from "./_goal/goalTabs.mjs";
 import { GoalConversationPane } from "./_goal/GoalConversationPane";
@@ -97,6 +99,7 @@ const NOTHING_SAID: CloseForm = { rationale: "", replacedBy: null };
 export default function GoalDetail({ id }: { id: string }) {
   const toast = useToast();
   const ws = useWorkspace();
+  const sessionRows = useSessions();
   const aux = useAux();
   const [tabParam, setTabParam] = useSearchValue("tab");
   const tab = tabOf(tabParam);
@@ -173,6 +176,8 @@ export default function GoalDetail({ id }: { id: string }) {
         body={
           <div className="flex flex-col gap-3">
             <p>{tr("screens-goal-detail-live-run-stopped-queued-runs-withdrawn")}</p>
+            {/* What the close reaches beside the run: the sessions on it, the goals it spawned. */}
+            {willStopWords({ sessions: liveSessionsOf(sessionRows, id), children: spawnedOpen(ws.goals, id), closing: true }) && <p>{willStopWords({ sessions: liveSessionsOf(sessionRows, id), children: spawnedOpen(ws.goals, id), closing: true })}</p>}
             <Field label={tr("screens-goal-detail-close-why")} hint={tr("screens-goal-detail-close-why-hint")}>
               <TextArea rows={2} value={closing.rationale ?? ""} disabled={!!closing.replacedBy} onChange={(e) => setClosing((f) => ({ ...f, rationale: e.target.value }))} />
             </Field>
@@ -193,8 +198,9 @@ export default function GoalDetail({ id }: { id: string }) {
         onConfirm={() => {
           setConfirmClose(false);
           const said = closeWords(closing, ws.goals, id).closed;
-          void attempt(() => api.closeGoal(id, closeBody(closing, id)), toast.error, () => {
-            toast.ok(said);
+          void attempt(() => api.closeGoal(id, closeBody(closing, id)), toast.error, (answer) => {
+            const ended = endedOf(answer);
+            toast[stopTone(ended)](saidAfter(said, ended, { closed: true }));
             refreshAll();
           });
         }}
@@ -208,7 +214,7 @@ export default function GoalDetail({ id }: { id: string }) {
           open
           onClose={() => setRetiring(null)}
           onRetired={(done, choices) => {
-            const said = retiredWords("goal", choices.thing, done.terminated);
+            const said = retiredWords("goal", choices.thing, done.terminated, done.ended);
             if (choices.thing === "delete") leave(said);
             else {
               toast.ok(said);
@@ -263,7 +269,7 @@ export default function GoalDetail({ id }: { id: string }) {
   // The proposed plan is the goal's landing: the Progress tab hosts
   // its card, so the band shows everything else and never a second copy.
   const proposal = adoptAction(guidance.open_questions);
-  const verbs = runVerbs({ goal, run, runs, guidance, proposed: !!proposed, startable: !!startable, listens, manualEntry });
+  const verbs = runVerbs({ goal, run, runs, guidance, proposed: !!proposed, startable: !!startable, listens, manualEntry, liveSessions: liveSessionsOf(sessionRows, id) });
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
     const ok = await attempt(fn, toast.error);

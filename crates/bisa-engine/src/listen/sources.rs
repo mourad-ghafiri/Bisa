@@ -387,16 +387,11 @@ async fn run_check(
         }
     };
     let timeout = inner.listen.settings().check_timeout();
-    let run = tokio::time::timeout(
-        timeout,
-        tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(&command)
-            .current_dir(cwd)
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await;
+    // In a group of its own: a check that times out takes what it started
+    // with it — never `sh` alone.
+    let mut cmd = tokio::process::Command::new("sh");
+    cmd.arg("-c").arg(&command).current_dir(cwd);
+    let run = tokio::time::timeout(timeout, bisa_harness::proc::group_output(cmd)).await;
     match run {
         Ok(Ok(out)) => {
             let mut text = String::from_utf8_lossy(&out.stdout).into_owned();

@@ -106,7 +106,8 @@ impl HarnessAdapter for CustomJsonAdapter {
             .emit(SessionEvent::Lifecycle(LifecycleEvent::Started));
         shared.set_phase(Phase::Idle);
 
-        let driver_shared = shared.clone();
+        let shared = shared.in_group(proc.group());
+        let driver_shared = shared.for_driver();
         tokio::spawn(util::drive(
             proc,
             out_rx,
@@ -265,7 +266,13 @@ impl HarnessSession for CustomJsonSession {
     }
 
     async fn abort(&self) -> Result<(), HarnessError> {
-        self.shared.send(OutMsg::Kill).await
+        // The session is over now; then the whole group is told to leave,
+        // and killed past the grace.
+        self.shared.end(Outcome::Aborted);
+        self.shared
+            .terminate_group(bisa_harness::proc::ABORT_GRACE)
+            .await;
+        Ok(())
     }
 
     fn subscribe(&self) -> BoxEventStream {
@@ -278,6 +285,9 @@ impl HarnessSession for CustomJsonSession {
 
     async fn dispose(self: Box<Self>) -> Result<(), HarnessError> {
         self.shared.close_stdin_quietly().await;
+        self.shared
+            .leave_or_kill(bisa_harness::proc::DISPOSE_GRACE)
+            .await;
         Ok(())
     }
 }

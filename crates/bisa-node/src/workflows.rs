@@ -405,8 +405,10 @@ async fn stop(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
     existing(&state, id)?;
-    let runs = state.engine.stop_workflow(id).await?;
-    Ok(Json(json!({"workflow": id.to_string(), "runs": runs})))
+    let (runs, ended) = state.engine.stop_workflow_ended(id).await?;
+    Ok(Json(
+        json!({"workflow": id.to_string(), "runs": runs, "ended": ended}),
+    ))
 }
 
 /// Restart every run of the workspace of the workflow that is going: each
@@ -418,8 +420,10 @@ async fn restart(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
     existing(&state, id)?;
-    let runs = state.engine.restart_workflow(id).await?;
-    Ok(Json(json!({"workflow": id.to_string(), "runs": runs})))
+    let (runs, ended) = state.engine.restart_workflow_ended(id).await?;
+    Ok(Json(
+        json!({"workflow": id.to_string(), "runs": runs, "ended": ended}),
+    ))
 }
 
 /// Put the workflow away or take it back out: `{archived}`.
@@ -454,6 +458,6 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "POST", path: "/workflows/{wfid}/promote", summary: "Copy a goal’s design into the library → `{workflow}` (the copy, flat); 409 for one already there." },
     RouteDoc { method: "GET", path: "/workflows/{wfid}/runs", summary: "The workflow's runs of the workspace, newest first: `{workflow, runs: [RunSummary]}` — each with its `number` among them (1 the first), its status, who started it (`started_by`: `{by: you}`, `{by: event, event, detail?}` or `{by: test, event}`), its times, outcome and `cause`." },
     RouteDoc { method: "POST", path: "/workflows/{wfid}/runs", summary: "Run the workflow in the workspace: `{inputs?, start?, event?}` → `{run, status}` — started at once, beside any other run of it, with no goal captured; its ceiling is the workspace default (`budget.default.*`). By hand it begins at its manual entry; `start` naming an event start makes it a test run, begun there as if `event` — a sample payload, read by the start's mapping — had happened. 400 when it has problems, a step reads `{goal.…}` (`needs_goal` — it runs on a goal only), an input is missing or of the wrong kind, it is archived, it is a goal's own design (promote it first), only events begin it and no start is named, `start` names no start of it, or `event` comes with no start or with the start by hand." },
-    RouteDoc { method: "POST", path: "/workflows/{wfid}/stop", summary: "Stop every run of the workspace of the workflow that is going — each cancelled (cause `stopped`), its sessions ended → `{workflow, runs}` (the runs stopped). A goal's run of the workflow is its goal's, and is left alone." },
-    RouteDoc { method: "POST", path: "/workflows/{wfid}/restart", summary: "Restart every run of the workspace of the workflow that is going — each cancelled (cause `restarted`) and a new run started at its start, with its inputs, event and ceiling → `{workflow, runs}` (the new runs). A goal's run of the workflow is left alone." },
+    RouteDoc { method: "POST", path: "/workflows/{wfid}/stop", summary: "Stop every run of the workspace of the workflow that is going — each cancelled (cause `stopped`), its sessions ended → `{workflow, runs}` (the runs stopped). A goal's run of the workflow is its goal's, and is left alone. Answers, summed over the runs, `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it." },
+    RouteDoc { method: "POST", path: "/workflows/{wfid}/restart", summary: "Restart every run of the workspace of the workflow that is going — each cancelled (cause `restarted`) and a new run started at its start, with its inputs, event and ceiling → `{workflow, runs}` (the new runs). A goal's run of the workflow is left alone. Answers, summed over the runs, `ended: {sessions, terminated, still_live, children}` besides: the sessions told to stop, the harnesses that ignored it and were terminated at the deadline, the sessions that could not be ended, the spawned goals ended with it." },
 ];

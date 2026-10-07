@@ -3882,6 +3882,7 @@ export interface BisaApi {
   WorkstreamId?: WorkstreamId;
   Retired?: Retired;
   ProjectFate?: ProjectFate;
+  SessionsStopped?: SessionsStopped;
   CacheStatsDto?: CacheStatsDto;
   RunFacts?: RunFacts;
   RunStatus?: RunStatus;
@@ -4759,8 +4760,8 @@ export interface ProjectFacts {
 export interface Retired {
   stopped_sessions: number;
   /**
-   * Rows still live when the wait ran out: their process was told and
-   * their row is aborted; the retirement did not wait longer.
+   * Sessions still there when the wait ran out, with no process of ours
+   * to terminate; the retirement did not wait longer.
    */
   unsettled_sessions: number;
   projects: ProjectFate[];
@@ -4768,11 +4769,32 @@ export interface Retired {
    * The workstreams whose records went or were put away — the desktop closes the shells rooted at them.
    */
   workstreams_retired: WorkstreamId[];
+  /**
+   * What the retirement ended, whole: the sessions, the processes it had
+   * to terminate, what it could not end, the spawned goals closed with
+   * the thing.
+   */
+  ended?: SessionsStopped;
   [k: string]: unknown;
 }
 export interface ProjectFate {
   id: ProjectId;
   fate: Fate;
+  [k: string]: unknown;
+}
+/**
+ * What ending work did — the block every verb that stops, closes, retires
+ * or aborts answers, so one sentence on the desktop words it: the sessions
+ * told to stop; the harnesses that ignored it and were terminated at the
+ * deadline; the sessions that could not be ended — still live when the
+ * wait ran out, with no process of ours to terminate; the goals spawned by
+ * the thing, stopped or closed with it.
+ */
+export interface SessionsStopped {
+  sessions: number;
+  terminated: number;
+  still_live: number;
+  children: GoalId[];
   [k: string]: unknown;
 }
 /**
@@ -9232,12 +9254,19 @@ export interface LspRestart {
   language: string;
 }
 /**
- * What a stop did: the live run it cancelled and the queued runs it
- * withdrew — `POST /goals/{id}/stop`'s answer.
+ * What a stop did: the live run it cancelled, the queued runs it withdrew,
+ * and what it ended — `POST /goals/{id}/stop`'s answer.
  */
 export interface StopOutcome {
   stopped?: RunId | null;
   withdrawn: RunId[];
+  /**
+   * The sessions told to stop, the harnesses terminated at the deadline,
+   * the sessions that could not be ended, the spawned goals stopped with
+   * the goal — the block every verb that ends work answers, so one
+   * sentence on the desktop words it.
+   */
+  ended: SessionsStopped;
   [k: string]: unknown;
 }
 /**

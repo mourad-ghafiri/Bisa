@@ -109,7 +109,7 @@ export function workflowWord(strip) {
  * goal ran, *Restart* likewise, *Stop* whenever a run is live or queued.
  * The same shape `runControl.mjs`'s `runVerbs` answers.
  */
-export function rowVerbs(row) {
+export function rowVerbs(row, liveSessions = 0) {
   const none = { start: null, stop: null, restart: null };
   if (!row || row.status === "closed" || row.closed) return none;
   const live = row.run_status === "running" || row.run_status === "waiting";
@@ -122,7 +122,9 @@ export function rowVerbs(row) {
   const listening = !!row.listening;
   return {
     start: startable && !designing && !listening ? { label: t("goals-goal-card-new-run"), queues: live, adopt: false } : null,
-    stop: live || queued > 0 ? { label: t("goals-goal-card-stop"), live, queued } : null,
+    // A stop is offered on a session working on the goal with no run going
+    // too — a design wake, a turn in its thread — which ends with it.
+    stop: live || queued > 0 || liveSessions > 0 ? { label: t("goals-goal-card-stop"), live, queued, sessions: liveSessions } : null,
     restart: startable && !designing ? { label: t("goals-goal-card-restart") } : null,
   };
 }

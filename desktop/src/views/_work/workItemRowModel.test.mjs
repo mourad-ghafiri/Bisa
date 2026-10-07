@@ -3,7 +3,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { NO_INSTRUCTIONS, headline } from "./workItemRowModel.mjs";
+import { NO_INSTRUCTIONS, headline, movesItem } from "./workItemRowModel.mjs";
 
 test("the first line is the item's name, its heading mark gone", () => {
   assert.equal(headline("# Review the pull request\n\nRead every hunk."), "Review the pull request");
@@ -40,4 +40,13 @@ test("nothing to say is said in words", () => {
 test("nothing is cut — the row truncates with CSS", () => {
   const long = "Implement " + "a very long instruction ".repeat(20).trim();
   assert.equal(headline(long), long);
+});
+
+test("a panel open on a work item reads it again on the frames that move it, by the item they name", () => {
+  assert.equal(movesItem({ payload: { type: "execution_ended", work_item: "w1" } }, "w1"), true);
+  assert.equal(movesItem({ payload: { type: "execution_ended", work_item: "w2" } }, "w1"), false, "another item's frame");
+  assert.equal(movesItem({ payload: { type: "session_state", presence: { work_item: "w1" } } }, "w1"), true, "its session moved");
+  assert.equal(movesItem({ payload: { type: "session_state", presence: { work_item: null } } }, "w1"), false);
+  assert.equal(movesItem({ payload: { type: "goal_closed" } }, "w1"), false, "a frame that names no item moves none");
+  assert.equal(movesItem(null, "w1"), false);
 });

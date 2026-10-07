@@ -158,3 +158,7 @@ guided-say-failed = I couldn't start { $phase ->
 ## What an agent's turn says of itself in a conversation (crates/bisa-engine/src/conversation.rs) — a note the platform authors, carried on the post as `said`.
 
 engine-conversation-reply-cut = The reply went on past what a conversation keeps of one turn ({ $kept }), and the rest was not kept.
+engine-session-terminated-at-deadline = The { $kind } session { $session } did not stop within { $secs } s of being told to; its process { $pid } was terminated.
+engine-rationale-parent-goal-stopped = its parent goal { $parent } was stopped
+engine-rationale-parent-goal-closed = its parent goal { $parent } was closed
+engine-rationale-parent-run-stopped = the run { $run } it was born of was stopped

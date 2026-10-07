@@ -7,6 +7,8 @@
  * long run streams in rather than refetching from the top.
  */
 
+import { movesItem } from "./workItemRowModel.mjs";
+import { useEngineEvents } from "../../bus";
 import { Fragment } from "react";
 import { api } from "../../api";
 import type { WorkItemSpec } from "../../types";
@@ -51,6 +53,12 @@ export function WorkItemPanel({
     (s) => api.workItem(itemId, s),
     [itemId],
   );
+  // A stop, a cancel or a settle moves the item while the panel is open: it
+  // is read again on the frame, so a stopped item never reads *in progress*
+  // until the panel is reopened.
+  useEngineEvents((e) => {
+    if (movesItem(e, itemId)) reload();
+  });
 
   if (loading && !data) {
     return (
@@ -140,6 +148,9 @@ export function WorkItemPanel({
         </div>
       </section>
 
+      {item.state.state === "cancelled" && (
+        <p className="rounded-control bg-surface-2 px-2 py-1.5 text-2xs text-text-dim">{t("work-work-item-panel-cancelled")}</p>
+      )}
       {item.state.state === "blocked" && (
         <p className="rounded-control bg-danger-soft px-2 py-1.5 text-2xs text-danger">
           {t("work-work-item-panel-reason-running-goal-again-retries", { reason: String(item.state.reason) })}

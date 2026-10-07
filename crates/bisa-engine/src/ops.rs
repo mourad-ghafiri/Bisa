@@ -11,7 +11,7 @@
 //! become behaviour in [`crate::effects`]. Nothing else moves a run.
 
 use crate::events::{EngineEvent, EnginePayload};
-use crate::sessions::{self, Scope};
+use crate::sessions;
 use crate::{effects, guided, waits, warn_on_err, EngineError, Inner};
 use bisa_core::event::{JournalEvent, JournalPayload};
 use bisa_core::goal::{Budget, Goal};
@@ -695,11 +695,18 @@ pub struct Stopped {
     pub run: Option<RunId>,
     /// The queued runs it withdrew, in queue order.
     pub withdrawn: Vec<RunId>,
+    /// The sessions it ended, the harnesses it had to terminate, what it
+    /// could not end, the spawned goals it stopped with the thing.
+    #[serde(default)]
+    pub ended: sessions::Ended,
 }
 
 /// The goal's workstreams, for a session stop that must reach the sessions
 /// standing in its checkouts.
-fn workstreams_of_goal(inner: &Inner, goal: GoalId) -> Result<HashSet<WorkstreamId>, EngineError> {
+pub(crate) fn workstreams_of_goal(
+    inner: &Inner,
+    goal: GoalId,
+) -> Result<HashSet<WorkstreamId>, EngineError> {
     Ok(inner
         .ws
         .list_workstreams(WorkstreamFilter::Goal(goal))?
@@ -708,10 +715,10 @@ fn workstreams_of_goal(inner: &Inner, goal: GoalId) -> Result<HashSet<Workstream
         .collect())
 }
 
-/// Stop a goal: it stops listening, its sessions are ended, its queued runs
-/// withdrawn, its live run cancelled — in that order, so nothing its events
-/// start slips in and the live run's settle finds nothing to advance — and
-/// the wait for the sessions to be gone is bounded. The goal stays open and
+/// Stop a goal — through the one door (`ending`): it stops listening, its
+/// queued runs are withdrawn, its live run cancelled, the goals it spawned
+/// stopped with it, every session of it told and waited for — the processes
+/// gone, or terminated at the deadline and said. The goal stays open and
 /// reads `draft`, ready for a new run. A goal with nothing live, nothing
 /// queued and nothing heard is left as it is.
 pub async fn stop_goal(
@@ -728,40 +735,24 @@ pub async fn stop_goal(
             goal_id = goal_id.to_string()
         )));
     }
-    crate::listen::turn::turn_off(inner, ListenerHost::Goal { goal: goal_id })?;
-    // The runs first, the sessions after: an aborted session settles its
-    // item at once, and a settle that met a live run would fail it — the
-    // stop's cancel has to be the fact already written when it lands.
-    let mut stopped = Stopped::default();
-    for queued in inner.ws.queued_runs(goal_id)? {
-        if withdraw_if_queued(inner, queued.id)? {
-            stopped.withdrawn.push(queued.id);
-        }
-    }
-    if let Some(live) = inner.ws.live_run(goal_id)? {
-        if cancel_unless_over(inner, live.id, CancelCause::Stopped { rationale })? {
-            // A call out to a platform stops with the run: nothing waits on
-            // its deadline for a step nobody is reading any more.
-            crate::connectors::abort_calls(inner, live.id);
-            stopped.run = Some(live.id);
-        }
-    }
-    let workstreams = workstreams_of_goal(inner, goal_id)?;
-    let ended = sessions::stop_for(inner, Scope::Goal(goal_id), &workstreams);
-    sessions::await_stopped(
+    let done = crate::ending::end_goal_work(
         inner,
-        Scope::Goal(goal_id),
-        &workstreams,
-        ended,
-        sessions::STOP_DEADLINE,
+        goal_id,
+        sessions::EndCause::Stop,
+        rationale,
+        &HashSet::new(),
     )
-    .await;
-    Ok(stopped)
+    .await?;
+    Ok(Stopped {
+        run: done.run,
+        withdrawn: done.withdrawn,
+        ended: done.ended,
+    })
 }
 
 /// Cancel a run for `cause`, unless it was over when the cancel reached it
 /// ([`over_already`]). Answers whether this cancelled it.
-fn cancel_unless_over(
+pub(crate) fn cancel_unless_over(
     inner: &Arc<Inner>,
     run_id: RunId,
     cause: CancelCause,
@@ -780,6 +771,17 @@ fn cancel_unless_over(
 /// closed goal, on one that never ran, and when the start it began at is
 /// gone from the workflow as it stands.
 pub async fn restart_goal(inner: &Arc<Inner>, goal_id: GoalId) -> Result<WorkflowRun, EngineError> {
+    restart_goal_ended(inner, goal_id).await.map(|(run, _)| run)
+}
+
+/// [`restart_goal`], answering what the restart ended besides: the goal's
+/// work goes through the one door whether or not its last run is live — a
+/// repair wake, a thread's turn, an ask of a goal whose run failed are ended
+/// too — before the new run starts.
+pub async fn restart_goal_ended(
+    inner: &Arc<Inner>,
+    goal_id: GoalId,
+) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
     let goal = inner.ws.get_goal(goal_id)?;
     // Both refusals are states of the goal, not faults of the request.
     if goal.is_closed() {
@@ -798,26 +800,23 @@ pub async fn restart_goal(inner: &Arc<Inner>, goal_id: GoalId) -> Result<Workflo
     // Before anything is cancelled: a restart that has nowhere to begin must
     // leave the run it would have replaced as it is.
     let entry = restart_entry(inner, &latest)?;
-    // The cancel before the sessions end, as `stop_goal` orders it; a run
-    // that was over had no session left to end.
-    if latest.is_live() && cancel_unless_over(inner, latest.id, CancelCause::Restarted)? {
-        let workstreams = workstreams_of_goal(inner, goal_id)?;
-        let ended = sessions::stop_for(inner, Scope::Goal(goal_id), &workstreams);
-        sessions::await_stopped(
-            inner,
-            Scope::Goal(goal_id),
-            &workstreams,
-            ended,
-            sessions::STOP_DEADLINE,
-        )
-        .await;
-    }
+    // The cancel before the sessions end, as `stop_goal` orders it — and
+    // every session of the goal ended whether or not its last run is live.
+    let done = crate::ending::end_goal_work(
+        inner,
+        goal_id,
+        sessions::EndCause::Restart,
+        None,
+        &HashSet::new(),
+    )
+    .await?;
     if goal.workflow != Some(latest.workflow.id) {
         // The goal moved on to another workflow since: a restart runs the
         // last run's, and the store refuses the swap while anything is queued.
         set_workflow(inner, goal_id, Some(latest.workflow.id))?;
     }
-    start_run(inner, goal_id, latest.inputs.clone(), entry, None)
+    let run = start_run(inner, goal_id, latest.inputs.clone(), entry, None)?;
+    Ok((run, done.ended))
 }
 
 /// Where a restart begins: the start the run began at, on the event that
@@ -904,7 +903,10 @@ fn workspace_run(inner: &Arc<Inner>, run_id: RunId) -> Result<WorkflowRun, Engin
 
 /// The workstreams a run's items opened, for a session stop that must reach
 /// the sessions standing in its checkouts.
-fn workstreams_of_run(inner: &Inner, run: RunId) -> Result<HashSet<WorkstreamId>, EngineError> {
+pub(crate) fn workstreams_of_run(
+    inner: &Inner,
+    run: RunId,
+) -> Result<HashSet<WorkstreamId>, EngineError> {
     Ok(inner
         .ws
         .list_workstreams(WorkstreamFilter::Run(run))?
@@ -921,22 +923,8 @@ pub(crate) async fn end_workspace_run(
     inner: &Arc<Inner>,
     run_id: RunId,
     cause: CancelCause,
-) -> Result<(WorkflowRun, sessions::Settled), EngineError> {
-    let run = record_run_event(inner, run_id, RunEvent::Cancel { cause })?;
-    // A call out to a platform stops with the run: nothing waits on its
-    // deadline for a step nobody is reading any more.
-    crate::connectors::abort_calls(inner, run_id);
-    let workstreams = workstreams_of_run(inner, run_id)?;
-    let ended = sessions::stop_for(inner, Scope::Run(run_id), &workstreams);
-    let settled = sessions::await_stopped(
-        inner,
-        Scope::Run(run_id),
-        &workstreams,
-        ended,
-        sessions::STOP_DEADLINE,
-    )
-    .await;
-    Ok((run, settled))
+) -> Result<(WorkflowRun, crate::ending::WorkEnded), EngineError> {
+    crate::ending::end_run_work(inner, run_id, cause).await
 }
 
 /// Whether a withdrawal was refused because the run had started: it is no
@@ -969,10 +957,12 @@ async fn end_unless_over(
     inner: &Arc<Inner>,
     run_id: RunId,
     cause: CancelCause,
-) -> Result<WorkflowRun, EngineError> {
+) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
     match end_workspace_run(inner, run_id, cause).await {
-        Ok((run, _)) => Ok(run),
-        Err(refused) if over_already(&refused) => Ok(inner.ws.get_run(run_id)?),
+        Ok((run, done)) => Ok((run, done.ended)),
+        Err(refused) if over_already(&refused) => {
+            Ok((inner.ws.get_run(run_id)?, sessions::Ended::default()))
+        }
         Err(e) => Err(e),
     }
 }
@@ -985,6 +975,17 @@ pub async fn stop_run(
     run_id: RunId,
     rationale: Option<String>,
 ) -> Result<WorkflowRun, EngineError> {
+    stop_run_ended(inner, run_id, rationale)
+        .await
+        .map(|(run, _)| run)
+}
+
+/// [`stop_run`], answering what the stop ended besides.
+pub async fn stop_run_ended(
+    inner: &Arc<Inner>,
+    run_id: RunId,
+    rationale: Option<String>,
+) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
     workspace_run(inner, run_id)?;
     end_unless_over(inner, run_id, CancelCause::Stopped { rationale }).await
 }
@@ -996,17 +997,26 @@ pub async fn stop_run(
 /// start is gone from the current revision; a goal's run is refused too:
 /// restart its goal.
 pub async fn restart_run(inner: &Arc<Inner>, run_id: RunId) -> Result<WorkflowRun, EngineError> {
+    restart_run_ended(inner, run_id).await.map(|(run, _)| run)
+}
+
+/// [`restart_run`], answering what the restart ended besides.
+pub async fn restart_run_ended(
+    inner: &Arc<Inner>,
+    run_id: RunId,
+) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
     let run = workspace_run(inner, run_id)?;
     let entry = restart_entry(inner, &run)?;
-    end_unless_over(inner, run_id, CancelCause::Restarted).await?;
-    start_workspace_run(
+    let (_, ended) = end_unless_over(inner, run_id, CancelCause::Restarted).await?;
+    let started = start_workspace_run(
         inner,
         run.workflow.id,
         run.inputs.clone(),
         entry,
         run.scope.budget().cloned(),
         None,
-    )
+    )?;
+    Ok((started, ended))
 }
 
 /// Stop every run of the workspace of the workflow that is going. A goal's
@@ -1015,17 +1025,29 @@ pub async fn stop_workflow(
     inner: &Arc<Inner>,
     workflow: WorkflowId,
 ) -> Result<Vec<RunId>, EngineError> {
+    stop_workflow_ended(inner, workflow)
+        .await
+        .map(|(runs, _)| runs)
+}
+
+/// [`stop_workflow`], answering what the stops ended besides, summed.
+pub async fn stop_workflow_ended(
+    inner: &Arc<Inner>,
+    workflow: WorkflowId,
+) -> Result<(Vec<RunId>, sessions::Ended), EngineError> {
     inner.ws.get_workflow(workflow)?;
     let mut stopped = Vec::new();
+    let mut ended = sessions::Ended::default();
     for run in inner.ws.live_workspace_runs(Some(workflow))? {
         // One that ended by itself since the list was read was not stopped
         // by this, and is not said to have been.
-        let after = stop_run(inner, run.id, None).await?;
+        let (after, done) = stop_run_ended(inner, run.id, None).await?;
+        ended.add(done);
         if after.cancelled.is_some() {
             stopped.push(run.id);
         }
     }
-    Ok(stopped)
+    Ok((stopped, ended))
 }
 
 /// Restart every run of the workspace of the workflow that is going.
@@ -1034,12 +1056,25 @@ pub async fn restart_workflow(
     inner: &Arc<Inner>,
     workflow: WorkflowId,
 ) -> Result<Vec<RunId>, EngineError> {
+    restart_workflow_ended(inner, workflow)
+        .await
+        .map(|(runs, _)| runs)
+}
+
+/// [`restart_workflow`], answering what the restarts ended besides, summed.
+pub async fn restart_workflow_ended(
+    inner: &Arc<Inner>,
+    workflow: WorkflowId,
+) -> Result<(Vec<RunId>, sessions::Ended), EngineError> {
     inner.ws.get_workflow(workflow)?;
     let mut runs = Vec::new();
+    let mut ended = sessions::Ended::default();
     for run in inner.ws.live_workspace_runs(Some(workflow))? {
-        runs.push(restart_run(inner, run.id).await?.id);
+        let (started, done) = restart_run_ended(inner, run.id).await?;
+        ended.add(done);
+        runs.push(started.id);
     }
-    Ok(runs)
+    Ok((runs, ended))
 }
 
 /// **The funnel.** Apply one event to a run, announce every step it moved,
@@ -2100,6 +2135,63 @@ pub fn close_goal(
     goal_id: GoalId,
     reason: bisa_core::ClosureReason,
 ) -> Result<Goal, EngineError> {
+    let goal = close_record(inner, goal_id, reason.clone())?;
+    // Whatever was running for the goal is told to stop with it — its
+    // workers, its design wake, the turns in its thread, the asks read for
+    // it — here and now; the wait for their processes, the goals it spawned
+    // and the release follow on a task of their own, since this caller
+    // cannot wait (`close_goal_settled` can).
+    let signalled =
+        crate::ending::signal_goal_work(inner, goal_id, sessions::EndCause::Close, None)?;
+    match (inner.arc(), tokio::runtime::Handle::try_current()) {
+        (Some(owned), Ok(_)) => {
+            tokio::spawn(async move {
+                crate::ending::finish_after_signal(&owned, goal_id, signalled).await;
+            });
+        }
+        _ => crate::ending::finish_goal_work(inner, goal_id, sessions::EndCause::Close),
+    }
+    inner.emit(EngineEvent::scoped(
+        goal_id,
+        None,
+        EnginePayload::GoalClosed { reason },
+    ));
+    Ok(goal)
+}
+
+/// [`close_goal`], waited for: the goal's work goes through the one door —
+/// the goals it spawned closed with it, every process gone or terminated at
+/// the deadline — and the close says what it ended.
+pub async fn close_goal_settled(
+    inner: &Arc<Inner>,
+    goal_id: GoalId,
+    reason: bisa_core::ClosureReason,
+) -> Result<(Goal, sessions::Ended), EngineError> {
+    let goal = close_record(inner, goal_id, reason.clone())?;
+    let done = crate::ending::end_goal_work(
+        inner,
+        goal_id,
+        sessions::EndCause::Close,
+        None,
+        &HashSet::new(),
+    )
+    .await?;
+    inner.emit(EngineEvent::scoped(
+        goal_id,
+        None,
+        EnginePayload::GoalClosed { reason },
+    ));
+    Ok((goal, done.ended))
+}
+
+/// The record half of a close: the goal closed, its runs cancelled and
+/// settled, its gates withdrawn, its workstreams released — everything the
+/// store and the journal say of a closed goal, before anything is told.
+pub(crate) fn close_record(
+    inner: &Arc<Inner>,
+    goal_id: GoalId,
+    reason: bisa_core::ClosureReason,
+) -> Result<Goal, EngineError> {
     let before = inner.ws.get_current_run(goal_id)?;
     let listened = inner
         .ws
@@ -2126,18 +2218,6 @@ pub fn close_goal(
     effects::release_goal_workstreams(inner, goal_id);
     waits::child_finished(inner, goal_id, None);
     inner.security.forget_home(&Home::Goal { goal: goal_id });
-    // Whatever was running for the goal stops with it — its workers, its
-    // design wake, the turns in its thread, the asks read for it — before
-    // the wake's standing is forgotten, so the stop still finds it: a closed
-    // goal holds nothing, whatever it was running.
-    let workstreams = workstreams_of_goal(inner, goal_id).unwrap_or_default();
-    sessions::stop_for(inner, Scope::Goal(goal_id), &workstreams);
-    inner.guided.forget_goal(goal_id);
-    inner.emit(EngineEvent::scoped(
-        goal_id,
-        None,
-        EnginePayload::GoalClosed { reason },
-    ));
     Ok(goal)
 }
 

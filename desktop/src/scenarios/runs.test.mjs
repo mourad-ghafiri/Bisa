@@ -34,7 +34,7 @@ test("start, queue, stop, restart, withdraw — the goal page and the list agree
   let v = verbsOf(run, runs);
   assert.equal(v.start.label, "New run…");
   assert.equal(v.start.queues, true, "a second run would queue");
-  assert.deepEqual(v.stop, { label: "Stop", live: true, queued: 0 });
+  assert.deepEqual(v.stop, { label: "Stop", live: true, queued: 0, sessions: 0 });
   assert.equal(panelFrozen(run, runs), true);
   let row = { id: goal.id, status: "waiting", holder: "you", workflow: "01W", run: "r1", run_status: "waiting", queued: 0 };
   assert.deepEqual(rowVerbs(row).stop, v.stop, "the list's card stops the same goal");
@@ -44,7 +44,7 @@ test("start, queue, stop, restart, withdraw — the goal page and the list agree
   runs = [summary("r2", "queued", { position: 1 }), ...runs];
   row = { ...row, queued: 1 };
   v = verbsOf(run, runs);
-  assert.deepEqual(v.stop, { label: "Stop", live: true, queued: 1 });
+  assert.deepEqual(v.stop, { label: "Stop", live: true, queued: 1, sessions: 0 });
   assert.equal(runWords(runs[0]).word, "queued · next in line");
   assert.equal(queuedChip(row), "queued 1");
   assert.deepEqual(runRows(runs).map((r) => [r.index, r.withdraw]), [[2, true], [1, false]], "the Runs list: run 2 queued and withdrawable, run 1 not");
@@ -70,7 +70,7 @@ test("start, queue, stop, restart, withdraw — the goal page and the list agree
   run = snapshot("r3");
   runs = [summary("r3", "waiting", { started_at: 7 }), ...runs];
   v = verbsOf(run, runs);
-  assert.deepEqual(v.stop, { label: "Stop", live: true, queued: 0 });
+  assert.deepEqual(v.stop, { label: "Stop", live: true, queued: 0, sessions: 0 });
   assert.equal(runRows(runs)[0].index, 3);
 
   // New run… while live: queued; a restart now confirms and keeps the queue's place.

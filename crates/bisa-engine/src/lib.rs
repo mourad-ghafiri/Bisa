@@ -31,6 +31,7 @@ pub mod documents;
 pub mod drawings;
 pub mod effects;
 pub mod effort;
+pub mod ending;
 pub mod error_text;
 pub mod events;
 pub mod executor;
@@ -472,6 +473,10 @@ pub struct Inner {
     /// row tells its driver by. A worker's stop is its item's mark in
     /// `inflight`.
     pub driving: sessions::Drivers,
+    /// The sessions told to stop whose harness process is not yet known to
+    /// be gone: what a verb's wait for its stop watches, and terminates at
+    /// its deadline (`sessions::await_stopped`).
+    pub ending: sessions::Stopping,
     /// A weak handle on this very state, set once at start: for a path that
     /// holds a plain reference and must hand an owned one to a task — ending
     /// a roster row with its retention clock from a one-shot ask.
@@ -538,6 +543,10 @@ pub struct Inner {
     /// The `connector` steps calling out right now, by run and step, so a
     /// stopped run's call is aborted rather than left to its deadline.
     pub connector_calls: DashMap<(RunId, StepId), tokio::task::AbortHandle>,
+    /// The `check` and `judge` tasks in flight, by run and step, so a run
+    /// that is ended takes them with it (`effects::abort_step_tasks`) rather
+    /// than leaving a shell command to its timeout.
+    pub step_tasks: DashMap<(RunId, StepId), tokio::task::AbortHandle>,
     /// The clients every crate reaches the network through, built from the
     /// `network.*` settings and swapped on a write of one (`network.rs`).
     pub http: Arc<bisa_http::Clients>,
@@ -782,6 +791,7 @@ impl Engine {
             pause: PauseGate::new(),
             lifecycle: lifecycle::Lifecycle::new(),
             driving: sessions::Drivers::default(),
+            ending: sessions::Stopping::default(),
             me: std::sync::OnceLock::new(),
             active_items: DashMap::new(),
             inflight: DashMap::new(),
@@ -806,6 +816,7 @@ impl Engine {
             changes: changes::ChangesState::default(),
             connectors,
             connector_calls: DashMap::new(),
+            step_tasks: DashMap::new(),
             http,
             network: network::NetworkState::default(),
             socket_path,
@@ -1030,6 +1041,14 @@ impl Engine {
         ops::restart_goal(&self.inner, goal).await
     }
 
+    /// [`Self::restart_goal`], answering what the restart ended besides.
+    pub async fn restart_goal_ended(
+        &self,
+        goal: GoalId,
+    ) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
+        ops::restart_goal_ended(&self.inner, goal).await
+    }
+
     /// Take a queued run out of the goal's queue.
     pub fn withdraw_run(&self, goal: GoalId, run: RunId) -> Result<WorkflowRun, EngineError> {
         ops::withdraw_run(&self.inner, goal, run)
@@ -1090,6 +1109,23 @@ impl Engine {
         ops::restart_run(&self.inner, run).await
     }
 
+    /// [`Self::stop_run`], answering what the stop ended besides.
+    pub async fn stop_run_ended(
+        &self,
+        run: RunId,
+        rationale: Option<String>,
+    ) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
+        ops::stop_run_ended(&self.inner, run, rationale).await
+    }
+
+    /// [`Self::restart_run`], answering what the restart ended besides.
+    pub async fn restart_run_ended(
+        &self,
+        run: RunId,
+    ) -> Result<(WorkflowRun, sessions::Ended), EngineError> {
+        ops::restart_run_ended(&self.inner, run).await
+    }
+
     /// Stop every run of the workspace of the workflow that is going;
     /// answers the runs stopped. A goal's run of it is the goal's.
     pub async fn stop_workflow(&self, workflow: WorkflowId) -> Result<Vec<RunId>, EngineError> {
@@ -1100,6 +1136,22 @@ impl Engine {
     /// answers the new runs.
     pub async fn restart_workflow(&self, workflow: WorkflowId) -> Result<Vec<RunId>, EngineError> {
         ops::restart_workflow(&self.inner, workflow).await
+    }
+
+    /// [`Self::stop_workflow`], answering what the stops ended besides.
+    pub async fn stop_workflow_ended(
+        &self,
+        workflow: WorkflowId,
+    ) -> Result<(Vec<RunId>, sessions::Ended), EngineError> {
+        ops::stop_workflow_ended(&self.inner, workflow).await
+    }
+
+    /// [`Self::restart_workflow`], answering what the restarts ended besides.
+    pub async fn restart_workflow_ended(
+        &self,
+        workflow: WorkflowId,
+    ) -> Result<(Vec<RunId>, sessions::Ended), EngineError> {
+        ops::restart_workflow_ended(&self.inner, workflow).await
     }
 
     /// Every run of the goal in queue order, oldest first.
@@ -1349,6 +1401,17 @@ impl Engine {
         ops::close_goal(&self.inner, goal_id, reason)
     }
 
+    /// [`Self::close_goal`], waited for: every session of the goal and of
+    /// the goals it spawned is gone when this answers, and it says what
+    /// it ended.
+    pub async fn close_goal_settled(
+        &self,
+        goal_id: GoalId,
+        reason: ClosureReason,
+    ) -> Result<(bisa_core::Goal, sessions::Ended), EngineError> {
+        ops::close_goal_settled(&self.inner, goal_id, reason).await
+    }
+
     /// Cancel, reset or otherwise move one work item, filed in `home`.
     pub fn transition_work_item(
         &self,
@@ -1358,6 +1421,9 @@ impl Engine {
     ) -> Result<WorkItemSpec, EngineError> {
         let spec = self.inner.ws.transition_work_item(home, item, transition)?;
         if spec.state.is_terminal() {
+            // The mark is stopped before it goes: its session's driver
+            // aborts the harness on the spot, never at its next event.
+            executor::stop_item(&self.inner, item);
             self.inner.inflight.remove(&item);
             self.inner.active_items.remove(&item);
         }
@@ -1367,6 +1433,7 @@ impl Engine {
     /// Forget a settled work item, filed in `home`.
     pub fn delete_work_item(&self, home: &Home, item: WorkItemId) -> Result<(), EngineError> {
         self.inner.ws.delete_work_item(home, item)?;
+        executor::stop_item(&self.inner, item);
         self.inner.inflight.remove(&item);
         self.inner.active_items.remove(&item);
         Ok(())
@@ -1867,6 +1934,13 @@ impl Engine {
         self.inner
             .stopping
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        // Every session this engine drives is told to stop and waited for —
+        // its process gone, or terminated at the deadline — before the tasks
+        // are torn down: a node that stops leaves no harness behind.
+        let settled = sessions::end_all(&self.inner).await;
+        if settled.stopped + settled.terminated + settled.still_live > 0 {
+            tracing::info!(target: "bisa_engine", stopped = settled.stopped, terminated = settled.terminated, still_live = settled.still_live, "the engine's sessions were ended with it");
+        }
         let executors = std::mem::take(
             &mut *self
                 .inner

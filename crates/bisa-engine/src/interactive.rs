@@ -253,14 +253,35 @@ fn about(inner: &Inner, scope: FileScope, id: &str) -> Result<About, Interactive
             goal: GoalId::from_str(id).ok(),
             ..nothing
         },
-        FileScope::WorkItem => About {
-            work_item: WorkItemId::from_str(id).ok(),
-            ..nothing
-        },
-        FileScope::Run => About {
-            run: RunId::from_str(id).ok(),
-            ..nothing
-        },
+        // A terminal on a work item or a run stands for the item's goal or
+        // run too, so a stop of the goal or the run reaches it (`sessions`).
+        FileScope::WorkItem => {
+            let work_item = WorkItemId::from_str(id).ok();
+            let home = work_item.and_then(|w| inner.ws.home_of_work_item(w).ok());
+            let item = home
+                .zip(work_item)
+                .and_then(|(home, w)| inner.ws.get_work_item(&home, w).ok());
+            About {
+                work_item,
+                goal: home.and_then(|h| h.goal()),
+                run: item
+                    .as_ref()
+                    .and_then(|i| i.run)
+                    .or(home.and_then(|h| h.run())),
+                project: item.and_then(|i| i.project),
+                ..nothing
+            }
+        }
+        FileScope::Run => {
+            let run = RunId::from_str(id).ok();
+            About {
+                run,
+                goal: run
+                    .and_then(|r| inner.ws.get_run(r).ok())
+                    .and_then(|r| r.home().goal()),
+                ..nothing
+            }
+        }
     })
 }
 

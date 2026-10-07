@@ -379,8 +379,8 @@ export function ProjectRail({ current }: { current: { scope: string; id: string 
 
   /** Stop an engine session by its row, through the store's one door: a row the node no longer has is dropped, and said. */
   const stop = (id: string) =>
-    void attempt(() => stopSession(id), toast.error, (how) => {
-      toast.ok(stopWords(how, tr("workbench-project-rail-session-aborted")));
+    void attempt(() => stopSession(id), toast.error, ({ how, ended }) => {
+      toast.ok(stopWords(how, tr("workbench-project-rail-session-aborted"), ended));
       ws.refresh();
     });
 
