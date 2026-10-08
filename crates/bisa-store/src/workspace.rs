@@ -273,6 +273,7 @@ pub struct KnownRuntime {
 
 impl Workspace {
     /// Open (or initialize) a workspace with the OS keyring + file fallback.
+    // LCOV_EXCL_START: the OS keyring door; every test opens with a keystore it hands in (fakes only)
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, StoreError> {
         Self::open_observed(root, &crate::boot::Quiet)
     }
@@ -286,6 +287,7 @@ impl Workspace {
         let ks = AutoKeyStore::new(Paths::new(&root).identity_dir());
         Self::open_with_keystore_observed(root, Box::new(ks), observer)
     }
+    // LCOV_EXCL_STOP
 
     /// Open with an injected key store (tests use `MemoryKeyStore`).
     pub fn open_with_keystore(
@@ -423,11 +425,13 @@ impl Workspace {
                     "the index lock is already held by this thread — a method under the guard \
                      must take the `&Index` it was handed (`*_in`), never lock again"
                 );
-            }
+            } // LCOV_EXCL_LINE: the panic above never returns
+              // LCOV_EXCL_START: a release build only; the debug build panics above (`locking_the_index_twice_on_one_thread_panics_naming_the_rule`)
             tracing::error!(
                 "the index lock is re-entered on one thread; this call will not return"
             );
-        }
+            // LCOV_EXCL_STOP
+        } // LCOV_EXCL_LINE: the debug build never leaves the block above
         IndexGuard(self.index.lock().unwrap_or_else(|poisoned| {
             tracing::warn!("index lock was poisoned; continuing with the cache as it stands");
             poisoned.into_inner()
@@ -556,7 +560,7 @@ impl Workspace {
         if let Some(text) = searchable_text(&je.payload) {
             self.idx()
                 .index_text(&captured.id.to_hex(), &id.to_string(), &text)?;
-        }
+        } // LCOV_EXCL_LINE: a captured goal's note is always searchable text
         self.record_journal_activity(&je)?;
         if let Some(parent) = goal.origin.parent() {
             self.add_edge(id, parent, GoalEdgeKind::Refines)?;
@@ -908,7 +912,7 @@ impl Workspace {
         let dir = self.paths.goal(id).dir().to_path_buf();
         match std::fs::remove_dir_all(&dir) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {} // LCOV_EXCL_LINE: `get_goal` above read the folder; gone only under a concurrent delete
             Err(e) => return Err(StoreError::io(dir.display().to_string(), e)),
         }
         // Its notes and drawings live in their repositories, not its folder:
@@ -1512,7 +1516,7 @@ impl Workspace {
                 let to = to.parse().ok()?;
                 let kind = match kind.as_str() {
                     "refines" => GoalEdgeKind::Refines,
-                    _ => return None,
+                    _ => return None, // LCOV_EXCL_LINE: the cache's CHECK admits only `refines` (`check_constraints_mirror_the_core_enums`)
                 };
                 Some((to, kind))
             })
@@ -1925,7 +1929,7 @@ impl Workspace {
                     .get::<WorkItemSpec>(&ns, KIND_WORK_ITEM, &wid)?
             {
                 self.index_work_item(&spec, ev.created_at.as_secs())?;
-            }
+            } // LCOV_EXCL_LINE: listed a moment ago; gone only under a concurrent delete
         }
         Ok(())
     }
@@ -2840,5 +2844,670 @@ mod tests {
         .join();
         assert!(poisoned.is_err(), "the thread panicked on purpose");
         assert!(ws.list_goals(None).is_ok(), "a poisoned lock is recovered");
+    }
+
+    // added by the coverage pass: workspace.rs
+
+    // --- the bare lines of the workspace module ---
+
+    #[test]
+    fn the_index_guard_hands_out_the_index_mutably_too() {
+        let (_d, ws) = ws();
+        let mut guard = ws.idx();
+        let index: &mut Index = &mut guard;
+        assert!(!index.goal_exists("nobody").unwrap());
+    }
+
+    /// A lock a panic poisoned is taken over: the runtime description and
+    /// the work-item writer both continue with what the last writer left.
+    #[test]
+    fn the_runtime_and_item_write_locks_recover_from_poison() {
+        let (_d, ws) = ws();
+        let ws = std::sync::Arc::new(ws);
+        let goal = ws.create_goal(NewGoal::captured("poisoned")).unwrap();
+        let poisoner = std::sync::Arc::clone(&ws);
+        let poisoned = std::thread::spawn(move || {
+            let _runtime = poisoner.known_runtime.write().unwrap();
+            let _items = poisoner.item_writer();
+            panic!("poison both locks on purpose");
+        })
+        .join();
+        assert!(poisoned.is_err(), "the thread panicked on purpose");
+        ws.set_known_runtime(KnownRuntime {
+            harnesses: vec!["mock".into()],
+            ..Default::default()
+        });
+        assert_eq!(ws.known_runtime().harnesses, vec!["mock".to_string()]);
+        ws.put_work_item(&item(goal.id, "after the poison"))
+            .unwrap();
+        assert_eq!(
+            ws.list_work_items(&Home::Goal { goal: goal.id })
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    /// A method that locks the index while its thread already holds the
+    /// guard would hang forever; a debug build panics naming the rule
+    /// instead, and the lock it poisoned is recovered by the next caller.
+    #[test]
+    fn locking_the_index_twice_on_one_thread_panics_naming_the_rule() {
+        let (_d, ws) = ws();
+        let ws = std::sync::Arc::new(ws);
+        let re_enters = std::sync::Arc::clone(&ws);
+        let outcome = std::thread::spawn(move || {
+            let _held = re_enters.idx();
+            let _again = re_enters.idx();
+        })
+        .join();
+        let panic = outcome.expect_err("the re-entry panicked");
+        let words = panic
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(words.contains("already held by this thread"), "{words}");
+        assert!(
+            ws.list_goals(None).is_ok(),
+            "the poisoned lock is recovered"
+        );
+    }
+
+    /// A goal row whose id names no goal costs that row of a list, said at
+    /// `error`, never the list; the folder walk skips what is not a goal's
+    /// folder and says so; a walk nobody may read is an I/O error by path.
+    #[test]
+    fn a_goal_list_tolerates_a_bad_row_and_the_folder_walk_skips_strangers() {
+        let (_d, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("listed")).unwrap();
+        let goals_dir = ws.paths.goals_dir();
+        std::fs::write(goals_dir.join("README"), b"not a goal").unwrap();
+        std::fs::create_dir(goals_dir.join("not-an-id")).unwrap();
+        assert_eq!(ws.goal_ids_on_disk().unwrap(), vec![goal.id]);
+        ws.idx()
+            .execute_for_test("UPDATE goals SET id = 'not-a-goal-id'")
+            .unwrap();
+        assert!(ws.list_goals(None).unwrap().is_empty());
+        assert!(ws.list_archived_goals().unwrap().is_empty());
+        // No folder yet is no goals, not an error.
+        let aside = goals_dir.with_file_name("goals.aside");
+        std::fs::rename(&goals_dir, &aside).unwrap();
+        assert!(ws.goal_ids_on_disk().unwrap().is_empty());
+        std::fs::rename(&aside, &goals_dir).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&goals_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let err = ws.goal_ids_on_disk().unwrap_err();
+            std::fs::set_permissions(&goals_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                matches!(&err, StoreError::Io { path, .. } if path.ends_with("goals")),
+                "{err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_goal_edited_to_a_blank_statement_is_refused() {
+        let (_d, ws) = ws();
+        let mut goal = ws.create_goal(NewGoal::captured("say something")).unwrap();
+        goal.statement = "   ".into();
+        let err = ws.update_goal(goal).unwrap_err();
+        assert!(matches!(err, StoreError::Invalid(_)), "{err:?}");
+        assert!(err.to_string().contains("statement"), "{err}");
+    }
+
+    /// A decision stands only while its author may still decide the gate:
+    /// a policy narrowed after the fact refuses it by name. A decision for
+    /// another gate authorises nothing.
+    #[test]
+    fn a_decision_whose_author_may_no_longer_decide_the_gate_is_refused_by_name() {
+        let (_d, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("gated")).unwrap();
+        let home = Home::Goal { goal: goal.id };
+        let approval = ws
+            .record_decision(&home, Gate::Publish, true, "the subject", None, None)
+            .unwrap();
+        assert!(ws
+            .has_authorized_decision(&home, Gate::Publish, Some("the subject"))
+            .unwrap());
+        assert!(!ws
+            .has_authorized_decision(&home, Gate::Escalation, None)
+            .unwrap());
+        assert!(!ws
+            .has_authorized_decision(&home, Gate::Publish, Some("another subject"))
+            .unwrap());
+        assert_eq!(
+            ws.decision_author(&home, Gate::Publish, &approval, None, true)
+                .unwrap(),
+            ws.owner_principal()
+        );
+        ws.set_gate_policy(
+            Gate::Publish,
+            crate::governance::GatePolicy::Listed(vec!["a".repeat(64)]),
+        )
+        .unwrap();
+        let err = ws
+            .decision_author(&home, Gate::Publish, &approval, None, true)
+            .unwrap_err();
+        assert!(matches!(&err, StoreError::GatePolicy(_)), "{err:?}");
+        assert!(err.to_string().contains(&approval.0), "{err}");
+        assert!(!ws
+            .has_authorized_decision(&home, Gate::Publish, None)
+            .unwrap());
+        assert!(matches!(
+            ws.decision_author(
+                &home,
+                Gate::Publish,
+                &ApprovalId("f".repeat(64)),
+                None,
+                true
+            ),
+            Err(StoreError::GateDecisionInvalid(_))
+        ));
+    }
+
+    /// A goal's folder nobody may remove is an I/O error by its path; the
+    /// rows are untouched until the folder is gone.
+    #[cfg(unix)]
+    #[test]
+    fn a_goal_folder_nobody_may_remove_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_d, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("kept")).unwrap();
+        let goals_dir = ws.paths.goals_dir();
+        std::fs::set_permissions(&goals_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let err = ws.delete_goal(goal.id).unwrap_err();
+        std::fs::set_permissions(&goals_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            matches!(&err, StoreError::Io { path, .. } if path.contains(&goal.id.to_string())),
+            "{err:?}"
+        );
+        assert!(ws.idx().goal_exists(&goal.id.to_string()).unwrap());
+    }
+
+    /// A run of the workspace's feed rows file under its workflow — read
+    /// from its row, else from its folder — and a run that is neither is
+    /// no home for a fact.
+    #[test]
+    fn a_workspace_runs_fact_files_under_its_workflow_from_the_row_or_the_folder() {
+        let (_d, ws) = ws();
+        let wf = ws
+            .create_workflow(
+                notify_workflow("Flow"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let (run, _) = ws
+            .create_run(
+                bisa_core::RunScope::Workspace {
+                    budget: Default::default(),
+                },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        let fact = |run: RunId| JournalEvent {
+            home: Home::Run { run },
+            author: ws.owner_principal(),
+            at: 7,
+            payload: JournalPayload::Note {
+                text: "noted".into(),
+            },
+        };
+        ws.record_journal_activity(&fact(run.id)).unwrap();
+        ws.idx()
+            .execute_for_test(&format!(
+                "DELETE FROM workflow_runs WHERE id = '{}'",
+                run.id
+            ))
+            .unwrap();
+        ws.record_journal_activity(&fact(run.id)).unwrap();
+        let gone = RunId::from_ulid(mint_ulid());
+        assert!(matches!(
+            ws.record_journal_activity(&fact(gone)),
+            Err(StoreError::RunNotFound(id)) if id == gone.to_string()
+        ));
+    }
+
+    /// An edge file this build cannot read, or nobody may, is never
+    /// overwritten with the one edge being added.
+    #[test]
+    fn an_edges_file_that_will_not_read_refuses_a_new_edge_rather_than_losing_the_rest() {
+        let (_d, ws) = ws();
+        let a = ws.create_goal(NewGoal::captured("a")).unwrap();
+        let b = ws.create_goal(NewGoal::captured("b")).unwrap();
+        let edges = ws.paths.goal(a.id).edges();
+        std::fs::write(&edges, b"{torn").unwrap();
+        let err = ws.add_edge(a.id, b.id, GoalEdgeKind::Refines).unwrap_err();
+        assert!(matches!(&err, StoreError::Unreadable { what, .. } if *what == "goal edges"));
+        assert_eq!(std::fs::read(&edges).unwrap(), b"{torn");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&edges, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let err = ws.add_edge(a.id, b.id, GoalEdgeKind::Refines).unwrap_err();
+            std::fs::set_permissions(&edges, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(matches!(err, StoreError::Io { .. }), "{err:?}");
+        }
+    }
+
+    /// A search hit whose goal id is not one is refused by name — the one
+    /// index row a rebuild repairs.
+    #[test]
+    fn a_search_hit_that_names_no_goal_is_refused() {
+        let (_d, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("build a parser")).unwrap();
+        assert_eq!(ws.search("parser").unwrap(), vec![goal.id]);
+        ws.idx()
+            .execute_for_test("UPDATE events_fts SET goal_id = 'nope'")
+            .unwrap();
+        let err = ws.search("parser").unwrap_err();
+        assert!(matches!(err, StoreError::Invalid(_)), "{err:?}");
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.search("parser").unwrap(), vec![goal.id]);
+    }
+
+    /// What a rebuild walks past without failing: an edge to a goal that is
+    /// gone, an edges file that will not parse, a run folder of the
+    /// workspace with no snapshot in it, a work item snapshot that will not
+    /// read, a ledger line that is not one, and a session folder with
+    /// strangers in it. The rebuild still lands, and says what it skipped.
+    #[test]
+    fn a_rebuild_walks_past_what_it_cannot_read_and_still_lands() {
+        let (_d, ws) = ws();
+        let (goal, run) = with_run(&ws);
+        let other = ws.create_goal(NewGoal::captured("other")).unwrap();
+        let home = Home::Goal { goal: goal.id };
+        // An edge to a goal that is gone, and one file that is not edges.
+        let gone = GoalId::from_ulid(mint_ulid());
+        std::fs::write(
+            ws.paths.goal(goal.id).edges(),
+            serde_json::to_vec(&EdgeFile {
+                edges: vec![(gone.to_string(), "refines".into())],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(ws.paths.goal(other.id).edges(), b"[not edges").unwrap();
+        // A run folder of the workspace holding no snapshot.
+        let hollow = RunId::from_ulid(mint_ulid());
+        std::fs::create_dir_all(ws.paths.state_dir(&Paths::ns_run(hollow))).unwrap();
+        // One ledger line that is not one, beside one that is.
+        ws.add_spend(&home, 1, 1, 1).unwrap();
+        // A work item of the goal whose snapshot will not read.
+        let torn = item(goal.id, "torn");
+        ws.put_work_item(&torn).unwrap();
+        let torn_path = ws
+            .paths
+            .state_dir(&Paths::ns_goal(goal.id))
+            .join(format!("{KIND_WORK_ITEM}-{}.json", torn.id));
+        std::fs::write(&torn_path, b"{not an item").unwrap();
+        let ledger = ws.paths.home(&home).ledger();
+        let mut lines = std::fs::read_to_string(&ledger).unwrap();
+        lines.push_str("not a ledger line\n");
+        std::fs::write(&ledger, lines).unwrap();
+        // The sessions folder: a stray file, a folder with a stray file in
+        // it, and a record with no id.
+        let sessions = ws.paths.sessions_dir();
+        std::fs::create_dir_all(sessions.join("mock")).unwrap();
+        std::fs::write(sessions.join("README"), b"").unwrap();
+        std::fs::write(sessions.join("mock").join("notes.txt"), b"").unwrap();
+        std::fs::write(
+            sessions.join("mock").join("nameless.json"),
+            b"{\"id\":\"\"}",
+        )
+        .unwrap();
+
+        ws.rebuild_index().unwrap();
+        assert!(ws.edges_from(goal.id).unwrap().is_empty());
+        assert!(ws.edges_from(other.id).unwrap().is_empty());
+        assert_eq!(ws.get_run(run.id).unwrap().id, run.id);
+        let (items, unreadable) = ws.list_work_items_readable(&home).unwrap();
+        assert!(items.is_empty(), "{items:?}");
+        assert_eq!(unreadable, vec![torn.id.to_string()]);
+        assert!(matches!(
+            ws.home_of_work_item(torn.id),
+            Err(StoreError::WorkItemNotFound(_))
+        ));
+        assert_eq!(ws.spent(&home).unwrap().tokens, 1);
+        assert!(ws.list_live_sessions().unwrap().is_empty());
+        // The same strangers under the live reconcile: the goal's run holds a
+        // work item it cannot read, the hollow run folder is skipped.
+        ws.reconcile_live().unwrap();
+        assert_eq!(ws.get_goal(goal.id).unwrap().run, Some(run.id));
+        // And a sessions folder nobody may read, or none at all, is skipped.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let adapter = sessions.join("mock");
+            std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let outcome = ws.rebuild_index();
+            std::fs::set_permissions(&adapter, std::fs::Permissions::from_mode(0o755)).unwrap();
+            outcome.unwrap();
+        }
+        let aside = sessions.with_file_name("sessions.aside");
+        std::fs::rename(&sessions, &aside).unwrap();
+        ws.rebuild_index().unwrap();
+        std::fs::rename(&aside, &sessions).unwrap();
+    }
+
+    /// The work items of one home back into the cache from their snapshots
+    /// — the door a run that lands after its items re-points them through.
+    #[test]
+    fn a_homes_work_items_are_reindexed_from_their_snapshots() {
+        let (_d, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("items")).unwrap();
+        let home = Home::Goal { goal: goal.id };
+        let spec = item(goal.id, "one");
+        ws.put_work_item(&spec).unwrap();
+        ws.idx().execute_for_test("DELETE FROM work_items").unwrap();
+        assert!(matches!(
+            ws.home_of_work_item(spec.id),
+            Err(StoreError::WorkItemNotFound(_))
+        ));
+        ws.reindex_work_items_of(&home).unwrap();
+        assert_eq!(ws.home_of_work_item(spec.id).unwrap(), home);
+    }
+
+    /// An attachment or a document fact on a run of the workspace is
+    /// journaled and indexes nothing goal-shaped: the folder and the
+    /// attachment rows are a goal's.
+    #[test]
+    fn a_goal_only_fact_on_a_workspace_run_is_journaled_and_indexes_nothing() {
+        let (_d, ws) = ws();
+        let wf = ws
+            .create_workflow(
+                notify_workflow("Flow"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let (run, _) = ws
+            .create_run(
+                bisa_core::RunScope::Workspace {
+                    budget: Default::default(),
+                },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        let home = Home::Run { run: run.id };
+        let keys = ws.owner_keys().clone();
+        ws.append_journal(
+            &home,
+            JournalPayload::Attachment {
+                project: bisa_core::ProjectId::from_ulid(mint_ulid()),
+                attached: true,
+            },
+            &keys,
+            None,
+        )
+        .unwrap();
+        ws.append_journal(
+            &home,
+            JournalPayload::Document {
+                file: bisa_core::AttachmentRef {
+                    sha256: "a".repeat(64),
+                    name: "brief.md".into(),
+                    mime: "text/markdown".into(),
+                    size: 1,
+                },
+            },
+            &keys,
+            None,
+        )
+        .unwrap();
+        let goal_shaped = |facts: &[JournalEvent]| {
+            facts
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e.payload,
+                        JournalPayload::Attachment { .. } | JournalPayload::Document { .. }
+                    )
+                })
+                .count()
+        };
+        assert_eq!(goal_shaped(&ws.journal(&home).unwrap()), 2);
+        ws.rebuild_index().unwrap();
+        assert_eq!(goal_shaped(&ws.journal(&home).unwrap()), 2);
+    }
+
+    /// The live reconcile walks past a goal's run it cannot read, a live
+    /// row whose id is no run's, and a live row whose record it cannot
+    /// read; the open still opens.
+    #[test]
+    fn the_live_reconcile_walks_past_a_run_it_cannot_read_and_a_row_that_names_none() {
+        let (_d, ws) = ws();
+        let (goal, run) = with_run(&ws);
+        let snapshot = ws
+            .paths
+            .state_dir(&Paths::ns_goal(goal.id))
+            .join(format!("{KIND_WORKFLOW_RUN}-{}.json", run.id));
+        std::fs::write(&snapshot, b"{torn").unwrap();
+        ws.idx()
+            .execute_for_test(&format!(
+                "INSERT INTO workflow_runs (id, scope, goal_id, workflow_id, status, revision, queued_at)
+                 VALUES ('not-a-run', 'goal', '{}', 'w', 'running', 0, 1)",
+                goal.id
+            ))
+            .unwrap();
+        ws.reconcile_live().unwrap();
+        assert!(matches!(
+            ws.get_run(run.id),
+            Err(StoreError::Unreadable { .. })
+        ));
+    }
+
+    /// An orphan run whose folder refuses the ending is still named as an
+    /// orphan — the problem is recorded, the walk goes on.
+    #[cfg(unix)]
+    #[test]
+    fn an_orphan_run_that_cannot_be_ended_is_still_named() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_d, ws) = ws();
+        ws.add_agent(crate::agents::NewAgent {
+            name: "Developer".into(),
+            harness: "mock".into(),
+            system_prompt: "build".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let mut new = notify_workflow("Build");
+        new.steps
+            .insert(0, agent_step("build", "developer", &["post"]));
+        let wf = ws
+            .create_workflow(new, bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        let goal = ws.create_goal(NewGoal::captured("orphaned")).unwrap();
+        let state = ws.paths.state_dir(&Paths::ns_goal(goal.id));
+        let snapshot = state.join(format!("{KIND_GOAL}-{}.json", goal.id));
+        let before = std::fs::read(&snapshot).unwrap();
+        let (run, _) = ws
+            .create_run(
+                bisa_core::RunScope::Goal { goal: goal.id },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        // The crash: the goal's snapshot as it was before the run.
+        std::fs::write(&snapshot, before).unwrap();
+        ws.rebuild_index().unwrap();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let ended = ws.end_orphan_runs();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(ended.unwrap(), vec![run.id]);
+        assert!(ws
+            .problems()
+            .iter()
+            .any(|p| p.kind == ProblemKind::OrphanRun && p.path == run.id.to_string()));
+        assert!(
+            !ws.get_run(run.id).unwrap().is_finished(),
+            "the ending could not be written"
+        );
+    }
+
+    /// The two tolerances, as rules: a cache constraint costs one record
+    /// its row and is named as a problem; a list read that is neither a
+    /// missing record nor a bad row is the caller's error.
+    #[test]
+    fn a_cache_constraint_costs_one_row_and_any_other_error_is_the_callers() {
+        let (_d, ws) = ws();
+        ws.tolerated_index(
+            "run",
+            "r1",
+            Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows)),
+        )
+        .unwrap();
+        let problems = ws.problems();
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].kind, ProblemKind::IndexDisagrees);
+        assert_eq!(problems[0].path, "r1");
+        ws.tolerated_index("run", "r2", Ok(())).unwrap();
+        let blank =
+            || StoreError::Invalid(bisa_core::text!("error-store-invalid-goal-needs-statement"));
+        assert!(ws.tolerated_index("run", "r3", Err(blank())).is_err());
+        assert!(tolerated::<()>("goal", "g", Err(blank())).is_err());
+        assert_eq!(tolerated("goal", "g", Ok(1)).unwrap(), Some(1));
+    }
+
+    // added by the coverage pass: workspace-s6.rs
+
+    // --- the sessions and the reconcile's leftovers ---
+
+    #[test]
+    fn a_session_is_parked_ended_keeping_its_process_and_listed_by_its_process() {
+        let (_d, ws) = ws();
+        let row = SessionRow {
+            id: "s1".into(),
+            adapter: "mock".into(),
+            kind: SessionKind::Worker,
+            work_item: None,
+            conversation: None,
+            workstream: None,
+            agent_id: None,
+            transcript_path: None,
+            resume_token_json: None,
+            status: SessionStatus::Live,
+            parked_at: None,
+            pid: None,
+            pid_seen_at: None,
+            ended_at: None,
+        };
+        ws.record_session(&row).unwrap();
+        ws.set_session_process("s1", Some(4242), 5).unwrap();
+        assert_eq!(
+            ws.list_sessions_with_process()
+                .unwrap()
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["s1"]
+        );
+        ws.park_session("s1", 6).unwrap();
+        let parked = ws.session_by_id("s1").unwrap().unwrap();
+        assert_eq!(parked.status, SessionStatus::Parked);
+        assert_eq!(parked.parked_at, Some(6));
+        ws.end_session_keeping_process("s1", 7).unwrap();
+        let ended = ws.session_by_id("s1").unwrap().unwrap();
+        assert_eq!(ended.status, SessionStatus::Ended);
+        assert_eq!(ended.ended_at, Some(7));
+        assert_eq!(ended.pid, Some(4242), "the child outlives the row");
+        ws.set_session_process("s1", None, 8).unwrap();
+        assert!(ws.list_sessions_with_process().unwrap().is_empty());
+        assert!(matches!(
+            ws.park_session("nobody", 9),
+            Err(StoreError::SessionNotFound(_))
+        ));
+    }
+
+    /// The live reconcile passes a closed goal and a finished run of the
+    /// workspace by: neither is live.
+    #[test]
+    fn the_live_reconcile_passes_a_closed_goal_and_a_finished_workspace_run_by() {
+        let (_d, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("closed")).unwrap();
+        ws.set_goal_closed(goal.id, ClosureReason::Abandoned { rationale: None })
+            .unwrap();
+        let wf = ws
+            .create_workflow(
+                notify_workflow("Flow"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let (run, _) = ws
+            .create_run(
+                bisa_core::RunScope::Workspace {
+                    budget: Default::default(),
+                },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        ws.record_run_event(
+            run.id,
+            RunEvent::Cancel {
+                cause: bisa_core::CancelCause::Stopped { rationale: None },
+            },
+        )
+        .unwrap();
+        ws.reconcile_live().unwrap();
+        assert!(ws.get_goal(goal.id).unwrap().is_closed());
+        assert!(ws.get_run(run.id).unwrap().is_finished());
+    }
+
+    // added by the coverage pass: workspace-s7.rs
+
+    /// The live reconcile names the work items of a run of the workspace it
+    /// cannot read, and goes on.
+    #[test]
+    fn the_live_reconcile_names_a_workspace_runs_items_it_cannot_read() {
+        let (_d, ws) = ws();
+        ws.add_agent(crate::agents::NewAgent {
+            name: "Developer".into(),
+            harness: "mock".into(),
+            system_prompt: "build".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let mut new = notify_workflow("Build");
+        new.steps
+            .insert(0, agent_step("build", "developer", &["post"]));
+        let wf = ws
+            .create_workflow(new, bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        let (run, _) = ws
+            .create_run(
+                bisa_core::RunScope::Workspace {
+                    budget: Default::default(),
+                },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        assert!(run.is_live());
+        let home = Home::Run { run: run.id };
+        let torn = item(home, "torn");
+        ws.put_work_item(&torn).unwrap();
+        let path = ws
+            .paths
+            .state_dir(&Paths::ns_run(run.id))
+            .join(format!("{KIND_WORK_ITEM}-{}.json", torn.id));
+        std::fs::write(&path, b"{torn").unwrap();
+        ws.reconcile_live().unwrap();
+        let (items, unreadable) = ws.list_work_items_readable(&home).unwrap();
+        assert!(items.is_empty());
+        assert_eq!(unreadable, vec![torn.id.to_string()]);
     }
 }

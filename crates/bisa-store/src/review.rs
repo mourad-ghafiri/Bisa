@@ -210,4 +210,97 @@ mod tests {
         ws.delete_review_note(p.id, n.id).unwrap();
         assert!(ws.list_review_notes(p.id, None).unwrap().is_empty());
     }
+
+    // added by the coverage pass: s1-review.rs
+    #[test]
+    fn a_note_on_another_projects_workstream_is_refused_and_a_stranger_in_the_folder_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        let p = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        let q = ws
+            .create_project(NewProject::managed("api").unwrap())
+            .unwrap();
+        let theirs = ws.primary_workstream(q.id).unwrap();
+        let new = |workstream| NewReviewNote {
+            project: p.id,
+            workstream,
+            path: RelPath::new("src/main.rs").unwrap(),
+            range: LineRange::new(1, 2).unwrap(),
+            scope: DiffScope::Unstaged,
+            diff_identity: Sha256::new("a".repeat(64)).unwrap(),
+            hunk: String::new(),
+            body: "x".into(),
+        };
+        assert!(matches!(
+            ws.create_review_note(new(Some(theirs.id))),
+            Err(StoreError::Invalid(_))
+        ));
+        ws.create_review_note(new(None)).unwrap();
+        std::fs::write(ws.review_dir(p.id).unwrap().join("README"), b"not a note").unwrap();
+        assert_eq!(ws.list_review_notes(p.id, None).unwrap().len(), 1);
+        assert!(matches!(
+            ws.get_review_note(p.id, NoteId::from_ulid(ulid::Ulid::from_parts(9, 9))),
+            Err(StoreError::DefinitionNotFound { .. })
+        ));
+    }
+
+    // added by the coverage pass: review.rs
+
+    /// A note on a workstream of its own project is taken; a project with
+    /// no notes yet lists none; a note deleted twice is gone once; a file
+    /// or a folder nobody may read or remove is said by its path.
+    #[test]
+    fn review_notes_on_their_own_workstream_and_the_folder_s_refusals() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        let p = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        assert!(ws.list_review_notes(p.id, None).unwrap().is_empty());
+        let n = ws
+            .create_review_note(NewReviewNote {
+                project: p.id,
+                workstream: Some(bisa_core::WorkstreamId::primary_of(p.id)),
+                path: RelPath::new("src/main.rs").unwrap(),
+                range: LineRange::new(1, 2).unwrap(),
+                scope: DiffScope::Unstaged,
+                diff_identity: Sha256::new("b".repeat(64)).unwrap(),
+                hunk: String::new(),
+                body: "tidy this".into(),
+            })
+            .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file = ws.review_path(p.id, n.id).unwrap();
+            let folder = ws.review_dir(p.id).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.get_review_note(p.id, n.id);
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(
+                matches!(unreadable, Err(StoreError::Io { .. })),
+                "{unreadable:?}"
+            );
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unlistable = ws.list_review_notes(p.id, None);
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let unremovable = ws.delete_review_note(p.id, n.id);
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                matches!(unlistable, Err(StoreError::Io { .. })),
+                "{unlistable:?}"
+            );
+            assert!(
+                matches!(unremovable, Err(StoreError::Io { .. })),
+                "{unremovable:?}"
+            );
+        }
+        ws.delete_review_note(p.id, n.id).unwrap();
+        ws.delete_review_note(p.id, n.id).unwrap();
+        assert!(ws.list_review_notes(p.id, None).unwrap().is_empty());
+    }
 }

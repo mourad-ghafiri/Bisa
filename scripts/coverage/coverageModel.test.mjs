@@ -29,6 +29,7 @@ import {
   relativize,
   testItemSpans,
   treeTotals,
+  questionEdgeLines,
   withoutExcused,
 } from "./coverageModel.mjs";
 
@@ -416,6 +417,7 @@ test("a file's counts lose its test items and its marked lines and keep the rest
   for (const k of [10, 11, 12, 13, 14, 16, 17, 19, 20, 25, 28, 30, 31, 32]) assert.ok(!taken.lines.has(k), `line ${k} is out`);
   for (const k of [1, 2, 3, 7, 33]) assert.equal(taken.lines.get(k), lines.get(k), `line ${k} is as it was`);
   assert.equal(taken.testLines, 19, "the four spans: 5 + 2 + 10 + 2 lines");
+  assert.equal(taken.edgeLines, 0, "no line here is only a `?`");
   assert.equal(taken.excused.length, 1);
   assert.deepEqual(taken.faults, []);
 });
@@ -458,4 +460,32 @@ test("every baseline key is a tree on disk, in order, with a percentage of at mo
     assert.ok(existsSync(dir) && statSync(dir).isDirectory(), `${tree}: a tree on disk`);
     assert.equal(placeOf(tree === "desktop/src-tauri" ? `${tree}/src/x.rs` : tree.startsWith("crates/") ? `${tree}/src/x.rs` : `${tree}/x.mjs`), tree, `${tree}: the tree a file there is placed in`);
   }
+});
+
+test("a line that is only the closing of a `?` is the error edge and leaves the meter", () => {
+  const source = [
+    "fn f() -> R {",           // 1
+    "    let a = g(",          // 2
+    "        1,",              // 3
+    "    )?;",                 // 4  the edge
+    "    let b = h(|x| {",     // 5
+    "        x",               // 6
+    "    })?;",                // 7  the edge
+    "    k(",                  // 8
+    "        a,",              // 9
+    "    )?",                  // 10 the edge, as a tail expression
+    "    .ok_or(e)?;",         // 11 not: it names a method
+    "    m(n(",                // 12
+    "        o,",              // 13
+    "    )?);",                // 14 the edge, inside a call
+    "    Ok(p(",               // 15
+    "        q,",              // 16
+    "    )?)",                 // 17 the edge, inside a tail
+    "}",                       // 18
+  ].join("\n");
+  assert.deepEqual([...questionEdgeLines(source)], [4, 7, 10, 14, 17]);
+  const lines = new Map([[2, 1], [3, 1], [4, 0], [7, 0], [10, 0], [11, 1], [14, 0], [17, 0]]);
+  const taken = withoutExcused(lines, source);
+  assert.equal(taken.edgeLines, 5);
+  assert.deepEqual([...taken.lines.keys()], [2, 3, 11]);
 });

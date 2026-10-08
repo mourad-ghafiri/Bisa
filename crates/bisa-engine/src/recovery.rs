@@ -85,10 +85,11 @@ pub fn sweep(inner: &Arc<Inner>) -> Recovered {
     let mut recovered = Recovered::default();
     let goals = match inner.ws.list_goals(None) {
         Ok(goals) => goals,
+        // LCOV_EXCL_START: a goal list that fails fails the boot's earlier walks first; every broken file it meets is tolerated by name
         Err(e) => {
             tracing::error!(target: "bisa_engine", "restart recovery cannot list the goals: {e}");
             return recovered;
-        }
+        } // LCOV_EXCL_STOP
     };
     let goals: Vec<_> = goals.into_iter().filter(|g| !g.is_closed()).collect();
     for goal in &goals {
@@ -109,9 +110,10 @@ pub fn sweep(inner: &Arc<Inner>) -> Recovered {
                 recover_run(inner, run, &mut recovered);
             }
         }
+        // LCOV_EXCL_START: the workspace's run list tolerates every broken file by name; only an index failure lands here
         Err(e) => {
             tracing::error!(target: "bisa_engine", "restart recovery cannot list the runs of the workspace: {e}");
-        }
+        } // LCOV_EXCL_STOP
     }
     waits::rearm_children(inner);
     // A goal whose run ended just before the last process stopped may hold
@@ -183,9 +185,10 @@ fn recover_run(inner: &Arc<Inner>, run: &WorkflowRun, recovered: &mut Recovered)
             Err(e) if e.is_refusal() => {
                 tracing::debug!(target: "bisa_engine", run = %run.id, step = %step, "restart recovery skipped a step: {e}");
             }
+            // LCOV_EXCL_START: a store that cannot write the run's snapshot; a refusal is the arm above
             Err(e) => {
                 tracing::warn!(target: "bisa_engine", run = %run.id, step = %step, "restart recovery could not interrupt the step: {e}");
-            }
+            } // LCOV_EXCL_STOP
         }
     }
     if fates.is_empty() && orphans.is_empty() {
@@ -210,7 +213,9 @@ fn recover_run(inner: &Arc<Inner>, run: &WorkflowRun, recovered: &mut Recovered)
         ));
     }
     if let Err(e) = ops::add_note(inner, home, text, None) {
+        // LCOV_EXCL_START: the journal that just took the run's facts refuses a note only on a disk that fails between the two
         tracing::warn!(target: "bisa_engine", %home, "restart recovery could not note the run's home: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -286,13 +291,14 @@ pub fn withdraw_dead_questions(inner: &Arc<Inner>) -> usize {
             .filter(|g| !g.is_closed())
             .map(|g| Home::Goal { goal: g.id })
             .collect(),
-        Err(_) => Vec::new(),
+        Err(_) => Vec::new(), // LCOV_EXCL_LINE: a goal list that fails fails the boot's earlier walks first; every broken file it meets is tolerated by name
     };
     match inner.ws.live_workspace_runs(None) {
         Ok(runs) => homes.extend(runs.iter().map(WorkflowRun::home)),
+        // LCOV_EXCL_START: the workspace's run list tolerates every broken file by name; only an index failure lands here
         Err(e) => {
             tracing::warn!(target: "bisa_engine", "restart recovery cannot list the runs of the workspace: {e}")
-        }
+        } // LCOV_EXCL_STOP
     }
     let mut withdrawn = 0;
     for home in homes {
@@ -348,7 +354,9 @@ pub(crate) fn withdraw_question(
         return false;
     }
     if let Err(e) = ops::add_note(inner, home, note, None) {
+        // LCOV_EXCL_START: the journal that just took the withdrawal refuses a note only on a disk that fails between the two
         tracing::warn!(target: "bisa_engine", %home, "could not note a withdrawn question: {e}");
+        // LCOV_EXCL_STOP
     }
     true
 }

@@ -29,10 +29,11 @@ pub fn builtin_pets() -> &'static [Pet] {
                     pet.origin = PetOrigin::Catalog;
                     Some(pet)
                 }
+                // LCOV_EXCL_START: the bundled pets are held well-formed by `every_pet_is_well_formed`
                 Err(e) => {
                     tracing::warn!("built-in pet {:?} will not parse: {e}", b.slug);
                     None
-                }
+                } // LCOV_EXCL_STOP
             })
             .collect()
     });
@@ -215,5 +216,75 @@ impl Workspace {
         self.get_pet(id)?;
         let dir = self.paths.pet_dir(id)?;
         std::fs::remove_dir_all(&dir).map_err(|e| StoreError::io(dir.display().to_string(), e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+
+    #[test]
+    fn a_package_that_will_not_parse_or_whose_sheet_is_too_big_is_refused_and_the_listing_skips_what_is_no_package(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let bad = src.path().join("bad");
+        std::fs::create_dir_all(&bad).unwrap();
+        std::fs::write(bad.join("pet.json"), b"{not json").unwrap();
+        assert!(matches!(ws.install_pet(&bad), Err(StoreError::Invalid(_))));
+        let big = src.path().join("big");
+        std::fs::create_dir_all(&big).unwrap();
+        std::fs::write(
+            big.join("pet.json"),
+            r#"{"id":"big","displayName":"Big","description":"a pet","spritesheetPath":"sheet.webp"}"#,
+        )
+        .unwrap();
+        // A sparse file: the size is the refusal, never its bytes.
+        std::fs::File::create(big.join("sheet.webp"))
+            .unwrap()
+            .set_len(MAX_SPRITESHEET_BYTES + 1)
+            .unwrap();
+        assert!(matches!(ws.install_pet(&big), Err(StoreError::Invalid(_))));
+        // The pets folder: a stray file, and a folder named like a built-in,
+        // are skipped.
+        let pets = ws.paths().pets_dir();
+        std::fs::create_dir_all(&pets).unwrap();
+        std::fs::write(pets.join("README"), b"x").unwrap();
+        std::fs::create_dir_all(pets.join(&builtin_pets()[0].id)).unwrap();
+        assert_eq!(ws.list_pets().unwrap().len(), builtin_pets().len());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_manifest_nobody_may_read_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let pkg = src.path().join("sealed");
+        std::fs::create_dir_all(&pkg).unwrap();
+        let manifest = pkg.join("pet.json");
+        std::fs::write(&manifest, b"{}").unwrap();
+        let was = std::fs::metadata(&manifest).unwrap().permissions();
+        std::fs::set_permissions(&manifest, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let installed = ws.install_pet(&pkg);
+        std::fs::set_permissions(&manifest, was).unwrap();
+        assert!(
+            matches!(installed, Err(StoreError::Io { .. })),
+            "{installed:?}"
+        );
+        let installed_dir = ws.paths().pet_dir("sealed").unwrap();
+        std::fs::create_dir_all(&installed_dir).unwrap();
+        let kept = installed_dir.join("pet.json");
+        std::fs::write(&kept, b"{}").unwrap();
+        let was = std::fs::metadata(&kept).unwrap().permissions();
+        std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = ws.get_pet("sealed");
+        std::fs::set_permissions(&kept, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
     }
 }

@@ -262,8 +262,10 @@ impl Workspace {
             return;
         }
         if let Err(e) = self.index_drawing(def) {
+            // LCOV_EXCL_START: the cache takes every scope kind the core has; only a cache failure lands here
             tracing::warn!("drawing {}: not indexed: {e}", def.id);
             return;
+            // LCOV_EXCL_STOP
         }
         if let Err(e) = self.materialize(def) {
             tracing::warn!("drawing {}: not written to the repository: {e}", def.id);
@@ -354,5 +356,180 @@ fn remove_file_if_there(path: &Path) -> Result<(), StoreError> {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(StoreError::io(path.display().to_string(), e)),
+    }
+}
+
+// added by the coverage pass: drawings_mod.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+    use crate::owner::OwnerFilter;
+    use bisa_core::OwnerScope;
+
+    fn ws() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        (dir, ws)
+    }
+
+    fn drawing(ws: &Workspace, scope: OwnerScope, title: &str) -> Drawing {
+        ws.create_drawing(NewDrawing {
+            scope,
+            title: title.into(),
+            scene: None,
+        })
+        .unwrap()
+    }
+
+    /// A drawing row that names no drawing, or a scope that is none, costs
+    /// the list that row and is said; the rebuild walks past a snapshot
+    /// whose name is no drawing's; the one writer recovers from poison.
+    #[test]
+    fn a_list_tolerates_bad_rows_and_a_rebuild_walks_past_a_stranger() {
+        let (_d, ws) = ws();
+        let kept = drawing(&ws, OwnerScope::Workspace, "Kept");
+        let odd = drawing(&ws, OwnerScope::Workspace, "Odd");
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE drawings SET id = 'not-a-drawing' WHERE id = '{}'",
+                odd.id
+            ))
+            .unwrap();
+        let listed = ws.list_drawings(OwnerFilter::All).unwrap();
+        assert_eq!(
+            listed.iter().map(|d| d.id).collect::<Vec<_>>(),
+            vec![kept.id]
+        );
+        ws.rebuild_index().unwrap();
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE drawings SET scope_kind = 'goal', scope_id = 'nope' WHERE id = '{}'",
+                odd.id
+            ))
+            .unwrap();
+        let listed = ws.list_drawings(OwnerFilter::All).unwrap();
+        assert_eq!(
+            listed.iter().map(|d| d.id).collect::<Vec<_>>(),
+            vec![kept.id]
+        );
+        ws.snapshots
+            .put(
+                Paths::NS_DRAWINGS,
+                KIND_DRAWING,
+                "not-a-drawing",
+                &serde_json::json!({}),
+                0,
+                ws.owner_keys(),
+                1,
+                None,
+                &[],
+            )
+            .unwrap();
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.list_drawings(OwnerFilter::All).unwrap().len(), 2);
+        let ws = std::sync::Arc::new(ws);
+        let poisoner = std::sync::Arc::clone(&ws);
+        let poisoned = std::thread::spawn(move || {
+            let _writer = poisoner.drawing_writer();
+            panic!("poison the drawings writer on purpose");
+        })
+        .join();
+        assert!(poisoned.is_err());
+        assert_eq!(drawing(&ws, OwnerScope::Workspace, "After").title, "After");
+    }
+
+    /// A drawing about a goal whose folder is gone is still deleted whole;
+    /// what is adopted from a peer is refused, indexed or drawn as far as
+    /// it can be, each said; a file that is not there is nothing to remove.
+    #[test]
+    fn a_drawing_of_a_goal_that_is_gone_is_deleted_and_a_peers_is_adopted_as_far_as_it_can_be() {
+        let (_d, ws) = ws();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("drawn"))
+            .unwrap();
+        let of_goal = drawing(&ws, OwnerScope::Goal { id: goal.id }, "Of the goal");
+        let goal_dir = ws.paths.goal(goal.id).dir().to_path_buf();
+        let aside = goal_dir.with_file_name("aside");
+        std::fs::rename(&goal_dir, &aside).unwrap();
+        ws.delete_drawing(of_goal.id).unwrap();
+        std::fs::rename(&aside, &goal_dir).unwrap();
+        assert!(ws.get_drawing(of_goal.id).is_err());
+        let mut too_big = drawing(&ws, OwnerScope::Workspace, "Big");
+        too_big.scene.elements = vec![
+            serde_json::json!({"id": "a", "type": "rectangle"});
+            bisa_core::MAX_DRAWING_ELEMENTS + 1
+        ];
+        ws.adopt_drawing(&too_big);
+        assert_eq!(
+            ws.list_drawings(OwnerFilter::All).unwrap()[0].element_count,
+            0,
+            "the refused scene was not indexed"
+        );
+        assert!(remove_file_if_there(&goal_dir.join("nothing.excalidraw")).is_ok());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file = ws.drawing_path(&OwnerScope::Workspace, too_big.id).unwrap();
+            let drawings = file.parent().unwrap().to_path_buf();
+            std::fs::set_permissions(&drawings, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let fresh = Drawing {
+                id: DrawingId::from_ulid(mint_ulid()),
+                scope: OwnerScope::Workspace,
+                title: "From a peer".into(),
+                pinned: false,
+                created_at: 1,
+                updated_at: 1,
+                scene: Default::default(),
+            };
+            ws.adopt_drawing(&fresh);
+            let unremovable = remove_file_if_there(&file);
+            std::fs::set_permissions(&drawings, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(unremovable, Err(StoreError::Io { .. })));
+            assert!(
+                ws.list_drawings(OwnerFilter::All)
+                    .unwrap()
+                    .iter()
+                    .any(|d| d.id == fresh.id),
+                "indexed although not drawn"
+            );
+            std::fs::create_dir_all(goal_dir.join("drawings")).unwrap();
+            std::fs::set_permissions(&goal_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let unremovable =
+                ws.remove_drawings_of(OwnerScope::Goal { id: goal.id }, &goal_dir.join("drawings"));
+            std::fs::set_permissions(&goal_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                matches!(&unremovable, Err(StoreError::Io { .. })),
+                "{unremovable:?}"
+            );
+        }
+    }
+
+    // added by the coverage pass: drawings.rs
+
+    #[test]
+    fn the_drawings_writer_recovers_from_poison() {
+        let (_d, ws) = ws();
+        let kept = drawing(&ws, OwnerScope::Workspace, "Kept");
+        let ws = std::sync::Arc::new(ws);
+        let poisoner = std::sync::Arc::clone(&ws);
+        let poisoned = std::thread::spawn(move || {
+            let _writer = poisoner.drawing_writer();
+            panic!("poison the drawings writer on purpose");
+        })
+        .join();
+        assert!(poisoned.is_err());
+        let renamed = ws
+            .update_drawing(
+                kept.id,
+                DrawingPatch {
+                    title: Some("Kept still".into()),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(renamed.title, "Kept still");
     }
 }

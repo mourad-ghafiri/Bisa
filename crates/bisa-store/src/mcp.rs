@@ -172,3 +172,102 @@ impl Workspace {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+    use std::collections::BTreeMap;
+
+    fn ws() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        (dir, ws)
+    }
+
+    fn http(id: &str, name: &str) -> NewMcp {
+        NewMcp {
+            id: McpId::new(id).unwrap(),
+            description: String::new(),
+            tags: Tags::default(),
+            transport: McpServerConfig::Http {
+                name: name.into(),
+                url: "http://127.0.0.1:1".into(),
+                headers: BTreeMap::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_server_is_registered_once_and_a_session_mounts_the_enabled_ones_under_their_own_names() {
+        let (_dir, ws) = ws();
+        let agent = AgentId::new("dev").unwrap();
+        let a = ws.create_mcp(http("a", "a")).unwrap();
+        assert!(matches!(
+            ws.create_mcp(http("a", "a")),
+            Err(StoreError::Invalid(_))
+        ));
+        let mut off = ws.create_mcp(http("b", "b")).unwrap();
+        off.enabled = false;
+        ws.update_mcp(off).unwrap();
+        // The reserved name is refused at the door; a hand-edited file that
+        // claims it is refused again at launch.
+        let reserved = McpServer {
+            id: McpId::new("c").unwrap(),
+            name: RESERVED_MCP_NAME.into(),
+            transport: McpServerConfig::Http {
+                name: RESERVED_MCP_NAME.into(),
+                url: "http://127.0.0.1:1".into(),
+                headers: BTreeMap::new(),
+            },
+            ..a.clone()
+        };
+        std::fs::write(
+            ws.paths().mcp_file(&reserved.id),
+            serde_json::to_vec(&reserved).unwrap(),
+        )
+        .unwrap();
+        let mounted = ws.mcp_configs(
+            &agent,
+            &[
+                a.id.clone(),
+                McpId::new("b").unwrap(),
+                reserved.id.clone(),
+                McpId::new("nope").unwrap(),
+            ],
+        );
+        assert_eq!(mounted.len(), 1, "{mounted:?}");
+        assert_eq!(mounted[0].name(), "a");
+        // The listing skips what is not a server file, and a rebuild
+        // indexes every file again.
+        std::fs::write(ws.paths().mcp_dir().join("notes.txt"), b"x").unwrap();
+        std::fs::write(ws.paths().mcp_dir().join("Not An Id.json"), b"{}").unwrap();
+        let mut listed: Vec<String> = ws
+            .list_mcps()
+            .unwrap()
+            .iter()
+            .map(|m| m.id.to_string())
+            .collect();
+        listed.sort();
+        assert_eq!(listed, ["a", "b", "c"]);
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.list_mcps().unwrap().len(), 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_registry_folder_nobody_may_read_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, ws) = ws();
+        ws.create_mcp(http("a", "a")).unwrap();
+        let dir = ws.paths().mcp_dir();
+        let was = std::fs::metadata(&dir).unwrap().permissions();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let listed = ws.list_mcps();
+        let one = ws.get_mcp(&McpId::new("a").unwrap());
+        std::fs::set_permissions(&dir, was).unwrap();
+        assert!(matches!(listed, Err(StoreError::Io { .. })), "{listed:?}");
+        assert!(matches!(one, Err(StoreError::Io { .. })), "{one:?}");
+    }
+}

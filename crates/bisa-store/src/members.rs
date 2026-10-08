@@ -127,9 +127,11 @@ impl Workspace {
         let mut file = self.read_member_file()?;
         check_member_change(&file.members, &pubkey, Some(role))?;
         if role == MemberRole::Owner && pubkey != self.owner_principal() {
+            // LCOV_EXCL_START: the core refuses a second owner first (`check_member_change`); this holds when the file has no owner row yet
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-workspace-has-exactly-one-owner-own-keypair"
             )));
+            // LCOV_EXCL_STOP
         }
         match file.members.iter_mut().find(|m| m.pubkey == pubkey) {
             Some(existing) => {
@@ -152,7 +154,7 @@ impl Workspace {
         self.write_member_file(&file)?;
         if let Some(row) = file.members.iter().find(|m| m.pubkey == pubkey) {
             self.index_member(row)?;
-        }
+        } // LCOV_EXCL_LINE: the row was written just above
         if role.is_hosted() {
             self.emit_store_event(crate::workspace::StoreEvent::PeopleChanged {
                 pubkey,
@@ -172,9 +174,11 @@ impl Workspace {
         let mut file = self.read_member_file()?;
         check_member_change(&file.members, pubkey, Some(role))?;
         if role == MemberRole::Owner {
+            // LCOV_EXCL_START: the core refuses a second owner first (`check_member_change`); this holds when the file has no owner row yet
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-workspace-has-exactly-one-owner-own-keypair"
             )));
+            // LCOV_EXCL_STOP
         }
         let row = file
             .members
@@ -492,6 +496,25 @@ mod tests {
         assert!(
             ws.member(&alice).unwrap().unwrap().photo.is_some(),
             "a re-admission keeps the face"
+        );
+    }
+
+    // added by the coverage pass: members.rs
+
+    // --- the bare lines of the members module ---
+
+    #[cfg(unix)]
+    #[test]
+    fn a_member_file_nobody_may_read_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_d, ws) = ws();
+        let file = ws.paths.members_file();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let unreadable = ws.members();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            matches!(unreadable, Err(StoreError::Io { .. })),
+            "{unreadable:?}"
         );
     }
 }

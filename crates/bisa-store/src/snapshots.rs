@@ -823,4 +823,219 @@ mod tests {
             vec!["wi-a", "wi-b"]
         );
     }
+
+    // added by the coverage pass: s1-snapshots.rs
+    #[test]
+    fn a_kind_that_needs_the_owners_key_is_refused_in_the_clear_and_a_remote_is_applied_once() {
+        use nostr::event::FinalizeEvent as _;
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(dir.path());
+        let keys = Keys::generate();
+        let ns = "agents/dev";
+        let engram = bisa_core::kind::KIND_ENGRAM;
+        assert!(matches!(
+            store.put(ns, engram, "m", &serde_json::json!({}), 1, &keys, 1, None, &[]),
+            Err(StoreError::EncryptionRequired(k)) if k == engram
+        ));
+        assert!(matches!(
+            store.put_expecting(
+                ns,
+                engram,
+                "m",
+                "memory",
+                &serde_json::json!({}),
+                0,
+                &keys,
+                1,
+                None,
+                &[]
+            ),
+            Err(StoreError::EncryptionRequired(_))
+        ));
+        assert!(matches!(
+            store.put_expecting(
+                ns,
+                3400,
+                "m",
+                "memory",
+                &serde_json::json!({}),
+                0,
+                &keys,
+                1,
+                None,
+                &[]
+            ),
+            Err(StoreError::Invalid(_))
+        ));
+        let nameless = nostr::event::EventBuilder::new(nostr::event::Kind::from(KIND_GOAL), "{}")
+            .finalize(&keys)
+            .unwrap();
+        assert!(matches!(
+            store.apply_remote("goals/01J", &nameless),
+            Err(StoreError::Invalid(_))
+        ));
+        let event = store
+            .put(
+                "goals/01J",
+                KIND_GOAL,
+                "01J",
+                &serde_json::json!({"v": 1}),
+                1,
+                &keys,
+                100,
+                None,
+                &[],
+            )
+            .unwrap();
+        assert!(
+            !store.apply_remote("goals/01J", &event).unwrap(),
+            "the stored event is this one"
+        );
+    }
+
+    #[test]
+    fn a_torn_snapshot_under_a_write_is_quarantined_and_said_and_the_write_lands() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(dir.path());
+        let keys = Keys::generate();
+        let path = store.path_for("goals/01J", KIND_GOAL, "01J").unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{not an event").unwrap();
+        store
+            .put(
+                "goals/01J",
+                KIND_GOAL,
+                "01J",
+                &serde_json::json!({"v": 1}),
+                1,
+                &keys,
+                100,
+                None,
+                &[],
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .get_raw("goals/01J", KIND_GOAL, "01J")
+                .unwrap()
+                .map(|e| e.content),
+            Some("{\"v\":1}".to_string())
+        );
+        assert!(
+            Paths::new(dir.path()).quarantine_dir().is_dir(),
+            "the torn file was moved aside"
+        );
+    }
+
+    #[test]
+    fn a_records_name_in_a_refusal_is_its_kind_word_or_record() {
+        assert_eq!(record_name::<bisa_core::Channel>(), "channel");
+        assert_eq!(record_name::<bisa_core::Agent>(), "agent");
+        assert_eq!(record_name::<bisa_core::Team>(), "team");
+        assert_eq!(record_name::<bisa_core::Skill>(), "skill");
+        assert_eq!(record_name::<bisa_core::Project>(), "project");
+        assert_eq!(record_name::<serde_json::Value>(), "record");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_snapshot_nobody_may_read_or_a_folder_nobody_may_change_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let store = store(dir.path());
+        let keys = Keys::generate();
+        store
+            .put(
+                "goals/01J",
+                KIND_GOAL,
+                "01J",
+                &serde_json::json!({"v": 1}),
+                1,
+                &keys,
+                100,
+                None,
+                &[],
+            )
+            .unwrap();
+        let path = store.path_for("goals/01J", KIND_GOAL, "01J").unwrap();
+        let was = std::fs::metadata(&path).unwrap().permissions();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = store.load_event(&path);
+        std::fs::set_permissions(&path, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+        let state = store.state_dir("goals/01J");
+        let was = std::fs::metadata(&state).unwrap().permissions();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let listed = store.list_ds("goals/01J", KIND_GOAL);
+        let removed = store.delete_snapshot("goals/01J", KIND_GOAL, "01J");
+        std::fs::set_permissions(&state, was).unwrap();
+        assert!(matches!(listed, Err(StoreError::Io { .. })), "{listed:?}");
+        assert!(matches!(removed, Err(StoreError::Io { .. })), "{removed:?}");
+    }
+
+    // added by the coverage pass: snapshots.rs
+
+    /// Through the workspace, a torn snapshot met under a write is named in
+    /// its problems; one nobody may read is an I/O error by its path; a
+    /// kind that is not addressable is refused.
+    #[test]
+    fn a_torn_snapshot_met_under_a_workspaces_write_is_a_problem_and_an_unreadable_one_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = crate::workspace::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let keys = ws.owner_keys().clone();
+        let put = |d: &str| {
+            ws.snapshots.put(
+                "goals/01J",
+                KIND_GOAL,
+                d,
+                &serde_json::json!({"v": 1}),
+                1,
+                &keys,
+                100,
+                None,
+                &[],
+            )
+        };
+        let path = ws
+            .snapshots
+            .path_for("goals/01J", KIND_GOAL, "01J")
+            .unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{not an event").unwrap();
+        put("01J").unwrap();
+        assert!(ws
+            .problems()
+            .iter()
+            .any(|p| p.kind == crate::problems::ProblemKind::Quarantined));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = put("01J");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(
+                matches!(unreadable, Err(StoreError::Io { .. })),
+                "{unreadable:?}"
+            );
+        }
+        let err = ws
+            .snapshots
+            .put(
+                "goals/01J",
+                kind::KIND_MESSAGE,
+                "m",
+                &serde_json::json!({}),
+                0,
+                &keys,
+                1,
+                None,
+                &[],
+            )
+            .unwrap_err();
+        assert!(matches!(err, StoreError::Invalid(_)), "{err:?}");
+    }
 }

@@ -1831,10 +1831,11 @@ impl Workspace {
                     created_at: stored.created_at,
                     ..fresh
                 },
+                // LCOV_EXCL_START: `as_connector` refuses only a slug that is no id, and the slug here is the installed copy's own
                 Err(e) => {
                     tracing::error!(target: "bisa_store::catalog", %slug, "the bundled connector is not a definition; the installed copy stands: {e}");
                     continue;
-                }
+                } // LCOV_EXCL_STOP
             };
             if let Err(e) = self.update_connector(fresh.clone()) {
                 tracing::error!(target: "bisa_store::catalog", %slug, "the installed copy could not be refreshed: {e}");
@@ -1845,9 +1846,10 @@ impl Workspace {
                     match self.move_connector_secret(&stored.id, account.id, from, to) {
                         Ok(true) => out.accounts_moved += 1,
                         Ok(false) => {}
+                        // LCOV_EXCL_START: a keystore that fails to move a secret; the file store and the memory store never do
                         Err(e) => {
                             tracing::error!(target: "bisa_store::catalog", %slug, account = %account.id, "the account's credential could not move to the new scheme's field; set it again: {e}");
-                        }
+                        } // LCOV_EXCL_STOP
                     }
                 }
             }
@@ -3502,5 +3504,227 @@ suited_for = "quick edits"
             assert_eq!(kind.as_str().parse::<CatalogKind>().unwrap(), kind);
         }
         assert!("harness".parse::<CatalogKind>().is_err());
+    }
+
+    // added by the coverage pass: catalog.rs
+
+    // --- the bare lines of the catalog module ---
+
+    const END_ONLY: &str = "[workflow]\nname = \"T\"\ndescription = \"d\"\n\n[[workflow.steps]]\nid = \"a\"\nname = \"A\"\nkind = \"end\"\nfinish = \"done\"\n";
+
+    fn none(_: &str) -> Option<WorkflowId> {
+        None
+    }
+
+    #[test]
+    fn a_template_that_names_no_start_begins_by_hand() {
+        let body = parse_workflow("t", END_ONLY, &none).unwrap();
+        assert_eq!(starts_on(&body), vec!["manual"]);
+    }
+
+    /// The slugs a template's `spawn` steps name: none for a document that is
+    /// not TOML, has no steps, or whose spawn step names nothing or an id;
+    /// each slug once.
+    #[test]
+    fn the_spawn_slugs_of_a_template_are_read_before_resolution() {
+        assert!(spawn_slugs("not toml [[[").is_empty());
+        assert!(spawn_slugs("[workflow]\nname = \"x\"\n").is_empty());
+        let steps = format!(
+            "{END_ONLY}\n[[workflow.steps]]\nid = \"b\"\nname = \"B\"\nkind = \"spawn\"\nstatement_template = \"x\"\n\
+             \n[[workflow.steps]]\nid = \"c\"\nname = \"C\"\nkind = \"spawn\"\nstatement_template = \"x\"\nworkflow = \"{}\"\n\
+             \n[[workflow.steps]]\nid = \"d\"\nname = \"D\"\nkind = \"spawn\"\nstatement_template = \"x\"\nworkflow = \"bug-fix\"\n\
+             \n[[workflow.steps]]\nid = \"e\"\nname = \"E\"\nkind = \"spawn\"\nstatement_template = \"x\"\nworkflow = \"bug-fix\"\n",
+            WorkflowId::from_ulid(ulid::Ulid::nil())
+        );
+        assert_eq!(spawn_slugs(&steps), vec!["bug-fix".to_string()]);
+        // Resolved: the one named by its slug lands as the id the resolver
+        // gives; the one named by an id and the one naming nothing pass.
+        let resolve =
+            |named: &str| (named == "bug-fix").then(|| WorkflowId::from_ulid(ulid::Ulid::nil()));
+        let body = parse_workflow("t", &steps, &resolve).unwrap();
+        assert_eq!(body.steps.len(), 5);
+        let err = parse_workflow("t", &steps, &none).unwrap_err().to_string();
+        assert!(err.contains("bug-fix"), "{err}");
+    }
+
+    #[test]
+    fn a_document_that_is_not_toml_is_refused_by_its_slug_or_label() {
+        let err = parse_workflow("flow", "= not toml", &none)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("flow"), "{err}");
+        let err = parse_catalog_shaped("file.toml", "= not toml", &none)
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("file.toml"), "{err}");
+        let err = parse_skill("tidy", "= not toml").err().unwrap().to_string();
+        assert!(err.contains("tidy"), "{err}");
+        let err = parse_team("ops", "= not toml").err().unwrap().to_string();
+        assert!(err.contains("ops"), "{err}");
+        let err = parse_channel("room", "= not toml")
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("room"), "{err}");
+        let err = parse_catalog_shaped("f", "name = \"T\"\ndescription = \"d\"\n", &none)
+            .unwrap_err()
+            .to_string();
+        assert!(err.starts_with("f"), "no steps at all: {err}");
+    }
+
+    #[test]
+    fn a_key_moves_between_the_two_fields_the_two_schemes_read_and_nowhere_else() {
+        use bisa_core::{AuthScheme, KeyPlace, SecretField};
+        let api_key = AuthScheme::ApiKey {
+            place: KeyPlace::Header {
+                name: "X-Key".into(),
+            },
+            prefix: None,
+        };
+        assert_eq!(
+            moved_secret_field(&api_key, &AuthScheme::Bearer),
+            Some((SecretField::ApiKey, SecretField::Token))
+        );
+        assert_eq!(
+            moved_secret_field(&AuthScheme::Bearer, &api_key),
+            Some((SecretField::Token, SecretField::ApiKey))
+        );
+        assert_eq!(moved_secret_field(&AuthScheme::Basic, &api_key), None);
+    }
+
+    #[test]
+    fn what_holds_an_id_is_named_unless_it_is_this_very_entry() {
+        let cat = |s: &str| Origin::Catalog { slug: s.into() };
+        assert_eq!(holder(&cat("x"), "x"), None);
+        assert_eq!(holder(&cat("y"), "x").unwrap(), "the catalog's \"y\"");
+        assert_eq!(holder(&Origin::Local, "x").unwrap(), "one you created here");
+        let agent = |s: &str| AgentOrigin::Catalog { slug: s.into() };
+        assert_eq!(agent_holder(&agent("x"), "x"), None);
+        assert_eq!(
+            agent_holder(&agent("y"), "x").unwrap(),
+            "the catalog's \"y\""
+        );
+        assert_eq!(
+            agent_holder(&AgentOrigin::Local, "x").unwrap(),
+            "one you created here"
+        );
+        assert_eq!(
+            agent_holder(&AgentOrigin::Core, "x").unwrap(),
+            "the platform's own agent"
+        );
+        let channel = |s: &str| ChannelOrigin::Catalog { slug: s.into() };
+        assert_eq!(channel_holder(&channel("x"), "x"), None);
+        assert_eq!(
+            channel_holder(&channel("y"), "x").unwrap(),
+            "the catalog's \"y\""
+        );
+        assert_eq!(
+            channel_holder(&ChannelOrigin::Local, "x").unwrap(),
+            "one you created here"
+        );
+        assert_eq!(
+            channel_holder(&ChannelOrigin::Core, "x").unwrap(),
+            "the platform's own channel"
+        );
+    }
+
+    /// A template read without installing it: its spawn step resolves
+    /// against what is installed, or refuses by the slug; its inputs read
+    /// whatever it spawns.
+    #[test]
+    fn a_template_is_read_without_installing_it_and_its_spawn_resolves_against_the_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let inputs = ws
+            .catalog_workflow_inputs("customer-support-triage")
+            .unwrap()
+            .unwrap();
+        assert!(
+            inputs.iter().any(|i| i.name.as_str() == "customer"),
+            "{inputs:?}"
+        );
+        assert!(ws.catalog_workflow_inputs("nope").unwrap().is_none());
+        let err = ws
+            .catalog_workflow("customer-support-triage")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("bug-fix"), "{err}");
+        ws.install(CatalogKind::Workflow, "bug-fix").unwrap();
+        let bug_fix = ws.workflow_for_slug("bug-fix").unwrap().unwrap().id;
+        let read = ws
+            .catalog_workflow("customer-support-triage")
+            .unwrap()
+            .unwrap();
+        assert!(read.steps.iter().any(
+            |s| matches!(&s.kind, StepKind::Spawn { workflow, .. } if *workflow == Some(bug_fix))
+        ));
+    }
+
+    /// The refresh over a bundle: an installed copy the bundle does not name
+    /// stands; one whose file cannot be rewritten stands and is said; an
+    /// account with nothing under the old field moves nothing.
+    #[test]
+    fn the_refresh_leaves_what_the_bundle_does_not_name_and_what_it_cannot_rewrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        ws.install(CatalogKind::Connector, "linear").unwrap();
+        let cid = bisa_core::ConnectorId::new("linear").unwrap();
+        let mut old = ws.get_connector(&cid).unwrap();
+        old.revision = 0;
+        old.auth = bisa_core::AuthScheme::Bearer;
+        ws.update_connector(old).unwrap();
+        ws.create_connector_account(crate::connectors::NewConnectorAccount {
+            connector: cid.clone(),
+            label: "work".into(),
+            params: Default::default(),
+            default: true,
+        })
+        .unwrap();
+        assert_eq!(
+            ws.refresh_catalog_connectors_from(&[]).unwrap(),
+            Refreshed::default()
+        );
+        let linear = include_str!("../../../library/catalog/connectors/linear.toml");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let folder = ws.paths.connectors_dir();
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let refreshed = ws.refresh_catalog_connectors_from(&[("linear", linear)]);
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(refreshed.unwrap(), Refreshed::default());
+            assert_eq!(ws.get_connector(&cid).unwrap().revision, 0);
+        }
+        let refreshed = ws
+            .refresh_catalog_connectors_from(&[("linear", linear)])
+            .unwrap();
+        assert_eq!(refreshed.definitions, vec!["linear".to_string()]);
+        assert_eq!(
+            refreshed.accounts_moved, 0,
+            "nothing was under the old field"
+        );
+        assert_eq!(ws.get_connector(&cid).unwrap().revision, 1);
+    }
+
+    #[test]
+    fn a_channel_already_here_is_left_as_it_is_by_a_second_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let first = ws.install(CatalogKind::Channel, "ideas").unwrap();
+        assert!(first.channels.contains(&"ideas".to_string()), "{first:?}");
+        let again = ws.install(CatalogKind::Channel, "ideas").unwrap();
+        assert!(again.channels.is_empty(), "{again:?}");
     }
 }

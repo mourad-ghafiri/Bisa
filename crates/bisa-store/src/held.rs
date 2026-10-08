@@ -250,4 +250,30 @@ mod tests {
             ws.release_message(&bad).unwrap();
         }
     }
+
+    // added by the coverage pass: held.rs
+
+    // --- the bare lines of the held module ---
+
+    #[test]
+    fn a_held_reason_has_its_words_and_a_file_nobody_may_read_is_said_by_its_path() {
+        assert_eq!(
+            HeldReason::NoVerdict { why: "late".into() }.words(),
+            "held — no verdict: late"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let (_d, ws) = ws();
+            let file = ws.paths.held_file();
+            std::fs::write(&file, b"{\"held\":[]}").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.held_messages();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+            assert!(
+                matches!(unreadable, Err(StoreError::Io { .. })),
+                "{unreadable:?}"
+            );
+        }
+    }
 }

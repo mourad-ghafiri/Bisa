@@ -386,6 +386,12 @@ fn a_run_begins_at_one_of_its_starts_and_one_signal_makes_one_run() {
     assert_eq!(run.start, Some(sid("ticket")));
     assert_eq!(run.event, Some(event));
     assert_eq!(run.dispatched.as_deref(), Some("s1"));
+    assert_eq!(
+        ws.runs_of_listener(&key(library(wf.id), "ticket"), 10)
+            .unwrap(),
+        vec![run.id],
+        "the listener's runs, newest first"
+    );
     assert_eq!(run.steps[&sid("start")].state, StepState::Skipped);
     assert!(matches!(
         run.steps[&sid("ticket")].state,

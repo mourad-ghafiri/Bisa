@@ -410,7 +410,7 @@ impl Workspace {
         self.journal_run_fact(&addr, Self::started_fact(&run), run.id)?;
         self.journal_step_facts(&addr, &run, &before)?;
         if run.is_finished() {
-            self.journal_finish_fact(&addr, &run)?;
+            self.journal_finish_fact(&addr, &run)?; // LCOV_EXCL_LINE: a run of a goal's workflow that ends at its start never waited in the queue: the first run of it never lived long enough to queue a second
         }
         goal.run = Some(run.id);
         goal.revision += 1;
@@ -458,17 +458,21 @@ impl Workspace {
         const ATTEMPTS: usize = 3;
         for attempt in 1..=ATTEMPTS {
             match self.record_run_event_once(run_id, event.clone()) {
+                // LCOV_EXCL_START: only a peer's snapshot landing between the read and the compare-and-swap conflicts here; the writer keeps local writes apart (`concurrent_events_on_one_run_never_lose_an_update`)
                 Err(StoreError::RevisionConflict { .. }) if attempt < ATTEMPTS => {
                     tracing::debug!(run = %run_id, "the run moved under a write; re-applying");
                 }
+                // LCOV_EXCL_STOP
                 other => return other,
             }
         }
+        // LCOV_EXCL_START: the same race, three times over
         Err(StoreError::Invalid(bisa_core::text!(
             "error-store-invalid-run-kept-moving-under-attempts-record-event",
             run_id = run_id.to_string(),
             attempts = (ATTEMPTS).to_string()
         )))
+        // LCOV_EXCL_STOP
     }
 
     fn record_run_event_once(
@@ -914,7 +918,7 @@ impl Workspace {
         let home = self.paths.home(&run.home());
         match std::fs::remove_dir_all(home.dir()) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {} // LCOV_EXCL_LINE: the listing above read the folder; gone only under a concurrent removal
             Err(e) => return Err(StoreError::io(home.dir().display().to_string(), e)),
         }
         self.idx().delete_workspace_run(&run.id.to_string())
@@ -1013,7 +1017,7 @@ impl Workspace {
     fn journal_finish_fact(&self, addr: &JournalAddr, run: &WorkflowRun) -> Result<(), StoreError> {
         if let Some(outcome) = run.outcome {
             self.journal_run_fact(addr, RunFact::Finished { outcome }, run.id)?;
-        }
+        } // LCOV_EXCL_LINE: a finished run that was not cancelled always carries its outcome (`WorkflowRun::finish`)
         Ok(())
     }
 
@@ -1030,7 +1034,7 @@ impl Workspace {
     ) -> Result<(), StoreError> {
         for step in &run.workflow.steps {
             let Some(after) = run.steps.get(&step.id) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: every definition step has a record from the run's making and from each amendment (`WorkflowRun::new`)
             };
             let earlier = before.get(&step.id);
             let changed = match earlier {
@@ -1089,10 +1093,12 @@ impl Workspace {
         // The same seams every appended journal event passes: the search
         // index (a goal's facts — search finds goals) and the activity feed —
         // a run's facts are rows of the pulse.
+        // LCOV_EXCL_START: the owner's facts here are a run's — started, a step's, cancelled, finished, amended — none of which carries searchable text (`searchable_text`)
         if let (Some(text), Some(goal)) = (searchable, addr.home.goal()) {
             self.idx()
                 .index_text(&event.id.to_hex(), &goal.to_string(), &text)?;
         }
+        // LCOV_EXCL_STOP
         self.record_journal_activity(&je)?;
         Ok(())
     }
@@ -2894,6 +2900,391 @@ mod tests {
         assert!(
             err.to_string().contains("promote it to the library"),
             "{err}"
+        );
+    }
+
+    // added by the coverage pass: runs.rs
+
+    // --- the bare lines of the runs module ---
+
+    /// A goal with a run under way and a second queued behind it.
+    fn queued_pair(ws: &Workspace) -> (GoalId, WorkflowRun, WorkflowRun) {
+        staffed(ws);
+        let wf = ws
+            .create_workflow(approval_workflow(), bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        let goal = ws.create_goal(NewGoal::captured("queued")).unwrap();
+        let (first, _) = ws
+            .create_run(
+                on_goal(goal.id),
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        let (second, _) = ws
+            .create_run(
+                on_goal(goal.id),
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        assert!(first.is_live() && second.is_queued());
+        (goal.id, first, second)
+    }
+
+    /// The run writer a panic poisoned is taken over by the next write.
+    #[test]
+    fn the_run_write_lock_recovers_from_poison() {
+        let (_dir, ws) = ws();
+        let (_, first, _) = queued_pair(&ws);
+        let ws = std::sync::Arc::new(ws);
+        let poisoner = std::sync::Arc::clone(&ws);
+        let poisoned = std::thread::spawn(move || {
+            let _writer = poisoner.run_writer();
+            panic!("poison the run writer on purpose");
+        })
+        .join();
+        assert!(poisoned.is_err());
+        let (cancelled, _) = ws
+            .record_run_event(
+                first.id,
+                RunEvent::Cancel {
+                    cause: bisa_core::CancelCause::Stopped { rationale: None },
+                },
+            )
+            .unwrap();
+        assert_eq!(cancelled.status(), RunStatus::Cancelled);
+    }
+
+    /// A goal a peer's snapshot closed starts nothing, a run queued before
+    /// it closed included; and a closed goal takes no new workflow.
+    #[test]
+    fn a_goal_closed_from_outside_starts_no_queued_run_and_takes_no_workflow() {
+        let (_dir, ws) = ws();
+        let (goal, _, second) = queued_pair(&ws);
+        let mut closed = ws.get_goal(goal).unwrap();
+        closed.closed = Some(bisa_core::Closure {
+            reason: bisa_core::ClosureReason::Abandoned { rationale: None },
+            at: 5,
+        });
+        closed.revision += 1;
+        ws.write_goal_snapshot(&closed, crate::workspace::now_secs())
+            .unwrap();
+        ws.index_goal(&closed, None).unwrap();
+        let err = ws.start_queued_run(second.id).unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        assert!(err.to_string().contains("closed"), "{err}");
+        let err = ws.set_goal_workflow(goal, None).unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        assert!(err.to_string().contains("closed"), "{err}");
+    }
+
+    #[test]
+    fn archiving_a_goal_the_way_it_already_is_changes_nothing() {
+        let (_dir, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("as is")).unwrap();
+        let same = ws.set_goal_archived(goal.id, false).unwrap();
+        assert_eq!(same.revision, goal.revision);
+        ws.set_goal_closed(
+            goal.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
+        let archived = ws.set_goal_archived(goal.id, true).unwrap();
+        let again = ws.set_goal_archived(goal.id, true).unwrap();
+        assert_eq!(again.revision, archived.revision);
+    }
+
+    /// A run row whose id names no run costs nothing but that row — of a
+    /// goal's queue and of the workspace's list alike — and a run of the
+    /// workspace whose snapshot will not read is skipped, said at `error`.
+    #[test]
+    fn run_rows_that_name_no_run_and_a_torn_workspace_run_are_skipped() {
+        let (_dir, ws) = ws();
+        let (goal, _, second) = queued_pair(&ws);
+        ws.idx()
+            .execute_for_test(&format!(
+                "INSERT INTO workflow_runs (id, scope, goal_id, workflow_id, status, revision, queued_at)
+                 VALUES ('not-a-run', 'goal', '{goal}', 'w', 'queued', 0, 1)"
+            ))
+            .unwrap();
+        assert_eq!(
+            ws.queued_runs(goal)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>(),
+            vec![second.id]
+        );
+        let wf = ws
+            .create_workflow(
+                notify_workflow("Flow"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let (run, _) = ws
+            .create_run(
+                bisa_core::RunScope::Workspace {
+                    budget: Default::default(),
+                },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        ws.idx()
+            .execute_for_test(
+                "INSERT INTO workflow_runs (id, scope, goal_id, workflow_id, status, revision, queued_at)
+                 VALUES ('not-a-run-either', 'workspace', NULL, 'w', 'running', 0, 1)",
+            )
+            .unwrap();
+        assert_eq!(ws.workspace_runs(None, false).unwrap().len(), 1);
+        let snapshot = ws
+            .paths
+            .state_dir(&Paths::ns_run(run.id))
+            .join(format!("{KIND_WORKFLOW_RUN}-{}.json", run.id));
+        std::fs::write(&snapshot, b"{torn").unwrap();
+        assert!(ws.workspace_runs(None, false).unwrap().is_empty());
+    }
+
+    /// The workspace's run folders: what is not a run's folder is skipped
+    /// and said, a folder nobody may read is an I/O error by its path, and
+    /// a run whose folder is already gone, or cannot be removed, is said
+    /// by its path when put away.
+    #[test]
+    fn the_workspace_run_folder_walk_skips_strangers_and_names_what_it_cannot_remove() {
+        let (_dir, ws) = ws();
+        let wf = ws
+            .create_workflow(
+                notify_workflow("Flow"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let mut runs = Vec::new();
+        for _ in 0..2 {
+            let (run, _) = ws
+                .create_run(
+                    bisa_core::RunScope::Workspace {
+                        budget: Default::default(),
+                    },
+                    wf.id,
+                    BTreeMap::new(),
+                    bisa_core::RunEntry::by_hand(),
+                    None,
+                )
+                .unwrap();
+            ws.record_run_event(
+                run.id,
+                RunEvent::Cancel {
+                    cause: bisa_core::CancelCause::Stopped { rationale: None },
+                },
+            )
+            .unwrap();
+            runs.push(run.id);
+        }
+        let dir = ws.paths.workspace_runs_dir();
+        std::fs::write(dir.join("README"), b"").unwrap();
+        std::fs::create_dir(dir.join("not-a-run")).unwrap();
+        let mut on_disk = ws.workspace_run_ids_on_disk().unwrap();
+        on_disk.sort();
+        let mut expected = runs.clone();
+        expected.sort();
+        assert_eq!(on_disk, expected);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.workspace_run_ids_on_disk();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let unremovable = ws.forget_finished_workspace_runs_beyond(wf.id, 1);
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            assert!(
+                matches!(&unremovable, Err(StoreError::Io { path, .. }) if path.contains(&runs[0].to_string())),
+                "{unremovable:?}"
+            );
+        }
+    }
+
+    /// A step row whose step id is not one is left out of the waits.
+    #[test]
+    fn a_wait_row_whose_step_id_is_not_one_is_left_out() {
+        let (_dir, ws) = ws();
+        let mut new = notify_workflow("Waits");
+        new.steps.insert(
+            0,
+            step(
+                "hold",
+                StepKind::Wait {
+                    until: WaitFor::Signal {
+                        filter: bisa_core::SignalFilter {
+                            name: "deploy.finished".into(),
+                            fields: BTreeMap::new(),
+                        },
+                    },
+                },
+                &["post"],
+            ),
+        );
+        let wf = ws
+            .create_workflow(new, bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        let goal = ws.create_goal(NewGoal::captured("wait")).unwrap();
+        ws.create_run(
+            on_goal(goal.id),
+            wf.id,
+            BTreeMap::new(),
+            bisa_core::RunEntry::by_hand(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(ws.list_armed_waits().unwrap().len(), 1);
+        ws.idx()
+            .execute_for_test("UPDATE run_steps SET step_id = '' WHERE step_id = 'hold'")
+            .unwrap();
+        assert!(ws.list_armed_waits().unwrap().is_empty());
+    }
+
+    /// Two runs on one signal: the one that began first keeps it, whichever
+    /// is indexed first — the later one loses the dispatch and is named.
+    #[test]
+    fn the_run_that_began_first_keeps_the_signal_whichever_is_indexed_first() {
+        let (_dir, ws) = ws();
+        let wf = ws
+            .create_workflow(
+                notify_workflow("Flow"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let begun_by = |goal: GoalId| bisa_core::RunEntry {
+            step: None,
+            event: Some(bisa_core::Signal {
+                id: "signal-1".into(),
+                listener: Some(bisa_core::ListenerKey {
+                    host: bisa_core::ListenerHost::Goal { goal },
+                    step: sid("post"),
+                }),
+                source: bisa_core::SignalSource::Schedule,
+                name: None,
+                at: 10,
+                payload: json!({}),
+                scope: bisa_core::SignalScope::Goal { goal },
+                chain: bisa_core::Chain::default(),
+                dedupe_key: None,
+            }),
+        };
+        let a = ws.create_goal(NewGoal::captured("a")).unwrap();
+        let b = ws.create_goal(NewGoal::captured("b")).unwrap();
+        ws.set_goal_workflow(a.id, Some(wf.id)).unwrap();
+        ws.set_goal_workflow(b.id, Some(wf.id)).unwrap();
+        let (first, _) = ws
+            .create_run(
+                on_goal(a.id),
+                wf.id,
+                BTreeMap::new(),
+                begun_by(a.id),
+                Some("signal-1".into()),
+            )
+            .unwrap();
+        // The index write that recorded the dispatch is lost; the signal is
+        // dispatched again, to a run that began later.
+        ws.idx()
+            .execute_for_test("UPDATE workflow_runs SET dispatched = NULL")
+            .unwrap();
+        let (second, _) = ws
+            .create_run(
+                on_goal(b.id),
+                wf.id,
+                BTreeMap::new(),
+                begun_by(b.id),
+                Some("signal-1".into()),
+            )
+            .unwrap();
+        // The first run, indexed again as the earlier of the two.
+        let mut earlier = ws.get_run(first.id).unwrap();
+        earlier.queued_at = second.queued_at.saturating_sub(10);
+        ws.index_run(&earlier).unwrap();
+        let problems = ws.problems();
+        let clash = problems
+            .iter()
+            .find(|p| p.kind == ProblemKind::DuplicateDispatch)
+            .unwrap_or_else(|| panic!("{problems:?}"));
+        assert_eq!(clash.path, second.id.to_string(), "the later run lost it");
+        assert_eq!(
+            ws.idx()
+                .run_dispatched_from_with_queued_at("signal-1")
+                .unwrap()
+                .map(|(id, _)| id),
+            Some(first.id.to_string())
+        );
+    }
+
+    // added by the coverage pass: runs-s6.rs
+
+    /// A goal whose current run already ended closes without cancelling
+    /// anything; the queue is counted off the rows; a platform wait is
+    /// named by its topic.
+    #[test]
+    fn closing_a_goal_whose_run_ended_cancels_nothing_and_a_queue_is_counted() {
+        let (_dir, ws) = ws();
+        let ends = NewWorkflow {
+            name: "Ends".into(),
+            description: String::new(),
+            inputs: vec![],
+            steps: vec![step(
+                "end",
+                StepKind::End {
+                    finish: bisa_core::Finish::Done,
+                },
+                &[],
+            )],
+            tags: Tags::default(),
+            decision_making: false,
+        };
+        let wf = ws
+            .create_workflow(ends, bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        let goal = ws.create_goal(NewGoal::captured("over")).unwrap();
+        let (run, _) = ws
+            .create_run(
+                on_goal(goal.id),
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        assert!(run.is_finished());
+        assert_eq!(ws.get_goal(goal.id).unwrap().run, Some(run.id));
+        let (closed, cancelled) = ws
+            .set_goal_closed(
+                goal.id,
+                bisa_core::ClosureReason::Abandoned { rationale: None },
+            )
+            .unwrap();
+        assert!(closed.is_closed());
+        assert!(cancelled.is_empty());
+        let (goal, _, _) = queued_pair(&ws);
+        assert_eq!(ws.queued_run_count(goal).unwrap(), 1);
+        assert_eq!(
+            wait_word(
+                &StepKind::Wait {
+                    until: WaitFor::Platform {
+                        filter: bisa_core::PlatformFilter {
+                            topic: "deploys".into(),
+                            fields: BTreeMap::new(),
+                        },
+                    },
+                },
+                &StepState::Waiting,
+            )
+            .as_deref(),
+            Some("platform:deploys")
         );
     }
 }

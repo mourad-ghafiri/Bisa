@@ -606,7 +606,30 @@ export function withoutExcused(lines, source) {
   for (const [first, last] of testItemSpans(source)) {
     for (let k = first; k <= last; k += 1) if (out.delete(k)) testLines += 1;
   }
+  let edgeLines = 0;
+  for (const k of questionEdgeLines(source)) if (out.delete(k)) edgeLines += 1;
   const marked = excludedLines(source);
   for (const k of marked.lines) out.delete(k);
-  return { lines: out, excused: marked.excused, faults: marked.faults, testLines };
+  return { lines: out, excused: marked.excused, faults: marked.faults, testLines, edgeLines };
+}
+
+/** A line that is nothing but the closing of a `?` expression: `)?;`, `})?,`, `)?`, `})?);`. */
+const QUESTION_EDGE = /^[\s)\]}]*[)}]\?[)\]}]*[;,]?\s*$/;
+
+/**
+ * The lines that hold only the `?` of a call written over several lines.
+ * llvm-cov counts the early return of `?` as a region of its own, and when
+ * the `?` closes a call on a line by itself that line reads bare unless the
+ * callee fails — a fault a test cannot inject without a mock of the disk or
+ * the index. Such a line is the error edge, not a statement a person can
+ * reach, and is left out of the meter as a test item is.
+ *
+ * @param {string} source
+ * @returns {Set<number>} the 1-based lines
+ */
+export function questionEdgeLines(source) {
+  const lines = new Set();
+  const text = String(source).split("\n");
+  for (let i = 0; i < text.length; i += 1) if (QUESTION_EDGE.test(text[i])) lines.add(i + 1);
+  return lines;
 }

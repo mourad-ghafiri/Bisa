@@ -376,10 +376,12 @@ impl Workspace {
         let layout = match scope {
             FileScope::Goal => {
                 let goal = self.paths().goal(id.parse().map_err(|_| {
+                    // LCOV_EXCL_START: `file_root` above already parsed the id and refused one that is none
                     StoreError::Invalid(bisa_core::text!(
                         "error-store-invalid-not-goal-id",
                         id = format!("{id:?}")
                     ))
+                    // LCOV_EXCL_STOP
                 })?);
                 Some(Layout::of(&goal, Some(goal.documents())))
             }
@@ -387,10 +389,12 @@ impl Workspace {
             // with no documents: nobody gives a run its context as files.
             FileScope::Run => {
                 let run: RunId = id.parse().map_err(|_| {
+                    // LCOV_EXCL_START: `file_root` above already parsed the id and refused one that is none
                     StoreError::Invalid(bisa_core::text!(
                         "error-store-invalid-not-run-id",
                         id = format!("{id:?}")
                     ))
+                    // LCOV_EXCL_STOP
                 })?;
                 Some(Layout::of(&self.paths().home(&Home::Run { run }), None))
             }
@@ -602,10 +606,10 @@ fn walk(
             // however the tree is arranged, and a link out of the root is
             // named without being followed.
             let Ok(meta) = path.symlink_metadata() else {
-                continue;
+                continue; // LCOV_EXCL_LINE: an entry removed between the listing and its stat
             };
             let Ok(rel) = path.strip_prefix(base) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: every entry walked lies under the canonical base it was listed from
             };
             let symlink = meta.is_symlink();
             let is_dir = meta.is_dir();
@@ -1080,5 +1084,84 @@ mod ignore_tests {
             entries.iter().all(|e| !e.ignored),
             "no repository, no ignore rules"
         );
+    }
+
+    // added by the coverage pass: tree.rs
+
+    // --- the bare lines of the tree module ---
+
+    fn ws5() -> (tempfile::TempDir, crate::workspace::Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = crate::workspace::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        (dir, ws)
+    }
+
+    #[test]
+    fn an_entry_kind_prints_its_word() {
+        assert_eq!(EntryKind::File.to_string(), "file");
+        assert_eq!(EntryKind::Document.to_string(), "document");
+    }
+
+    /// A file that is not there is refused by name; one nobody may reach is
+    /// an I/O error by its path — on a read and on a locate alike — and a
+    /// folder nobody may read is one missing branch of a listing.
+    #[test]
+    fn a_missing_file_is_refused_by_name_and_an_unreachable_one_by_its_path() {
+        let (_d, ws) = ws5();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("files"))
+            .unwrap();
+        let id = goal.id.to_string();
+        let missing = ws.read_file(FileScope::Goal, &id, "nope.md").unwrap_err();
+        assert!(matches!(&missing, StoreError::Invalid(_)), "{missing:?}");
+        assert!(missing.to_string().contains("nope.md"), "{missing}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let sealed = ws.paths().goal(goal.id).dir().join("sealed");
+            std::fs::create_dir_all(&sealed).unwrap();
+            std::fs::write(sealed.join("f.txt"), b"hidden").unwrap();
+            std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let read = ws.read_file(FileScope::Goal, &id, "sealed/f.txt");
+            let located = ws.file_path(FileScope::Goal, &id, "sealed/f.txt");
+            let listed = ws.list_tree(FileScope::Goal, &id, "", Some(3));
+            std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+            assert!(matches!(located, Err(StoreError::Io { .. })), "{located:?}");
+            let listed = listed.unwrap();
+            assert!(
+                listed.entries.iter().any(|e| e.name == "sealed"),
+                "the folder is listed: {:?}",
+                listed.entries
+            );
+            assert!(
+                !listed.entries.iter().any(|e| e.name == "f.txt"),
+                "what is inside it is the missing branch"
+            );
+        }
+    }
+
+    // added by the coverage pass: tree-s6.rs
+
+    #[test]
+    fn a_file_is_read_under_the_callers_cap() {
+        let (_d, ws) = ws5();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("capped"))
+            .unwrap();
+        std::fs::write(ws.paths().goal(goal.id).dir().join("f.txt"), b"words").unwrap();
+        let content = ws
+            .read_file_capped(
+                FileScope::Goal,
+                &goal.id.to_string(),
+                "f.txt",
+                ReadCap::INSPECTOR,
+            )
+            .unwrap();
+        assert_eq!(content.text.as_deref(), Some("words"));
     }
 }

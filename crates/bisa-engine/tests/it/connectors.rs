@@ -554,7 +554,7 @@ async fn a_parameter_still_carrying_a_placeholder_never_reaches_the_host() {
 
 /// A platform with one upload: metadata as a text part, the video as a file
 /// part — the shape every media API takes.
-fn media(stub: &Stub) -> NewConnector {
+pub(crate) fn media(stub: &Stub) -> NewConnector {
     NewConnector {
         id: ConnectorId::new("media").unwrap(),
         name: "Media".into(),
@@ -611,7 +611,7 @@ fn media(stub: &Stub) -> NewConnector {
     }
 }
 
-fn upload_step(id: &str, video: &str) -> bisa_core::Step {
+pub(crate) fn upload_step(id: &str, video: &str) -> bisa_core::Step {
     step(
         id,
         StepKind::Connector {

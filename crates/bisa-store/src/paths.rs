@@ -428,7 +428,7 @@ impl Paths {
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| StoreError::io(parent.display().to_string(), e))?;
-        }
+        } // LCOV_EXCL_LINE: a quarantined file lands under a stamped folder, which is its parent
         std::fs::rename(path, &dest).map_err(|e| StoreError::io(path.display().to_string(), e))?;
         if let Some(parent) = dest.parent() {
             sync_dir(parent);
@@ -975,12 +975,14 @@ pub fn resolve_within(base: &Path, relative: &str) -> Result<PathBuf, StoreError
             Ok(real) => break real.join(&tail),
             Err(_) => {
                 let name = existing.file_name().ok_or_else(|| {
+                    // LCOV_EXCL_START: the base is canonical and exists, so the walk up from a path under it meets an existing ancestor with a name before any parent runs out
                     StoreError::Invalid(bisa_core::text!(
                         "error-store-invalid-path-leaves",
                         relative = format!("{relative:?}"),
                         a0 = (base.display()).to_string()
                     ))
                 })?;
+                // LCOV_EXCL_STOP
                 // `PathBuf::join("")` appends a separator, so the first (innermost)
                 // name stands alone: `README.md`, never `README.md/`.
                 tail = if tail.as_os_str().is_empty() {
@@ -989,12 +991,14 @@ pub fn resolve_within(base: &Path, relative: &str) -> Result<PathBuf, StoreError
                     Path::new(name).join(&tail)
                 };
                 existing = existing.parent().ok_or_else(|| {
+                    // LCOV_EXCL_START: the base is canonical and exists, so the walk up from a path under it meets an existing ancestor with a name before any parent runs out
                     StoreError::Invalid(bisa_core::text!(
                         "error-store-invalid-path-leaves",
                         relative = format!("{relative:?}"),
                         a0 = (base.display()).to_string()
                     ))
                 })?;
+                // LCOV_EXCL_STOP
             }
         }
     };
@@ -1074,15 +1078,18 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     if let Err(e) = written {
         if let Err(rm) = std::fs::remove_file(&tmp) {
             if rm.kind() != std::io::ErrorKind::NotFound {
+                // LCOV_EXCL_START: a temporary this process just made is its own to remove; a removal refused here is the disk's, said and never fatal
                 tracing::warn!(
                     "{}: could not remove a failed temporary: {rm}",
                     tmp.display()
                 );
             }
         }
+        // LCOV_EXCL_STOP
         return Err(StoreError::io(tmp.display().to_string(), e));
     }
     if let Err(e) = std::fs::rename(&tmp, path) {
+        // LCOV_EXCL_START: a temporary this process just made is its own to remove; a removal refused here is the disk's, said and never fatal
         if let Err(rm) = std::fs::remove_file(&tmp) {
             if rm.kind() != std::io::ErrorKind::NotFound {
                 tracing::warn!(
@@ -1091,6 +1098,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
                 );
             }
         }
+        // LCOV_EXCL_STOP
         return Err(StoreError::io(path.display().to_string(), e));
     }
     sync_dir(parent);
@@ -1169,9 +1177,11 @@ pub(crate) fn sync_dir(dir: &Path) {
     {
         if let Ok(d) = std::fs::File::open(dir) {
             if let Err(e) = d.sync_all() {
+                // LCOV_EXCL_START: a directory fsync is best effort: a filesystem that refuses it (some network mounts) is said at debug, never a failed write
                 tracing::debug!("{}: directory fsync not honoured: {e}", dir.display());
             }
         }
+        // LCOV_EXCL_STOP
     }
     #[cfg(not(unix))]
     {
@@ -1501,5 +1511,94 @@ mod tests {
             p.projects_dir().join("state")
         );
         assert!(Paths::RESERVED_PROJECT_SLUGS.contains(&"state"));
+    }
+
+    // added by the coverage pass: s1-paths.rs
+    #[test]
+    fn a_file_from_outside_the_root_is_quarantined_by_its_name_and_a_twin_in_one_second_keeps_both()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let p = paths(&dir.path().join("ws"));
+        let outside = tempfile::tempdir().unwrap();
+        let stray = outside.path().join("stray.json");
+        std::fs::write(&stray, b"1").unwrap();
+        let to = p.quarantine(&stray, 7).unwrap();
+        assert_eq!(to, p.quarantine_dir().join("7").join("stray.json"));
+        assert!(!stray.exists() && to.is_file());
+        std::fs::write(&stray, b"2").unwrap();
+        let twin = p.quarantine(&stray, 7).unwrap();
+        assert_eq!(twin, p.quarantine_dir().join("7").join("stray.json.1"));
+        assert_eq!(std::fs::read(&twin).unwrap(), b"2");
+        assert_eq!(std::fs::read(&to).unwrap(), b"1");
+    }
+
+    #[test]
+    fn the_smaller_accessors_say_their_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = paths(dir.path());
+        assert_eq!(p.terminals_dir(), p.run_dir().join("terminals"));
+        assert_eq!(p.attachment("not a digest"), None);
+        assert_eq!(p.attachment_named("not a digest", "a.txt"), None);
+        assert!(
+            p.project_dirs().unwrap().is_empty(),
+            "no projects/ is no project"
+        );
+        assert_eq!(
+            p.resolve("notes/a.md").unwrap(),
+            dir.path().canonicalize().unwrap().join("notes/a.md")
+        );
+        let project = p.project(&Slug::new("web").unwrap());
+        let note = NoteId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        assert_eq!(
+            project.review_note(note),
+            project.review().join(format!("{note}.json"))
+        );
+        let goal = goal_id();
+        assert_eq!(p.goal(goal).id(), goal);
+    }
+
+    #[test]
+    fn a_long_stem_and_a_long_file_name_are_bounded_and_a_path_without_a_file_is_refused() {
+        assert!(Paths::stem("thing", &"a".repeat(201)).is_err());
+        assert!(Paths::stem("thing", &"a".repeat(200)).is_ok());
+        assert_eq!(sanitise_file_name(&"b".repeat(300)).unwrap().len(), 255);
+        assert!(matches!(
+            write_atomic(Path::new("/"), b"x"),
+            Err(StoreError::Invalid(_))
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let no_name = dir.path().join("x").join("..");
+        assert!(matches!(
+            write_atomic(&no_name, b"x"),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(append_line(Path::new("/"), "x").is_err());
+        assert!(matches!(
+            resolve_within_new(dir.path(), "/abs"),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(resolve_within_new(dir.path(), "a/b")
+            .unwrap()
+            .ends_with("a/b"));
+    }
+
+    // added by the coverage pass: paths.rs
+
+    #[test]
+    fn an_atomic_write_onto_a_folder_is_refused_by_the_folders_path_and_leaves_no_temporary() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("taken");
+        std::fs::create_dir_all(folder.join("inside")).unwrap();
+        let err = write_atomic(&folder, b"x").unwrap_err();
+        assert!(
+            matches!(&err, StoreError::Io { path, .. } if path.ends_with("taken")),
+            "{err:?}"
+        );
+        let strays = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name() != "taken")
+            .count();
+        assert_eq!(strays, 0, "the temporary is gone");
     }
 }

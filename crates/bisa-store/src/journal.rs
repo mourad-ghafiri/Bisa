@@ -86,12 +86,14 @@ impl JsonlEventLog {
         attestation: Option<Tag>,
     ) -> Result<Event, StoreError> {
         let wire_kind = journal_event.payload.event_kind().wire_kind();
+        // LCOV_EXCL_START: no journal payload maps to an ephemeral kind (`JournalPayload::event_kind`); the refusal stands for the type's sake
         if kind::is_ephemeral(wire_kind) {
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-kind-ephemeral-must-never-be-journaled",
                 wire_kind = wire_kind.to_string()
             )));
         }
+        // LCOV_EXCL_STOP
         let plaintext = serde_json::to_string(&journal_event.payload)?;
         let content = if kind::requires_owner_encryption(wire_kind) {
             nip44::encrypt(
@@ -227,8 +229,9 @@ fn read_journal_file(
             Err(e) => {
                 tracing::warn!(
                     "{}:{}: bad event JSON, skipping: {e}",
+                    // LCOV_EXCL_START: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                     path.display(),
-                    lineno + 1
+                    lineno + 1 // LCOV_EXCL_STOP
                 );
                 continue;
             }
@@ -238,8 +241,9 @@ fn read_journal_file(
             Err(reason) => {
                 tracing::warn!(
                     "{}:{}: rejected event, skipping: {reason}",
+                    // LCOV_EXCL_START: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                     path.display(),
-                    lineno + 1
+                    lineno + 1 // LCOV_EXCL_STOP
                 );
             }
         }
@@ -464,5 +468,46 @@ mod tests {
         assert!(bisa_core::kind::is_ephemeral(
             bisa_core::kind::KIND_OBSERVER_FRAME
         ));
+    }
+
+    // added by the coverage pass: s3-journal.rs
+    #[test]
+    fn a_bogus_attestation_an_unreadable_line_and_an_empty_line_cost_themselves_and_never_the_journal(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = Keys::generate();
+        let agent = Keys::generate();
+        let goal = GoalId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        let addr = addr_for(&owner, goal_home(goal));
+        let log = log(dir.path());
+        let kept = log
+            .append(
+                &addr,
+                &note(goal_home(goal), &owner, "kept"),
+                &owner,
+                &owner.public_key(),
+                None,
+            )
+            .unwrap();
+        let _ = kept;
+        let bogus = nostr::event::EventBuilder::new(
+            nostr::event::Kind::from(bisa_core::kind::KIND_GOAL_NOTE),
+            "{}",
+        )
+        .tags([
+            nostr::event::Tag::parse(["a", &addr.coordinate()]).unwrap(),
+            nostr::event::Tag::parse(["auth", &owner.public_key().to_hex(), "", "00"]).unwrap(),
+        ])
+        .finalize(&agent)
+        .unwrap();
+        assert!(JsonlEventLog::decode(&bogus, &addr, &owner)
+            .unwrap_err()
+            .contains("attestation"));
+        let path = log.journal_path(&goal_home(goal));
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes.extend_from_slice(b"\n\xff\xfe\n");
+        std::fs::write(&path, bytes).unwrap();
+        let replayed = log.replay(&addr, &owner).unwrap();
+        assert_eq!(replayed.len(), 1);
     }
 }

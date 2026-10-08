@@ -308,11 +308,13 @@ impl Workspace {
             }
         }
         self.member(by)?.ok_or_else(|| {
+            // LCOV_EXCL_START: `add_member` above wrote the row this reads
             StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-was-not-admitted",
                 by = by.to_string()
             ))
         })
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -484,5 +486,97 @@ mod tests {
                 hash("z")
             )
             .is_err());
+    }
+
+    // added by the coverage pass: invites.rs
+
+    // --- the bare lines of the invites module ---
+
+    /// An open code past its time lists as expired; claiming it marks the
+    /// file — or not, when the file cannot be written — and refuses either
+    /// way; a second claim meets the mark. A settlement names the invite it
+    /// cannot find. The file nobody may read is an I/O error by its path.
+    #[test]
+    fn an_expired_code_is_marked_on_claim_and_refused_whether_or_not_the_mark_lands() {
+        let (dir, ws) = ws();
+        let bob = pk();
+        ws.create_invite(MemberRole::Member, vec![], None, 1, hash("s5"))
+            .unwrap();
+        let mut file = ws.read_invites().unwrap();
+        file.invites[0].invite.expires_at = file.invites[0].invite.created_at;
+        ws.write_invites(&file).unwrap();
+        assert_eq!(ws.invites().unwrap()[0].state, InviteState::Expired);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+            let refused = ws.claim_invite(&hash("s5"), &bob, None, false);
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(refused, Err(ClaimRefusal::Expired));
+            assert_eq!(
+                ws.read_invites().unwrap().invites[0].invite.state,
+                InviteState::Pending,
+                "the mark did not land"
+            );
+            let invites = ws.paths.invites_file();
+            std::fs::set_permissions(&invites, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.invites();
+            std::fs::set_permissions(&invites, std::fs::Permissions::from_mode(0o600)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+        }
+        assert_eq!(
+            ws.claim_invite(&hash("s5"), &bob, None, false),
+            Err(ClaimRefusal::Expired)
+        );
+        assert_eq!(
+            ws.read_invites().unwrap().invites[0].invite.state,
+            InviteState::Expired
+        );
+        assert_eq!(
+            ws.claim_invite(&hash("s5"), &bob, None, false),
+            Err(ClaimRefusal::Expired),
+            "the mark is met"
+        );
+        let err = ws
+            .settle_invite(InviteId::from_ulid(crate::workspace::mint_ulid()), true)
+            .unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        assert!(!bisa_collab_hashes_equal("ab", "abc"));
+    }
+
+    /// Admitting a guest puts them on the invite's channels: one that is
+    /// gone is skipped, one they are already on is left as it is.
+    #[test]
+    fn admitting_a_guest_skips_a_channel_that_is_gone_and_one_they_are_already_on() {
+        let (_dir, ws) = ws();
+        let bob = pk();
+        let design = ws
+            .create_channel("design", None, RosterPolicy::default(), Tags::default())
+            .unwrap();
+        let invite = Invite {
+            id: InviteId::from_ulid(crate::workspace::mint_ulid()),
+            role: MemberRole::Guest,
+            channels: vec![design.id.clone(), ChannelId::new("gone").unwrap()],
+            label: Some("Bob".into()),
+            created_at: 1,
+            expires_at: 2,
+            state: InviteState::Accepted {
+                by: bob.clone(),
+                at: 1,
+            },
+        };
+        let member = ws.admit_claimed(&invite, &bob, None, None).unwrap();
+        assert_eq!(member.role, MemberRole::Guest);
+        assert_eq!(
+            ws.get_channel(&design.id).unwrap().roster.humans(),
+            std::slice::from_ref(&bob)
+        );
+        ws.admit_claimed(&invite, &bob, Some("Bobby".into()), None)
+            .unwrap();
+        assert_eq!(
+            ws.get_channel(&design.id).unwrap().roster.humans(),
+            std::slice::from_ref(&bob),
+            "listed once"
+        );
     }
 }

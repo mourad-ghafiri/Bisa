@@ -81,6 +81,7 @@ const byPath = mergeLcov(parsed);
 // reason refuses the run.
 const excused = [];
 let testLines = 0;
+let edgeLines = 0;
 const faults = [];
 for (const [rel, lines] of byPath) {
   if (!rel.endsWith(".rs")) continue;
@@ -89,6 +90,7 @@ for (const [rel, lines] of byPath) {
   const taken = withoutExcused(lines, readFileSync(file, "utf8"));
   byPath.set(rel, taken.lines);
   testLines += taken.testLines;
+  edgeLines += taken.edgeLines;
   for (const e of taken.excused) excused.push({ path: rel, ...e });
   for (const f of taken.faults) faults.push(`${rel}: ${f}`);
 }
@@ -116,7 +118,7 @@ if (halves.has("desktop")) {
 
 const totals = treeTotals(stats);
 if (excused.length) {
-  console.log(`coverage: ${excused.length} lines excused by a marker, each with its reason (target/coverage/summary.json lists them); ${testLines} lines of test items left out`);
+  console.log(`coverage: ${excused.length} lines excused by a marker, each with its reason (target/coverage/summary.json lists them); ${testLines} lines of test items and ${edgeLines} lines that hold only the closing of a \`?\` left out`);
 }
 const baselinePath = join(root, BASELINE_FILE);
 const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : {};
@@ -148,6 +150,7 @@ writeFileSync(
       judgement: report ? null : judgement,
       excused,
       testLines,
+      edgeLines,
     },
     null,
     2

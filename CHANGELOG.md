@@ -105,8 +105,10 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
-- The coverage judge leaves a Rust source's `#[cfg(test)]` items out of its measured lines and
-  honours `LCOV_EXCL_LINE` / `LCOV_EXCL_START…STOP` markers, each with a reason of at least three
+- The coverage judge leaves a Rust source's `#[cfg(test)]` items and the lines that hold nothing but
+  the closing of a `?` (the early-return edge llvm-cov counts on its own line — `)?;`, and `)?)`
+  inside a call — `crates/bisa-net`'s row lowered by a tenth on that widening, the one sanctioned way
+  down) out of its measured lines and honours `LCOV_EXCL_LINE` / `LCOV_EXCL_START…STOP` markers, each with a reason of at least three
   words — a marker without one refuses the run, and `target/coverage/summary.json` lists every
   excused line with its reason; `scripts/coverage/baseline.json` was rewritten from that definition,
   the one sanctioned way down (`docs/contributing/coverage.md` § Line coverage).

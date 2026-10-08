@@ -173,4 +173,12 @@ mod tests {
             .is_some());
         assert!(checks.schema_error(&json!({"required": "ok"})).is_some());
     }
+
+    // added by the coverage pass: syntax.rs
+
+    #[test]
+    fn a_weekday_step_that_is_no_number_or_zero_leaves_the_item_as_it_was() {
+        assert_eq!(crontab_weekday_item("1-5/0"), "1-5/0");
+        assert_eq!(crontab_weekday_item("1-5/x"), "1-5/x");
+    }
 }

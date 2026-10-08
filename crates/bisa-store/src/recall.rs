@@ -225,7 +225,7 @@ impl Workspace {
         let mut records = Vec::new();
         for d in self.snapshots.list_ds(&ns, KIND_ENGRAM)? {
             let Some(event) = self.snapshots.get_raw(&ns, KIND_ENGRAM, &d)? else {
-                continue;
+                continue; // LCOV_EXCL_LINE: listed a moment ago; gone only under a concurrent forget
             };
             match self.decrypt_record(&agent_keys.public_key(), &event) {
                 Ok(plain) => records.push(RecallRecord {
@@ -275,5 +275,72 @@ mod tests {
             vec!["core".to_string(), "notes/style".to_string()]
         );
         assert_eq!(parse_links("[[dup]] [[dup]]"), vec!["dup".to_string()]);
+    }
+
+    // added by the coverage pass: recall.rs
+
+    // --- the bare lines of the recall module ---
+
+    #[test]
+    fn a_link_is_two_brackets_closed_on_one_line_and_each_slug_once() {
+        assert!(parse_links("[[open").is_empty());
+        assert_eq!(parse_links("[[a\nb]] [[c]] [[c]]"), vec!["c".to_string()]);
+    }
+
+    /// A slug with no letters or with a space is refused; an engram nobody
+    /// here can decrypt is skipped and said; a sidecar nobody may read is
+    /// an I/O error by its path.
+    #[test]
+    fn a_bad_slug_is_refused_and_a_strangers_engram_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = crate::workspace::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let scout = ws
+            .add_agent(crate::agents::NewAgent {
+                name: "Scout".into(),
+                harness: "mock".into(),
+                system_prompt: "look".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        for slug in ["", "two words"] {
+            let err = ws.recall_store(&scout.id, slug, "v", None).unwrap_err();
+            assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        }
+        ws.recall_store(&scout.id, "known", "a fact", None).unwrap();
+        let stranger = nostr::key::Keys::generate();
+        ws.snapshots
+            .put(
+                &Paths::ns_recall(&scout.id),
+                KIND_ENGRAM,
+                "theirs",
+                &serde_json::json!({"slug": "theirs", "value": "x", "updated_at": 1}),
+                0,
+                &stranger,
+                1,
+                Some(&stranger.public_key()),
+                &[],
+            )
+            .unwrap();
+        let listed = ws.recall_list(&scout.id).unwrap();
+        assert_eq!(
+            listed.iter().map(|r| r.slug.as_str()).collect::<Vec<_>>(),
+            vec!["known"]
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let sidecar = ws.paths.agent(&scout.id).recall_index();
+            std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.recall_store(&scout.id, "another", "v", None);
+            std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(
+                matches!(unreadable, Err(StoreError::Io { .. })),
+                "{unreadable:?}"
+            );
+        }
     }
 }

@@ -170,7 +170,7 @@ impl Workspace {
         match self.read_workstream(&project.slug, id) {
             Ok(existing) => return Ok(existing),
             Err(StoreError::WorkstreamNotFound(_)) => {}
-            Err(e) => return Err(e),
+            Err(e) => return Err(e), // LCOV_EXCL_LINE: the project's folder was made a moment ago by `create_project`, the one caller
         }
         let primary = Workstream {
             id,
@@ -203,10 +203,12 @@ impl Workspace {
             .ok_or_else(|| StoreError::WorkstreamNotFound(id.to_string()))?
             .parse::<ProjectId>()
             .map_err(|e| {
+                // LCOV_EXCL_START: `workstreams.project_id` is a foreign key onto a project row, which carries an id the store made
                 StoreError::Invalid(bisa_core::text!(
                     "error-store-invalid-bad-project-id-index",
                     e = e.to_string()
                 ))
+                // LCOV_EXCL_STOP
             })?;
         let slug = self.workstream_slug(project)?;
         self.read_workstream(&slug, id)
@@ -248,10 +250,12 @@ impl Workspace {
                 ))
             })?;
             let project = project.parse::<ProjectId>().map_err(|e| {
+                // LCOV_EXCL_START: `workstreams.project_id` is a foreign key onto a project row, which carries an id the store made
                 StoreError::Invalid(bisa_core::text!(
                     "error-store-invalid-bad-project-id-index",
                     e = e.to_string()
                 ))
+                // LCOV_EXCL_STOP
             })?;
             let slug = self.workstream_slug(project)?;
             out.push(self.read_workstream(&slug, id)?);
@@ -808,5 +812,80 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    // added by the coverage pass: s2-workstreams.rs
+    #[test]
+    fn a_workstreams_kind_is_fixed_the_primary_is_made_once_and_a_row_whose_id_is_no_id_is_refused_by_name(
+    ) {
+        let (_dir, ws) = ws();
+        let p = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        let primary = ws.primary_workstream(p.id).unwrap();
+        assert_eq!(ws.ensure_primary_workstream(&p).unwrap(), primary);
+        let mut w = workstream(p.id, None, "feature");
+        ws.put_workstream(&w).unwrap();
+        w.kind = WorkstreamKind::Copy;
+        assert!(matches!(ws.put_workstream(&w), Err(StoreError::Invalid(_))));
+        std::fs::write(ws.project_paths(&p).workstreams().join("notes.txt"), b"x").unwrap();
+        ws.rebuild_index().unwrap();
+        assert_eq!(
+            ws.list_workstreams(WorkstreamFilter::Project(p.id))
+                .unwrap()
+                .len(),
+            2
+        );
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE workstreams SET id = 'not-an-id' WHERE id = '{}'",
+                w.id
+            ))
+            .unwrap();
+        assert!(matches!(
+            ws.list_workstreams(WorkstreamFilter::Project(p.id)),
+            Err(StoreError::Invalid(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_workstream_record_or_folder_nobody_may_read_or_change_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, ws) = ws();
+        let p = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        let w = workstream(p.id, None, "feature");
+        ws.put_workstream(&w).unwrap();
+        let record = ws.workstream_record_path(&p.slug, w.id);
+        let was = std::fs::metadata(&record).unwrap().permissions();
+        std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = ws.get_workstream(w.id);
+        std::fs::set_permissions(&record, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+        let dir = ws.project_paths(&p).workstreams();
+        let was = std::fs::metadata(&dir).unwrap().permissions();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let removed = ws.delete_workstream(w.id);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let rebuilt = ws.reindex_workstreams();
+        std::fs::set_permissions(&dir, was).unwrap();
+        assert!(matches!(removed, Err(StoreError::Io { .. })), "{removed:?}");
+        assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+    }
+
+    // added by the coverage pass: workstreams.rs
+
+    #[test]
+    fn a_workstream_put_again_as_it_stands_is_kept() {
+        let (_d, ws) = ws();
+        let p = ws
+            .create_project(NewProject::managed("app").unwrap())
+            .unwrap();
+        let w = workstream(p.id, None, "feature/again");
+        ws.put_workstream(&w).unwrap();
+        ws.put_workstream(&w).unwrap();
+        assert_eq!(ws.get_workstream(w.id).unwrap(), w);
     }
 }

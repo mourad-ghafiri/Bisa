@@ -197,7 +197,9 @@ impl Workspace {
         // taken back, so no project ever exists without its primary.
         if let Err(e) = self.ensure_primary_workstream(&project) {
             if let Err(undo) = self.delete_project(project.id) {
+                // LCOV_EXCL_START: the record was written a moment ago by this process; only a disk that fails between the two refuses its removal
                 tracing::warn!(project = %project.slug, "could not undo a half-made project: {undo}");
+                // LCOV_EXCL_STOP
             }
             return Err(e);
         }
@@ -414,7 +416,7 @@ impl Workspace {
         let path = self.project_paths(&project).record();
         match std::fs::remove_file(&path) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {} // LCOV_EXCL_LINE: `get_project` above read the record; gone only under a concurrent delete
             Err(e) => return Err(StoreError::io(path.display().to_string(), e)),
         }
         // Its notes and drawings live in their repositories: they leave with
@@ -509,10 +511,12 @@ impl Workspace {
                 Ok(Attachment {
                     goal,
                     project: project.parse::<ProjectId>().map_err(|e| {
+                        // LCOV_EXCL_START: `goal_projects.project_id` is a foreign key onto a project row, which carries an id the store made
                         StoreError::Invalid(bisa_core::text!(
                             "error-store-invalid-bad-project-id-index",
                             e = e.to_string()
                         ))
+                        // LCOV_EXCL_STOP
                     })?,
                     attached_at: at,
                     attached_by: PrincipalId::new(by)?,
@@ -528,7 +532,7 @@ impl Workspace {
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
             let Ok(pid) = id.parse::<ProjectId>() else {
-                continue;
+                continue; // LCOV_EXCL_LINE: `goal_projects.project_id` is a foreign key onto a project row, which carries an id the store made
             };
             match self.get_project(pid) {
                 Ok(p) => out.push(p),
@@ -974,6 +978,141 @@ mod tests {
         assert!(
             matches!(err, StoreError::Unreadable { .. }),
             "expected Unreadable, got {err}"
+        );
+    }
+
+    // added by the coverage pass: s2-projects.rs
+    #[test]
+    fn a_blank_name_an_empty_folder_a_team_nobody_defined_a_rename_and_a_mark_already_set_are_refused_or_nothing(
+    ) {
+        let (_dir, ws) = ws();
+        let mut blank = NewProject::managed("blank").unwrap();
+        blank.name = Some("  ".into());
+        assert!(matches!(
+            ws.create_project(blank),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            ws.create_project(adopting("empty", std::path::Path::new(""))),
+            Err(StoreError::Invalid(_))
+        ));
+        let mut staffed = NewProject::managed("staffed").unwrap();
+        staffed.assignees = vec![Assignee::Team("nobody".into())];
+        assert!(matches!(
+            ws.create_project(staffed),
+            Err(StoreError::DefinitionNotFound { .. })
+        ));
+        let p = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        assert_eq!(ws.set_project_archived(p.id, false).unwrap().revision, 1);
+        let mut renamed = p.clone();
+        renamed.slug = Slug::new("site").unwrap();
+        assert!(matches!(
+            ws.update_project(renamed),
+            Err(StoreError::Invalid(_))
+        ));
+        let mut nameless = p.clone();
+        nameless.name = " ".into();
+        assert!(matches!(
+            ws.update_project(nameless),
+            Err(StoreError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn a_peers_project_loses_a_slug_held_here_and_an_older_copy_is_indexed_but_never_written() {
+        let (_dir, ws) = ws();
+        let mine = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        let mut theirs = mine.clone();
+        theirs.id = ProjectId::from_ulid(ulid::Ulid::from_parts(9, 9));
+        assert!(matches!(
+            ws.adopt_remote_project(&theirs),
+            Err(StoreError::Invalid(_))
+        ));
+        let mut older = mine.clone();
+        older.name = "older".into();
+        ws.adopt_remote_project(&older).unwrap();
+        assert_eq!(ws.get_project(mine.id).unwrap().name, "web");
+        let mut newer = mine.clone();
+        newer.name = "newer".into();
+        newer.revision = mine.revision + 1;
+        ws.adopt_remote_project(&newer).unwrap();
+        assert_eq!(ws.get_project(mine.id).unwrap().name, "newer");
+        // A rebuild passes over what is not a project folder.
+        std::fs::write(ws.paths.projects_dir().join("README"), b"x").unwrap();
+        std::fs::create_dir_all(ws.paths.projects_dir().join("Not A Slug")).unwrap();
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.list_projects().unwrap().len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_project_record_nobody_may_read_is_an_io_error_on_a_read_and_on_a_rebuild() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, ws) = ws();
+        let p = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        let record = ws.project_paths(&p).record();
+        let was = std::fs::metadata(&record).unwrap().permissions();
+        std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = ws.get_project(p.id);
+        let rebuilt = ws.rebuild_index();
+        std::fs::set_permissions(&record, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+        assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+        let dir = ws.paths.projects_dir();
+        let was = std::fs::metadata(&dir).unwrap().permissions();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let rebuilt = ws.rebuild_index();
+        std::fs::set_permissions(&dir, was).unwrap();
+        assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+    }
+
+    // added by the coverage pass: projects.rs
+
+    // --- the projects module's remaining arms ---
+
+    /// A project whose primary workstream cannot be written is taken back
+    /// whole; a record nobody may remove is said by its path; a project
+    /// attached to a goal whose record cannot be read is skipped, said.
+    #[cfg(unix)]
+    #[test]
+    fn a_half_made_project_is_taken_back_and_what_cannot_be_read_or_removed_is_said() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_d, ws) = ws();
+        let slug = NewProject::managed("web").unwrap().slug;
+        let in_the_way = ws.paths.project(&slug).workstreams();
+        std::fs::create_dir_all(in_the_way.parent().unwrap()).unwrap();
+        std::fs::write(&in_the_way, b"a file where the folder goes").unwrap();
+        let err = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap_err();
+        assert!(matches!(err, StoreError::Io { .. }), "{err:?}");
+        assert!(ws.list_projects().unwrap().is_empty(), "taken back");
+        std::fs::remove_file(&in_the_way).unwrap();
+        let p = ws
+            .create_project(NewProject::managed("web").unwrap())
+            .unwrap();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("attached"))
+            .unwrap();
+        ws.attach(goal.id, p.id).unwrap();
+        let record = ws.project_paths(&p).record();
+        std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let listed = ws.projects_for(goal.id);
+        std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(listed.unwrap().is_empty(), "unreadable, not counted");
+        let dir = record.parent().unwrap().to_path_buf();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let unremovable = ws.delete_project(p.id);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            matches!(unremovable, Err(StoreError::Io { .. })),
+            "{unremovable:?}"
         );
     }
 }

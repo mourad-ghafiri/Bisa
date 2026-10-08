@@ -58,9 +58,11 @@ impl KeyStoreChoice {
     }
 
     /// The choice the environment makes.
+    // LCOV_EXCL_START: reads the process environment; `parse` holds the rule, the_file_store_is_the_default_and_the_keyring_is_opt_in its words
     pub fn from_env() -> Self {
         Self::parse(std::env::var(KEYSTORE_ENV).ok().as_deref())
     }
+    // LCOV_EXCL_STOP
 }
 
 /// A hook start's secret, by its listener: `hook:<host kind>:<host id>:<step>`
@@ -108,6 +110,7 @@ pub trait KeyStore: Send + Sync {
 /// OS keyring backend (service "bisa").
 pub struct KeyringStore;
 
+// LCOV_EXCL_START: the OS keyring: a test never reaches the keychain (testing rules); `BISA_KEYSTORE=keyring` is a person's choice on their own machine
 impl KeyStore for KeyringStore {
     fn uses_keyring(&self) -> bool {
         true
@@ -148,6 +151,7 @@ impl KeyStore for KeyringStore {
         }
     }
 }
+// LCOV_EXCL_STOP
 
 /// Create `dir` if absent and, on unix, make it private (`0700`). Applied to
 /// `identity/` and `run/`, the two directories that hold secrets.
@@ -169,7 +173,7 @@ fn forget_temporary(tmp: &Path) {
     if let Err(e) = std::fs::remove_file(tmp) {
         if e.kind() != std::io::ErrorKind::NotFound {
             tracing::debug!(target: "bisa_store", path = %tmp.display(), "a key's temporary was not removed: {e}");
-        }
+        } // LCOV_EXCL_LINE: a temporary already gone is nothing to say
     }
 }
 
@@ -183,7 +187,7 @@ fn forget_temporary(tmp: &Path) {
 pub(crate) fn write_secret_file(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     if let Some(parent) = path.parent() {
         ensure_private_dir(parent)?;
-    }
+    } // LCOV_EXCL_LINE: a key's path has a parent: every name the store joins stands under `identity/`
     let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
     tmp_name.push(format!(".tmp.{}", std::process::id()));
     let tmp = path.with_file_name(tmp_name);
@@ -251,7 +255,7 @@ impl KeyStore for FileKeyStore {
                     path.display()
                 ))
             }
-            other => other,
+            other => other, // LCOV_EXCL_LINE: the one error a new key's own file raises is `AlreadyExists`; any other here is the disk's
         })
     }
 
@@ -278,9 +282,11 @@ pub struct AutoKeyStore {
 }
 
 impl AutoKeyStore {
+    // LCOV_EXCL_START: reads the process environment through `KeyStoreChoice::from_env`; `with_choice` holds the rule
     pub fn new(identity_dir: PathBuf) -> Self {
         Self::with_choice(identity_dir, KeyStoreChoice::from_env())
     }
+    // LCOV_EXCL_STOP
 
     pub fn with_choice(identity_dir: PathBuf, choice: KeyStoreChoice) -> Self {
         Self {
@@ -297,6 +303,7 @@ impl AutoKeyStore {
         self.keyring.is_some()
     }
 
+    // LCOV_EXCL_START: the OS keyring: a test never reaches the keychain (testing rules); `BISA_KEYSTORE=keyring` is a person's choice on their own machine
     fn keyring_unavailable(&self, e: StoreError) -> StoreError {
         StoreError::KeyStore(format!(
             "the OS keyring is unavailable ({e}). Unset {KEYSTORE_ENV} (or set it to `file`) to keep \
@@ -304,6 +311,7 @@ impl AutoKeyStore {
             self.file.dir.display()
         ))
     }
+    // LCOV_EXCL_STOP
 }
 
 impl KeyStore for AutoKeyStore {
@@ -316,6 +324,7 @@ impl KeyStore for AutoKeyStore {
     }
 
     fn get(&self, name: &str) -> Result<Option<String>, StoreError> {
+        // LCOV_EXCL_START: the OS keyring: a test never reaches the keychain (testing rules); `BISA_KEYSTORE=keyring` is a person's choice on their own machine
         if let Some(kr) = &self.keyring {
             match kr.get(name) {
                 Ok(Some(s)) => return Ok(Some(s)),
@@ -323,30 +332,35 @@ impl KeyStore for AutoKeyStore {
                 Err(e) => tracing::warn!("keyring unavailable ({e}); reading the file key store"),
             }
         }
+        // LCOV_EXCL_STOP
         self.file.get(name)
     }
 
     fn set(&self, name: &str, secret_hex: &str) -> Result<(), StoreError> {
         match &self.keyring {
+            // LCOV_EXCL_START: the OS keyring: a test never reaches the keychain (testing rules); `BISA_KEYSTORE=keyring` is a person's choice on their own machine
             Some(kr) => kr
                 .set(name, secret_hex)
                 .map_err(|e| self.keyring_unavailable(e)),
+            // LCOV_EXCL_STOP
             None => self.file.set(name, secret_hex),
         }
     }
 
     fn replace(&self, name: &str, secret_hex: &str) -> Result<(), StoreError> {
         match &self.keyring {
+            // LCOV_EXCL_START: the OS keyring: a test never reaches the keychain (testing rules); `BISA_KEYSTORE=keyring` is a person's choice on their own machine
             Some(kr) => kr
                 .replace(name, secret_hex)
                 .map_err(|e| self.keyring_unavailable(e)),
+            // LCOV_EXCL_STOP
             None => self.file.replace(name, secret_hex),
         }
     }
 
     fn delete(&self, name: &str) -> Result<(), StoreError> {
         let kr = match &self.keyring {
-            Some(kr) => kr.delete(name),
+            Some(kr) => kr.delete(name), // LCOV_EXCL_LINE: the OS keyring: a test never reaches the keychain (testing rules); `BISA_KEYSTORE=keyring` is a person's choice on their own machine
             None => Ok(()),
         };
         let f = self.file.delete(name);
@@ -822,6 +836,96 @@ mod tests {
         assert!(
             AutoKeyStore::with_choice(dir.path().to_path_buf(), KeyStoreChoice::Keyring)
                 .uses_keyring()
+        );
+    }
+
+    // added by the coverage pass: s1-identity.rs
+    #[test]
+    fn a_store_in_memory_names_no_file_and_the_auto_store_with_files_chosen_never_calls_the_keyring(
+    ) {
+        let memory = MemoryKeyStore::default();
+        assert_eq!(memory.path_of("owner"), None);
+        assert!(!memory.uses_keyring());
+        let dir = tempfile::tempdir().unwrap();
+        let auto = AutoKeyStore::with_choice(dir.path().join("identity"), KeyStoreChoice::File);
+        assert!(!auto.uses_keyring());
+        assert!(!KeyStore::uses_keyring(&auto));
+        assert!(auto
+            .path_of("owner")
+            .is_some_and(|p| p.ends_with("owner.key")));
+        assert_eq!(auto.get("owner").unwrap(), None);
+        auto.set("owner", "aa").unwrap();
+        assert_eq!(auto.get("owner").unwrap().as_deref(), Some("aa"));
+        auto.replace("owner", "bb").unwrap();
+        assert_eq!(auto.get("owner").unwrap().as_deref(), Some("bb"));
+        auto.delete("owner").unwrap();
+        assert_eq!(auto.get("owner").unwrap(), None);
+    }
+
+    #[test]
+    fn a_secret_that_is_not_a_key_is_a_nostr_error_unless_it_is_the_owners() {
+        let memory = MemoryKeyStore::default();
+        memory.set("agent:abc", "not-a-key").unwrap();
+        let identity = Identity::new(Box::new(memory));
+        assert!(matches!(identity.agent("abc"), Err(StoreError::Nostr(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_file_that_cannot_be_read_or_removed_is_an_io_error_and_a_stray_temporary_refuses_the_write(
+    ) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let identity_dir = dir.path().join("identity");
+        let store = FileKeyStore::new(identity_dir.clone());
+        store.set("owner", "aa").unwrap();
+        let file = store.path_of("owner").unwrap();
+        let was = std::fs::metadata(&file).unwrap().permissions();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = store.get("owner");
+        std::fs::set_permissions(&file, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+        // A temporary already standing where the key's own would go: the
+        // write refuses, and the stray — a folder, which no temporary of
+        // ours is — is said and left as it was found.
+        let tmp = identity_dir.join(format!("other.key.tmp.{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        assert!(store.set("other", "bb").is_err());
+        assert!(tmp.is_dir());
+        assert_eq!(store.get("other").unwrap(), None);
+        // A folder nobody may write in: the key stays and the removal says so.
+        let was = std::fs::metadata(&identity_dir).unwrap().permissions();
+        std::fs::set_permissions(&identity_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let removed = store.delete("owner");
+        std::fs::set_permissions(&identity_dir, was).unwrap();
+        assert!(matches!(removed, Err(StoreError::Io { .. })), "{removed:?}");
+        assert_eq!(store.get("owner").unwrap().as_deref(), Some("aa"));
+    }
+
+    #[test]
+    fn a_condition_out_of_range_or_not_ascii_is_refused_and_a_malformed_auth_tag_attests_nobody() {
+        assert!(parse_clauses("kind=70000").is_err());
+        assert!(parse_clauses("kind=é").is_err());
+        assert!(parse_clauses("created_at<99999999999").is_err());
+        let owner = keys_from(1);
+        let agent = keys_from(2);
+        let three = EventBuilder::new(Kind::from(1u16), "x")
+            .tag(Tag::parse(["auth", &owner.public_key().to_hex(), ""]).unwrap())
+            .finalize(&agent)
+            .unwrap();
+        assert_eq!(
+            verify_attestation(&three),
+            None,
+            "an auth tag of three parts"
+        );
+        let own = EventBuilder::new(Kind::from(1u16), "x")
+            .tag(Tag::parse(["auth", &agent.public_key().to_hex(), "", "00"]).unwrap())
+            .finalize(&agent)
+            .unwrap();
+        assert_eq!(
+            verify_attestation(&own),
+            None,
+            "an author cannot attest itself"
         );
     }
 }

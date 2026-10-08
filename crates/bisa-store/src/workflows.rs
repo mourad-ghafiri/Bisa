@@ -1737,4 +1737,171 @@ pub(crate) mod tests {
         ws.rebuild_index().unwrap();
         assert_eq!(ws.list_workflows().unwrap(), vec![library]);
     }
+
+    // added by the coverage pass: workflows.rs
+
+    // --- the bare lines of the workflows module ---
+
+    /// The hosts listening with a workflow: a library workflow that is Off
+    /// is no host; a goal listening with another workflow is not its; a
+    /// goal row whose folder is gone, or whose id is not one, is skipped;
+    /// a goal nobody may read is an I/O error.
+    #[test]
+    fn the_listening_hosts_of_a_workflow_are_the_goals_listening_with_it() {
+        let (_d, ws) = ws();
+        let wf = ws
+            .create_workflow(notify_workflow("Lib"), WorkflowOrigin::Workspace)
+            .unwrap();
+        let other = ws
+            .create_workflow(notify_workflow("Other"), WorkflowOrigin::Workspace)
+            .unwrap();
+        assert!(ws.listening_hosts_of(&wf).unwrap().is_empty());
+        let listening = || {
+            Some(bisa_core::Listening {
+                inputs: Default::default(),
+                budget: None,
+                since: 1,
+                paused: None,
+            })
+        };
+        let mine = ws.create_goal(NewGoal::captured("mine")).unwrap();
+        ws.set_goal_workflow(mine.id, Some(wf.id)).unwrap();
+        ws.set_listening(
+            &bisa_core::ListenerHost::Goal { goal: mine.id },
+            listening(),
+        )
+        .unwrap();
+        let theirs = ws.create_goal(NewGoal::captured("theirs")).unwrap();
+        ws.set_goal_workflow(theirs.id, Some(other.id)).unwrap();
+        ws.set_listening(
+            &bisa_core::ListenerHost::Goal { goal: theirs.id },
+            listening(),
+        )
+        .unwrap();
+        assert_eq!(
+            ws.listening_hosts_of(&wf).unwrap(),
+            vec![bisa_core::ListenerHost::Goal { goal: mine.id }]
+        );
+        // The other goal's folder is gone: the row is skipped.
+        let gone_dir = ws.paths.goal(theirs.id).dir().to_path_buf();
+        let aside = gone_dir.with_file_name("aside");
+        std::fs::rename(&gone_dir, &aside).unwrap();
+        assert_eq!(ws.listening_hosts_of(&wf).unwrap().len(), 1);
+        std::fs::rename(&aside, &gone_dir).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&gone_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let err = ws.listening_hosts_of(&wf);
+            std::fs::set_permissions(&gone_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(err, Err(StoreError::Io { .. })), "{err:?}");
+        }
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE goals SET id = 'not-a-goal' WHERE id = '{}'",
+                theirs.id
+            ))
+            .unwrap();
+        assert_eq!(ws.listening_hosts_of(&wf).unwrap().len(), 1);
+    }
+
+    /// A workflow row that names no workflow, or a goal that is none, is
+    /// refused by name wherever a list reads it — the one row a rebuild
+    /// repairs.
+    #[test]
+    fn workflow_rows_that_name_no_workflow_or_no_goal_are_refused_by_name() {
+        let (_d, ws) = ws();
+        let lib = ws
+            .create_workflow(notify_workflow("Lib"), WorkflowOrigin::Workspace)
+            .unwrap();
+        let goal = ws.create_goal(NewGoal::captured("designed")).unwrap();
+        let design = ws
+            .create_workflow(
+                notify_workflow("Design"),
+                WorkflowOrigin::Goal { goal: goal.id },
+            )
+            .unwrap();
+        let other_design = ws
+            .create_workflow(
+                notify_workflow("Other design"),
+                WorkflowOrigin::Goal { goal: goal.id },
+            )
+            .unwrap();
+        let put_away = ws
+            .create_workflow(notify_workflow("Old"), WorkflowOrigin::Workspace)
+            .unwrap();
+        ws.set_workflow_archived(put_away.id, true).unwrap();
+        ws.install(crate::catalog::CatalogKind::Workflow, "bug-fix")
+            .unwrap();
+        let bad = |err: StoreError| assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE workflows SET id = 'bad-lib' WHERE id = '{}'",
+                lib.id
+            ))
+            .unwrap();
+        bad(ws.list_workflows().unwrap_err());
+        let changed = ws
+            .idx()
+            .execute_for_test(&format!(
+                "UPDATE workflows SET goal_id = 'not-a-goal' WHERE id = '{}'",
+                design.id
+            ))
+            .unwrap();
+        assert_eq!(changed, 1);
+        bad(ws.get_workflow(design.id).unwrap_err());
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE workflows SET id = 'bad-design' WHERE id = '{}'",
+                other_design.id
+            ))
+            .unwrap();
+        bad(ws.delete_goal(goal.id).unwrap_err());
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE workflows SET id = 'bad-archived' WHERE id = '{}'",
+                put_away.id
+            ))
+            .unwrap();
+        bad(ws
+            .list_archived_workflows_in(WorkflowScope::All)
+            .unwrap_err());
+        ws.idx()
+            .execute_for_test("UPDATE workflows SET id = 'bad-slug' WHERE catalog_slug = 'bug-fix'")
+            .unwrap();
+        bad(ws.workflow_for_slug("bug-fix").unwrap_err());
+        ws.rebuild_index().unwrap();
+        assert!(ws.get_workflow(lib.id).is_ok());
+        assert!(ws.workflow_for_slug("bug-fix").unwrap().is_some());
+    }
+
+    /// A workflow filed under a goal whose origin says it is the library's
+    /// — a peer's mistake — is skipped by the rebuild, never indexed twice.
+    #[test]
+    fn a_workflow_filed_in_the_wrong_namespace_is_skipped_by_the_rebuild() {
+        let (_d, ws) = ws();
+        let lib = ws
+            .create_workflow(notify_workflow("Lib"), WorkflowOrigin::Workspace)
+            .unwrap();
+        let goal = ws.create_goal(NewGoal::captured("host")).unwrap();
+        let event = ws
+            .snapshots
+            .get_raw(Paths::NS_WORKFLOWS, KIND_WORKFLOW, &lib.id.to_string())
+            .unwrap()
+            .unwrap();
+        assert!(ws
+            .snapshots
+            .apply_remote(&Paths::ns_goal(goal.id), &event)
+            .unwrap());
+        ws.rebuild_index().unwrap();
+        assert_eq!(
+            ws.list_workflows()
+                .unwrap()
+                .into_iter()
+                .map(|w| w.id)
+                .collect::<Vec<_>>(),
+            vec![lib.id]
+        );
+        assert_eq!(ws.get_workflow(lib.id).unwrap().origin, lib.origin);
+    }
 }
