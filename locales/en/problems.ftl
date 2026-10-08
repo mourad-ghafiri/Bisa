@@ -178,6 +178,10 @@ problem-connector-params-names-no-parameter = {"{"}params.{ $name }{"}"} names n
 problem-connector-params-file-in-template = {"{"}params.{ $name }{"}"} is a file; its bytes travel in a multipart part or a raw body, never in a template
 problem-connector-reads-params-and-account-only = a definition reads params.<name> and account.<name> only
 problem-connector-check-writes = `{ $check }` writes; a check must not
+problem-connector-expect-path-dotted = expect.path is a dotted path with no empty segment
+problem-connector-expect-equals-or-absent = an expectation says `equals` or `absent`, one of the two
+problem-connector-expect-reason-dotted = expect.reason is a dotted path with no empty segment
+problem-connector-client-id-param-name = client_id_param is a field name: letters, digits, `_`, `-` and `.`
 problem-connector-account-needs-label = an account needs a label
 problem-connector-connector-needs-name = a connector needs a name
 

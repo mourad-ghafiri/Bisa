@@ -1,4 +1,19 @@
-# Built-in connector: Instagram — a professional account's media over the Instagram Graph API.
+# Built-in connector: Instagram — a professional account's media over the Instagram API with Facebook Login.
+#
+# The Facebook Login flavour of the Instagram API: `graph.facebook.com`, a
+# User or Page access token with the `instagram_basic` and
+# `instagram_content_publish` permissions, the account's id from
+# `GET /me/accounts?fields=instagram_business_account`. (The Instagram Login
+# flavour lives on `graph.instagram.com` under other permission names and
+# is another connector.) Every path names the Graph API version it was
+# written against (v26.0). Publishing is two calls: a container, then its
+# publication; a container lives 24 hours.
+#
+# Reference: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/get-started
+# Reference: https://developers.facebook.com/docs/instagram-platform/content-publishing
+# Reference: https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media
+# Reference: https://developers.facebook.com/docs/graph-api/guides/versioning
+# Reference: https://developers.facebook.com/docs/graph-api/guides/error-handling
 
 [connector]
 name = "Instagram"
@@ -7,6 +22,7 @@ tags = ["marketing", "content"]
 base_url = "https://graph.facebook.com"
 hosts = ["graph.facebook.com"]
 check = "me"
+revision = 1
 
 [connector.auth]
 scheme = "bearer"
@@ -16,7 +32,7 @@ id = "me"
 name = "Me"
 description = "What the token identifies — the one call that proves it works."
 method = "get"
-path = "/v19.0/me"
+path = "/v26.0/me"
 query = { fields = "id,name" }
 
 [[connector.operations]]
@@ -24,7 +40,7 @@ id = "media"
 name = "Media"
 description = "The account's media, newest first."
 method = "get"
-path = "/v19.0/{params.user}/media"
+path = "/v26.0/{params.user}/media"
 query = { fields = "id,caption,media_type,media_url,permalink,timestamp", limit = "{params.max}" }
 
 [[connector.operations.params]]
@@ -47,7 +63,7 @@ id = "create_media"
 name = "Create media container"
 description = "Stage an image for publishing; answers the container id publish_media needs."
 method = "post"
-path = "/v19.0/{params.user}/media"
+path = "/v26.0/{params.user}/media"
 body = { kind = "json", value = { image_url = "{params.image_url}", caption = "{params.caption}" } }
 writes = true
 
@@ -73,7 +89,7 @@ id = "publish_media"
 name = "Publish media"
 description = "Publish a staged container."
 method = "post"
-path = "/v19.0/{params.user}/media_publish"
+path = "/v26.0/{params.user}/media_publish"
 body = { kind = "json", value = { creation_id = "{params.creation_id}" } }
 writes = true
 

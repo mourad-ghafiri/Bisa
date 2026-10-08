@@ -21,6 +21,7 @@ pub mod classifier;
 pub mod codehost;
 pub mod collab;
 pub mod config;
+pub mod connector_health;
 pub mod connectors;
 pub mod content;
 pub mod conversation;
@@ -540,6 +541,9 @@ pub struct Inner {
     /// over the workspace's keystore, and the OAuth flows waiting for a
     /// browser to come back.
     pub connectors: connectors::ConnectorDesk,
+    /// What this machine's connector accounts answered when last checked —
+    /// in memory, for this engine's lifetime (`connector_health.rs`).
+    pub connector_health: connector_health::ConnectorHealth,
     /// The `connector` steps calling out right now, by run and step, so a
     /// stopped run's call is aborted rather than left to its deadline.
     pub connector_calls: DashMap<(RunId, StepId), tokio::task::AbortHandle>,
@@ -815,6 +819,7 @@ impl Engine {
             decider: decider::DeciderState::default(),
             changes: changes::ChangesState::default(),
             connectors,
+            connector_health: connector_health::ConnectorHealth::default(),
             connector_calls: DashMap::new(),
             step_tasks: DashMap::new(),
             http,
@@ -878,6 +883,34 @@ impl Engine {
             Ok(_) => {}
             Err(e) => {
                 tracing::error!(target: "bisa_engine", "the orphan runs could not be ended: {e}");
+            }
+        });
+        // The catalog's own connectors, brought to the bundle's revision —
+        // a truth write, so here under the lock and never at a plain open.
+        // The bus has no listener yet; the activity feed is the record.
+        contain("catalog connectors refresh", || {
+            match inner.ws.refresh_catalog_connectors() {
+                Ok(refreshed) if !refreshed.definitions.is_empty() => {
+                    tracing::info!(
+                        target: "bisa_engine",
+                        connectors = ?refreshed.definitions,
+                        accounts_moved = refreshed.accounts_moved,
+                        "catalog connectors refreshed at start"
+                    );
+                    for slug in &refreshed.definitions {
+                        if let Ok(id) = bisa_core::ConnectorId::new(slug) {
+                            inner.connector_health.invalidate_connector(&id);
+                        }
+                    }
+                    connectors::announce(&inner, crate::events::ConnectorsChange::Definitions);
+                    if refreshed.accounts_moved > 0 {
+                        connectors::announce(&inner, crate::events::ConnectorsChange::Accounts);
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!(target: "bisa_engine", "the catalog connectors could not be refreshed: {e}");
+                }
             }
         });
         // Then one walk over the unfinished runs, from the snapshots: waits

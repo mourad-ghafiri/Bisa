@@ -2285,8 +2285,9 @@ export const api = {
   putConnectorAccount: (id: string, body: NewConnectorAccount, s?: AbortSignal) => put<ConnectorAccountRow>(`/connectors/${id}/accounts`, body, s),
   /// Forget an account and every secret it held.
   deleteConnectorAccount: (id: string, aid: string, s?: AbortSignal) => del<{ account: string; forgotten: boolean }>(`/connectors/${id}/accounts/${aid}`, undefined, s),
-  /// One request to the platform as this account — the connector's `check` operation.
-  checkConnectorAccount: (id: string, aid: string, s?: AbortSignal) => post<AccountCheck>(`/connectors/${id}/accounts/${aid}/check`, {}, s),
+  /// One request to the platform as this account — the connector's `check` operation — within `timeout_secs` (the node's 20 unsaid). The answer is kept as the row's `health`.
+  checkConnectorAccount: (id: string, aid: string, timeout_secs?: number, s?: AbortSignal) =>
+    post<AccountCheck>(`/connectors/${id}/accounts/${aid}/check`, timeout_secs ? { timeout_secs } : {}, s),
   /// Make this account the one a step runs as when it names none.
   setDefaultConnectorAccount: (id: string, aid: string, s?: AbortSignal) => put<{ default: string }>(`/connectors/${id}/accounts/${aid}/default`, {}, s),
   /// Begin an OAuth2 flow: the URL to open in the browser; the node listens on the callback port meanwhile.

@@ -238,6 +238,15 @@ fn main() {
         bisa_engine::connectors::AccountCheckState,
         "AccountCheckState"
     );
+    add!(bisa_node::dto::CheckAccountBody, "CheckAccountBody");
+    add!(
+        bisa_engine::connector_health::AccountHealthView,
+        "AccountHealthView"
+    );
+    add!(
+        bisa_engine::connector_health::AccountHealthState,
+        "AccountHealthState"
+    );
     add!(bisa_engine::codehost::AccountsView, "AccountsView");
     add!(bisa_engine::codehost::CodeHostKind, "CodeHostKind");
     add!(bisa_engine::codehost::CodeHostHealth, "CodeHostHealth");

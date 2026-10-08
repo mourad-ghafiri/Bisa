@@ -158,20 +158,20 @@ on the platform; a workflow puts an `approval` step before it. Guide: [Connector
 
 | Connector | Slug | Auth | Hosts | Operations | Tags |
 |---|---|---|---|---|---|
-| **Confluence** | `confluence` | `basic` | `*.atlassian.net` | `current_user`, `search`, `get_page`, `create_page` *writes* | `engineering` `writing` |
+| **Confluence** | `confluence` | `basic` | `*.atlassian.net` | `current_user`, `search`, `spaces`, `get_page`, `create_page` *writes* | `engineering` `writing` |
 | **Facebook Pages** | `facebook-pages` | `bearer` | `graph.facebook.com` | `me`, `page_posts`, `publish_post` *writes* | `marketing` |
 | **Gmail** | `gmail` | `oauth2` | `gmail.googleapis.com` | `profile`, `list_messages`, `get_message`, `send_message` *writes* | `business` `ops` |
 | **Google Calendar** | `google-calendar` | `oauth2` | `www.googleapis.com` | `calendar_list`, `list_events`, `create_event` *writes* | `ops` `planning` |
 | **Google Drive** | `google-drive` | `oauth2` | `www.googleapis.com` | `about`, `list_files`, `get_file`, `create_file` *writes* | `content` `data` |
 | **Instagram** | `instagram` | `bearer` | `graph.facebook.com` | `me`, `media`, `create_media` *writes*, `publish_media` *writes* | `content` `marketing` |
 | **Jira** | `jira` | `basic` | `*.atlassian.net` | `myself`, `search`, `get_issue`, `create_issue` *writes*, `transition` *writes*, `comment` *writes* | `engineering` `management` |
-| **Linear** | `linear` | `bearer` | `api.linear.app` | `viewer`, `issues`, `create_issue` *writes* | `engineering` `product` |
+| **Linear** | `linear` | `api_key` | `api.linear.app` | `viewer`, `issues`, `create_issue` *writes* | `engineering` `product` |
 | **Notion** | `notion` | `bearer` | `api.notion.com` | `me`, `search`, `get_page`, `create_page` *writes*, `query_database` | `planning` `writing` |
-| **Obsidian** | `obsidian` | `bearer` | `127.0.0.1:27124` | `status`, `list_vault`, `read_note`, `search` | `research` `writing` |
+| **Obsidian** | `obsidian` | `bearer` | `127.0.0.1:27124` | `status`, `list_vault`, `list_folder`, `read_note`, `search` | `research` `writing` |
 | **Slack** | `slack` | `bearer` | `slack.com` | `auth_test`, `post_message` *writes*, `list_channels`, `channel_history` | `management` `ops` |
 | **TikTok** | `tiktok` | `oauth2` | `open.tiktokapis.com` | `user_info`, `video_list` | `content` `marketing` |
 | **Trello** | `trello` | `api_key` | `api.trello.com` | `me`, `boards`, `lists`, `create_card` *writes* | `management` `planning` |
-| **X** | `x` | `oauth2` | `api.twitter.com` | `me`, `post` *writes*, `search_recent` | `content` `marketing` |
+| **X** | `x` | `oauth2` | `api.x.com` | `me`, `post` *writes*, `search_recent` | `content` `marketing` |
 | **YouTube** | `youtube` | `oauth2` | `www.googleapis.com` | `my_channel`, `search`, `channel`, `video` | `content` `marketing` |
 
 ## Addons (13)

@@ -5,7 +5,7 @@ use crate::support::*;
 use bisa_connectors::creds::{Field, Stored};
 use bisa_connectors::hosts::{AllowAll, HostJudge};
 use bisa_connectors::oauth::{authorize_url, exchange};
-use bisa_connectors::spec::AuthSpec;
+use bisa_connectors::spec::{AuthSpec, ChallengeEncoding, ScopeJoin};
 use bisa_connectors::ConnectorError;
 use serde_json::json;
 use sha2::Digest;
@@ -19,7 +19,91 @@ fn oauth(stub_base: &str, extra: BTreeMap<String, String>) -> AuthSpec {
         scopes: vec!["read".into(), "write".into()],
         pkce: true,
         extra,
+        client_id_param: bisa_connectors::DEFAULT_CLIENT_ID_PARAM.into(),
+        scope_join: ScopeJoin::Space,
+        code_challenge: ChallengeEncoding::Base64url,
     }
+}
+
+/// A scheme spelled the way TikTok reads it: `client_key`, scopes joined by
+/// a comma, the challenge as hex.
+fn tiktok_shaped(stub_base: &str) -> AuthSpec {
+    AuthSpec::OAuth2 {
+        authorization_url: "https://www.tiktok.example/v2/auth/authorize/".into(),
+        token_url: format!("{stub_base}/v2/oauth/token/"),
+        scopes: vec!["user.info.basic".into(), "video.list".into()],
+        pkce: true,
+        extra: BTreeMap::new(),
+        client_id_param: "client_key".into(),
+        scope_join: ScopeJoin::Comma,
+        code_challenge: ChallengeEncoding::Hex,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dialect_names_the_client_id_joins_scopes_by_comma_and_writes_the_challenge_as_hex() {
+    let stub = Stub::start(vec![Canned::json(
+        "POST",
+        "/v2/oauth/token/",
+        200,
+        json!({"access_token": "act.1", "refresh_token": "rft.1", "expires_in": 86400, "open_id": "o", "scope": "user.info.basic,video.list", "token_type": "Bearer"}),
+    )])
+    .await;
+    let auth = tiktok_shaped(stub.base_url());
+    let a = authorize_url(
+        &auth,
+        "key-1",
+        "http://127.0.0.1:4478/connectors/oauth/callback",
+        CountingEntropy::from(3).as_ref(),
+        &AllowAll,
+    )
+    .unwrap();
+    let url = url::Url::parse(&a.url).unwrap();
+    let q: BTreeMap<String, String> = url
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    assert_eq!(q["client_key"], "key-1");
+    assert!(
+        !q.contains_key("client_id"),
+        "the id travels under one name"
+    );
+    assert_eq!(q["scope"], "user.info.basic,video.list");
+    assert_eq!(q["code_challenge_method"], "S256");
+    let expected = hex::encode(sha2::Sha256::digest(a.verifier.expose().as_bytes()));
+    assert_eq!(
+        q["code_challenge"], expected,
+        "hex of the SHA-256, 64 characters"
+    );
+    assert_eq!(q["code_challenge"].len(), 64);
+
+    let creds = MemoryCreds::with(
+        &account(),
+        Stored::default()
+            .with(Field::ClientId, "key-1")
+            .with(Field::ClientSecret, "shh"),
+    );
+    let client = client(creds.clone());
+    let tokens = exchange(
+        &client,
+        &auth,
+        &account(),
+        "code-1",
+        &a.verifier,
+        "http://127.0.0.1:4478/connectors/oauth/callback",
+        &AllowAll,
+    )
+    .await
+    .unwrap();
+    assert_eq!(tokens.access_token.expose(), "act.1");
+    let form = stub.calls()[0].form();
+    assert_eq!(
+        form["client_key"], "key-1",
+        "the token form spells it the same way"
+    );
+    assert!(!form.contains_key("client_id"));
+    assert_eq!(form["client_secret"], "shh");
+    assert_eq!(form["grant_type"], "authorization_code");
 }
 
 #[test]

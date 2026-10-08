@@ -3107,6 +3107,7 @@ fn mail(inbox: &Inbox) -> bisa_store::NewConnector {
         body: None,
         params: vec![],
         output: OutputSpec {
+            expect: None,
             select: select.map(str::to_string),
             schema: None,
         },

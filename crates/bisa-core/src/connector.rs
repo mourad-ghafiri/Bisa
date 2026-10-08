@@ -74,7 +74,9 @@ pub struct Connector {
     /// `{account.<param>}` only: `https://{account.site}.atlassian.net`.
     pub base_url: String,
     /// The only hosts a call may reach, `host[:port]` or `*.suffix`. The base
-    /// URL's host must be one of them.
+    /// URL's host must be one of them. An OAuth2 scheme's consent page and
+    /// token endpoint are declared by their own URLs ([`Self::oauth_hosts`])
+    /// and need no row here.
     pub hosts: Vec<String>,
     /// Accept a certificate nobody signed — for a loopback host only, the way
     /// Obsidian's local API serves itself.
@@ -90,7 +92,17 @@ pub struct Connector {
     /// required parameter, and one that writes nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<OperationId>,
+    /// The catalog's stamp on a built-in: the bundled definition's revision
+    /// when it was installed or last refreshed. A person's own definition
+    /// has none (0, not written). The engine refreshes an installed built-in
+    /// at start when the bundle's revision is higher.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub revision: u32,
     pub created_at: u64,
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
 }
 
 /// How a request proves who is calling.
@@ -125,6 +137,22 @@ pub enum AuthScheme {
         /// `prompt=consent`) and the token request's `token_auth = "basic"`.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         extra: BTreeMap<String, String>,
+        /// The name the client's id travels under, on the authorization URL
+        /// and in the token form: `client_id` (RFC 6749) unless the platform
+        /// spells it otherwise (TikTok's `client_key`).
+        #[serde(
+            default = "default_client_id_param",
+            skip_serializing_if = "is_default_client_id_param"
+        )]
+        client_id_param: String,
+        /// How the scopes are joined on the authorization URL: by a space
+        /// (RFC 6749) or, where the platform says so, by a comma.
+        #[serde(default, skip_serializing_if = "ScopeJoin::is_default")]
+        scope_join: ScopeJoin,
+        /// How the PKCE challenge is written: the base64url of the SHA-256
+        /// (RFC 7636) or, where the platform says so, its hex.
+        #[serde(default, skip_serializing_if = "ChallengeEncoding::is_default")]
+        code_challenge: ChallengeEncoding,
     },
     /// A token the platform signs itself at each request and sends as
     /// `Authorization: Bearer` — the signed-assertion scheme behind service
@@ -145,6 +173,64 @@ pub enum AuthScheme {
 
 fn default_true() -> bool {
     true
+}
+
+/// The RFC 6749 name of the client's id, which most platforms keep.
+pub const DEFAULT_CLIENT_ID_PARAM: &str = "client_id";
+
+fn default_client_id_param() -> String {
+    DEFAULT_CLIENT_ID_PARAM.to_string()
+}
+
+fn is_default_client_id_param(s: &String) -> bool {
+    s == DEFAULT_CLIENT_ID_PARAM
+}
+
+/// How an OAuth2 scheme joins its scopes on the authorization URL.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ScopeJoin {
+    /// `scope=a b` — RFC 6749's space.
+    #[default]
+    Space,
+    /// `scope=a,b` — the platforms that say so (TikTok, Slack, Linear).
+    Comma,
+}
+
+impl ScopeJoin {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Space
+    }
+
+    /// The character the scopes are joined with.
+    pub fn separator(self) -> &'static str {
+        match self {
+            Self::Space => " ",
+            Self::Comma => ",",
+        }
+    }
+}
+
+/// How an OAuth2 scheme writes the PKCE challenge of its verifier.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ChallengeEncoding {
+    /// The base64url, no padding, of the SHA-256 — RFC 7636's `S256`.
+    #[default]
+    Base64url,
+    /// The lowercase hex of the SHA-256 — what TikTok's desktop flow reads
+    /// under the same `S256` word.
+    Hex,
+}
+
+impl ChallengeEncoding {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Base64url
+    }
 }
 
 fn default_jwt_ttl() -> u64 {
@@ -322,6 +408,10 @@ pub enum ParamKind {
     /// step runs and the model never sees them. Only a multipart part or a
     /// raw body may carry it — never a template.
     File,
+    /// A slash-separated path on the platform — a note's place in a vault,
+    /// a file's in a tree. In a URL path its slashes stay and each segment
+    /// is percent-encoded on its own; anywhere else it is text.
+    Path,
 }
 
 impl ParamKind {
@@ -332,6 +422,7 @@ impl ParamKind {
             ParamKind::Bool => "bool",
             ParamKind::Json => "json",
             ParamKind::File => "file",
+            ParamKind::Path => "path",
         }
     }
 }
@@ -367,6 +458,31 @@ pub struct OutputSpec {
     /// may rely on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
+    /// What a 2xx answer must say for the call to have succeeded, for the
+    /// platforms that answer a failure with a 200: read before `select`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Expect>,
+}
+
+/// What a 2xx answer must say for the call to count — Slack's `ok`, a
+/// GraphQL answer's `errors`, a status page's `authenticated`. Exactly one
+/// of `equals` and `absent`; a miss is a refusal with the platform's own
+/// sentence read at `reason`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Expect {
+    /// A dotted path into the answer.
+    pub path: String,
+    /// The value the path must hold (`true`, `"ok"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub equals: Option<Value>,
+    /// The path must resolve to nothing — an answer with no `errors`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub absent: bool,
+    /// A dotted path to the platform's sentence when the expectation fails
+    /// (`error`, `errors.0.message`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// One thing the platform can be asked to do.
@@ -679,6 +795,43 @@ impl Connector {
         self.params.iter().find(|p| p.name.as_str() == name)
     }
 
+    /// The authorities an OAuth2 scheme's consent page and token endpoint
+    /// live on — declared by the URLs themselves, so the flow reaches them
+    /// as a call reaches the operations' hosts, the deny list still ahead.
+    /// Nothing for another scheme.
+    pub fn oauth_hosts(&self) -> Vec<String> {
+        let AuthScheme::OAuth2 {
+            authorization_url,
+            token_url,
+            ..
+        } = &self.auth
+        else {
+            return Vec::new();
+        };
+        let mut out: Vec<String> = Vec::new();
+        for url in [authorization_url, token_url] {
+            if let Some(head) = url_head(url) {
+                let host = head.authority.to_ascii_lowercase();
+                if !out.contains(&host) {
+                    out.push(host);
+                }
+            }
+        }
+        out
+    }
+
+    /// The hosts a call made for this connector may reach: the declared ones
+    /// and, for an OAuth2 scheme, the consent page's and the token endpoint's.
+    pub fn declared_hosts(&self) -> Vec<String> {
+        let mut out = self.hosts.clone();
+        for h in self.oauth_hosts() {
+            if !out.iter().any(|d| d.eq_ignore_ascii_case(&h)) {
+                out.push(h);
+            }
+        }
+        out
+    }
+
     /// Every template string the definition carries, with where it sits.
     pub fn templates(&self) -> Vec<(TemplateSite, &str)> {
         let mut out = vec![(TemplateSite::BaseUrl, self.base_url.as_str())];
@@ -924,6 +1077,27 @@ impl Connector {
                     push(
                         &at("output.schema"),
                         crate::text!("problem-connector-output-schema-must-be-json-object"),
+                    );
+                }
+            }
+            if let Some(expect) = &op.output.expect {
+                let dotted = |p: &str| !p.is_empty() && p.split('.').all(|s| !s.is_empty());
+                if !dotted(&expect.path) {
+                    push(
+                        &at("output.expect.path"),
+                        crate::text!("problem-connector-expect-path-dotted"),
+                    );
+                }
+                if expect.equals.is_some() == expect.absent {
+                    push(
+                        &at("output.expect"),
+                        crate::text!("problem-connector-expect-equals-or-absent"),
+                    );
+                }
+                if expect.reason.as_deref().is_some_and(|r| !dotted(r)) {
+                    push(
+                        &at("output.expect.reason"),
+                        crate::text!("problem-connector-expect-reason-dotted"),
                     );
                 }
             }
@@ -1211,6 +1385,7 @@ impl Connector {
         if let AuthScheme::OAuth2 {
             authorization_url,
             token_url,
+            client_id_param,
             ..
         } = &self.auth
         {
@@ -1227,6 +1402,16 @@ impl Connector {
                         crate::text!("problem-connector-oauth-url-https-http-loopback-host"),
                     ),
                 }
+            }
+            if client_id_param.is_empty()
+                || !client_id_param
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+            {
+                push(
+                    "auth.client_id_param",
+                    crate::text!("problem-connector-client-id-param-name"),
+                );
             }
         }
         if let AuthScheme::Jwt {
@@ -1487,6 +1672,7 @@ mod tests {
             params: vec![],
             operations: vec![op("list")],
             check: None,
+            revision: 0,
             created_at: 0,
         }
     }
@@ -1864,6 +2050,9 @@ mod tests {
             scopes: vec!["read".into()],
             pkce: true,
             extra: BTreeMap::new(),
+            client_id_param: DEFAULT_CLIENT_ID_PARAM.into(),
+            scope_join: ScopeJoin::Space,
+            code_challenge: ChallengeEncoding::Base64url,
         };
         let f = c.validate();
         assert_eq!(fields(&f), vec!["auth.authorization_url"]);
@@ -1879,6 +2068,12 @@ mod tests {
         let json = serde_json::to_value(&c.auth).unwrap();
         assert_eq!(json["scheme"], "oauth2");
         assert_eq!(json["pkce"], true);
+        assert!(
+            json.get("client_id_param").is_none()
+                && json.get("scope_join").is_none()
+                && json.get("code_challenge").is_none(),
+            "the RFC's own words are not written: {json}"
+        );
         let key = AuthScheme::ApiKey {
             place: KeyPlace::Query {
                 name: String::new(),
@@ -2152,6 +2347,124 @@ mod tests {
             serde_json::from_str::<ConnectorAccount>(&json).unwrap(),
             account
         );
+    }
+
+    #[test]
+    fn an_oauth_scheme_may_spell_its_dialect_and_declares_its_own_hosts() {
+        let mut c = connector();
+        assert!(c.oauth_hosts().is_empty(), "a bearer scheme has none");
+        assert_eq!(c.declared_hosts(), c.hosts);
+        let tiktok: AuthScheme = serde_json::from_value(json!({
+            "scheme": "oauth2",
+            "authorization_url": "https://www.tiktok.com/v2/auth/authorize/",
+            "token_url": "https://open.tiktokapis.com/v2/oauth/token/",
+            "scopes": ["user.info.basic", "video.list"],
+            "client_id_param": "client_key",
+            "scope_join": "comma",
+            "code_challenge": "hex"
+        }))
+        .unwrap();
+        c.auth = tiktok.clone();
+        assert_eq!(c.validate(), vec![]);
+        assert_eq!(
+            c.oauth_hosts(),
+            vec![
+                "www.tiktok.com".to_string(),
+                "open.tiktokapis.com".to_string()
+            ]
+        );
+        assert_eq!(
+            c.declared_hosts(),
+            vec![
+                "api.acme.example".to_string(),
+                "www.tiktok.com".to_string(),
+                "open.tiktokapis.com".to_string()
+            ]
+        );
+        let json = serde_json::to_value(&tiktok).unwrap();
+        assert_eq!(json["client_id_param"], "client_key");
+        assert_eq!(json["scope_join"], "comma");
+        assert_eq!(json["code_challenge"], "hex");
+        assert_eq!(ScopeJoin::Comma.separator(), ",");
+        if let AuthScheme::OAuth2 {
+            client_id_param, ..
+        } = &mut c.auth
+        {
+            *client_id_param = "client id".into();
+        }
+        assert_eq!(fields(&c.validate()), vec!["auth.client_id_param"]);
+        // Two URLs on one host declare it once; a token host already in
+        // `hosts` is not declared twice.
+        let mut same = connector();
+        same.auth = serde_json::from_value(json!({
+            "scheme": "oauth2",
+            "authorization_url": "https://api.acme.example/o",
+            "token_url": "https://api.acme.example/t"
+        }))
+        .unwrap();
+        assert_eq!(same.oauth_hosts(), vec!["api.acme.example".to_string()]);
+        assert_eq!(same.declared_hosts(), vec!["api.acme.example".to_string()]);
+    }
+
+    #[test]
+    fn an_expectation_is_one_dotted_path_with_one_rule() {
+        let mut c = connector();
+        let mut o = op("list");
+        o.output.expect = Some(Expect {
+            path: "ok".into(),
+            equals: Some(json!(true)),
+            absent: false,
+            reason: Some("error".into()),
+        });
+        c.operations = vec![o.clone()];
+        assert_eq!(c.validate(), vec![]);
+        let json = serde_json::to_value(&c.operations[0].output).unwrap();
+        assert_eq!(
+            json,
+            json!({"expect": {"path": "ok", "equals": true, "reason": "error"}})
+        );
+        let absent: Expect =
+            serde_json::from_value(json!({"path": "errors", "absent": true})).unwrap();
+        assert!(absent.absent && absent.equals.is_none());
+        // Both rules, or neither, is no expectation; an empty segment is no path.
+        o.output.expect = Some(Expect {
+            path: "a..b".into(),
+            equals: Some(json!(1)),
+            absent: true,
+            reason: Some(String::new()),
+        });
+        c.operations = vec![o];
+        let f = c.validate();
+        assert_eq!(
+            fields(&f),
+            vec![
+                "operations.list.output.expect.path",
+                "operations.list.output.expect",
+                "operations.list.output.expect.reason"
+            ]
+        );
+        assert!(serde_json::from_value::<Expect>(json!({"path": "ok", "nope": 1})).is_err());
+    }
+
+    #[test]
+    fn a_path_parameter_is_a_kind_and_the_revision_is_the_catalogs_stamp() {
+        let mut c = connector();
+        let mut o = op("read");
+        o.path = "/vault/{params.path}".into();
+        o.params = vec![param("path", ParamKind::Path, true)];
+        c.operations = vec![o];
+        assert_eq!(c.validate(), vec![]);
+        assert_eq!(ParamKind::Path.as_str(), "path");
+        assert_eq!(
+            serde_json::to_value(ParamKind::Path).unwrap(),
+            json!("path")
+        );
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(!json.contains("revision"), "a person's own has no revision");
+        c.revision = 3;
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(json.contains("\"revision\":3"), "{json}");
+        assert_eq!(serde_json::from_str::<Connector>(&json).unwrap(), c);
     }
 
     #[test]

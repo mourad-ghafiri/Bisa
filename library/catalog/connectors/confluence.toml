@@ -1,4 +1,16 @@
 # Built-in connector: Confluence — search, read and create pages on a Confluence Cloud site.
+#
+# Two generations of one API: the CQL search and the current user are v1
+# (`/wiki/rest/api/…`, neither deprecated); a page is read and created with
+# v2 (`/wiki/api/v2/pages`), since v1's `GET /content/{id}` and
+# `POST /content` are gone from Atlassian's OpenAPI. v2 names a space by its
+# numeric id, not its key — the `spaces` operation turns a key into one.
+#
+# Reference: https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-users/
+# Reference: https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content/
+# Reference: https://developer.atlassian.com/cloud/confluence/rest/v2/intro/
+# Reference: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/
+# Reference: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/
 
 [connector]
 name = "Confluence"
@@ -7,6 +19,7 @@ tags = ["writing", "engineering"]
 base_url = "https://{account.site}.atlassian.net/wiki"
 hosts = ["*.atlassian.net"]
 check = "current_user"
+revision = 1
 
 [connector.auth]
 scheme = "basic"
@@ -48,12 +61,29 @@ doc = "How many results to return; Confluence answers 25 unless told otherwise."
 select = "results"
 
 [[connector.operations]]
+id = "spaces"
+name = "Spaces"
+description = "A space by its key — its numeric id is what create_page wants."
+method = "get"
+path = "/api/v2/spaces"
+query = { keys = "{params.key}", limit = "1" }
+
+[[connector.operations.params]]
+name = "key"
+label = "Space key"
+required = true
+doc = "The short uppercase key in the space URL: ENG."
+
+[connector.operations.output]
+select = "results"
+
+[[connector.operations]]
 id = "get_page"
 name = "Get page"
 description = "One page by id, with its storage-format body."
 method = "get"
-path = "/rest/api/content/{params.id}"
-query = { expand = "body.storage,version,space" }
+path = "/api/v2/pages/{params.id}"
+query = { body-format = "storage" }
 
 [[connector.operations.params]]
 name = "id"
@@ -64,17 +94,17 @@ doc = "The numeric id in the page URL: 123456789."
 [[connector.operations]]
 id = "create_page"
 name = "Create page"
-description = "Create a page in a space from storage-format HTML."
+description = "Create a page in a space from storage-format HTML, under the space's home or under a parent page."
 method = "post"
-path = "/rest/api/content"
-body = { kind = "json", value = { type = "page", title = "{params.title}", space = { key = "{params.space}" }, body = { storage = { value = "{params.html}", representation = "storage" } } } }
+path = "/api/v2/pages"
+body = { kind = "json", value = { spaceId = "{params.space_id}", status = "current", title = "{params.title}", parentId = "{params.parent_id}", body = { representation = "storage", value = "{params.html}" } } }
 writes = true
 
 [[connector.operations.params]]
-name = "space"
-label = "Space key"
+name = "space_id"
+label = "Space id"
 required = true
-doc = "The short uppercase key in the space URL: ENG."
+doc = "The space's numeric id — the spaces operation answers it for a key."
 
 [[connector.operations.params]]
 name = "title"
@@ -87,3 +117,8 @@ name = "html"
 label = "Body"
 required = true
 doc = "The page body in Confluence storage format (XHTML)."
+
+[[connector.operations.params]]
+name = "parent_id"
+label = "Parent page id"
+doc = "The page this one goes under; empty for the space's home."

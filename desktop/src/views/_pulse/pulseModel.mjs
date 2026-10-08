@@ -64,6 +64,7 @@ export const NOT_ACTIVITY = Object.freeze([
   "drawing_request",
   "mobile_development_changed",
   "mcp_probed",
+  "connector_checked",
   "changes_moved",
   "ask_opened",
   "ask_settled",

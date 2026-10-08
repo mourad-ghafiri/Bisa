@@ -142,15 +142,17 @@ impl Workspace {
     }
 
     pub fn create_connector(&self, new: NewConnector) -> Result<Connector, StoreError> {
-        self.create_connector_with_origin(new, Origin::Local)
+        self.create_connector_with_origin(new, Origin::Local, 0)
     }
 
-    /// Only [`crate::catalog`] passes anything but `Local`: provenance is not
-    /// a caller's to claim.
+    /// Only [`crate::catalog`] passes anything but `Local` and a revision:
+    /// provenance is not a caller's to claim, and a person's own definition
+    /// has no revision.
     pub(crate) fn create_connector_with_origin(
         &self,
         new: NewConnector,
         origin: Origin,
+        revision: u32,
     ) -> Result<Connector, StoreError> {
         if self.paths.connector_file(&new.id).exists() {
             return Err(StoreError::Invalid(bisa_core::text!(
@@ -171,6 +173,7 @@ impl Workspace {
             params: new.params,
             operations: new.operations,
             check: new.check,
+            revision,
             created_at: now_secs(),
         };
         self.write_connector(&def)?;
@@ -221,8 +224,9 @@ impl Workspace {
 
     /// Replace a connector's definition. The id is immutable — steps and
     /// accounts reference it — and so is its provenance: a catalog entry
-    /// edited by hand is still the catalog's, and an install will not
-    /// overwrite it.
+    /// edited by hand is still the catalog's, an install will not overwrite
+    /// it, and the catalog's own refresh ([`Workspace::refresh_catalog_connectors`])
+    /// brings it to the bundle's revision.
     pub fn update_connector(&self, def: Connector) -> Result<Connector, StoreError> {
         let existing = self.get_connector(&def.id)?;
         let def = Connector {
@@ -480,6 +484,42 @@ impl Workspace {
         existing.auth.fields_set.sort_by_key(|f| f.as_str());
         self.write_connector_account(&existing)?;
         Ok(existing)
+    }
+
+    /// Move one secret field to another name — the credential that changes
+    /// field when a definition's scheme moves between `bearer` and `api_key`
+    /// (the catalog's refresh). The value is copied under the new name and
+    /// deleted under the old, the record's `fields_set` follows; nothing is
+    /// read back by anyone. Answers whether a value moved — a field never set
+    /// moves nothing and only leaves the record.
+    pub(crate) fn move_connector_secret(
+        &self,
+        connector: &ConnectorId,
+        account: AccountId,
+        from: SecretField,
+        to: SecretField,
+    ) -> Result<bool, StoreError> {
+        let mut existing = self.get_connector_account(connector, account)?;
+        let value = self
+            .identity
+            .secret(&secret_name(connector, account, from))?;
+        let moved = match value {
+            Some(v) if !v.trim().is_empty() => {
+                self.identity
+                    .set_secret(&secret_name(connector, account, to), &v)?;
+                if !existing.auth.fields_set.contains(&to) {
+                    existing.auth.fields_set.push(to);
+                }
+                true
+            }
+            _ => false,
+        };
+        self.identity
+            .delete_secret(&secret_name(connector, account, from))?;
+        existing.auth.fields_set.retain(|f| *f != from);
+        existing.auth.fields_set.sort_by_key(|f| f.as_str());
+        self.write_connector_account(&existing)?;
+        Ok(moved)
     }
 
     /// Record what an OAuth exchange or refresh produced: the tokens go to

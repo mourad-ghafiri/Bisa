@@ -100,7 +100,10 @@ back to the earlier release, the backup is the only way: see [Not promised in 0.
 - **Not promised:** that an earlier release reads a definition using something added later — a key it
   does not know is refused by name, never dropped.
 - **The catalog's content** — which agents, skills, teams, templates, connectors, addons and pets ship —
-  may change in any release. What you installed is yours: an upgrade never changes an installed copy.
+  may change in any release. What you installed is yours: an upgrade never changes an installed copy
+  — except a built-in connector, which the engine refreshes to the bundle's revision at start, its
+  accounts, secrets and steps kept (a peer on an earlier release sets the refreshed snapshot aside,
+  as mixed releases already do).
 
 ## Not promised in 0.x
 

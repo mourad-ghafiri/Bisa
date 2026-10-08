@@ -177,7 +177,9 @@ export function oauthLine(row, now) {
 }
 
 /**
- * A check's answer as a line. `null` before the check.
+ * A check's answer as a line — the toast *Check* shows; the row's standing
+ * words are `connectorHealthModel`'s, from the node's health. `null` before
+ * the check.
  * @param {import("../../types").AccountCheck | null | undefined} check
  * @param {string} name the connector's name
  * @returns {{tone: "ok" | "warn" | "danger" | "quiet", text: string}}
@@ -258,22 +260,6 @@ export function typedSecrets(secrets) {
  */
 export function maySaveAccount({ label, busy, definitionRead }) {
   return !busy && definitionRead && label.trim() !== "";
-}
-
-/**
- * The checks on screen without one account's: what *Check* answered was
- * about the secrets the account held then, so an account whose secrets were
- * set again, connected again, or forgotten has no answer standing.
- * @template T
- * @param {Record<string, T>} checks
- * @param {string} account
- * @returns {Record<string, T>}
- */
-export function withoutCheck(checks, account) {
-  if (!(account in checks)) return checks;
-  const next = { ...checks };
-  delete next[account];
-  return next;
 }
 
 /** The registry key of the loopback port the OAuth callback listens on — a machine setting. */

@@ -1247,18 +1247,28 @@ hands it to the goal's Workflow tab on that run.
 ## Connectors
 
 A **connector** (`core/connector.rs`, kind 33414) is a document: `Connector { id, name,
-description, tags, origin, base_url, hosts, insecure_tls, auth, params, operations, check }`. Its
+description, tags, origin, base_url, hosts, insecure_tls, auth, params, operations, check,
+revision }` — `revision` the catalog's stamp on a built-in, 0 and unwritten on a person's own. Its
 `auth` is one of `none`, `api_key { place: header | query, prefix }`, `bearer`, `basic`, `oauth2
-{ authorization_url, token_url, scopes, pkce, extra }` and `jwt { alg: ES256 | RS256, claims,
+{ authorization_url, token_url, scopes, pkce, extra, client_id_param, scope_join, code_challenge }`
+(the last three a platform's dialect — TikTok's `client_key`, comma-joined scopes, a hex challenge
+— RFC 6749's and 7636's words when unsaid; the consent page and the token endpoint are hosts the
+scheme declares by its own URLs, `Connector::oauth_hosts`, joined to `hosts` as `declared_hosts`
+wherever a host is judged) and `jwt { alg: ES256 | RS256, claims,
 header, ttl_secs }` — a token the platform signs at each request with the account's `private_key`,
 its claims and header templates over the account's parameters, `iat` and `exp` the clock's; its
 `params` are the account-level values a person fills once (a Jira `site`); each `Operation { id,
-name, description, method, path, query, headers, body, params, output: { select, schema }, writes,
-timeout_secs?, idempotency?: { header }, page?: { cursor_param, next_cursor, max_pages } }`
+name, description, method, path, query, headers, body, params, output: { select, schema, expect },
+writes, timeout_secs?, idempotency?: { header }, page?: { cursor_param, next_cursor, max_pages } }`
 is one thing the platform can be asked to do — with, when the platform's documentation names them,
 its own deadline (1–600 s), the header a write's key travels in (a writing operation only, never a
 reserved header nor one the operation sets), and how a read pages (an optional text `cursor_param`,
-the dotted `next_cursor` in the answer, 1–20 pages; a read that selects a list only) — its `params` typed `text`, `number`, `bool`, `json` or
+the dotted `next_cursor` in the answer, 1–20 pages; a read that selects a list only), and what a
+good answer looks like (`output.expect { path, equals | absent, reason? }` — read before `select`;
+a 2xx whose named path is not `equals`, or is not `absent`, is a refusal in the platform's own
+words, never a stop: Slack's `ok`, a GraphQL answer's `errors`, a status page's `authenticated`) — its `params` typed `text`, `number`, `bool`, `json`, `path` — a
+slash-separated path on the platform, whose slashes a URL path keeps and whose segments it encodes
+one by one — or
 `file` — a path inside the run's checkout whose bytes only a body may carry. A `body` names its
 `kind`: `json { value }` (an object or array of templates), `form { fields }`
 (`application/x-www-form-urlencoded`; a field naming an absent optional parameter is dropped),
@@ -1267,16 +1277,24 @@ under a boundary the client draws) or `raw { content_type, from }` (one paramete
 definition's strings are templates under `Grammar::Connector` — `{account.<param>}` and
 `{params.<name>}`, nothing else — rendered account values first, then the operation's, with a
 substituted value never scanned again; a path segment is percent-encoded, a query value
-form-encoded, and a JSON body leaf that is exactly one typed placeholder becomes the typed value.
+form-encoded, a JSON body leaf that is exactly one typed placeholder becomes the typed value, and
+a member or item of a JSON body that is exactly one placeholder naming an absent optional
+parameter is left out, as an absent query pair is.
 `Connector::validate` is a pure walk: an `https` base URL (or `http` on loopback) whose host is in
 `hosts`, hosts spelled `host[:port]` or `*.suffix`, `insecure_tls` only with loopback hosts, unique
 operation ids, parameter and part names, every placeholder declared, a `file` parameter carried by a
 part or a raw body and never by a template, no `file` account parameter, media types shaped
 `type/subtype`, no reserved header (`authorization`, `host`, `content-length`, `cookie`,
-`transfer-encoding`), OAuth URLs over `https`, a `jwt` scheme with at least one claim and neither
+`transfer-encoding`), OAuth URLs over `https`, an `expect` of one dotted path with one rule, a
+`client_id_param` that is a field name, a `jwt` scheme with at least one claim and neither
 `iat`/`exp` nor `alg`/`typ` of its own and a life of 1 to 86 400 s, a `check` operation with no
 required parameter, and a size cap of 64 KiB. Fifteen built-ins ship in the catalog (`library/catalog/connectors/`,
-[`reference/catalog.md`](../reference/catalog.md)); a custom one is the same shape, created through
+[`reference/catalog.md`](../reference/catalog.md)), each file citing the platform documentation it
+was checked against and carrying a `revision`: at the engine's start, under its lock, an installed
+copy below the bundle's revision is refreshed (`Workspace::refresh_catalog_connectors`) — its id,
+provenance, time, accounts and steps kept, a credential moved to the field a changed scheme reads
+(`bearer` ↔ `api_key`), its health forgotten, `ConnectorsChanged` in the feed — and a copy at or
+above it, or a person's own definition, is left alone; a custom one is the same shape, created through
 `POST /connectors` or `bisa connector new --from <file>`, and removed only while no account
 and no workflow step names it.
 
@@ -1295,20 +1313,30 @@ Validation refuses what it can see (`UnknownConnector`, `UnknownOperation`,
 `MissingConnectorParam`, `UnknownAccount`), the bound-input check refuses an account input that is
 not this machine's, and the engine's `resolve_account` refuses at call time what was true at start
 and is not any more. Before a request is built the resolved URL's host must be one the definition
-declares and one the host policy admits (`security::net::decide_host` over
+declares — or, for an OAuth2 scheme, the consent page's or the token endpoint's, declared by its
+own URL — and one the host policy admits (`security::net::decide_host` over
 `security.net.deny_hosts` and `security.net.allow_hosts`: deny wins, a connector's declared hosts
 are the default allow); a refusal is journaled as a guard decision with tool `connector`. A `file`
 parameter's path is read by the engine from where the run's work landed (`projects::check_cwd`,
 through the crate's `Files` port) — relative, inside that root, a file, up to 256 MiB — and refused
 by name otherwise; a poll and an account check have no checkout and refuse every file. An OAuth2
 token is refreshed single-flight within sixty seconds of its expiry and the pair persisted; a call
-retries on 429 and 502–504 (and, for a read, on 500 and a transport error) honouring `Retry-After`;
+retries on 429 and 502–504 (and, for a read, on 500 and a transport error) honouring `Retry-After`,
+a dated one read against the clock; a 3xx is a refusal naming where the platform pointed — the
+crate follows no redirect — never a stop;
 every error the crate builds is scrubbed of the strings it exposed and the engine passes the reason
 through the redactor before it becomes the step's error. Every call — a step's, a poll's, an
 account check's, an agent's — goes through the engine's one door (`connectors::invoke`): a permit
 from the connector's cap (`connectors.concurrency`), the operation's deadline, the host judge, the
 crate's call — its pages followed, the host's circuit asked (five failures open it for thirty
-seconds, one probe closes it) — and the selected answer through the redactor. **A write is keyed or
+seconds, one probe closes it; a probe dropped before its answer is let go, and the next call
+probes) — and the selected answer through the redactor. An account check runs within a budget of
+its own (`check_budget`: twenty seconds unsaid, one to sixty at the caller's word; the permit's
+wait and the request together), is kept as the account's **health** (`connector_health.rs`: in
+memory, per account, for the engine's lifetime; a second ask joins the running check; a check
+whose caller went away leaves no slot behind), is told to the bus (`ConnectorChecked { connector,
+account, ok }`, topic `connectors.checked`) and is forgotten wherever the way in changes — secrets
+set, a parameter edited, connected again, the definition changed or refreshed, the account gone. **A write is keyed or
 stopped:** a step whose operation names an `idempotency` header sends `step_key(run, step)` on
 every attempt, so a retry, a re-run and a restart do the thing once; a step whose write has no key
 and fails ambiguously — a timeout, a connection lost after it was made, a 5xx after sending — is

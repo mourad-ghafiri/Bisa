@@ -1,4 +1,18 @@
 # Built-in connector: Slack — post into channels and read them, as a bot, over the Slack Web API.
+#
+# Slack answers every failure as an HTTP 200 whose body says `"ok": false`
+# with the error's name in `error` (`invalid_auth`, `channel_not_found`), so
+# every operation expects `ok` to be true. Apps distributed outside the Slack
+# Marketplace have read `conversations.history` under a stricter limit since
+# May 2025 (one request a minute, 15 messages at most); an internal app has
+# the full tier.
+#
+# Reference: https://docs.slack.dev/apis/web-api/
+# Reference: https://docs.slack.dev/reference/methods/auth.test
+# Reference: https://docs.slack.dev/reference/methods/chat.postMessage
+# Reference: https://docs.slack.dev/reference/methods/conversations.list
+# Reference: https://docs.slack.dev/reference/methods/conversations.history
+# Reference: https://docs.slack.dev/apis/web-api/rate-limits
 
 [connector]
 name = "Slack"
@@ -7,6 +21,7 @@ tags = ["ops", "management"]
 base_url = "https://slack.com"
 hosts = ["slack.com"]
 check = "auth_test"
+revision = 1
 
 [connector.auth]
 scheme = "bearer"
@@ -17,6 +32,9 @@ name = "Who am I"
 description = "The bot's own identity and workspace — the one call that proves the token works."
 method = "post"
 path = "/api/auth.test"
+
+[connector.operations.output]
+expect = { path = "ok", equals = true, reason = "error" }
 
 [[connector.operations]]
 id = "post_message"
@@ -39,6 +57,9 @@ label = "Text"
 required = true
 doc = "The message, in Slack's mrkdwn."
 
+[connector.operations.output]
+expect = { path = "ok", equals = true, reason = "error" }
+
 [[connector.operations]]
 id = "list_channels"
 name = "List channels"
@@ -51,7 +72,7 @@ query = { limit = "{params.max}", types = "{params.types}", exclude_archived = "
 name = "max"
 label = "At most"
 kind = "number"
-doc = "How many to return; Slack answers 100 unless told otherwise, at most 1000."
+doc = "How many to return; Slack answers 100 unless told otherwise, at most 999."
 
 [[connector.operations.params]]
 name = "types"
@@ -60,6 +81,7 @@ doc = "public_channel, private_channel, or both comma-separated; empty for publi
 
 [connector.operations.output]
 select = "channels"
+expect = { path = "ok", equals = true, reason = "error" }
 
 [[connector.operations]]
 id = "channel_history"
@@ -79,7 +101,8 @@ doc = "A channel id (C0123...); this call does not take a #name."
 name = "max"
 label = "At most"
 kind = "number"
-doc = "How many to return; Slack answers 100 unless told otherwise, at most 1000."
+doc = "How many to return; Slack answers 100 unless told otherwise, at most 999 — 15 for an app distributed outside the Slack Marketplace."
 
 [connector.operations.output]
 select = "messages"
+expect = { path = "ok", equals = true, reason = "error" }

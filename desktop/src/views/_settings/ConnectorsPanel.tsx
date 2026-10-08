@@ -3,17 +3,21 @@
  * catalog's and yours — with this machine's accounts for each. An account is
  * a label, the connector's parameters, and secret fields typed once into
  * write-only inputs; the rows say which fields are set and where they live,
- * never a value. *Check* is one request to the platform as that account;
- * *Connect* runs the OAuth2 flow through the browser and the node's
- * loopback callback, with a field to paste the code for a platform that
- * cannot send the browser back. A custom definition is added and edited as
- * JSON and validated on the node before anything is written. Every fact is
- * the node's and every sentence `connectorsModel.mjs`'s.
+ * never a value. Every account row wears the health its last check found —
+ * the node's, kept for the engine's lifetime and forgotten when the way in
+ * changes — *Check* is one request to the platform as that account, *Check
+ * all* every account of every connector, a few at a time, and a check
+ * finished anywhere lands on the rows through the bus. *Connect* runs the
+ * OAuth2 flow through the browser and the node's loopback callback, with a
+ * field to paste the code for a platform that cannot send the browser back.
+ * A custom definition is added and edited as JSON and validated on the node
+ * before anything is written. Every fact is the node's and every sentence
+ * `connectorsModel.mjs`'s or `connectorHealthModel.mjs`'s.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { api, openExternal } from "../../api";
-import type { AccountCheck, ConnectorAccountRow, ConnectorDefinition, ConnectorRow, ConnectorValidation, SecretField } from "../../types";
+import type { ConnectorAccountRow, ConnectorDefinition, ConnectorRow, ConnectorValidation, SecretField } from "../../types";
 import { Button, Card, Chip, ConfirmDialog, Dialog, EmptyState, ErrorNote, Field, ICON, MoreMenu, Pending, SecretInput, SecretTextArea, TextArea, TextInput, Tooltip, failureText, cn, useToast } from "../../ui";
 import type { MenuItem } from "../../ui";
 import { attempt } from "../_work/useAsync";
@@ -51,8 +55,9 @@ import {
   secretsLine,
   secretsSetWords,
   typedSecrets,
-  withoutCheck,
 } from "./connectorsModel.mjs";
+import { CHECK_ALL_AT_ONCE, checkTargets, healthDetail, healthTone, healthWords } from "./connectorHealthModel.mjs";
+import { checkedWords } from "./mcpHealthModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
 
@@ -229,12 +234,24 @@ function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDef
   );
 }
 
-function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: number | null; onChanged: () => void }) {
+function ConnectorCard({
+  row,
+  port,
+  onChanged,
+  checking,
+  onCheck,
+}: {
+  row: ConnectorRow;
+  port: number | null;
+  onChanged: () => void;
+  /** The accounts a check is running for right now — this card's or *Check all*'s. */
+  checking: ReadonlySet<string>;
+  onCheck: (account: ConnectorAccountRow) => void;
+}) {
   const toast = useToast();
   const detail = useConnectorDetail(row.id);
   const accounts = useMemo(() => accountRows(detail.data?.accounts), [detail.data]);
   const [busy, setBusy] = useState<string | null>(null);
-  const [checks, setChecks] = useState<Record<string, AccountCheck>>({});
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ConnectorAccountRow | null>(null);
   const [forgetting, setForgetting] = useState<ConnectorAccountRow | null>(null);
@@ -245,11 +262,6 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
   const custom = isYours(row.origin);
   const oauth = connectApplies(row.auth);
 
-  const check = async (a: ConnectorAccountRow) => {
-    setBusy(`check:${a.id}`);
-    await attempt(() => api.checkConnectorAccount(row.id, a.id), toast.error, (c) => setChecks((all) => ({ ...all, [a.id]: c })));
-    setBusy(null);
-  };
   const setDefault = async (a: ConnectorAccountRow) => {
     setBusy(`default:${a.id}`);
     await attempt(() => api.setDefaultConnectorAccount(row.id, a.id), toast.error, () => {
@@ -263,7 +275,6 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
     setBusy(`forget:${a.id}`);
     await attempt(() => api.deleteConnectorAccount(row.id, a.id), toast.error, () => {
       toast.ok(forgottenWords(a.label));
-      setChecks((all) => withoutCheck(all, a.id));
       detail.reload();
       onChanged();
     });
@@ -284,8 +295,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
     const label = accounts.find((a) => a.id === pending.account)?.label ?? t("settings-connectors-panel-account");
     await attempt(() => api.completeConnectorOauth(row.id, pending.account, pending.code.trim()), toast.error, () => {
       toast.ok(connectedWords(label));
-      // What *Check* said was about the tokens held before this connection.
-      setChecks((all) => withoutCheck(all, pending.account));
+      // What *Check* said was about the tokens held before this connection: the node forgets it.
       setPending(null);
       detail.reload();
     });
@@ -303,10 +313,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
   useEffect(() => {
     if (!pending) return;
     const a = accounts.find((x) => x.id === pending.account);
-    if (a?.secrets_set.includes("access_token")) {
-      setChecks((all) => withoutCheck(all, pending.account));
-      setPending(null);
-    }
+    if (a?.secrets_set.includes("access_token")) setPending(null);
   }, [accounts, pending]);
 
   return (
@@ -338,24 +345,31 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
         <ul className="flex flex-col gap-2" aria-label={t("settings-connectors-panel-accounts", { row: row.name })}>
           {accounts.map((a) => {
             const secrets = secretsLine(a, row.auth);
-            const line = checkLine(checks[a.id], row.name);
             const expiry = oauthLine(a, now);
             // One verb on the row, the rest behind its menu (`accountVerbs`); Forget still asks first.
             const verbs = accountVerbs(a, oauth);
-            const idle = busy !== null;
+            const isChecking = checking.has(a.id);
+            const idle = busy !== null || isChecking;
             const menu: Record<(typeof verbs.more)[number], MenuItem> = {
               connect: { label: t("settings-connectors-panel-connect-again"), icon: ICON.open, disabled: idle || !a.secrets_set.includes("client_id"), onSelect: () => void connect(a) },
               secrets: { label: t("settings-connectors-panel-set-secrets"), disabled: idle, onSelect: () => setEditing(a) },
-              check: { label: t("settings-code-host-panel-check"), disabled: idle, onSelect: () => void check(a) },
+              check: { label: t("settings-code-host-panel-check"), disabled: idle, onSelect: () => onCheck(a) },
               default: { label: t("settings-code-host-panel-make-default"), disabled: idle, onSelect: () => void setDefault(a) },
               forget: { label: t("settings-code-host-panel-forget"), danger: true, separatorBefore: true, disabled: idle, onSelect: () => setForgetting(a) },
             };
+            const detailLine = healthDetail(a.health);
             return (
               <li key={a.id} className="rounded-control bg-surface-2/50 p-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <ICON.account size={13} aria-hidden className="shrink-0 text-text-dim" />
                   <span className="text-xs font-medium">{a.label}</span>
                   {a.default && <Chip tone="neutral">{t("settings-appearance-panel-default")}</Chip>}
+                  {/* The health the node holds: what the last check found and when; *checking…* while one runs. */}
+                  <Tooltip label={[healthWords(a.health, row.name), checkedWords(a.health.checked_at)].filter(Boolean).join(" · ")}>
+                    <span>
+                      <Chip tone={isChecking ? "quiet" : healthTone(a.health)}>{isChecking ? t("settings-system-permissions-checking") : healthWords(a.health, row.name)}</Chip>
+                    </span>
+                  </Tooltip>
                   <span className={`text-2xs ${toneClass(secrets.tone)}`}>{secrets.text}</span>
                   <span className="flex-1" />
                   {verbs.main === "connect" ? (
@@ -369,7 +383,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
                       {busy === `connect:${a.id}` ? t("settings-connectors-panel-opening") : t("settings-connectors-panel-connect")}
                     </Button>
                   ) : (
-                    <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void check(a)}>{busy === `check:${a.id}` ? t("settings-mcp-panel-checking-2") : t("settings-code-host-panel-check")}</Button>
+                    <Button size="sm" variant="ghost" disabled={idle} onClick={() => onCheck(a)}>{isChecking ? t("settings-mcp-panel-checking-2") : t("settings-code-host-panel-check")}</Button>
                   )}
                   <MoreMenu label={t("settings-connectors-panel-more-account", { account: a.label })} items={verbs.more.map((verb) => menu[verb])} />
                 </div>
@@ -379,7 +393,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
                   </p>
                 )}
                 {expiry && <p className="mt-1 text-2xs text-text-dim">{expiry}</p>}
-                {checks[a.id] && <p className={`mt-1 text-2xs ${toneClass(line.tone)}`}>{line.text}</p>}
+                {detailLine && <p className={`mt-1 text-2xs ${toneClass(healthTone(a.health))}`}>{detailLine}</p>}
                 {/* Announced: the box goes away on its own when the browser's callback lands. */}
                 <span className="sr-only" aria-live="polite">
                   {pending?.account === a.id ? t("settings-connectors-panel-waiting-platform-s-code-browser-s") : a.secrets_set.includes("access_token") ? t("settings-connectors-panel-connected") : ""}
@@ -407,7 +421,7 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
       {/* The redirect URI is copied into another platform's console: said with the port the node resolves, never a guessed one. */}
       {oauth && (port === null ? <Pending what={t("settings-connectors-panel-callback-port")} rows={pendingRows(t("settings-connectors-panel-callback-port"))} /> : <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{connectWords(port)}</p>)}
       {adding && <AccountDialog connector={row} account={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); detail.reload(); onChanged(); }} />}
-      {editing && <AccountDialog connector={row} account={editing} onClose={() => setEditing(null)} onSaved={(saved) => { setEditing(null); setChecks((all) => withoutCheck(all, saved.id)); detail.reload(); }} />}
+      {editing && <AccountDialog connector={row} account={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); detail.reload(); }} />}
       {editingDef && detail.data && (
         <DefinitionDialog
           initial={definitionOf(detail.data.connector)}
@@ -446,7 +460,46 @@ function ConnectorCard({ row, port, onChanged }: { row: ConnectorRow; port: numb
 
 export function ConnectorsPanel() {
   const connectors = useConnectors();
+  const toast = useToast();
   const [adding, setAdding] = useState(false);
+  // The accounts a check is running for: a row's own *Check*, or *Check all*'s pass over every connector.
+  const [checking, setChecking] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * One request as the account; the node keeps the answer and the rows read
+   * it back through the bus. A row's own check says its answer in a toast
+   * too; *Check all* stays quiet and lets the chips speak.
+   */
+  const check = async (cid: string, aid: string, name: string, say: boolean) => {
+    setChecking((s) => new Set(s).add(aid));
+    await attempt(
+      () => api.checkConnectorAccount(cid, aid),
+      toast.error,
+      (c) => {
+        if (!say) return;
+        const line = checkLine(c, name);
+        (line.tone === "ok" ? toast.ok : toast.error)(line.text);
+      },
+    );
+    setChecking((s) => {
+      const next = new Set(s);
+      next.delete(aid);
+      return next;
+    });
+  };
+  /** Every account that can answer, of every connector that names a check, a few at a time. */
+  const checkAll = async () => {
+    const queue: { connector: string; account: string; name: string }[] = [];
+    for (const row of connectors.rows) {
+      if (row.accounts === 0 || !row.check) continue;
+      const detail = await api.connector(row.id).catch(() => null);
+      if (detail) queue.push(...checkTargets(detail).map((target) => ({ ...target, name: row.name })));
+    }
+    const workers = Array.from({ length: Math.min(CHECK_ALL_AT_ONCE, queue.length) }, async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) await check(next.connector, next.account, next.name, false);
+    });
+    await Promise.all(workers);
+  };
+  const checkable = connectors.rows.some((row) => row.accounts > 0 && Boolean(row.check));
   // The callback port is a setting: the resolved value the settings store
   // keeps — read again on every `settings_changed` and when the node comes
   // back — so the redirect URI a person copies names the port in force, and
@@ -478,6 +531,13 @@ export function ConnectorsPanel() {
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-2xs text-text-dim">{t("settings-connectors-panel-install-more-from-library")}</p>
           <span className="flex-1" />
+          <Tooltip label={t("settings-connectors-panel-check-every-account")}>
+            <span>
+              <Button size="sm" variant="ghost" disabled={!checkable || checking.size > 0} onClick={() => void checkAll()}>
+                {checking.size > 0 ? t("settings-connectors-panel-checking", { checking: checking.size }) : t("settings-connectors-panel-check-all")}
+              </Button>
+            </span>
+          </Tooltip>
           {readAgain}
           <Button size="sm" onClick={() => setAdding(true)}>
             <ICON.add size={12} aria-hidden />{t("settings-connectors-panel-add-connector")}</Button>
@@ -500,7 +560,7 @@ export function ConnectorsPanel() {
         />
       )}
       {connectors.rows.map((row) => (
-        <ConnectorCard key={row.id} row={row} port={port} onChanged={connectors.reload} />
+        <ConnectorCard key={row.id} row={row} port={port} onChanged={connectors.reload} checking={checking} onCheck={(a) => void check(row.id, a.id, row.name, true)} />
       ))}
       {adding && <DefinitionDialog initial={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); connectors.reload(); }} />}
     </div>

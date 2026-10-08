@@ -1,4 +1,17 @@
 # Built-in connector: Gmail — a person's mailbox over the Gmail REST API, read and send.
+#
+# Google's installed-app flow: the consent page on accounts.google.com, the
+# token endpoint on oauth2.googleapis.com (both the scheme's own hosts), PKCE,
+# a loopback redirect, `access_type=offline` with `prompt=consent` so a refresh
+# token comes back. The profile needs `gmail.readonly`; sending needs
+# `gmail.send`.
+#
+# Reference: https://developers.google.com/identity/protocols/oauth2/native-app
+# Reference: https://developers.google.com/identity/protocols/oauth2/scopes
+# Reference: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile
+# Reference: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list
+# Reference: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get
+# Reference: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send
 
 [connector]
 name = "Gmail"

@@ -1,4 +1,14 @@
 # Built-in connector: Google Calendar — events in a calendar over the Calendar REST API.
+#
+# Google's installed-app flow (see gmail.toml). `orderBy=startTime` is only
+# allowed with `singleEvents=true`, which expands recurring events; an event's
+# `start` and `end` take an RFC 3339 `dateTime` with its offset.
+#
+# Reference: https://developers.google.com/identity/protocols/oauth2/native-app
+# Reference: https://developers.google.com/workspace/calendar/api/v3/reference/calendarList/list
+# Reference: https://developers.google.com/workspace/calendar/api/v3/reference/events/list
+# Reference: https://developers.google.com/workspace/calendar/api/v3/reference/events/insert
+# Reference: https://developers.google.com/workspace/calendar/api/guides/errors
 
 [connector]
 name = "Google Calendar"

@@ -7,6 +7,7 @@
 
 #![allow(dead_code)]
 
+pub mod stub;
 use bisa_core::{
     Assignee, Flow, Goal, GoalId, Home, Join, OnFail, RunId, Step, StepId, StepKind, ToolTier,
     WorkItemSpec, Workflow, WorkflowRun,

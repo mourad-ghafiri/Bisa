@@ -1,10 +1,16 @@
 # Built-in connector: Obsidian — a vault on this machine through the Local REST API plugin, read and search.
 #
-# The plugin serves https on 127.0.0.1:27124 with a certificate it signed itself,
-# which is why this is the one connector with insecure_tls. It takes the key as
-# `Authorization: Bearer <key>`, so the scheme is bearer. Writing a note needs a
-# raw Markdown body, which a definition cannot declare — a body is JSON here —
-# so this connector reads and searches; an agent step edits the vault's files.
+# The plugin serves https on 127.0.0.1:27124 with a certificate it signed
+# itself, which is why this is the one connector with insecure_tls. It takes
+# the key as `Authorization: Bearer <key>`, so the scheme is bearer. Its
+# `GET /` answers with or without a key and says in `authenticated` whether
+# the key was accepted, so the check expects that flag. A folder is listed
+# under a trailing slash (`/vault/Projects/`), and a note's path keeps its
+# slashes — the `path` kind. Writing a note takes a raw Markdown body, which
+# this connector leaves to an agent step editing the vault's files.
+#
+# Reference: https://github.com/coddingtonbear/obsidian-local-rest-api
+# Reference: https://coddingtonbear.github.io/obsidian-local-rest-api/
 
 [connector]
 name = "Obsidian"
@@ -14,6 +20,7 @@ base_url = "https://127.0.0.1:27124"
 hosts = ["127.0.0.1:27124"]
 insecure_tls = true
 check = "status"
+revision = 1
 
 [connector.auth]
 scheme = "bearer"
@@ -25,17 +32,32 @@ description = "The plugin's version and whether the key is accepted — the one 
 method = "get"
 path = "/"
 
+[connector.operations.output]
+expect = { path = "authenticated", equals = true }
+
 [[connector.operations]]
 id = "list_vault"
 name = "List vault"
-description = "The files and folders at the vault's root, or under a folder."
+description = "The files and folders at the vault's root."
 method = "get"
-path = "/vault/{params.folder}"
+path = "/vault/"
+
+[connector.operations.output]
+select = "files"
+
+[[connector.operations]]
+id = "list_folder"
+name = "List folder"
+description = "The files and folders under a folder of the vault."
+method = "get"
+path = "/vault/{params.folder}/"
 
 [[connector.operations.params]]
 name = "folder"
 label = "Folder"
-doc = "A folder path inside the vault; empty for the root."
+kind = "path"
+required = true
+doc = "A folder path inside the vault: Projects, or Projects/2026."
 
 [connector.operations.output]
 select = "files"
@@ -50,6 +72,7 @@ path = "/vault/{params.path}"
 [[connector.operations.params]]
 name = "path"
 label = "Note path"
+kind = "path"
 required = true
 doc = "Projects/Launch.md — the path inside the vault."
 

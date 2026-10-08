@@ -51,7 +51,10 @@ pub fn encode(cx: &Sources<'_>) -> Result<Option<Encoded>, ConnectorError> {
 }
 
 /// `application/json`: every string leaf rendered; a leaf that is exactly one
-/// typed placeholder carries the typed value instead of text.
+/// typed placeholder carries the typed value instead of text; a member or an
+/// item that is exactly one placeholder naming an absent optional parameter
+/// is left out, as a query pair is — a platform reads an empty `description`
+/// or a `null` filter as a value, and an absent one as none.
 pub struct JsonEncoder<'a>(pub &'a Value);
 
 impl BodyEncoder for JsonEncoder<'_> {
@@ -84,18 +87,28 @@ fn render_leaves(v: &Value, spec: &CallSpec, values: &Values<'_>) -> Result<Valu
         Value::Array(items) => Value::Array(
             items
                 .iter()
+                .filter(|i| !left_out(i, values))
                 .map(|i| render_leaves(i, spec, values))
                 .collect::<Result<_, _>>()?,
         ),
         Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (k, item) in map {
+                if left_out(item, values) {
+                    continue;
+                }
                 out.insert(k.clone(), render_leaves(item, spec, values)?);
             }
             Value::Object(out)
         }
         other => other.clone(),
     })
+}
+
+/// A leaf that is exactly one placeholder naming an absent parameter — left
+/// out of its object or array rather than rendered.
+fn left_out(leaf: &Value, values: &Values<'_>) -> bool {
+    matches!(leaf, Value::String(s) if template::absent_leaf(s, values))
 }
 
 /// `application/x-www-form-urlencoded`: each field rendered as text; a field
@@ -276,12 +289,109 @@ mod tests {
                 })
                 .collect(),
             select: None,
+            expect: None,
             writes: true,
             idempotency: None,
             idempotency_key: None,
             page: None,
             timeout: Duration::from_secs(5),
         }
+    }
+
+    #[test]
+    fn a_json_leaf_naming_an_absent_optional_parameter_is_left_out() {
+        let spec = spec(
+            CallBody::Json {
+                value: json!({
+                    "summary": "{params.summary}",
+                    "description": "{params.description}",
+                    "start": {"dateTime": "{params.start}"},
+                    "filter": "{params.filter}",
+                    "page_size": "{params.max}",
+                    "tags": ["{params.tag}", "fixed"],
+                    "note": "a {params.description}"
+                }),
+            },
+            vec![
+                ("summary", ParamKind::Text),
+                ("description", ParamKind::Text),
+                ("start", ParamKind::Text),
+                ("filter", ParamKind::Json),
+                ("max", ParamKind::Number),
+                ("tag", ParamKind::Text),
+            ],
+        );
+        let account = BTreeMap::new();
+        let present = BTreeMap::from([
+            ("summary".to_string(), json!("Standup")),
+            ("description".to_string(), json!("daily")),
+            ("start".to_string(), json!("2026-10-08T09:00:00Z")),
+            ("filter".to_string(), json!({"a": 1})),
+            ("max".to_string(), json!(10)),
+            ("tag".to_string(), json!("x")),
+        ]);
+        let values = Values {
+            account: &account,
+            params: &present,
+        };
+        let out = encode(&Sources {
+            spec: &spec,
+            values: &values,
+            files: &BTreeMap::new(),
+            entropy: &Zeros,
+        })
+        .unwrap()
+        .unwrap();
+        let body: Value = serde_json::from_slice(&out.bytes).unwrap();
+        assert_eq!(body["description"], json!("daily"));
+        assert_eq!(body["filter"], json!({"a": 1}));
+        assert_eq!(body["page_size"], json!(10));
+        assert_eq!(body["tags"], json!(["x", "fixed"]));
+        assert_eq!(body["note"], json!("a daily"));
+
+        // The optional ones left empty: their members and items are gone, the
+        // typed and text ones alike; a leaf mixing text with the absent
+        // parameter is still unresolved — it cannot be half a sentence.
+        let absent = BTreeMap::from([
+            ("summary".to_string(), json!("Standup")),
+            ("description".to_string(), Value::Null),
+            ("start".to_string(), json!("2026-10-08T09:00:00Z")),
+            ("filter".to_string(), Value::Null),
+            ("max".to_string(), Value::Null),
+            ("tag".to_string(), Value::Null),
+        ]);
+        let values = Values {
+            account: &account,
+            params: &absent,
+        };
+        let err = encode(&Sources {
+            spec: &spec,
+            values: &values,
+            files: &BTreeMap::new(),
+            entropy: &Zeros,
+        })
+        .unwrap_err();
+        assert!(
+            matches!(err, ConnectorError::Unresolved(ref k) if k == "params.description"),
+            "{err}"
+        );
+        let mut without_note = spec.clone();
+        if let Some(CallBody::Json { value }) = &mut without_note.body {
+            value.as_object_mut().unwrap().remove("note");
+        }
+        let out = encode(&Sources {
+            spec: &without_note,
+            values: &values,
+            files: &BTreeMap::new(),
+            entropy: &Zeros,
+        })
+        .unwrap()
+        .unwrap();
+        let body: Value = serde_json::from_slice(&out.bytes).unwrap();
+        assert_eq!(
+            body,
+            json!({"summary": "Standup", "start": {"dateTime": "2026-10-08T09:00:00Z"}, "tags": ["fixed"]})
+        );
     }
 
     #[test]

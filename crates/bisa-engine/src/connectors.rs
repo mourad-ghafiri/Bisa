@@ -281,6 +281,9 @@ pub struct Invocation<'a> {
     pub judge: &'a dyn cx::HostJudge,
     /// The write's key, when the operation names a header for one.
     pub key: Option<String>,
+    /// A deadline shorter than the operation's own, when the caller has one
+    /// — a check's budget; the operation's deadline otherwise.
+    pub deadline: Option<Duration>,
     pub caller: Caller,
 }
 
@@ -294,7 +297,11 @@ pub async fn invoke(inner: &Inner, inv: Invocation<'_>) -> Result<cx::Outcome, E
             "error-engine-invalid-connector-s-permit-pool-closed"
         ))
     })?;
-    let mut spec = call_spec(inv.def, inv.op, operation_timeout(inner, inv.op));
+    let timeout = match inv.deadline {
+        Some(d) => d.min(operation_timeout(inner, inv.op)),
+        None => operation_timeout(inner, inv.op),
+    };
+    let mut spec = call_spec(inv.def, inv.op, timeout);
     spec.idempotency_key = inv.key;
     let account_ref = inv
         .account
@@ -365,7 +372,7 @@ fn emit(bus: &broadcast::Sender<EngineEvent>, what: ConnectorsChange) {
     }
 }
 
-fn announce(inner: &Inner, what: ConnectorsChange) {
+pub(crate) fn announce(inner: &Inner, what: ConnectorsChange) {
     inner.emit(EngineEvent::global(EnginePayload::ConnectorsChanged {
         what,
     }));
@@ -488,6 +495,7 @@ fn kind_of(k: ParamKind) -> cx::ParamKind {
         ParamKind::Bool => cx::ParamKind::Bool,
         ParamKind::Json => cx::ParamKind::Json,
         ParamKind::File => cx::ParamKind::File,
+        ParamKind::Path => cx::ParamKind::Path,
     }
 }
 
@@ -542,12 +550,24 @@ pub fn auth_spec(auth: &AuthScheme) -> cx::AuthSpec {
             scopes,
             pkce,
             extra,
+            client_id_param,
+            scope_join,
+            code_challenge,
         } => cx::AuthSpec::OAuth2 {
             authorization_url: authorization_url.clone(),
             token_url: token_url.clone(),
             scopes: scopes.clone(),
             pkce: *pkce,
             extra: extra.clone(),
+            client_id_param: client_id_param.clone(),
+            scope_join: match scope_join {
+                bisa_core::ScopeJoin::Space => cx::ScopeJoin::Space,
+                bisa_core::ScopeJoin::Comma => cx::ScopeJoin::Comma,
+            },
+            code_challenge: match code_challenge {
+                bisa_core::ChallengeEncoding::Base64url => cx::ChallengeEncoding::Base64url,
+                bisa_core::ChallengeEncoding::Hex => cx::ChallengeEncoding::Hex,
+            },
         },
         AuthScheme::Jwt {
             alg,
@@ -652,6 +672,12 @@ pub fn call_spec(connector: &Connector, op: &Operation, timeout: Duration) -> cx
             })
             .collect(),
         select: op.output.select.clone(),
+        expect: op.output.expect.as_ref().map(|e| cx::Expect {
+            path: e.path.clone(),
+            equals: e.equals.clone(),
+            absent: e.absent,
+            reason: e.reason.clone(),
+        }),
         writes: op.writes,
         idempotency: op.idempotency.as_ref().map(|i| cx::Idempotency {
             header: i.header.clone(),
@@ -788,11 +814,14 @@ pub async fn call(
             reason = reason.to_string()
         )));
     }
+    // The hosts a call may reach: the declared ones and, for an OAuth2
+    // scheme, the consent page's and the token endpoint's.
+    let declared = def.declared_hosts();
     let judge = PolicyHostJudge {
         inner,
         home: Some(run.home()),
         subject,
-        declared: &def.hosts,
+        declared: &declared,
     };
     let files = RunFiles {
         root: crate::projects::check_cwd(inner, run),
@@ -800,6 +829,7 @@ pub async fn call(
     let outcome = invoke(
         inner,
         Invocation {
+            deadline: None,
             def: &def,
             op,
             account: acct.as_ref(),
@@ -882,11 +912,14 @@ pub fn oauth_start(
     inner.connectors.pending.retain(|_, f| f.expires_at > now);
     let redirect_uri = format!("http://127.0.0.1:{port}/connectors/oauth/callback");
     // The consent page is a host too: the deny list holds for it.
+    // The hosts a call may reach: the declared ones and, for an OAuth2
+    // scheme, the consent page's and the token endpoint's.
+    let declared = def.declared_hosts();
     let judge = PolicyHostJudge {
         inner,
         home: None,
         subject: format!("oauth authorize {}", def.id),
-        declared: &def.hosts,
+        declared: &declared,
     };
     let authorize = cx::authorize_url(
         &auth,
@@ -921,11 +954,14 @@ async fn finish_flow(
     let def = inner.ws.get_connector(&flow.connector)?;
     let auth = oauth_scheme(&def)?;
     let account = cx::AccountRef::new(flow.connector.as_str(), flow.account.to_string());
+    // The hosts a call may reach: the declared ones and, for an OAuth2
+    // scheme, the consent page's and the token endpoint's.
+    let declared = def.declared_hosts();
     let judge = PolicyHostJudge {
         inner,
         home: None,
         subject: format!("oauth token {}", def.id),
-        declared: &def.hosts,
+        declared: &declared,
     };
     cx::exchange(
         &inner.connectors.client,
@@ -960,9 +996,12 @@ pub async fn oauth_complete(
     // The flow is consumed by the exchange: what it was about is said here,
     // or a failure could name nobody.
     let (connector, account) = (flow.connector.clone(), flow.account);
-    finish_flow(inner, flow, code).await.inspect_err(|e| {
+    let done = finish_flow(inner, flow, code).await.inspect_err(|e| {
         tracing::warn!(target: "bisa_engine::connectors", %connector, %account, "the OAuth exchange did not finish: {e}");
-    })
+    })?;
+    // Connected again: what *Check* said was about the tokens held before.
+    inner.connector_health.invalidate(&connector, account);
+    Ok(done)
 }
 
 /// The person pasted the code by hand — for a platform that cannot send the
@@ -1000,6 +1039,7 @@ pub async fn oauth_paste(
             ))
         })?;
     finish_flow(inner, flow, code).await?;
+    inner.connector_health.invalidate(connector, account);
     Ok(())
 }
 
@@ -1028,6 +1068,18 @@ pub enum AccountCheckState {
     NoCheck,
 }
 
+impl AccountCheckState {
+    /// The word the wire, the log and the command line say.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Connected => "connected",
+            Self::Refused => "refused",
+            Self::Unreachable => "unreachable",
+            Self::NoCheck => "no_check",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccountCheck {
     pub state: AccountCheckState,
@@ -1037,12 +1089,31 @@ pub struct AccountCheck {
     pub reason: Option<String>,
 }
 
+/// How long a check waits for its answer when the caller names no budget:
+/// shorter than a step's deadline, since a person is watching.
+pub const CHECK_BUDGET_SECS: u64 = 20;
+/// The longest budget a caller may name.
+pub const MAX_CHECK_BUDGET_SECS: u64 = 60;
+
+/// A check's budget from what the caller said, clamped to one second and
+/// [`MAX_CHECK_BUDGET_SECS`] — never a refusal, as the MCP probe's.
+pub fn check_budget(secs: Option<u64>) -> Duration {
+    Duration::from_secs(
+        secs.unwrap_or(CHECK_BUDGET_SECS)
+            .clamp(1, MAX_CHECK_BUDGET_SECS),
+    )
+}
+
 /// Run the connector's `check` operation as the account — the one request
-/// Settings makes to prove a way in works.
+/// Settings makes to prove a way in works — within `budget`: the wait for a
+/// permit, the request and its retries together, so a slow platform or a
+/// full pool answers *unreachable* in time rather than the operation's whole
+/// deadline later.
 pub async fn check_account(
     inner: &Inner,
     connector: &ConnectorId,
     account: AccountId,
+    budget: Duration,
 ) -> Result<AccountCheck, EngineError> {
     let def = inner.ws.get_connector(connector)?;
     let acct = inner.ws.get_connector_account(connector, account)?;
@@ -1053,30 +1124,40 @@ pub async fn check_account(
             reason: Some("the connector names no check operation".into()),
         });
     };
+    // The hosts a call may reach: the declared ones and, for an OAuth2
+    // scheme, the consent page's and the token endpoint's.
+    let declared = def.declared_hosts();
     let judge = PolicyHostJudge {
         inner,
         home: None,
         subject: format!("{} {}{}", op.method.as_str(), def.hosts.join("|"), op.path),
-        declared: &def.hosts,
+        declared: &declared,
     };
-    let outcome = invoke(
-        inner,
-        Invocation {
-            def: &def,
-            op,
-            account: Some(&acct),
-            params: &BTreeMap::new(),
-            files: &cx::NoFiles,
-            judge: &judge,
-            key: None,
-            caller: Caller::Check,
-        },
+    let outcome = match tokio::time::timeout(
+        budget,
+        invoke(
+            inner,
+            Invocation {
+                def: &def,
+                op,
+                account: Some(&acct),
+                params: &BTreeMap::new(),
+                files: &cx::NoFiles,
+                judge: &judge,
+                key: None,
+                deadline: Some(budget),
+                caller: Caller::Check,
+            },
+        ),
     )
     .await
-    .map_err(|e| match e {
-        EngineError::Connector(c) => c,
-        other => cx::ConnectorError::Store(other.to_string()),
-    });
+    {
+        Ok(answered) => answered.map_err(|e| match e {
+            EngineError::Connector(c) => c,
+            other => cx::ConnectorError::Store(other.to_string()),
+        }),
+        Err(_elapsed) => Err(cx::ConnectorError::Timeout(budget)),
+    };
     Ok(match outcome {
         Ok(o) => AccountCheck {
             state: AccountCheckState::Connected,
@@ -1129,6 +1210,7 @@ pub fn update_connector(inner: &Inner, def: Connector) -> Result<Connector, Engi
         )));
     }
     let updated = inner.ws.update_connector(def)?;
+    inner.connector_health.invalidate_connector(&updated.id);
     announce(inner, ConnectorsChange::Definitions);
     Ok(updated)
 }
@@ -1136,6 +1218,7 @@ pub fn update_connector(inner: &Inner, def: Connector) -> Result<Connector, Engi
 /// Remove a definition — refused while an account or a step names it.
 pub fn remove_connector(inner: &Inner, id: &ConnectorId) -> Result<(), EngineError> {
     inner.ws.remove_connector(id)?;
+    inner.connector_health.invalidate_connector(id);
     announce(inner, ConnectorsChange::Definitions);
     Ok(())
 }
@@ -1168,6 +1251,8 @@ pub fn update_account(
     let updated = inner
         .ws
         .update_connector_account(connector, account, label, params)?;
+    // A parameter feeds the URL and the bodies: a changed one is another way in.
+    inner.connector_health.invalidate(connector, account);
     announce(inner, ConnectorsChange::Accounts);
     Ok(updated)
 }
@@ -1182,6 +1267,7 @@ pub fn set_secrets(
     let updated = inner
         .ws
         .set_connector_secrets(connector, account, &secrets)?;
+    inner.connector_health.invalidate(connector, account);
     announce(inner, ConnectorsChange::Accounts);
     Ok(updated)
 }
@@ -1197,6 +1283,7 @@ pub fn delete_account(
         .connectors
         .pending
         .retain(|_, f| !(&f.connector == connector && f.account == account));
+    inner.connector_health.invalidate(connector, account);
     announce(inner, ConnectorsChange::Accounts);
     Ok(())
 }
@@ -1445,6 +1532,7 @@ mod tests {
                     doc: "The message.".into(),
                 }],
                 output: OutputSpec {
+                    expect: None,
                     select: Some("ts".into()),
                     schema: None,
                 },
@@ -1454,6 +1542,7 @@ mod tests {
                 page: None,
             }],
             check: None,
+            revision: 0,
             created_at: 0,
         }
     }
@@ -1483,6 +1572,9 @@ mod tests {
         assert!(spec.writes);
         assert_eq!(spec.timeout, Duration::from_secs(9));
         let oauth = AuthScheme::OAuth2 {
+            client_id_param: "client_id".into(),
+            code_challenge: Default::default(),
+            scope_join: Default::default(),
             authorization_url: "https://a/auth".into(),
             token_url: "https://a/token".into(),
             scopes: vec!["read".into()],

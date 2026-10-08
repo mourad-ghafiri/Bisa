@@ -1,4 +1,19 @@
 # Built-in connector: Notion — search, pages and databases over the Notion API, as an internal integration.
+#
+# Pinned to `Notion-Version: 2022-06-28`, which Notion keeps serving: the
+# versions from 2025-09-03 on split a database into data sources and
+# address rows by a data source id, which would change the ids a person's
+# steps carry. The one limit Notion names for the older version: a database
+# that has gained a second data source cannot be queried or written through
+# it until the step moves to the newer API.
+#
+# Reference: https://developers.notion.com/reference/versioning
+# Reference: https://developers.notion.com/docs/upgrade-guide-2025-09-03
+# Reference: https://developers.notion.com/docs/authorization
+# Reference: https://developers.notion.com/reference/get-self
+# Reference: https://developers.notion.com/reference/post-search
+# Reference: https://developers.notion.com/reference/post-database-query
+# Reference: https://developers.notion.com/reference/request-limits
 
 [connector]
 name = "Notion"
@@ -7,6 +22,7 @@ tags = ["writing", "planning"]
 base_url = "https://api.notion.com"
 hosts = ["api.notion.com"]
 check = "me"
+revision = 1
 
 [connector.auth]
 scheme = "bearer"
@@ -91,7 +107,7 @@ doc = "A JSON array of block objects for the page's body; [] for an empty page."
 [[connector.operations]]
 id = "query_database"
 name = "Query database"
-description = "Rows of a database matching a filter."
+description = "Rows of a database matching a filter — every row when no filter is given."
 method = "post"
 path = "/v1/databases/{params.database}/query"
 headers = { "Notion-Version" = "2022-06-28" }
@@ -107,8 +123,7 @@ doc = "The 32 hex characters in the database URL, before any ?v=."
 name = "filter"
 label = "Filter"
 kind = "json"
-required = true
-doc = "A Notion filter object: {\"property\": \"Status\", \"select\": {\"equals\": \"Done\"}}"
+doc = "A Notion filter object: {\"property\": \"Status\", \"select\": {\"equals\": \"Done\"}}; empty for every row."
 
 [[connector.operations.params]]
 name = "max"

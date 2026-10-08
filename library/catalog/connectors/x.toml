@@ -1,17 +1,30 @@
 # Built-in connector: X — post and search on X over its v2 API, as the connected user.
+#
+# The API lives on `api.x.com` and the consent page on `x.com`; the token
+# endpoint takes the client's id and secret in a Basic header
+# (`token_auth = "basic"`), the way X documents a confidential client. A
+# refresh token comes only with the `offline.access` scope.
+#
+# Reference: https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/authorization-code
+# Reference: https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/user-access-token
+# Reference: https://docs.x.com/x-api/users/user-lookup-me
+# Reference: https://docs.x.com/x-api/posts/creation-of-a-post
+# Reference: https://docs.x.com/x-api/posts/recent-search
+# Reference: https://docs.x.com/resources/fundamentals/rate-limits
 
 [connector]
 name = "X"
 description = "Post as the connected user and search recent posts. Connect with your own X app (OAuth 2.0 with PKCE); the app needs tweet.read, tweet.write, users.read and offline.access."
 tags = ["marketing", "content"]
-base_url = "https://api.twitter.com"
-hosts = ["api.twitter.com"]
+base_url = "https://api.x.com"
+hosts = ["api.x.com"]
 check = "me"
+revision = 1
 
 [connector.auth]
 scheme = "oauth2"
-authorization_url = "https://twitter.com/i/oauth2/authorize"
-token_url = "https://api.twitter.com/2/oauth2/token"
+authorization_url = "https://x.com/i/oauth2/authorize"
+token_url = "https://api.x.com/2/oauth2/token"
 scopes = ["tweet.read", "tweet.write", "users.read", "offline.access"]
 pkce = true
 extra = { token_auth = "basic" }
@@ -62,7 +75,7 @@ doc = "An X search query: from:handle, #tag, \"a phrase\" -is:retweet."
 name = "max"
 label = "At most"
 kind = "number"
-doc = "Between 10 and 100."
+doc = "Between 10 and 100; X answers 10 unless told otherwise."
 
 [connector.operations.output]
 select = "data"

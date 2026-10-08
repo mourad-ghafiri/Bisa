@@ -5269,6 +5269,9 @@ pub struct ConnectorRow {
     pub auth: String,
     pub hosts: Vec<String>,
     pub operations: Vec<ConnectorOperationRow>,
+    /// The operation *Check* runs, when the definition names one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check: Option<bisa_core::OperationId>,
     pub accounts: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_account: Option<bisa_core::AccountId>,
@@ -5289,6 +5292,7 @@ impl ConnectorRow {
                 .iter()
                 .map(ConnectorOperationRow::from)
                 .collect(),
+            check: c.check.clone(),
             accounts: accounts.len(),
             default_account: accounts.iter().find(|a| a.default).map(|a| a.id),
         }
@@ -5327,8 +5331,8 @@ pub struct ConnectorOauthFacts {
 }
 
 /// One account of a connector on this machine: its label and parameters,
-/// which secret fields are set and where they live. **Never a value** — the
-/// route test asserts it.
+/// which secret fields are set and where they live, and what the last check
+/// found. **Never a value** — the route test asserts it.
 #[derive(Serialize, JsonSchema)]
 #[schemars(rename = "ConnectorAccountRow")]
 pub struct ConnectorAccountRow {
@@ -5341,7 +5345,24 @@ pub struct ConnectorAccountRow {
     pub token_source: SecretSourceDto,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth: Option<ConnectorOauthFacts>,
+    /// What the last check found, for this engine's lifetime; `unknown`
+    /// until one is asked for, and again after the way in changes.
+    pub health: AccountHealthDto,
 }
+
+/// `POST /connectors/{cid}/accounts/{aid}/check`: how long to wait for the
+/// platform, in seconds, clamped to one minute; the engine's twenty when
+/// unsaid. The body itself may be left out.
+#[derive(Default, Deserialize, JsonSchema)]
+#[schemars(rename = "CheckAccountBody")]
+#[serde(deny_unknown_fields)]
+pub struct CheckAccountBody {
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+}
+
+/// The engine's account health, on the wire under the same name.
+pub type AccountHealthDto = bisa_engine::connector_health::AccountHealthView;
 
 impl ConnectorAccountRow {
     pub fn from_parts(
@@ -5349,6 +5370,7 @@ impl ConnectorAccountRow {
         auth: &bisa_core::AuthScheme,
         source: bisa_store::SecretSource,
         now: u64,
+        health: AccountHealthDto,
     ) -> Self {
         let oauth =
             matches!(auth, bisa_core::AuthScheme::OAuth2 { .. }).then(|| ConnectorOauthFacts {
@@ -5365,6 +5387,7 @@ impl ConnectorAccountRow {
             secrets_set: a.auth.fields_set.clone(),
             token_source: source.into(),
             oauth,
+            health,
         }
     }
 }
@@ -5406,8 +5429,9 @@ pub struct OauthCompleteBody {
 
 /// A connector definition as `POST /connectors`, `PUT /connectors/{cid}` and
 /// `POST /connectors/validate` take it: every field of the record but the two
-/// the store stamps (origin, time). The catalog's TOML is the same shape
-/// under `[connector]`, with the slug as the id.
+/// the store stamps (origin, time) and the catalog's revision stamp on a
+/// built-in. The catalog's TOML is the same shape under `[connector]`, with
+/// the slug as the id.
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "ConnectorDefinition")]
 #[serde(deny_unknown_fields)]
@@ -5434,6 +5458,7 @@ impl ConnectorDefinitionBody {
     /// placeholders the rules never read.
     pub fn as_connector(&self) -> Result<bisa_core::Connector, bisa_core::CoreError> {
         Ok(bisa_core::Connector {
+            revision: 0,
             id: self.id.clone(),
             name: self.name.clone(),
             description: self.description.clone(),

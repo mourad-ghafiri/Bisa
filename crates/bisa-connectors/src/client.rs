@@ -83,7 +83,9 @@ impl Client {
 
     /// Send through the host's circuit: refused while it is open, counted
     /// after — a transport error, a timeout or a 5xx is the host's failure;
-    /// anything else closes the circuit.
+    /// anything else closes the circuit. A call dropped before it answers —
+    /// a stopped run, a deadline above this one — settles nothing and lets
+    /// go of the probe it may have been.
     pub(crate) async fn send_judged(
         &self,
         req: &Request,
@@ -92,9 +94,14 @@ impl Client {
         host: &str,
     ) -> Result<Response, ConnectorError> {
         self.breaker.admit(host, self.clock.now())?;
+        let admission = Admission {
+            breaker: &self.breaker,
+            host,
+            settled: false,
+        };
         let result = self.send_with_retry(req, writes, insecure_loopback).await;
         let ok = matches!(&result, Ok(resp) if resp.status < 500);
-        self.breaker.record(host, ok, self.clock.now());
+        admission.settle(ok, self.clock.now());
         result
     }
 
@@ -327,7 +334,12 @@ impl Client {
                     }
                 }
             }
-            let outcome = outcome::parse(&resp, spec.select.as_deref())?;
+            let outcome = outcome::parse(
+                &resp,
+                spec.select.as_deref(),
+                spec.expect.as_ref(),
+                self.clock.now(),
+            )?;
             let Some(paging) = &spec.page else {
                 return Ok(outcome);
             };
@@ -351,6 +363,30 @@ impl Client {
                     })
                 }
             }
+        }
+    }
+}
+
+/// A call admitted through a host's circuit, until its answer is recorded.
+/// Dropped unsettled — the future cancelled mid-send — it abandons the probe
+/// the call may have been, so the circuit never waits on nobody.
+struct Admission<'a> {
+    breaker: &'a Breaker,
+    host: &'a str,
+    settled: bool,
+}
+
+impl Admission<'_> {
+    fn settle(mut self, ok: bool, now: u64) {
+        self.breaker.record(self.host, ok, now);
+        self.settled = true;
+    }
+}
+
+impl Drop for Admission<'_> {
+    fn drop(&mut self) {
+        if !self.settled {
+            self.breaker.abandon(self.host);
         }
     }
 }

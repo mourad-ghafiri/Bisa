@@ -4,8 +4,8 @@
 
 use bisa_core::WorkflowOrigin;
 use bisa_core::{
-    AccountId, ConnectorId, InputDef, InputKind, InputName, OperationId, Origin, SecretField, Step,
-    StepId, StepKind, Tags, ValueRef,
+    AccountId, AuthScheme, ConnectorId, InputDef, InputKind, InputName, OperationId, Origin,
+    SecretField, Step, StepId, StepKind, Tags, ValueRef,
 };
 use bisa_store::{
     CatalogKind, MemoryKeyStore, NewConnectorAccount, NewWorkflow, Paths, ReferenceKind,
@@ -224,4 +224,110 @@ fn the_default_moves_only_to_an_account_that_exists() {
         [("home".to_string(), true), ("work".to_string(), false)],
         "the default first"
     );
+}
+
+/// The catalog's refresh: an installed copy below the bundle's revision is
+/// rewritten with its id, provenance and time kept, and the credential a
+/// scheme change moves goes to the field the new scheme reads — the person
+/// never re-enters it. A copy at the bundle's revision, a person's own
+/// definition, and a bundle entry that does not parse are left alone.
+#[test]
+fn a_catalog_connector_is_refreshed_to_the_bundles_revision_and_its_secret_moves_with_the_scheme() {
+    let (_dir, ws) = ws();
+    ws.install(CatalogKind::Connector, "linear").unwrap();
+    let cid = ConnectorId::new("linear").unwrap();
+    // Age the installed copy to what the bundle shipped before: the bearer
+    // scheme, at no revision.
+    let mut old = ws.get_connector(&cid).unwrap();
+    old.revision = 0;
+    old.auth = AuthScheme::Bearer;
+    let old = ws.update_connector(old).unwrap();
+    let account = ws
+        .create_connector_account(NewConnectorAccount {
+            connector: cid.clone(),
+            label: "work".into(),
+            params: BTreeMap::new(),
+            default: true,
+        })
+        .unwrap();
+    ws.set_connector_secrets(
+        &cid,
+        account.id,
+        &BTreeMap::from([(SecretField::Token, "lin_api_1".to_string())]),
+    )
+    .unwrap();
+    // A person's own copy of a built-in, under another id: never the catalog's.
+    let mine = bisa_store::catalog::parse_connector(
+        "trello",
+        include_str!("../../../../library/catalog/connectors/trello.toml"),
+    )
+    .unwrap()
+    .into_new("my-trello")
+    .unwrap();
+    let mine = ws.create_connector(mine).unwrap();
+    assert_eq!(mine.origin, Origin::Local);
+
+    let refreshed = ws.refresh_catalog_connectors().unwrap();
+    assert_eq!(refreshed.definitions, vec!["linear".to_string()]);
+    assert_eq!(refreshed.accounts_moved, 1);
+    let fresh = ws.get_connector(&cid).unwrap();
+    assert!(
+        matches!(fresh.auth, AuthScheme::ApiKey { .. }),
+        "the bundle's scheme: {:?}",
+        fresh.auth
+    );
+    assert!(fresh.revision >= 1);
+    assert_eq!(fresh.origin, old.origin, "the provenance stays");
+    assert_eq!(fresh.created_at, old.created_at, "and so does the time");
+    assert_eq!(
+        ws.connector_secret(&cid, account.id, SecretField::ApiKey)
+            .unwrap()
+            .as_deref(),
+        Some("lin_api_1"),
+        "the key is the same string under the new scheme's field"
+    );
+    assert_eq!(
+        ws.connector_secret(&cid, account.id, SecretField::Token)
+            .unwrap(),
+        None,
+        "and gone from the old one"
+    );
+    let acct = ws.get_connector_account(&cid, account.id).unwrap();
+    assert_eq!(acct.auth.fields_set, vec![SecretField::ApiKey]);
+    // The record fits its scheme again, so an edit goes through.
+    ws.update_connector_account(&cid, account.id, "work (eu)".into(), BTreeMap::new())
+        .unwrap();
+    assert_eq!(
+        ws.get_connector(&mine.id).unwrap(),
+        mine,
+        "a person's own is untouched"
+    );
+    assert!(
+        ws.refresh_catalog_connectors()
+            .unwrap()
+            .definitions
+            .is_empty(),
+        "a second pass finds nothing to do"
+    );
+
+    // A bundle given by hand: one entry that does not parse costs only
+    // itself, a higher revision of another is taken, an equal one is not.
+    let slack_v9 = include_str!("../../../../library/catalog/connectors/slack.toml")
+        .replace("revision = 1", "revision = 9");
+    ws.install(CatalogKind::Connector, "slack").unwrap();
+    let bundle = [("linear", "this is not toml"), ("slack", slack_v9.as_str())];
+    let refreshed = ws.refresh_catalog_connectors_from(&bundle).unwrap();
+    assert_eq!(refreshed.definitions, vec!["slack".to_string()]);
+    assert_eq!(refreshed.accounts_moved, 0);
+    assert_eq!(ws.get_connector(&slack()).unwrap().revision, 9);
+    assert_eq!(
+        ws.get_connector(&cid).unwrap().revision,
+        fresh.revision,
+        "the entry that did not parse left its copy standing"
+    );
+    assert!(ws
+        .refresh_catalog_connectors_from(&bundle)
+        .unwrap()
+        .definitions
+        .is_empty());
 }

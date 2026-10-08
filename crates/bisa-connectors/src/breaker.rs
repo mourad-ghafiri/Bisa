@@ -7,7 +7,10 @@
 //!
 //! What counts as a failure is the platform's or the network's: a transport
 //! error, a timeout, a 5xx. A refusal — a 4xx, a bad parameter, a host the
-//! policy denies — is the caller's and moves nothing here. The clock is the
+//! policy denies — is the caller's and moves nothing here. A probe whose
+//! call is dropped before it answers — a stopped run, a deadline above the
+//! call — is [`Breaker::abandon`]ed, so the next call after the pause is the
+//! probe instead of waiting on one nobody is making. The clock is the
 //! client's [`crate::creds::Clock`], so a test turns it by hand.
 
 use crate::error::ConnectorError;
@@ -72,6 +75,16 @@ impl Breaker {
         }
     }
 
+    /// The probe out to `host` was dropped before it answered: nothing is
+    /// learnt, and the next call after the pause is the probe. A host with
+    /// no probe out is left as it is.
+    pub fn abandon(&self, host: &str) {
+        let mut hosts = self.hosts.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(state) = hosts.get_mut(host) {
+            state.probing = false;
+        }
+    }
+
     /// Whether calls to `host` are refused right now.
     pub fn is_open(&self, host: &str, now: u64) -> bool {
         let hosts = self.hosts.lock().unwrap_or_else(|p| p.into_inner());
@@ -126,6 +139,31 @@ mod tests {
         assert!(b.is_open("h", later + 1));
         assert!(
             matches!(b.admit("h", later + 1), Err(ConnectorError::Open { until_secs, .. }) if until_secs == COOLDOWN_SECS - 1)
+        );
+    }
+
+    #[test]
+    fn an_abandoned_probe_lets_the_next_call_probe_instead() {
+        let b = Breaker::default();
+        for _ in 0..OPEN_AFTER {
+            b.record("h", false, 0);
+        }
+        let later = COOLDOWN_SECS;
+        assert!(b.admit("h", later).is_ok(), "the probe goes out");
+        assert!(
+            matches!(b.admit("h", later), Err(ConnectorError::Open { .. })),
+            "a second call waits on it"
+        );
+        // The probe's call is dropped: without this, every later call would
+        // wait on an answer that never comes.
+        b.abandon("h");
+        assert!(b.admit("h", later).is_ok(), "the next call is the probe");
+        b.record("h", true, later);
+        assert!(!b.is_open("h", later));
+        b.abandon("other");
+        assert!(
+            b.admit("other", later).is_ok(),
+            "a host with no circuit is untouched"
         );
     }
 

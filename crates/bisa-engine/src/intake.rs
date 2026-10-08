@@ -1847,15 +1847,19 @@ async fn call_connector(
         work_item,
         goal_named,
     );
+    // The hosts a call may reach: the declared ones and, for an OAuth2
+    // scheme, the consent page's and the token endpoint's.
+    let declared = def.declared_hosts();
     let judge = crate::connectors::PolicyHostJudge {
         inner,
         home: screening.home,
         subject: format!("{} {}{}", op.method.as_str(), def.hosts.join("|"), op.path),
-        declared: &def.hosts,
+        declared: &declared,
     };
     let outcome = match crate::connectors::invoke(
         inner,
         crate::connectors::Invocation {
+            deadline: None,
             def: &def,
             op,
             account: acct.as_ref(),

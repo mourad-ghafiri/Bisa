@@ -40,7 +40,8 @@ Two consequences that surprise people:
   the files earlier releases wrote do not have it.
 - **The catalog is content, not contract.** An agent, skill, team, template, connector, addon or pet
   can change or leave the catalog in a minor; what a person installed is theirs and an upgrade never
-  touches it.
+  touches it — except a built-in connector, which the engine refreshes to the bundle's `revision`
+  at start, its accounts, secrets and steps kept ([areas/connectors](areas/connectors.md#compatibility)).
 
 ## Deprecating something
 

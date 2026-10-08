@@ -8,7 +8,7 @@ use crate::creds::{AccountRef, Entropy, Secret, Stored, TokenSet};
 use crate::error::ConnectorError;
 use crate::hosts::HostJudge;
 use crate::http::Request;
-use crate::spec::{AuthSpec, Method};
+use crate::spec::{AuthSpec, ChallengeEncoding, Method, ScopeJoin};
 use base64::Engine as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -37,6 +37,9 @@ struct OAuthParts<'a> {
     scopes: &'a [String],
     pkce: bool,
     extra: &'a std::collections::BTreeMap<String, String>,
+    client_id_param: &'a str,
+    scope_join: ScopeJoin,
+    code_challenge: ChallengeEncoding,
 }
 
 fn oauth_parts(auth: &AuthSpec) -> Result<OAuthParts<'_>, ConnectorError> {
@@ -47,12 +50,18 @@ fn oauth_parts(auth: &AuthSpec) -> Result<OAuthParts<'_>, ConnectorError> {
             scopes,
             pkce,
             extra,
+            client_id_param,
+            scope_join,
+            code_challenge,
         } => Ok(OAuthParts {
             authorization_url,
             token_url,
             scopes,
             pkce: *pkce,
             extra,
+            client_id_param,
+            scope_join: *scope_join,
+            code_challenge: *code_challenge,
         }),
         _ => Err(ConnectorError::BadDefinition(
             "this connector does not authenticate with OAuth2".into(),
@@ -90,7 +99,9 @@ fn scheme_checked(url: &str) -> Result<Url, ConnectorError> {
 }
 
 /// The authorization URL for `client_id`, with a fresh `state` and, when the
-/// scheme asks for PKCE, a fresh verifier whose S256 challenge rides along.
+/// scheme asks for PKCE, a fresh verifier whose S256 challenge rides along —
+/// the client's id under the name the scheme gives it, the scopes joined
+/// as it says, the challenge written as it reads it.
 pub fn authorize_url(
     auth: &AuthSpec,
     client_id: &str,
@@ -103,6 +114,9 @@ pub fn authorize_url(
         scopes,
         pkce,
         extra,
+        client_id_param,
+        scope_join,
+        code_challenge,
         ..
     } = oauth_parts(auth)?;
     let mut url = endpoint(authorization_url, judge)?;
@@ -115,14 +129,18 @@ pub fn authorize_url(
     {
         let mut q = url.query_pairs_mut();
         q.append_pair("response_type", "code");
-        q.append_pair("client_id", client_id);
+        q.append_pair(client_id_param, client_id);
         q.append_pair("redirect_uri", redirect_uri);
         if !scopes.is_empty() {
-            q.append_pair("scope", &scopes.join(" "));
+            q.append_pair("scope", &scopes.join(scope_join.separator()));
         }
         q.append_pair("state", &state);
         if pkce {
-            let challenge = b64url(&Sha256::digest(verifier.as_bytes()));
+            let digest = Sha256::digest(verifier.as_bytes());
+            let challenge = match code_challenge {
+                ChallengeEncoding::Base64url => b64url(&digest),
+                ChallengeEncoding::Hex => hex::encode(digest),
+            };
             q.append_pair("code_challenge", &challenge);
             q.append_pair("code_challenge_method", "S256");
         }
@@ -140,12 +158,13 @@ pub fn authorize_url(
 }
 
 /// A token-endpoint request: a form body, and the client's own credentials
-/// either in the form or, when the definition says `token_auth = "basic"`,
-/// in an `Authorization` header.
+/// either in the form — the id under `client_id_param` — or, when the
+/// definition says `token_auth = "basic"`, in an `Authorization` header.
 fn token_request(
     token_url: &str,
     judge: &dyn HostJudge,
     extra: &std::collections::BTreeMap<String, String>,
+    client_id_param: &str,
     stored: &Stored,
     pairs: Vec<(&str, String)>,
     timeout: Duration,
@@ -168,7 +187,7 @@ fn token_request(
         form.append_pair(k, v);
     }
     if !basic {
-        form.append_pair("client_id", &client_id);
+        form.append_pair(client_id_param, &client_id);
         if let Some(secret) = &client_secret {
             form.append_pair("client_secret", secret);
         }
@@ -257,6 +276,7 @@ pub async fn exchange(
         token_url,
         pkce,
         extra,
+        client_id_param,
         ..
     } = oauth_parts(auth)?;
     let stored = client.creds().load(account).await?;
@@ -272,6 +292,7 @@ pub async fn exchange(
         token_url,
         judge,
         extra,
+        client_id_param,
         &stored,
         pairs,
         client.oauth_timeout(),
@@ -291,7 +312,10 @@ pub async fn refresh(
     judge: &dyn HostJudge,
 ) -> Result<TokenSet, ConnectorError> {
     let OAuthParts {
-        token_url, extra, ..
+        token_url,
+        extra,
+        client_id_param,
+        ..
     } = oauth_parts(auth)?;
     let refresh_token = stored
         .field(crate::creds::Field::RefreshToken)
@@ -309,6 +333,7 @@ pub async fn refresh(
         token_url,
         judge,
         extra,
+        client_id_param,
         stored,
         pairs,
         client.oauth_timeout(),
@@ -387,7 +412,7 @@ async fn token_body(
         .send_judged(req, true, false, &host)
         .await
         .map_err(|e| e.scrubbed(&refs(secrets)))?;
-    match crate::outcome::parse(&resp, None) {
+    match crate::outcome::parse(&resp, None, None, client.now()) {
         Ok(outcome) => Ok(outcome.body),
         Err(e) => Err(e.scrubbed(&refs(secrets))),
     }

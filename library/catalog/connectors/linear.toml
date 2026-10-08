@@ -1,20 +1,30 @@
 # Built-in connector: Linear — issues over Linear's GraphQL API.
 #
-# Linear reads a personal API key from the Authorization header, and it accepts
-# the `Bearer` form the platform sends, so the scheme is bearer: paste the key
-# as the token. GraphQL's own braces are doubled: a definition's `{…}` is a
+# Linear reads a personal API key from the Authorization header bare —
+# `Authorization: <key>`, the `Bearer` form being for OAuth tokens — so the
+# scheme is an api_key in that header: paste the key as the secret. A
+# GraphQL failure is an HTTP 200 whose body carries `errors`, so every
+# operation expects none; a rate limit is an HTTP 400 with the code
+# `RATELIMITED`. GraphQL's own braces are doubled: a definition's `{…}` is a
 # placeholder.
+#
+# Reference: https://linear.app/developers/graphql
+# Reference: https://linear.app/developers/pagination
+# Reference: https://linear.app/developers/rate-limiting
+# Reference: https://github.com/linear/linear/blob/master/packages/sdk/src/schema.graphql
 
 [connector]
 name = "Linear"
-description = "List and create issues over Linear's GraphQL API. Paste a personal API key from Settings › API as the token."
+description = "List and create issues over Linear's GraphQL API. Paste a personal API key from Settings › API as the secret."
 tags = ["engineering", "product"]
 base_url = "https://api.linear.app"
 hosts = ["api.linear.app"]
 check = "viewer"
+revision = 1
 
 [connector.auth]
-scheme = "bearer"
+scheme = "api_key"
+place = { in = "header", name = "Authorization" }
 
 [[connector.operations]]
 id = "viewer"
@@ -26,6 +36,7 @@ body = { kind = "json", value = { query = "query {{ viewer {{ id name email }} }
 
 [connector.operations.output]
 select = "data.viewer"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
 
 [[connector.operations]]
 id = "issues"
@@ -40,10 +51,11 @@ name = "first"
 label = "At most"
 kind = "number"
 required = true
-doc = "How many issues, newest first; up to 250."
+doc = "How many issues, most recently updated first; Linear answers 50 unless told otherwise."
 
 [connector.operations.output]
 select = "data.issues.nodes"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }
 
 [[connector.operations]]
 id = "create_issue"
@@ -73,3 +85,4 @@ doc = "Markdown."
 
 [connector.operations.output]
 select = "data.issueCreate"
+expect = { path = "errors", absent = true, reason = "errors.0.message" }

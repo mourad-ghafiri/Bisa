@@ -3,7 +3,14 @@
 # Trello authenticates a call with two query values: the app's API key, which
 # identifies the app and is public, and the member's token, which is the secret.
 # So the token is the api_key secret sent as `token`, and the key is an account
-# parameter every operation adds to its query.
+# parameter every operation adds to its query. A revoked or wrong token is a
+# 401 `invalid token`; a wrong key a 401 `invalid key`.
+#
+# Reference: https://developer.atlassian.com/cloud/trello/guides/rest-api/authorization/
+# Reference: https://developer.atlassian.com/cloud/trello/rest/api-group-members/
+# Reference: https://developer.atlassian.com/cloud/trello/rest/api-group-boards/
+# Reference: https://developer.atlassian.com/cloud/trello/rest/api-group-cards/
+# Reference: https://developer.atlassian.com/cloud/trello/guides/rest-api/rate-limits/
 
 [connector]
 name = "Trello"

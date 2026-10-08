@@ -35,6 +35,7 @@ pub fn concept_of(payload: &EnginePayload) -> Option<ActivityConcept> {
         | EnginePayload::DrawingRequest { .. }
         | EnginePayload::MobileDevelopmentChanged { .. }
         | EnginePayload::McpProbed { .. }
+        | EnginePayload::ConnectorChecked { .. }
         | EnginePayload::ChangesMoved { .. }
         | EnginePayload::AskOpened { .. }
         | EnginePayload::AskSettled { .. }

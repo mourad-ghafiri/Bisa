@@ -114,6 +114,9 @@ async fn oauth2_bearer() {
         scopes: vec![],
         pkce: true,
         extra: BTreeMap::new(),
+        client_id_param: bisa_connectors::DEFAULT_CLIENT_ID_PARAM.into(),
+        scope_join: Default::default(),
+        code_challenge: Default::default(),
     };
     let (stub, out) = call_with(auth, Stored::default().with(Field::AccessToken, "at-1")).await;
     out.unwrap();

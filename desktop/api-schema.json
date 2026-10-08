@@ -478,6 +478,12 @@
     "KeyPlace": {
       "$ref": "#/definitions/KeyPlace"
     },
+    "ScopeJoin": {
+      "$ref": "#/definitions/ScopeJoin"
+    },
+    "ChallengeEncoding": {
+      "$ref": "#/definitions/ChallengeEncoding"
+    },
     "JwtAlg": {
       "$ref": "#/definitions/JwtAlg"
     },
@@ -501,6 +507,9 @@
     },
     "ConnectorParamKind": {
       "$ref": "#/definitions/ConnectorParamKind"
+    },
+    "Expect": {
+      "$ref": "#/definitions/Expect"
     },
     "Idempotency": {
       "$ref": "#/definitions/Idempotency"
@@ -529,6 +538,15 @@
     "ConnectorOauthFacts": {
       "$ref": "#/definitions/ConnectorOauthFacts"
     },
+    "AccountHealthView": {
+      "$ref": "#/definitions/AccountHealthView"
+    },
+    "AccountHealthState": {
+      "$ref": "#/definitions/AccountHealthState"
+    },
+    "AccountCheckState": {
+      "$ref": "#/definitions/AccountCheckState"
+    },
     "NewConnectorAccount": {
       "$ref": "#/definitions/NewConnectorAccount"
     },
@@ -550,8 +568,8 @@
     "AccountCheck": {
       "$ref": "#/definitions/AccountCheck"
     },
-    "AccountCheckState": {
-      "$ref": "#/definitions/AccountCheckState"
+    "CheckAccountBody": {
+      "$ref": "#/definitions/CheckAccountBody"
     },
     "AccountsView": {
       "$ref": "#/definitions/AccountsView"
@@ -9780,7 +9798,7 @@
           "items": {
             "type": "string"
           },
-          "description": "The only hosts a call may reach, `host[:port]` or `*.suffix`. The base\nURL's host must be one of them."
+          "description": "The only hosts a call may reach, `host[:port]` or `*.suffix`. The base\nURL's host must be one of them. An OAuth2 scheme's consent page and\ntoken endpoint are declared by their own URLs ([`Self::oauth_hosts`])\nand need no row here."
         },
         "insecure_tls": {
           "type": "boolean",
@@ -9812,6 +9830,12 @@
             }
           ],
           "description": "The operation *Check* runs to prove an account works: one with no\nrequired parameter, and one that writes nothing."
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The catalog's stamp on a built-in: the bundled definition's revision\nwhen it was installed or last refreshed. A person's own definition\nhas none (0, not written). The engine refreshes an installed built-in\nat start when the bundle's revision is higher."
         },
         "created_at": {
           "type": "integer",
@@ -9958,6 +9982,26 @@
               },
               "description": "Extra query pairs on the authorization URL (`access_type=offline`,\n`prompt=consent`) and the token request's `token_auth = \"basic\"`."
             },
+            "client_id_param": {
+              "type": "string",
+              "description": "The name the client's id travels under, on the authorization URL\nand in the token form: `client_id` (RFC 6749) unless the platform\nspells it otherwise (TikTok's `client_key`)."
+            },
+            "scope_join": {
+              "description": "How the scopes are joined on the authorization URL: by a space\n(RFC 6749) or, where the platform says so, by a comma.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ScopeJoin"
+                }
+              ]
+            },
+            "code_challenge": {
+              "description": "How the PKCE challenge is written: the base64url of the SHA-256\n(RFC 7636) or, where the platform says so, its hex.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ChallengeEncoding"
+                }
+              ]
+            },
             "scheme": {
               "type": "string",
               "const": "oauth2"
@@ -10048,6 +10092,36 @@
         }
       ],
       "description": "Where an API key goes."
+    },
+    "ScopeJoin": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "space",
+          "description": "`scope=a b` — RFC 6749's space."
+        },
+        {
+          "type": "string",
+          "const": "comma",
+          "description": "`scope=a,b` — the platforms that say so (TikTok, Slack, Linear)."
+        }
+      ],
+      "description": "How an OAuth2 scheme joins its scopes on the authorization URL."
+    },
+    "ChallengeEncoding": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "base64url",
+          "description": "The base64url, no padding, of the SHA-256 — RFC 7636's `S256`."
+        },
+        {
+          "type": "string",
+          "const": "hex",
+          "description": "The lowercase hex of the SHA-256 — what TikTok's desktop flow reads\nunder the same `S256` word."
+        }
+      ],
+      "description": "How an OAuth2 scheme writes the PKCE challenge of its verifier."
     },
     "JwtAlg": {
       "oneOf": [
@@ -10397,9 +10471,42 @@
           "type": "string",
           "const": "file",
           "description": "A path inside the run's checkout; the engine reads the bytes when the\nstep runs and the model never sees them. Only a multipart part or a\nraw body may carry it — never a template."
+        },
+        {
+          "type": "string",
+          "const": "path",
+          "description": "A slash-separated path on the platform — a note's place in a vault,\na file's in a tree. In a URL path its slashes stay and each segment\nis percent-encoded on its own; anywhere else it is text."
         }
       ],
       "description": "What a parameter's value is, once rendered."
+    },
+    "Expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "A dotted path into the answer."
+        },
+        "equals": {
+          "description": "The value the path must hold (`true`, `\"ok\"`)."
+        },
+        "absent": {
+          "type": "boolean",
+          "description": "The path must resolve to nothing — an answer with no `errors`."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A dotted path to the platform's sentence when the expectation fails\n(`error`, `errors.0.message`)."
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "description": "What a 2xx answer must say for the call to count — Slack's `ok`, a\nGraphQL answer's `errors`, a status page's `authenticated`. Exactly one\nof `equals` and `absent`; a miss is a refusal with the platform's own\nsentence read at `reason`."
     },
     "Idempotency": {
       "type": "object",
@@ -10497,6 +10604,17 @@
           "items": {
             "$ref": "#/definitions/ConnectorOperation"
           }
+        },
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The operation *Check* runs, when the definition names one."
         },
         "accounts": {
           "type": "integer",
@@ -10625,6 +10743,14 @@
               "type": "null"
             }
           ]
+        },
+        "health": {
+          "description": "What the last check found, for this engine's lifetime; `unknown`\nuntil one is asked for, and again after the way in changes.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AccountHealthView"
+            }
+          ]
         }
       },
       "required": [
@@ -10634,9 +10760,10 @@
         "params",
         "default",
         "secrets_set",
-        "token_source"
+        "token_source",
+        "health"
       ],
-      "description": "One account of a connector on this machine: its label and parameters,\nwhich secret fields are set and where they live. **Never a value** — the\nroute test asserts it."
+      "description": "One account of a connector on this machine: its label and parameters,\nwhich secret fields are set and where they live, and what the last check\nfound. **Never a value** — the route test asserts it."
     },
     "SecretSource": {
       "type": "string",
@@ -10672,6 +10799,87 @@
         "expired"
       ],
       "description": "What an OAuth account knows about its tokens — never the tokens."
+    },
+    "AccountHealthView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/AccountHealthState"
+        },
+        "checked_at": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AccountCheckState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the last check found, in its own word."
+        },
+        "status": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "description": "An account's health as the node answers it on every account row: nothing\nyet, fine, or not — with what the last check found. Read back as well as\nwritten: the command line takes the node's rows whole."
+    },
+    "AccountHealthState": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "ok",
+        "failing"
+      ],
+      "description": "Where an account's health stands: nothing yet, fine, or not."
+    },
+    "AccountCheckState": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "connected",
+          "description": "The check operation answered."
+        },
+        {
+          "type": "string",
+          "const": "refused",
+          "description": "The platform refused the credential, the host or the request."
+        },
+        {
+          "type": "string",
+          "const": "unreachable",
+          "description": "The platform could not be reached, or failed."
+        },
+        {
+          "type": "string",
+          "const": "no_check",
+          "description": "The definition names no check operation."
+        }
+      ],
+      "description": "What one live request as the account found."
     },
     "NewConnectorAccount": {
       "type": "object",
@@ -10799,7 +11007,7 @@
         "auth",
         "operations"
       ],
-      "description": "A connector definition as `POST /connectors`, `PUT /connectors/{cid}` and\n`POST /connectors/validate` take it: every field of the record but the two\nthe store stamps (origin, time). The catalog's TOML is the same shape\nunder `[connector]`, with the slug as the id."
+      "description": "A connector definition as `POST /connectors`, `PUT /connectors/{cid}` and\n`POST /connectors/validate` take it: every field of the record but the two\nthe store stamps (origin, time) and the catalog's revision stamp on a\nbuilt-in. The catalog's TOML is the same shape under `[connector]`, with\nthe slug as the id."
     },
     "ConnectorProblem": {
       "type": "object",
@@ -10891,30 +11099,21 @@
         "state"
       ]
     },
-    "AccountCheckState": {
-      "oneOf": [
-        {
-          "type": "string",
-          "const": "connected",
-          "description": "The check operation answered."
-        },
-        {
-          "type": "string",
-          "const": "refused",
-          "description": "The platform refused the credential, the host or the request."
-        },
-        {
-          "type": "string",
-          "const": "unreachable",
-          "description": "The platform could not be reached, or failed."
-        },
-        {
-          "type": "string",
-          "const": "no_check",
-          "description": "The definition names no check operation."
+    "CheckAccountBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_secs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
         }
-      ],
-      "description": "What one live request as the account found."
+      },
+      "description": "`POST /connectors/{cid}/accounts/{aid}/check`: how long to wait for the\nplatform, in seconds, clamped to one minute; the engine's twenty when\nunsaid. The body itself may be left out."
     },
     "AccountsView": {
       "type": "object",
@@ -11604,6 +11803,17 @@
         },
         "schema": {
           "description": "A JSON Schema the selected value satisfies — the shape a later step\nmay rely on."
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Expect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a 2xx answer must say for the call to have succeeded, for the\nplatforms that answer a failure with a 200: read before `select`."
         }
       },
       "description": "What of the response becomes the step's output."

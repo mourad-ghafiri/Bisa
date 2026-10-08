@@ -200,6 +200,7 @@ const RENDERED_ENGINE: Record<EngineEvent["payload"]["type"], true> = {
   redacted: true,
   content_screened: true,
   mcp_probed: true,
+  connector_checked: true,
   model_switched: true,
   signal_received: true,
   listener_fired: true,

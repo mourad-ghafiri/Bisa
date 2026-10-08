@@ -12,8 +12,9 @@
 //! typed; a catalog definition is the catalog's and is never edited here.
 
 use crate::dto::{
-    ConnectorAccountRow, ConnectorDefinitionBody, ConnectorDetailDto, ConnectorProblemDto,
-    ConnectorRow, ConnectorValidationDto, NewConnectorAccountBody, OauthCompleteBody,
+    CheckAccountBody, ConnectorAccountRow, ConnectorDefinitionBody, ConnectorDetailDto,
+    ConnectorProblemDto, ConnectorRow, ConnectorValidationDto, NewConnectorAccountBody,
+    OauthCompleteBody,
 };
 use crate::route_docs::RouteDoc;
 use crate::Query;
@@ -104,11 +105,13 @@ fn account_rows(state: &Shared, def: &Connector) -> Result<Vec<ConnectorAccountR
     let mut out = Vec::new();
     for a in ws.list_connector_accounts(&def.id)? {
         let facts = ws.connector_account_secrets(&def.id, a.id)?;
+        let health = state.engine.inner().connector_health.view_of(&def.id, a.id);
         out.push(ConnectorAccountRow::from_parts(
             &a,
             &def.auth,
             facts.source,
             now,
+            health,
         ));
     }
     Ok(out)
@@ -123,11 +126,13 @@ fn account_row(
         .engine
         .workspace()
         .connector_account_secrets(&def.id, a.id)?;
+    let health = state.engine.inner().connector_health.view_of(&def.id, a.id);
     Ok(ConnectorAccountRow::from_parts(
         a,
         &def.auth,
         facts.source,
         now_secs(),
+        health,
     ))
 }
 
@@ -395,11 +400,17 @@ async fn delete_account(
 async fn check_account(
     State(state): State<Shared>,
     AxPath((cid, aid)): AxPath<(String, String)>,
+    body: Option<crate::Body<CheckAccountBody>>,
 ) -> Result<Json<eng::AccountCheck>, ApiError> {
     let cid = parse_connector_id(&cid)?;
     let aid = parse_account_id(&aid)?;
+    let budget = body.and_then(|crate::Body(b)| b.timeout_secs);
+    let inner = state.engine.inner();
     Ok(Json(
-        eng::check_account(state.engine.inner(), &cid, aid).await?,
+        inner
+            .connector_health
+            .check(inner, &cid, aid, budget)
+            .await?,
     ))
 }
 
@@ -688,7 +699,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/connectors",
-        summary: "Every connector this workspace holds — the catalog's and your own — as `{connectors: ConnectorRow[]}`: auth scheme, hosts, operations with their parameters, how many accounts this machine has and which is the default. `?tag=` narrows.",
+        summary: "Every connector this workspace holds — the catalog's and your own — as `{connectors: ConnectorRow[]}`: auth scheme, hosts, operations with their parameters, the `check` operation, how many accounts this machine has and which is the default. `?tag=` narrows.",
     },
     RouteDoc {
         method: "POST",
@@ -718,7 +729,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/connectors/{cid}/accounts",
-        summary: "This machine's accounts for the connector: `{accounts: ConnectorAccountRow[]}` — label, parameters, the default mark, the secret fields set and their source (`file` or `keyring`), an OAuth account's expiry. Never a token.",
+        summary: "This machine's accounts for the connector: `{accounts: ConnectorAccountRow[]}` — label, parameters, the default mark, the secret fields set and their source (`file` or `keyring`), an OAuth account's expiry, and `health`: what the last check found (`unknown | ok | failing`, when, the status and the reason), kept for the engine's lifetime and forgotten when the way in changes. Never a token.",
     },
     RouteDoc {
         method: "PUT",
@@ -733,7 +744,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/connectors/{cid}/accounts/{aid}/check",
-        summary: "Run the connector's `check` operation as the account — one live request: `{state: connected | refused | unreachable | no_check, status?, reason?}`, the reason redacted.",
+        summary: "Run the connector's `check` operation as the account — one live request within `{timeout_secs?}` (1–60, the engine's 20 unsaid; the body may be left out): `{state: connected | refused | unreachable | no_check, status?, reason?}`, the reason redacted. The answer is kept as the account's `health`, a check already running for the account is joined, and the bus hears `connectors.checked`.",
     },
     RouteDoc {
         method: "PUT",

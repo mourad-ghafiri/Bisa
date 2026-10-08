@@ -457,17 +457,26 @@ A built-in connector is one TOML file under `library/catalog/connectors/<slug>.t
 is nested, `writes` when it changes something, and — when the platform's documentation names them —
 `timeout_secs` for its own deadline, `idempotency = { header = "…" }` on a write the platform can
 tell a resend from, `page = { cursor_param, next_cursor, max_pages }` on a read that selects a list
-and pages), and `check` — an operation with no required
-parameter that writes nothing, the one Settings presses.
+and pages, `output.expect = { path, equals | absent, reason }` on a platform that answers a failure
+with a 200, a `path` parameter where a value is a slash-separated path on the platform, and an
+OAuth2 scheme's `client_id_param`, `scope_join` or `code_challenge` where the platform's spelling
+differs from the RFCs'), `check` — an operation with no required parameter that writes nothing,
+the one Settings presses — and `revision`, the stamp the engine reads at start.
 
-1. The file, then its row in `CATALOG_CONNECTORS` (`crates/bisa-store/src/catalog.rs`) and the
-   slug in `the_catalog_ships_fifteen_connectors`.
+1. The file — its header opening with `# Reference:` lines naming the platform documentation each
+   operation was checked against — then its row in `CATALOG_CONNECTORS`
+   (`crates/bisa-store/src/catalog.rs`), the slug in `the_catalog_ships_fifteen_connectors` and its
+   `revision` in `the_catalog_connector_revisions_are_pinned`. **A change to a shipped file bumps its
+   `revision`**: that is what carries the change to an installed copy at the next engine start.
 2. `every_connector_is_well_formed` runs `Connector::validate` on it, checks its tags, that every
-   operation and parameter is described, that `check` is set and does not write, and installs it
-   into a scratch workspace — so a placeholder that names an undeclared parameter, a reserved
-   header, a base host missing from `hosts`, or `insecure_tls` off loopback fails here.
-3. `just gen-catalog-docs`; a paragraph in [`guide/connectors.md`](../guide/connectors.md) saying
-   what to create at the platform and where the credential goes.
+   operation and parameter is described, that `check` is set and does not write, that an optional
+   parameter in a JSON body is a whole leaf, and installs it into a scratch workspace — so a
+   placeholder that names an undeclared parameter, a reserved header, a base host missing from
+   `hosts`, or `insecure_tls` off loopback fails here.
+3. A request-shape pin in `crates/bisa-engine/tests/it/catalog_connectors.rs`: the operations
+   built as the engine builds them, held to what the platform's documentation says.
+4. `just gen-catalog-docs`; a paragraph in [`guide/connectors.md`](../guide/connectors.md) saying
+   what to create at the platform and where the credential goes, with the reference beside it.
 
 A custom connector is the same TOML through `bisa connector new --from <file>` or the same
 JSON through `POST /connectors` — validated first, refused by name, and removable only while no

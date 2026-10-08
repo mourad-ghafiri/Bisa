@@ -5,298 +5,21 @@
 
 use crate::common;
 
-use axum::body::Bytes;
-use axum::extract::{Request as AxumRequest, State};
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response as AxumResponse};
-use axum::routing::any;
-use axum::Router;
 use bisa_core::{
     AccountId, AuthScheme, ConnectorId, Flow, HttpMethod, InputDef, InputKind, InputName,
-    Operation, OperationBody, OperationId, OutputSpec, ParamDef, ParamKind, Part, PartSource,
-    ProblemKind, RunOutcome, SecretField, SettingScope, StepKind, StepState, ValueRef,
+    Operation, OperationBody, OperationId, OutputSpec, ParamKind, Part, PartSource, ProblemKind,
+    RunOutcome, SecretField, SettingScope, StepKind, StepState, ValueRef,
 };
 use bisa_engine::connectors::{self, ConnectorRoster};
 use bisa_engine::{Engine, EngineConfig, EnginePayload};
 use bisa_harness::mock::MockAdapter;
 use bisa_store::{NewConnector, NewConnectorAccount};
 use common::*;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
-// ---------------------------------------------------------------------------
-// A stub platform on the loopback interface
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug)]
-struct Canned {
-    method: String,
-    path: String,
-    status: u16,
-    body: Value,
-    /// How long the stub sits on the answer — a platform that is slow.
-    delay_ms: u64,
-}
-
-#[derive(Clone, Debug)]
-struct Call {
-    method: String,
-    path: String,
-    body: Value,
-    text: String,
-    content_type: Option<String>,
-    authorization: Option<String>,
-    /// The write's key, when the request carried one.
-    idempotency_key: Option<String>,
-}
-
-#[derive(Clone)]
-struct Shared {
-    answers: Arc<Mutex<VecDeque<Canned>>>,
-    calls: Arc<Mutex<Vec<Call>>>,
-}
-
-struct Stub {
-    base_url: String,
-    host: String,
-    shared: Shared,
-}
-
-impl Stub {
-    async fn start(answers: Vec<Canned>) -> Self {
-        let shared = Shared {
-            answers: Arc::new(Mutex::new(answers.into_iter().collect())),
-            calls: Arc::new(Mutex::new(Vec::new())),
-        };
-        let app = Router::new()
-            .fallback(any(handle))
-            .with_state(shared.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            let _served = axum::serve(listener, app).await;
-        });
-        Self {
-            base_url: format!("http://{addr}"),
-            host: addr.to_string(),
-            shared,
-        }
-    }
-
-    fn calls(&self) -> Vec<Call> {
-        self.shared.calls.lock().unwrap().clone()
-    }
-}
-
-async fn handle(State(shared): State<Shared>, req: AxumRequest) -> AxumResponse {
-    let (parts, body) = req.into_parts();
-    let bytes: Bytes = axum::body::to_bytes(body, 1 << 20)
-        .await
-        .unwrap_or_default();
-    let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    let text = String::from_utf8_lossy(&bytes).into_owned();
-    let method = parts.method.to_string();
-    let path = parts.uri.path().to_string();
-    shared.calls.lock().unwrap().push(Call {
-        method: method.clone(),
-        path: path.clone(),
-        body,
-        text,
-        content_type: parts
-            .headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string),
-        authorization: parts
-            .headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string),
-        idempotency_key: parts
-            .headers
-            .get("idempotency-key")
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string),
-    });
-    let canned = {
-        let mut answers = shared.answers.lock().unwrap();
-        let at = answers
-            .iter()
-            .position(|a| a.method.eq_ignore_ascii_case(&method) && a.path == path);
-        at.and_then(|i| answers.remove(i))
-    };
-    if let Some(c) = &canned {
-        if c.delay_ms > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(c.delay_ms)).await;
-        }
-    }
-    match canned {
-        Some(c) => (StatusCode::from_u16(c.status).unwrap(), axum::Json(c.body)).into_response(),
-        None => (
-            StatusCode::NOT_IMPLEMENTED,
-            axum::Json(json!({"message": format!("the stub has no answer for {method} {path}")})),
-        )
-            .into_response(),
-    }
-}
-
-fn canned(method: &str, path: &str, status: u16, body: Value) -> Canned {
-    Canned {
-        method: method.into(),
-        path: path.into(),
-        status,
-        body,
-        delay_ms: 0,
-    }
-}
-
-/// An answer the stub sits on for `delay_ms` first.
-fn slow(method: &str, path: &str, status: u16, body: Value, delay_ms: u64) -> Canned {
-    Canned {
-        delay_ms,
-        ..canned(method, path, status, body)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Definitions and accounts
-// ---------------------------------------------------------------------------
-
-fn param(name: &str, kind: ParamKind, required: bool) -> ParamDef {
-    ParamDef {
-        name: InputName::new(name).unwrap(),
-        label: name.to_uppercase(),
-        kind,
-        required,
-        doc: format!("The {name}."),
-    }
-}
-
-/// A chat platform on the stub: `post` writes `{ text }` and selects `ts`;
-/// `whoami` is the check.
-fn chat(stub: &Stub, auth: AuthScheme) -> NewConnector {
-    NewConnector {
-        id: ConnectorId::new("chat").unwrap(),
-        name: "Chat".into(),
-        description: "A chat platform on the stub.".into(),
-        tags: Default::default(),
-        base_url: stub.base_url.clone(),
-        hosts: vec![stub.host.clone()],
-        insecure_tls: false,
-        auth,
-        params: vec![],
-        operations: vec![
-            Operation {
-                id: OperationId::new("post").unwrap(),
-                name: "Post".into(),
-                description: "Posts a message.".into(),
-                method: HttpMethod::Post,
-                path: "/post".into(),
-                query: BTreeMap::new(),
-                headers: BTreeMap::new(),
-                body: Some(OperationBody::Json {
-                    value: json!({"text": "{params.text}", "extra": "{params.extra}"}),
-                }),
-                params: vec![
-                    param("text", ParamKind::Text, true),
-                    param("extra", ParamKind::Json, false),
-                ],
-                output: OutputSpec {
-                    select: Some("ts".into()),
-                    schema: None,
-                },
-                writes: true,
-                timeout_secs: None,
-                idempotency: None,
-                page: None,
-            },
-            Operation {
-                id: OperationId::new("whoami").unwrap(),
-                name: "Who am I".into(),
-                description: "Answers who the token is.".into(),
-                method: HttpMethod::Get,
-                path: "/whoami".into(),
-                query: BTreeMap::new(),
-                headers: BTreeMap::new(),
-                body: None,
-                params: vec![],
-                output: OutputSpec::default(),
-                writes: false,
-                timeout_secs: None,
-                idempotency: None,
-                page: None,
-            },
-        ],
-        check: Some(OperationId::new("whoami").unwrap()),
-    }
-}
-
-fn install_chat(engine: &Engine, stub: &Stub, token: Option<&str>) -> Option<AccountId> {
-    install_chat_shaped(engine, stub, token, |_| {})
-}
-
-/// `install_chat` with the `post` operation reshaped first — a deadline of
-/// its own, a key header.
-fn install_chat_shaped(
-    engine: &Engine,
-    stub: &Stub,
-    token: Option<&str>,
-    shape: impl FnOnce(&mut Operation),
-) -> Option<AccountId> {
-    let ws = engine.workspace();
-    let auth = if token.is_some() {
-        AuthScheme::Bearer
-    } else {
-        AuthScheme::None
-    };
-    let mut def = chat(stub, auth);
-    shape(&mut def.operations[0]);
-    ws.create_connector(def).unwrap();
-    token.map(|t| {
-        let account = ws
-            .create_connector_account(NewConnectorAccount {
-                connector: ConnectorId::new("chat").unwrap(),
-                label: "work".into(),
-                params: BTreeMap::new(),
-                default: true,
-            })
-            .unwrap();
-        ws.set_connector_secrets(
-            &ConnectorId::new("chat").unwrap(),
-            account.id,
-            &BTreeMap::from([(SecretField::Token, t.to_string())]),
-        )
-        .unwrap();
-        account.id
-    })
-}
-
-fn post_step(
-    id: &str,
-    account: Option<ValueRef<AccountId>>,
-    extra: Option<&str>,
-) -> bisa_core::Step {
-    let mut params = BTreeMap::from([("text".to_string(), "hello {goal.statement}".to_string())]);
-    if let Some(extra) = extra {
-        params.insert("extra".to_string(), extra.to_string());
-    }
-    step(
-        id,
-        StepKind::Connector {
-            connector: Some(ConnectorId::new("chat").unwrap()),
-            operation: Some(OperationId::new("post").unwrap()),
-            account,
-            params,
-            output_schema: None,
-            // Every test here runs the write on its own word; the gate rule
-            // is the validator's, tested in the core.
-            unattended: true,
-        },
-    )
-}
-
-const TOKEN: &str = "xoxb-not-a-real-token-at-all";
+use common::stub::*;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_connector_step_completes_with_the_selected_output() {
@@ -487,6 +210,9 @@ async fn oauth_start_complete_persists_tokens_and_a_bad_state_is_refused() {
     let mut def = chat(
         &stub,
         AuthScheme::OAuth2 {
+            client_id_param: "client_id".into(),
+            code_challenge: Default::default(),
+            scope_join: Default::default(),
             authorization_url: format!("{}/auth", stub.base_url),
             token_url: format!("{}/token", stub.base_url),
             scopes: vec!["chat".into()],
@@ -734,14 +460,24 @@ async fn check_account_runs_the_check_operation() {
     let engine = engine_with(&dir, vec![MockAdapter::default()]);
     let account = install_chat(&engine, &stub, Some(TOKEN)).unwrap();
     let cid = ConnectorId::new("chat").unwrap();
-    let ok = connectors::check_account(engine.inner(), &cid, account)
-        .await
-        .unwrap();
+    let ok = connectors::check_account(
+        engine.inner(),
+        &cid,
+        account,
+        connectors::check_budget(None),
+    )
+    .await
+    .unwrap();
     assert_eq!(ok.state, connectors::AccountCheckState::Connected);
     assert_eq!(ok.status, Some(200));
-    let refused = connectors::check_account(engine.inner(), &cid, account)
-        .await
-        .unwrap();
+    let refused = connectors::check_account(
+        engine.inner(),
+        &cid,
+        account,
+        connectors::check_budget(None),
+    )
+    .await
+    .unwrap();
     assert_eq!(refused.state, connectors::AccountCheckState::Refused);
     assert_eq!(refused.status, Some(401));
     assert!(!refused.reason.unwrap_or_default().contains(TOKEN));
@@ -862,6 +598,7 @@ fn media(stub: &Stub) -> NewConnector {
                 param("video", ParamKind::File, true),
             ],
             output: OutputSpec {
+                expect: None,
                 select: Some("id".into()),
                 schema: None,
             },
@@ -1148,5 +885,171 @@ async fn an_agent_reads_through_a_connector_and_is_refused_a_write() {
         "{refused}"
     );
     assert_eq!(stub.calls().len(), 1, "nothing was posted");
+    engine.shutdown().await;
+}
+
+/// The engine's start brings an installed catalog connector to the bundle's
+/// revision — the definition rewritten, the credential moved to the field
+/// the new scheme reads — and says so in the activity feed, since the bus
+/// has nobody yet. A plain open never did it: this is a truth write, under
+/// the engine's lock.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_start_refreshes_an_installed_catalog_connector_and_moves_its_secret() {
+    let dir = tempfile::tempdir().unwrap();
+    let cid = ConnectorId::new("linear").unwrap();
+    let account = {
+        let ws = workspace(&dir);
+        ws.install(bisa_store::CatalogKind::Connector, "linear")
+            .unwrap();
+        // The copy an earlier bundle installed: the bearer scheme, no revision.
+        let mut old = ws.get_connector(&cid).unwrap();
+        old.revision = 0;
+        old.auth = AuthScheme::Bearer;
+        ws.update_connector(old).unwrap();
+        let account = ws
+            .create_connector_account(NewConnectorAccount {
+                connector: cid.clone(),
+                label: "work".into(),
+                params: BTreeMap::new(),
+                default: true,
+            })
+            .unwrap();
+        ws.set_connector_secrets(
+            &cid,
+            account.id,
+            &BTreeMap::from([(SecretField::Token, "lin_api_1".to_string())]),
+        )
+        .unwrap();
+        account.id
+    };
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let fresh = ws.get_connector(&cid).unwrap();
+    assert!(
+        matches!(fresh.auth, AuthScheme::ApiKey { .. }),
+        "the bundle's scheme: {:?}",
+        fresh.auth
+    );
+    assert!(fresh.revision >= 1);
+    assert_eq!(
+        ws.connector_secret(&cid, account, SecretField::ApiKey)
+            .unwrap()
+            .as_deref(),
+        Some("lin_api_1")
+    );
+    assert_eq!(
+        ws.connector_secret(&cid, account, SecretField::Token)
+            .unwrap(),
+        None
+    );
+    let whats: Vec<String> = ws
+        .activity_page(None, None, 200)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == "connectors_changed")
+        .filter_map(|r| serde_json::from_str::<serde_json::Value>(&r.event).ok())
+        .filter_map(|e| e["what"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        whats.contains(&"definitions".to_string()) && whats.contains(&"accounts".to_string()),
+        "the feed holds both facts: {whats:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// An OAuth2 scheme's consent page and token endpoint are hosts the scheme
+/// declares by its own URLs: a connection starts without a hand-written
+/// allow list, the deny list still wins, and connecting again forgets what
+/// *Check* said about the tokens held before.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_oauth_consent_page_needs_no_allow_list_and_connecting_again_forgets_the_health() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        canned("GET", "/whoami", 200, json!({"user": "me"})),
+        canned(
+            "POST",
+            "/token",
+            200,
+            json!({"access_token": "acc-2", "refresh_token": "ref-2", "expires_in": 3600, "token_type": "bearer"}),
+        ),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let def = chat(
+        &stub,
+        AuthScheme::OAuth2 {
+            // Not one of the connector's hosts — the scheme's own.
+            authorization_url: "https://consent.example.test/auth".into(),
+            token_url: format!("{}/token", stub.base_url),
+            scopes: vec!["chat".into()],
+            pkce: true,
+            extra: BTreeMap::new(),
+            client_id_param: "client_id".into(),
+            scope_join: Default::default(),
+            code_challenge: Default::default(),
+        },
+    );
+    let created = ws.create_connector(def).unwrap();
+    assert_eq!(
+        created.oauth_hosts(),
+        vec!["consent.example.test".to_string(), stub.host.clone()]
+    );
+    let cid = ConnectorId::new("chat").unwrap();
+    let account = ws
+        .create_connector_account(NewConnectorAccount {
+            connector: cid.clone(),
+            label: "me".into(),
+            params: BTreeMap::new(),
+            default: true,
+        })
+        .unwrap();
+    ws.set_connector_secrets(
+        &cid,
+        account.id,
+        &BTreeMap::from([
+            (SecretField::ClientId, "my-app".to_string()),
+            (SecretField::AccessToken, "acc-1".to_string()),
+        ]),
+    )
+    .unwrap();
+    let health = &engine.inner().connector_health;
+    health
+        .check(engine.inner(), &cid, account.id, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        health.view_of(&cid, account.id).state,
+        bisa_engine::connector_health::AccountHealthState::Ok
+    );
+
+    let start = connectors::oauth_start(engine.inner(), &cid, account.id, 4478)
+        .expect("the consent page is the scheme's own host");
+    assert!(
+        start.url.starts_with("https://consent.example.test/auth?"),
+        "{}",
+        start.url
+    );
+    let state = url_query(&start.url, "state").expect("a state");
+    connectors::oauth_complete(engine.inner(), &state, "the-code")
+        .await
+        .unwrap();
+    assert_eq!(
+        health.view_of(&cid, account.id).state,
+        bisa_engine::connector_health::AccountHealthState::Unknown,
+        "connected again: what was checked is not what is held"
+    );
+
+    // The deny list is read ahead of the scheme's own hosts.
+    ws.set_setting(
+        SettingScope::Workspace,
+        None,
+        "security.net.deny_hosts",
+        json!(["consent.example.test"]),
+    )
+    .unwrap();
+    engine.inner().security.invalidate();
+    let err = connectors::oauth_start(engine.inner(), &cid, account.id, 4478).unwrap_err();
+    assert!(err.to_string().contains("deny_hosts"), "{err}");
     engine.shutdown().await;
 }

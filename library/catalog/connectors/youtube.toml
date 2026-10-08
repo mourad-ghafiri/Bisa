@@ -1,4 +1,14 @@
 # Built-in connector: YouTube — search, channels and videos over the YouTube Data API, read-only.
+#
+# Google's installed-app flow (see gmail.toml). `channels?mine=true` needs an
+# authorized request; a search answers 5 results unless told otherwise, 50 at
+# most, and costs 100 quota units a call.
+#
+# Reference: https://developers.google.com/identity/protocols/oauth2/native-app
+# Reference: https://developers.google.com/youtube/v3/docs/channels/list
+# Reference: https://developers.google.com/youtube/v3/docs/search/list
+# Reference: https://developers.google.com/youtube/v3/docs/videos/list
+# Reference: https://developers.google.com/youtube/v3/guides/auth/installed-apps
 
 [connector]
 name = "YouTube"

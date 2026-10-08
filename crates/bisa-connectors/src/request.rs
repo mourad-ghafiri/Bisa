@@ -80,6 +80,8 @@ fn coerce(spec: &ParamSpec, text: &str) -> Result<Value, ConnectorError> {
         ParamKind::Json => serde_json::from_str(text).map_err(|e| bad(format!("not JSON: {e}")))?,
         // A path, read later through the files port; here it is text.
         ParamKind::File => Value::String(text.to_string()),
+        // A path on the platform: text, encoded by the URL builder.
+        ParamKind::Path => Value::String(text.to_string()),
     })
 }
 
@@ -89,7 +91,19 @@ pub fn build_url(spec: &CallSpec, values: &Values<'_>) -> Result<Url, ConnectorE
     let mut url = Url::parse(&base_text).map_err(|e| {
         ConnectorError::BadDefinition(format!("base URL {base_text:?} does not parse: {e}"))
     })?;
-    let path = template::render(&spec.path, values, Encode::PathSegment)?;
+    // A `path` parameter keeps its slashes, each segment encoded on its own;
+    // every other value is one segment.
+    let path = template::render_by(&spec.path, values, |key| {
+        let is_path = key
+            .strip_prefix("params.")
+            .and_then(|name| spec.param(name))
+            .is_some_and(|p| p.kind == ParamKind::Path);
+        if is_path {
+            Encode::Path
+        } else {
+            Encode::PathSegment
+        }
+    })?;
     if path.split('/').any(|seg| seg == "..") {
         return Err(ConnectorError::BadDefinition(format!(
             "path {path:?} climbs out of the base URL"

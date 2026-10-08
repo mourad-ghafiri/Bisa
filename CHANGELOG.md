@@ -10,6 +10,27 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- Every built-in connector cites the platform documentation it was checked against (`# Reference:`
+  lines in its file) and carries a `revision`; the engine refreshes an installed copy at start when
+  the bundle's revision is higher — its accounts, secrets and steps kept, a credential moved to the
+  field a changed scheme reads — so a fix to a built-in reaches a workspace without a reinstall.
+- An account's **health** in Settings › Connectors: every account row wears a chip saying what its
+  last check found and when, the platform's own reason under a failing row, *Check* per row and
+  *Check all* over every connector a few at a time, refreshed in every window through the bus
+  (`connectors.checked`); `GET /connectors/{cid}` and `GET …/accounts` carry `health` on each row,
+  `POST …/check` takes `{timeout_secs}` (1–60; 20 unsaid) and joins a check already running;
+  `bisa connector accounts` shows the health as a glyph beside a running node and
+  `bisa connector account check --timeout-secs`.
+- A connector operation may say what a good answer looks like — `output.expect = { path, equals |
+  absent, reason }` — for a platform that answers a failure with a 200: Slack's `ok`, a GraphQL
+  answer's `errors`, Obsidian's `authenticated`; read before `select`, a miss is a refusal in the
+  platform's words.
+- A connector parameter of kind `path`: a slash-separated path on the platform whose slashes a URL
+  path keeps, each segment encoded on its own — Obsidian's notes and folders.
+- An OAuth2 scheme may spell a platform's dialect: `client_id_param` (TikTok's `client_key`),
+  `scope_join = "comma"` and `code_challenge = "hex"`; the RFCs' words when unsaid.
+- Confluence's `spaces` operation (a space key's numeric id, which v2 wants) and Obsidian's
+  `list_folder` (a folder listed under its trailing slash).
 - `bisa workspace check` reads every file of the workspace as the next open would, without opening
   it, without the engine lock and without the index — the owner key, `members.json`,
   `governance.json`, every settings layer, every snapshot, every journal tail, and what earlier
@@ -75,6 +96,13 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- A built-in connector installed from the catalog is no longer frozen at install: the engine brings
+  it to the bundle's `revision` at start (a catalog definition was never a person's to edit, so
+  nothing of theirs is overwritten). A peer on an earlier release sets a refreshed connector's
+  snapshot aside, as mixed releases already do. Linear's stored `token` moves to `api_key` with its
+  scheme; Obsidian's `list_vault` lists the root alone (a folder is `list_folder`); Confluence's
+  `create_page` takes a `space_id` (the `spaces` operation answers it for a key) and Jira's `search`
+  answers ids alone unless `fields` says what to return, as the enhanced search does.
 - A goal's stop or restart stops the goals it spawned, and a close, an archive or a deletion
   closes them — recursively, each told why; a run of the workspace stopped stops the goals born of
   it. A `spawn` step's boundary divert alone still leaves the child going.
@@ -113,6 +141,34 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- Six built-in connectors pointed at APIs that are gone, moved or mis-called, checked against the
+  platforms' own documentation: Jira searched through `/rest/api/3/search`, which Atlassian removed
+  (now `/search/jql`); Confluence read and created pages through v1 endpoints that are gone (now
+  v2); Facebook Pages and Instagram called Graph API v19.0, expired in May 2026 (now v26.0); X
+  called `api.twitter.com` (now `api.x.com` and `x.com`); TikTok sent `client_id`, space-joined
+  scopes and a base64url challenge where TikTok reads `client_key`, a comma and hex, and asked for
+  counts its scopes did not cover; Linear sent a personal API key as `Bearer`, which Linear
+  documents for OAuth tokens alone.
+- Every OAuth2 connection — Google, X, TikTok — was refused at the consent page unless the person
+  allow-listed the consent and token hosts by hand: those hosts are the scheme's own now, declared
+  by its URLs, the deny list still read first.
+- A Slack or Obsidian check passed with a bad token: Slack answers every failure as a 200 with
+  `ok: false`, Obsidian's status page answers without a key — both are read through `expect` now.
+- An optional parameter left empty — a calendar event's description, an Instagram caption, a Notion
+  search's query, a Linear issue's description — failed the whole call as unresolved; it is left out
+  of the JSON body now, as an empty query pair always was.
+- Obsidian's three vault operations could not work: a note's path lost its slashes, a folder was
+  asked for without the trailing slash the plugin needs, and the root listing was unresolved.
+- A host's circuit stayed refused for the engine's lifetime when the probe call let through after
+  the pause was dropped before it answered — a stopped run, a deadline above the call; the probe is
+  abandoned now and the next call probes. The same shape in the MCP probe: a probe whose request was
+  dropped mid-flight pinned the server to *dropped* until something edited it.
+- A dated `Retry-After` on a 429 was read against zero and became a wait of decades; a 3xx — a
+  wrong URL in a definition — was taken for a platform failure and stopped an un-keyed write.
+- An account check waited for a concurrency permit and the operation's whole deadline with no budget
+  of its own; it answers *unreachable* within twenty seconds now.
+- The connectors guide's custom-connector examples wrote a body without its `kind`, which no
+  definition accepts.
 - A stop entered a session in its ledger only after the run's cancel, which ends the rows through
   their drivers; a row ended first was never waited for, and a harness that ignored its abort was
   left running until the next start found it. Every live session of the goal or run is entered

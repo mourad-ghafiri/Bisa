@@ -1735,6 +1735,22 @@ export type AuthScheme =
       extra?: {
         [k: string]: string;
       };
+      /**
+       * The name the client's id travels under, on the authorization URL
+       * and in the token form: `client_id` (RFC 6749) unless the platform
+       * spells it otherwise (TikTok's `client_key`).
+       */
+      client_id_param?: string;
+      /**
+       * How the scopes are joined on the authorization URL: by a space
+       * (RFC 6749) or, where the platform says so, by a comma.
+       */
+      scope_join?: ScopeJoin;
+      /**
+       * How the PKCE challenge is written: the base64url of the SHA-256
+       * (RFC 7636) or, where the platform says so, its hex.
+       */
+      code_challenge?: ChallengeEncoding;
       scheme: "oauth2";
     }
   | {
@@ -1761,13 +1777,21 @@ export type KeyPlace =
       in: "query";
     };
 /**
+ * How an OAuth2 scheme joins its scopes on the authorization URL.
+ */
+export type ScopeJoin = "space" | "comma";
+/**
+ * How an OAuth2 scheme writes the PKCE challenge of its verifier.
+ */
+export type ChallengeEncoding = "base64url" | "hex";
+/**
  * The signing algorithms a `jwt` scheme may name, by their JOSE words.
  */
 export type JwtAlg = "ES256" | "RS256";
 /**
  * What a parameter's value is, once rendered.
  */
-export type ConnectorParamKind = ("text" | "number" | "bool") | "json" | "file";
+export type ConnectorParamKind = ("text" | "number" | "bool") | "json" | "file" | "path";
 /**
  * The HTTP method of an operation.
  */
@@ -1839,6 +1863,10 @@ export type SecretField =
  * keyring when the node runs with `BISA_KEYSTORE=keyring`.
  */
 export type SecretSource = "file" | "keyring";
+/**
+ * Where an account's health stands: nothing yet, fine, or not.
+ */
+export type AccountHealthState = "unknown" | "ok" | "failing";
 /**
  * What one live request as the account found.
  */
@@ -4010,6 +4038,8 @@ export interface BisaApi {
   Origin?: Origin;
   AuthScheme?: AuthScheme;
   KeyPlace?: KeyPlace;
+  ScopeJoin?: ScopeJoin;
+  ChallengeEncoding?: ChallengeEncoding;
   JwtAlg?: JwtAlg;
   ConnectorOperationDef?: ConnectorOperationDef;
   ConnectorParamDef?: ConnectorParamDef;
@@ -4018,6 +4048,7 @@ export interface BisaApi {
   OperationBody?: OperationBody;
   Part?: Part;
   ConnectorParamKind?: ConnectorParamKind;
+  Expect?: Expect;
   Idempotency?: Idempotency;
   Paging?: Paging;
   SecretField?: SecretField;
@@ -4027,6 +4058,9 @@ export interface BisaApi {
   ConnectorAccountRow?: ConnectorAccountRow;
   SecretSource?: SecretSource;
   ConnectorOauthFacts?: ConnectorOauthFacts;
+  AccountHealthView?: AccountHealthView;
+  AccountHealthState?: AccountHealthState;
+  AccountCheckState?: AccountCheckState;
   NewConnectorAccount?: NewConnectorAccount;
   OauthComplete?: OauthComplete;
   ConnectorDefinition?: ConnectorDefinition;
@@ -4034,7 +4068,7 @@ export interface BisaApi {
   ConnectorValidation?: ConnectorValidation;
   OAuthStart?: OAuthStart;
   AccountCheck?: AccountCheck;
-  AccountCheckState?: AccountCheckState;
+  CheckAccountBody?: CheckAccountBody;
   AccountsView?: AccountsView;
   CodeHostKind?: CodeHostKind;
   StoreKind?: StoreKind;
@@ -5871,7 +5905,9 @@ export interface Connector {
   base_url: string;
   /**
    * The only hosts a call may reach, `host[:port]` or `*.suffix`. The base
-   * URL's host must be one of them.
+   * URL's host must be one of them. An OAuth2 scheme's consent page and
+   * token endpoint are declared by their own URLs ([`Self::oauth_hosts`])
+   * and need no row here.
    */
   hosts: string[];
   /**
@@ -5891,6 +5927,13 @@ export interface Connector {
    * required parameter, and one that writes nothing.
    */
   check?: OperationId | null;
+  /**
+   * The catalog's stamp on a built-in: the bundled definition's revision
+   * when it was installed or last refreshed. A person's own definition
+   * has none (0, not written). The engine refreshes an installed built-in
+   * at start when the bundle's revision is higher.
+   */
+  revision?: number;
   created_at: number;
 }
 /**
@@ -5975,6 +6018,38 @@ export interface ConnectorOutputSpec {
   schema?: {
     [k: string]: unknown;
   };
+  /**
+   * What a 2xx answer must say for the call to have succeeded, for the
+   * platforms that answer a failure with a 200: read before `select`.
+   */
+  expect?: Expect | null;
+}
+/**
+ * What a 2xx answer must say for the call to count — Slack's `ok`, a
+ * GraphQL answer's `errors`, a status page's `authenticated`. Exactly one
+ * of `equals` and `absent`; a miss is a refusal with the platform's own
+ * sentence read at `reason`.
+ */
+export interface Expect {
+  /**
+   * A dotted path into the answer.
+   */
+  path: string;
+  /**
+   * The value the path must hold (`true`, `"ok"`).
+   */
+  equals?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The path must resolve to nothing — an answer with no `errors`.
+   */
+  absent?: boolean;
+  /**
+   * A dotted path to the platform's sentence when the expectation fails
+   * (`error`, `errors.0.message`).
+   */
+  reason?: string | null;
 }
 /**
  * The header a writing operation's key travels in (`Idempotency-Key` on
@@ -6009,6 +6084,10 @@ export interface ConnectorRow {
   auth: string;
   hosts: string[];
   operations: ConnectorOperation[];
+  /**
+   * The operation *Check* runs, when the definition names one.
+   */
+  check?: OperationId | null;
   accounts: number;
   default_account?: AccountId | null;
   [k: string]: unknown;
@@ -6040,8 +6119,8 @@ export interface ConnectorDetail {
 }
 /**
  * One account of a connector on this machine: its label and parameters,
- * which secret fields are set and where they live. **Never a value** — the
- * route test asserts it.
+ * which secret fields are set and where they live, and what the last check
+ * found. **Never a value** — the route test asserts it.
  */
 export interface ConnectorAccountRow {
   id: AccountId;
@@ -6054,6 +6133,11 @@ export interface ConnectorAccountRow {
   secrets_set: SecretField[];
   token_source: SecretSource;
   oauth?: ConnectorOauthFacts | null;
+  /**
+   * What the last check found, for this engine's lifetime; `unknown`
+   * until one is asked for, and again after the way in changes.
+   */
+  health: AccountHealthView;
   [k: string]: unknown;
 }
 /**
@@ -6067,6 +6151,21 @@ export interface ConnectorOauthFacts {
    */
   expired: boolean;
   [k: string]: unknown;
+}
+/**
+ * An account's health as the node answers it on every account row: nothing
+ * yet, fine, or not — with what the last check found. Read back as well as
+ * written: the command line takes the node's rows whole.
+ */
+export interface AccountHealthView {
+  state: AccountHealthState;
+  checked_at?: number | null;
+  /**
+   * What the last check found, in its own word.
+   */
+  check?: AccountCheckState | null;
+  status?: number | null;
+  reason?: string | null;
 }
 /**
  * `PUT /connectors/{cid}/accounts`: a new account when `id` is absent, an
@@ -6094,8 +6193,9 @@ export interface OauthComplete {
 /**
  * A connector definition as `POST /connectors`, `PUT /connectors/{cid}` and
  * `POST /connectors/validate` take it: every field of the record but the two
- * the store stamps (origin, time). The catalog's TOML is the same shape
- * under `[connector]`, with the slug as the id.
+ * the store stamps (origin, time) and the catalog's revision stamp on a
+ * built-in. The catalog's TOML is the same shape under `[connector]`, with
+ * the slug as the id.
  */
 export interface ConnectorDefinition {
   id: ConnectorId;
@@ -6144,6 +6244,14 @@ export interface AccountCheck {
   status?: number | null;
   reason?: string | null;
   [k: string]: unknown;
+}
+/**
+ * `POST /connectors/{cid}/accounts/{aid}/check`: how long to wait for the
+ * platform, in seconds, clamped to one minute; the engine's twenty when
+ * unsaid. The body itself may be left out.
+ */
+export interface CheckAccountBody {
+  timeout_secs?: number | null;
 }
 /**
  * The accounts of one kind as Settings shows them: the stored logins with

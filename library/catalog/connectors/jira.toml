@@ -1,4 +1,16 @@
 # Built-in connector: Jira — search, read, create and move issues on a Jira Cloud site over REST API v3.
+#
+# The search is the enhanced one, `/rest/api/3/search/jql`: Atlassian removed
+# `/rest/api/3/search` (its OpenAPI marks it "currently being removed"). The
+# enhanced search answers issue ids alone unless `fields` says what to
+# return, pages by `nextPageToken` rather than `startAt`, and wants a bounded
+# query — one with a search restriction, not `order by key` alone.
+#
+# Reference: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/
+# Reference: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/
+# Reference: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/
+# Reference: https://developer.atlassian.com/cloud/jira/platform/basic-auth-for-rest-apis/
+# Reference: https://developer.atlassian.com/cloud/jira/platform/rate-limiting/
 
 [connector]
 name = "Jira"
@@ -7,6 +19,7 @@ tags = ["engineering", "management"]
 base_url = "https://{account.site}.atlassian.net"
 hosts = ["*.atlassian.net"]
 check = "myself"
+revision = 1
 
 [connector.auth]
 scheme = "basic"
@@ -27,16 +40,16 @@ path = "/rest/api/3/myself"
 [[connector.operations]]
 id = "search"
 name = "Search issues"
-description = "Issues matching a JQL query."
+description = "Issues matching a bounded JQL query, with the fields you name."
 method = "get"
-path = "/rest/api/3/search"
+path = "/rest/api/3/search/jql"
 query = { jql = "{params.jql}", maxResults = "{params.max}", fields = "{params.fields}" }
 
 [[connector.operations.params]]
 name = "jql"
 label = "JQL"
 required = true
-doc = "project = ACME AND status = \"In Progress\" ORDER BY updated DESC"
+doc = "A bounded query — one with a restriction: project = ACME AND status = \"In Progress\" ORDER BY updated DESC"
 
 [[connector.operations.params]]
 name = "max"
@@ -47,7 +60,7 @@ doc = "How many issues to return; Jira answers 50 unless told otherwise."
 [[connector.operations.params]]
 name = "fields"
 label = "Fields"
-doc = "Comma-separated field names; empty for Jira's default set. summary,status,assignee is a good start."
+doc = "Comma-separated field names; empty answers the issue ids alone. *navigable for Jira's default set; summary,status,assignee is a good start."
 
 [connector.operations.output]
 select = "issues"

@@ -26,6 +26,10 @@ pub enum Encode {
     Authority,
     /// Into one path segment: percent-encoded, `-._~` and alphanumerics kept.
     PathSegment,
+    /// Into several path segments: a `/`-separated path whose slashes stay
+    /// and whose segments are each encoded as [`Encode::PathSegment`] is;
+    /// a slash at either end is dropped, an empty segment inside refused.
+    Path,
     /// As it is — a header or a query value the URL builder encodes itself.
     Text,
 }
@@ -104,16 +108,43 @@ pub fn value_text(v: &Value) -> String {
     }
 }
 
+/// The bytes a path segment keeps bare: alphanumerics and `-._~`.
+const SEGMENT_KEEP: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
+
 fn write(encode: Encode, key: &str, value: &str, out: &mut String) -> Result<(), ConnectorError> {
     match encode {
         Encode::Text => out.push_str(value),
         Encode::PathSegment => {
-            const KEEP: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
-                .remove(b'-')
-                .remove(b'.')
-                .remove(b'_')
-                .remove(b'~');
-            out.push_str(&percent_encoding::utf8_percent_encode(value, KEEP).to_string());
+            out.push_str(&percent_encoding::utf8_percent_encode(value, SEGMENT_KEEP).to_string());
+        }
+        Encode::Path => {
+            let trimmed = value.trim_matches('/');
+            if trimmed.is_empty() {
+                return Err(ConnectorError::BadParam {
+                    name: key.to_string(),
+                    why: format!("{value:?} names no path"),
+                });
+            }
+            let mut first = true;
+            for segment in trimmed.split('/') {
+                if segment.is_empty() {
+                    return Err(ConnectorError::BadParam {
+                        name: key.to_string(),
+                        why: format!("{value:?} has an empty segment"),
+                    });
+                }
+                if !first {
+                    out.push('/');
+                }
+                first = false;
+                out.push_str(
+                    &percent_encoding::utf8_percent_encode(segment, SEGMENT_KEEP).to_string(),
+                );
+            }
         }
         Encode::Authority => {
             if value.is_empty()
@@ -135,17 +166,37 @@ fn write(encode: Encode, key: &str, value: &str, out: &mut String) -> Result<(),
 /// Render `tmpl` against `values`, writing each substituted value as `encode`
 /// says; the template's own text is written as it is.
 pub fn render(tmpl: &str, values: &Values<'_>, encode: Encode) -> Result<String, ConnectorError> {
+    render_by(tmpl, values, |_| encode)
+}
+
+/// Render `tmpl` against `values`, each placeholder written as `encode_of`
+/// says for its key — a `path` parameter keeps its slashes where a text one
+/// is a single segment.
+pub fn render_by(
+    tmpl: &str,
+    values: &Values<'_>,
+    encode_of: impl Fn(&str) -> Encode,
+) -> Result<String, ConnectorError> {
     let mut out = String::with_capacity(tmpl.len());
     for segment in segments(tmpl)? {
         match segment {
             Segment::Text(t) => out.push_str(t),
             Segment::Placeholder(key) => {
                 let v = lookup(key, values)?;
-                write(encode, key, &value_text(v), &mut out)?;
+                write(encode_of(key), key, &value_text(v), &mut out)?;
             }
         }
     }
     Ok(out)
+}
+
+/// Whether `tmpl` is exactly one placeholder naming a value that is absent —
+/// the shape of a body leaf that is left out rather than sent empty.
+pub fn absent_leaf(tmpl: &str, values: &Values<'_>) -> bool {
+    let Some(name) = typed_leaf(tmpl) else {
+        return false;
+    };
+    matches!(values.params.get(name), None | Some(Value::Null))
 }
 
 /// Whether the template ever names an absent value — the query builder drops
@@ -262,5 +313,70 @@ mod tests {
         assert_eq!(typed_leaf("{params.n} x"), None);
         assert_eq!(typed_leaf("{account.site}"), None);
         assert_eq!(typed_leaf("{{params.n}}"), None);
+        let (a, p) = values();
+        let v = Values {
+            account: &a,
+            params: &p,
+        };
+        assert!(absent_leaf("{params.opt}", &v), "null is absent");
+        assert!(absent_leaf("{params.nope}", &v), "unknown is absent");
+        assert!(!absent_leaf("{params.n}", &v));
+        assert!(
+            !absent_leaf("x {params.opt}", &v),
+            "mixed text is not a leaf"
+        );
+    }
+
+    #[test]
+    fn a_path_keeps_its_slashes_and_encodes_each_segment() {
+        let account = BTreeMap::new();
+        let params = BTreeMap::from([
+            ("note".to_string(), json!("Projects/Launch plan.md")),
+            ("slashed".to_string(), json!("/a/b/")),
+            ("hole".to_string(), json!("a//b")),
+            ("none".to_string(), json!("/")),
+            ("up".to_string(), json!("../etc")),
+        ]);
+        let v = Values {
+            account: &account,
+            params: &params,
+        };
+        assert_eq!(
+            render("/vault/{params.note}", &v, Encode::Path).unwrap(),
+            "/vault/Projects/Launch%20plan.md"
+        );
+        assert_eq!(
+            render("/vault/{params.note}", &v, Encode::PathSegment).unwrap(),
+            "/vault/Projects%2FLaunch%20plan.md",
+            "a text parameter is one segment"
+        );
+        assert_eq!(
+            render("/vault/{params.slashed}/", &v, Encode::Path).unwrap(),
+            "/vault/a/b/",
+            "a slash at either end is the template's to write"
+        );
+        assert!(matches!(
+            render("/vault/{params.hole}", &v, Encode::Path),
+            Err(ConnectorError::BadParam { name, .. }) if name == "params.hole"
+        ));
+        assert!(matches!(
+            render("/vault/{params.none}", &v, Encode::Path),
+            Err(ConnectorError::BadParam { .. })
+        ));
+        assert_eq!(
+            render("/vault/{params.up}", &v, Encode::Path).unwrap(),
+            "/vault/../etc",
+            "`..` is written and refused by the URL builder, as for a segment"
+        );
+        // One template, two kinds: the key decides the encoding.
+        let by_kind = render_by("/v/{params.note}/{params.slashed}", &v, |key| {
+            if key == "params.note" {
+                Encode::Path
+            } else {
+                Encode::PathSegment
+            }
+        })
+        .unwrap();
+        assert_eq!(by_kind, "/v/Projects/Launch%20plan.md/%2Fa%2Fb%2F");
     }
 }

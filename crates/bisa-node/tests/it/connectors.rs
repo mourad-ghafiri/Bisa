@@ -331,6 +331,7 @@ async fn a_catalog_connector_cannot_be_put_and_a_used_one_cannot_be_deleted() {
     let mut body = slack["connector"].clone();
     body.as_object_mut().unwrap().remove("origin");
     body.as_object_mut().unwrap().remove("created_at");
+    body.as_object_mut().unwrap().remove("revision");
     body["name"] = json!("Renamed");
     let (status, v) = node.req("PUT", "/connectors/slack", Some(body)).await;
     assert_eq!(status, 409, "{v}");
@@ -492,5 +493,123 @@ async fn oauth_start_binds_the_configured_port_and_stops_after_completion() {
         )
         .await;
     assert_eq!(status, 400, "no flow is pending any more: {v}");
+    node.shutdown().await;
+}
+
+/// A stub whose `me` sits on its answer — a platform that is slow.
+async fn sleepy_platform_stub(delay: Duration) -> (String, tokio::task::JoinHandle<()>) {
+    use axum::routing::get;
+    let app = axum::Router::new().route(
+        "/me",
+        get(move || async move {
+            tokio::time::sleep(delay).await;
+            axum::Json(json!({"ok": true}))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move {
+        let _served = axum::serve(listener, app).await;
+    });
+    (format!("127.0.0.1:{}", addr.port()), task)
+}
+
+/// Every account row carries its health — unknown until a check, then what
+/// the check found and when — the check takes a budget, a budget the body
+/// cannot spell is refused, and new secrets take the health down.
+#[tokio::test(flavor = "multi_thread")]
+async fn account_rows_carry_the_health_the_last_check_found() {
+    let node = Node::start().await;
+    let (host, _stub) = platform_stub().await;
+    node.post("/connectors", bearer_definition(&host)).await;
+    let row = node
+        .put(
+            "/connectors/acme/accounts",
+            json!({"label": "work", "secrets": {"token": "acme-token"}}),
+        )
+        .await;
+    assert_eq!(row["health"], json!({"state": "unknown"}), "{row}");
+    let aid = row["id"].as_str().unwrap().to_string();
+    let listed = node.get("/connectors").await;
+    assert_eq!(
+        listed["connectors"][0]["check"], "me",
+        "the row names the operation *Check* runs: {listed}"
+    );
+
+    // With an empty body and with a budget: the same check.
+    let (status, check) = node
+        .req(
+            "POST",
+            &format!("/connectors/acme/accounts/{aid}/check"),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(status, 200, "{check}");
+    assert_eq!(check["state"], "connected");
+    let check = node
+        .post(
+            &format!("/connectors/acme/accounts/{aid}/check"),
+            json!({"timeout_secs": 5}),
+        )
+        .await;
+    assert_eq!(check["state"], "connected", "{check}");
+    let accounts = node.get("/connectors/acme/accounts").await;
+    let health = &accounts["accounts"][0]["health"];
+    assert_eq!(health["state"], "ok", "{accounts}");
+    assert_eq!(health["check"], "connected");
+    assert_eq!(health["status"], 200);
+    assert!(health["checked_at"].as_u64().is_some_and(|t| t > 0));
+    let detail = node.get("/connectors/acme").await;
+    assert_eq!(detail["accounts"][0]["health"]["state"], "ok", "{detail}");
+
+    // A key the body does not have is refused by name.
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/connectors/acme/accounts/{aid}/check"),
+            Some(json!({"nope": 1})),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+
+    // New secrets: what was checked is not what is held.
+    node.put(
+        "/connectors/acme/accounts",
+        json!({"id": aid, "label": "work", "secrets": {"token": "another"}}),
+    )
+    .await;
+    let accounts = node.get("/connectors/acme/accounts").await;
+    assert_eq!(
+        accounts["accounts"][0]["health"],
+        json!({"state": "unknown"})
+    );
+    node.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_check_budget_ends_the_wait_on_a_platform_that_never_answers() {
+    let node = Node::start().await;
+    let (host, _stub) = sleepy_platform_stub(Duration::from_secs(5)).await;
+    node.post("/connectors", bearer_definition(&host)).await;
+    let row = node
+        .put(
+            "/connectors/acme/accounts",
+            json!({"label": "work", "secrets": {"token": "acme-token"}}),
+        )
+        .await;
+    let aid = row["id"].as_str().unwrap().to_string();
+    let started = std::time::Instant::now();
+    let check = node
+        .post(
+            &format!("/connectors/acme/accounts/{aid}/check"),
+            json!({"timeout_secs": 1}),
+        )
+        .await;
+    assert!(started.elapsed() < Duration::from_secs(4), "{check}");
+    assert_eq!(check["state"], "unreachable", "{check}");
+    let accounts = node.get("/connectors/acme/accounts").await;
+    let health = &accounts["accounts"][0]["health"];
+    assert_eq!(health["state"], "failing", "{accounts}");
+    assert_eq!(health["check"], "unreachable");
     node.shutdown().await;
 }

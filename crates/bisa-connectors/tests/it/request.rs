@@ -396,3 +396,43 @@ async fn form_and_raw_bodies_reach_the_stub_under_their_content_types() {
     );
     assert_eq!(calls[1].text, "<a/>");
 }
+
+#[test]
+fn a_path_parameter_keeps_its_slashes_where_a_text_one_is_one_segment() {
+    let mut spec = offline_spec(AuthSpec::None);
+    spec.path = "/vault/{params.note}/{params.folder}/".into();
+    spec.params = vec![
+        p("note", ParamKind::Path, true),
+        p("folder", ParamKind::Text, true),
+    ];
+    let account = BTreeMap::new();
+    let bound = bind_params(
+        &spec.params,
+        &params(&[("note", "Projects/Launch plan.md"), ("folder", "a/b")]),
+    )
+    .unwrap();
+    let values = Values {
+        account: &account,
+        params: &bound,
+    };
+    let req = build(&spec, &values).unwrap();
+    assert_eq!(
+        req.url.path(),
+        "/vault/Projects/Launch%20plan.md/a%2Fb/",
+        "the path kind's slashes stay; the text kind is one segment"
+    );
+    // A path that climbs is refused whichever kind carries it.
+    let bound = bind_params(
+        &spec.params,
+        &params(&[("note", "../secrets.md"), ("folder", "x")]),
+    )
+    .unwrap();
+    let values = Values {
+        account: &account,
+        params: &bound,
+    };
+    assert!(matches!(
+        build(&spec, &values),
+        Err(ConnectorError::BadDefinition(_))
+    ));
+}

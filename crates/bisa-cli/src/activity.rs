@@ -1109,6 +1109,7 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             if *allowed { "allowed" } else { "refused" }
         )),
         EnginePayload::McpProbed { id, ok } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-mcp-server-probed", scope = scope.to_string(), id = id.to_string(), a0 = (if *ok { "answered" } else { "failed" }).to_string()))),
+        EnginePayload::ConnectorChecked { connector, account, ok } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-connector-account-checked", scope = scope.to_string(), connector = connector.to_string(), account = account.to_string(), a0 = (if *ok { "connected" } else { "failed" }).to_string()))),
         EnginePayload::Paused => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-engine-paused"))),
         EnginePayload::Resumed => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-engine-resumed"))),
         EnginePayload::Session { event } => return session_line(style, &scope, event),

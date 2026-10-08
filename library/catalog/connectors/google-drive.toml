@@ -1,4 +1,15 @@
 # Built-in connector: Google Drive — list, read and create files over the Drive REST API.
+#
+# Google's installed-app flow (see gmail.toml). `about` must name its
+# `fields`; a file list answers `files[]` with the fields asked for; a
+# metadata-only create takes `name`, `mimeType` and one parent.
+#
+# Reference: https://developers.google.com/identity/protocols/oauth2/native-app
+# Reference: https://developers.google.com/workspace/drive/api/reference/rest/v3/about/get
+# Reference: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
+# Reference: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/get
+# Reference: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/create
+# Reference: https://developers.google.com/workspace/drive/api/guides/limits
 
 [connector]
 name = "Google Drive"

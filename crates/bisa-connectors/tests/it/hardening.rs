@@ -65,6 +65,7 @@ async fn a_keyed_write_carries_the_same_key_on_every_attempt_and_an_unkeyed_one_
 
 fn paged_spec() -> bisa_connectors::CallSpec {
     let mut spec = offline_spec(AuthSpec::None);
+    spec.expect = None;
     spec.params = vec![ParamSpec {
         name: "cursor".into(),
         kind: ParamKind::Text,

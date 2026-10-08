@@ -51,7 +51,7 @@ pub use oauth::{authorize_url, exchange, refresh, Authorize};
 pub use outcome::Outcome;
 pub use retry::{Next, RetryPolicy};
 pub use spec::{
-    AuthSpec, CallBody, CallSpec, Idempotency, JwtAlg, KeyPlace, Method, Paging, ParamKind,
-    ParamSpec, Part, PartSource,
+    AuthSpec, CallBody, CallSpec, ChallengeEncoding, Expect, Idempotency, JwtAlg, KeyPlace, Method,
+    Paging, ParamKind, ParamSpec, Part, PartSource, ScopeJoin, DEFAULT_CLIENT_ID_PARAM,
 };
 pub use template::{Encode, Values};

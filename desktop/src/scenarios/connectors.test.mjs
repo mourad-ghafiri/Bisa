@@ -41,4 +41,19 @@ test("an unknown check state is said, never read as nothing", () => {
   const model = src("../views/_settings/connectorsModel.mjs");
   const tail = model.slice(model.indexOf("export function checkLine"));
   assert.ok(tail.includes("does not know"), "the default arm names the state");
+  const health = src("../views/_settings/connectorHealthModel.mjs");
+  assert.ok(health.slice(health.indexOf("export function healthWords")).includes('t("settings-connectors-check-answered-state-desktop-does-know"'), "and so does the row's health");
+});
+
+test("an account's health is the node's, on its row: a chip with when it was checked, a check, a check of every account, refreshed by the bus", () => {
+  const panel = src("../views/_settings/ConnectorsPanel.tsx");
+  assert.ok(panel.includes("healthTone(a.health)") && panel.includes("healthWords(a.health, row.name)") && panel.includes("checkedWords(a.health.checked_at)"), "the chip reads the row's health and says when");
+  assert.ok(panel.includes("api.checkConnectorAccount(cid, aid)"), "a row checks itself through the node");
+  assert.ok(panel.includes('t("settings-connectors-panel-check-all")') && panel.includes("CHECK_ALL_AT_ONCE"), "the panel checks every account, a few at a time");
+  assert.ok(panel.includes('t("settings-system-permissions-checking")'), "a row says *checking…* while its check runs");
+  assert.ok(!panel.includes("useState<Record<string, AccountCheck>>"), "no answer of the panel's own");
+  const hooks = src("../views/_workflow/useConnectors.ts");
+  assert.equal(hooks.split('e.payload.type === "connector_checked"').length - 1, 2, "a check anywhere refreshes the list and the detail");
+  const frames = src("../types.hand.ts");
+  assert.ok(frames.includes('type: "connector_checked"; connector: string; account: string; ok: boolean'), "the frame is typed as the engine sends it");
 });

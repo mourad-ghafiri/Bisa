@@ -718,6 +718,16 @@ pub struct CatalogEntry {
     pub workflow: Option<NewWorkflow>,
 }
 
+/// What a refresh of the installed catalog connectors did
+/// ([`Workspace::refresh_catalog_connectors`]): the slugs whose definition
+/// moved to the bundle's revision, and how many accounts had a secret move
+/// to the field a new scheme reads.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Refreshed {
+    pub definitions: Vec<String>,
+    pub accounts_moved: usize,
+}
+
 /// What an install actually created.
 ///
 /// Only creations are listed. An entry already present is left exactly as it
@@ -1324,6 +1334,10 @@ pub struct ConnectorBody {
     pub operations: Vec<bisa_core::Operation>,
     #[serde(default)]
     pub check: Option<bisa_core::OperationId>,
+    /// The bundle's revision of this definition: bumped when the file
+    /// changes, so an installed copy at a lower one is refreshed at start.
+    #[serde(default)]
+    pub revision: u32,
 }
 
 impl ConnectorBody {
@@ -1346,6 +1360,7 @@ impl ConnectorBody {
             params: self.params.clone(),
             operations: self.operations.clone(),
             check: self.check.clone(),
+            revision: self.revision,
             created_at: 0,
         })
     }
@@ -1366,6 +1381,26 @@ impl ConnectorBody {
             operations: self.operations,
             check: self.check,
         })
+    }
+}
+
+/// The credential field that moves when a scheme changes between the two
+/// that hold one pasted secret: a `bearer` scheme's `token` and an
+/// `api_key` scheme's `api_key` are the same string under another name.
+/// Any other move leaves the fields where they are.
+fn moved_secret_field(
+    old: &bisa_core::AuthScheme,
+    new: &bisa_core::AuthScheme,
+) -> Option<(bisa_core::SecretField, bisa_core::SecretField)> {
+    use bisa_core::{AuthScheme, SecretField};
+    match (old, new) {
+        (AuthScheme::Bearer, AuthScheme::ApiKey { .. }) => {
+            Some((SecretField::Token, SecretField::ApiKey))
+        }
+        (AuthScheme::ApiKey { .. }, AuthScheme::Bearer) => {
+            Some((SecretField::ApiKey, SecretField::Token))
+        }
+        _ => None,
     }
 }
 
@@ -1752,6 +1787,82 @@ impl Workspace {
         }
     }
 
+    /// Bring every connector installed from the catalog to the bundle's
+    /// revision: a copy whose `revision` is below the bundle's is rewritten
+    /// — its id, provenance and time kept, its accounts and secrets kept —
+    /// and, when the scheme moved between `bearer` and `api_key`, each
+    /// account's credential moves to the field the new scheme reads. A copy
+    /// at the bundle's revision or above, a connector the bundle no longer
+    /// ships, and a person's own definition are left as they are. One bad
+    /// entry is logged and skipped, never the walk's end. The engine calls
+    /// this at start, under its lock; `install` stays creations-only.
+    pub fn refresh_catalog_connectors(&self) -> Result<Refreshed, StoreError> {
+        self.refresh_catalog_connectors_from(CATALOG.connectors)
+    }
+
+    /// The refresh over a bundle given by hand — the one the catalog ships,
+    /// or a test's.
+    pub fn refresh_catalog_connectors_from(
+        &self,
+        bundle: &[(&str, &str)],
+    ) -> Result<Refreshed, StoreError> {
+        let mut out = Refreshed::default();
+        for stored in self.list_connectors()? {
+            let Origin::Catalog { slug } = &stored.origin else {
+                continue;
+            };
+            let Some((_, toml_str)) = bundle.iter().find(|(s, _)| s == slug) else {
+                continue;
+            };
+            let body = match parse_connector(slug, toml_str) {
+                Ok(body) => body,
+                Err(e) => {
+                    tracing::error!(target: "bisa_store::catalog", %slug, "the bundled connector does not parse; the installed copy stands: {e}");
+                    continue;
+                }
+            };
+            if body.revision <= stored.revision {
+                continue;
+            }
+            let fresh = match body.as_connector(slug) {
+                Ok(fresh) => bisa_core::Connector {
+                    id: stored.id.clone(),
+                    origin: stored.origin.clone(),
+                    created_at: stored.created_at,
+                    ..fresh
+                },
+                Err(e) => {
+                    tracing::error!(target: "bisa_store::catalog", %slug, "the bundled connector is not a definition; the installed copy stands: {e}");
+                    continue;
+                }
+            };
+            if let Err(e) = self.update_connector(fresh.clone()) {
+                tracing::error!(target: "bisa_store::catalog", %slug, "the installed copy could not be refreshed: {e}");
+                continue;
+            }
+            if let Some((from, to)) = moved_secret_field(&stored.auth, &fresh.auth) {
+                for account in self.list_connector_accounts(&stored.id)? {
+                    match self.move_connector_secret(&stored.id, account.id, from, to) {
+                        Ok(true) => out.accounts_moved += 1,
+                        Ok(false) => {}
+                        Err(e) => {
+                            tracing::error!(target: "bisa_store::catalog", %slug, account = %account.id, "the account's credential could not move to the new scheme's field; set it again: {e}");
+                        }
+                    }
+                }
+            }
+            tracing::info!(
+                target: "bisa_store::catalog",
+                %slug,
+                from = stored.revision,
+                to = body.revision,
+                "catalog connector refreshed"
+            );
+            out.definitions.push(slug.clone());
+        }
+        Ok(out)
+    }
+
     /// Create one entry, or leave what is already there exactly as it is.
     /// Only a creation is recorded: `Installed` says what changed.
     fn create_entry(
@@ -1867,7 +1978,8 @@ impl Workspace {
                     return Ok(());
                 }
                 let c = parse_connector(slug, toml_str)?;
-                self.create_connector_with_origin(c.into_new(slug)?, origin)?;
+                let revision = c.revision;
+                self.create_connector_with_origin(c.into_new(slug)?, origin, revision)?;
                 out.connectors.push(slug.to_string());
             }
             CatalogKind::Addon => {
@@ -2179,10 +2291,44 @@ mod bundle_tests {
         );
     }
 
+    /// The revision of each built-in, pinned: a changed file bumps its
+    /// `revision` on purpose — that is what carries the change to an
+    /// installed copy at the next start — and a forgotten bump is noticed
+    /// here, not on a user's machine where the fix never lands.
+    #[test]
+    fn the_catalog_connector_revisions_are_pinned() {
+        let revisions: Vec<(&str, u32)> = parsed_connectors()
+            .iter()
+            .map(|(slug, c)| (*slug, c.revision))
+            .collect();
+        assert_eq!(
+            revisions,
+            [
+                ("confluence", 1),
+                ("facebook-pages", 1),
+                ("gmail", 0),
+                ("google-calendar", 0),
+                ("google-drive", 0),
+                ("instagram", 1),
+                ("jira", 1),
+                ("linear", 1),
+                ("notion", 1),
+                ("obsidian", 1),
+                ("slack", 1),
+                ("tiktok", 1),
+                ("trello", 0),
+                ("x", 1),
+                ("youtube", 0),
+            ]
+        );
+    }
+
     /// Every built-in connector validates by the same rules a custom one
     /// does, carries catalog tags, describes every operation, and names a
     /// `check` operation a person can press — the one request Settings makes
-    /// to prove an account works.
+    /// to prove an account works. An optional parameter that reaches a JSON
+    /// body is a whole leaf, so the client can leave it out rather than send
+    /// it empty; the install carries the bundle's revision.
     #[test]
     fn every_connector_is_well_formed() {
         for (slug, c) in parsed_connectors() {
@@ -2228,6 +2374,27 @@ mod bundle_tests {
                 "connector {slug}: the check operation {} writes",
                 op.id
             );
+            // An optional parameter in a JSON body is exactly one leaf — a
+            // member the client drops when the parameter is left empty.
+            for (site, leaf) in c.templates() {
+                let bisa_core::TemplateSite::Body(op_id) = &site else {
+                    continue;
+                };
+                let op = c.operation(op_id).unwrap();
+                for (at, _) in leaf.match_indices("{params.") {
+                    let rest = &leaf[at + "{params.".len()..];
+                    let name = &rest[..rest.find('}').unwrap_or(rest.len())];
+                    let optional = op
+                        .params
+                        .iter()
+                        .any(|p| p.name.as_str() == name && !p.required);
+                    assert!(
+                        !optional || leaf == format!("{{params.{name}}}"),
+                        "connector {slug}: optional parameter {name} of {} sits inside the body leaf {leaf:?}; make it a leaf of its own so an empty value is left out",
+                        op.id
+                    );
+                }
+            }
             // A catalog install of it lands as the catalog's, and reads back whole.
             let dir = tempfile::tempdir().unwrap();
             let ws = Workspace::open_with_keystore(
@@ -2245,9 +2412,20 @@ mod bundle_tests {
                 }
             );
             assert_eq!(stored.operations.len(), c.operations.len());
+            assert_eq!(
+                stored.revision, c.revision,
+                "the install carries the bundle's revision"
+            );
             assert!(
                 ws.install(CatalogKind::Connector, slug).unwrap().is_empty(),
                 "idempotent"
+            );
+            assert!(
+                ws.refresh_catalog_connectors()
+                    .unwrap()
+                    .definitions
+                    .is_empty(),
+                "a fresh install has nothing to refresh"
             );
             let entry = ws.catalog_entry(CatalogKind::Connector, slug).unwrap();
             assert!(entry.installed);

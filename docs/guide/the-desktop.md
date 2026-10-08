@@ -806,7 +806,9 @@ node's own line under them while it is away; moving to another screen clears the
 button and `⌘Q` still work from it. **Connectors**, under Capabilities, is where an outside platform gets an account on this
 machine: one card per installed connector, its accounts by label with which secret fields are set and where they
 live, *Connect* for an OAuth2 platform (the browser opens; a code can be pasted instead), *Set secrets…* (a PEM
-key pasted whole for a `jwt` platform), *Check*,
+key pasted whole for a `jwt` platform), a health chip on every account — what its last check found and when,
+kept by the node and refreshed through the bus — *Check*, *Check all* (every account of every connector that
+names a check, a few at a time),
 *Make default*, *Forget…*, and *Add a connector* for a custom definition validated before it is saved
 ([`connectors.md`](connectors.md)). Every panel is drawn the moment it opens and says what it is
 still reading — *reading the GitHub CLI…*, *reading the harnesses…* — where the answer will go, after a

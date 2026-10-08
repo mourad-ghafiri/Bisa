@@ -65,7 +65,7 @@ pub use agents::NewAgent;
 pub use boot::{BootObserver, BootPhase, Quiet};
 pub use catalog::{
     BuiltinAddon, BuiltinPet, Catalog, CatalogDescription, CatalogDetail, CatalogEntry,
-    CatalogKind, Installed, CATALOG,
+    CatalogKind, Installed, Refreshed, CATALOG,
 };
 pub use changes::{MAX_CHANGE_BLOB, UNREADABLE_LEDGER};
 pub use check::{check_files, Finding, FindingKind};

@@ -30,7 +30,7 @@ generated from the same parse that installs an entry.
 - A template begins at an explicit `start` step, installs Off, names catalog agents by slug and never a pubkey, takes people and projects as inputs, and no step reads the goal's statement or title — a run in the workspace has no goal ([Add a catalog workflow template](../recipes.md#15-add-a-catalog-workflow-template)).
 - Every agent the platform ships runs `claude-opus-5-5[1m]` then `claude-sonnet-5-5[1m]` and states no effort (`crates/bisa-store/src/catalog.rs::every_built_in_agent_runs_opus_then_sonnet_and_states_no_effort`).
 - A built-in addon's `id` is its slug; a built-in pet's id ends in its slug and its sheet is WebP of the grid's exact size; a person's own pack never takes a built-in's id ([Add a built-in addon](../recipes.md#27-add-a-built-in-addon), [Add a built-in pet](../recipes.md#23-add-a-built-in-pet)).
-- What a person installed is theirs: an installed definition is theirs to edit, and an upgrade never changes it ([Agents and teams § The catalog](../../guide/agents-and-teams.md#the-catalog)).
+- What a person installed is theirs: an installed agent, skill, team, channel or template is theirs to edit, and an upgrade never changes it ([Agents and teams § The catalog](../../guide/agents-and-teams.md#the-catalog)). A built-in connector is the platform's — not editable — and the engine refreshes it to the bundle's revision at start ([Connectors § Compatibility](connectors.md#compatibility)).
 - An entry's name and description are the file's own words; a language may translate them by the entry's id, and English ships none ([17 — Internationalisation](../../architecture/17-internationalisation.md#what-is-never-translated)).
 - The reference page is generated, and a count in its headings is part of the anchor — an entry added is a link elsewhere to fix (`crates/bisa-core/tests/it/docs.rs`).
 
@@ -51,7 +51,7 @@ generated from the same parse that installs an entry.
 
 ## Compatibility
 
-- The catalog's content is not contract: which agents, skills, teams, templates, connectors, addons and pets ship may change in any release, and an upgrade never touches what a person installed ([Workflow, connector and catalog files](../../reference/compatibility.md#workflow-connector-and-catalog-files)).
+- The catalog's content is not contract: which agents, skills, teams, templates, connectors, addons and pets ship may change in any release, and an upgrade never touches what a person installed — except a built-in connector, which is refreshed to the bundle's revision with its accounts and steps kept ([Workflow, connector and catalog files](../../reference/compatibility.md#workflow-connector-and-catalog-files)).
 - The shapes are: a template is a workflow definition and a built-in connector a connector definition, so every later release of the line accepts what an earlier one did, and a new key is optional.
 - `bisa catalog` and the catalog routes are [the command line](../../reference/compatibility.md#the-command-line) and [the HTTP API](../../reference/compatibility.md#the-http-api-and-its-events). Declare your change's compatibility in the pull request ([Keeping compatibility](../compatibility.md)).
 

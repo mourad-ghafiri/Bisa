@@ -33,7 +33,6 @@ export declare function accountDraft(account: ConnectorAccountRow | null | undef
 export declare function accountBody(draft: AccountDraft, account: ConnectorAccountRow | null | undefined): NewConnectorAccount;
 export declare function typedSecrets(secrets: Partial<Record<SecretField, string>> | null | undefined): Partial<Record<SecretField, string>>;
 export declare function maySaveAccount(state: { label: string; busy: boolean; definitionRead: boolean }): boolean;
-export declare function withoutCheck<T>(checks: Record<string, T>, account: string): Record<string, T>;
 export declare const OAUTH_PORT_KEY: "connectors.oauth.port";
 /** The callback port as resolved, or null until the settings are read. */
 export declare function oauthPort(resolved: readonly ResolvedSetting[] | null | undefined): number | null;

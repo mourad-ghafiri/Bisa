@@ -8795,6 +8795,7 @@ pub(crate) mod tests {
                 page: None,
             }],
             check: None,
+            revision: 0,
             created_at: 0,
         }
     }

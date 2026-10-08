@@ -193,6 +193,7 @@ fields — `run.finished` has `run`, `workflow` and `outcome`; `step.changed` ha
 `workstream.edited`, `note.changed`, `drawing.changed`, `drawing.request`, `workstream.opened`,
 `workstream.changed`, `workstream.committed`, `workstream.script_ran`,
 `workstream.publish_failed`, `workstream.server_changed`, `browser.request`, `mobile_development.changed`, `mcp.probed`,
+`connectors.checked`,
 `people.changed`, `invite.changed`, `message.held`, `message.released`, `content.screened`,
 `hosted.changed`, `relays.changed`, `guard.decided`, `decision.judged`, `security.redacted`,
 `changes.moved`, `changes.settled`, `conversation.ask_opened`, `conversation.ask_settled`,

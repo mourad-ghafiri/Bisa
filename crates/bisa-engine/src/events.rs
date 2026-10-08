@@ -447,6 +447,15 @@ pub enum EnginePayload {
         id: bisa_core::McpId,
         ok: bool,
     },
+    /// An account of a connector installed here was checked (03 §
+    /// Connectors): Settings › Connectors and the command line's account
+    /// list read its health again. `ok` is the answer in one word; the
+    /// health is on `GET /connectors/{cid}`'s account rows.
+    ConnectorChecked {
+        connector: bisa_core::ConnectorId,
+        account: bisa_core::AccountId,
+        ok: bool,
+    },
     /// A workstream script ran — or was skipped for want of approval on this
     /// machine (ide/07 §Workstream scripts). `output` is the outcome in words
     /// followed by the tail of what the script printed; a failed post-create
@@ -916,6 +925,7 @@ impl EnginePayload {
             EnginePayload::BrowserRequest { .. } => "browser.request",
             EnginePayload::MobileDevelopmentChanged { .. } => "mobile_development.changed",
             EnginePayload::McpProbed { .. } => "mcp.probed",
+            EnginePayload::ConnectorChecked { .. } => "connectors.checked",
             EnginePayload::PeopleChanged { .. } => "people.changed",
             EnginePayload::InviteChanged { .. } => "invite.changed",
             EnginePayload::MessageHeld { .. } => "message.held",
@@ -1140,6 +1150,15 @@ impl EnginePayload {
             EnginePayload::CommitterSet { project, .. } => put("project", project.to_string()),
             EnginePayload::GitSetupChanged { what } => put("what", what.as_str().to_string()),
             EnginePayload::ConnectorsChanged { what } => put("what", what.as_str().to_string()),
+            EnginePayload::ConnectorChecked {
+                connector,
+                account,
+                ok,
+            } => {
+                put("connector", connector.to_string());
+                put("account", account.to_string());
+                put("ok", ok.to_string());
+            }
             EnginePayload::AddonsChanged { what } => {
                 put("what", what.as_str().to_string());
                 put("id", what.id().to_string());
@@ -1291,6 +1310,7 @@ pub const TOPICS: &[&str] = &[
     "browser.request",
     "mobile_development.changed",
     "mcp.probed",
+    "connectors.checked",
     "people.changed",
     "invite.changed",
     "message.held",

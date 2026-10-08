@@ -606,6 +606,8 @@ export type EnginePayload =
   | { type: "mobile_development_changed"; what: import("./types.gen").MobileDevelopmentChange }
   /** An installed MCP server was probed (06 § MCP servers): Settings and the agent editor read its health again. */
   | { type: "mcp_probed"; id: string; ok: boolean }
+  /** An account of a connector installed here was checked (03 § Connectors): Settings › Connectors reads its health again. */
+  | { type: "connector_checked"; connector: string; account: string; ok: boolean }
   /**
    * What a person approved at the Publish gate did not go out — a push, a pull
    * request, a merge (ide/08): `what` is the act as the gate asked it, `reason`

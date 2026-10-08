@@ -38,7 +38,6 @@ import {
   secretsLine,
   secretsSetWords,
   typedSecrets,
-  withoutCheck,
 } from "./connectorsModel.mjs";
 
 const RUST = readFileSync(new URL("../../../../crates/bisa-core/src/connector.rs", import.meta.url), "utf8");
@@ -257,14 +256,13 @@ test("the account form saves once it has a label and the connector's definition 
   assert.equal(maySaveAccount({ label: "work", busy: false, definitionRead: false }), false, "the parameters the connector asks for are not on screen yet");
 });
 
-test("a check's answer stands only for the secrets it was made with", () => {
-  const checks = { a: { state: "connected" }, b: { state: "refused" } };
-  assert.deepEqual(withoutCheck(checks, "a"), { b: { state: "refused" } });
-  assert.equal(withoutCheck(checks, "zz"), checks, "nothing to drop: the same object, no re-render");
-  assert.deepEqual(checks, { a: { state: "connected" }, b: { state: "refused" } }, "the map handed in is not changed");
-  // The panel drops it wherever the account's secrets change: set again, connected by code, connected by the callback, forgotten.
+test("a check's answer on screen is the node's health, never a map of the panel's own", () => {
+  // The node forgets an account's health wherever its way in changes — set
+  // again, connected again, a parameter edited, forgotten — and the rows
+  // read it back through the bus; the panel keeps no answer of its own.
   const panel = readFileSync(new URL("./ConnectorsPanel.tsx", import.meta.url), "utf8");
-  assert.equal(panel.split("withoutCheck(all, ").length - 1, 4);
+  assert.ok(!panel.includes("withoutCheck("), "no map of answers to keep in step");
+  assert.ok(panel.includes("a.health"), "the row's health is the node's");
 });
 
 test("the callback port is the resolved setting, and unknown until it is read — a redirect URI is never said from a guess", () => {

@@ -73,6 +73,16 @@ pub enum AuthSpec {
         /// token endpoint.
         #[serde(default)]
         extra: BTreeMap<String, String>,
+        /// The name the client's id travels under — `client_id` (RFC 6749)
+        /// unless the platform spells it otherwise (`client_key`).
+        #[serde(default = "default_client_id_param")]
+        client_id_param: String,
+        /// How the scopes are joined on the authorization URL.
+        #[serde(default)]
+        scope_join: ScopeJoin,
+        /// How the PKCE challenge is written.
+        #[serde(default)]
+        code_challenge: ChallengeEncoding,
     },
     /// A token this crate signs at each request with the account's private
     /// key and sends as `Authorization: Bearer`; `claims` and `header` are
@@ -88,6 +98,47 @@ pub enum AuthSpec {
 
 fn yes() -> bool {
     true
+}
+
+/// The RFC 6749 name of the client's id.
+pub const DEFAULT_CLIENT_ID_PARAM: &str = "client_id";
+
+fn default_client_id_param() -> String {
+    DEFAULT_CLIENT_ID_PARAM.to_string()
+}
+
+/// How an OAuth2 scheme joins its scopes on the authorization URL: RFC
+/// 6749's space, or the comma some platforms read instead.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ScopeJoin {
+    #[default]
+    Space,
+    Comma,
+}
+
+impl ScopeJoin {
+    pub fn separator(self) -> &'static str {
+        match self {
+            ScopeJoin::Space => " ",
+            ScopeJoin::Comma => ",",
+        }
+    }
+}
+
+/// How an OAuth2 scheme writes the PKCE challenge of its verifier: RFC
+/// 7636's base64url of the SHA-256, or the hex some platforms read under
+/// the same `S256` word.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ChallengeEncoding {
+    #[default]
+    Base64url,
+    Hex,
 }
 
 /// The signing algorithms a `jwt` scheme may name, by their JOSE words.
@@ -118,6 +169,9 @@ pub enum ParamKind {
     /// A path the [`crate::files::Files`] port reads; the bytes travel in a
     /// multipart part or a raw body and never through a template.
     File,
+    /// A slash-separated path on the platform: in a URL path its slashes
+    /// stay and each segment is percent-encoded on its own; elsewhere text.
+    Path,
 }
 
 impl ParamKind {
@@ -128,6 +182,7 @@ impl ParamKind {
             ParamKind::Bool => "bool",
             ParamKind::Json => "json",
             ParamKind::File => "file",
+            ParamKind::Path => "path",
         }
     }
 }
@@ -200,6 +255,26 @@ pub struct Paging {
     pub max_pages: u8,
 }
 
+/// What a 2xx answer must say for the call to have succeeded — for the
+/// platforms that answer a failure with a 200: Slack's `ok`, a GraphQL
+/// answer's `errors`, a status page's `authenticated`. Exactly one of
+/// `equals` and `absent`; a miss is a refusal whose sentence is read at
+/// `reason` when the answer has one.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Expect {
+    /// A dotted path into the answer.
+    pub path: String,
+    /// The value the path must hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub equals: Option<serde_json::Value>,
+    /// The path must resolve to nothing, `null` or an empty list.
+    #[serde(default)]
+    pub absent: bool,
+    /// A dotted path to the platform's sentence when the expectation fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// One operation of one connector, ready to call.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CallSpec {
@@ -233,6 +308,9 @@ pub struct CallSpec {
     /// A dotted path into the response JSON that becomes the step's output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub select: Option<String>,
+    /// What a 2xx answer must say to count as a success; read before `select`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Expect>,
     /// Whether the operation changes something on the platform — a write is
     /// retried only where the platform promises the retry is safe.
     #[serde(default)]

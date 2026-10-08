@@ -14,10 +14,11 @@ TOML files in the catalog.
 - `crates/bisa-connectors/src/` — the call: parameters bound by kind (`request.rs`), placeholders rendered (`template.rs`), bodies encoded (`body.rs`), one signer per scheme under `auth/`, OAuth2 (`oauth.rs`), hosts (`hosts.rs`), retries and the circuit (`retry.rs`, `breaker.rs`), the outcome; ports for credentials, files, the clock and entropy.
 - `crates/bisa-netrules/src/lib.rs` — what a host pattern is, which authorities are loopback, the headers a definition may never set.
 - `crates/bisa-security/src/net.rs` — a person's allow and deny lists judged by the same grammar.
-- `crates/bisa-engine/src/connectors.rs` — the step and the start that call, `call_spec` and the shape maps.
+- `crates/bisa-engine/src/connectors.rs` — the step and the start that call, `call_spec` and the shape maps, the budgeted account check.
+- `crates/bisa-engine/src/connector_health.rs` — what each account answered when last checked: in memory, joined when running, told to the bus, forgotten when the way in changes.
 - `crates/bisa-node/src/connectors.rs` · `crates/bisa-store/src/connectors.rs` · `crates/bisa-cli/src/connector.rs` — the routes, the records and the default account, `bisa connector`.
 - `library/catalog/connectors/` — the fifteen built-ins, one TOML file each.
-- `desktop/src/views/_settings/connectorsModel.mjs` · `desktop/src/views/_workflow/forms/connectorStepModel.mjs` — the Settings panel's facts and the step form's.
+- `desktop/src/views/_settings/connectorsModel.mjs` · `desktop/src/views/_settings/connectorHealthModel.mjs` · `desktop/src/views/_workflow/forms/connectorStepModel.mjs` — the Settings panel's facts, an account's health in words, and the step form's.
 
 ## Read first
 
@@ -33,7 +34,7 @@ TOML files in the catalog.
 - The credential is applied to the one request that leaves the machine and appears nowhere else: a `Secret` cannot be printed, every error is scrubbed, and an answer that echoes a secret passes the redactor ([11 § Invariant](../../architecture/11-security.md#invariant)).
 - The crate follows no redirect, keeps no cookie, runs no shell and touches no file — a token goes back through `Credentials`, a file comes in through `Files` ([crates/connectors § What this crate refuses to do](../../architecture/crates/connectors.md#what-this-crate-refuses-to-do)).
 - `bisa-connectors` depends on `bisa-http` and `bisa-netrules` alone; everything else arrives through a trait the engine implements, so a test runs against a loopback stub ([crates/connectors](../../architecture/crates/connectors.md), [07 — Layering](../../architecture/07-layering.md)).
-- A built-in describes every operation and parameter, takes its tags from the vocabulary, and names a `check` that has no required parameter and writes nothing ([Add a connector](../recipes.md#21-add-a-connector)).
+- A built-in describes every operation and parameter, takes its tags from the vocabulary, and names a `check` that has no required parameter and writes nothing ([Add a connector](../recipes.md#21-add-a-connector)); it cites the platform documentation it was checked against in its header, bumps its `revision` when it changes, keeps an optional parameter a whole leaf of a JSON body, and names an `expect` when the platform answers a failure with a 200.
 - A custom definition is validated before it is written and refused by name; it is removable only while no account and no workflow step names it ([Add a connector](../recipes.md#21-add-a-connector)).
 - A test reaches no platform, keychain or network beyond a loopback stub, and signing keys are generated as the test runs ([Testing rules § Guard tests](../testing-rules.md#guard-tests)).
 
@@ -41,7 +42,7 @@ TOML files in the catalog.
 
 - `scripts/test crate connectors` — `crates/bisa-connectors/tests/it/` (request, auth, oauth, hosts, retry, outcome, error, hardening) and the unit tests.
 - `scripts/test crate netrules` — the grammar's cases in `crates/bisa-netrules/tests/it/hosts.rs`.
-- `scripts/test module engine connectors` · `scripts/test module node connectors` · `scripts/test module store connectors` · `scripts/test module cli connector`.
+- `scripts/test module engine connectors` · `scripts/test module engine connector_health` · `scripts/test module engine catalog_connectors` (every built-in's requests held to the platforms' documentation) · `scripts/test module node connectors` · `scripts/test module store connectors` · `scripts/test module cli connector`.
 - `scripts/test lib store catalog` — `every_connector_is_well_formed` and `the_catalog_ships_fifteen_connectors`.
 - `scripts/test desktop views/_settings`, then from `desktop/`: `node --test --import ./src/i18n/preload.mjs src/scenarios/connectors.test.mjs`.
 - The journey `crates/bisa-cli/tests/it/e2e/a_platform_reached_through_a_connector.rs` — a definition, an account checked, a run that reads, asks and writes once, a poll, the secret nowhere — under `scripts/test module cli e2e`.
@@ -58,7 +59,7 @@ TOML files in the catalog.
 
 - A connector definition is one of the files a person writes: a definition a release accepts is accepted, and means the same, by every later release of the line ([Workflow, connector and catalog files](../../reference/compatibility.md#workflow-connector-and-catalog-files)). It grows by an optional key, or by a new scheme, body kind or parameter kind beside the old ones; renaming a key or changing what one means waits for 1.0.0.
 - `bisa connector` and the `/connectors` routes, with the status each refusal answers, are [the command line](../../reference/compatibility.md#the-command-line) and [the HTTP API](../../reference/compatibility.md#the-http-api-and-its-events).
-- The fifteen built-ins are catalog content, not contract: one may change in a minor, and an installed copy is never touched by an upgrade.
+- The fifteen built-ins are catalog content, not contract: one may change in a minor. An installed copy is refreshed at the engine's start when the bundle's `revision` is higher — its accounts, secrets and steps kept; the slug and the operation ids are the contract a workflow step relies on. A peer on an earlier release sets the refreshed snapshot aside, as mixed releases already do.
 - Declare your change's compatibility in the pull request ([Keeping compatibility](../compatibility.md)).
 
 ## Review focus

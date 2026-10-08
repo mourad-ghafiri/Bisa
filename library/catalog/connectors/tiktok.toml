@@ -1,19 +1,38 @@
 # Built-in connector: TikTok — the connected creator's profile and videos over the TikTok API.
+#
+# TikTok's OAuth has its own spelling, declared on the scheme: the client is
+# identified by `client_key` on the consent page and in the token form, the
+# scopes are joined by a comma, and the PKCE challenge a desktop app must
+# send is the hex of the verifier's SHA-256. The redirect must be a loopback
+# address — this platform's is. Every answer carries `error.code`, `"ok"` on
+# success, so each operation expects it. The counts in the profile
+# (`follower_count`, `video_count`) need the `user.info.stats` scope.
+#
+# Reference: https://developers.tiktok.com/doc/login-kit-desktop
+# Reference: https://developers.tiktok.com/doc/oauth-user-access-token-management
+# Reference: https://developers.tiktok.com/doc/tiktok-api-v2-get-user-info
+# Reference: https://developers.tiktok.com/doc/tiktok-api-v2-video-list
+# Reference: https://developers.tiktok.com/doc/tiktok-api-v2-error-handling
+# Reference: https://developers.tiktok.com/doc/tiktok-api-v2-rate-limit
 
 [connector]
 name = "TikTok"
-description = "Read the connected creator's profile and video list. Connect with your own TikTok developer app (OAuth 2.0 with PKCE) with the user.info.basic and video.list scopes."
+description = "Read the connected creator's profile and video list. Connect with your own TikTok developer app (OAuth 2.0 with PKCE) with the user.info.basic, user.info.stats and video.list scopes."
 tags = ["marketing", "content"]
 base_url = "https://open.tiktokapis.com"
 hosts = ["open.tiktokapis.com"]
 check = "user_info"
+revision = 1
 
 [connector.auth]
 scheme = "oauth2"
 authorization_url = "https://www.tiktok.com/v2/auth/authorize/"
 token_url = "https://open.tiktokapis.com/v2/oauth/token/"
-scopes = ["user.info.basic", "video.list"]
+scopes = ["user.info.basic", "user.info.stats", "video.list"]
 pkce = true
+client_id_param = "client_key"
+scope_join = "comma"
+code_challenge = "hex"
 
 [[connector.operations]]
 id = "user_info"
@@ -25,11 +44,12 @@ query = { fields = "open_id,display_name,avatar_url,follower_count,video_count" 
 
 [connector.operations.output]
 select = "data.user"
+expect = { path = "error.code", equals = "ok", reason = "error.message" }
 
 [[connector.operations]]
 id = "video_list"
 name = "Video list"
-description = "The creator's latest videos."
+description = "The creator's latest public videos."
 method = "post"
 path = "/v2/video/list/"
 query = { fields = "id,title,create_time,share_url,view_count,like_count" }
@@ -40,7 +60,8 @@ name = "max"
 label = "At most"
 kind = "number"
 required = true
-doc = "Between 1 and 20."
+doc = "Between 1 and 20; TikTok answers 10 unless told otherwise."
 
 [connector.operations.output]
 select = "data.videos"
+expect = { path = "error.code", equals = "ok", reason = "error.message" }

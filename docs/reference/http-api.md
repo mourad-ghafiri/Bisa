@@ -515,16 +515,16 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 
 | Route | What it does |
 |---|---|
-| `GET /connectors` | Every connector this workspace holds — the catalog's and your own — as `{connectors: ConnectorRow[]}`: auth scheme, hosts, operations with their parameters, how many accounts this machine has and which is the default. `?tag=` narrows. |
+| `GET /connectors` | Every connector this workspace holds — the catalog's and your own — as `{connectors: ConnectorRow[]}`: auth scheme, hosts, operations with their parameters, the `check` operation, how many accounts this machine has and which is the default. `?tag=` narrows. |
 | `POST /connectors` | Record your own connector definition (`ConnectorDefinition`: id, name, description, tags, base_url, hosts, auth, params, operations, check). Validated first: a 400 carries every problem typed under `detail.problems`. |
 | `POST /connectors/validate` | Validate a definition without recording it: `{ok, problems: [{field?, message}]}`. |
 | `GET /connectors/{cid}` | One definition whole, and this machine's accounts for it (`ConnectorDetail`) — which secret fields each holds and where they live, never a value. |
 | `PUT /connectors/{cid}` | Replace your own definition (validated like a create). A catalog connector is 409: write your own under another id. |
 | `DELETE /connectors/{cid}` | Remove a definition. 409 while an account or a workflow step still names it, naming them. |
-| `GET /connectors/{cid}/accounts` | This machine's accounts for the connector: `{accounts: ConnectorAccountRow[]}` — label, parameters, the default mark, the secret fields set and their source (`file` or `keyring`), an OAuth account's expiry. Never a token. |
+| `GET /connectors/{cid}/accounts` | This machine's accounts for the connector: `{accounts: ConnectorAccountRow[]}` — label, parameters, the default mark, the secret fields set and their source (`file` or `keyring`), an OAuth account's expiry, and `health`: what the last check found (`unknown \| ok \| failing`, when, the status and the reason), kept for the engine's lifetime and forgotten when the way in changes. Never a token. |
 | `PUT /connectors/{cid}/accounts` | Add an account (`{label, params?, secrets?, default?}`) or edit one (`{id, …}`). `secrets` is a map of field to value written once — each field replaced, none read back; a field the scheme does not have is 400. Answers the account row. |
 | `DELETE /connectors/{cid}/accounts/{aid}` | Forget an account and every secret it held: `{account, forgotten: true}`. |
-| `POST /connectors/{cid}/accounts/{aid}/check` | Run the connector's `check` operation as the account — one live request: `{state: connected \| refused \| unreachable \| no_check, status?, reason?}`, the reason redacted. |
+| `POST /connectors/{cid}/accounts/{aid}/check` | Run the connector's `check` operation as the account — one live request within `{timeout_secs?}` (1–60, the engine's 20 unsaid; the body may be left out): `{state: connected \| refused \| unreachable \| no_check, status?, reason?}`, the reason redacted. The answer is kept as the account's `health`, a check already running for the account is joined, and the bus hears `connectors.checked`. |
 | `PUT /connectors/{cid}/accounts/{aid}/default` | Make this the connector's default account — the one a step with no account named runs as: `{default}`. |
 | `POST /connectors/{cid}/accounts/{aid}/oauth/start` | Begin connecting an OAuth account with the person's own client id: binds the loopback callback listener on `connectors.oauth.port` (409 when the port is busy) and answers `{url, redirect_uri, expires_at}` — open `url` in the browser. |
 | `GET /connectors/oauth/callback` | Where the browser comes back (`?state&code`, or `?error`). Answers a page with no script; the code is exchanged and never echoed; a stale or unknown state is 400. Token-exempt, on the callback listener and here. |

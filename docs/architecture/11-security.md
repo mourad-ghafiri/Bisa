@@ -492,7 +492,10 @@ pasted — says; a connector's declared hosts are the default allow; a host nobo
 allowed is refused with the connector's own list in the reason. `http` is accepted on loopback only,
 and a definition may accept an unsigned certificate (`insecure_tls`) on loopback only — the way
 Obsidian's local API serves itself. The same judge reads an OAuth2 scheme's **consent page and
-token endpoint**: a denied host is refused before the browser is sent or the form is posted. A
+token endpoint**: a denied host is refused before the browser is sent or the form is posted. Those
+two hosts are the scheme's own, declared by its URLs (`Connector::oauth_hosts`): the judge is given
+them beside `hosts` (`declared_hosts`), so a Google or TikTok connection starts with nothing in
+`allow_hosts`, and the deny list is read first for them as for any host. A
 refusal is journaled and announced the way a refused command
 is: a guard decision with tool `connector` and the redacted method and host as its subject. There is
 no ask and no classify for a host — the fix is one line in one of two lists. What comes **back** is

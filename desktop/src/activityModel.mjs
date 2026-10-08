@@ -1343,6 +1343,14 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
         icon: "icon:mcpServer",
         text: p.ok ? t("app-activity-mcp-server-answered-probe", { p: p.id }) : t("app-activity-mcp-server-failed-probe", { p: p.id }),
       };
+    case "connector_checked":
+      return {
+        ...base,
+        key,
+        tone: p.ok ? "dim" : "danger",
+        icon: "icon:connector",
+        text: p.ok ? t("app-activity-connector-account-answered-check", { connector: p.connector }) : t("app-activity-connector-account-failed-check", { connector: p.connector }),
+      };
     case "workstream_script_ran": {
       const first = String(p.output ?? "").split("\n")[0];
       return {

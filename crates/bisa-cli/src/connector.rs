@@ -70,7 +70,13 @@ pub enum AccountCmd {
         default: bool,
     },
     /// One live request as the account — the connector's `check` operation
-    Check { connector: String, account: String },
+    Check {
+        connector: String,
+        account: String,
+        /// How long to wait for the platform, in seconds (1–60; 20 unsaid)
+        #[arg(long)]
+        timeout_secs: Option<u64>,
+    },
     /// Make the account the connector's default
     Default { connector: String, account: String },
     /// Forget the account and every secret it held
@@ -83,7 +89,7 @@ pub async fn connector(ctx: &Ctx, out: &Out, cmd: ConnectorCmd) -> Result<()> {
         ConnectorCmd::Show { id } => show(ctx, out, &id),
         ConnectorCmd::New { from, id } => new(ctx, out, &from, id.as_deref()).await,
         ConnectorCmd::Rm { id } => rm(ctx, out, &id).await,
-        ConnectorCmd::Accounts { id } => accounts(ctx, out, &id),
+        ConnectorCmd::Accounts { id } => accounts(ctx, out, &id).await,
         ConnectorCmd::Account { command } => match command {
             AccountCmd::Add {
                 connector,
@@ -92,7 +98,11 @@ pub async fn connector(ctx: &Ctx, out: &Out, cmd: ConnectorCmd) -> Result<()> {
                 secrets,
                 default,
             } => add_account(ctx, out, &connector, label, &params, &secrets, default).await,
-            AccountCmd::Check { connector, account } => check(ctx, out, &connector, &account).await,
+            AccountCmd::Check {
+                connector,
+                account,
+                timeout_secs,
+            } => check(ctx, out, &connector, &account, timeout_secs).await,
             AccountCmd::Default { connector, account } => {
                 make_default(ctx, out, &connector, &account).await
             }
@@ -509,13 +519,41 @@ async fn rm(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
     Ok(())
 }
 
-fn accounts(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
+/// The glyph of an account's health, for a listing beside a running node:
+/// what the last check found, or nothing asked yet.
+fn health_glyph(health: &Value) -> &'static str {
+    match health["state"].as_str() {
+        Some("ok") => "✓",
+        Some("failing") => "✗",
+        _ => "·",
+    }
+}
+
+async fn accounts(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
     let ws = ctx.workspace()?;
     let cid = connector_id(id)?;
     ws.get_connector(&cid)?;
     let accounts = ws.list_connector_accounts(&cid)?;
+    // The health is the node's: it lives where the checks ran. Without a
+    // node there is none to show, and the rows say so with no glyph.
+    let health: BTreeMap<String, Value> = match ctx.node_client().await {
+        Some(node) => node
+            .get(&format!("/connectors/{cid}/accounts"))
+            .await
+            .ok()
+            .and_then(|v| v["accounts"].as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|a| Some((a["id"].as_str()?.to_string(), a["health"].clone())))
+            .collect(),
+        None => BTreeMap::new(),
+    };
     for a in &accounts {
-        out.human(&account_line(a));
+        let glyph = health
+            .get(&a.id.to_string())
+            .map(health_glyph)
+            .unwrap_or(" ");
+        out.human(&format!("{glyph} {}", account_line(a)));
     }
     if accounts.is_empty() {
         out.say(&bisa_core::text!(
@@ -523,7 +561,17 @@ fn accounts(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
             cid = cid.to_string()
         ));
     }
-    out.json_value(json!({ "accounts": accounts.iter().map(account_json).collect::<Vec<_>>() }));
+    let rows: Vec<Value> = accounts
+        .iter()
+        .map(|a| {
+            let mut row = account_json(a);
+            if let Some(h) = health.get(&a.id.to_string()) {
+                row["health"] = h.clone();
+            }
+            row
+        })
+        .collect();
+    out.json_value(json!({ "accounts": rows }));
     Ok(())
 }
 
@@ -594,19 +642,30 @@ async fn add_account(
     Ok(())
 }
 
-async fn check(ctx: &Ctx, out: &Out, connector: &str, account: &str) -> Result<()> {
+async fn check(
+    ctx: &Ctx,
+    out: &Out,
+    connector: &str,
+    account: &str,
+    timeout_secs: Option<u64>,
+) -> Result<()> {
     let cid = connector_id(connector)?;
     let aid = account_id(account)?;
     let v = if let Some(client) = ctx.node_client().await {
+        let body = match timeout_secs {
+            Some(secs) => json!({ "timeout_secs": secs }),
+            None => json!({}),
+        };
         client
-            .post(
-                &format!("/connectors/{cid}/accounts/{aid}/check"),
-                json!({}),
-            )
+            .post(&format!("/connectors/{cid}/accounts/{aid}/check"), body)
             .await?
     } else {
         let (engine, ()) = ctx.engine().await?;
-        let check = bisa_engine::connectors::check_account(engine.inner(), &cid, aid).await?;
+        let check = engine
+            .inner()
+            .connector_health
+            .check(engine.inner(), &cid, aid, timeout_secs)
+            .await?;
         engine.shutdown().await;
         serde_json::to_value(check)?
     };

@@ -9,6 +9,9 @@
 //! the rules around it: a disabled server is not dialed, the reserved name
 //! is not dialed, a draft transport (the editor's *Test connection*) is
 //! dialed without a registry entry, and the bus hears every finished probe.
+//! A probe whose caller went away before it answered — a closed window, a
+//! deadline above the call — leaves no slot behind for the next ask to wait
+//! on: a runner gone without an answer is taken over, never joined.
 
 use crate::events::{EngineEvent, EnginePayload};
 use crate::{EngineError, Inner};
@@ -121,6 +124,27 @@ pub struct McpHealth {
     probe: Arc<dyn McpProbe>,
 }
 
+/// The runner's hold on its slot: let go without an answer — the future
+/// cancelled mid-probe — it takes the `Running` slot away, so the next ask
+/// becomes the runner instead of waiting on nobody.
+struct Runner<'a> {
+    slots: &'a Mutex<HashMap<McpId, Slot>>,
+    id: McpId,
+    done: bool,
+}
+
+impl Drop for Runner<'_> {
+    fn drop(&mut self) {
+        if self.done {
+            return;
+        }
+        let mut slots = self.slots.locked();
+        if matches!(slots.get(&self.id), Some(Slot::Running(_))) {
+            slots.remove(&self.id);
+        }
+    }
+}
+
 impl McpHealth {
     pub fn new(probe: Arc<dyn McpProbe>) -> Self {
         Self {
@@ -188,14 +212,16 @@ impl McpHealth {
                 Duration::ZERO,
             ));
         }
-        // Join a probe already running for this id, or become its runner. The
-        // decision is taken under the lock and the lock is let go before any
-        // await: a guard held across the probe would keep every other id's
-        // probe waiting and make the future `!Send`.
+        // Join a probe already running for this id, or become its runner. A
+        // runner that went away without an answer — its sender gone — is
+        // taken over, never joined. The decision is taken under the lock and
+        // the lock is let go before any await: a guard held across the probe
+        // would keep every other id's probe waiting and make the future
+        // `!Send`.
         let role = {
             let mut slots = self.slots.locked();
             match slots.get(id) {
-                Some(Slot::Running(rx)) => Err(rx.clone()),
+                Some(Slot::Running(rx)) if rx.has_changed().is_ok() => Err(rx.clone()),
                 _ => {
                     let (tx, rx) = watch::channel(None);
                     slots.insert(id.clone(), Slot::Running(rx));
@@ -205,6 +231,11 @@ impl McpHealth {
         };
         let mut rx = match role {
             Ok(tx) => {
+                let mut runner = Runner {
+                    slots: &self.slots,
+                    id: id.clone(),
+                    done: false,
+                };
                 let report = self
                     .probe
                     .probe(&def.transport, budget_of(budget_secs))
@@ -216,6 +247,7 @@ impl McpHealth {
                 self.slots
                     .locked()
                     .insert(id.clone(), Slot::Done(Box::new(last)));
+                runner.done = true;
                 // A joiner that stopped listening is not a fault.
                 if tx.send(Some(report.clone())).is_err() {
                     tracing::debug!(target: "bisa_engine::mcp_health", %id, "nobody waited for the probe");

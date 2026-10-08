@@ -30,6 +30,7 @@ fn sources(dir: &Path, out: &mut Vec<(PathBuf, String)>) {
 
 /// A method whose name starts with one of these verbs changes the workspace.
 const WRITER_VERBS: &[&str] = &[
+    "refresh",
     "accept",
     "add",
     "append",

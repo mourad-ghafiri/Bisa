@@ -1,4 +1,18 @@
 # Built-in connector: Facebook Pages — read and publish a page's posts over the Graph API.
+#
+# Every path names the Graph API version it was written against (v26.0);
+# Meta keeps a version for two years after the next one ships and answers a
+# call to an expired version with the oldest live one. A Page access token
+# comes from `GET /me/accounts` with a User token; `GET /me` under a Page
+# token answers the page itself.
+#
+# Reference: https://developers.facebook.com/docs/graph-api/guides/versioning
+# Reference: https://developers.facebook.com/docs/graph-api/changelog/
+# Reference: https://developers.facebook.com/docs/facebook-login/guides/access-tokens/
+# Reference: https://developers.facebook.com/docs/pages-api/posts
+# Reference: https://developers.facebook.com/docs/graph-api/reference/page/feed/
+# Reference: https://developers.facebook.com/docs/graph-api/guides/error-handling
+# Reference: https://developers.facebook.com/docs/graph-api/overview/rate-limiting
 
 [connector]
 name = "Facebook Pages"
@@ -7,6 +21,7 @@ tags = ["marketing"]
 base_url = "https://graph.facebook.com"
 hosts = ["graph.facebook.com"]
 check = "me"
+revision = 1
 
 [connector.auth]
 scheme = "bearer"
@@ -16,7 +31,7 @@ id = "me"
 name = "Me"
 description = "What the token identifies — the one call that proves it works."
 method = "get"
-path = "/v19.0/me"
+path = "/v26.0/me"
 query = { fields = "id,name" }
 
 [[connector.operations]]
@@ -24,7 +39,7 @@ id = "page_posts"
 name = "Page posts"
 description = "A page's latest posts."
 method = "get"
-path = "/v19.0/{params.page}/posts"
+path = "/v26.0/{params.page}/posts"
 query = { limit = "{params.max}", fields = "id,message,created_time,permalink_url" }
 
 [[connector.operations.params]]
@@ -47,7 +62,7 @@ id = "publish_post"
 name = "Publish post"
 description = "Publish a text post on a page."
 method = "post"
-path = "/v19.0/{params.page}/feed"
+path = "/v26.0/{params.page}/feed"
 body = { kind = "json", value = { message = "{params.message}" } }
 writes = true
 
