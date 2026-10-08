@@ -45,7 +45,7 @@ its test.
 - `scripts/test desktop <dir>` for the folder you changed — `scripts/test desktop shell`, `scripts/test desktop views/_settings` — or one file from `desktop/`: `node --test --import ./src/i18n/preload.mjs src/shell/keymapModel.test.mjs`.
 - `scripts/test desktop scenarios` — every journey; `scripts/test tauri` — the shell's crate (the PTY registry, the sidecar's search, the window's place, the menu bar icon, the navigation policy).
 - From `desktop/`: `npm run build` (types and module resolution) and `npm run lint`.
-- The end of the pass: `npm run test:coverage` in `desktop/` (`just desktop-coverage`, in `just verify`), which fails under 80 % of lines across the models.
+- The end of the pass: `just coverage-of desktop` — the models measured and each directory held to its figure in `scripts/coverage/baseline.json` ([Feature coverage § Line coverage](../coverage.md#line-coverage)); `npm run test:coverage` in `desktop/` (`just desktop-coverage`) is the quick 80 % floor CI's `desktop` job runs.
 - A journey through the binary has no window; `crates/bisa-cli/tests/it/e2e/the_nodes_wire.rs` holds the wire the window reads, and `desktop/src/scenarios/wire.test.mjs` holds how the window lives it.
 
 ## Common changes

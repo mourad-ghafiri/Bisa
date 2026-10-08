@@ -21,7 +21,7 @@ report, never here — this page names *what* proves a feature, not how many tim
 | `bisa-core` | a unit test beside every rule under `crates/bisa-core/src/` (`run.rs` carries the property tests); `crates/bisa-core/tests/it/docs.rs` (the documentation held to the code) and `crates/bisa-core/tests/it/layering.rs` (the crate graph, core's purity, no destructive command in any test) and `crates/bisa-core/tests/it/shapes.rs` (every type read from JSON refuses a key nobody knows, or is excused by name; a table of stored shapes read whole and refused with one key too many) | `scripts/test crate core` |
 | `bisa-store` | `crates/bisa-store/tests/it/`: `activity.rs` · `addons.rs` · `archive.rs` · `artifacts.rs` · `catalog.rs` · `changes.rs` · `channels.rs` · `claims.rs` · `connectors.rs` · `conversations.rs` · `documents.rs` · `drawings.rs` · `durability.rs` · `layout.rs` · `listening.rs` · `locking.rs` · `members.rs` · `notes.rs` · `pets.rs` · `schema_doc.rs` · `settings.rs` · `studio.rs` · `usage.rs` · `workspace_runs.rs`, and the unit tests beside the modules | `scripts/test crate store` |
 | `bisa-engine` | `crates/bisa-engine/tests/it/` — one module per topic, from `activity.rs` to `workflow_agent.rs` (the list is the crate page's, [engine § Tests](../architecture/crates/engine.md#tests)); the unit tests beside `presence.rs`, `security.rs`, `scheduler.rs` and the rest | `scripts/test crate engine` |
-| `bisa-node` | `crates/bisa-node/tests/it/`: `node.rs` (every route over the socket, the goal lifecycle, channels, the Inbox and the Pulse) · `routes.rs` (every documented route mounted, every desktop call documented) · `ide.rs` · `files.rs` · `changes.rs` · `conversations.rs` · `sessions.rs` · `events.rs` (listening, the two hook doors, signals) · `connectors.rs` · `collab.rs` · `security.rs` · `decisions.rs` · `settings.rs` · `network.rs` · `logs.rs` · `addons.rs` · `drawings.rs` · `notes_git.rs` · `mobile_development.rs` · `retire.rs` · `project_delete.rs` · `readiness.rs` · `resilience.rs` (one broken thing costs one row; a workspace that cannot be written is a 500 with the one sentence, nothing half-made, the node living; a torn member file, `general` snapshot and settings layer worked around at the next start and named on `/workspace`, the layer repaired by a write) · `harness_usage.rs` · `cache.rs` · `auth.rs` (the bearer's exceptions as one table) · `bodies.rs` · `effort.rs` · `runs.rs` · `ssh.rs` · `layering.rs`; `a2a.rs` behind the feature; from end to end, the journey `crates/bisa-cli/tests/it/e2e/the_nodes_wire.rs` (who may call the node, what it says to a body it cannot take, an open stream told the node is stopping) | `scripts/test crate node` · `FEATURES=a2a scripts/test module node a2a` |
+| `bisa-node` | `crates/bisa-node/tests/it/`: `node.rs` (every route over the socket, the goal lifecycle, channels, the Inbox and the Pulse) · `routes.rs` (every documented route mounted, every desktop call documented) · `reference.rs` (the four generator binaries answer exactly the committed pages and the schema) · `ide.rs` · `files.rs` · `changes.rs` · `conversations.rs` · `sessions.rs` · `events.rs` (listening, the two hook doors, signals) · `connectors.rs` · `collab.rs` · `security.rs` · `decisions.rs` · `settings.rs` · `network.rs` · `logs.rs` · `addons.rs` · `drawings.rs` · `notes_git.rs` · `mobile_development.rs` · `retire.rs` · `project_delete.rs` · `readiness.rs` · `resilience.rs` (one broken thing costs one row; a workspace that cannot be written is a 500 with the one sentence, nothing half-made, the node living; a torn member file, `general` snapshot and settings layer worked around at the next start and named on `/workspace`, the layer repaired by a write) · `harness_usage.rs` · `cache.rs` · `auth.rs` (the bearer's exceptions as one table) · `bodies.rs` · `effort.rs` · `runs.rs` · `ssh.rs` · `layering.rs`; `a2a.rs` behind the feature; from end to end, the journey `crates/bisa-cli/tests/it/e2e/the_nodes_wire.rs` (who may call the node, what it says to a body it cannot take, an open stream told the node is stopping) | `scripts/test crate node` · `FEATURES=a2a scripts/test module node a2a` |
 | `bisa-cli` | `crates/bisa-cli/tests/it/cli.rs` (every verb over the real binary, the exit codes, routing through a running daemon) · `connector.rs` · `docs.rs` (the reference page equals the verbs, those of listening and signals by name) · `crates/bisa-cli/tests/it/e2e/` (the **journeys**: the real binary, the real node over its socket and the real MCP server, in a sealed workspace, the agents played by `crates/bisa-cli/tests/scripted_agent.rs` — `the_setup_gate.rs` among them: `bisa doctor` says what is missing and exits 1, then that all five are here and exits 0; `the_rest_of_the_command_line.rs`: the verbs no other journey runs, while a node runs; `two_verbs_against_one_daemon.rs`: a dozen verbs at once every one answered by the node, two with no daemon sharing the lock in words; `a_node_that_dies_with_its_parent.rs`: a node started leashed stops when the desktop's end of its stdin goes, its boot said as JSON lines first, and the workspace is free again; `a_workspace_that_came_back_broken.rs`: a workspace a crash tore opens all the same, `workspace check` names what was moved and exits 1, the rebuild prints its stages) · `crates/bisa-cli/src/verbs.rs` (every leaf of clap's tree run by a test that names it, or excused with its road) · `crates/bisa-cli/src/session.rs` (the hook's reader of a chunked answer under property tests: any body at any cut sizes reads back whole, an answer cut before its end is nothing, any bytes never panic) | `scripts/test crate cli` · `scripts/test module cli e2e` |
 | `bisa-collab` | the unit tests beside `crates/bisa-collab/src/` (the envelope, the control messages, the invite code, the relay pool's health) | `scripts/test lib collab` |
 | `bisa-guest` | the unit tests beside `crates/bisa-guest/src/` (the replica, the session, the faces) | `scripts/test lib guest` |
@@ -98,3 +98,61 @@ The suites above prove features; the [guard tests](testing-rules.md#guard-tests)
 crate graph, the write rule, the generated pages, the vocabulary, the licence, the bundle, the
 desktop's dead exports and log door. `just verify` runs both kinds; a new feature earns a row here
 when its feature-status row lands.
+
+## Line coverage
+
+The rows above say *what* proves a feature; the meter says how much of each tree those suites
+reach. Three halves, one judge:
+
+| Half | Measured by | Written to |
+|---|---|---|
+| the Rust workspace — every crate, with the feature-gated suites (`a2a` on the adapters and the node, `iroh` on the wire) merged in | `cargo-llvm-cov`, the tree's own under `target/tools/bin` (`just install-llvm-cov`), with its `--no-report` runs joined by one `report` | `target/coverage/rust.lcov` |
+| the Tauri shell, its own workspace | the same tool, on a Mac — its surface is AppKit's | `target/coverage/shell.lcov` |
+| the desktop's models, `desktop/src/**/*.mjs` | Node's own coverage (`npm run test:coverage:lcov`) | `target/coverage/desktop.lcov` |
+
+`just coverage` (in `just verify`, and CI's `coverage` job) proves the judge's own model, measures
+every half and judges — `scripts/coverage/measure`, whose forms are one half alone
+(`just coverage-of desktop`), the named crates' own suites with their file list
+(`just coverage-crate engine` — a report, never a verdict: a line a higher crate's suites cover
+reads as bare until the full run), and the judge over what the last run left
+(`scripts/coverage/measure judge --files <tree>`, the work list of one tree with its bare lines).
+The judge is `scripts/coverage/check-coverage.mjs` over the pure model
+`scripts/coverage/coverageModel.mjs`, whose tests (`node --test scripts/coverage/coverageModel.test.mjs`)
+run before anything is measured.
+
+**The baseline.** `scripts/coverage/baseline.json` holds one figure per **tree** — a crate
+(`crates/bisa-engine`), the shell (`desktop/src-tauri`), a desktop directory at the grain of
+`scripts/test desktop <dir>` (`desktop/src/views/_work`) — the percentage of lines hit, floored to a
+tenth by integer arithmetic so a run re-judged never reads lower than it was written. Each tree is
+judged **held**, **rose**, **fell**, **new** (a tree with no figure) or **gone** (a figure with no
+tree): a fall, a new tree and a gone tree fail; a rise passes with a note. `just coverage-write`
+records what the last full run measured — raising and adding, never lowering — so the file only
+climbs; the one way down is a hand edit in a commit that says why. A tree at 100 is every file of
+it at 100. The end is 100 in every row.
+
+**What is not measured, and why.** `scripts/coverage/exclusions.json` names whole files, each with
+a reason: a file goes there only when every line of it that could run needs this machine's OS
+surface — a window, AppKit, the tray, the pasteboard, a real `xcrun` — or is generated. The list
+is held by a test: every path exists, would otherwise be measured, is listed once and says why. A
+binary's `main` is not excused — it is covered by a test that runs the binary
+(`crates/bisa-node/tests/it/reference.rs`, the ratchet command in `crates/bisa-i18n/tests/it/ratchet.rs`).
+Test sources, benches, build scripts, `.d.mts` declarations and `.test.mjs` files are nobody's
+without being listed. The desktop's components (`.ts`, `.tsx`) are outside the meter by the rule
+in [Testing rules](testing-rules.md#where-a-test-lives): a fact lives in a `.mjs` model, which is
+measured; a component is held by `tsc`, the rules of hooks and the source guards.
+
+**What the tools count.** A line with a function on it is coverable; a `#[derive]` expands onto
+its line; a trait's default method nobody calls counts against the trait's file; an
+`unreachable!()` arm is a bare line until a test reaches it or a typed error replaces it; a `main`
+is covered only when a process runs it and exits normally — a daemon ended by `SIGTERM` writes
+its profile, one killed does not. The Rust toolchain is stable, where `#[coverage(off)]` is not,
+so nothing is excused by attribute. Node reports only the files a test loaded: a model nothing
+imports is counted as bare over its physical lines rather than left invisible.
+
+**The cost.** A full run on an Apple-silicon Mac is about a quarter of an hour: the workspace's
+suites, instrumented, in about ten minutes (the first run's build into `target/llvm-cov-target`
+included), then the three feature runs, the shell's crate and the desktop's minute; a
+`just coverage-crate` is one crate's build and suites. CI's `coverage` job follows `rust`, so a
+measured run is not spent on a change that fails plain. A suite that hangs holds the whole
+measurement: the stalled test is the thing to fix, and until it is, the child it waits on is yours
+to end.

@@ -157,6 +157,7 @@ test("the door, the boot, the header and the test preload are wired", () => {
   const pkg = JSON.parse(readRoot("desktop/package.json"));
   assert.ok(pkg.scripts.test.includes("--import ./src/i18n/preload.mjs"), "npm test speaks English");
   assert.ok(pkg.scripts["test:coverage"].includes("--import ./src/i18n/preload.mjs"));
+  assert.ok(pkg.scripts["test:coverage:lcov"].includes("--import ./src/i18n/preload.mjs"), "the measurer's run speaks English too");
   assert.ok("@fluent/bundle" in pkg.dependencies && "@fluent/langneg" in pkg.dependencies);
   assert.ok(readRoot("scripts/test").includes("--import ./src/i18n/preload.mjs"), "scripts/test desktop speaks English");
   assert.ok(readRoot("desktop/vite.config.ts").includes('"../locales"'), "the dev server may serve the catalog");

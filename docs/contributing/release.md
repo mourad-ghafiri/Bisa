@@ -21,14 +21,15 @@ A release is a patch when *Unreleased* holds only *Fixed* and *Security* entries
 ## The gate
 
 ```sh
-just verify   # build · test-rust · lint · check-types · check-api-docs · check-settings-docs · check-catalog-docs · check-keymap-docs · check-mermaid · licence-gate · check-notices · release-check · website-check · hakari-verify · desktop-coverage · desktop-build
+just verify   # build · coverage · lint · check-types · check-api-docs · check-settings-docs · check-catalog-docs · check-keymap-docs · check-mermaid · licence-gate · check-notices · release-check · website-check · hakari-verify · desktop-build
 ```
 
-`test-rust` runs the workspace's tests through `scripts/test rust` — under `cargo-nextest` when it is
+`coverage` runs every suite once, measured: the workspace — under `cargo-nextest` when it is
 installed in the tree (`just install-nextest`), under `cargo test` otherwise, `--workspace
---no-fail-fast` either way — and then `cargo test` in `desktop/src-tauri`; the desktop's
-suite runs once, in `desktop-coverage`, which holds its models at 80 % of lines (`npm run
-test:coverage`). `lint` runs `scripts/lint-terminology` first — it needs no toolchain, and a
+--no-fail-fast` either way — with the feature-gated suites merged in, then the shell's crate, then
+the desktop's models, each tree held to `scripts/coverage/baseline.json` ([Feature coverage § Line
+coverage](coverage.md#line-coverage)); without the tree's `cargo-llvm-cov` (`just install-llvm-cov`)
+the Rust half runs plain through `scripts/test rust` and is said to be unjudged. `lint` runs `scripts/lint-terminology` first — it needs no toolchain, and a
 reintroduced banned word fails in a second — with the lint's own fixture suite
 (`scripts/lint-terminology-test`), then the desktop's `npm run lint` (`eslint .`), then
 `clippy --all-targets -- -D warnings` and `fmt --check` for
@@ -44,9 +45,11 @@ website to what `scripts/website/build.mjs` builds from the repository, with its
 ([the website's README](../../website/README.md)); `hakari-verify` proves the unification crate current, depended on by every member but `bisa-log`
 and one feature set per dependency ([Testing rules § Faster builds](testing-rules.md#faster-builds)).
 
-CI (`.github/workflows/verify.yml`) runs the same steps as eight jobs — `terminology` first (the
-lint and its fixture suite), then `rust`, `desktop` (`npm run lint`, the coverage run, the build),
-`types`, `licences` (the model tests, the gate, the notices, the release gate), `hakari` (the tool's three checks,
+CI (`.github/workflows/verify.yml`) runs the same steps as nine jobs — `terminology` first (the
+lint and its fixture suite), then `rust`, `desktop` (`npm run lint`, the models' 80 % floor, the build),
+`coverage` (after `rust`: the workspace and the desktop measured and judged, the lcov files kept as
+an artifact), `types`, `licences` (the model tests — the coverage gate's among them — the gate, the
+notices, the release gate), `hakari` (the tool's three checks,
 installed with `cargo install cargo-hakari --locked`), `benches` and `website` (node only) — with `RUSTFLAGS: -D warnings`
 for every `cargo` step and `-D warnings` on clippy, so a rustc or clippy warning fails CI as it
 fails `just lint`. The `types` job regenerates and diffs all four generated pages and the two type

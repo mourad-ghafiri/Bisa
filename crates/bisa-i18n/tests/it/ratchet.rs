@@ -38,3 +38,33 @@ fn the_sources_carry_exactly_the_baseline_s_bare_sentences() {
         down.join("\n")
     );
 }
+
+/// The ratchet's own command, in its report form: `i18n-ratchet` with no
+/// flag reads the committed baseline and the sources and says what rose and
+/// what fell — nothing, while the test above holds. The command runs here so
+/// its report is held by a test and not only by the recipe that calls it.
+#[test]
+fn the_ratchet_command_reports_nothing_rose_and_nothing_fell() {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_i18n-ratchet"))
+        .current_dir(root())
+        .output()
+        .expect("run i18n-ratchet");
+    assert!(
+        out.status.success(),
+        "i18n-ratchet exited {:?}: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).expect("the report is text");
+    let last = stdout.lines().last().unwrap_or_default();
+    assert!(
+        last.ends_with("0 rose, 0 fell"),
+        "the report's last line counts what moved: {stdout}"
+    );
+    assert!(
+        !stdout
+            .lines()
+            .any(|l| l.starts_with("up ") || l.starts_with("down ")),
+        "a sentence rose or fell against the baseline:\n{stdout}"
+    );
+}

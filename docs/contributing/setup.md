@@ -16,7 +16,7 @@ The source is https://github.com/mourad-ghafiri/Bisa; the website is https://bis
 | macOS with Xcode's command-line tools | — | building the desktop app as it ships |
 
 Optional, installed inside the tree by their recipes: cargo-nextest (`just install-nextest`),
-cargo-hakari, cargo-deny, cargo-llvm-cov. Then read [How to contribute](how-to-contribute.md) and your
+cargo-llvm-cov (`just install-llvm-cov`), cargo-hakari, cargo-deny. Then read [How to contribute](how-to-contribute.md) and your
 area's guide ([areas](areas/README.md)).
 
 ## The commands
@@ -32,7 +32,8 @@ cd desktop && npm install && npm test   # the desktop's pure models and the them
 | Target | Does |
 |---|---|
 | `just build` · `just test` · `just fmt` | the obvious; `test` also runs `cargo test` in `desktop/src-tauri` and then the desktop's `npm test` |
-| `just test-rust` | the workspace and `desktop/src-tauri` alone — what `verify` runs before the desktop's one coverage run |
+| `just test-rust` | the workspace and `desktop/src-tauri` alone, plain — the inner loop; `verify` runs the same suites once, measured, under `coverage` |
+| `just coverage` · `just coverage-of <half>` · `just coverage-crate <crate>` · `just coverage-write` | line coverage measured and judged against `scripts/coverage/baseline.json` — every half, one half, the named crates' own suites with their file list, the baselines raised ([Feature coverage § Line coverage](coverage.md#line-coverage)) |
 | `just lint` | `just lint-terminology`, then the desktop's `npm run lint`, then `clippy -D warnings` and `fmt --check` for the workspace and `desktop/src-tauri` |
 | `just lint-terminology` | the banned-word scan and the lint's own fixture suite (`scripts/lint-terminology-test`) — no toolchain needed |
 | `just gen-types` · `just check-types` | the desktop's generated wire types, and a staleness check |

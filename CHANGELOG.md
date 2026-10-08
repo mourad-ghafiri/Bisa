@@ -10,6 +10,15 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- A line-coverage gate over every tree (`docs/contributing/coverage.md` § Line coverage): `just
+  coverage` measures the Rust workspace with its feature-gated suites merged in, the Tauri shell and
+  the desktop's models (`cargo-llvm-cov` in the tree — `just install-llvm-cov` — and Node's own
+  coverage) and holds each crate and each desktop directory to `scripts/coverage/baseline.json`, a
+  ratchet that only rises (`just coverage-write`); `just coverage-crate <crate>` is the loop, with
+  the file list and the bare lines; `scripts/coverage/exclusions.json` names the few files that
+  cannot run without this machine's OS surface, each with a reason, held by a test; CI measures in
+  a `coverage` job after `rust`. The four generator binaries beside the node and the i18n ratchet
+  command run under tests of their own (`crates/bisa-node/tests/it/reference.rs`).
 - Every built-in connector cites the platform documentation it was checked against (`# Reference:`
   lines in its file) and carries a `revision`; the engine refreshes an installed copy at start when
   the bundle's revision is higher — its accounts, secrets and steps kept, a credential moved to the
@@ -96,6 +105,9 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- `just verify` runs every suite once, measured, under `coverage` — in place of `test-rust` and
+  `desktop-coverage`, which stay as the plain inner-loop recipes; without the tree's
+  `cargo-llvm-cov` the Rust half runs plain and is said to be unjudged.
 - A built-in connector installed from the catalog is no longer frozen at install: the engine brings
   it to the bundle's `revision` at start (a catalog definition was never a person's to edit, so
   nothing of theirs is overwritten). A peer on an earlier release sets a refreshed connector's

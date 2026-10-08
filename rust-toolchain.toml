@@ -1,6 +1,7 @@
 [toolchain]
 channel = "stable"
-components = ["rustfmt", "clippy"]
+# `llvm-tools` is what cargo-llvm-cov measures with (`just coverage`).
+components = ["rustfmt", "clippy", "llvm-tools"]
 # Both macOS architectures: the bundle is universal (scripts/macos/lib.sh
 # builds the node for each and joins them with lipo). rustup installs a
 # missing target on the first `cargo` call.

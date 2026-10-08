@@ -26,6 +26,7 @@ mod node;
 mod notes_git;
 mod project_delete;
 mod readiness;
+mod reference;
 mod resilience;
 mod retire;
 mod routes;
