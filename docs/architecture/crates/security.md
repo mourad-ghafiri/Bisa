@@ -34,7 +34,7 @@ the rule types through the engine's re-exports.
 
 | Invariant | Held by |
 |---|---|
-| Redaction then restore is identity; the same secret reads the same; a text already redacted is left alone; an unknown placeholder is left and named | `redact.rs` tests |
+| Redaction then restore is identity; the same secret reads the same; a text already redacted is left alone; an unknown placeholder is left and named; two secrets whose digests begin alike get tags told apart by length | `redact.rs` tests (`colliding_tags_are_lengthened_and_the_empty_cases_do_nothing`) |
 | A JSON value keeps its shape — only string leaves change, keys never | `redact.rs::a_json_value_keeps_its_shape_and_only_its_strings_change` |
 | The vault's `Debug` and a compiled redactor's never print a secret or an environment value | `redact.rs::the_vault_debug_prints_a_count_and_never_a_secret` |
 | The first enabled rule wins; a disabled rule never matches; a bad regex or glob is a named problem and the rest still stand | `guard.rs` tests, `policy.rs::what_cannot_be_read_or_compiled_is_a_named_problem_not_a_failure` |

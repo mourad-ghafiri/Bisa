@@ -594,7 +594,7 @@ impl SecurityState {
 
     fn announce(&self, event: EngineEvent) {
         if self.bus.send(event).is_err() {
-            tracing::trace!("security event dropped: no subscribers");
+            tracing::trace!("security event dropped: no subscribers"); // LCOV_EXCL_LINE: the engine holds a receiver of its own bus for its lifetime
         }
     }
 
@@ -987,7 +987,7 @@ pub async fn decide_tool(
     let subject = subject_of(inner, tool, input);
     if !restored.unresolved.is_empty() {
         let RuleVerdict::Deny { rule, reason } = unresolved_deny(&restored.unresolved) else {
-            unreachable!("an unresolved placeholder is a deny");
+            unreachable!("an unresolved placeholder is a deny"); // LCOV_EXCL_LINE: `unresolved_deny` answers a deny for every non-empty list (`the_unresolved_deny_names_the_placeholders`)
         };
         record(
             inner,
@@ -1441,7 +1441,7 @@ pub fn record_unresolved(
     placeholders: &[String],
 ) -> String {
     let RuleVerdict::Deny { rule, reason } = unresolved_deny(placeholders) else {
-        unreachable!("an unresolved placeholder is a deny");
+        unreachable!("an unresolved placeholder is a deny"); // LCOV_EXCL_LINE: `unresolved_deny` answers a deny for every non-empty list (`the_unresolved_deny_names_the_placeholders`)
     };
     let judge = Judge::platform(home, None);
     let subject = inner.security.redact(subject).text;
@@ -1775,7 +1775,7 @@ fn classifier_readiness(inner: &Inner, classifier: &ClassifierSettings) -> (bool
                         .problem
                         .map(|p| format!("the Decision-Making Agent cannot be asked: {p}")),
                 ),
-                Err(e) => (false, Some(e.to_string())),
+                Err(e) => (false, Some(e.to_string())), // LCOV_EXCL_LINE: the status errs only when the bundled Decision-Making Agent record will not parse, which the bundle tests hold
             };
         }
     }
@@ -1945,5 +1945,51 @@ mod tests {
         assert_eq!(unknown, ClassifierProvider::Agent);
         assert_eq!(retired, unknown);
         assert_eq!(ClassifierProvider::of(None), ClassifierProvider::Agent);
+    }
+
+    // added by the coverage pass: engine-security-unit.rs
+
+    #[test]
+    fn a_path_under_the_home_reads_as_a_tilde_and_a_bare_subject_asks_a_bare_question() {
+        let home = std::path::Path::new("/home/me");
+        assert_eq!(home_relative(home, Some(home)), "~");
+        assert_eq!(
+            home_relative(std::path::Path::new("/home/me/x"), Some(home)),
+            "~/x"
+        );
+        assert_eq!(
+            home_relative(std::path::Path::new("/tmp/x"), Some(home)),
+            "/tmp/x"
+        );
+        assert_eq!(
+            home_relative(std::path::Path::new("/tmp/x"), None),
+            "/tmp/x"
+        );
+        assert_eq!(
+            question_for("fake-probe", "", "the rule asks"),
+            "Allow `fake-probe`?\n\nthe rule asks"
+        );
+        assert!(question_for("sh", "ls", "why").contains("```\nls\n```"));
+    }
+
+    // added by the coverage pass: engine-security-unit2.rs
+
+    #[test]
+    fn the_state_debugs_as_its_vault_count_and_never_a_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(bisa_store::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let (bus, _rx) = broadcast::channel(8);
+        let state = SecurityState::new(Arc::new(ws), bus);
+        state
+            .vault()
+            .placeholder_for("github_token", "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+        let debug = format!("{state:?}");
+        assert!(debug.contains("SecurityState"), "{debug}");
+        assert!(debug.contains("vault"), "{debug}");
+        assert!(!debug.contains("ghp_"), "{debug}");
     }
 }

@@ -539,4 +539,15 @@ mod tests {
         assert!(prompt(&subject).ends_with(&block));
         assert!(!block.contains("SAFE"), "the block carries no brief");
     }
+
+    // added by the coverage pass: classify2.rs
+
+    #[test]
+    fn the_paths_a_call_names_are_part_of_its_digest() {
+        let a = subject_digest(&subject());
+        let mut with_paths = subject();
+        with_paths.paths = vec!["~/.ssh/id_ed25519".into()];
+        assert_ne!(a, subject_digest(&with_paths));
+        assert_eq!(subject_digest(&with_paths), subject_digest(&with_paths));
+    }
 }

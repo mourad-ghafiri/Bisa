@@ -460,3 +460,52 @@ async fn the_transcript_route_pages_on_character_boundaries_and_never_sticks() {
     assert!(torn["text"].as_str().unwrap().ends_with(" tail\n"));
     let _server_gone = stop.send(());
 }
+
+// --- added by the coverage pass ---
+
+/// A preview reads at most 64 KiB; a session that kept no transcript is
+/// not found by name.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_oversized_preview_is_refused_and_a_session_with_no_transcript_is_not_found() {
+    let (_dir, socket, stop) = boot_with(|ws| {
+        ws.record_session(&bisa_store::SessionRow {
+            id: "s-no-transcript".into(),
+            adapter: "mock".into(),
+            kind: bisa_store::SessionKind::Worker,
+            work_item: None,
+            conversation: None,
+            workstream: None,
+            agent_id: None,
+            transcript_path: None,
+            resume_token_json: None,
+            status: bisa_store::SessionStatus::Ended,
+            parked_at: None,
+            pid: None,
+            pid_seen_at: None,
+            ended_at: Some(1),
+        })
+        .unwrap();
+    })
+    .await;
+    let (code, body) = request(
+        &socket,
+        "POST",
+        "/security/redact-preview",
+        Some(json!({ "text": "x".repeat(64 * 1024 + 1) })),
+        TOKEN,
+    )
+    .await;
+    assert_eq!(code, 400, "{body}");
+    assert!(body.to_string().contains("64"), "{body}");
+    let (code, body) = request(
+        &socket,
+        "GET",
+        "/sessions/s-no-transcript/transcript",
+        None,
+        TOKEN,
+    )
+    .await;
+    assert_eq!(code, 404, "{body}");
+    assert!(body.to_string().contains("transcript"), "{body}");
+    let _server_gone = stop.send(());
+}

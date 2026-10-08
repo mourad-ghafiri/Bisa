@@ -738,4 +738,87 @@ mod tests {
             out.text
         );
     }
+
+    // added by the coverage pass: redact.rs
+
+    /// Two secrets whose digests begin alike get tags told apart by length;
+    /// an empty vault says so; a named group that took no part in a match
+    /// redacts nothing; a redactor with no detectors leaves a value alone.
+    #[test]
+    fn colliding_tags_are_lengthened_and_the_empty_cases_do_nothing() {
+        let vault = Vault::new("nonce");
+        assert!(vault.is_empty());
+        // Find two secrets whose first six hex digits agree, the way the
+        // vault digests them: sha256(nonce ‖ 0 ‖ secret).
+        let digest6 = |secret: &str| {
+            let mut h = Sha256::new();
+            h.update(b"nonce");
+            h.update([0u8]);
+            h.update(secret.as_bytes());
+            let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+            hex[..6].to_string()
+        };
+        let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut pair = None;
+        for i in 0..200_000u32 {
+            let secret = format!("secret-{i}");
+            if let Some(other) = seen.insert(digest6(&secret), secret.clone()) {
+                pair = Some((other, secret));
+                break;
+            }
+        }
+        let (a, b) = pair.expect("two secrets with one prefix within the search");
+        let pa = vault.placeholder_for("k", &a);
+        let pb = vault.placeholder_for("k", &b);
+        assert_eq!(pa.tag.len(), 6);
+        assert_eq!(pb.tag.len(), 8, "the newer tag is lengthened: {pb:?}");
+        assert_ne!(pa.to_string(), pb.to_string());
+        assert!(!vault.is_empty());
+        assert_eq!(vault.len(), 2);
+
+        let optional_group = vec![RedactRule {
+            id: "maybe".into(),
+            label: "maybe".into(),
+            enabled: true,
+            detector: Detector::Pattern {
+                regex: r"(?P<secret>sk_live_[a-z0-9]{8})?END".into(),
+            },
+            origin: Origin::User,
+        }];
+        let (r, problems) = Redactor::compile(&optional_group, &env);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(
+            r.redact(&vault, "nothing END here").text,
+            "nothing END here"
+        );
+
+        let (empty, problems) = Redactor::compile(&[], &env);
+        assert!(problems.is_empty(), "{problems:?}");
+        let mut value = json!({ "k": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" });
+        let before = value.clone();
+        let redaction = empty.redact_value(&vault, &mut value);
+        assert_eq!(redaction.count, 0);
+        assert_eq!(value, before);
+    }
+
+    // added by the coverage pass: redact2.rs
+
+    #[test]
+    fn an_empty_text_is_left_alone_and_a_placeholder_unresolved_twice_is_named_once() {
+        let vault = Vault::new("nonce");
+        let r = redactor();
+        let empty = r.redact(&vault, "");
+        assert_eq!(empty.text, "");
+        assert_eq!(empty.count, 0);
+        let mut value = json!({
+            "a": "«secret:github_token:deadbe»",
+            "b": "again «secret:github_token:deadbe»"
+        });
+        let restored = vault.restore_value(&mut value);
+        assert_eq!(restored.restored, 0);
+        assert_eq!(
+            restored.unresolved,
+            vec!["«secret:github_token:deadbe»".to_string()]
+        );
+    }
 }
