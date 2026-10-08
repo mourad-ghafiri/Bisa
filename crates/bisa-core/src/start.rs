@@ -1129,4 +1129,181 @@ mod tests {
             Err(MapError::Template { .. })
         ));
     }
+
+    // added by the coverage pass: start.rs
+
+    #[test]
+    fn every_event_knows_its_signal_source_and_a_check_a_connector_an_outcome_and_an_overlap_say_their_words(
+    ) {
+        let sources: Vec<Option<SignalSource>> =
+            every_event().iter().map(StartOn::source).collect();
+        assert_eq!(
+            sources,
+            vec![
+                None,
+                Some(SignalSource::Schedule),
+                Some(SignalSource::Hook),
+                Some(SignalSource::Message),
+                Some(SignalSource::Signal),
+                Some(SignalSource::Project),
+                Some(SignalSource::Run),
+                Some(SignalSource::Platform),
+                Some(SignalSource::Connector),
+                Some(SignalSource::Check),
+            ]
+        );
+        let account = InputName::new("acct").unwrap();
+        let project = InputName::new("repo").unwrap();
+        let connector = StartOn::Connector {
+            connector: None,
+            operation: None,
+            account: Some(ValueRef::Input {
+                input: account.clone(),
+            }),
+            params: BTreeMap::new(),
+            key: None,
+            schedule: Schedule::every(60),
+        };
+        assert!(connector.input_refs().contains(&(&account, "account")));
+        let check = StartOn::Check {
+            command: "true".into(),
+            project: Some(ValueRef::Input {
+                input: project.clone(),
+            }),
+            fire_on: FireOn::Always,
+            schedule: Schedule::every(60),
+        };
+        assert!(check.input_refs().contains(&(&project, "project")));
+        for (fire, word) in [
+            (FireOn::StartsFailing, "starts_failing"),
+            (FireOn::Failing, "failing"),
+            (FireOn::Passing, "passing"),
+            (FireOn::Always, "always"),
+        ] {
+            assert_eq!(fire.as_str(), word);
+        }
+        assert_eq!(Overlap::Queue.as_str(), "queue");
+        assert_eq!(Overlap::Skip.as_str(), "skip");
+        assert_eq!(
+            Overlap::Parallel(std::num::NonZeroU32::new(2).unwrap()).as_str(),
+            "parallel"
+        );
+    }
+
+    #[test]
+    fn a_start_reads_an_assignee_an_account_and_a_project_from_its_inputs_and_a_schedule_left_unresolved_is_refused(
+    ) {
+        let pid = ProjectId::from_ulid(ulid::Ulid::from_parts(2, 2));
+        let aid = AccountId::from_ulid(ulid::Ulid::from_parts(3, 3));
+        let inputs = BTreeMap::from([
+            ("who".to_string(), json!("agent:triager")),
+            ("acct".to_string(), json!(aid.to_string())),
+            ("repo".to_string(), json!(pid.to_string())),
+        ]);
+        let message = StartOn::Message {
+            filter: MessageFilter {
+                r#in: None,
+                from: crate::listen::MessageFrom::Someone(ValueRef::Input {
+                    input: InputName::new("who").unwrap(),
+                }),
+                mentions: None,
+                contains: None,
+            },
+        };
+        let StartOn::Message { filter } = message.resolve(&inputs).unwrap() else {
+            panic!("a message start stays one")
+        };
+        assert_eq!(
+            filter.from,
+            crate::listen::MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("triager".into())))
+        );
+        let connector = StartOn::Connector {
+            connector: None,
+            operation: None,
+            account: Some(ValueRef::Input {
+                input: InputName::new("acct").unwrap(),
+            }),
+            params: BTreeMap::new(),
+            key: None,
+            schedule: Schedule::every(60),
+        };
+        let StartOn::Connector { account, .. } = connector.resolve(&inputs).unwrap() else {
+            panic!("a connector start stays one")
+        };
+        assert_eq!(account, Some(ValueRef::Fixed(aid)));
+        let check = StartOn::Check {
+            command: "true".into(),
+            project: Some(ValueRef::Input {
+                input: InputName::new("repo").unwrap(),
+            }),
+            fire_on: FireOn::Always,
+            schedule: Schedule::every(60),
+        };
+        let StartOn::Check { project, .. } = check.resolve(&inputs).unwrap() else {
+            panic!("a check stays one")
+        };
+        assert_eq!(project, Some(ValueRef::Fixed(pid)));
+        let unresolved = Schedule {
+            every: Some(ValueRef::Input {
+                input: InputName::new("interval").unwrap(),
+            }),
+            ..Schedule::default()
+        };
+        assert!(matches!(
+            unresolved.cadence(),
+            Err(ResolveError::Input {
+                want: "a resolved value",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_bool_input_reads_false_and_refuses_any_other_word_and_a_raw_start_that_is_no_table_is_left_to_the_derive(
+    ) {
+        let defs = vec![input("urgent", InputKind::Bool, false)];
+        let mapping =
+            BTreeMap::from([("urgent".to_string(), "{event.payload.urgent}".to_string())]);
+        let got = map_event(&mapping, &defs, &json!({"payload": {"urgent": false}})).unwrap();
+        assert_eq!(got["urgent"], json!(false));
+        assert!(matches!(
+            map_event(&mapping, &defs, &json!({"payload": {"urgent": "maybe"}})),
+            Err(MapError::Kind {
+                want: "true or false",
+                ..
+            })
+        ));
+        assert!(StartOn::refuse_unknown::<serde_json::Error>(&json!("manual")).is_ok());
+    }
+
+    // added by the coverage pass: b4-start.rs
+    #[test]
+    fn every_event_resolves_against_nothing_unless_it_reads_an_input_and_a_schedule_reads_its_cron_from_one(
+    ) {
+        let nothing = BTreeMap::new();
+        for (i, event) in every_event().into_iter().enumerate() {
+            let reads_an_input = matches!(i, 5 | 8 | 9);
+            assert_eq!(
+                event.resolve(&nothing).is_ok(),
+                !reads_an_input,
+                "event {i}"
+            );
+        }
+        let when = InputName::new("when").unwrap();
+        let schedule = Schedule {
+            every: None,
+            cron: Some(ValueRef::Input {
+                input: when.clone(),
+            }),
+            tz: None,
+        };
+        assert_eq!(schedule.input_refs(), vec![(&when, "text")]);
+        let resolved = schedule
+            .resolve(&BTreeMap::from([("when".to_string(), json!("0 9 * * 1"))]))
+            .unwrap();
+        assert_eq!(
+            resolved.cron,
+            Some(ValueRef::Fixed("0 9 * * 1".to_string()))
+        );
+    }
 }

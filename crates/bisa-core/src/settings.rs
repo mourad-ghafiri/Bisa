@@ -1897,4 +1897,46 @@ mod tests {
             Err(SettingsError::InvalidValue { .. })
         ));
     }
+
+    // added by the coverage pass: settings.rs
+
+    #[test]
+    fn a_structured_setting_takes_an_object_or_an_array_and_a_layer_holding_a_wrong_value_is_passed_over(
+    ) {
+        let def = crate::SETTINGS
+            .iter()
+            .find(|d| matches!(d.kind, Kind::Structured))
+            .expect("a structured setting");
+        assert!(def.check_value(&json!({})).is_ok());
+        assert!(matches!(
+            def.check_value(&json!("text")),
+            Err(SettingsError::InvalidValue { .. })
+        ));
+        let scope = Scope::RESOLUTION
+            .iter()
+            .copied()
+            .find(|s| def.scopes.allows(*s))
+            .expect("a scope the key allows");
+        let mut layer = Layer::new();
+        layer.insert(def.key.to_string(), json!("text"));
+        let r = resolve(def, &[(scope, &layer)]);
+        assert_eq!(
+            r.value, def.default,
+            "a value the kind refuses is as if unset"
+        );
+    }
+
+    // added by the coverage pass: b5-settings.rs
+    #[test]
+    fn a_settings_message_id_is_its_key_with_dashes_and_a_scope_becomes_its_origin() {
+        let def = &REGISTRY[0];
+        assert_eq!(
+            def.message_id(),
+            format!("setting-{}", def.key.replace('.', "-"))
+        );
+        assert_eq!(def.text().id, def.message_id());
+        assert_eq!(Scope::Workspace.as_str(), "workspace");
+        assert_eq!(Origin::from(Scope::Project), Origin::Project);
+        assert_eq!(Origin::from(Scope::Workspace), Origin::Workspace);
+    }
 }

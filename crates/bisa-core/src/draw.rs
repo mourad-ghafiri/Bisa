@@ -670,4 +670,50 @@ mod tests {
         assert_eq!(bare, Scene::empty());
         assert!(!bare.app_state.grid);
     }
+
+    // added by the coverage pass: draw.rs
+
+    #[test]
+    fn a_skeleton_element_must_be_an_object_with_a_type_and_a_frame_is_named_in_the_scene_s_words()
+    {
+        assert!(matches!(
+            validate_skeleton(&[json!(5)]),
+            Err(DrawError::BadElement { why }) if why == "not an object"
+        ));
+        assert!(matches!(
+            validate_skeleton(&[json!({"id": "a", "x": 1, "y": 2})]),
+            Err(DrawError::BadElement { why }) if why == "an element needs a type"
+        ));
+        let mut scene = Scene::empty();
+        let mut framed = shape("r1", "rectangle");
+        framed["frameId"] = json!("f1");
+        scene.elements = vec![framed, json!(5)];
+        assert!(
+            scene.describe().contains("in frame f1"),
+            "{}",
+            scene.describe()
+        );
+        assert_eq!(scene.erase(&["r1".to_string()]), 1);
+    }
+
+    // added by the coverage pass: b5-draw.rs
+    #[test]
+    fn a_deleted_element_is_left_out_of_a_record_and_a_bare_value_is_not_an_element() {
+        let mut deleted = shape("b", "rectangle");
+        deleted["isDeleted"] = json!(true);
+        let scene = Scene {
+            elements: vec![shape("a", "rectangle"), deleted],
+            ..Scene::default()
+        };
+        assert_eq!(scene.element_count(), 1);
+        assert_eq!(scene.without_deleted().elements.len(), 1);
+        let bare = Scene {
+            elements: vec![json!(1)],
+            ..Scene::default()
+        };
+        assert!(matches!(
+            bare.validate(),
+            Err(DrawError::BadElement { why }) if why == "not an object"
+        ));
+    }
 }

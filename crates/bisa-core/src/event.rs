@@ -677,4 +677,63 @@ mod tests {
         assert_eq!(run.event_kind(), GepEventKind::Step);
         assert_eq!(run.event_kind().wire_kind(), crate::kind::KIND_STEP);
     }
+
+    // added by the coverage pass: b5-event.rs
+    #[test]
+    fn a_verdict_and_a_judge_each_have_their_wire_word() {
+        assert_eq!(
+            [
+                GuardVerdict::Allowed,
+                GuardVerdict::Denied,
+                GuardVerdict::Asked
+            ]
+            .map(GuardVerdict::as_str),
+            ["allowed", "denied", "asked"]
+        );
+        assert_eq!(
+            [
+                GuardJudge::Rule,
+                GuardJudge::Classifier,
+                GuardJudge::Person,
+                GuardJudge::Content
+            ]
+            .map(GuardJudge::as_str),
+            ["rule", "classifier", "person", "content"]
+        );
+    }
+
+    // added by the coverage pass: b7-event.rs
+    #[test]
+    fn a_claim_a_result_and_the_turn_metrics_each_ride_their_own_kind() {
+        let work_item = WorkItemId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        let session = SessionId::from_ulid(ulid::Ulid::from_parts(2, 1));
+        assert_eq!(
+            JournalPayload::Claim {
+                work_item,
+                harness: "claude-code".into(),
+                session,
+            }
+            .event_kind(),
+            GepEventKind::Claim
+        );
+        assert_eq!(
+            JournalPayload::Result {
+                work_item,
+                output: serde_json::json!({"ok": true}),
+                artifacts: vec![],
+            }
+            .event_kind(),
+            GepEventKind::Result
+        );
+        assert_eq!(
+            JournalPayload::TurnMetrics {
+                session,
+                input_tokens: 1,
+                output_tokens: 2,
+                usd_cents: 3,
+            }
+            .event_kind(),
+            GepEventKind::TurnMetrics
+        );
+    }
 }

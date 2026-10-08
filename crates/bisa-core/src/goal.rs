@@ -774,6 +774,64 @@ pub(crate) mod tests {
         assert_eq!(serde_json::from_value::<GoalOrigin>(wire).unwrap(), origin);
         assert_eq!(GoalOrigin::NAMES, ["captured", "spawned", "run"]);
     }
+    // added by the coverage pass: b5-goal.rs
+    #[test]
+    fn a_finished_run_reads_as_done_or_failed_an_owed_goal_without_a_run_is_yours_and_the_words_hold(
+    ) {
+        let g = goal();
+        let mut archived = goal();
+        archived.archived = Some(crate::archive::Archived::at(5));
+        assert!(archived.is_archived() && !g.is_archived());
+        let run_of = |g: &Goal| {
+            let mut run = WorkflowRun::new(
+                RunId::from_ulid(ulid::Ulid::from_parts(4, 1)),
+                RunScope::Goal { goal: g.id },
+                workflow(vec![agent("a", &[])]),
+                BTreeMap::new(),
+                RunEntry::by_hand(),
+                10,
+            );
+            run.apply(RunEvent::Start, 10).unwrap();
+            run
+        };
+        let mut done = run_of(&g);
+        done.apply(
+            RunEvent::StepDone {
+                step: StepId::new("a").unwrap(),
+                output: serde_json::json!({"ok": true}),
+            },
+            11,
+        )
+        .unwrap();
+        assert_eq!(g.status(Some(&done)), GoalStatus::Done);
+        let mut failed = run_of(&g);
+        failed
+            .apply(
+                RunEvent::StepFailed {
+                    step: StepId::new("a").unwrap(),
+                    error: "red".into(),
+                },
+                11,
+            )
+            .unwrap();
+        assert_eq!(g.status(Some(&failed)), GoalStatus::Failed);
+        assert_eq!(g.holder(None, true), Holder::You);
+        assert_eq!(
+            (
+                ClosureReason::Abandoned { rationale: None }.as_str(),
+                ClosureReason::Superseded { by: g.id }.as_str()
+            ),
+            ("abandoned", "superseded")
+        );
+        assert_eq!(
+            (
+                GoalOrigin::Captured.as_str(),
+                GoalOrigin::Spawned { parent: g.id }.as_str()
+            ),
+            ("captured", "spawned")
+        );
+        assert_eq!(GoalEdgeKind::Refines.as_str(), "refines");
+    }
 }
 
 #[cfg(test)]
@@ -1114,5 +1172,25 @@ mod holder_tests {
             serde_json::json!({"max_usd_cents": 10}),
             "absent ceilings are absent"
         );
+    }
+
+    // added by the coverage pass: goal.rs
+
+    #[test]
+    fn a_mode_and_a_status_print_as_their_words_and_a_status_knows_while_it_is_live() {
+        for mode in GoalMode::ALL {
+            assert_eq!(mode.to_string(), mode.as_str());
+        }
+        for status in GoalStatus::ALL {
+            assert_eq!(status.to_string(), status.as_str());
+            assert_eq!(
+                status.is_live(),
+                matches!(
+                    status,
+                    GoalStatus::Draft | GoalStatus::Running | GoalStatus::Waiting
+                ),
+                "{status}"
+            );
+        }
     }
 }

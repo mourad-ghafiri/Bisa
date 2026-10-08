@@ -236,4 +236,22 @@ mod tests {
         assert!(serde_json::from_str::<RelPath>(r#""../etc/passwd""#).is_err());
         assert!(serde_json::from_str::<RelPath>(r#""src/x.rs""#).is_ok());
     }
+
+    // added by the coverage pass: path.rs
+
+    #[test]
+    fn a_relative_path_prints_in_debug_parses_from_text_and_is_a_path() {
+        let p: RelPath = "src/lib.rs".parse().unwrap();
+        assert_eq!(format!("{p:?}"), "RelPath(\"src/lib.rs\")");
+        let as_path: &std::path::Path = p.as_ref();
+        assert_eq!(as_path, std::path::Path::new("src/lib.rs"));
+        assert!("../escape".parse::<RelPath>().is_err());
+    }
+
+    // added by the coverage pass: b4-path.rs
+    #[test]
+    fn a_relative_paths_schema_is_a_string() {
+        let v = serde_json::to_value(schemars::schema_for!(RelPath)).unwrap();
+        assert_eq!(v["type"], "string", "{v}");
+    }
 }

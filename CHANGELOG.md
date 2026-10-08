@@ -105,6 +105,17 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- The coverage judge leaves a Rust source's `#[cfg(test)]` items out of its measured lines and
+  honours `LCOV_EXCL_LINE` / `LCOV_EXCL_START…STOP` markers, each with a reason of at least three
+  words — a marker without one refuses the run, and `target/coverage/summary.json` lists every
+  excused line with its reason; `scripts/coverage/baseline.json` was rewritten from that definition,
+  the one sanctioned way down (`docs/contributing/coverage.md` § Line coverage).
+- `i18n-ratchet`'s body is `bisa_i18n::ratchet::run` — a function over the flags, the workspace root
+  and the baseline file — so its three forms run under unit tests over a folder of their own; what
+  the command does and prints is unchanged.
+- Eight functions nothing called are gone: `ActivitySource::workspace`, `AddonManifest::declares`,
+  `ArtifactKind::looks_like_an_image`, `AskOption::detail`, `DeletableChannel::into_inner`,
+  `kind::is_audience_scoped`, `Locale::id` and the log handle's `version`.
 - `just verify` runs every suite once, measured, under `coverage` — in place of `test-rust` and
   `desktop-coverage`, which stay as the plain inner-loop recipes; without the tree's
   `cargo-llvm-cov` the Rust half runs plain and is said to be unjudged.
@@ -153,6 +164,10 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- `error-core-run-no-start` in the English catalog said what the refusal no longer does; the
+  sentence now matches the error — *the run has no way in: its start is gone, or the workflow has no
+  start by hand* — and a test holds the English of every core refusal to its catalog message
+  (`crates/bisa-core/src/error_text.rs`).
 - Six built-in connectors pointed at APIs that are gone, moved or mis-called, checked against the
   platforms' own documentation: Jira searched through `/rest/api/3/search`, which Atlassian removed
   (now `/search/jql`); Confluence read and created pages through v1 endpoints that are gone (now

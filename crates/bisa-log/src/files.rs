@@ -330,4 +330,21 @@ mod tests {
         let names: Vec<&str> = listing.files().iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["cli.2026-09-09.jsonl", "node.2026-09-08.jsonl"]);
     }
+
+    // added by the coverage pass: b6-files.rs
+    #[test]
+    fn a_folder_that_is_a_file_is_an_error_and_a_folder_named_like_a_log_is_not_a_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("node");
+        std::fs::write(&file, "not a folder").unwrap();
+        assert!(files_in(&file, |_| true).is_err());
+        let dir = tmp.path().join("logs");
+        std::fs::create_dir_all(dir.join("node.2026-09-08.jsonl")).unwrap();
+        std::fs::write(dir.join("node.2026-09-09.jsonl"), "x\n").unwrap();
+        let found = files_in(&dir, is_log_name).unwrap();
+        assert_eq!(
+            found.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+            ["node.2026-09-09.jsonl"]
+        );
+    }
 }

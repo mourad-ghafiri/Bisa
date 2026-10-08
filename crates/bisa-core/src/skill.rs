@@ -88,4 +88,13 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(serde_json::from_str::<Skill>(&json).unwrap(), s);
     }
+
+    // added by the coverage pass: skill.rs
+
+    #[test]
+    fn a_skill_needs_a_name() {
+        let mut s = skill();
+        s.name = " ".into();
+        assert_eq!(s.validate(), Err(SkillError::EmptyName));
+    }
 }

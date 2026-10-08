@@ -663,7 +663,7 @@ fn missing_hop(value: &serde_json::Value, path: &str) -> (String, Vec<String>) {
             }
         }
     }
-    (path.to_string(), vec![])
+    (path.to_string(), vec![]) // LCOV_EXCL_LINE: `missing_hop` is asked only where `json_path` found nothing, so some hop misses before the path ends
 }
 
 /// Look up a dotted path in a JSON value. Numeric components index arrays,
@@ -1448,5 +1448,100 @@ mod tests {
             render_in("say {inputs.x}", &ctx, RenderContext::Text).unwrap(),
             render("say {inputs.x}", &ctx).unwrap()
         );
+    }
+
+    // added by the coverage pass: template.rs
+
+    #[test]
+    fn every_absence_says_itself_in_one_sentence() {
+        let a = || "a".to_string();
+        let cases = [
+            (Absence::NoInput, "the run binds no input of that name"),
+            (
+                Absence::StepRunning {
+                    step: a(),
+                    state: "running".into(),
+                },
+                "step `a` is still running",
+            ),
+            (
+                Absence::StepFailed {
+                    step: a(),
+                    error: None,
+                },
+                "step `a` failed",
+            ),
+            (
+                Absence::NoOutput { step: a() },
+                "step `a` is done and yielded no output",
+            ),
+            (
+                Absence::NotAnswered { step: a() },
+                "step `a` has no answer on record",
+            ),
+            (
+                Absence::StepDiverted {
+                    step: a(),
+                    by: "late".into(),
+                },
+                "step `a` was diverted by its boundary event `late`",
+            ),
+            (Absence::NoEvent, "no event began this run"),
+            (
+                Absence::NoParam,
+                "the operation binds no parameter of that name",
+            ),
+            (
+                Absence::NoAccount,
+                "the account holds no parameter of that name",
+            ),
+        ];
+        for (absence, words) in cases {
+            assert_eq!(absence.to_string(), words);
+        }
+    }
+
+    #[test]
+    fn the_answer_of_a_step_the_run_does_not_have_is_unresolved_by_that_step() {
+        let inputs = inputs();
+        let steps = steps();
+        let ctx = TemplateCtx {
+            inputs: &inputs,
+            steps: &steps,
+            event: None,
+            goal: None,
+            params: no_values(),
+            account: no_values(),
+        };
+        assert!(matches!(
+            render("{steps.nope.answer}", &ctx),
+            Err(TemplateError::Unresolved {
+                why: Absence::NoSuchStep { step },
+                ..
+            }) if step == "nope"
+        ));
+    }
+
+    // added by the coverage pass: b4-template.rs
+    #[test]
+    fn an_event_field_that_misses_says_what_the_event_carries() {
+        assert_eq!(
+            Absence::NoEventField {
+                at: "x".into(),
+                has: vec![],
+            }
+            .to_string(),
+            "the event carries nothing there and no `x`"
+        );
+        let words = Absence::NoEventField {
+            at: "x".into(),
+            has: vec!["a".into(), "b".into()],
+        }
+        .to_string();
+        assert!(
+            words.contains("`a`") && words.contains("`b`") && words.ends_with("and no `x`"),
+            "{words}"
+        );
+        assert_eq!(Absence::NoTitle.to_string(), "the goal has no title");
     }
 }

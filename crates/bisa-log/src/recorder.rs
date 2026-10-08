@@ -286,4 +286,14 @@ mod tests {
         assert_eq!(field("long").chars().count(), MAX_TEXT + 1);
         assert_eq!(field("error"), "the disk said no");
     }
+
+    // added by the coverage pass: b6-recorder.rs
+    #[test]
+    fn a_default_recording_is_a_new_one_and_every_level_has_its_word() {
+        let recording = Recording::default();
+        assert!(recording.recorder.snapshot().is_empty());
+        assert!(!recording.written.get());
+        assert_eq!(level_word(Level::TRACE), "TRACE");
+        assert_eq!(level_word(Level::INFO), "INFO");
+    }
 }

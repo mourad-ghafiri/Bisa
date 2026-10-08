@@ -234,4 +234,35 @@ mod tests {
         assert_eq!(cell.get(Duration::from_secs(60)), None);
         assert!(cell.stats().hits >= 1, "counters survive a clear");
     }
+
+    // added by the coverage pass: b6-cell.rs
+    #[test]
+    fn a_clone_shares_the_slot_and_a_fallible_compute_serves_then_stores() {
+        let cell = TtlCell::new("test.cell.clone");
+        let twin = cell.clone();
+        cell.set(4);
+        assert_eq!(
+            twin.get(Duration::from_secs(60)),
+            Some(4),
+            "one slot, two handles"
+        );
+        let stored: Result<i32, &str> =
+            cell.get_or_try_insert(Duration::from_secs(60), || Err("not asked"));
+        assert_eq!(
+            stored,
+            Ok(4),
+            "a fresh value is served before the compute runs"
+        );
+        let fresh = TtlCell::new("test.cell.try");
+        let made: Result<i32, &str> = fresh.get_or_try_insert(Duration::from_secs(60), || Ok(9));
+        assert_eq!(made, Ok(9));
+        assert_eq!(fresh.stats().entries, 1, "a successful compute is stored");
+        let never: Result<i32, &str> = fresh.get_or_try_insert(Duration::ZERO, || Ok(10));
+        assert_eq!(never, Ok(10));
+        assert_eq!(
+            fresh.get(Duration::from_secs(60)),
+            Some(9),
+            "a zero TTL computes and stores nothing"
+        );
+    }
 }

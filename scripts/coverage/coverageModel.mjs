@@ -372,3 +372,241 @@ export function bareRanges(lines) {
   }
   return out.map((r) => (r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`));
 }
+
+// ---------------------------------------------------------------------------
+// What a Rust source excuses on its own: its test items, and a line that
+// names an invariant.
+// ---------------------------------------------------------------------------
+
+/**
+ * The `{`, `}` and `;` of a Rust source that are code — outside a string,
+ * a character, a comment — each with its line, so an item's end can be
+ * found without a `"}"` in a test closing it early.
+ *
+ * @param {string} source
+ * @returns {{ ch: string, line: number }[]}
+ */
+export function codeBraces(source) {
+  const out = [];
+  const s = String(source);
+  let i = 0;
+  let line = 1;
+  const n = s.length;
+  while (i < n) {
+    const c = s[i];
+    if (c === "\n") {
+      line += 1;
+      i += 1;
+      continue;
+    }
+    // A line comment runs to the end of its line.
+    if (c === "/" && s[i + 1] === "/") {
+      while (i < n && s[i] !== "\n") i += 1;
+      continue;
+    }
+    // A block comment nests in Rust.
+    if (c === "/" && s[i + 1] === "*") {
+      let depth = 1;
+      i += 2;
+      while (i < n && depth > 0) {
+        if (s[i] === "/" && s[i + 1] === "*") {
+          depth += 1;
+          i += 2;
+        } else if (s[i] === "*" && s[i + 1] === "/") {
+          depth -= 1;
+          i += 2;
+        } else {
+          if (s[i] === "\n") line += 1;
+          i += 1;
+        }
+      }
+      continue;
+    }
+    // A raw string: r"…", r#"…"#, br"…".
+    if ((c === "r" || (c === "b" && s[i + 1] === "r")) && /^b?r#*"/.test(s.slice(i, i + 8))) {
+      const start = c === "b" ? i + 2 : i + 1;
+      let hashes = 0;
+      while (s[start + hashes] === "#") hashes += 1;
+      const close = `"${"#".repeat(hashes)}`;
+      let j = start + hashes + 1;
+      while (j < n && s.slice(j, j + close.length) !== close) {
+        if (s[j] === "\n") line += 1;
+        j += 1;
+      }
+      i = j + close.length;
+      continue;
+    }
+    // A string: "…" with escapes; b"…" the same.
+    if (c === '"' || (c === "b" && s[i + 1] === '"')) {
+      let j = c === "b" ? i + 2 : i + 1;
+      while (j < n && s[j] !== '"') {
+        if (s[j] === "\\") {
+          // An escape takes the next character with it — a newline too.
+          if (s[j + 1] === "\n") line += 1;
+          j += 1;
+        } else if (s[j] === "\n") line += 1;
+        j += 1;
+      }
+      i = j + 1;
+      continue;
+    }
+    // A character literal — '{', '\n', '\'' — against a lifetime 'a.
+    if (c === "'") {
+      if (s[i + 1] === "\\") {
+        let j = i + 2;
+        while (j < n && s[j] !== "'") j += 1;
+        i = j + 1;
+        continue;
+      }
+      if (s[i + 2] === "'") {
+        i += 3;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if (c === "{" || c === "}" || c === ";") out.push({ ch: c, line });
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * The lines of a Rust source that belong to an item under `#[cfg(test)]` —
+ * a `mod tests { … }`, a helper `fn`, an `impl`, a `use` — as `[first,
+ * last]` pairs, inclusive. Test code is not the product: the meter leaves
+ * it out as it leaves out `tests/` and `.test.mjs`. The attribute must be
+ * exactly `#[cfg(test)]` on a line of its own; the item is the next line
+ * that is not an attribute, a doc comment or blank, and it ends at the `;`
+ * that closes it or at the `}` matching its first `{`.
+ *
+ * @param {string} source
+ * @returns {[number, number][]}
+ */
+export function testItemSpans(source) {
+  const lines = String(source).split("\n");
+  // A trailing newline ends the last line; it is not a line of its own.
+  const lineCount = String(source).endsWith("\n") ? lines.length - 1 : lines.length;
+  const braces = codeBraces(source);
+  const spans = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim() !== "#[cfg(test)]") continue;
+    const first = i + 1;
+    let j = i + 1;
+    while (j < lines.length) {
+      const t = lines[j].trim();
+      if (t === "" || t.startsWith("#[") || t.startsWith("///") || t.startsWith("//!")) j += 1;
+      else break;
+    }
+    const itemLine = j + 1;
+    let depth = 0;
+    let last = null;
+    let opened = false;
+    for (const b of braces) {
+      if (b.line < itemLine) continue;
+      if (b.ch === ";" && !opened) {
+        last = b.line;
+        break;
+      }
+      if (b.ch === "{") {
+        depth += 1;
+        opened = true;
+      } else if (b.ch === "}") {
+        depth -= 1;
+        if (opened && depth === 0) {
+          last = b.line;
+          break;
+        }
+      }
+    }
+    // A block the file ends inside — a broken file — runs to its end.
+    if (last === null) last = opened ? lineCount : itemLine;
+    spans.push([first, Math.max(last, itemLine)]);
+    i = last - 1;
+  }
+  return spans;
+}
+
+/** The standard lcov markers: one line, or a block. Each must say why. */
+const EXCL_LINE = /LCOV_EXCL_LINE\b(.*)$/;
+const EXCL_START = /LCOV_EXCL_START\b(.*)$/;
+const EXCL_STOP = /LCOV_EXCL_STOP\b/;
+
+/**
+ * A reason after a marker: a colon or a dash, then at least three words.
+ *
+ * @param {string} rest what follows the marker on its line
+ */
+function reasonOf(rest) {
+  const words = String(rest)
+    .replace(/^\s*[:—-]\s*/, "")
+    .trim();
+  return words.split(/\s+/).filter(Boolean).length >= 3 ? words : null;
+}
+
+/**
+ * The lines a Rust source excuses by name — the lcov markers
+ * `LCOV_EXCL_LINE` (its own line) and `LCOV_EXCL_START` … `LCOV_EXCL_STOP`
+ * (a block, both marker lines included) — each with the reason it carries.
+ * A marker without a reason of at least three words is a fault, and so is
+ * a block left open: the judge refuses the run rather than guess.
+ *
+ * @param {string} source
+ * @returns {{ lines: Set<number>, excused: { line: number, reason: string }[], faults: string[] }}
+ */
+export function excludedLines(source) {
+  const lines = new Set();
+  const excused = [];
+  const faults = [];
+  const text = String(source).split("\n");
+  let open = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const no = i + 1;
+    const l = text[i];
+    if (EXCL_STOP.test(l)) {
+      if (open === null) faults.push(`line ${no}: LCOV_EXCL_STOP with no block open`);
+      else {
+        for (let k = open.line; k <= no; k += 1) lines.add(k);
+        open = null;
+      }
+      continue;
+    }
+    const start = EXCL_START.exec(l);
+    if (start) {
+      const reason = reasonOf(start[1]);
+      if (!reason) faults.push(`line ${no}: LCOV_EXCL_START says no reason`);
+      if (open !== null) faults.push(`line ${no}: LCOV_EXCL_START inside a block opened at line ${open.line}`);
+      open = { line: no };
+      excused.push({ line: no, reason: reason ?? "" });
+      continue;
+    }
+    const one = EXCL_LINE.exec(l);
+    if (one) {
+      const reason = reasonOf(one[1]);
+      if (!reason) faults.push(`line ${no}: LCOV_EXCL_LINE says no reason`);
+      lines.add(no);
+      excused.push({ line: no, reason: reason ?? "" });
+    }
+  }
+  if (open !== null) faults.push(`line ${open.line}: LCOV_EXCL_START never stopped`);
+  return { lines, excused, faults };
+}
+
+/**
+ * A measured file's lines without what its source excuses: the test items
+ * and the marked lines. The counts of the rest are untouched.
+ *
+ * @param {Map<number, number>} lines the file's `DA` counts
+ * @param {string} source the file as it is on disk
+ * @returns {{ lines: Map<number, number>, excused: { line: number, reason: string }[], faults: string[], testLines: number }}
+ */
+export function withoutExcused(lines, source) {
+  const out = new Map(lines);
+  let testLines = 0;
+  for (const [first, last] of testItemSpans(source)) {
+    for (let k = first; k <= last; k += 1) if (out.delete(k)) testLines += 1;
+  }
+  const marked = excludedLines(source);
+  for (const k of marked.lines) out.delete(k);
+  return { lines: out, excused: marked.excused, faults: marked.faults, testLines };
+}

@@ -469,4 +469,68 @@ mod tests {
         );
         assert_eq!(cancelled.templates(), vec!["cancel"]);
     }
+
+    // added by the coverage pass: boundary.rs
+
+    #[test]
+    fn a_raw_boundary_that_is_no_table_is_left_to_the_derive_and_a_notify_names_the_inputs_it_mentions(
+    ) {
+        assert!(Boundary::refuse_unknown::<serde_json::Error>(&serde_json::json!("late")).is_ok());
+        assert!(BoundaryOn::refuse_unknown::<serde_json::Error>(&serde_json::json!(5)).is_ok());
+        assert!(
+            Boundary::refuse_unknown::<serde_json::Error>(
+                &serde_json::json!({"name": "n", "act": "divert"})
+            )
+            .is_ok(),
+            "a boundary with no `on` is the derive's to refuse"
+        );
+        assert_eq!(BoundaryOn::fields_of("never"), None);
+        let who = InputName::new("who").unwrap();
+        let act = BoundaryAct::Notify {
+            scope: None,
+            template: "hi".into(),
+            mentions: vec![
+                ValueRef::Input { input: who.clone() },
+                ValueRef::Fixed(Assignee::Agent("a".into())),
+            ],
+            author: None,
+        };
+        assert_eq!(act.input_refs(), vec![(&who, "assignee")]);
+    }
+
+    // added by the coverage pass: b5-boundary.rs
+    #[test]
+    fn a_message_boundary_names_who_it_hears_and_a_clock_read_from_an_input_names_it() {
+        let who = ValueRef::Fixed(Assignee::Agent("a".into()));
+        let heard = Boundary {
+            name: Branch::new("ping").unwrap(),
+            on: BoundaryOn::Message {
+                filter: MessageFilter {
+                    mentions: Some(who.clone()),
+                    ..MessageFilter::default()
+                },
+            },
+            act: BoundaryAct::Divert,
+        };
+        assert_eq!(heard.assignee_refs(), vec![&who]);
+        let n = InputName::new("n").unwrap();
+        assert_eq!(
+            BoundaryOn::After {
+                secs: ValueRef::Input { input: n.clone() }
+            }
+            .input_refs(),
+            vec![(&n, "number")]
+        );
+        let m = InputName::new("m").unwrap();
+        assert_eq!(
+            BoundaryOn::Message {
+                filter: MessageFilter {
+                    mentions: Some(ValueRef::Input { input: m.clone() }),
+                    ..MessageFilter::default()
+                },
+            }
+            .input_refs(),
+            vec![(&m, "assignee")]
+        );
+    }
 }

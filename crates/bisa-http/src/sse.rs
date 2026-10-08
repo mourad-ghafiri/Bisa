@@ -292,4 +292,16 @@ mod tests {
             ]
         );
     }
+
+    // added by the coverage pass: b6-sse.rs
+    #[test]
+    fn a_field_line_without_a_colon_is_the_field_with_nothing_after_it() {
+        let mut f = SseFrames::default();
+        f.push(b"data\n\nevent\ndata: x\n\n").unwrap();
+        assert_eq!(
+            events(&mut f),
+            vec![message(""), message("x")],
+            "a bare `data` is an empty data line; a bare `event` is the default name"
+        );
+    }
 }

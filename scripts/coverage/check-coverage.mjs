@@ -26,6 +26,7 @@ import {
   parseLcov,
   relativize,
   treeTotals,
+  withoutExcused,
 } from "./coverageModel.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -75,6 +76,27 @@ if (parsed.length === 0) {
 
 const byPath = mergeLcov(parsed);
 
+// What a Rust source excuses on its own — its `#[cfg(test)]` items and the
+// lines it marks with a reason — leaves the meter here; a marker without a
+// reason refuses the run.
+const excused = [];
+let testLines = 0;
+const faults = [];
+for (const [rel, lines] of byPath) {
+  if (!rel.endsWith(".rs")) continue;
+  const file = join(root, rel);
+  if (!existsSync(file)) continue;
+  const taken = withoutExcused(lines, readFileSync(file, "utf8"));
+  byPath.set(rel, taken.lines);
+  testLines += taken.testLines;
+  for (const e of taken.excused) excused.push({ path: rel, ...e });
+  for (const f of taken.faults) faults.push(`${rel}: ${f}`);
+}
+if (faults.length) {
+  console.error(`coverage: a marker without its reason — say why, in words, after the marker:\n  ${faults.join("\n  ")}`);
+  process.exit(2);
+}
+
 const exclusions = JSON.parse(readFileSync(join(root, "scripts", "coverage", "exclusions.json"), "utf8")).map((e) => e.path);
 let stats = applyExclusions(fileStats(byPath), exclusions);
 
@@ -93,6 +115,9 @@ if (halves.has("desktop")) {
 }
 
 const totals = treeTotals(stats);
+if (excused.length) {
+  console.log(`coverage: ${excused.length} lines excused by a marker, each with its reason (target/coverage/summary.json lists them); ${testLines} lines of test items left out`);
+}
 const baselinePath = join(root, BASELINE_FILE);
 const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : {};
 
@@ -121,6 +146,8 @@ writeFileSync(
       halves: [...halves],
       trees: Object.fromEntries([...totals].map(([tree, t]) => [tree, { found: t.found, hit: t.hit, pct: t.pct, files: t.files.map((f) => ({ path: f.path, found: f.found, hit: f.hit, pct: f.pct, unmeasured: f.unmeasured })) }])),
       judgement: report ? null : judgement,
+      excused,
+      testLines,
     },
     null,
     2

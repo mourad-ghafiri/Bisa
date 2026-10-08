@@ -974,13 +974,13 @@ impl WorkflowRun {
         let mut any_world = false;
         for step in &self.workflow.steps {
             let Some(record) = self.steps.get(&step.id) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: every step of the workflow has a record — `new` makes one per step and `Amended` keeps them in step with the definition
             };
             match record.state {
                 StepState::Waiting => match waiting_holder(&step.kind) {
                     Holder::You => return Holder::You,
                     Holder::World => any_world = true,
-                    _ => any_running = true,
+                    _ => any_running = true, // LCOV_EXCL_LINE: a kind that never waits is never marked Waiting — `live_state` gives the waiting kinds alone
                 },
                 StepState::Running => any_running = true,
                 _ => {}
@@ -993,7 +993,7 @@ impl WorkflowRun {
         } else {
             // Nothing live and not finished: the run is settling between
             // events; the next move is the engine's.
-            Holder::Agents
+            Holder::Agents // LCOV_EXCL_LINE: `settle` leaves a step live or finishes the run, so between events nothing stands pending alone
         }
     }
 
@@ -1142,8 +1142,10 @@ impl WorkflowRun {
                 }
                 let expected = Self::live_state(&def.kind);
                 let record = self.steps.get(id).ok_or_else(|| RunError::UnknownStep {
+                    // LCOV_EXCL_START: every step of the workflow has a record — `new` makes one per step and `Amended` keeps them in step with the definition
                     step: id.to_string(),
                 })?;
+                // LCOV_EXCL_STOP
                 if record.state != expected {
                     return Err(RunError::NotLive {
                         step: id.to_string(),
@@ -1168,7 +1170,7 @@ impl WorkflowRun {
                         step: step.to_string(),
                         source,
                     })?;
-            }
+            } // LCOV_EXCL_LINE: an `Answered` event on a step that is not a question was refused as `WrongKind` above
         }
         if let RunEvent::BoundaryFired {
             step,
@@ -1215,7 +1217,7 @@ impl WorkflowRun {
             RunEvent::Start | RunEvent::Cancel { .. } | RunEvent::Amended { .. }
         ) && !self.started()
         {
-            return Err(RunError::NotStarted);
+            return Err(RunError::NotStarted); // LCOV_EXCL_LINE: `step()` is None for Start, Cancel and Amended alone, each judged above
         }
 
         self.seq += 1;
@@ -1237,7 +1239,7 @@ impl WorkflowRun {
                     if work_item.is_some() {
                         r.work_item = work_item;
                     }
-                }
+                } // LCOV_EXCL_LINE: every step of the workflow has a record — `new` makes one per step and `Amended` keeps them in step with the definition
             }
             RunEvent::StepDone { step, output } => {
                 // A judge's output names the option the Decision-Making
@@ -1256,6 +1258,7 @@ impl WorkflowRun {
             }
             RunEvent::StepFailed { step, error } => {
                 let def = step_def.unwrap_or_else(|| Step {
+                    // LCOV_EXCL_START: the step was resolved above (`UnknownStep` otherwise, held by a_step_event_on_a_step_the_workflow_does_not_have_is_unknown_step_whatever_the_event); the fallback keeps `apply` total without a panic
                     id: step.clone(),
                     name: String::new(),
                     kind: StepKind::End {
@@ -1269,6 +1272,7 @@ impl WorkflowRun {
                     max_visits: 1,
                     position: None,
                 });
+                // LCOV_EXCL_STOP
                 let attempts = self
                     .steps
                     .get_mut(&step)
@@ -1293,6 +1297,7 @@ impl WorkflowRun {
                 // No retry, whatever the author allowed: the attempt counts,
                 // the step fails, `on_fail` decides.
                 let def = step_def.clone().unwrap_or_else(|| Step {
+                    // LCOV_EXCL_START: the step was resolved above (`UnknownStep` otherwise, held by a_step_event_on_a_step_the_workflow_does_not_have_is_unknown_step_whatever_the_event); the fallback keeps `apply` total without a panic
                     id: step.clone(),
                     name: String::new(),
                     kind: StepKind::End {
@@ -1306,6 +1311,7 @@ impl WorkflowRun {
                     max_visits: 1,
                     position: None,
                 });
+                // LCOV_EXCL_STOP
                 if let Some(r) = self.steps.get_mut(&step) {
                     r.attempts = r.attempts.saturating_add(1);
                     r.error = Some(error.clone());
@@ -1317,6 +1323,7 @@ impl WorkflowRun {
             RunEvent::StepInterrupted { step } => {
                 // Checked above: the step exists, accepts the event, is live.
                 let def = step_def.clone().unwrap_or_else(|| Step {
+                    // LCOV_EXCL_START: the step was resolved above (`UnknownStep` otherwise, held by a_step_event_on_a_step_the_workflow_does_not_have_is_unknown_step_whatever_the_event); the fallback keeps `apply` total without a panic
                     id: step.clone(),
                     name: String::new(),
                     kind: StepKind::End {
@@ -1330,6 +1337,7 @@ impl WorkflowRun {
                     max_visits: 1,
                     position: None,
                 });
+                // LCOV_EXCL_STOP
                 let (attempts, work_item, too_often) = self
                     .steps
                     .get_mut(&step)
@@ -1529,7 +1537,7 @@ impl WorkflowRun {
                 continue;
             }
             let Some(old) = self.workflow.step(id) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: a record's step is the workflow's — records follow the definition on every amendment
             };
             let refused = || RunError::AmendTouchesStartedStep {
                 step: id.to_string(),
@@ -1606,7 +1614,7 @@ impl WorkflowRun {
             | StepKind::Parallel
             | StepKind::ForEach { .. }
             | StepKind::While { .. }
-            | StepKind::End { .. } => return None,
+            | StepKind::End { .. } => return None, // LCOV_EXCL_LINE: `enter` takes those kinds itself and asks for an effect of the others alone
         })
     }
 
@@ -1938,7 +1946,7 @@ impl WorkflowRun {
     /// fixpoint is one loop ([`Self::settle`]), whatever fails inside it.
     fn fail_out(&mut self, step: &Step, now: u64, effects: &mut Vec<RunEffect>) {
         if self.is_finished() {
-            return;
+            return; // LCOV_EXCL_LINE: a finished run takes no event, and `settle` returns before it enters or fails a step
         }
         if matches!(step.on_fail, OnFail::Fail) {
             self.finish(RunOutcome::Failed, now, effects);
@@ -1951,7 +1959,7 @@ impl WorkflowRun {
     /// labelled with the boundary event that diverted it.
     fn edge(&self, from: &Step, flow: &Flow) -> Edge {
         let Some(record) = self.steps.get(&from.id) else {
-            return Edge::Dead;
+            return Edge::Dead; // LCOV_EXCL_LINE: every step of the workflow has a record — `new` makes one per step and `Amended` keeps them in step with the definition
         };
         match &record.state {
             StepState::Pending | StepState::Running | StepState::Waiting => Edge::Open,
@@ -1976,7 +1984,7 @@ impl WorkflowRun {
     /// How the implicit `on_fail: then` edge out of `from` stands.
     fn fail_edge(&self, from: &Step) -> Edge {
         let Some(record) = self.steps.get(&from.id) else {
-            return Edge::Dead;
+            return Edge::Dead; // LCOV_EXCL_LINE: every step of the workflow has a record — `new` makes one per step and `Amended` keeps them in step with the definition
         };
         match &record.state {
             StepState::Pending | StepState::Running | StepState::Waiting => Edge::Open,
@@ -2030,7 +2038,7 @@ impl WorkflowRun {
                     self.mark(&id, StepState::Failed, now, |r| {
                         r.error = Some(format!("{UNSETTLED} after {SETTLE_ROUNDS} rounds"));
                     });
-                }
+                } // LCOV_EXCL_LINE: `last_entered` is set by the first round that enters a step, before the bound can be passed
                 self.finish(RunOutcome::Failed, now, effects);
                 return;
             }
@@ -2046,7 +2054,7 @@ impl WorkflowRun {
                     continue; // the start step: entered by `Start`, never by settle
                 }
                 let Some(record) = self.steps.get(&step.id) else {
-                    continue;
+                    continue; // LCOV_EXCL_LINE: every step of the workflow has a record — `new` makes one per step and `Amended` keeps them in step with the definition
                 };
                 if record.state.is_live() {
                     continue;
@@ -2226,7 +2234,7 @@ impl WorkflowRun {
 
     fn finish(&mut self, outcome: RunOutcome, now: u64, effects: &mut Vec<RunEffect>) {
         if self.is_finished() {
-            return;
+            return; // LCOV_EXCL_LINE: a finished run takes no event, and `settle` returns before it enters or fails a step
         }
         let live = self.cancel_live(now);
         if !live.is_empty() {
@@ -6371,5 +6379,185 @@ mod tests {
                 }
             }
         }
+    }
+
+    // added by the coverage pass: run.rs
+
+    #[test]
+    fn the_runs_own_events_and_the_kinds_that_never_wait_have_their_words() {
+        let wf = workflow(vec![check("c", &[])]);
+        let stopped = RunEvent::StepStopped {
+            step: sid("c"),
+            error: "x".into(),
+        };
+        assert_eq!(stopped.name(), "step_stopped");
+        assert_eq!(
+            RunEvent::Amended {
+                workflow: wf.clone()
+            }
+            .name(),
+            "amended"
+        );
+        assert!(WorkflowRun::accepts(
+            &StepKind::Parallel,
+            &RunEvent::Amended { workflow: wf }
+        ));
+        assert_eq!(WorkflowRun::accepting_kinds(&stopped), "connector");
+        assert_eq!(WorkflowRun::accepting_kinds(&RunEvent::Start), "the run");
+        assert_eq!(
+            waiting_holder(&StepKind::End {
+                finish: Finish::Failed
+            }),
+            Holder::Agents
+        );
+    }
+
+    #[test]
+    fn a_step_event_on_a_step_the_workflow_does_not_have_is_unknown_step_whatever_the_event() {
+        let (mut r, _) = started(workflow(vec![check("c", &[])]));
+        for event in [
+            RunEvent::StepFailed {
+                step: sid("nope"),
+                error: "x".into(),
+            },
+            RunEvent::StepStopped {
+                step: sid("nope"),
+                error: "x".into(),
+            },
+            RunEvent::StepInterrupted { step: sid("nope") },
+        ] {
+            assert!(matches!(
+                r.apply(event, 101),
+                Err(RunError::UnknownStep { step }) if step == "nope"
+            ));
+        }
+    }
+
+    // added by the coverage pass: b4-run.rs
+    #[test]
+    fn a_connector_step_stopped_short_fails_once_with_its_error_and_takes_its_failure_route() {
+        let mut call = step(
+            "call",
+            StepKind::Connector {
+                connector: None,
+                operation: None,
+                account: None,
+                params: BTreeMap::new(),
+                output_schema: None,
+                unattended: true,
+            },
+            vec![Flow::to(sid("after"))],
+        );
+        call.retries = 3;
+        call.on_fail = OnFail::Skip;
+        let (mut r, _) = started(workflow(vec![call, check("after", &[])]));
+        assert_eq!(state(&r, "call"), &StepState::Running);
+        let stopped = RunEvent::StepStopped {
+            step: sid("call"),
+            error: "the write may have reached the platform".into(),
+        };
+        assert!(WorkflowRun::accepts(&r.workflow.steps[0].kind, &stopped));
+        r.apply(stopped, 101).unwrap();
+        assert_eq!(state(&r, "call"), &StepState::Failed);
+        let record = &r.steps[&sid("call")];
+        assert_eq!(record.attempts, 1, "no retry, whatever the author allowed");
+        assert_eq!(
+            record.error.as_deref(),
+            Some("the write may have reached the platform")
+        );
+        assert_eq!(
+            state(&r, "after"),
+            &StepState::Running,
+            "`skip` passes the failure over"
+        );
+        assert!(!r.is_finished());
+    }
+
+    #[test]
+    fn every_step_state_has_its_wire_word_and_the_holder_ladder_reads_the_live_steps() {
+        let words = [
+            (StepState::Pending, "pending"),
+            (StepState::Running, "running"),
+            (StepState::Waiting, "waiting"),
+            (StepState::done(), "done"),
+            (StepState::Skipped, "skipped"),
+            (StepState::Failed, "failed"),
+            (StepState::Cancelled, "cancelled"),
+            (
+                StepState::Diverted {
+                    by: crate::workflow::Branch::new("late").unwrap(),
+                },
+                "diverted",
+            ),
+        ];
+        for (state, word) in &words {
+            assert_eq!(state.as_str(), *word);
+        }
+        assert_eq!(
+            run(workflow(vec![check("c", &[])])).holder(false),
+            Holder::Agents,
+            "queued: the platform's move"
+        );
+        let (r, _) = started(workflow(vec![check("c", &[])]));
+        assert_eq!(r.holder(true), Holder::You, "owed: yours whatever runs");
+        assert_eq!(r.holder(false), Holder::Agents, "a check runs");
+        let (mut r, _) = started(workflow(vec![
+            check("c", &["w"]),
+            step(
+                "w",
+                StepKind::Wait {
+                    until: WaitFor::Delay {
+                        secs: ValueRef::Fixed(5),
+                    },
+                },
+                vec![],
+            ),
+        ]));
+        r.apply(done("c"), 101).unwrap();
+        assert_eq!(state(&r, "w"), &StepState::Waiting);
+        assert_eq!(r.holder(false), Holder::World, "a wait is the world's");
+        let (mut r, _) = started(workflow(vec![
+            check("c", &["h"]),
+            step(
+                "h",
+                StepKind::Human {
+                    prompt: "Ready?".into(),
+                    options: vec![],
+                    multi: false,
+                    assignee: None,
+                },
+                vec![],
+            ),
+        ]));
+        r.apply(done("c"), 101).unwrap();
+        assert_eq!(r.holder(false), Holder::You, "a question is yours");
+        let (r, _) = started(workflow(vec![end("e", Finish::Done)]));
+        assert_eq!(r.holder(false), Holder::Finished);
+    }
+
+    #[test]
+    fn what_a_pending_step_waits_on_leaves_out_the_edges_that_close_a_loop() {
+        // x → a → b → a: `a` waits on `x`, never on the flow back from `b`.
+        let (r, _) = started(workflow(vec![
+            check("x", &["a"]),
+            check("a", &["b"]),
+            check("b", &["a"]),
+        ]));
+        let stalled = r.stalled_steps(&r.workflow.loop_edges());
+        let (_, on) = stalled
+            .iter()
+            .find(|(id, _)| id == &sid("a"))
+            .expect("a is pending");
+        assert_eq!(on, &vec!["x → a".to_string()]);
+        // The same with the loop closed by a failure route.
+        let mut b = check("b", &[]);
+        b.on_fail = OnFail::Then { step: sid("a") };
+        let (r, _) = started(workflow(vec![check("x", &["a"]), check("a", &["b"]), b]));
+        let stalled = r.stalled_steps(&r.workflow.loop_edges());
+        let (_, on) = stalled
+            .iter()
+            .find(|(id, _)| id == &sid("a"))
+            .expect("a is pending");
+        assert_eq!(on, &vec!["x → a".to_string()]);
     }
 }

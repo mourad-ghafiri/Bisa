@@ -15,7 +15,9 @@ import {
   TARGET,
   applyExclusions,
   bareRanges,
+  codeBraces,
   completeDesktop,
+  excludedLines,
   fileStats,
   formatReport,
   judge,
@@ -25,7 +27,9 @@ import {
   percent,
   placeOf,
   relativize,
+  testItemSpans,
   treeTotals,
+  withoutExcused,
 } from "./coverageModel.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -310,6 +314,110 @@ test("the bare lines of a file read as ranges", () => {
     ["2-4", "9-10", "12"]
   );
   assert.deepEqual(bareRanges(new Map([[1, 1]])), []);
+});
+
+// ---------------------------------------------------------------------------
+// What a Rust source excuses on its own.
+// ---------------------------------------------------------------------------
+
+const RUST = [
+  "pub fn shipped() -> u8 {",            // 1
+  '    let s = "}"; // a brace in a string',
+  "    let c = '{';",                     // 3
+  "    /* a comment } with a brace */",
+  "    let r = r#\"}\"#;",                // 5
+  "    1",
+  "}",                                   // 7
+  "",
+  "/// #[cfg(test)] in a doc comment is words",
+  "#[cfg(test)]",                        // 10
+  "#[allow(dead_code)]",
+  "fn helper(a: u8) -> u8 {",            // 12
+  "    a /* { */ + 1",
+  "}",                                   // 14
+  "",
+  "#[cfg(test)]",                        // 16
+  "mod verbs;",                          // 17
+  "",
+  "#[cfg(test)]",                        // 19
+  "mod tests {",                         // 20
+  "    use super::*;",
+  "    fn f() { let s = \"{\"; let c = '}'; assert!(s != \"\"); }",
+  "    #[test]",
+  "    fn g() {",
+  "        let lifetime: &'static str = \"x\";",
+  "        let _ = lifetime;",
+  "    }",
+  "}",                                   // 28
+  "",
+  "pub fn after() -> u8 { 2 }",          // 30
+  "#[cfg(test)]",                        // 31
+  "use std::fmt;",                       // 32
+  "pub fn last() {}",                    // 33
+].join("\n");
+
+test("the braces of a Rust source are counted as code only: a string, a character, a comment and a raw string open nothing", () => {
+  const events = codeBraces(RUST).map((b) => `${b.line}${b.ch}`);
+  assert.deepEqual(events.slice(0, 6), ["1{", "2;", "3;", "5;", "7}", "12{"]);
+  assert.ok(!events.includes("2{") && !events.includes("3{") && !events.includes("4}") && !events.includes("5}"), "nothing inside a literal counts");
+  assert.ok(events.includes("17;") && events.includes("20{") && events.includes("28}") && events.includes("32;"));
+  assert.deepEqual(codeBraces("/* nested /* inner */ still } */ {").map((b) => b.ch), ["{"], "a block comment nests");
+  assert.deepEqual(codeBraces("let b = b\"{\"; let r = br\"}\"; {").map((b) => `${b.line}${b.ch}`), ["1;", "1;", "1{"], "byte and raw byte strings");
+  assert.deepEqual(codeBraces("let c = '\\'';{").map((b) => b.ch), [";", "{"], "an escaped quote in a character");
+  assert.deepEqual(
+    codeBraces('let s = "a \\\nb";\n{').map((b) => `${b.line}${b.ch}`),
+    ["2;", "3{"],
+    "a newline escaped inside a string is still a line"
+  );
+});
+
+test("an item under #[cfg(test)] is a span from the attribute to its closing brace or its semicolon, whatever its strings and comments say", () => {
+  assert.deepEqual(testItemSpans(RUST), [
+    [10, 14],
+    [16, 17],
+    [19, 28],
+    [31, 32],
+  ]);
+  assert.deepEqual(testItemSpans("fn a() {}\n"), []);
+  assert.deepEqual(testItemSpans("#[cfg(test)]\nmod tests {\n  fn f() {\n  }\n"), [[1, 4]], "a block the file ends inside runs to the file's end");
+  assert.deepEqual(testItemSpans("#[cfg(any(test, feature = \"mock\"))]\nmod shared {}\n"), [], "only the bare attribute: code shared with a feature stays measured");
+});
+
+test("a marker excuses its line or its block, says why in words, and a block left open or a marker without a reason is a fault", () => {
+  const src = [
+    "let a = 1;",
+    "let b = 2; // LCOV_EXCL_LINE: unreachable by the invariant held by a_test_name",
+    "// LCOV_EXCL_START — this arm needs a broken TLS backend, which the shipped one is not",
+    "let c = 3;",
+    "let d = 4;",
+    "// LCOV_EXCL_STOP",
+    "let e = 5;",
+  ].join("\n");
+  const marked = excludedLines(src);
+  assert.deepEqual([...marked.lines].sort((x, y) => x - y), [2, 3, 4, 5, 6]);
+  assert.deepEqual(
+    marked.excused.map((e) => [e.line, e.reason]),
+    [
+      [2, "unreachable by the invariant held by a_test_name"],
+      [3, "this arm needs a broken TLS backend, which the shipped one is not"],
+    ]
+  );
+  assert.deepEqual(marked.faults, []);
+  assert.deepEqual(excludedLines("x // LCOV_EXCL_LINE\n").faults, ["line 1: LCOV_EXCL_LINE says no reason"]);
+  assert.deepEqual(excludedLines("x // LCOV_EXCL_LINE: two words\n").faults, ["line 1: LCOV_EXCL_LINE says no reason"]);
+  assert.deepEqual(excludedLines("// LCOV_EXCL_START: a reason of words\nx\n").faults, ["line 1: LCOV_EXCL_START never stopped"]);
+  assert.deepEqual(excludedLines("// LCOV_EXCL_STOP\n").faults, ["line 1: LCOV_EXCL_STOP with no block open"]);
+});
+
+test("a file's counts lose its test items and its marked lines and keep the rest as they were", () => {
+  const lines = new Map([...Array(33).keys()].map((i) => [i + 1, i % 2]));
+  const src = RUST.replace("pub fn after() -> u8 { 2 }", "pub fn after() -> u8 { 2 } // LCOV_EXCL_LINE: an arm nobody can reach by the invariant");
+  const taken = withoutExcused(lines, src);
+  for (const k of [10, 11, 12, 13, 14, 16, 17, 19, 20, 25, 28, 30, 31, 32]) assert.ok(!taken.lines.has(k), `line ${k} is out`);
+  for (const k of [1, 2, 3, 7, 33]) assert.equal(taken.lines.get(k), lines.get(k), `line ${k} is as it was`);
+  assert.equal(taken.testLines, 19, "the four spans: 5 + 2 + 10 + 2 lines");
+  assert.equal(taken.excused.length, 1);
+  assert.deepEqual(taken.faults, []);
 });
 
 // ---------------------------------------------------------------------------

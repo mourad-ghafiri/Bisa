@@ -11,7 +11,7 @@ language is a folder ([Add a locale](../recipes.md#25-add-a-locale)).
 
 - `locales/en/` — the catalog: `settings.ftl`, `errors.ftl`, `problems.ftl`, `engine.ftl`, `cli.ftl`, `catalog.ftl` (the content seam's rule, no entries) and `locales/en/desktop/`, one file per area.
 - `crates/bisa-core/src/text.rs` — `Text`, `Arg` and the `text!` macro.
-- `crates/bisa-i18n/src/` — `locale.rs` (`AVAILABLE`, negotiation), `catalog.rs` (the namespaces, compiled in), `ratchet.rs` and `crates/bisa-i18n/src/bin/i18n-ratchet.rs` (the guard's scanner); the baseline is `crates/bisa-i18n/tests/ratchet.baseline.json`.
+- `crates/bisa-i18n/src/` — `locale.rs` (`AVAILABLE`, negotiation), `catalog.rs` (the namespaces, compiled in), `ratchet.rs` (the guard's scanner, and the command's body as `ratchet::run`) and `crates/bisa-i18n/src/bin/i18n-ratchet.rs` (the thin command); the baseline is `crates/bisa-i18n/tests/ratchet.baseline.json`.
 - `desktop/src/i18n/` — `l10n.mjs` (the door: `t`, `attr`, `tx`), `localeModel.mjs` (the languages and the setting), `format.mjs` (numbers, dates and spans), `ratchetModel.mjs` and `ratchet.baseline.json`.
 - `desktop/src-tauri/src/words.rs` — the menu bar icon's and the Edit menu's words, pushed by the webview once it has started.
 

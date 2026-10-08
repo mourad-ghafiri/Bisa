@@ -906,6 +906,7 @@ dependencies = [
  "fluent-syntax",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "unic-langid",
 ]

@@ -27,3 +27,5 @@ workspace = true
 [dev-dependencies]
 # The catalog guard parses every `.ftl` as the runtime does.
 fluent-syntax = { workspace = true }
+# The ratchet's folder walk and its command, over a folder of their own.
+tempfile = { workspace = true }

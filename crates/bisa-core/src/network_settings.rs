@@ -231,7 +231,7 @@ pub fn masked(url: &str) -> String {
             // set — the bullets would read `%E2%80%A2` — so the password is
             // dropped and the mask written by hand after the login.
             if parsed.set_password(None).is_err() {
-                return url.to_string();
+                return url.to_string(); // LCOV_EXCL_LINE: a URL with a password has a host, and `set_password(None)` fails only without one
             }
             let shown = parsed.to_string();
             match shown.find('@') {
@@ -316,7 +316,7 @@ fn check_proxy_url(text: &str) -> Result<(), String> {
         ));
     }
     if parsed.host_str().map(str::is_empty).unwrap_or(true) {
-        return Err("expected a host in the proxy URL".to_string());
+        return Err("expected a host in the proxy URL".to_string()); // LCOV_EXCL_LINE: an http(s) URL the parser accepts has a non-empty host
     }
     if parsed.path() != "/" && !parsed.path().is_empty() || parsed.query().is_some() {
         return Err("a proxy URL ends at its host and port — no path or query".to_string());
@@ -530,5 +530,46 @@ mod tests {
         ));
         // Keys of other groups are none of this module's business.
         assert!(check_write("editor.tab_size", &json!(40)).is_ok());
+    }
+
+    // added by the coverage pass: network_settings.rs
+
+    #[test]
+    fn a_proxy_mode_has_its_word_both_ways_and_a_manual_proxy_names_what_it_sets_and_removes() {
+        for mode in [ProxyMode::Environment, ProxyMode::None, ProxyMode::Manual] {
+            assert_eq!(ProxyMode::parse(mode.as_str()), Some(mode));
+        }
+        assert_eq!(ProxyMode::parse("socks"), None);
+        let http_only = NetworkSettings {
+            mode: ProxyMode::Manual,
+            http: Some("http://proxy.example:3128".into()),
+            https: None,
+            no_proxy: vec![],
+            http1_only: false,
+        };
+        assert!(http_only.names_a_proxy());
+        assert!(!NetworkSettings {
+            http: None,
+            ..http_only.clone()
+        }
+        .names_a_proxy());
+        let env = http_only.child_env();
+        assert_eq!(
+            env.set.get("HTTP_PROXY").map(String::as_str),
+            Some("http://proxy.example:3128")
+        );
+        assert_eq!(
+            env.set.get("http_proxy").map(String::as_str),
+            Some("http://proxy.example:3128")
+        );
+        for name in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
+            assert!(env.remove.contains(&name), "{name} is removed");
+        }
+        assert!(!env.set.contains_key("HTTPS_PROXY"));
+    }
+
+    #[test]
+    fn a_url_that_does_not_parse_is_masked_as_it_was_written() {
+        assert_eq!(masked("not a url"), "not a url");
     }
 }

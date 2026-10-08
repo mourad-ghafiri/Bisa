@@ -668,4 +668,20 @@ mod tests {
         none_on.models[0].enabled = false;
         assert!(none_on.asks_effort(None, high));
     }
+
+    // added by the coverage pass: model_plan.rs
+
+    #[test]
+    fn the_identity_health_view_counts_nothing_in_flight_and_cools_nothing_down() {
+        assert_eq!(AllHealthy.in_flight("claude-opus-5-5"), 0);
+        assert_eq!(AllHealthy.cooldown_until("claude-opus-5-5"), None);
+    }
+
+    // added by the coverage pass: b5-model_plan.rs
+    #[test]
+    fn nothing_ready_rotates_and_weighs_to_nothing() {
+        let none: [&ModelChoice; 0] = [];
+        assert!(rotate(&none, 3).is_empty());
+        assert!(weighted(&none, 3).is_empty());
+    }
 }

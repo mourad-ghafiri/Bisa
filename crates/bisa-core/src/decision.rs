@@ -1178,4 +1178,164 @@ mod tests {
             assert!(schema.contains(word), "{word} is missing from {schema}");
         }
     }
+
+    // added by the coverage pass: decision.rs
+
+    #[test]
+    fn a_question_and_an_answer_say_their_type_and_an_answer_yields_its_own_kind_alone() {
+        assert_eq!(DecisionQuestion::noul("x").type_str(), "noul");
+        assert_eq!(DecisionQuestion::score("x", ["a", "b"]).type_str(), "score");
+        let noul = DecisionAnswer::Noul { noul: 0.9 };
+        let choice = DecisionAnswer::Choice {
+            choice: "a".into(),
+            probabilities: BTreeMap::from([("a".to_string(), 1.0)]),
+            confidence: 1.0,
+        };
+        let score = DecisionAnswer::Score {
+            score: 2.0,
+            legend: BTreeMap::new(),
+            probabilities: BTreeMap::new(),
+            confidence: 1.0,
+        };
+        assert_eq!(
+            (noul.type_str(), choice.type_str(), score.type_str()),
+            ("noul", "choice", "score")
+        );
+        assert_eq!(noul.noul(), Some(0.9));
+        assert_eq!((choice.noul(), score.noul()), (None, None));
+        assert_eq!(choice.chosen(), Some("a"));
+        assert_eq!((noul.chosen(), score.chosen()), (None, None));
+        assert_eq!(score.score(), Some(2.0));
+        assert_eq!((noul.score(), choice.score()), (None, None));
+    }
+
+    #[test]
+    fn a_point_prints_as_its_key_and_an_outcome_refuses_a_word_it_does_not_know() {
+        for point in DecisionPoint::ALL {
+            assert_eq!(point.to_string(), point.as_str());
+        }
+        assert!(matches!(
+            "nope".parse::<JudgementOutcome>(),
+            Err(crate::CoreError::UnknownDecisionWord {
+                what: "judgement outcome",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_request_refuses_a_blank_question_id_and_a_blank_option() {
+        let blank_id = DecisionRequest::one("s", " ", DecisionQuestion::noul("why"));
+        assert!(matches!(
+            blank_id.validate(),
+            Err(DecisionContractError::EmptyQuestionId)
+        ));
+        let blank_option = DecisionRequest::one(
+            "s",
+            "pick",
+            DecisionQuestion::choice("which", [(" ", "blank"), ("b", "fine")]),
+        );
+        assert!(matches!(
+            blank_option.validate(),
+            Err(DecisionContractError::EmptyOption(id)) if id == "pick"
+        ));
+    }
+
+    #[test]
+    fn an_answer_is_refused_when_its_choice_has_no_probability_or_a_score_names_a_stray_outcome_or_is_no_number(
+    ) {
+        let request = routed();
+        let mut response = choice("small", 0.5, 0.5, 0.9);
+        if let Some(DecisionAnswer::Choice { probabilities, .. }) =
+            response.answers.get_mut("model")
+        {
+            probabilities.remove("small");
+        }
+        assert!(matches!(
+            response.check(&request),
+            Err(DecisionContractError::ChoiceWithoutProbability(id)) if id == "model"
+        ));
+
+        let rated = rated();
+        let score =
+            |score: f64, legend: &[(&str, &str)], probabilities: &[(&str, f64)]| DecisionResponse {
+                model: "jev".into(),
+                answers: BTreeMap::from([(
+                    "fit".to_string(),
+                    DecisionAnswer::Score {
+                        score,
+                        legend: legend
+                            .iter()
+                            .map(|(k, v)| (k.to_string(), v.to_string()))
+                            .collect(),
+                        probabilities: probabilities
+                            .iter()
+                            .map(|(k, v)| (k.to_string(), *v))
+                            .collect(),
+                        confidence: 0.8,
+                    },
+                )]),
+                usage: DecisionUsage::default(),
+            };
+        let numbered = [("1", "no"), ("2", "partly"), ("3", "yes")];
+        assert!(matches!(
+            score(2.0, &numbered, &[("9", 1.0)]).check(&rated),
+            Err(DecisionContractError::UnknownOutcome { outcome, .. }) if outcome == "9"
+        ));
+        let worded = [("low", "no"), ("mid", "partly"), ("high", "yes")];
+        assert!(matches!(
+            score(f64::NAN, &worded, &[("low", 1.0)]).check(&rated),
+            Err(DecisionContractError::ScoreOffTheLegend { .. })
+        ));
+    }
+
+    // added by the coverage pass: b5-decision.rs
+    #[test]
+    fn a_request_grows_by_a_question_is_bounded_in_bytes_and_an_unknown_provider_word_is_refused() {
+        let two = urgent().with(
+            "model",
+            DecisionQuestion::choice("Which?", [("small", "quick"), ("large", "deep")]),
+        );
+        assert_eq!(two.questions.len(), 2);
+        let big = DecisionRequest::one(
+            "x".repeat(MAX_REQUEST_BYTES + 1),
+            "q",
+            DecisionQuestion::choice("Which?", [("a", "x"), ("b", "y")]),
+        );
+        assert!(matches!(
+            big.validate(),
+            Err(DecisionContractError::TooLarge { bytes }) if bytes > MAX_REQUEST_BYTES
+        ));
+        assert!(matches!(
+            "nope".parse::<DecisionProviderKind>(),
+            Err(crate::CoreError::UnknownDecisionWord { what: "decision provider", value }) if value == "nope"
+        ));
+    }
+
+    // added by the coverage pass: b7-decision.rs
+    #[test]
+    fn a_score_whose_legend_is_not_numbered_is_judged_by_its_probabilities_alone() {
+        let worded = DecisionResponse {
+            model: "m".into(),
+            answers: BTreeMap::from([(
+                "fit".to_string(),
+                DecisionAnswer::Score {
+                    score: 2.0,
+                    legend: BTreeMap::from([
+                        ("no".to_string(), "not at all".to_string()),
+                        ("partly".to_string(), "in part".to_string()),
+                        ("yes".to_string(), "wholly".to_string()),
+                    ]),
+                    probabilities: BTreeMap::from([
+                        ("no".to_string(), 0.2),
+                        ("partly".to_string(), 0.3),
+                        ("yes".to_string(), 0.5),
+                    ]),
+                    confidence: 0.5,
+                },
+            )]),
+            usage: DecisionUsage::default(),
+        };
+        worded.check(&rated()).unwrap();
+    }
 }

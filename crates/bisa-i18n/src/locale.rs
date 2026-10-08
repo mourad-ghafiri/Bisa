@@ -95,11 +95,6 @@ impl Locale {
         Locale::negotiate(&ordered)
     }
 
-    /// The identifier, for a bundle.
-    pub fn id(&self) -> &LanguageIdentifier {
-        &self.0
-    }
-
     /// The tag, for a header or a stamp: `en`.
     pub fn tag(&self) -> String {
         self.0.to_string()
@@ -158,5 +153,14 @@ mod tests {
         assert_eq!(Locale::from_accept_language("*").tag(), "en");
         assert_eq!(Locale::from_accept_language("").tag(), "en");
         assert_eq!(Locale::from_accept_language("en-US,en;q=0.8").tag(), "en");
+    }
+
+    // added by the coverage pass: b6-locale.rs
+    #[test]
+    fn the_environment_s_word_is_a_shipped_language_and_a_locale_prints_as_its_tag() {
+        // Only English ships, so whatever the environment asks for is English.
+        assert_eq!(Locale::from_env().tag(), "en");
+        assert_eq!(Locale::english().to_string(), "en");
+        assert_eq!(Locale::default(), Locale::english());
     }
 }

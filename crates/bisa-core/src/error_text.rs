@@ -855,3 +855,378 @@ impl Localize for crate::workstream::WorkstreamError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Every refusal the core can voice, one value per variant: its `Text`
+    //! names a message of the catalog, and the English the catalog says is
+    //! the English its `Display` says — the message was generated from it.
+    //! A variant whose catalog sentence is worded on purpose unlike its
+    //! `Display` is named below, with what the sentence must still carry.
+    use super::*;
+    use crate::addon::AddonError;
+    use crate::agent::AgentError;
+    use crate::ask::AnswerError;
+    use crate::board::BoardError;
+    use crate::channel::ChannelError;
+    use crate::conversation::ConversationError;
+    use crate::decision::DecisionContractError;
+    use crate::draw::DrawError;
+    use crate::error::CoreError;
+    use crate::git_profile::GitProfileError;
+    use crate::id::ChannelId;
+    use crate::invite::{ClaimRefusal, InviteError};
+    use crate::mcp::McpError;
+    use crate::member::MemberError;
+    use crate::note::NoteError;
+    use crate::pet::PetError;
+    use crate::photo::PhotoRefusal;
+    use crate::review_note::ReviewNoteError;
+    use crate::run::RunError;
+    use crate::settings::{Scope, SettingsError};
+    use crate::skill::SkillError;
+    use crate::team::TeamError;
+    use crate::template::{Absence, TemplateError};
+    use crate::workflow::InputError;
+    use crate::workitem::WorkItemError;
+    use crate::workstream::WorkstreamError;
+
+    /// The variants whose catalog sentence says the same thing in other
+    /// words than their `Display`, and a piece every such sentence carries.
+    const WORDED_ON_PURPOSE: &[(&str, &str)] = &[(
+        // `Display` prints the scopes as Rust does (`Project`, `[Machine]`);
+        // the catalog says their words.
+        "error-core-settings-scope-not-allowed",
+        "cannot be set at project scope; allowed: machine",
+    )];
+
+    fn judge(e: &(impl Localize + std::fmt::Display), out: &mut Vec<String>) {
+        let text = e.text();
+        let id = text.id.to_string();
+        assert!(
+            crate::text::plain::has(&id),
+            "{id} is a message of the English catalog"
+        );
+        let said = text.to_string();
+        let shown = e.to_string();
+        if let Some((_, carries)) = WORDED_ON_PURPOSE.iter().find(|(w, _)| *w == id) {
+            assert!(said.contains(carries), "{id}: {said:?} carries {carries:?}");
+            return;
+        }
+        if said != shown {
+            out.push(format!("{id}:\n  catalog: {said:?}\n  display: {shown:?}"));
+        }
+    }
+
+    fn q() -> String {
+        "q".to_string()
+    }
+
+    #[test]
+    fn every_refusal_says_in_the_catalog_what_its_display_says() {
+        let mut off = Vec::new();
+        let general = ChannelId::new("general").unwrap();
+        macro_rules! each {
+            ($($e:expr),+ $(,)?) => { $( judge(&$e, &mut off); )+ };
+        }
+        each!(
+            AddonError::EntryMissing("manifest.json".into()),
+            AddonError::ReservedFile("index.html".into()),
+            AddonError::NotServedFile("x.exe".into()),
+            AddonError::BadBundlePath("../x".into()),
+            AddonError::TooManyFiles { found: 9 },
+            AddonError::FileTooLarge {
+                name: "a".into(),
+                bytes: 9
+            },
+            AddonError::TooLarge { bytes: 9 },
+            AddonError::GrantNotDeclared("net".into()),
+            AddonError::NotEnabled("clock".into()),
+            AddonError::FilesAbsent("clock".into()),
+            AddonError::NotGranted {
+                id: "clock".into(),
+                word: "net".into()
+            },
+            AgentError::EmptyName,
+            AgentError::EmptyHarness,
+            AgentError::CoreIdReserved,
+            AgentError::DecisionMakingAgentIdReserved,
+            AgentError::CoreCannotBeDisabled,
+            AgentError::CoreCannotBeRemoved,
+            AgentError::CoreNameFixed,
+            AgentError::CoreFieldFixed("name"),
+            AgentError::Immutable("id"),
+            AnswerError::Empty,
+            AnswerError::SelectionOnDecision,
+            AnswerError::UnsureOnDecision,
+            AnswerError::UnknownOption("x".into()),
+            AnswerError::MultiNotOffered,
+            AnswerError::ManyRecommended,
+            AnswerError::EmptyOptionId,
+            AnswerError::DuplicateOptionId("x".into()),
+            BoardError::UnknownColumn("x".into()),
+            BoardError::BadDate("x".into()),
+            ChannelError::Permanent {
+                id: general.clone()
+            },
+            ChannelError::GeneralShape,
+            ChannelError::EveryoneReserved {
+                id: general.clone()
+            },
+            ChannelError::CoreReserved { id: general },
+            ChannelError::DirectNeedsAudience,
+            ConversationError::BlankTitle,
+            ConversationError::TitleTooLong(999),
+            DecisionContractError::NoQuestions,
+            DecisionContractError::TooLarge { bytes: 9 },
+            DecisionContractError::EmptyQuestionId,
+            DecisionContractError::EmptyInstructions(q()),
+            DecisionContractError::OptionCount {
+                question: q(),
+                found: 1
+            },
+            DecisionContractError::EmptyOption(q()),
+            DecisionContractError::LevelCount {
+                question: q(),
+                found: 1
+            },
+            DecisionContractError::EmptyModel,
+            DecisionContractError::Unanswered(q()),
+            DecisionContractError::UnaskedAnswer(q()),
+            DecisionContractError::WrongType {
+                question: q(),
+                asked: "choice",
+                answered: "noul"
+            },
+            DecisionContractError::UnknownChoice {
+                question: q(),
+                choice: "c".into()
+            },
+            DecisionContractError::UnknownOutcome {
+                question: q(),
+                outcome: "o".into()
+            },
+            DecisionContractError::ChoiceWithoutProbability(q()),
+            DecisionContractError::LegendMismatch {
+                question: q(),
+                levels: 3,
+                found: 2
+            },
+            DecisionContractError::ScoreOffTheLegend {
+                question: q(),
+                score: 9.5
+            },
+            DecisionContractError::OutOfRange {
+                question: q(),
+                field: "confidence",
+                value: 2.0
+            },
+            DecisionContractError::NotADistribution {
+                question: q(),
+                sum: 0.5
+            },
+            CoreError::InvalidPrincipal("x".into()),
+            CoreError::from(RunError::NotStarted),
+            CoreError::from(TemplateError::Unknown("x".into())),
+            CoreError::from(WorkItemError::Terminal("accepted")),
+            CoreError::from(WorkstreamError::Terminal),
+            CoreError::from(ChannelError::GeneralShape),
+            CoreError::from(AgentError::EmptyName),
+            CoreError::from(TeamError::EmptyName),
+            CoreError::from(SkillError::EmptyName),
+            CoreError::from(McpError::EmptyName),
+            CoreError::from(NoteError::EmptyTitle),
+            CoreError::from(DrawError::EmptyTitle),
+            CoreError::from(ConversationError::BlankTitle),
+            CoreError::from(PetError::Animation {
+                id: "p".into(),
+                why: "x".into()
+            }),
+            CoreError::from(AddonError::NotEnabled("clock".into())),
+            CoreError::from(MemberError::SecondOwner),
+            CoreError::from(ReviewNoteError::EmptyBody),
+            CoreError::from(GitProfileError::EmptyLabel),
+            CoreError::from(SettingsError::UnknownKey("x".into())),
+            CoreError::from(AnswerError::Empty),
+            CoreError::from(DecisionContractError::NoQuestions),
+            CoreError::UnknownDecisionWord {
+                what: "decision point",
+                value: "x".into()
+            },
+            CoreError::UnknownEffort("x".into()),
+            CoreError::UnknownKind(7),
+            CoreError::UnknownGate("x".into()),
+            CoreError::UnknownGoalStatus("x".into()),
+            CoreError::UnknownHolder("x".into()),
+            CoreError::UnknownScopeKind("x".into()),
+            CoreError::ThinkingTooLarge { bytes: 9 },
+            CoreError::TextTooLarge { bytes: 9 },
+            CoreError::UnknownFileScope("x".into()),
+            CoreError::UnknownArtifactKind("x".into()),
+            CoreError::UnknownActivityConcept("x".into()),
+            CoreError::TooManyArtifacts(9),
+            CoreError::InvalidArtifactName("x".into()),
+            CoreError::InvalidArtifactTitle("x".into()),
+            CoreError::ArtifactTitleTooLong { bytes: 9 },
+            CoreError::ArtifactTooLarge { bytes: 9 },
+            CoreError::UnknownScope("x".into()),
+            CoreError::UnknownGoalMode("x".into()),
+            CoreError::InvalidAssignee("x".into()),
+            CoreError::InvalidSlug("x".into()),
+            CoreError::InvalidId {
+                what: "step".into(),
+                value: "x".into()
+            },
+            CoreError::InvalidWord {
+                what: "branch".into(),
+                value: "x".into()
+            },
+            CoreError::InvalidBranch("x".into()),
+            CoreError::InvalidRelPath("x".into()),
+            CoreError::InvalidHash("x".into()),
+            CoreError::InvalidRange { start: 2, end: 1 },
+            CoreError::ContextTooLarge { bytes: 9 },
+            CoreError::InvalidTag("x".into()),
+            CoreError::UnknownTagEntity("x".into()),
+            CoreError::TooManyTags(9),
+            GitProfileError::EmptyLabel,
+            GitProfileError::Host("x".into()),
+            GitProfileError::Alias("x".into()),
+            GitProfileError::Owner("x".into()),
+            GitProfileError::Name("x".into()),
+            GitProfileError::Email("x".into()),
+            GitProfileError::SshKey("x".into()),
+            GitProfileError::Account("x".into()),
+            ClaimRefusal::UnknownOrUsed,
+            ClaimRefusal::Expired,
+            ClaimRefusal::Revoked,
+            ClaimRefusal::AwaitingHost,
+            InviteError::OwnerRole,
+            InviteError::NoLife,
+            McpError::EmptyName,
+            McpError::ReservedName,
+            McpError::EmptyCommand,
+            McpError::RelativeCwd("x".into()),
+            McpError::InvalidUrl("x".into()),
+            McpError::BadHeaderName("x".into()),
+            McpError::BadHeaderValue("x".into()),
+            MemberError::OwnerImmutable,
+            MemberError::SecondOwner,
+            NoteError::EmptyTitle,
+            NoteError::TooLarge(9),
+            NoteError::BadFrontMatter("x".into()),
+            DrawError::EmptyTitle,
+            DrawError::TitleTooLong { chars: 9 },
+            DrawError::TooLarge { bytes: 9 },
+            DrawError::TooManyElements { count: 9 },
+            DrawError::ElementRefused {
+                kind: "image".into()
+            },
+            DrawError::BadElement { why: "x".into() },
+            PetError::Animation {
+                id: "p".into(),
+                why: "x".into()
+            },
+            PhotoRefusal::NotAHash { word: "photo" },
+            PhotoRefusal::NotHeld { word: "photo" },
+            PhotoRefusal::NotAPicture { word: "photo" },
+            PhotoRefusal::TooLarge {
+                word: "photo",
+                bytes: 9,
+                max: 1,
+                edge: 2
+            },
+            ReviewNoteError::EmptyBody,
+            RunError::NotStarted,
+            RunError::NoStart,
+            RunError::AmendChangesWorkflow {
+                expected: "a".into(),
+                got: "b".into()
+            },
+            RunError::AmendNeedsInput(InputError::Missing { input: "x".into() }),
+            RunError::AlreadyStarted,
+            RunError::Finished,
+            RunError::UnknownStep { step: "s".into() },
+            RunError::NotLive {
+                step: "s".into(),
+                event: "done",
+                state: "pending",
+                expected: "running"
+            },
+            RunError::WrongKind {
+                step: "s".into(),
+                event: "done",
+                kind: "human",
+                expected: "agent"
+            },
+            RunError::BadAnswer {
+                step: "s".into(),
+                source: AnswerError::Empty
+            },
+            RunError::AmendTouchesStartedStep { step: "s".into() },
+            RunError::StaleBoundary {
+                step: "s".into(),
+                boundary: "b".into()
+            },
+            RunError::UnknownBoundary {
+                step: "s".into(),
+                boundary: "b".into()
+            },
+            SettingsError::UnknownKey("x".into()),
+            SettingsError::ScopeNotAllowed {
+                key: "k".into(),
+                scope: Scope::Project,
+                allowed: vec![Scope::Machine]
+            },
+            SettingsError::InvalidValue {
+                key: "k".into(),
+                why: "x".into()
+            },
+            SkillError::EmptyName,
+            SkillError::EmptyDescription,
+            SkillError::TooLarge(9),
+            TeamError::EmptyName,
+            TeamError::NestedTeam("t".into()),
+            TeamError::CoreAgentStored,
+            TemplateError::Unbalanced { at: 3 },
+            TemplateError::Unknown("x".into()),
+            TemplateError::EventOutsideMapping("x".into()),
+            TemplateError::UnknownInMapping("x".into()),
+            TemplateError::UnknownInStartEvent("x".into()),
+            TemplateError::UnknownInConnector("x".into()),
+            TemplateError::Unresolved {
+                key: "k".into(),
+                why: Absence::NoInput
+            },
+            InputError::WrongKind {
+                input: "x".into(),
+                want: "a number".into(),
+                got: "text".into()
+            },
+            InputError::Missing { input: "x".into() },
+            InputError::Unknown {
+                inputs: vec!["a".into(), "b".into()]
+            },
+            WorkItemError::Illegal {
+                from: "open",
+                transition: "start"
+            },
+            WorkItemError::Terminal("accepted"),
+            WorkstreamError::Illegal {
+                from: "open",
+                transition: "close"
+            },
+            WorkstreamError::Terminal,
+            WorkstreamError::Primary {
+                transition: "close"
+            },
+            WorkstreamError::NoRepository { id: "w".into() },
+            WorkstreamError::NoOwnBranch { id: "w".into() },
+        );
+        assert!(
+            off.is_empty(),
+            "the catalog and the display disagree:\n{}",
+            off.join("\n")
+        );
+    }
+}

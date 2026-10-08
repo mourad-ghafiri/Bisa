@@ -71,7 +71,7 @@ pub fn sweep(root: &Path, process: Process, now: SystemTime) -> Vec<Stale> {
             None => {
                 tracing::warn!(
                     target: "bisa_log",
-                    file = %path.display(),
+                    file = %path.display(), // LCOV_EXCL_LINE: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                     "a run marker could not be read and was removed"
                 );
                 remove_marker(&path);
@@ -100,7 +100,7 @@ pub fn sweep(root: &Path, process: Process, now: SystemTime) -> Vec<Stale> {
                     pid = marker.pid,
                     version = %marker.version,
                     started_at = %marker.started_at,
-                    crash = %report_path.file_name().unwrap_or_default().to_string_lossy(),
+                    crash = %report_path.file_name().unwrap_or_default().to_string_lossy(), // LCOV_EXCL_LINE: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                     "{message}"
                 );
                 remove_marker(&path);
@@ -145,7 +145,9 @@ pub fn alive(_pid: u32) -> bool {
 /// fatal — the next sweep tries again.
 fn remove_marker(path: &Path) {
     if let Err(error) = std::fs::remove_file(path) {
+        // LCOV_EXCL_START: the marker was just read from this folder; a removal refused here is a permission the next sweep retries
         tracing::warn!(target: "bisa_log", file = %path.display(), %error, "a run marker could not be removed");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -222,5 +224,29 @@ mod tests {
 
         // Swept, nothing is found twice.
         assert!(sweep(root, Process::Node, SystemTime::now()).is_empty());
+    }
+
+    // added by the coverage pass: b6-lifecycle.rs
+    #[test]
+    fn a_pid_past_the_kill_range_is_nobody_and_a_report_that_cannot_be_written_still_removes_the_marker(
+    ) {
+        assert!(!alive(u32::MAX));
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let recording = crate::recorder::Recording::new();
+        let _guard = tracing_subscriber::registry()
+            .with(recording.layer())
+            .set_default();
+        let dead = mark(root, &marker(Process::Node, DEAD)).unwrap();
+        // The crashes folder is a file: no report can be written there.
+        std::fs::write(crate::files::crashes_dir(root), "in the way").unwrap();
+        let found = sweep(root, Process::Node, SystemTime::now());
+        assert!(found.is_empty(), "{found:?}");
+        assert!(!dead.exists(), "the stale marker went all the same");
+        assert!(recording
+            .recorder
+            .snapshot()
+            .iter()
+            .any(|r| r.level == "ERROR" && r.message.contains("no report could be written")));
     }
 }

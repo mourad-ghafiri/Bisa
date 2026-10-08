@@ -14,7 +14,8 @@
 //! (`just i18n-baseline`). The end state is an empty baseline.
 //!
 //! A heuristic, on purpose: it need not understand Rust, only see a sentence
-//! where one is. This module reads sources; it never writes.
+//! where one is. This module reads sources; its one write is [`run`]'s
+//! `--write`, into the baseline file it is handed.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -437,6 +438,60 @@ pub fn compare(
     (up, down)
 }
 
+/// The ratchet command's whole output: `args` are its flags, without the
+/// program's own name; `root` the workspace; `file` the baseline. `--list`
+/// prints every bare sentence under the ratchet's scopes — or under each
+/// `--scope <dir>` given — as `path:line: literal`; `--write` records the
+/// counts into `file` and says how many; nothing else reports what rose and
+/// what fell against `file`, a missing or unreadable file counting as empty.
+pub fn run(args: &[String], root: &Path, file: &Path) -> String {
+    let asked: Vec<&str> = args
+        .windows(2)
+        .filter(|pair| pair[0] == "--scope")
+        .map(|pair| pair[1].as_str())
+        .collect();
+    let scopes: &[&str] = if asked.is_empty() { SCOPES } else { &asked };
+    let mut out = String::new();
+    if args.iter().any(|a| a == "--list") {
+        for line in listing(root, scopes) {
+            out.push_str(&line);
+            out.push('\n');
+        }
+        return out;
+    }
+    let now = baseline(root, SCOPES);
+    if args.iter().any(|a| a == "--write") {
+        let json = serde_json::to_string_pretty(&now).expect("a map of counts is JSON");
+        std::fs::write(file, format!("{json}\n")).expect("write the baseline");
+        out.push_str(&format!(
+            "{} files with bare sentences, {} sentences — written to {}\n",
+            now.len(),
+            now.values().sum::<usize>(),
+            file.display()
+        ));
+        return out;
+    }
+    let was: BTreeMap<String, usize> = std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let (up, down) = compare(&was, &now);
+    for line in &up {
+        out.push_str(&format!("up    {line}\n"));
+    }
+    for line in &down {
+        out.push_str(&format!("down  {line}\n"));
+    }
+    out.push_str(&format!(
+        "{} files, {} sentences now; {} rose, {} fell\n",
+        now.len(),
+        now.values().sum::<usize>(),
+        up.len(),
+        down.len()
+    ));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,5 +587,81 @@ const R: &[RouteDoc] = &[RouteDoc {
         let (up, down) = compare(&was, &now);
         assert_eq!(up, vec!["a.rs: 2 → 3", "c.rs: 0 → 1"]);
         assert_eq!(down, vec!["b.rs: 1 → 0"]);
+    }
+
+    // added by the coverage pass: b6-ratchet.rs
+    #[test]
+    fn a_doubled_brace_is_a_brace_and_a_raw_string_may_span_lines() {
+        assert!(is_prose("a {{literal}} brace stays here"));
+        assert!(!is_prose("{{}}"));
+        let src = "let a = r#\"a raw sentence\nover two lines\"#;\n";
+        assert_eq!(
+            literals(src),
+            vec!["a raw sentence\nover two lines".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_counts_the_listing_and_the_command_read_a_folder_and_step_over_what_they_cannot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src = root.join("crates/bisa-node/src");
+        std::fs::create_dir_all(src.join("bin")).unwrap();
+        std::fs::write(src.join("a.rs"), "let a = \"a sentence for a person\";\n").unwrap();
+        std::fs::write(src.join("b.rs"), "let b = \"nothing\";\n").unwrap();
+        std::fs::write(src.join("bad.rs"), [0xff, 0xfe, 0x00]).unwrap();
+        std::fs::write(
+            src.join("bin/gen.rs"),
+            "let g = \"a generator's sentence\";\n",
+        )
+        .unwrap();
+        // The CLI's scope does not exist here: walked past, nothing counted.
+        let counts = baseline(root, SCOPES);
+        assert_eq!(
+            counts,
+            BTreeMap::from([("crates/bisa-node/src/a.rs".to_string(), 1)])
+        );
+        assert_eq!(
+            listing(root, SCOPES),
+            vec!["crates/bisa-node/src/a.rs:1: a sentence for a person".to_string()]
+        );
+        let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        let file = root.join("baseline.json");
+        assert_eq!(
+            run(
+                &args(&["--list", "--scope", "crates/bisa-node/src"]),
+                root,
+                &file
+            ),
+            "crates/bisa-node/src/a.rs:1: a sentence for a person\n"
+        );
+        let written = run(&args(&["--write"]), root, &file);
+        assert!(
+            written.starts_with("1 files with bare sentences, 1 sentences — written to "),
+            "{written}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "{\n  \"crates/bisa-node/src/a.rs\": 1\n}\n"
+        );
+        assert_eq!(
+            run(&args(&[]), root, &file),
+            "1 files, 1 sentences now; 0 rose, 0 fell\n"
+        );
+        std::fs::write(
+            &file,
+            "{\"crates/bisa-node/src/a.rs\": 2, \"gone.rs\": 1}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            run(&args(&[]), root, &file),
+            "down  crates/bisa-node/src/a.rs: 2 → 1\ndown  gone.rs: 1 → 0\n1 files, 1 sentences now; 0 rose, 2 fell\n"
+        );
+        std::fs::write(&file, "not json").unwrap();
+        assert_eq!(
+            run(&args(&[]), root, &file),
+            "up    crates/bisa-node/src/a.rs: 0 → 1\n1 files, 1 sentences now; 1 rose, 0 fell\n",
+            "an unreadable baseline counts as empty"
+        );
     }
 }

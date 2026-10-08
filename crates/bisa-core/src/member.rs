@@ -416,4 +416,19 @@ mod tests {
             "a workspace has exactly one owner"
         );
     }
+
+    // added by the coverage pass: b5-member.rs
+    #[test]
+    fn every_role_has_the_word_a_person_reads() {
+        assert_eq!(
+            [
+                MemberRole::Owner,
+                MemberRole::Admin,
+                MemberRole::Member,
+                MemberRole::Guest
+            ]
+            .map(MemberRole::words),
+            ["Owner", "Admin", "Member", "Guest"]
+        );
+    }
 }

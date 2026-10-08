@@ -375,4 +375,22 @@ mod tests {
             "no room after the last"
         );
     }
+
+    // added by the coverage pass: board.rs
+
+    #[test]
+    fn a_due_date_prints_as_its_calendar_day() {
+        assert_eq!(
+            DueDate::parse("2026-10-08").unwrap().to_string(),
+            "2026-10-08"
+        );
+    }
+
+    // added by the coverage pass: b5-board.rs
+    #[test]
+    fn a_column_prints_as_its_word() {
+        for column in BoardColumn::ALL {
+            assert_eq!(column.to_string(), column.as_str());
+        }
+    }
 }

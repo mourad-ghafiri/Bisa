@@ -417,4 +417,72 @@ mod tests {
         assert_eq!(r.kind(), "external");
         assert!(!Vcs::None.is_git());
     }
+
+    // added by the coverage pass: project.rs
+
+    #[test]
+    fn a_slug_prints_in_debug_and_reads_as_its_text() {
+        let s = Slug::new("my-project").unwrap();
+        assert_eq!(format!("{s:?}"), "Slug(\"my-project\")");
+        assert_eq!(&*s, "my-project");
+        let text: &str = s.as_ref();
+        assert_eq!(text, "my-project");
+    }
+
+    // added by the coverage pass: b4-project.rs
+    #[test]
+    fn a_slug_has_a_schema_a_display_a_parse_and_a_path_and_the_wire_words_of_a_root_a_vcs_and_a_policy(
+    ) {
+        let v = serde_json::to_value(schemars::schema_for!(Slug)).unwrap();
+        assert_eq!(v["type"], "string", "{v}");
+        let slug: Slug = "my-app".parse().unwrap();
+        assert_eq!(slug.to_string(), "my-app");
+        let path: &std::path::Path = slug.as_ref();
+        assert_eq!(path, std::path::Path::new("my-app"));
+        assert_eq!(ProjectRoot::Managed.kind(), "managed");
+        assert_eq!((Vcs::None.kind(), Vcs::None.is_git()), ("none", false));
+        assert_eq!(
+            [
+                PublishPolicy::Manual,
+                PublishPolicy::Gated,
+                PublishPolicy::Auto
+            ]
+            .map(PublishPolicy::as_str),
+            ["manual", "gated", "auto"]
+        );
+    }
+
+    // added by the coverage pass: b7-project.rs
+    #[test]
+    fn a_git_project_says_so() {
+        let git = Vcs::Git {
+            default_branch: "main".into(),
+            remote: None,
+            code_host: None,
+        };
+        assert_eq!(git.kind(), "git");
+        assert!(git.is_git());
+        let project = Project {
+            id: ProjectId::from_ulid(ulid::Ulid::from_parts(1, 1)),
+            slug: Slug::new("app").unwrap(),
+            name: "App".into(),
+            root: ProjectRoot::Managed,
+            vcs: Vcs::None,
+            origin: crate::origin::ProjectOrigin::Workspace,
+            assignees: vec![],
+            publish: PublishPolicy::Manual,
+            tags: Tags::default(),
+            group: None,
+            photo: None,
+            archived: None,
+            revision: 1,
+            created_at: 0,
+        };
+        assert!(!project.is_archived());
+        let put_away = Project {
+            archived: Some(crate::archive::Archived::at(5)),
+            ..project
+        };
+        assert!(put_away.is_archived());
+    }
 }

@@ -337,4 +337,46 @@ mod tests {
         assert_eq!(json, r#"["code","engineering"]"#);
         assert_eq!(serde_json::from_str::<Tags>(&json).unwrap(), t);
     }
+
+    // added by the coverage pass: tags.rs
+
+    #[test]
+    fn an_entity_and_a_tag_list_print_as_their_words_and_a_list_counts_and_iterates() {
+        for entity in TagEntity::ALL {
+            assert_eq!(entity.to_string(), entity.as_str());
+        }
+        let tags = Tags::sanitize(["Go To Market", "engineering"]);
+        assert_eq!(tags.len(), 2);
+        let words: Vec<&String> = (&tags).into_iter().collect();
+        assert_eq!(words.len(), 2);
+        assert!(tags.contains("go-to-market") && tags.contains("engineering"));
+        assert_eq!(
+            tags.to_string(),
+            words
+                .iter()
+                .map(|w| w.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    // added by the coverage pass: b4-tags.rs
+    #[test]
+    fn the_tag_lists_schema_is_a_list_of_strings_an_entity_parses_from_its_word_and_the_list_iterates(
+    ) {
+        let v = serde_json::to_value(schemars::schema_for!(Tags)).unwrap();
+        assert_eq!(v["type"], "array", "{v}");
+        for entity in TagEntity::ALL {
+            assert_eq!(entity.as_str().parse::<TagEntity>().unwrap(), *entity);
+        }
+        assert!(matches!(
+            "nothing".parse::<TagEntity>(),
+            Err(crate::CoreError::UnknownTagEntity(w)) if w == "nothing"
+        ));
+        let tags = Tags::new(vec!["b".to_string(), "a".to_string()]).unwrap();
+        assert_eq!(
+            tags.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+    }
 }

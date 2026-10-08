@@ -212,4 +212,12 @@ mod tests {
         let back: LogConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back, LogConfig::default());
     }
+
+    // added by the coverage pass: b6-config.rs
+    #[test]
+    fn every_level_has_its_filter() {
+        assert_eq!(LogLevel::Info.filter(), LevelFilter::INFO);
+        assert_eq!(LogLevel::Trace.filter(), LevelFilter::TRACE);
+        assert_eq!(LogLevel::Debug.filter(), LevelFilter::DEBUG);
+    }
 }

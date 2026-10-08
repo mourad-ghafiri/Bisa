@@ -2635,7 +2635,7 @@ impl Workflow {
                 inputs: mapping, ..
             } = &step.kind
             else {
-                continue;
+                continue; // LCOV_EXCL_LINE: `event_starts` yields start steps alone; the pattern restates it
             };
             for def in &self.inputs {
                 if def.required && def.default.is_none() && !mapping.contains_key(def.name.as_str())
@@ -2654,7 +2654,7 @@ impl Workflow {
                         if unfilled(&name) {
                             out.insert(name);
                         }
-                    }
+                    } // LCOV_EXCL_LINE: the start-event grammar yields input placeholders alone (template.rs parse_start_event_key)
                 }
             }
         }
@@ -2933,7 +2933,7 @@ impl Workflow {
                             queue.push_back(next.clone());
                         }
                     }
-                }
+                } // LCOV_EXCL_LINE: the walk queues the ids of steps it found, so every id it pops is a step of the workflow
             }
             for id in &seen {
                 let n = forward_in
@@ -2966,15 +2966,15 @@ impl Workflow {
                             if *n == 0 {
                                 ready.push_back(next.clone());
                             }
-                        }
+                        } // LCOV_EXCL_LINE: `pending` counts every step the walk saw, so a successor it saw is in it
                     }
-                }
+                } // LCOV_EXCL_LINE: the walk queues the ids of steps it found, so every id it pops is a step of the workflow
             }
         }
         let mut sure_cache: BTreeMap<StepId, BTreeSet<StepId>> = BTreeMap::new();
         for id in order {
             let Some(step) = self.step(&id) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: the walk queues the ids of steps it found, so every id it pops is a step of the workflow
             };
             let edges: Vec<(StepId, FwdEdge)> = forward_in
                 .get(&id)
@@ -3287,7 +3287,7 @@ impl Workflow {
         let path = read.path()?;
         let field = path.split('.').next().unwrap_or_default();
         if field.is_empty() {
-            return None;
+            return None; // LCOV_EXCL_LINE: `Reference::path` is `None` for an empty rule path, and the template grammar refuses a dotted path that ends in nothing
         }
         let promised_fields = match promised {
             Promised::Keys(_) if matches!(producer.kind, StepKind::ForEach { .. }) => {
@@ -3543,11 +3543,13 @@ impl Workflow {
             }
         } else {
             match starts.len() {
+                // LCOV_EXCL_START: `start_steps` names the first step when no step is a start, so the count is never zero; the arm stays for the match's sake
                 0 => push(
                     None,
                     ProblemKind::NoStart,
                     crate::text!("problem-no-start-workflow-needs-least-one-step"),
                 ),
+                // LCOV_EXCL_STOP
                 1 => {}
                 _ => {
                     for s in &starts {
@@ -3732,7 +3734,7 @@ impl Workflow {
                 let max_iterations = match &step.kind {
                     StepKind::ForEach { max_iterations, .. }
                     | StepKind::While { max_iterations, .. } => *max_iterations,
-                    _ => 1,
+                    _ => 1, // LCOV_EXCL_LINE: `loop_branches` is `Some` for `for_each` and `loop` alone; the arm keeps the match total
                 };
                 if max_iterations == 0 {
                     push(
@@ -3923,7 +3925,7 @@ impl Workflow {
                                 Placeholder::Event { .. }
                                 | Placeholder::GoalStatement
                                 | Placeholder::GoalTitle => {}
-                                Placeholder::Param(_) | Placeholder::Account(_) => push(Some(&step.id), ProblemKind::ParamOnlyPlaceholder, crate::text!("problem-param-only-placeholder-step-connector-definition-s-step-reads", a0 = (step.id).to_string())),
+                                Placeholder::Param(_) | Placeholder::Account(_) => push(Some(&step.id), ProblemKind::ParamOnlyPlaceholder, crate::text!("problem-param-only-placeholder-step-connector-definition-s-step-reads", a0 = (step.id).to_string())), // LCOV_EXCL_LINE: the run grammar refuses `params.` and `account.` before it yields a placeholder (the `Err` arm above says so)
                             }
                         }
                     }
@@ -4829,7 +4831,7 @@ impl Workflow {
                                 );
                             }
                             used_inputs.insert(name);
-                        }
+                        } // LCOV_EXCL_LINE: the start-event grammar yields input placeholders alone (template.rs parse_start_event_key)
                     }
                 }
                 Err(TemplateError::UnknownInStartEvent(key)) => push(
@@ -10593,6 +10595,1273 @@ pub(crate) mod tests {
                 ("approval", Family::Task)
             ]
         );
+    }
+    // added by the coverage pass: workflow.rs
+
+    #[test]
+    fn every_family_pick_finish_join_on_fail_condition_and_input_kind_has_its_wire_word() {
+        assert_eq!(
+            [Family::Event, Family::Gateway, Family::Loop, Family::Task].map(Family::as_str),
+            ["event", "gateway", "loop", "task"]
+        );
+        assert_eq!(
+            (Pick::First.as_str(), Pick::Every.as_str()),
+            ("first", "every")
+        );
+        assert_eq!(
+            (
+                Finish::Path.as_str(),
+                Finish::Done.as_str(),
+                Finish::Failed.as_str()
+            ),
+            ("path", "done", "failed")
+        );
+        assert_eq!(
+            (Join::All.as_str(), Join::Any.as_str(), Join::One.as_str()),
+            ("all", "any", "one")
+        );
+        assert_eq!(
+            (
+                OnFail::Fail.as_str(),
+                OnFail::Skip.as_str(),
+                OnFail::Then { step: sid("x") }.as_str()
+            ),
+            ("fail", "skip", "then")
+        );
+        let conditions = [
+            (
+                Condition::OutputEquals {
+                    step: sid("a"),
+                    path: "p".into(),
+                    value: json!(1),
+                },
+                "output_equals",
+            ),
+            (
+                Condition::OutputMatches {
+                    step: sid("a"),
+                    path: "p".into(),
+                    contains: "x".into(),
+                },
+                "output_matches",
+            ),
+            (
+                Condition::Between {
+                    from_hour: 1,
+                    to_hour: 2,
+                },
+                "between",
+            ),
+            (Condition::All { of: vec![] }, "all"),
+            (Condition::Any { of: vec![] }, "any"),
+        ];
+        for (condition, word) in &conditions {
+            assert_eq!(condition.as_str(), *word);
+        }
+        assert_eq!(
+            (
+                InputKind::Bool.as_str(),
+                InputKind::Choice { options: vec![] }.as_str()
+            ),
+            ("bool", "choice")
+        );
+        assert_eq!(InputKind::fields_of("nope"), None);
+        assert_eq!(WaitFor::fields_of("nope"), None);
+        assert!(WaitFor::refuse_unknown::<serde_json::Error>(&json!("delay")).is_ok());
+        assert!(!contains_str(None, "x"));
+        assert!(format!("{:?}", ctx()).starts_with("ValidationCtx"));
+        assert_eq!(StepKind::Parallel.promised().fields(), Some(vec![]));
+        assert_eq!(
+            StepKind::Human {
+                prompt: "p".into(),
+                options: vec![],
+                multi: false,
+                assignee: None,
+            }
+            .promised()
+            .fields(),
+            Some(vec![])
+        );
+        assert_eq!(
+            StepKind::ForEach {
+                items: "x".into(),
+                max_iterations: 1,
+            }
+            .family(),
+            Family::Loop
+        );
+        let otherwise = Branch::new("o").unwrap();
+        assert!(matches!(
+            StepKind::Switch { on: "x".into(), cases: vec![], otherwise: otherwise.clone() }.promised(),
+            Promised::Keys(keys) if keys == ["value"]
+        ));
+        assert!(matches!(
+            StepKind::Judge {
+                state: "s".into(),
+                instructions: "i".into(),
+                options: vec![],
+                otherwise,
+                min_confidence: None,
+            }
+            .promised(),
+            Promised::Keys(keys) if keys == ["choice", "confidence", "judged"]
+        ));
+        assert!(matches!(
+            StepKind::While { when: Condition::All { of: vec![] }, max_iterations: 1 }.promised(),
+            Promised::Keys(keys) if keys == ["index"]
+        ));
+    }
+
+    #[test]
+    fn every_step_kind_and_every_start_summarises_itself_in_one_line() {
+        let s = |kind: StepKind| step("s", kind, vec![]).summary().id.to_string();
+        assert_eq!(
+            s(StepKind::Approval {
+                prompt: "Ship it?".into()
+            }),
+            "step-summary-approval"
+        );
+        assert_eq!(
+            s(StepKind::Check {
+                check: CheckKind::Schema {
+                    schema: json!({}),
+                    of: Some(sid("a")),
+                },
+            }),
+            "step-summary-check-schema"
+        );
+        let conn = |c: Option<&str>, o: Option<&str>, params: &[&str]| StepKind::Connector {
+            connector: c.map(|c| ConnectorId::new(c).unwrap()),
+            operation: o.map(|o| OperationId::new(o).unwrap()),
+            account: None,
+            params: params
+                .iter()
+                .map(|p| (p.to_string(), "{inputs.x}".to_string()))
+                .collect(),
+            output_schema: None,
+            unattended: false,
+        };
+        assert_eq!(
+            s(conn(Some("slack"), Some("post"), &[])),
+            "step-summary-connector"
+        );
+        assert_eq!(
+            s(conn(Some("slack"), None, &["text"])),
+            "step-summary-connector-operation-unchosen-params"
+        );
+        assert_eq!(
+            s(conn(None, None, &["text"])),
+            "step-summary-connector-unchosen-params"
+        );
+        let project = ProjectId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        let workflow_id = WorkflowId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        let waits = [
+            (
+                WaitFor::Delay {
+                    secs: ValueRef::Fixed(5),
+                },
+                "step-summary-wait-delay",
+            ),
+            (
+                WaitFor::Time {
+                    at: "tomorrow".into(),
+                },
+                "step-summary-wait-time",
+            ),
+            (
+                WaitFor::Schedule {
+                    cron: ValueRef::Fixed("0 9 * * *".into()),
+                    tz: None,
+                },
+                "step-summary-wait-schedule",
+            ),
+            (
+                WaitFor::Signal {
+                    filter: SignalFilter {
+                        name: "x.ready".into(),
+                        fields: BTreeMap::new(),
+                    },
+                },
+                "step-summary-wait-signal",
+            ),
+            (
+                WaitFor::Message {
+                    filter: MessageFilter {
+                        r#in: Some("support".into()),
+                        ..MessageFilter::default()
+                    },
+                },
+                "step-summary-wait-message-in",
+            ),
+            (
+                WaitFor::Message {
+                    filter: MessageFilter::default(),
+                },
+                "step-summary-wait-message",
+            ),
+            (
+                WaitFor::Project {
+                    filter: ProjectFilter {
+                        project: Some(ValueRef::Fixed(project)),
+                        ..ProjectFilter::default()
+                    },
+                },
+                "step-summary-wait-project",
+            ),
+            (
+                WaitFor::Project {
+                    filter: ProjectFilter::default(),
+                },
+                "step-summary-wait-project-unchosen",
+            ),
+            (
+                WaitFor::Run {
+                    filter: RunFilter {
+                        workflow: Some(workflow_id),
+                        outcome: None,
+                    },
+                },
+                "step-summary-wait-run-of",
+            ),
+            (
+                WaitFor::Run {
+                    filter: RunFilter::default(),
+                },
+                "step-summary-wait-run",
+            ),
+            (
+                WaitFor::Platform {
+                    filter: PlatformFilter {
+                        topic: "goal.closed".into(),
+                        fields: BTreeMap::new(),
+                    },
+                },
+                "step-summary-wait-platform",
+            ),
+        ];
+        for (until, id) in waits {
+            assert_eq!(s(StepKind::Wait { until }), id);
+        }
+        let agent_author = Some(ValueRef::Fixed(Assignee::Agent("dev".into())));
+        let notify = |scope: Option<&str>, author: Option<ValueRef<Assignee>>| StepKind::Notify {
+            scope: scope.map(str::to_string),
+            template: "done".into(),
+            mentions: vec![],
+            author,
+        };
+        assert_eq!(
+            s(notify(Some("general"), agent_author.clone())),
+            "step-summary-notify-scope-as"
+        );
+        assert_eq!(
+            s(notify(Some("general"), None)),
+            "step-summary-notify-scope"
+        );
+        assert_eq!(s(notify(None, agent_author)), "step-summary-notify-as");
+        assert_eq!(s(notify(None, None)), "step-summary-notify");
+        let spawn = |wait: bool| StepKind::Spawn {
+            statement_template: "child".into(),
+            workflow: None,
+            assignees: vec![],
+            inputs: BTreeMap::new(),
+            wait,
+        };
+        assert_eq!(s(spawn(true)), "step-summary-spawn");
+        assert_eq!(s(spawn(false)), "step-summary-spawn-no-wait");
+        assert_eq!(
+            s(StepKind::End {
+                finish: Finish::Failed
+            }),
+            "step-summary-end-failed"
+        );
+        let start = |on: StartOn| on.summary().id.to_string();
+        assert_eq!(
+            start(StartOn::Message {
+                filter: MessageFilter::default()
+            }),
+            "step-summary-start-message"
+        );
+        assert_eq!(
+            start(StartOn::Project {
+                filter: ProjectFilter {
+                    project: Some(ValueRef::Fixed(project)),
+                    ..ProjectFilter::default()
+                }
+            }),
+            "step-summary-start-project"
+        );
+        assert_eq!(
+            start(StartOn::Project {
+                filter: ProjectFilter::default()
+            }),
+            "step-summary-start-project-unchosen"
+        );
+        assert_eq!(
+            start(StartOn::Run {
+                filter: RunFilter {
+                    workflow: Some(workflow_id),
+                    outcome: None,
+                }
+            }),
+            "step-summary-start-run-of"
+        );
+        assert_eq!(
+            start(StartOn::Platform {
+                filter: PlatformFilter {
+                    topic: "goal.closed".into(),
+                    fields: BTreeMap::new(),
+                }
+            }),
+            "step-summary-start-platform"
+        );
+        assert_eq!(
+            start(StartOn::Connector {
+                connector: None,
+                operation: None,
+                account: None,
+                params: BTreeMap::new(),
+                key: None,
+                schedule: Schedule::every(60),
+            }),
+            "step-summary-start-connector-unchosen"
+        );
+        assert_eq!(
+            start(StartOn::Schedule {
+                schedule: Schedule::default()
+            }),
+            "step-summary-start-schedule-unset"
+        );
+    }
+
+    #[test]
+    fn no_way_in_a_check_of_a_step_that_is_not_there_and_a_rule_on_an_input_nobody_declared_are_named(
+    ) {
+        // A loop back to the first step is not a missing start: the first
+        // step is the way in. Only a definition with no step at all has none.
+        let ring = workflow(vec![agent("a", &["b"]), agent("b", &["a"])]);
+        assert!(!kinds(&ring.validate(&ctx())).contains(&ProblemKind::NoStart));
+        assert!(kinds(&workflow(vec![]).validate(&ctx())).contains(&ProblemKind::NoStart));
+        let checks = workflow(vec![step(
+            "a",
+            StepKind::Check {
+                check: CheckKind::Schema {
+                    schema: json!({"type": "object"}),
+                    of: Some(sid("ghost")),
+                },
+            },
+            vec![],
+        )]);
+        assert!(kinds(&checks.validate(&ctx())).contains(&ProblemKind::UnknownStep));
+        let branch = |b: &str| Flow {
+            to: sid("c"),
+            branch: Some(Branch::new(b).unwrap()),
+        };
+        let tests = workflow(vec![
+            agent("a", &["b"]),
+            decide(
+                vec![(
+                    "go",
+                    Condition::InputEquals {
+                        input: InputName::new("nope").unwrap(),
+                        value: json!(1),
+                    },
+                )],
+                "stop",
+                vec![branch("go"), branch("stop")],
+            ),
+            agent("c", &[]),
+        ]);
+        assert!(kinds(&tests.validate(&ctx())).contains(&ProblemKind::UnknownInput));
+    }
+
+    #[test]
+    fn a_template_that_names_a_step_that_is_not_there_or_a_connectors_own_roots_is_named() {
+        let wf = workflow(vec![
+            agent_reading("a", "read {steps.ghost.output}", &["b"]),
+            agent_reading("b", "read {params.x}", &[]),
+        ]);
+        let k = kinds(&wf.validate(&ctx()));
+        assert!(
+            k.contains(&ProblemKind::UnknownStep) && k.contains(&ProblemKind::ParamOnlyPlaceholder),
+            "{k:?}"
+        );
+    }
+
+    #[test]
+    fn a_start_whose_mapping_does_not_parse_whose_event_reads_an_undeclared_input_or_names_an_unknown_project_is_named(
+    ) {
+        let start = |on: StartOn, inputs: BTreeMap<String, String>| {
+            step(
+                "s",
+                StepKind::Start {
+                    on,
+                    inputs,
+                    guard: Guard::default(),
+                },
+                vec![Flow::to(sid("a"))],
+            )
+        };
+        let mapping = workflow(vec![
+            start(
+                StartOn::Hook { public: false },
+                BTreeMap::from([("x".to_string(), "{event.payload".to_string())]),
+            ),
+            agent("a", &[]),
+        ]);
+        assert!(kinds(&mapping.validate(&ctx())).contains(&ProblemKind::BadTemplate));
+        let fields = |value: &str| {
+            workflow(vec![
+                start(
+                    StartOn::Signal {
+                        filter: SignalFilter {
+                            name: "x.ready".into(),
+                            fields: BTreeMap::from([("env".to_string(), value.to_string())]),
+                        },
+                    },
+                    BTreeMap::new(),
+                ),
+                agent("a", &[]),
+            ])
+        };
+        assert!(
+            kinds(&fields("{inputs.nope}").validate(&ctx())).contains(&ProblemKind::UnknownInput)
+        );
+        assert!(kinds(&fields("{").validate(&ctx())).contains(&ProblemKind::BadTemplate));
+        let check = workflow(vec![
+            start(
+                StartOn::Check {
+                    command: "true".into(),
+                    project: Some(ValueRef::Fixed(ProjectId::from_ulid(
+                        ulid::Ulid::from_parts(5, 5),
+                    ))),
+                    fire_on: crate::start::FireOn::StartsFailing,
+                    schedule: Schedule::every(60),
+                },
+                BTreeMap::new(),
+            ),
+            agent("a", &[]),
+        ]);
+        assert!(kinds(&check.validate(&ctx())).contains(&ProblemKind::UnknownProject));
+    }
+
+    #[test]
+    fn a_boundary_that_posts_into_no_channel_speaks_as_no_agent_or_names_a_signal_badly_is_named() {
+        use crate::boundary::{Boundary, BoundaryAct, BoundaryOn};
+        let mut a = agent("a", &[]);
+        let timer = |name: &str, act: BoundaryAct| Boundary {
+            name: Branch::new(name).unwrap(),
+            on: BoundaryOn::After {
+                secs: ValueRef::Fixed(60),
+            },
+            act,
+        };
+        a.boundaries = vec![
+            timer(
+                "late",
+                BoundaryAct::Notify {
+                    scope: Some("not a channel!".into()),
+                    template: "late".into(),
+                    mentions: vec![],
+                    author: Some(ValueRef::Fixed(Assignee::Human(pk()))),
+                },
+            ),
+            timer(
+                "loud",
+                BoundaryAct::Emit {
+                    signal: "Bad Signal".into(),
+                    payload: BTreeMap::new(),
+                },
+            ),
+            Boundary {
+                name: Branch::new("heard").unwrap(),
+                on: BoundaryOn::Signal {
+                    filter: SignalFilter {
+                        name: "Bad Signal".into(),
+                        fields: BTreeMap::new(),
+                    },
+                },
+                act: BoundaryAct::Divert,
+            },
+        ];
+        let problems = workflow(vec![a]).validate(&ctx());
+        let k = kinds(&problems);
+        assert!(
+            k.contains(&ProblemKind::NotifyScopeUnknown)
+                && k.contains(&ProblemKind::NotifyAuthorNotAnAgent),
+            "{k:?}"
+        );
+        assert!(
+            problems.len() >= 4,
+            "the two signal names are refused too: {problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_boundary_whose_scope_or_author_is_read_from_the_inputs_is_judged_once_they_are_bound() {
+        use crate::boundary::{Boundary, BoundaryAct, BoundaryOn};
+        let mut wf = workflow(vec![agent("a", &[])]);
+        wf.inputs = vec![
+            input("place", InputKind::Text),
+            input("who", InputKind::Assignee),
+        ];
+        wf.steps[0].boundaries = vec![Boundary {
+            name: Branch::new("late").unwrap(),
+            on: BoundaryOn::After {
+                secs: ValueRef::Fixed(60),
+            },
+            act: BoundaryAct::Notify {
+                scope: Some("{inputs.place}".into()),
+                template: "late".into(),
+                mentions: vec![],
+                author: Some(ValueRef::Input {
+                    input: InputName::new("who").unwrap(),
+                }),
+            },
+        }];
+        let inputs = BTreeMap::from([
+            ("place".to_string(), json!("not a channel!")),
+            (
+                "who".to_string(),
+                json!(format!("human:{}", "ab".repeat(32))),
+            ),
+        ]);
+        let k = kinds(&wf.validate_bound(&goal_scope(), &inputs, &[], &NoSyntaxChecks));
+        assert!(
+            k.contains(&ProblemKind::NotifyScopeUnknown)
+                && k.contains(&ProblemKind::NotifyAuthorNotAnAgent),
+            "{k:?}"
+        );
+    }
+
+    #[test]
+    fn a_poll_names_its_missing_operation_a_file_parameter_it_cannot_carry_and_an_account_nobody_holds(
+    ) {
+        let mut slack = slack();
+        let mut upload = slack.operations[0].clone();
+        upload.id = OperationId::new("upload").unwrap();
+        upload.params.push(crate::connector::ParamDef {
+            name: InputName::new("doc").unwrap(),
+            label: "Doc".into(),
+            kind: crate::connector::ParamKind::File,
+            required: true,
+            doc: String::new(),
+        });
+        slack.operations.push(upload);
+        let connectors = vec![slack];
+        let accounts = vec![account("slack", true)];
+        let vctx = ValidationCtx {
+            connectors: &connectors,
+            accounts: &accounts,
+            checks: &Picky,
+            ..ctx()
+        };
+        let poll = |operation: Option<&str>, acct: Option<ValueRef<AccountId>>| {
+            workflow(vec![
+                step(
+                    "s",
+                    StepKind::Start {
+                        on: StartOn::Connector {
+                            connector: Some(ConnectorId::new("slack").unwrap()),
+                            operation: operation.map(|o| OperationId::new(o).unwrap()),
+                            account: acct,
+                            params: BTreeMap::new(),
+                            key: Some("id".into()),
+                            schedule: Schedule::every(60),
+                        },
+                        inputs: BTreeMap::new(),
+                        guard: Guard::default(),
+                    },
+                    vec![Flow::to(sid("a"))],
+                ),
+                agent("a", &[]),
+            ])
+        };
+        assert!(kinds(&poll(None, None).validate(&vctx)).contains(&ProblemKind::Unfilled));
+        let stranger = AccountId::from_ulid(ulid::Ulid::from_parts(9, 9));
+        let k = kinds(&poll(Some("upload"), Some(ValueRef::Fixed(stranger))).validate(&vctx));
+        assert!(
+            k.contains(&ProblemKind::BadPoll) && k.contains(&ProblemKind::UnknownAccount),
+            "{k:?}"
+        );
+        // A connector step whose output schema the checker refuses.
+        let bad_schema = workflow(vec![step(
+            "call",
+            StepKind::Connector {
+                connector: Some(ConnectorId::new("slack").unwrap()),
+                operation: Some(connectors[0].operations[0].id.clone()),
+                account: None,
+                params: BTreeMap::new(),
+                output_schema: Some(json!({"bogus": true})),
+                unattended: true,
+            },
+            vec![],
+        )]);
+        assert!(kinds(&bad_schema.validate(&vctx)).contains(&ProblemKind::BadSchema));
+    }
+
+    #[test]
+    fn a_loops_body_and_sides_are_empty_for_a_step_that_is_not_there_and_an_empty_workflow_assures_nothing(
+    ) {
+        let wf = workflow(vec![agent("a", &[])]);
+        assert!(wf.loop_body(&sid("ghost")).is_empty());
+        assert_eq!(
+            wf.loop_sides(&sid("ghost")),
+            (BTreeSet::new(), BTreeSet::new())
+        );
+        assert!(workflow(vec![]).assurance().is_empty());
+        assert!(wf.may_fail_in(&sid("ghost"), FwdEdge::Fail, &sid("a")));
+    }
+    // added by the coverage pass: b4-workflow.rs
+    #[test]
+    fn the_remaining_wire_words_a_wait_a_run_outcome_a_value_an_account_kind_a_branch_and_a_step_id(
+    ) {
+        let every_wait = [
+            WaitFor::Delay {
+                secs: ValueRef::Fixed(1),
+            },
+            WaitFor::Time { at: "x".into() },
+            WaitFor::Schedule {
+                cron: ValueRef::Fixed("x".into()),
+                tz: None,
+            },
+            WaitFor::Signal {
+                filter: SignalFilter {
+                    name: "x".into(),
+                    fields: BTreeMap::new(),
+                },
+            },
+            WaitFor::Message {
+                filter: MessageFilter::default(),
+            },
+            WaitFor::Project {
+                filter: ProjectFilter::default(),
+            },
+            WaitFor::Run {
+                filter: RunFilter::default(),
+            },
+            WaitFor::Platform {
+                filter: PlatformFilter {
+                    topic: "t".into(),
+                    fields: BTreeMap::new(),
+                },
+            },
+            WaitFor::Release,
+        ];
+        for (until, name) in every_wait.iter().zip(WaitFor::NAMES) {
+            assert_eq!(until.as_str(), name);
+        }
+        assert_eq!(
+            (RunOutcome::Done.as_str(), RunOutcome::Failed.as_str()),
+            ("done", "failed")
+        );
+        assert_eq!(
+            ValueRef::<u64>::Input {
+                input: InputName::new("n").unwrap()
+            }
+            .word(),
+            "{inputs.n}"
+        );
+        assert_eq!(InputKind::Account { connector: None }.as_str(), "account");
+        assert!(format!("{:?}", Branch::new("yes").unwrap()).contains("yes"));
+        assert_eq!(
+            "yes".parse::<Branch>().unwrap(),
+            Branch::new("yes").unwrap()
+        );
+        let id = sid("a");
+        let text: &str = id.as_ref();
+        assert_eq!(text, "a");
+        assert!(id == *"a");
+        assert!(id == "a");
+        assert!(!workflow(vec![]).is_archived());
+        let schema = serde_json::to_value(schemars::schema_for!(StepId)).unwrap();
+        assert_eq!(schema["type"], "string", "{schema}");
+    }
+
+    #[test]
+    fn a_wait_names_its_templates_its_inputs_and_its_assignees_by_its_kind() {
+        let n = InputName::new("n").unwrap();
+        assert_eq!(
+            WaitFor::Delay {
+                secs: ValueRef::Input { input: n.clone() }
+            }
+            .input_refs(),
+            vec![(&n, "number")]
+        );
+        assert_eq!(
+            WaitFor::Schedule {
+                cron: ValueRef::Input { input: n.clone() },
+                tz: None,
+            }
+            .input_refs(),
+            vec![(&n, "text")]
+        );
+        let project = WaitFor::Project {
+            filter: ProjectFilter {
+                project: Some(ValueRef::Input { input: n.clone() }),
+                branch: Some("{inputs.b}".into()),
+                ..ProjectFilter::default()
+            },
+        };
+        assert_eq!(project.input_refs(), vec![(&n, "project")]);
+        assert_eq!(project.templates(), vec!["{inputs.b}"]);
+        assert_eq!(
+            WaitFor::Time {
+                at: "{inputs.at}".into()
+            }
+            .templates(),
+            vec!["{inputs.at}"]
+        );
+        assert!(WaitFor::Signal {
+            filter: SignalFilter {
+                name: "x.{inputs.n}".into(),
+                fields: BTreeMap::new(),
+            },
+        }
+        .templates()
+        .contains(&"x.{inputs.n}"));
+        assert!(WaitFor::Platform {
+            filter: PlatformFilter {
+                topic: "t".into(),
+                fields: BTreeMap::from([("k".to_string(), "{inputs.v}".to_string())]),
+            },
+        }
+        .templates()
+        .contains(&"{inputs.v}"));
+        let who = ValueRef::Fixed(Assignee::Agent("a".into()));
+        let message = WaitFor::Message {
+            filter: MessageFilter {
+                mentions: Some(who.clone()),
+                ..MessageFilter::default()
+            },
+        };
+        assert_eq!(message.assignee_refs(), vec![&who]);
+        assert!(WaitFor::Release.assignee_refs().is_empty());
+        assert!(WaitFor::Release.templates().is_empty());
+        assert!(WaitFor::Release.input_refs().is_empty());
+    }
+
+    #[test]
+    fn a_condition_names_the_steps_it_reads_a_value_is_searched_as_text_and_a_number_given_text_is_refused(
+    ) {
+        let reads = Condition::All {
+            of: vec![
+                Condition::Answered {
+                    step: sid("a"),
+                    option: "x".into(),
+                },
+                Condition::Outcome {
+                    step: sid("b"),
+                    passed: true,
+                },
+                Condition::Between {
+                    from_hour: 1,
+                    to_hour: 2,
+                },
+            ],
+        };
+        assert_eq!(reads.reads_steps(), vec![&sid("a"), &sid("b")]);
+        assert!(contains_str(Some(&json!(42)), "4"));
+        let mut wf = workflow(vec![agent("a", &[])]);
+        wf.inputs = vec![input("n", InputKind::Number)];
+        assert!(matches!(
+            wf.bind_inputs(BTreeMap::from([("n".to_string(), json!("three"))])),
+            Err(InputError::WrongKind { want, .. }) if want == "number"
+        ));
+    }
+
+    #[test]
+    fn the_summaries_of_the_plainer_starts_and_steps_and_the_defaults_a_file_may_leave_out() {
+        let start = |on: StartOn| on.summary().id.to_string();
+        assert_eq!(start(StartOn::Manual), "step-summary-start-manual");
+        assert_eq!(
+            start(StartOn::Hook { public: false }),
+            "step-summary-start-hook"
+        );
+        assert_eq!(
+            start(StartOn::Hook { public: true }),
+            "step-summary-start-hook-public"
+        );
+        assert_eq!(
+            start(StartOn::Schedule {
+                schedule: Schedule::every(60)
+            }),
+            "step-summary-start-every"
+        );
+        assert_eq!(
+            start(StartOn::Schedule {
+                schedule: Schedule::cron("0 9 * * 1", None)
+            }),
+            "step-summary-start-cron"
+        );
+        assert_eq!(
+            start(StartOn::Message {
+                filter: MessageFilter {
+                    r#in: Some("support".into()),
+                    ..MessageFilter::default()
+                }
+            }),
+            "step-summary-start-message-in"
+        );
+        assert_eq!(
+            start(StartOn::Message {
+                filter: MessageFilter::default()
+            }),
+            "step-summary-start-message"
+        );
+        assert_eq!(
+            start(StartOn::Run {
+                filter: RunFilter::default()
+            }),
+            "step-summary-start-run"
+        );
+        assert_eq!(
+            start(StartOn::Connector {
+                connector: Some(ConnectorId::new("c").unwrap()),
+                operation: Some(OperationId::new("o").unwrap()),
+                account: None,
+                params: BTreeMap::new(),
+                key: None,
+                schedule: Schedule::every(1),
+            }),
+            "step-summary-start-connector"
+        );
+        assert_eq!(
+            start(StartOn::Connector {
+                connector: None,
+                operation: None,
+                account: None,
+                params: BTreeMap::new(),
+                key: None,
+                schedule: Schedule::every(1),
+            }),
+            "step-summary-start-connector-unchosen"
+        );
+        assert_eq!(
+            start(StartOn::Check {
+                command: "true".into(),
+                project: None,
+                fire_on: crate::start::FireOn::StartsFailing,
+                schedule: Schedule::every(1),
+            }),
+            "step-summary-start-check"
+        );
+        let s = |kind: StepKind| step("s", kind, vec![]).summary().id.to_string();
+        assert_eq!(
+            s(StepKind::Human {
+                prompt: "Ready?".into(),
+                options: vec![],
+                multi: false,
+                assignee: None,
+            }),
+            "step-summary-human"
+        );
+        assert_eq!(
+            s(StepKind::Wait {
+                until: WaitFor::Release
+            }),
+            "step-summary-wait-release"
+        );
+        let mut a = agent("a", &[]);
+        assert_eq!(a.summary().id, "step-summary-agent-assigned");
+        if let StepKind::Agent { assignee, .. } = &mut a.kind {
+            assignee.take();
+        }
+        assert_eq!(a.summary().id, "step-summary-agent");
+        let for_each: StepKind =
+            serde_json::from_value(json!({"kind": "for_each", "items": "{inputs.xs}"})).unwrap();
+        assert!(matches!(
+            for_each,
+            StepKind::ForEach {
+                max_iterations: DEFAULT_MAX_ITERATIONS,
+                ..
+            }
+        ));
+        let spawn: StepKind =
+            serde_json::from_value(json!({"kind": "spawn", "statement_template": "x"})).unwrap();
+        assert!(matches!(spawn, StepKind::Spawn { wait: true, .. }));
+    }
+    // added by the coverage pass: b5-workflow.rs
+    #[test]
+    fn the_words_and_readers_the_earlier_pins_left_out() {
+        assert!(format!("{:?}", InputName::new("n").unwrap()).contains("n"));
+        assert_eq!(
+            "n".parse::<InputName>().unwrap(),
+            InputName::new("n").unwrap()
+        );
+        assert_eq!(InputKind::Project.as_str(), "project");
+        assert_eq!(
+            StartOn::Signal {
+                filter: SignalFilter {
+                    name: "x".into(),
+                    fields: BTreeMap::new(),
+                },
+            }
+            .summary()
+            .id,
+            "step-summary-start-signal"
+        );
+        assert!(matches!(
+            StepKind::Emit {
+                signal: "s".into(),
+                payload: BTreeMap::new(),
+            }
+            .promised(),
+            Promised::Keys(keys) if keys == ["signal"]
+        ));
+        let m = InputName::new("m").unwrap();
+        let message = WaitFor::Message {
+            filter: MessageFilter {
+                r#in: Some("{inputs.room}".into()),
+                mentions: Some(ValueRef::Input { input: m.clone() }),
+                ..MessageFilter::default()
+            },
+        };
+        assert!(message.templates().contains(&"{inputs.room}"));
+        assert_eq!(message.input_refs(), vec![(&m, "assignee")]);
+        assert_eq!(
+            Condition::OutputMatches {
+                step: sid("a"),
+                path: "x".into(),
+                contains: "y".into(),
+            }
+            .reads_steps(),
+            vec![&sid("a")]
+        );
+        assert!(contains_str(Some(&json!("abc")), "b"));
+    }
+
+    #[test]
+    fn a_listening_workflow_needs_the_input_its_schedule_reads_when_nothing_fills_it() {
+        let interval = InputName::new("interval").unwrap();
+        let mut wf = workflow(vec![
+            step(
+                "s",
+                StepKind::Start {
+                    on: StartOn::Schedule {
+                        schedule: Schedule {
+                            every: Some(ValueRef::Input {
+                                input: interval.clone(),
+                            }),
+                            cron: None,
+                            tz: None,
+                        },
+                    },
+                    inputs: BTreeMap::new(),
+                    guard: Guard::default(),
+                },
+                vec![Flow::to(sid("a"))],
+            ),
+            agent("a", &[]),
+        ]);
+        wf.inputs = vec![input("interval", InputKind::Number)];
+        assert_eq!(wf.listening_needs(), BTreeSet::from([interval]));
+    }
+
+    #[test]
+    fn a_workflow_with_no_steps_has_no_start() {
+        assert!(kinds(&workflow(vec![]).validate(&ctx())).contains(&ProblemKind::NoStart));
+    }
+
+    #[test]
+    fn the_walks_visit_a_step_once_and_step_over_a_flow_to_nowhere() {
+        // A diamond: `w` is reached twice; `ghost` is nobody's step.
+        let wf = workflow(vec![
+            agent("x", &["y", "z"]),
+            agent("y", &["w"]),
+            agent("z", &["w"]),
+            agent("w", &["ghost"]),
+        ]);
+        assert!(!wf.returns_to(&sid("x"), &sid("t")));
+        assert!(wf.returns_to(&sid("x"), &sid("w")));
+        // A gate before a diamond: `c` is queued twice on the way to `d`.
+        let gated = workflow(vec![
+            human_step("g", &["a", "b"]),
+            agent("a", &["c"]),
+            agent("b", &["c"]),
+            agent("c", &["d"]),
+            agent("d", &[]),
+        ]);
+        assert!(gated.gated(&sid("d")));
+        assert!(!gated.gated(&sid("g")));
+        // Spawns that meet: `d` is reached from `b` and from `c`.
+        let w = |n: u64| WorkflowId::from_ulid(ulid::Ulid::from_parts(n, 1));
+        let spawns = vec![
+            (w(1), vec![w(2), w(3)]),
+            (w(2), vec![w(4)]),
+            (w(3), vec![w(4)]),
+            (w(4), vec![]),
+        ];
+        assert!(!spawn_reaches(&spawns, w(1), w(5)));
+        assert!(spawn_reaches(&spawns, w(1), w(4)));
+    }
+
+    #[test]
+    fn a_rule_may_read_an_answer_of_a_question_upstream_and_a_match_on_an_output_upstream() {
+        let labelled = |to: &str, branch: &str| Flow {
+            to: sid(to),
+            branch: Some(Branch::new(branch).unwrap()),
+        };
+        let answered = workflow(vec![
+            human_step("h", &["d"]),
+            decide(
+                vec![(
+                    "yes",
+                    Condition::Answered {
+                        step: sid("h"),
+                        option: "yes".into(),
+                    },
+                )],
+                "no",
+                vec![labelled("a", "yes"), labelled("b", "no")],
+            ),
+            agent("a", &[]),
+            agent("b", &[]),
+        ]);
+        let found = kinds(&answered.validate(&ctx()));
+        assert!(!found.contains(&ProblemKind::NotUpstream), "{found:?}");
+        let matched = workflow(vec![
+            agent("p", &["d"]),
+            decide(
+                vec![(
+                    "yes",
+                    Condition::OutputMatches {
+                        step: sid("p"),
+                        path: "summary".into(),
+                        contains: "ok".into(),
+                    },
+                )],
+                "no",
+                vec![labelled("a", "yes"), labelled("b", "no")],
+            ),
+            agent("a", &[]),
+            agent("b", &[]),
+        ]);
+        let found = kinds(&matched.validate(&ctx()));
+        assert!(!found.contains(&ProblemKind::NotUpstream), "{found:?}");
+    }
+
+    #[test]
+    fn a_message_boundary_a_goal_placeholder_and_the_outside_waits_are_validated() {
+        let mut watched = agent("a", &["b"]);
+        watched.then.push(Flow {
+            to: sid("c"),
+            branch: Some(Branch::new("cancelled").unwrap()),
+        });
+        watched.boundaries = vec![Boundary {
+            name: Branch::new("cancelled").unwrap(),
+            on: BoundaryOn::Message {
+                filter: MessageFilter {
+                    contains: Some("cancel".into()),
+                    ..MessageFilter::default()
+                },
+            },
+            act: BoundaryAct::Divert,
+        }];
+        let wf = workflow(vec![watched, agent("b", &[]), agent("c", &[])]);
+        let found = kinds(&wf.validate(&ctx()));
+        assert!(
+            !found.contains(&ProblemKind::NotifyScopeUnknown),
+            "{found:?}"
+        );
+        let reading = workflow(vec![agent_reading("a", "do it for {goal.title}", &[])]);
+        let found = kinds(&reading.validate(&ctx()));
+        assert!(!found.contains(&ProblemKind::UnknownInput), "{found:?}");
+        let wait = |id: &str, until: WaitFor, then: &[&str]| {
+            step(
+                id,
+                StepKind::Wait { until },
+                then.iter().map(|t| Flow::to(sid(t))).collect(),
+            )
+        };
+        let waits = workflow(vec![
+            agent("a", &["m"]),
+            wait(
+                "m",
+                WaitFor::Message {
+                    filter: MessageFilter::default(),
+                },
+                &["p"],
+            ),
+            wait(
+                "p",
+                WaitFor::Project {
+                    filter: ProjectFilter::default(),
+                },
+                &["r"],
+            ),
+            wait(
+                "r",
+                WaitFor::Run {
+                    filter: RunFilter::default(),
+                },
+                &["t"],
+            ),
+            wait(
+                "t",
+                WaitFor::Platform {
+                    filter: PlatformFilter {
+                        topic: "goal.closed".into(),
+                        fields: BTreeMap::new(),
+                    },
+                },
+                &[],
+            ),
+        ]);
+        let found = kinds(&waits.validate(&ctx()));
+        assert!(found.contains(&ProblemKind::Unfilled), "{found:?}");
+        let p = InputName::new("p").unwrap();
+        let mut by_input = workflow(vec![
+            agent("a", &["w"]),
+            wait(
+                "w",
+                WaitFor::Project {
+                    filter: ProjectFilter {
+                        project: Some(ValueRef::Input { input: p }),
+                        ..ProjectFilter::default()
+                    },
+                },
+                &[],
+            ),
+        ]);
+        by_input.inputs = vec![input("p", InputKind::Project)];
+        let found = kinds(&by_input.validate(&ctx()));
+        assert!(
+            !found.contains(&ProblemKind::Unfilled)
+                && !found.contains(&ProblemKind::UnknownProject),
+            "{found:?}"
+        );
+    }
+    // added by the coverage pass: b7-workflow.rs
+    #[test]
+    fn a_bound_run_reads_its_clocks_its_cron_and_its_posts_from_the_inputs_it_was_given() {
+        let labelled = |to: &str, branch: &str| Flow {
+            to: sid(to),
+            branch: Some(Branch::new(branch).unwrap()),
+        };
+        let mut watched = agent("a", &["b"]);
+        watched.then.push(labelled("c", "late"));
+        watched.boundaries = vec![
+            Boundary {
+                name: Branch::new("late").unwrap(),
+                on: BoundaryOn::After {
+                    secs: ValueRef::Input {
+                        input: InputName::new("remind").unwrap(),
+                    },
+                },
+                act: BoundaryAct::Divert,
+            },
+            Boundary {
+                name: Branch::new("nudge").unwrap(),
+                on: BoundaryOn::Every {
+                    secs: ValueRef::Fixed(60),
+                    max: 2,
+                },
+                act: BoundaryAct::Notify {
+                    scope: None,
+                    template: "Still here.".into(),
+                    mentions: vec![],
+                    author: None,
+                },
+            },
+        ];
+        let mut wf = workflow(vec![
+            step(
+                "s",
+                StepKind::Start {
+                    on: StartOn::Schedule {
+                        schedule: Schedule {
+                            every: None,
+                            cron: Some(ValueRef::Input {
+                                input: InputName::new("when").unwrap(),
+                            }),
+                            tz: None,
+                        },
+                    },
+                    inputs: BTreeMap::new(),
+                    guard: Guard::default(),
+                },
+                vec![Flow::to(sid("a"))],
+            ),
+            watched,
+            agent("b", &[]),
+            agent("c", &[]),
+        ]);
+        wf.inputs = vec![
+            input("remind", InputKind::Number),
+            input("when", InputKind::Text),
+        ];
+        let bound = |remind: serde_json::Value, when: serde_json::Value| {
+            BTreeMap::from([("remind".to_string(), remind), ("when".to_string(), when)])
+        };
+        let found = kinds(&wf.validate_bound(
+            &goal_scope(),
+            &bound(json!(5), json!("0 9 * * 1")),
+            &[],
+            &Picky,
+        ));
+        assert!(
+            !found.contains(&ProblemKind::InputKindMismatch)
+                && !found.contains(&ProblemKind::BadCron),
+            "{found:?}"
+        );
+        let found =
+            kinds(&wf.validate_bound(&goal_scope(), &bound(json!("soon"), json!(9)), &[], &Picky));
+        assert!(
+            found.contains(&ProblemKind::InputKindMismatch)
+                && found.contains(&ProblemKind::BadCron),
+            "{found:?}"
+        );
+        // A message start whose conversation is a literal is validate()'s to
+        // judge, not the binding's.
+        let literal = workflow(vec![
+            step(
+                "s",
+                StepKind::Start {
+                    on: StartOn::Message {
+                        filter: MessageFilter {
+                            r#in: Some("support".into()),
+                            ..MessageFilter::default()
+                        },
+                    },
+                    inputs: BTreeMap::new(),
+                    guard: Guard::default(),
+                },
+                vec![Flow::to(sid("a"))],
+            ),
+            agent("a", &[]),
+        ]);
+        let found = kinds(&literal.validate_bound(&goal_scope(), &BTreeMap::new(), &[], &Picky));
+        assert!(
+            !found.contains(&ProblemKind::NotifyScopeUnknown),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn an_output_rule_with_no_path_names_no_field() {
+        let labelled = |to: &str, branch: &str| Flow {
+            to: sid(to),
+            branch: Some(Branch::new(branch).unwrap()),
+        };
+        let wf = workflow(vec![
+            agent("p", &["d"]),
+            decide(
+                vec![(
+                    "yes",
+                    Condition::OutputEquals {
+                        step: sid("p"),
+                        path: String::new(),
+                        value: json!(1),
+                    },
+                )],
+                "no",
+                vec![labelled("a", "yes"), labelled("b", "no")],
+            ),
+            agent("a", &[]),
+            agent("b", &[]),
+        ]);
+        let found = kinds(&wf.validate(&ctx()));
+        assert!(!found.contains(&ProblemKind::NotUpstream), "{found:?}");
     }
 }
 

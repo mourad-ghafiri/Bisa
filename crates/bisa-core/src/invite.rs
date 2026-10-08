@@ -206,4 +206,35 @@ mod tests {
                 == INVITE_TTL_HOURS_DEFAULT
         );
     }
+
+    // added by the coverage pass: invite.rs
+
+    #[test]
+    fn every_invite_state_has_its_wire_word() {
+        let by = PrincipalId::new("ab".repeat(32)).unwrap();
+        let cases = [
+            (InviteState::Pending, "pending"),
+            (
+                InviteState::Requested {
+                    by: by.clone(),
+                    label: None,
+                    at: 1,
+                },
+                "requested",
+            ),
+            (
+                InviteState::Accepted {
+                    by: by.clone(),
+                    at: 1,
+                },
+                "accepted",
+            ),
+            (InviteState::Revoked { at: 1 }, "revoked"),
+            (InviteState::Refused { by, at: 1 }, "refused"),
+            (InviteState::Expired, "expired"),
+        ];
+        for (state, word) in &cases {
+            assert_eq!(state.as_str(), *word);
+        }
+    }
 }

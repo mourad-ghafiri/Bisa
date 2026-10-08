@@ -21,3 +21,17 @@ impl Archived {
         Self { at }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_mark_is_its_second_and_round_trips() {
+        let mark = Archived::at(1_700_000_000);
+        assert_eq!(mark.at, 1_700_000_000);
+        let json = serde_json::to_value(mark).unwrap();
+        assert_eq!(json, serde_json::json!({"at": 1_700_000_000u64}));
+        assert_eq!(serde_json::from_value::<Archived>(json).unwrap(), mark);
+    }
+}
