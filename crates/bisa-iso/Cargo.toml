@@ -15,7 +15,7 @@ bisa-vcs = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 similar = "3"
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

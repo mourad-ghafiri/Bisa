@@ -19,7 +19,7 @@ bisa-core = { workspace = true }
 # The outbound HTTP port, its host rules and its un-printable `Secret`: a
 # decision endpoint is an outside platform's API like any other.
 bisa-connectors = { workspace = true }
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [dev-dependencies]
 # The retry timing tests run under tokio's paused clock.

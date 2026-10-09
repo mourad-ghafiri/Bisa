@@ -113,9 +113,12 @@ inside the binary, so its version is the platform's; a built-in changes with a r
 re-copies an installed built-in's bundle when the shipped version differs from the installed one).
 The same is true of the website (`homepage`) and the repository, declared once beside the version and
 read by the Rust side through Cargo's `CARGO_PKG_HOMEPAGE` / `CARGO_PKG_REPOSITORY` and by the
-desktop through `package.json`. Two guards hold all of it equal: `every_addon_is_well_formed`
-(`crates/bisa-store/src/catalog.rs`) for the built-ins, and
-`desktop/src/scenarios/platformIdentity.test.mjs` for every manifest and page. A release moves the
+desktop through `package.json`. Every member crate also requires the workspace-hack crate at the version's major and minor —
+`bisa-deps = { version = "0.4", path = "../bisa-deps" }`, the line cargo-hakari writes — and a bump
+that moves the minor moves that line with the rest, or nothing resolves. Three guards hold all of it
+equal: `every_addon_is_well_formed` (`crates/bisa-store/src/catalog.rs`) for the built-ins,
+`desktop/src/scenarios/platformIdentity.test.mjs` for every manifest and page, and the release
+model's own test for the hack requirement. A release moves the
 version in one command — [§ The version and the changelog](#the-version-and-the-changelog) — and
 the guards say when a file was missed.
 

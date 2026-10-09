@@ -22,7 +22,7 @@ which = { workspace = true }
 dirs = { workspace = true }
 tempfile = { workspace = true }
 tracing = { workspace = true }
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

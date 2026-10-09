@@ -22,7 +22,7 @@ tracing = { workspace = true }
 # is on PATH, tokio moves the spawn off the async runtime.
 which = { workspace = true }
 tokio = { workspace = true }
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [dev-dependencies]
 tempfile = "3"

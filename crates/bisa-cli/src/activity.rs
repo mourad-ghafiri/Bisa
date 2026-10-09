@@ -1823,4 +1823,36 @@ mod tests {
         assert!(fact.contains("goal:01G"), "{fact}");
         assert_eq!(fact_line(&json!({"type": "invented_later"})), None);
     }
+
+    /// The Workflow Agent's standing on a goal reads as its phase and status,
+    /// with the detail when the wake carried one.
+    #[test]
+    fn a_guided_fact_reads_as_its_phase_its_status_and_its_detail() {
+        let style = Style::plain();
+        let with_detail = sse_line(
+            &style,
+            &frame(
+                json!({"type": "guided", "phase": "design", "status": "working",
+                          "detail": "on the mock harness"}),
+            ),
+        )
+        .expect("a line");
+        said(&with_detail);
+        assert!(
+            with_detail.contains("design")
+                && with_detail.contains("working")
+                && with_detail.contains("on the mock harness"),
+            "{with_detail}"
+        );
+        let bare = sse_line(
+            &style,
+            &frame(json!({"type": "guided", "phase": "repair", "status": "stalled"})),
+        )
+        .expect("a line");
+        said(&bare);
+        assert!(
+            bare.contains("repair") && bare.contains("stalled") && !bare.contains(" — "),
+            "{bare}"
+        );
+    }
 }

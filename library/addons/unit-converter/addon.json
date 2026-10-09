@@ -2,7 +2,7 @@
   "id": "unit-converter",
   "name": "Unit converter",
   "description": "Length, mass and temperature, either way — swap the pair in one click; the last pair remembered.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

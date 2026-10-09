@@ -4,9 +4,11 @@
  * and the changelog): the one `version` line of every manifest that repeats
  * the workspace's — the root `Cargo.toml`, the shell's, `desktop/package.json`,
  * `tauri.conf.json`, the addon SDK's package and every built-in addon's
- * `addon.json` — by targeted replacement, the file's formatting kept; and the
- * changelog cut, Unreleased becoming the dated section the release ships as
- * its notes. A dry run by default: it says what it would change. `--write`
+ * `addon.json` — by targeted replacement, the file's formatting kept; every
+ * crate's requirement on the workspace-hack crate (`bisa-deps = { version =
+ * "<major.minor>", … }`, the line cargo-hakari writes) moved with the minor;
+ * and the changelog cut, Unreleased becoming the dated section the release
+ * ships as its notes. A dry run by default: it says what it would change. `--write`
  * applies it, then prints the commands it leaves to you — the lockfiles and
  * the generated catalog page are rewritten by their own tools, never here.
  *
@@ -16,7 +18,7 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AFTER_BUMP, VERSION_FILES, bumpJsonVersion, bumpTomlVersion, cutRelease, isVersion, workspaceVersion } from "./releaseModel.mjs";
+import { AFTER_BUMP, VERSION_FILES, bumpHakariRequirement, bumpJsonVersion, bumpTomlVersion, cutRelease, isVersion, workspaceVersion } from "./releaseModel.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (rel) => readFileSync(join(root, rel), "utf8");
@@ -44,6 +46,15 @@ try {
     .map((e) => `${VERSION_FILES.addons}/${e.name}/addon.json`)
     .sort();
   for (const path of addons) changes.push({ path, text: bumpJsonVersion(read(path), current, next) });
+  const crates = readdirSync(join(root, VERSION_FILES.crates), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => `${VERSION_FILES.crates}/${e.name}/Cargo.toml`)
+    .sort();
+  for (const path of crates) {
+    const before = read(path);
+    const after = bumpHakariRequirement(before, current, next);
+    if (after !== null && after !== before) changes.push({ path, text: after });
+  }
   const today = new Date().toISOString().slice(0, 10);
   changes.push({ path: "CHANGELOG.md", text: cutRelease(read("CHANGELOG.md"), next, today) });
 } catch (e) {

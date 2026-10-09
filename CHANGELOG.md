@@ -8,6 +8,14 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+
+### Changed
+
+- `just set-version` moves every crate's requirement on the workspace-hack crate (`bisa-deps = {
+  version = "<major.minor>", … }`, the line cargo-hakari writes) with the version's minor; a bump
+  that left it behind resolved nothing (`scripts/release/releaseModel.mjs` `bumpHakariRequirement`).
+
 ### Added
 
 - A line-coverage gate over every tree (`docs/contributing/coverage.md` § Line coverage): `just
@@ -663,7 +671,8 @@ The first release: the platform as one application a person can download.
 - `BISA_SIGN`, `just bundle-macos-adhoc` and the shareable zip of the bundle script: a copy to
   give to someone is the release's disk image.
 
-[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mourad-ghafiri/Bisa/releases/tag/v0.1.0

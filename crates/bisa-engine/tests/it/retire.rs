@@ -550,7 +550,17 @@ fn quiet_harness() -> MockAdapter {
 #[tokio::test(flavor = "multi_thread")]
 async fn deleting_a_running_goal_aborts_its_session_before_the_folder_goes() {
     let dir = tempfile::tempdir().unwrap();
-    let engine = engine_with(&dir, vec![quiet_harness()]);
+    let adapter = std::sync::Arc::new(quiet_harness());
+    let mut catalog = bisa_harness::HarnessCatalog::new();
+    catalog.register(
+        std::sync::Arc::clone(&adapter) as std::sync::Arc<dyn bisa_harness::HarnessAdapter>
+    );
+    let engine = Engine::start(
+        common::workspace(&dir),
+        catalog,
+        common::design_off_config(),
+    )
+    .unwrap();
     let mut bus = engine.events();
     let (goal, run) = run_on(
         &engine,
@@ -566,6 +576,13 @@ async fn deleting_a_running_goal_aborts_its_session_before_the_folder_goes() {
             .iter()
             .any(|s| s.goal == Some(goal.id) && s.state.is_live())
             .then_some(())
+    })
+    .await;
+    // Driven, not merely launched: the stop counts a session its driver is
+    // on; a launch still in flight would be ended as a launch and counted
+    // as nothing.
+    until("the worker to be prompted", || {
+        (!adapter.prompts.lock().unwrap().is_empty()).then_some(())
     })
     .await;
 
