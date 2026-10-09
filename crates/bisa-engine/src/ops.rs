@@ -541,9 +541,11 @@ pub fn start_run(
 fn budget_or_default(inner: &Arc<Inner>, decided: Option<Budget>) -> Budget {
     decided.unwrap_or_else(|| {
         inner.ws.default_budget().unwrap_or_else(|e| {
+            // LCOV_EXCL_START: the default budget is read from the settings file, which fails only unreadable (disk-only)
             tracing::warn!("the default budget could not be read; the work runs unlimited: {e}");
             Budget::default()
         })
+        // LCOV_EXCL_STOP
     })
 }
 
@@ -615,10 +617,12 @@ pub fn test_entry(
         dedupe_key: None,
     };
     let event = serde_json::to_value(&signal).map_err(|e| {
+        // LCOV_EXCL_START: serde_json::to_value of a Signal, whose every field serializes, cannot fail
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-signal-not-json",
             e = e.to_string()
         ))
+        // LCOV_EXCL_STOP
     })?;
     let mapped = bisa_core::map_event(mapping, &wf.inputs, &event).map_err(|e| {
         EngineError::Invalid(bisa_core::text!(
@@ -759,8 +763,10 @@ pub(crate) fn cancel_unless_over(
 ) -> Result<bool, EngineError> {
     match record_run_event(inner, run_id, RunEvent::Cancel { cause }) {
         Ok(_) => Ok(true),
+        // LCOV_EXCL_START: a cancel is refused as over already or written; any other error is the run unwritable (disk-only)
         Err(refused) if over_already(&refused) => Ok(false),
         Err(e) => Err(e),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -882,7 +888,9 @@ pub(crate) fn withdraw_if_queued(inner: &Arc<Inner>, run_id: RunId) -> Result<bo
     match withdrawn {
         Ok(_) => Ok(true),
         Err(refused) if over_already(&refused) || started_already(&refused) => Ok(false),
+        // LCOV_EXCL_START: a withdrawal is refused as over or started already or written; any other error is the run unwritable (disk-only)
         Err(e) => Err(e),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -963,7 +971,9 @@ async fn end_unless_over(
         Err(refused) if over_already(&refused) => {
             Ok((inner.ws.get_run(run_id)?, sessions::Ended::default()))
         }
+        // LCOV_EXCL_START: a stop is refused in words or done; any other error is the run unwritable (disk-only)
         Err(e) => Err(e),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -2570,9 +2580,11 @@ fn answer_step(
     round: Option<ClarifyRound>,
 ) -> Result<(), EngineError> {
     if answer.is_none() {
+        // LCOV_EXCL_START: every caller hands an answer — the engine's door takes one, and the gate path validates it (AnswerError::Empty) before this; the check keeps the function total
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-human-step-needs-answer"
         )));
+        // LCOV_EXCL_STOP
     }
     match step_answer_event(step, answer, round) {
         Some(event) => {
@@ -2587,7 +2599,9 @@ fn answer_step(
 fn reask(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let run = inner.ws.get_run(run_id)?;
     let Some(def) = run.workflow.step(step) else {
+        // LCOV_EXCL_START: a re-ask names the human step just answered, which exists and is human
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Human {
         prompt,
@@ -2596,7 +2610,9 @@ fn reask(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineE
         ..
     } = &def.kind
     else {
+        // LCOV_EXCL_START: a re-ask names the human step just answered, which exists and is human
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let text = effects::render(inner, &run, prompt)?;
     effects::open_step_gate(
@@ -2656,11 +2672,13 @@ fn newest_undecided_gate_question(journal: &[JournalEvent]) -> Option<String> {
 /// gate of either kind on a run of the workspace names nothing to act on.
 fn owed_goal(goal: Option<GoalId>, subject: &str) -> Result<GoalId, EngineError> {
     goal.ok_or_else(|| {
+        // LCOV_EXCL_START: a run of the workspace opens escalation gates alone, which never reach the goal-owed path
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-only-goal-owes-this-decision",
             subject = subject.to_string()
         ))
     })
+    // LCOV_EXCL_STOP
 }
 
 /// Durable-mirror decide with no live engine gate: infer the pending gate

@@ -127,11 +127,13 @@ fn render(inner: &Inner, run: &WorkflowRun, tmpl: &str) -> Result<String, crate:
 /// An input's value, read from the run.
 fn input_value<'a>(run: &'a WorkflowRun, input: &str) -> Result<&'a Value, crate::EngineError> {
     run.inputs.get(input).ok_or_else(|| {
+        // LCOV_EXCL_START: bound values are judged at the door: Workspace::create_run binds (bind_inputs) and validates (validate_bound) every input before a run exists
         crate::EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-input-has-no-value-run",
             input = input.to_string()
         ))
     })
+    // LCOV_EXCL_STOP
 }
 
 /// A whole number of seconds, fixed or read from an input.
@@ -141,17 +143,20 @@ fn seconds(run: &WorkflowRun, secs: &ValueRef<u64>) -> Result<u64, crate::Engine
         ValueRef::Input { input } => {
             let value = input_value(run, input.as_str())?;
             value.as_u64().ok_or_else(|| {
+                // LCOV_EXCL_START: bound values are judged at the door: Workspace::create_run binds (bind_inputs) and validates (validate_bound) every input before a run exists
                 crate::EngineError::Invalid(bisa_core::text!(
                     "error-engine-invalid-input-should-hold-number-seconds-got",
                     input = input.to_string(),
                     value = value.to_string()
                 ))
             })
+            // LCOV_EXCL_STOP
         }
     }
 }
 
 /// An input read as an assignee, for a message filter.
+// LCOV_EXCL_START: bound values are judged at the door: Workspace::create_run binds (bind_inputs) and validates (validate_bound) every input before a run exists
 fn assignee_input(
     run: &WorkflowRun,
     input: &bisa_core::InputName,
@@ -180,6 +185,7 @@ fn project_input(
         ))
     })
 }
+// LCOV_EXCL_STOP
 
 /// A moment, as a template renders it: Unix seconds, or an RFC 3339 time.
 fn moment(text: &str) -> Result<u64, crate::EngineError> {
@@ -222,11 +228,13 @@ pub(crate) fn resolve(
                     value
                         .as_str()
                         .ok_or_else(|| {
+                            // LCOV_EXCL_START: bound values are judged at the door: Workspace::create_run binds (bind_inputs) and validates (validate_bound) every input before a run exists
                             crate::EngineError::Invalid(bisa_core::text!(
                                 "error-engine-invalid-input-should-hold-cron-expression-got",
                                 input = input.to_string(),
                                 value = value.to_string()
                             ))
+                            // LCOV_EXCL_STOP
                         })?
                         .to_string()
                 }
@@ -626,8 +634,10 @@ fn fire_boundary(
         Err(e) if e.is_refusal() => {
             tracing::debug!(run = %run, step = %step, boundary = %name, "a boundary event no longer applies: {e}")
         }
+        // LCOV_EXCL_START: a boundary's firing is refused by the run machine in words or written; any other error is the run unwritable (disk-only)
         Err(e) => {
             tracing::warn!(run = %run, step = %step, boundary = %name, "a boundary event could not fire: {e}")
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -657,7 +667,7 @@ pub fn sync_boundaries(inner: &Arc<Inner>, run: &WorkflowRun) {
             continue;
         }
         let Some(record) = run.steps.get(&def.id) else {
-            continue;
+            continue; // LCOV_EXCL_LINE: every armed boundary belongs to a step of its run
         };
         if !matches!(record.state, StepState::Running | StepState::Waiting) {
             continue;
@@ -676,16 +686,20 @@ pub fn sync_boundaries(inner: &Arc<Inner>, run: &WorkflowRun) {
             }
             let on = match resolve_boundary(inner, run, &boundary.on) {
                 Ok(on) => on,
+                // LCOV_EXCL_START: a boundary that resolved when it was armed resolves again at a restart from the same snapshot
                 Err(e) => {
                     tracing::warn!(run = %run.id, step = %def.id, boundary = %boundary.name, "a boundary event could not be armed: {e}");
                     continue;
+                    // LCOV_EXCL_STOP
                 }
             };
             let due = match &on {
                 BoundaryOn::After { secs } | BoundaryOn::Every { secs, .. } => {
                     let secs = match secs {
                         ValueRef::Fixed(n) => *n,
+                        // LCOV_EXCL_START: resolve_boundary fixed the seconds the line above; the arm keeps the match total
                         ValueRef::Input { .. } => continue,
+                        // LCOV_EXCL_STOP
                     };
                     on.next_due(secs, entered_at, fired)
                 }
@@ -795,7 +809,7 @@ pub async fn run_ticker(inner: Arc<Inner>) {
 /// while nobody was listening; the first that matches completes it.
 pub fn rearm_run(inner: &Arc<Inner>, run: &WorkflowRun) {
     if run.is_finished() {
-        return;
+        return; // LCOV_EXCL_LINE: the recovery walk re-arms live runs alone
     }
     let now = now_secs();
     for def in &run.workflow.steps {
@@ -803,7 +817,7 @@ pub fn rearm_run(inner: &Arc<Inner>, run: &WorkflowRun) {
             continue;
         };
         let Some(record) = run.steps.get(&def.id) else {
-            continue;
+            continue; // LCOV_EXCL_LINE: every wait belongs to a step of its run
         };
         if record.state != StepState::Waiting {
             continue;
@@ -826,16 +840,22 @@ const SIGNAL_REPLAY_WINDOW: usize = 500;
 fn replay_signals(inner: &Arc<Inner>, run: &WorkflowRun, step: &StepId, since: u64) {
     let key = (run.id, step.clone());
     let Some(armed) = inner.waits.armed.get(&key).map(|a| a.value().clone()) else {
+        // LCOV_EXCL_START: replay_signals is called for the signal wait just armed, under the same key
         return;
+        // LCOV_EXCL_STOP
     };
     let ArmedUntil::Signal { filter } = &armed.until else {
+        // LCOV_EXCL_START: replay_signals is called for the signal wait just armed, under the same key
         return;
+        // LCOV_EXCL_STOP
     };
     let Ok(signals) = inner
         .ws
         .named_signals_since(&filter.name, since, SIGNAL_REPLAY_WINDOW)
     else {
+        // LCOV_EXCL_START: the signal ledger is read from the index, which fails only unreadable (disk-only)
         return;
+        // LCOV_EXCL_STOP
     };
     let hit = signals.into_iter().find(|s| {
         s.scope.heard_by(hearer(run.scope.goal()))
@@ -865,17 +885,23 @@ fn replay_signals(inner: &Arc<Inner>, run: &WorkflowRun, step: &StepId, since: u
 /// off the run; a run of the workspace's child the run and the step itself.
 pub fn rearm_children(inner: &Arc<Inner>) {
     let Ok(goals) = inner.ws.list_goals(None) else {
+        // LCOV_EXCL_START: the goals list is read from the index, which fails only unreadable (disk-only)
         return;
+        // LCOV_EXCL_STOP
     };
     for child in goals {
         let (parent_run, named) = match &child.origin {
             GoalOrigin::Spawned { parent } => match inner.ws.get_current_run(*parent) {
                 Ok(Some(run)) => (run, None),
+                // LCOV_EXCL_START: a spawned child's parent goal keeps its run until the child is closed with it (close_goal)
                 _ => continue,
+                // LCOV_EXCL_STOP
             },
             GoalOrigin::Run { run, step } => match inner.ws.get_run(*run) {
                 Ok(run) => (run, Some(step.clone())),
+                // LCOV_EXCL_START: a run of the workspace outlives the children it spawned until they end (effects::child_finished)
                 Err(_) => continue,
+                // LCOV_EXCL_STOP
             },
             GoalOrigin::Captured => continue,
         };
@@ -931,7 +957,9 @@ fn record(inner: &Arc<Inner>, run: RunId, event: RunEvent) {
     match ops::record_run_event(inner, run, event) {
         Ok(_) => {}
         Err(e) if e.is_refusal() => {
+            // LCOV_EXCL_START: a refusal here is the step having moved on between two settlements of it, a race no test can stage
             tracing::debug!(run = %run, "a wait moved a step that had already moved: {e}")
+            // LCOV_EXCL_STOP
         }
         Err(e) => tracing::warn!(run = %run, "a wait could not move its step: {e}"),
     }

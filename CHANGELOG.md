@@ -166,6 +166,22 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A `check` step's evidence and a `check` start event's `output` never carried what the command
+  said: the grouped command runner left the child's streams on the node's own stdout and stderr,
+  so `wait_with_output` collected nothing and the command's words went to the node's log instead of
+  the run. The runner now pipes both streams and closes the child's stdin; a failing check's
+  evidence carries the tail of its stderr as documented, and a `check` start's sample `output` is
+  what the command printed (`crates/bisa-harness/src/proc.rs`
+  `a_grouped_commands_streams_and_status_are_collected`, `crates/bisa-engine/tests/it/effects_edges.rs`
+  `a_failing_check_keeps_what_the_command_said`).
+- An `approval` step whose prompt could not be rendered — a field a released wait's payload did
+  not carry — held its run forever: the engine failed the step with the reason, but the run
+  machine refused a `StepFailed` on an approval, so no gate opened, no error was written and the
+  run stayed *waiting* with nothing to wait for. The run machine now takes an approval's failure
+  as it takes a human step's; the step fails with the reason and `on_fail` decides
+  (`crates/bisa-core/src/run.rs` `an_approval_whose_prompt_cannot_be_asked_fails`,
+  `crates/bisa-engine/tests/it/effects_edges.rs`
+  `a_prompt_that_cannot_render_fails_the_step_instead_of_asking`).
 - `error-core-run-no-start` in the English catalog said what the refusal no longer does; the
   sentence now matches the error — *the run has no way in: its start is gone, or the workflow has no
   start by hand* — and a test holds the English of every core refusal to its catalog message

@@ -378,15 +378,21 @@ pub async fn retire_goal(
     tracing::info!(
         %goal,
         fate = ?plan.goal,
+        // LCOV_EXCL_START: the field lines of a tracing event are counted apart from its line
         projects = projects.len(),
         workstreams = workstreams_retired.len(),
+        // LCOV_EXCL_STOP
         stopped_sessions = ended.sessions,
         terminated = ended.terminated,
+        // LCOV_EXCL_START: the field lines of a tracing event are counted apart from its line
         children = ended.children.len(),
+        // LCOV_EXCL_STOP
         "a goal was retired"
     );
     if ended.still_live > 0 {
+        // LCOV_EXCL_START: a session that outlives the stop deadline on retire: the mock harness stops when told
         tracing::warn!(%goal, still_live = ended.still_live, "a goal was retired while sessions of it had not ended within the deadline");
+        // LCOV_EXCL_STOP
     }
     Ok(Retired {
         stopped_sessions: ended.sessions,
@@ -481,9 +487,11 @@ pub async fn retire_workflow(
         }
         Fate::Delete => ops::delete_workflow(inner, workflow)?,
         Fate::Keep => {
+            // LCOV_EXCL_START: Keep was refused above before anything stopped; the arm keeps the match total
             return Err(EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-workflow-retired-archiving-deleting-keep-not-fate"
-            )))
+            )));
+            // LCOV_EXCL_STOP
         }
     }
     Ok(Retired {

@@ -228,3 +228,12 @@ test("a run's status is the core's projection: running while any step runs, wait
   assert.equal(runStatus({ ...done, cancelled: { cause: "retired" } }), "cancelled", "a cancel outranks an outcome");
   assert.equal(runStatus(null), null);
 });
+
+// added by the coverage pass: runControl.test.mjs
+test("a run status this build has no word for is said as the node said it", () => {
+  const words = runWords({ status: "weird", queued_at: 7 });
+  assert.equal(words.word, "weird");
+  assert.equal(words.tone, "quiet");
+  assert.equal(words.at, 7);
+  assert.equal(runWords({}).word, "unknown");
+});

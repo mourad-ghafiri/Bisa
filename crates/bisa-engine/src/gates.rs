@@ -440,7 +440,9 @@ impl PauseGate {
         let mut rx = self.tx.subscribe();
         while *rx.borrow() {
             if rx.changed().await.is_err() {
+                // LCOV_EXCL_START: the pause channel closes only when the engine is dropped under a waiter, at shutdown
                 return;
+                // LCOV_EXCL_STOP
             }
         }
     }

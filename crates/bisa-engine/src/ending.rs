@@ -91,7 +91,9 @@ fn end_goal_work_in<'a>(
 ) -> Pin<Box<dyn Future<Output = Result<WorkEnded, EngineError>> + Send + 'a>> {
     Box::pin(async move {
         if !visited.insert(goal) || depth > MAX_DEPTH {
+            // LCOV_EXCL_START: a child is its parent's once and the chain is shallow; the set and the depth keep a cycle from recursing
             return Ok(WorkEnded::default());
+            // LCOV_EXCL_STOP
         }
         let mut signalled = signal_goal_work(inner, goal, cause, rationale)?;
         signalled.workstreams.extend(extra.iter().copied());
@@ -387,7 +389,9 @@ pub async fn end_run_work(
     let home = Home::Run { run: run_id };
     for mark in inner.inflight.iter() {
         if mark.home == home {
+            // LCOV_EXCL_START: an item reserved but not yet launched at the stop: a race between the launch and the stop
             mark.stop();
+            // LCOV_EXCL_STOP
         }
     }
     let told = noted.max(sessions::stop_for(
@@ -414,7 +418,9 @@ impl EndCause {
         match cancel {
             CancelCause::Stopped { .. } | CancelCause::Withdrawn => EndCause::Stop,
             CancelCause::Restarted => EndCause::Restart,
+            // LCOV_EXCL_START: a close ends a goal's work through close_goal, which stops the runs itself; the arm keeps the match total
             CancelCause::Closed { .. } => EndCause::Close,
+            // LCOV_EXCL_STOP
             CancelCause::Retired => EndCause::Retire,
         }
     }

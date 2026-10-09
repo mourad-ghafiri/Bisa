@@ -304,3 +304,10 @@ test("every state the core names has a word, and the legend names states it has"
   const said = label.split("\n").filter((line) => !/^\s*case "/.test(line)).join("\n");
   assert.deepEqual(said.match(/[`"](running|done|failed|skipped|cancelled|pending|diverted)\b[^"`\n]*[`"]\s*[;:]/g) ?? [], [], "a label's word is a message");
 });
+
+// added by the coverage pass: runView.test.mjs
+test("a skipped and a cancelled step read as such", () => {
+  const run = { steps: { s: { state: { state: "skipped" } }, c: { state: { state: "cancelled" } } }, workflow: { steps: [] } };
+  assert.equal(stepLabel(run, "s"), "skipped");
+  assert.equal(stepLabel(run, "c"), "cancelled");
+});

@@ -87,3 +87,12 @@ test("the editor holds no rule of its own", () => {
   for (const call of ["conditionOf(", "freshCondition(upstream, inputs)", "offeredKinds(CONDITIONS, value.condition, depth, upstream, inputs)", "parseValue(", "valueText(", "hourOf("]) assert.ok(editor.includes(call), call);
   assert.ok(!editor.includes("JSON.parse") && !editor.includes("function blankFor") && !editor.includes("Math.trunc"));
 });
+
+// added by the coverage pass: conditionModel.test.mjs
+test("a kind the editor does not know keeps what was there, or starts fresh", () => {
+  const upstream = [step("ask", "human")];
+  const inputs = [];
+  const was = { condition: "between", from_hour: 1, to_hour: 2 };
+  assert.deepEqual(conditionOf("weird", upstream, inputs, was), was);
+  assert.deepEqual(conditionOf("weird", upstream, inputs, undefined), freshCondition(upstream, inputs));
+});

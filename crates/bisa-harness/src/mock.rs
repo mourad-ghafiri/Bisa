@@ -959,6 +959,36 @@ mod tests {
     use super::*;
     use futures::StreamExt;
 
+    /// An intake script over a socket nobody answers on ends at the first
+    /// connect, quietly: a session scripting past the engine's end sends
+    /// nothing and panics nowhere.
+    #[tokio::test]
+    async fn an_intake_script_over_a_socket_nobody_answers_ends_at_the_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("nobody.sock");
+        let mut spec = spec();
+        spec.mcp_servers = vec![bisa_core::McpMount::platform(
+            bisa_core::McpServerConfig::Stdio {
+                name: "bisa".into(),
+                command: "bisa-mcp".into(),
+                args: vec![
+                    "--socket".into(),
+                    socket.display().to_string(),
+                    "--goal".into(),
+                    "g1".into(),
+                ],
+                env: Default::default(),
+                cwd: None,
+            },
+        )];
+        let script = IntakeScript::new(vec![
+            serde_json::json!({"op": "get_goal", "goal": "{{goal}}"}),
+        ]);
+        let replies = script.replies.clone();
+        run_intake_script(script, spec).await;
+        assert!(replies.lock().unwrap().is_empty(), "nothing was answered");
+    }
+
     fn spec() -> SessionSpec {
         SessionSpec {
             work_item: None,

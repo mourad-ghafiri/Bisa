@@ -151,3 +151,8 @@ test("a card says designing only for a goal the design holds, in a mode that des
   assert.equal(designingRow(null, true), false);
 });
 
+
+// added by the coverage pass: goalCardModel.test.mjs
+test("an assignee of a shape nobody knows is a question mark, never a crash", () => {
+  assert.deepEqual(assigneeSummary([{ odd: 1 }]), { shown: [{ kind: "unknown", word: "?" }], more: 0 });
+});

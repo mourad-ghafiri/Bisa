@@ -168,3 +168,22 @@ test("under each boundary, the editor says where a divert leads or what an act d
   assert.equal(consequence(s, s.boundaries[1]), "Posts beside the live step; the step goes on.");
   assert.equal(consequence(s, { name: "e", on: { event: "after", secs: 5 }, act: "emit", signal: "x" }), "Raises its signal beside the live step; the step goes on.");
 });
+
+// added by the coverage pass: boundaryModel.test.mjs
+test("an emit act keeps its signal and only a payload with keys, and an unknown event reads as its own word", () => {
+  const emitting = {
+    id: "s",
+    name: "s",
+    kind: "agent",
+    boundaries: [{ name: "late", on: { event: "after", secs: 60 }, act: "emit", signal: "late.again", payload: { why: "slow" } }],
+    then: [],
+  };
+  const moved = setEvent(emitting, "late", "message");
+  assert.deepEqual(moved.boundaries[0].on, blankOn("message"));
+  assert.equal(moved.boundaries[0].act, "emit");
+  assert.equal(moved.boundaries[0].signal, "late.again");
+  assert.deepEqual(moved.boundaries[0].payload, { why: "slow" });
+  const empty = setEvent({ ...emitting, boundaries: [{ ...emitting.boundaries[0], payload: {} }] }, "late", "message");
+  assert.equal("payload" in empty.boundaries[0], false, "an empty payload is not written");
+  assert.equal(chipOf({ name: "odd", on: { event: "weird" }, act: "divert" }).words, "weird");
+});

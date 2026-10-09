@@ -1043,11 +1043,16 @@ impl WorkflowRun {
             RunEvent::StepDone { .. } | RunEvent::StepInterrupted { .. } => {
                 dies_with_the_process(kind)
             }
-            // A human step fails too: the person's last *not sure*. So does a
-            // wait: one that cannot be armed, or a schedule with no next time.
+            // A human step fails too: the person's last *not sure*, or a
+            // question that cannot be asked. So does an approval whose prompt
+            // does not render, and a wait: one that cannot be armed, or a
+            // schedule with no next time.
             RunEvent::StepFailed { .. } => {
                 dies_with_the_process(kind)
-                    || matches!(kind, StepKind::Human { .. } | StepKind::Wait { .. })
+                    || matches!(
+                        kind,
+                        StepKind::Human { .. } | StepKind::Approval { .. } | StepKind::Wait { .. }
+                    )
             }
             RunEvent::StepStopped { .. } => matches!(kind, StepKind::Connector { .. }),
             RunEvent::Answered { .. } => matches!(kind, StepKind::Human { .. }),
@@ -1087,7 +1092,7 @@ impl WorkflowRun {
                 "agent, check, connector, judge, notify, emit or spawn"
             }
             RunEvent::StepFailed { .. } => {
-                "agent, check, connector, judge, notify, emit, spawn, human or wait"
+                "agent, check, connector, judge, notify, emit, spawn, human, approval or wait"
             }
             RunEvent::StepStopped { .. } => "connector",
             RunEvent::Answered { .. } => "human",
@@ -2532,6 +2537,44 @@ mod tests {
         assert_eq!(
             r.steps[&sid("q")].error.as_deref(),
             Some("the person is not sure: which colour?")
+        );
+        assert_eq!(
+            e,
+            vec![RunEffect::Finished {
+                outcome: RunOutcome::Failed
+            }]
+        );
+    }
+
+    /// An approval whose prompt cannot be rendered is never opened: the
+    /// engine fails the step with the reason, and the run machine takes that
+    /// failure as it takes a human step's — the run does not hold forever on
+    /// a gate nobody can read.
+    #[test]
+    fn an_approval_whose_prompt_cannot_be_asked_fails() {
+        let ok = step(
+            "ok",
+            StepKind::Approval {
+                prompt: "Ship {steps.hold.output.version}?".into(),
+            },
+            vec![Flow::to(sid("after"))],
+        );
+        let (mut r, e) = started(workflow(vec![ok, agent("after", &[])]));
+        assert_eq!(e, vec![RunEffect::OpenGate { step: sid("ok") }]);
+        assert_eq!(state(&r, "ok"), &StepState::Waiting);
+        let e = r
+            .apply(
+                RunEvent::StepFailed {
+                    step: sid("ok"),
+                    error: "{steps.hold.output.version} has no value in this run".into(),
+                },
+                101,
+            )
+            .unwrap();
+        assert_eq!(state(&r, "ok"), &StepState::Failed);
+        assert_eq!(
+            r.steps[&sid("ok")].error.as_deref(),
+            Some("{steps.hold.output.version} has no value in this run")
         );
         assert_eq!(
             e,

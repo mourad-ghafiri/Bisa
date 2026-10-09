@@ -617,3 +617,28 @@ test("Then, from the keyboard: a plain step's targets with the flows it has, a g
   assert.equal(setBranchTarget(gate, "verdict", "pass", "ship").wf, gate, "the same pick is no edit");
   assert.equal(setBranchTarget(gate, "verdict", "pass", "verdict").ok, false, "a refused pick leaves the old flow standing");
 });
+
+// added by the coverage pass: workflowGraph.test.mjs
+test("renaming an input follows it into a poll's parameters, a check's command and an emit boundary", () => {
+  const wf = {
+    inputs: [{ name: "topic", label: "T", kind: "text" }],
+    steps: [
+      { id: "poll", name: "p", kind: "start", on: { event: "connector", connector: "chat", operation: "list", params: { channel: "{inputs.topic}" }, every: 60 }, inputs: {}, then: ["work"] },
+      { id: "watch", name: "w", kind: "start", on: { event: "check", command: "test -f {inputs.topic}", every: 60 }, inputs: {}, then: ["work"] },
+      {
+        id: "work",
+        name: "w",
+        kind: "agent",
+        instructions: "do it",
+        boundaries: [{ name: "late", on: { event: "after", secs: 60 }, act: "emit", signal: "{inputs.topic}.late", payload: { about: "{inputs.topic}" } }],
+        then: [],
+      },
+    ],
+  };
+  const next = renameInput(wf, "topic", "subject");
+  const [poll, watch, work] = next.steps;
+  assert.equal(poll.on.params.channel, "{inputs.subject}");
+  assert.equal(watch.on.command, "test -f {inputs.subject}");
+  assert.equal(work.boundaries[0].signal, "{inputs.subject}.late");
+  assert.deepEqual(work.boundaries[0].payload, { about: "{inputs.subject}" });
+});

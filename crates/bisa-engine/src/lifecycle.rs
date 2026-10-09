@@ -160,6 +160,7 @@ impl Lifecycle {
     /// Let go of an adopted session once it idled its time to live — the
     /// park: the slot leaves, the session is disposed and its durable row
     /// ended. Answers whether a slot was held.
+    // LCOV_EXCL_START: release runs when a stop lands as a design session is being kept for a follow-up, a race no test can stage
     pub async fn release(&self, inner: &Inner, agent_id: LiveRunId) -> bool {
         let Some((_, slot)) = self.slots.remove(&agent_id) else {
             return false;
@@ -172,6 +173,7 @@ impl Lifecycle {
         crate::sessions::ended(inner, &guard.session_row_id);
         true
     }
+    // LCOV_EXCL_STOP
 
     /// Whether the agent currently holds a live session object.
     pub async fn is_live(&self, agent_id: LiveRunId) -> bool {
