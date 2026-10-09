@@ -16,7 +16,7 @@ use bisa_core::{
 };
 use bisa_engine::{Engine, EngineConfig, EnginePayload, SubmitRequest};
 use bisa_harness::mock::{IntakeScript, MockAdapter};
-use bisa_harness::HarnessCatalog;
+use bisa_harness::{HarnessCatalog, LifecycleEvent, SessionEvent};
 use bisa_store::{CatalogKind, MemoryKeyStore, Workspace};
 use common::*;
 use serde_json::json;
@@ -2520,5 +2520,239 @@ async fn a_design_wakes_row_says_its_phase_its_scratch_folder_and_its_pid() {
             .map(|_| ())
     })
     .await;
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// The wake's edges: what the Workflow Agent's session does that is not a
+// proposal, and what a person's hand does to a pending question or proposal
+// ---------------------------------------------------------------------------
+
+/// The designer's harness with these knobs, registered under the name the
+/// Workflow Agent drives.
+fn engine_with_designer(
+    dir: &tempfile::TempDir,
+    designer: MockAdapter,
+) -> (Engine, Arc<MockAdapter>) {
+    let ws = workspace(dir);
+    drive_on(&ws, &AgentId::workflow(), "guided-harness");
+    let adapter = Arc::new(MockAdapter {
+        id: "guided-harness".into(),
+        ..designer
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&adapter) as Arc<dyn bisa_harness::HarnessAdapter>);
+    (
+        Engine::start(ws, catalog, guided_config()).unwrap(),
+        adapter,
+    )
+}
+
+/// The detail of the first *failed* guidance fact of the goal.
+async fn failed_detail(engine: &Engine, goal: bisa_core::GoalId) -> String {
+    until("the wake to record failed", || {
+        guidance_facts(engine, goal)
+            .into_iter()
+            .find(|(_, s, _)| *s == GuidanceStatus::Failed)
+            .map(|(_, _, d)| d.unwrap_or_default())
+    })
+    .await
+}
+
+fn plain(name: &str) -> bisa_store::NewWorkflow {
+    new_workflow(
+        name,
+        vec![step(
+            "say",
+            StepKind::Notify {
+                scope: None,
+                template: "hello".into(),
+                mentions: vec![],
+                author: None,
+            },
+        )],
+    )
+}
+
+/// A question longer than the detail keeps is shortened with an ellipsis;
+/// and a goal pointed at a workflow by hand and started while the question
+/// stands has the question withdrawn — the person chose.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_question_is_shortened_and_a_start_by_hand_withdraws_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "guided-harness");
+    let long = "Which tone should the announcement take, warm or formal? ".repeat(4);
+    let script = IntakeScript::new(vec![json!({"op": "ask_human", "goal": "{{goal}}",
+        "question": long, "expects": "answer"})]);
+    let engine = Engine::start(ws, catalog(Some(script), None), guided_config()).unwrap();
+    let mut rx = engine.events();
+    let goal = engine.submit_goal(guided("ask at length")).unwrap();
+    let asking = wait_for(&mut rx, "asking", |e| {
+        matches!(
+            &e.payload,
+            EnginePayload::Guided {
+                status: GuidanceStatus::Asking,
+                ..
+            }
+        )
+    })
+    .await;
+    let EnginePayload::Guided { detail, .. } = asking.payload else {
+        unreachable!()
+    };
+    let detail = detail.unwrap_or_default();
+    assert!(detail.ends_with('…'), "{detail}");
+    assert_eq!(detail.chars().count(), 141);
+    let gate = until("the question", || {
+        engine
+            .inbox()
+            .into_iter()
+            .find(|g| g.home.goal() == Some(goal.id))
+    })
+    .await;
+    let plain = engine.create_workflow(plain("by hand")).unwrap();
+    engine.set_workflow(goal.id, Some(plain.id)).unwrap();
+    engine.start_run(goal.id, BTreeMap::new()).unwrap();
+    assert!(
+        matches!(
+            engine.decide(&gate.id, true, None, Some(&Answer::text("warm")), None),
+            Err(bisa_engine::EngineError::UnknownGate(_))
+        ),
+        "the question was withdrawn"
+    );
+    assert_eq!(
+        finished_run(&engine, goal.id).await.outcome,
+        Some(RunOutcome::Done)
+    );
+    engine.shutdown().await;
+}
+
+/// A proposal stands until the person points the goal elsewhere by hand:
+/// the adoption gate is withdrawn, and the goal runs what they chose.
+#[tokio::test(flavor = "multi_thread")]
+async fn pointing_a_goal_elsewhere_withdraws_its_adoption_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "guided-harness");
+    let script = IntakeScript::new(vec![json!({"op": "propose_workflow", "agent": DRIVER,
+        "goal": "{{goal}}", "workflow": proposal("Proposed")})]);
+    let engine = Engine::start(
+        ws,
+        catalog(Some(script), Some(worker_yields())),
+        guided_config(),
+    )
+    .unwrap();
+    let goal = engine.submit_goal(guided("pointed elsewhere")).unwrap();
+    let gate = until("the adoption gate", || {
+        engine
+            .inbox()
+            .into_iter()
+            .find(|g| g.home.goal() == Some(goal.id) && g.subject.starts_with("adopt:"))
+    })
+    .await;
+    let chosen = engine.create_workflow(plain("chosen")).unwrap();
+    let pointed = engine.set_workflow(goal.id, Some(chosen.id)).unwrap();
+    assert_eq!(pointed.workflow, Some(chosen.id));
+    assert!(
+        matches!(
+            engine.decide(&gate.id, true, None, None, None),
+            Err(bisa_engine::EngineError::UnknownGate(_))
+        ),
+        "the adoption gate was withdrawn"
+    );
+    engine.start_run(goal.id, BTreeMap::new()).unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.workflow.id, chosen.id);
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
+    engine.shutdown().await;
+}
+
+/// A wake whose session the vendor suspends, one whose harness refuses the
+/// first prompt, and one whose driver panics each record *failed* with the
+/// reason, and the goal is told.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_suspended_a_refused_and_a_panicking_wake_each_record_failed() {
+    let cases: Vec<(&str, MockAdapter)> = vec![
+        (
+            "suspended",
+            MockAdapter {
+                script: Some(vec![
+                    SessionEvent::Lifecycle(LifecycleEvent::Started),
+                    SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                        outcome: bisa_harness::Outcome::Suspended {
+                            reason: "the vendor paused the account".into(),
+                        },
+                        is_terminal: true,
+                    }),
+                ]),
+                ..Default::default()
+            },
+        ),
+        (
+            "refused the prompt",
+            MockAdapter {
+                refuse_prompt: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "the wake panicked",
+            MockAdapter {
+                panic_on_prompt: true,
+                ..Default::default()
+            },
+        ),
+    ];
+    for (expected, designer) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let (engine, _) = engine_with_designer(&dir, designer);
+        let goal = engine.submit_goal(guided("a wake that fails")).unwrap();
+        let detail = failed_detail(&engine, goal.id).await;
+        assert!(detail.contains(expected), "{expected}: {detail}");
+        engine.shutdown().await;
+    }
+}
+
+/// A permission the Workflow Agent's session asks for during a wake is
+/// answered by the guard — a read, allowed — and the wake goes on; a turn
+/// that then proposes nothing is a stall, as any such turn is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_permission_asked_during_a_wake_is_answered_by_the_guard() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, adapter) = engine_with_designer(
+        &dir,
+        MockAdapter {
+            input_request: Some(bisa_harness::InputRequest::permission(
+                "p1",
+                "Read",
+                bisa_core::ToolTier::Read,
+                "read the brief",
+                json!({"path": "brief.md"}),
+            )),
+            intake_script: Some(IntakeScript::new(vec![json!({"op": "propose_workflow",
+                "agent": DRIVER, "goal": "{{goal}}", "workflow": proposal("After a read")})])),
+            ..Default::default()
+        },
+    );
+    let goal = engine.submit_goal(guided("reads first")).unwrap();
+    let answered = until("the permission to be answered", || {
+        let answered = adapter.answered.lock().unwrap().clone();
+        (!answered.is_empty()).then_some(answered)
+    })
+    .await;
+    assert_eq!(answered.len(), 1, "{answered:?}");
+    assert_eq!(answered[0].0, "p1");
+    assert!(
+        matches!(answered[0].1, bisa_harness::InputAnswer::Allow { .. }),
+        "{answered:?}"
+    );
+    until("the wake to settle", || {
+        let s = statuses(&engine, goal.id);
+        (s.contains(&GuidanceStatus::Stalled) || s.contains(&GuidanceStatus::Proposed))
+            .then_some(())
+    })
+    .await;
+    assert!(engine.inbox().is_empty(), "the guard asked nobody");
     engine.shutdown().await;
 }

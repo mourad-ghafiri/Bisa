@@ -609,9 +609,11 @@ pub async fn drive_until<M, E>(
             msg = out_rx.recv() => match msg {
                 Some(OutMsg::Json(v)) => {
                     if let Err(e) = proc.send_json(&v).await {
+                        // LCOV_EXCL_START: the child's stdin breaking under a write — whether the select sees the exit or the write first is the kernel's order, a race no test can stage
                         tracing::warn!("stdin write failed: {e}");
                         shared.end(Outcome::Failed { error: format!("stdin write failed: {e}") });
                         return;
+                        // LCOV_EXCL_STOP
                     }
                 }
                 Some(OutMsg::Line(l)) => {
@@ -1563,5 +1565,34 @@ mod resume_tests {
         assert_eq!(token.model, None);
         assert_eq!(token.effort, None);
         assert_eq!(token.transcript_path, None);
+    }
+
+    /// Every facade of a session gone, the driver reads the end of its
+    /// channel: the child — still running — is told to leave, its group
+    /// ended with it, and the session ends *aborted*.
+    #[tokio::test]
+    async fn a_driver_whose_facades_are_all_gone_ends_the_child_and_says_aborted() {
+        let mut spec = bisa_harness::proc::ProcSpec::new("sh");
+        spec.args = vec!["-c".into(), "sleep 30".into()];
+        let proc = bisa_harness::proc::ProcHandle::spawn(spec).unwrap();
+        let (out_tx, out_rx) = mpsc::channel(8);
+        let shared =
+            Shared::new(out_tx, "test-harness", None, std::env::temp_dir()).in_group(proc.group());
+        let driver = shared.for_driver();
+        let watch = driver.clone();
+        let task = tokio::spawn(drive_until(
+            proc,
+            out_rx,
+            driver,
+            |_, _| Drive::Continue,
+            |_| Outcome::Completed,
+        ));
+        drop(shared);
+        tokio::time::timeout(Duration::from_secs(20), task)
+            .await
+            .expect("the driver ends once its facades are gone")
+            .unwrap();
+        assert!(watch.is_ended());
+        assert!(!watch.group.alive(), "the child's group is gone with it");
     }
 }

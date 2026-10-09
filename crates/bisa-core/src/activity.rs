@@ -183,11 +183,6 @@ impl ActivitySource {
     pub fn node() -> Self {
         Self::new(ActivitySourceKind::Node, "")
     }
-
-    /// The workspace itself.
-    pub fn workspace() -> Self {
-        Self::new(ActivitySourceKind::Workspace, "")
-    }
 }
 
 /// One fact as the feed stores and serves it: when, which concept, the
@@ -329,5 +324,36 @@ mod tests {
         assert_eq!(back.event, event);
         assert_eq!(back.source.kind.as_str(), "workstream");
         assert_eq!(ActivitySource::node().id, "");
+    }
+
+    // added by the coverage pass: activity.rs
+
+    #[test]
+    fn a_concept_prints_as_its_word_and_parses_back() {
+        for concept in ActivityConcept::ALL {
+            assert_eq!(concept.to_string(), concept.as_str());
+            assert_eq!(
+                &concept.as_str().parse::<ActivityConcept>().unwrap(),
+                concept
+            );
+        }
+    }
+
+    // added by the coverage pass: b7-activity.rs
+    #[test]
+    fn the_workflow_agents_guidance_is_the_workflows_concept_wherever_it_was_written() {
+        let home = Home::Goal {
+            goal: crate::id::GoalId::from_ulid(ulid::Ulid::from_parts(1, 1)),
+        };
+        let guidance = JournalPayload::Guidance {
+            phase: crate::event::GuidancePhase::Design,
+            status: crate::event::GuidanceStatus::Scheduled,
+            detail: None,
+            session: None,
+        };
+        assert_eq!(
+            ActivityConcept::of_journal(&home, &guidance),
+            ActivityConcept::Workflows
+        );
     }
 }

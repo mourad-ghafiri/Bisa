@@ -565,10 +565,33 @@ fn the_gate_can_run_the_steps_it_names() {
         licences.contains("target/tools/bin/cargo-deny check licenses"),
         "the licence gate never finds the tree's own cargo-deny:\n{licences}"
     );
+    // The coverage gate: the recipe proves its own model first, then runs the
+    // measurer, which finds the tree's own cargo-llvm-cov; `verify` runs every
+    // suite once, measured, in place of the plain forms.
     let coverage = recipe("coverage");
     assert!(
-        coverage.contains("target/tools/bin/cargo-llvm-cov"),
-        "the coverage recipe never finds the tree's own cargo-llvm-cov:\n{coverage}"
+        coverage.contains("node --test scripts/coverage/coverageModel.test.mjs"),
+        "the coverage recipe proves the gate's own model before it judges:\n{coverage}"
+    );
+    assert!(
+        coverage.contains("./scripts/coverage/measure"),
+        "the coverage recipe runs the measurer:\n{coverage}"
+    );
+    let measure = fs::read_to_string(root.join("scripts/coverage/measure"))
+        .expect("scripts/coverage/measure");
+    assert!(
+        measure.contains("target/tools/bin/cargo-llvm-cov"),
+        "the measurer never finds the tree's own cargo-llvm-cov"
+    );
+    let verify = just
+        .lines()
+        .find(|l| l.starts_with("verify:"))
+        .expect("the verify recipe");
+    assert!(
+        verify.contains(" coverage ")
+            && !verify.contains("test-rust")
+            && !verify.contains("desktop-coverage"),
+        "verify runs every suite once, measured, under `coverage`: {verify}"
     );
     let types = recipe("check-types");
     assert!(
@@ -587,6 +610,20 @@ fn the_gate_can_run_the_steps_it_names() {
     assert!(
         install < keymap,
         "CI checks the keymap page before the desktop's packages are installed"
+    );
+    // CI measures too: a `coverage` job after `rust` runs the measurer, and
+    // the gate's own model is proven on every pull request beside the
+    // release model's tests.
+    let coverage_job = &ci[ci.find("\n  coverage:\n").expect("the coverage job")..];
+    assert!(
+        coverage_job.contains("needs: rust") && coverage_job.contains("scripts/coverage/measure"),
+        "CI's coverage job runs the measurer after the plain run"
+    );
+    assert!(
+        ci.matches("node --test scripts/coverage/coverageModel.test.mjs")
+            .count()
+            >= 2,
+        "the gate's model is proven in the coverage job and on every pull request"
     );
 }
 

@@ -12,9 +12,8 @@ build:
 test:
     ./scripts/test all
 
-# The Rust half alone — the workspace and the Tauri shell. `verify` runs this
-# and then the desktop once, through its coverage gate, rather than the
-# desktop suite twice.
+# The Rust half alone — the workspace and the Tauri shell, plain. The gate
+# (`verify`) runs the same suites once more slowly, measured, under `coverage`.
 test-rust:
     ./scripts/test rust
 
@@ -83,24 +82,37 @@ hakari-verify:
         echo "cargo-hakari is not installed under target/tools (just install-hakari); CI runs the three checks" >&2
     fi
 
-# Line coverage for the Rust workspace, when cargo-llvm-cov is installed
-# (`cargo install cargo-llvm-cov` and `rustup component add llvm-tools-preview`
-# are the developer's to run: both write outside the tree). Without it the
-# recipe says so; the desktop half always runs.
+# Line coverage, measured and judged (docs/contributing/coverage.md §Line
+# coverage): every crate with the feature-gated suites merged in, the Tauri
+# shell and the desktop's models — lcov under target/coverage/ — each tree
+# held to scripts/coverage/baseline.json, which only ever rises. The gate's
+# own model is proven first. The tree's own cargo-llvm-cov (`just
+# install-llvm-cov`) does the measuring; without one the Rust half runs plain
+# and the script says it is unjudged, the desktop still measured. In `verify`,
+# where it is every suite once.
 coverage:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-    # The tree's own tool first (`target/tools/bin`, where the programme
-    # installs it), then one on `PATH`.
-    if [ -x target/tools/bin/cargo-llvm-cov ]; then
-        target/tools/bin/cargo-llvm-cov llvm-cov --workspace --summary-only
-    elif cargo llvm-cov --version >/dev/null 2>&1; then
-        cargo llvm-cov --workspace --summary-only
-    else
-        echo "cargo-llvm-cov is not installed; Rust coverage is judged by the guard-test table in docs/contributing/testing-rules.md" >&2
-    fi
-    cd desktop && npm run test:coverage
+    node --test scripts/coverage/coverageModel.test.mjs
+    ./scripts/coverage/measure
+
+# One half alone: `just coverage-of desktop`, `just coverage-of shell`,
+# `just coverage-of rust` — measured and judged by itself.
+coverage-of half:
+    ./scripts/coverage/measure {{half}}
+
+# The named crates' own suites with the file list — the loop of a hardening
+# pass: `just coverage-crate engine`. A report, never a verdict: a line a
+# higher crate's suites cover reads as bare until the full run.
+coverage-crate +CRATES:
+    ./scripts/coverage/measure crate {{CRATES}}
+
+# Raise the baselines to what the last full run measured — never lowered.
+coverage-write:
+    ./scripts/coverage/measure judge --write
+
+# cargo-llvm-cov, inside the tree like nextest and hakari: `target/tools/bin`.
+# The `llvm-tools` component it needs is in rust-toolchain.toml.
+install-llvm-cov:
+    CARGO_TARGET_DIR=target/tools-build cargo install --root target/tools --locked cargo-llvm-cov
 
 # `--workspace` stops at the root workspace, and `desktop/src-tauri` declares
 # its own — so the shell crate was outside the format and lint gate entirely
@@ -420,11 +432,12 @@ desktop-test:
 desktop-test-dir dir:
     ./scripts/test desktop {{dir}}
 
-# The desktop's model tests with line coverage, failing under the threshold
-# the script sets. Node's own coverage; nothing to install.
+# The desktop's model tests under Node's own 80 % line floor — the quick
+# check CI's `desktop` job runs; the ratchet per directory is `coverage`'s.
 desktop-coverage:
     cd desktop && npm run test:coverage
 
-# Run the full verification suite. The desktop suite runs once, under its
-# coverage gate (`desktop-coverage`); `test-rust` is the workspace and the shell.
-verify: build test-rust lint check-types check-api-docs check-settings-docs check-catalog-docs check-keymap-docs check-mermaid licence-gate check-notices release-check website-check hakari-verify desktop-coverage desktop-build
+# Run the full verification suite. Every suite runs once, measured: `coverage`
+# is the workspace, the shell and the desktop under the line-coverage gate
+# (`test-rust` and `desktop-coverage` stay as the plain inner-loop forms).
+verify: build coverage lint check-types check-api-docs check-settings-docs check-catalog-docs check-keymap-docs check-mermaid licence-gate check-notices release-check website-check hakari-verify desktop-build

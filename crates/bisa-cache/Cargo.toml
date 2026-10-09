@@ -12,7 +12,7 @@ description = "A small reusable in-process cache toolkit: a TTL cell and a keyed
 # does I/O. This is a leaf every I/O-doing crate may share.
 [dependencies]
 dashmap = { workspace = true }
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [lints]
 workspace = true

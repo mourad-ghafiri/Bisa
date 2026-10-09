@@ -204,3 +204,63 @@ impl Workspace {
         Ok(())
     }
 }
+
+// added by the coverage pass: skills_mod.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+
+    fn ws() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        (dir, ws)
+    }
+
+    fn tidy(markdown: &str) -> NewSkill {
+        NewSkill {
+            id: SkillId::new("tidy").unwrap(),
+            name: "Tidy".into(),
+            description: "keeps things neat".into(),
+            tags: Tags::default(),
+            markdown: markdown.into(),
+        }
+    }
+
+    /// A skill with no words is refused; the folder skips what is not a
+    /// skill's file and names what it cannot read; a skill an agent names
+    /// that does not resolve costs the session that skill alone; a rebuild
+    /// indexes every skill again.
+    #[test]
+    fn a_wordless_skill_is_refused_and_the_folder_skips_strangers() {
+        let (_d, ws) = ws();
+        let err = ws.create_skill(tidy("   ")).unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        let skill = ws.create_skill(tidy("# Tidy\nkeep it neat")).unwrap();
+        let skills = ws.paths.skills_dir();
+        std::fs::write(skills.join("Bad Name.json"), b"{}").unwrap();
+        std::fs::write(skills.join("README"), b"").unwrap();
+        assert_eq!(ws.list_skills().unwrap().len(), 1);
+        let agent = AgentId::new("scout").unwrap();
+        let payloads =
+            ws.skill_payloads(&agent, &[skill.id.clone(), SkillId::new("nope").unwrap()]);
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0].id, "tidy");
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.list_skills().unwrap().len(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file = ws.paths.skill_file(&skill.id);
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.get_skill(&skill.id);
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            std::fs::set_permissions(&skills, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.list_skills();
+            std::fs::set_permissions(&skills, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+        }
+    }
+}

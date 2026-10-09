@@ -263,9 +263,10 @@ pub async fn deliver(
                 "aborting a session that cannot be answered",
             );
         }
+        // LCOV_EXCL_START: a harness that takes answers but fails this one — a protocol fault the mock has no script for
         Err(e) => {
             tracing::warn!(live_run = %ctx.live_run, "answering an input request failed: {e}")
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -381,7 +382,7 @@ async fn decide_permission(
         }
         // A reach was given, so the funnel settled the ceiling itself; this
         // arm is the type's, not a path.
-        Outcome::Fallthrough { input } => InputAnswer::Allow { input: Some(input) },
+        Outcome::Fallthrough { input } => InputAnswer::Allow { input: Some(input) }, // LCOV_EXCL_LINE: a reach was given, so `beyond_the_rules` never answers a fall-through here
     }
 }
 

@@ -14,6 +14,7 @@ import {
   VERSION_FILES,
   assetNames,
   bumpJsonVersion,
+  bumpHakariRequirement,
   bumpTomlVersion,
   cutRelease,
   isVersion,
@@ -139,6 +140,32 @@ test("a TOML bump changes the version inside its table alone — a dependency's 
   assert.throws(() => bumpTomlVersion(manifest, "package", "0.0.9", "0.2.0"), /is "0.1.0", not "0.0.9"/);
   assert.throws(() => bumpTomlVersion(manifest, "workspace.package", "0.1.0", "0.2.0"), /no \[workspace.package\] table/);
   assert.throws(() => bumpTomlVersion("[package]\nname = \"x\"\n", "package", "0.1.0", "0.2.0"), /found 0/);
+});
+
+test("the workspace-hack requirement moves with the major and minor: the one hakari line alone, a manifest without it untouched, another minor or two lines refused", () => {
+  const manifest = '[package]\nname = "x"\n\n[dependencies]\nbisa-deps = { version = "0.3", path = "../bisa-deps" }\nserde = { version = "1.0" }\n';
+  const bumped = bumpHakariRequirement(manifest, "0.3.0", "0.4.0");
+  assert.equal(bumped, manifest.replace('version = "0.3", path', 'version = "0.4", path'));
+  assert.ok(bumped.includes('serde = { version = "1.0" }'), "another dependency's version is kept");
+  assert.equal(bumpHakariRequirement(manifest, "0.3.0", "0.3.1"), manifest, "a patch moves nothing");
+  assert.equal(bumpHakariRequirement('[package]\nname = "bisa-deps"\n', "0.3.0", "0.4.0"), null);
+  assert.throws(() => bumpHakariRequirement(manifest, "0.2.0", "0.4.0"), /is "0.3", not "0.2"/);
+  assert.throws(() => bumpHakariRequirement(manifest + manifest, "0.3.0", "0.4.0"), /found 2/);
+});
+
+test("every crate that requires the workspace-hack crate requires it at the workspace's own major and minor today", () => {
+  const version = workspaceVersion(read("Cargo.toml"));
+  const crates = readdirSync(join(root, VERSION_FILES.crates), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => `${VERSION_FILES.crates}/${e.name}/Cargo.toml`);
+  let carrying = 0;
+  for (const path of crates) {
+    const text = read(path);
+    if (bumpHakariRequirement(text, version, version) === null) continue;
+    carrying += 1;
+    assert.doesNotThrow(() => bumpHakariRequirement(text, version, "9.9.9"), path);
+  }
+  assert.ok(carrying >= 20, `the member crates carry the requirement: ${carrying}`);
 });
 
 test("the files a bump touches are the ones platformIdentity.test.mjs holds to the workspace, and every one is at the workspace's version today", () => {

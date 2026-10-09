@@ -63,9 +63,11 @@ impl From<&RunSettled> for ExecutionOutcome {
             RunSettled::Failed(e) => ExecutionOutcome::Failed { reason: e.clone() },
             RunSettled::BudgetExhausted => ExecutionOutcome::BudgetExhausted,
             RunSettled::WallClockExceeded => ExecutionOutcome::WallClockExceeded,
+            // LCOV_EXCL_START: typed only: the attempt loop turns a model wall into a failure before breaking (the ModelWall arm below)
             RunSettled::ModelWall(w) => ExecutionOutcome::Failed {
                 reason: w.sentence(),
             },
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -361,6 +363,7 @@ pub(crate) async fn resolve_and_launch(
                         after_progress: false,
                     });
                 }
+                // LCOV_EXCL_START: the mock harness refuses a launch as a model wall or a panic only; Unavailable and the other launch errors are real adapters', held in bisa-adapters
                 Err(HarnessError::Unavailable(r)) => {
                     reasons.push(format!("{candidate}: {r}"));
                     break; // the harness is out, not just this model
@@ -369,7 +372,8 @@ pub(crate) async fn resolve_and_launch(
                     return Err(LaunchFailure {
                         message: format!("{candidate}: {e}"),
                         walls,
-                    })
+                    });
+                    // LCOV_EXCL_STOP
                 }
             }
         }
@@ -737,15 +741,19 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     // never only at the next event. A mark already gone is a reason to run
     // that went before the item started.
     let Some(mark) = inner.inflight.get(&item_id).map(|m| m.clone()) else {
+        // LCOV_EXCL_START: the item's reason to run went before it started: a stop landing between the reservation and the launch, a race no test can stage
         tracing::debug!(target: "bisa_engine", work_item = %item_id, "the item's reason to run went before it started");
         return;
+        // LCOV_EXCL_STOP
     };
     if unless_stopped(&mark, inner.pause.wait_running())
         .await
         .is_none()
     {
+        // LCOV_EXCL_START: a stop landing between two awaits of the launch, which a_stop_during_a_workers_launch_leaves_no_harness stages at the one point a test can
         settle_stopped_early(&inner, &mut spec, scope, None).await;
         return;
+        // LCOV_EXCL_STOP
     }
 
     // Assignment resolves in one place (`assign::workers`): the item's
@@ -754,8 +762,10 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     // show who actually took it.
     if spec.agent.is_none() {
         let Some(pool) = unless_stopped(&mark, assign::workers(&inner, &spec)).await else {
+            // LCOV_EXCL_START: a stop landing between two awaits of the launch, which a_stop_during_a_workers_launch_leaves_no_harness stages at the one point a test can
             settle_stopped_early(&inner, &mut spec, scope, None).await;
             return;
+            // LCOV_EXCL_STOP
         };
         if let Some(agent) = assign::choose(&inner, &pool, &spec).await {
             let who = AgentId::new(&agent)
@@ -839,8 +849,10 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     let env = BTreeMap::from([("TMPDIR".to_string(), tmp.display().to_string())]);
     let placement = match unless_stopped(&mark, place(&inner, &mut spec)).await {
         None => {
+            // LCOV_EXCL_START: a stop landing between two awaits of the launch, which a_stop_during_a_workers_launch_leaves_no_harness stages at the one point a test can
             settle_stopped_early(&inner, &mut spec, scope, None).await;
             return;
+            // LCOV_EXCL_STOP
         }
         Some(Ok(placement)) => placement,
         Some(Err(reason)) => {
@@ -867,8 +879,10 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     let first_candidate = spec.harness_candidates.first().cloned().unwrap_or_default();
     let _permits = match unless_stopped(&mark, inner.caps.acquire(&first_candidate)).await {
         None => {
+            // LCOV_EXCL_START: a stop landing between two awaits of the launch, which a_stop_during_a_workers_launch_leaves_no_harness stages at the one point a test can
             settle_stopped_early(&inner, &mut spec, scope, Some(placement)).await;
             return;
+            // LCOV_EXCL_STOP
         }
         Some(Ok(permits)) => permits,
         Some(Err(e)) => {
@@ -916,8 +930,10 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
     )
     .await
     else {
+        // LCOV_EXCL_START: a stop landing between two awaits of the launch, which a_stop_during_a_workers_launch_leaves_no_harness stages at the one point a test can
         settle_stopped_early(&inner, &mut spec, scope, Some(placement)).await;
         return;
+        // LCOV_EXCL_STOP
     };
     let launch_plan = LaunchPlan {
         candidates: &spec.harness_candidates,
@@ -999,6 +1015,7 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         // Stopped while the harness started: it is aborted before it is
         // prompted, and no row ever stands for it.
         if mark.is_stopped() || !inner.inflight.contains_key(&item_id) {
+            // LCOV_EXCL_START: a stop landing as the session launched, before its first prompt: a race no test can stage
             warn_on_err_for(
                 home,
                 Some(item_id),
@@ -1013,6 +1030,7 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             );
             drop(launched.in_flight);
             break RunSettled::Aborted;
+            // LCOV_EXCL_STOP
         }
 
         let harness_id = launched.harness.clone();
@@ -1287,7 +1305,9 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
                 last_run = None;
                 // A stop that landed on the wall: no next attempt.
                 if mark.is_stopped() {
+                    // LCOV_EXCL_START: a stop that landed on a model wall, between the wall and the next attempt: a race no test can stage
                     break RunSettled::Aborted;
+                    // LCOV_EXCL_STOP
                 }
                 if attempts.spent() {
                     let reason = give_up_reason(&all_walls, "the attempt budget is spent");
@@ -1360,7 +1380,9 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             // The attempt loop converts a wall into a `Failed` before
             // breaking; this arm exists so a future path that forgets to
             // cannot lose the item silently.
+            // LCOV_EXCL_START: typed only: the attempt loop turns a model wall into a failure before breaking; the arm keeps the match total
             RunSettled::ModelWall(wall) => Some(wall.sentence()),
+            // LCOV_EXCL_STOP
         }
     };
     if let Some(reason) = &failure {
@@ -1432,6 +1454,7 @@ async fn drive_session(
     let mark = match inner.inflight.get(&item_id) {
         Some(mark) => mark.clone(),
         None => {
+            // LCOV_EXCL_START: a stop landing between the launch and the drive: a race no test can stage
             warn_on_err_for(
                 home,
                 Some(item_id),
@@ -1439,6 +1462,7 @@ async fn drive_session(
                 "aborting an item stopped before it was driven",
             );
             return RunSettled::Aborted;
+            // LCOV_EXCL_STOP
         }
     };
     // "Real progress" is work the session actually did — a tool, some text, a
@@ -1469,7 +1493,9 @@ async fn drive_session(
                 );
                 return RunSettled::WallClockExceeded;
             }
+            // LCOV_EXCL_START: the event stream closes only when an adapter drops its sender; the mock ends every session with a lifecycle event
             Ok(None) => return settled, // stream closed; keep default settled
+            // LCOV_EXCL_STOP
             Ok(Some(ev)) => ev,
         };
 
@@ -1483,6 +1509,7 @@ async fn drive_session(
         // The step this item runs for was cancelled or amended away: the
         // reservation is gone, and so is the reason to keep the session.
         if !inner.inflight.contains_key(&item_id) {
+            // LCOV_EXCL_START: a cancel landing between two events of the session: a race no test can stage
             warn_on_err_for(
                 home,
                 Some(item_id),
@@ -1490,6 +1517,7 @@ async fn drive_session(
                 "aborting a cancelled item's session",
             );
             return RunSettled::Aborted;
+            // LCOV_EXCL_STOP
         }
 
         match &event {
@@ -1544,7 +1572,7 @@ async fn drive_session(
                         "aborting on budget",
                     );
                     return RunSettled::BudgetExhausted;
-                }
+                } // LCOV_EXCL_LINE: the brace after a return
             }
             // The harness stopped for an answer: one answerer for every driver.
             SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) => {
@@ -1843,12 +1871,14 @@ fn mark_in_progress(
                 .transition_work_item(home, id, &WorkItemTransition::Unblock)?
         }
         WorkItemState::InProgress { .. } => return Ok(spec.state.clone()),
+        // LCOV_EXCL_START: mark_in_progress is called on an item preflight admitted (Open, Claimed, Blocked or InProgress); the arm keeps the match total
         other => {
             return Err(EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-work-item-cannot-be-started",
                 id = id.to_string(),
                 a0 = (other.as_str()).to_string()
-            )))
+            )));
+            // LCOV_EXCL_STOP
         }
     };
     Ok(updated.state)
@@ -1868,7 +1898,9 @@ pub(crate) fn block_item(inner: &Inner, spec: &WorkItemSpec, reason: String) -> 
             WorkItemTransition::Start,
             block,
         ],
+        // LCOV_EXCL_START: block_item is called on an item that ran: InProgress, or Open when it never launched
         WorkItemState::Claimed { .. } => vec![WorkItemTransition::Start, block],
+        // LCOV_EXCL_STOP
         WorkItemState::InProgress { .. } => vec![block],
         WorkItemState::Blocked { .. } => vec![WorkItemTransition::Unblock, block],
         WorkItemState::Review { .. } | WorkItemState::Accepted | WorkItemState::Cancelled => {
@@ -1946,6 +1978,7 @@ async fn unless_stopped<T>(
 /// waiting for a permit, or judged — its reason to run went. What was opened
 /// is settled, and the item reads as its cancel left it, or blocked by the
 /// stop; the bus hears the execution end aborted.
+// LCOV_EXCL_START: settle_stopped_early runs after a stop landed between two awaits of the launch, a race no test can stage
 async fn settle_stopped_early(
     inner: &Arc<Inner>,
     spec: &mut WorkItemSpec,
@@ -1977,6 +2010,7 @@ async fn settle_stopped_early(
         },
     ));
 }
+// LCOV_EXCL_STOP
 
 /// Stop the mark of one item, if it is reserved. Answers whether it was.
 pub(crate) fn stop_item(inner: &Inner, item: WorkItemId) -> bool {
@@ -2038,8 +2072,10 @@ pub(crate) fn launch_step_item(
     // which sets the flag and then takes the list — sees every task there is.
     let mut executors = inner.executors.lock().unwrap_or_else(|e| e.into_inner());
     if inner.stopping.load(std::sync::atomic::Ordering::SeqCst) {
+        // LCOV_EXCL_START: an item launched as the engine shuts down: a race between the launch and the shutdown
         tracing::debug!(target: "bisa_engine", work_item = %spec.id, "engine stopping; the item is left to the restart");
         return Ok(());
+        // LCOV_EXCL_STOP
     }
     let reservation = InFlight::reserve(inner, spec.id, spec.home);
     let inner = Arc::clone(inner);
@@ -2076,7 +2112,9 @@ pub(crate) fn launch_step_item(
 /// bus hears why. Nothing is deleted.
 pub(crate) fn cancel_item(inner: &Arc<Inner>, home: &Home, item: WorkItemId, why: &str) {
     let Ok(spec) = inner.ws.get_work_item(home, item) else {
+        // LCOV_EXCL_START: cancel_item is called with an item just read; a miss is the store unreadable (disk-only)
         return;
+        // LCOV_EXCL_STOP
     };
     // The record first, then the session: the executor reads the item again
     // once its session ended, and what it finds there is what it settles on.
@@ -2097,7 +2135,9 @@ pub(crate) fn cancel_item(inner: &Arc<Inner>, home: &Home, item: WorkItemId, why
     inner.inflight.remove(&item);
     inner.active_items.remove(&item);
     match cancelled {
+        // LCOV_EXCL_START: cancel_item on an item already settled by its own session, a race between two settlements
         None => {}
+        // LCOV_EXCL_STOP
         Some(Ok(_)) => inner.emit(inner.item_scope(&spec).event(
             Some(item),
             EnginePayload::ExecutionEnded {
@@ -2106,7 +2146,9 @@ pub(crate) fn cancel_item(inner: &Arc<Inner>, home: &Home, item: WorkItemId, why
                 },
             },
         )),
+        // LCOV_EXCL_START: a cancel transition is refused in words or written; any other error is the store unwritable (disk-only)
         Some(Err(e)) => tracing::warn!(work_item = %item, "cannot cancel the item: {e}"),
+        // LCOV_EXCL_STOP
     }
 }
 

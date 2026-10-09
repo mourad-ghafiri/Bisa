@@ -469,8 +469,10 @@ impl Workspace {
                 }) => states.push((id, state, attempts, last_error)),
                 Err(e) => tracing::warn!(
                     target: "bisa_store::signals",
+                    // LCOV_EXCL_START: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                     path = %path.display(),
                     line = n + 1,
+                    // LCOV_EXCL_STOP
                     "a line of the signal queue does not parse and is skipped; what it held is not replayed: {e}"
                 ),
             }
@@ -778,5 +780,90 @@ mod tests {
         .unwrap();
         ws.rebuild_index().unwrap();
         assert_eq!(ws.signal_state("01OLD").unwrap(), None);
+    }
+
+    // added by the coverage pass: s3-signals.rs
+    #[test]
+    fn a_state_word_nobody_knows_is_none_a_settled_state_moves_no_more_and_an_unknown_signal_is_refused_by_name(
+    ) {
+        assert_eq!(SignalState::parse("bogus"), None);
+        assert!(SignalState::Done.is_settled() && SignalState::Failed.is_settled());
+        assert!(!SignalState::Queued.is_settled());
+        let (_dir, ws, wf) = ws();
+        assert!(matches!(
+            ws.move_signal("nobody", SignalState::Done, None),
+            Err(StoreError::Invalid(_))
+        ));
+        let mut nameless = signal("", Some(key(wf, "ticket")), 1, None);
+        nameless.id = "  ".into();
+        assert!(matches!(
+            ws.enqueue_signal(&nameless),
+            Err(StoreError::Invalid(_))
+        ));
+        // A queue line of a state nobody knows, and a goal-scoped row whose
+        // goal id is no id, are passed over by the rebuild and the listing.
+        let (queued, _) = ws
+            .enqueue_signal(&signal("s1", Some(key(wf, "ticket")), 1, None))
+            .unwrap();
+        crate::paths::append_line(
+            &ws.paths.signal_queue(),
+            &serde_json::to_string(&QueueLine::State {
+                id: queued.signal.id.clone(),
+                state: "bogus".into(),
+                attempts: 1,
+                last_error: None,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        ws.rebuild_index().unwrap();
+        assert_eq!(
+            ws.signal_state(&queued.signal.id).unwrap(),
+            Some(SignalState::Queued)
+        );
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE signals SET scope_kind = 'goal', scope_id = 'not-a-goal' WHERE id = '{}'",
+                queued.signal.id
+            ))
+            .unwrap();
+        let listed = ws.list_signals(None, 10).unwrap();
+        assert!(
+            matches!(listed[0].signal.scope, SignalScope::Workspace),
+            "{listed:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_queue_nobody_may_read_stops_the_rebuild_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, ws, wf) = ws();
+        ws.enqueue_signal(&signal("s1", Some(key(wf, "ticket")), 1, None))
+            .unwrap();
+        let file = ws.paths.signal_queue();
+        let was = std::fs::metadata(&file).unwrap().permissions();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let rebuilt = ws.rebuild_index();
+        std::fs::set_permissions(&file, was).unwrap();
+        assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+    }
+
+    // added by the coverage pass: signals-s7.rs
+
+    #[test]
+    fn a_host_exists_while_its_goal_or_workflow_does() {
+        let (_d, ws, _wf) = ws();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("hosted"))
+            .unwrap();
+        assert!(ws
+            .host_exists(&bisa_core::ListenerHost::Goal { goal: goal.id })
+            .unwrap());
+        assert!(!ws
+            .host_exists(&bisa_core::ListenerHost::Goal {
+                goal: GoalId::from_ulid(crate::workspace::mint_ulid())
+            })
+            .unwrap());
     }
 }

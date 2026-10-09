@@ -554,7 +554,7 @@ async fn a_parameter_still_carrying_a_placeholder_never_reaches_the_host() {
 
 /// A platform with one upload: metadata as a text part, the video as a file
 /// part — the shape every media API takes.
-fn media(stub: &Stub) -> NewConnector {
+pub(crate) fn media(stub: &Stub) -> NewConnector {
     NewConnector {
         id: ConnectorId::new("media").unwrap(),
         name: "Media".into(),
@@ -611,7 +611,7 @@ fn media(stub: &Stub) -> NewConnector {
     }
 }
 
-fn upload_step(id: &str, video: &str) -> bisa_core::Step {
+pub(crate) fn upload_step(id: &str, video: &str) -> bisa_core::Step {
     step(
         id,
         StepKind::Connector {
@@ -1051,5 +1051,41 @@ async fn an_oauth_consent_page_needs_no_allow_list_and_connecting_again_forgets_
     engine.inner().security.invalidate();
     let err = connectors::oauth_start(engine.inner(), &cid, account.id, 4478).unwrap_err();
     assert!(err.to_string().contains("deny_hosts"), "{err}");
+    engine.shutdown().await;
+}
+
+/// The node's own deadline on a connector call (`connector_timeout_secs`),
+/// when the operation sets none: a platform that answers too late fails the
+/// step with the deadline it had.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_nodes_deadline_ends_a_call_the_operation_set_none_for() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![slow(
+        "POST",
+        "/post",
+        200,
+        json!({"ts": "late"}),
+        3_000,
+    )])
+    .await;
+    let engine = Engine::start(
+        workspace(&dir),
+        catalog_with(vec![MockAdapter::default()]),
+        EngineConfig {
+            connector_timeout_secs: 1,
+            ..design_off_config()
+        },
+    )
+    .unwrap();
+    install_chat(&engine, &stub, Some(TOKEN));
+    let (goal, _) = run_on(
+        &engine,
+        "a late platform",
+        new_workflow("posts", vec![post_step("say", None, None)]),
+    );
+    let failed = finished_run(&engine, goal.id).await;
+    assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{failed:?}");
+    let why = failed.steps[&sid("say")].error.clone().unwrap_or_default();
+    assert!(why.contains("1s") || why.contains("timed out"), "{why}");
     engine.shutdown().await;
 }

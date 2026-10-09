@@ -8,8 +8,25 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-09
+
+### Changed
+
+- `just set-version` moves every crate's requirement on the workspace-hack crate (`bisa-deps = {
+  version = "<major.minor>", … }`, the line cargo-hakari writes) with the version's minor; a bump
+  that left it behind resolved nothing (`scripts/release/releaseModel.mjs` `bumpHakariRequirement`).
+
 ### Added
 
+- A line-coverage gate over every tree (`docs/contributing/coverage.md` § Line coverage): `just
+  coverage` measures the Rust workspace with its feature-gated suites merged in, the Tauri shell and
+  the desktop's models (`cargo-llvm-cov` in the tree — `just install-llvm-cov` — and Node's own
+  coverage) and holds each crate and each desktop directory to `scripts/coverage/baseline.json`, a
+  ratchet that only rises (`just coverage-write`); `just coverage-crate <crate>` is the loop, with
+  the file list and the bare lines; `scripts/coverage/exclusions.json` names the few files that
+  cannot run without this machine's OS surface, each with a reason, held by a test; CI measures in
+  a `coverage` job after `rust`. The four generator binaries beside the node and the i18n ratchet
+  command run under tests of their own (`crates/bisa-node/tests/it/reference.rs`).
 - Every built-in connector cites the platform documentation it was checked against (`# Reference:`
   lines in its file) and carries a `revision`; the engine refreshes an installed copy at start when
   the bundle's revision is higher — its accounts, secrets and steps kept, a credential moved to the
@@ -96,6 +113,22 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- The coverage judge leaves a Rust source's `#[cfg(test)]` items and the lines that hold nothing but
+  the closing of a `?` (the early-return edge llvm-cov counts on its own line — `)?;`, and `)?)`
+  inside a call — `crates/bisa-net`'s row lowered by a tenth on that widening, the one sanctioned way
+  down) out of its measured lines and honours `LCOV_EXCL_LINE` / `LCOV_EXCL_START…STOP` markers, each with a reason of at least three
+  words — a marker without one refuses the run, and `target/coverage/summary.json` lists every
+  excused line with its reason; `scripts/coverage/baseline.json` was rewritten from that definition,
+  the one sanctioned way down (`docs/contributing/coverage.md` § Line coverage).
+- `i18n-ratchet`'s body is `bisa_i18n::ratchet::run` — a function over the flags, the workspace root
+  and the baseline file — so its three forms run under unit tests over a folder of their own; what
+  the command does and prints is unchanged.
+- Eight functions nothing called are gone: `ActivitySource::workspace`, `AddonManifest::declares`,
+  `ArtifactKind::looks_like_an_image`, `AskOption::detail`, `DeletableChannel::into_inner`,
+  `kind::is_audience_scoped`, `Locale::id` and the log handle's `version`.
+- `just verify` runs every suite once, measured, under `coverage` — in place of `test-rust` and
+  `desktop-coverage`, which stay as the plain inner-loop recipes; without the tree's
+  `cargo-llvm-cov` the Rust half runs plain and is said to be unjudged.
 - A built-in connector installed from the catalog is no longer frozen at install: the engine brings
   it to the bundle's `revision` at start (a catalog definition was never a person's to edit, so
   nothing of theirs is overwritten). A peer on an earlier release sets a refreshed connector's
@@ -141,6 +174,26 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A `check` step's evidence and a `check` start event's `output` never carried what the command
+  said: the grouped command runner left the child's streams on the node's own stdout and stderr,
+  so `wait_with_output` collected nothing and the command's words went to the node's log instead of
+  the run. The runner now pipes both streams and closes the child's stdin; a failing check's
+  evidence carries the tail of its stderr as documented, and a `check` start's sample `output` is
+  what the command printed (`crates/bisa-harness/src/proc.rs`
+  `a_grouped_commands_streams_and_status_are_collected`, `crates/bisa-engine/tests/it/effects_edges.rs`
+  `a_failing_check_keeps_what_the_command_said`).
+- An `approval` step whose prompt could not be rendered — a field a released wait's payload did
+  not carry — held its run forever: the engine failed the step with the reason, but the run
+  machine refused a `StepFailed` on an approval, so no gate opened, no error was written and the
+  run stayed *waiting* with nothing to wait for. The run machine now takes an approval's failure
+  as it takes a human step's; the step fails with the reason and `on_fail` decides
+  (`crates/bisa-core/src/run.rs` `an_approval_whose_prompt_cannot_be_asked_fails`,
+  `crates/bisa-engine/tests/it/effects_edges.rs`
+  `a_prompt_that_cannot_render_fails_the_step_instead_of_asking`).
+- `error-core-run-no-start` in the English catalog said what the refusal no longer does; the
+  sentence now matches the error — *the run has no way in: its start is gone, or the workflow has no
+  start by hand* — and a test holds the English of every core refusal to its catalog message
+  (`crates/bisa-core/src/error_text.rs`).
 - Six built-in connectors pointed at APIs that are gone, moved or mis-called, checked against the
   platforms' own documentation: Jira searched through `/rest/api/3/search`, which Atlassian removed
   (now `/search/jql`); Confluence read and created pages through v1 endpoints that are gone (now
@@ -618,7 +671,8 @@ The first release: the platform as one application a person can download.
 - `BISA_SIGN`, `just bundle-macos-adhoc` and the shareable zip of the bundle script: a copy to
   give to someone is the release's disk image.
 
-[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mourad-ghafiri/Bisa/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mourad-ghafiri/Bisa/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mourad-ghafiri/Bisa/releases/tag/v0.1.0

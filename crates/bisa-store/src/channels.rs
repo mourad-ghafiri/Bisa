@@ -174,7 +174,7 @@ impl Workspace {
         }
         let (agents, teams) = match &stored.roster {
             RosterPolicy::Listed { agents, teams, .. } => (agents.clone(), teams.clone()),
-            RosterPolicy::Everyone => (vec![], vec![]),
+            RosterPolicy::Everyone => (vec![], vec![]), // LCOV_EXCL_LINE: only general's roster is everyone's, and general was refused above
         };
         let roster = self.vetted_roster(RosterPolicy::Listed {
             agents,
@@ -519,10 +519,12 @@ impl Workspace {
             Err(_) => {}
         }
         let copy: GeneralFile = toml::from_str(GENERAL_TOML).map_err(|e| {
+            // LCOV_EXCL_START: the bundled file is held well-formed by the bundle tests
             StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-library-core-general-toml",
                 e = e.to_string()
             ))
+            // LCOV_EXCL_STOP
         })?;
         let mut def = Channel::general(now_secs());
         def.name = copy.channel.name;
@@ -727,5 +729,69 @@ mod tests {
             ws.idx().channels_rostering("agent", dev.as_str()).unwrap(),
             vec![c.id.to_string()]
         );
+    }
+
+    // added by the coverage pass: channels.rs
+
+    // --- the bare lines of the channels module ---
+
+    /// People are put on a standing channel's roster and never on a direct
+    /// message's or general's; the owner is in every room and never listed;
+    /// an open roster edited becomes a listed one; general's roster stays
+    /// everyone's whatever an edit says; a name taken twice gets a suffix;
+    /// a blank name and a taken id are refused; two audiences are two
+    /// direct messages.
+    #[test]
+    fn rosters_are_edited_within_their_rules_and_ids_are_minted_apart() {
+        let (_d, ws) = ws();
+        let scout = ws.get_agent(&agent(&ws, "Scout")).unwrap().pubkey;
+        let ranger = ws.get_agent(&agent(&ws, "Ranger")).unwrap().pubkey;
+        let dm = ws.open_dm(std::slice::from_ref(&scout)).unwrap();
+        let other = ws.open_dm(std::slice::from_ref(&ranger)).unwrap();
+        assert_ne!(dm.id, other.id);
+        assert_eq!(ws.open_dm(std::slice::from_ref(&scout)).unwrap().id, dm.id);
+        let general = ChannelId::new("general").unwrap();
+        assert!(ws.set_roster_humans(&dm.id, vec![]).is_err());
+        assert!(ws.set_roster_humans(&general, vec![]).is_err());
+        let open = ws
+            .create_channel("Open", None, RosterPolicy::default(), Tags::default())
+            .unwrap();
+        let listed = ws
+            .set_roster_humans(&open.id, vec![ws.owner_principal()])
+            .unwrap();
+        assert!(listed.roster.humans().is_empty(), "{:?}", listed.roster);
+        let general_again = ws
+            .update_channel(
+                &general,
+                Some("all hands"),
+                RosterPolicy::default(),
+                Tags::default(),
+            )
+            .unwrap();
+        assert_eq!(general_again.roster, RosterPolicy::Everyone);
+        let twin = ws
+            .create_channel("Open", None, RosterPolicy::default(), Tags::default())
+            .unwrap();
+        assert!(twin.id.as_str().starts_with("open-"), "{}", twin.id);
+        assert!(ws
+            .create_channel_with_id(
+                &ChannelId::new("blank").unwrap(),
+                "   ",
+                None,
+                RosterPolicy::default(),
+                Tags::default(),
+                ChannelOrigin::Local,
+            )
+            .is_err());
+        assert!(ws
+            .create_channel_with_id(
+                &open.id,
+                "Open",
+                None,
+                RosterPolicy::default(),
+                Tags::default(),
+                ChannelOrigin::Local,
+            )
+            .is_err());
     }
 }

@@ -735,4 +735,186 @@ mod tests {
         assert!(workflow_calls(&polls, "github"));
         assert!(!workflow_calls(&polls, "gitlab"));
     }
+
+    // added by the coverage pass: usage.rs
+
+    // --- the bare lines of the usage module ---
+
+    #[test]
+    fn every_reference_kind_has_a_remedy_and_a_usage_is_walked_by_reference() {
+        assert!(ReferenceKind::Channel.remedy().contains("roster"));
+        assert!(ReferenceKind::Project.remedy().contains("project"));
+        let usage = Usage(vec![
+            r(ReferenceKind::Team, "Ops"),
+            r(ReferenceKind::Goal, "G"),
+        ]);
+        let mut seen = 0;
+        for reference in &usage {
+            assert!(!reference.label.is_empty());
+            seen += 1;
+        }
+        assert_eq!(seen, usage.len());
+    }
+
+    /// A wait on a message, a boundary on a message and a wait on a run
+    /// hold what they name as a start does.
+    #[test]
+    fn a_wait_and_a_boundary_hold_the_conversation_and_the_workflow_they_name() {
+        use crate::workflows::tests::step;
+        use bisa_core::{Boundary, Branch, MessageFilter, RunFilter, WorkflowOrigin};
+        let other = WorkflowId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        let mut waits = step(
+            "hold",
+            StepKind::Wait {
+                until: WaitFor::Message {
+                    filter: MessageFilter {
+                        r#in: Some("support".into()),
+                        ..MessageFilter::default()
+                    },
+                },
+            },
+            &["end"],
+        );
+        waits.boundaries = vec![Boundary {
+            name: Branch::new("heard").unwrap(),
+            on: BoundaryOn::Message {
+                filter: MessageFilter {
+                    r#in: Some("ops".into()),
+                    ..MessageFilter::default()
+                },
+            },
+            act: BoundaryAct::Notify {
+                scope: None,
+                template: "heard".into(),
+                mentions: vec![],
+                author: None,
+            },
+        }];
+        assert_eq!(step_conversations(&waits), vec!["support", "ops"]);
+        let hears = Workflow {
+            id: WorkflowId::from_ulid(ulid::Ulid::from_parts(2, 2)),
+            name: "Hears".into(),
+            description: String::new(),
+            inputs: vec![],
+            steps: vec![
+                step(
+                    "hold",
+                    StepKind::Wait {
+                        until: WaitFor::Run {
+                            filter: RunFilter {
+                                workflow: Some(other),
+                                outcome: None,
+                            },
+                        },
+                    },
+                    &["end"],
+                ),
+                step(
+                    "end",
+                    StepKind::End {
+                        finish: bisa_core::Finish::Path,
+                    },
+                    &[],
+                ),
+            ],
+            origin: WorkflowOrigin::Workspace,
+            author: bisa_core::PrincipalId::new("a".repeat(64)).unwrap(),
+            tags: Default::default(),
+            revision: 1,
+            archived: None,
+            decision_making: false,
+            created_at: 0,
+        };
+        assert!(workflow_hears_runs_of(&hears, other));
+    }
+
+    /// A team on a channel's roster is a use of the team, named by the
+    /// channel; a work item row that names no item is skipped and an item
+    /// that will not read is said and not counted.
+    #[test]
+    fn a_rostered_team_is_used_and_an_item_that_will_not_read_is_not_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let team = ws
+            .create_team("Ops", None, vec![], bisa_core::Tags::default())
+            .unwrap();
+        ws.create_channel(
+            "Operations",
+            None,
+            bisa_core::RosterPolicy::Listed {
+                agents: vec![],
+                teams: vec![team.id.clone()],
+                humans: vec![],
+            },
+            bisa_core::Tags::default(),
+        )
+        .unwrap();
+        let usage = ws.usage_of(UsageKind::Team, team.id.as_str()).unwrap();
+        assert!(
+            usage
+                .iter()
+                .any(|r| r.kind == ReferenceKind::Channel && r.label == "Operations"),
+            "{usage:?}"
+        );
+        let scout = ws
+            .add_agent(crate::agents::NewAgent {
+                name: "Scout".into(),
+                harness: "mock".into(),
+                system_prompt: "look".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("used"))
+            .unwrap();
+        let item = bisa_core::WorkItemSpec {
+            id: bisa_core::WorkItemId::from_ulid(crate::workspace::mint_ulid()),
+            home: bisa_core::Home::Goal { goal: goal.id },
+            run: None,
+            step: None,
+            instructions: "look around".into(),
+            state: bisa_core::WorkItemState::Open,
+            project: None,
+            harness_candidates: vec!["mock".into()],
+            model: None,
+            effort: None,
+            output_schema: None,
+            budget: Default::default(),
+            assignees: vec![Assignee::Agent(scout.id.to_string())],
+            tier_ceiling: bisa_core::ToolTier::Write,
+            agent: None,
+            spawn_allowlist: vec![],
+            depth_budget: 0,
+            result_attempts: 0,
+            interruptions: 0,
+        };
+        ws.put_work_item(&item).unwrap();
+        let counted = |ws: &Workspace| {
+            ws.usage_of(UsageKind::Agent, scout.id.as_str())
+                .unwrap()
+                .iter()
+                .filter(|r| r.kind == ReferenceKind::WorkItem)
+                .count()
+        };
+        assert_eq!(counted(&ws), 1);
+        ws.idx()
+            .execute_for_test("UPDATE work_items SET id = 'not-an-item'")
+            .unwrap();
+        assert_eq!(counted(&ws), 0);
+        ws.rebuild_index().unwrap();
+        let file = ws
+            .paths
+            .state_dir(&crate::paths::Paths::ns_goal(goal.id))
+            .join(format!(
+                "{}-{}.json",
+                bisa_core::kind::KIND_WORK_ITEM,
+                item.id
+            ));
+        std::fs::write(&file, b"{torn").unwrap();
+        assert_eq!(counted(&ws), 0);
+    }
 }

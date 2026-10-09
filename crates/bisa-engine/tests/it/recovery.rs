@@ -753,3 +753,241 @@ async fn an_orphan_run_the_crash_left_is_ended_when_the_engine_starts() {
     );
     engine.shutdown().await;
 }
+
+// added by the coverage pass: the walk's remaining branches
+
+/// A `connector` write with no idempotency key that was running at the
+/// crash may already have reached the platform: the restart stops the step
+/// — never sends it again — and says so on the goal.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unkeyed_write_running_at_the_crash_is_stopped_and_never_sent_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = common::stub::Stub::start(vec![]).await;
+    let (goal, run) = {
+        let ws = store(&dir);
+        ws.create_connector(crate::connectors::media(&stub))
+            .unwrap();
+        staged_run(
+            &ws,
+            "upload once",
+            vec![crate::connectors::upload_step("send", "clip.mp4")],
+        )
+    };
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let failed = finished_run(&engine, goal).await;
+    assert_eq!(failed.id, run);
+    assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{failed:?}");
+    let send = &failed.steps[&sid("send")];
+    assert_eq!(send.state, StepState::Failed);
+    let why = send.error.clone().unwrap_or_default();
+    assert!(why.contains(INTERRUPTED), "{why}");
+    assert!(why.contains("writing to the platform"), "{why}");
+    assert!(
+        notes(&engine, goal)
+            .iter()
+            .any(|n| n.contains("`send` stopped") && n.contains("not sent again")),
+        "{:?}",
+        notes(&engine, goal)
+    );
+    assert!(stub.calls().is_empty(), "nothing was sent");
+    engine.shutdown().await;
+}
+
+/// Two steps running side by side at the crash: the first interruption
+/// fails the run, and the second is refused by the machine — a run that
+/// moved under the walk is not an error. A run paused at a step a person
+/// answers has nothing to recover and gets no note.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_that_finishes_under_the_walk_refuses_the_rest_and_a_paused_one_gets_no_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let (forked, paused) = {
+        let ws = store(&dir);
+        let notify = |id: &str| {
+            step(
+                id,
+                StepKind::Notify {
+                    scope: Some("nowhere".into()),
+                    template: "hello".into(),
+                    mentions: vec![],
+                    author: None,
+                },
+            )
+        };
+        let mut fork = step("fork", StepKind::Parallel);
+        fork.then = vec![bisa_core::Flow::to(sid("a")), bisa_core::Flow::to(sid("b"))];
+        let forked = staged_run(&ws, "fork", vec![fork, notify("a"), notify("b")]);
+        let paused = staged_run(
+            &ws,
+            "ask",
+            vec![step(
+                "ok",
+                StepKind::Approval {
+                    prompt: "Ship?".into(),
+                },
+            )],
+        );
+        // And one orphan beside the paused run: an item the crash made for
+        // it that no step names.
+        let orphan = WorkItemSpec {
+            id: WorkItemId::from_ulid(ulid::Ulid::from_parts(8, 8)),
+            home: bisa_core::Home::Goal { goal: paused.0 },
+            run: Some(paused.1),
+            step: None,
+            instructions: "left behind".into(),
+            state: WorkItemState::Open,
+            project: None,
+            harness_candidates: vec!["mock".into()],
+            model: None,
+            effort: None,
+            output_schema: None,
+            budget: Default::default(),
+            assignees: vec![],
+            tier_ceiling: bisa_core::ToolTier::Write,
+            agent: None,
+            spawn_allowlist: vec![],
+            depth_budget: 0,
+            result_attempts: 0,
+            interruptions: 0,
+        };
+        ws.put_work_item(&orphan).unwrap();
+        let before = ws.get_run(forked.1).unwrap();
+        assert_eq!(before.steps[&sid("a")].state, StepState::Running);
+        assert_eq!(before.steps[&sid("b")].state, StepState::Running);
+        assert_eq!(
+            ws.get_run(paused.1).unwrap().steps[&sid("ok")].state,
+            StepState::Waiting
+        );
+        (forked, paused)
+    };
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let failed = finished_run(&engine, forked.0).await;
+    assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{failed:?}");
+    assert_eq!(failed.steps[&sid("a")].state, StepState::Failed);
+    assert_ne!(failed.steps[&sid("b")].state, StepState::Running);
+    let noted = notes(&engine, forked.0);
+    assert!(
+        noted
+            .iter()
+            .any(|n| n.contains("`a` failed — no retries left")),
+        "{noted:?}"
+    );
+    let still = engine.workspace().get_run(paused.1).unwrap();
+    assert_eq!(still.steps[&sid("ok")].state, StepState::Waiting);
+    let noted = notes(&engine, paused.0);
+    assert!(
+        !noted.iter().any(|n| n.contains("interrupted")),
+        "no step to interrupt: {noted:?}"
+    );
+    assert!(
+        noted
+            .iter()
+            .any(|n| n.contains("1 work item created just before it, named by no step, cancelled")),
+        "the orphan alone is said: {noted:?}"
+    );
+    let items = items_of(&engine, paused.0);
+    assert!(
+        matches!(items[0].state, WorkItemState::Cancelled),
+        "{items:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A run whose snapshot this build cannot read, and a run whose work items
+/// it cannot list, each cost the walk that one: the engine starts, says so,
+/// and goes on with the rest.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_or_its_items_the_walk_cannot_read_cost_only_that_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let (torn, itemless, fine) = {
+        let ws = store(&dir);
+        let torn = staged_run(&ws, "torn", vec![agent_step("work", "mock")]);
+        let itemless = staged_run(&ws, "itemless", vec![agent_step("work", "mock")]);
+        let fine = staged_run(&ws, "fine", vec![agent_step("work", "mock")]);
+        let paths = Paths::new(dir.path());
+        let snapshot = paths.state_dir(&Paths::ns_goal(torn.0)).join(format!(
+            "{}-{}.json",
+            bisa_core::kind::KIND_WORKFLOW_RUN,
+            torn.1
+        ));
+        std::fs::write(&snapshot, b"{torn").unwrap();
+        let item = paths.state_dir(&Paths::ns_goal(itemless.0)).join(format!(
+            "{}-{}.json",
+            bisa_core::kind::KIND_WORK_ITEM,
+            WorkItemId::from_ulid(ulid::Ulid::from_parts(7, 7))
+        ));
+        std::fs::write(&item, b"{torn").unwrap();
+        (torn, itemless, fine)
+    };
+    let engine = engine_with(&dir, vec![yielding("mock", json!({"ok": true}))]);
+    let done = finished_run(&engine, fine.0).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+    assert!(matches!(
+        engine.workspace().get_run(torn.1),
+        Err(bisa_store::StoreError::Unreadable { .. })
+    ));
+    assert!(
+        engine.workspace().get_run(itemless.1).is_ok(),
+        "the run with the torn item is still a run"
+    );
+    engine.shutdown().await;
+}
+
+/// The dead questions: a journal nobody may read holds none the walk can
+/// see; one nobody may write keeps its question, said, and the walk goes on.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_journal_the_walk_cannot_read_or_write_costs_only_its_questions() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let (sealed, read_only) = {
+        let ws = store(&dir);
+        let ask = |statement: &str| {
+            let goal = ws
+                .create_goal(bisa_store::NewGoal::captured(statement))
+                .unwrap()
+                .id;
+            ws.append_journal(
+                &bisa_core::Home::Goal { goal },
+                JournalPayload::Question {
+                    work_item: None,
+                    gate: "permission:Bash".into(),
+                    text: "run it?".into(),
+                    expects: bisa_core::AskKind::Decision,
+                },
+                ws.owner_keys(),
+                None,
+            )
+            .unwrap();
+            goal
+        };
+        (ask("sealed"), ask("read only"))
+    };
+    let journal_of = |goal| paths.goal(goal).journal();
+    std::fs::set_permissions(journal_of(sealed), std::fs::Permissions::from_mode(0o000)).unwrap();
+    std::fs::set_permissions(
+        journal_of(read_only),
+        std::fs::Permissions::from_mode(0o444),
+    )
+    .unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    std::fs::set_permissions(journal_of(sealed), std::fs::Permissions::from_mode(0o644)).unwrap();
+    std::fs::set_permissions(
+        journal_of(read_only),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    for goal in [sealed, read_only] {
+        let facts = engine
+            .workspace()
+            .journal(&bisa_core::Home::Goal { goal })
+            .unwrap();
+        assert!(
+            !facts
+                .iter()
+                .any(|f| matches!(f.payload, JournalPayload::Withdrawn { .. })),
+            "nothing was withdrawn: {facts:?}"
+        );
+    }
+    engine.shutdown().await;
+}

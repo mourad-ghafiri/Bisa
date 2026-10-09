@@ -185,4 +185,17 @@ mod tests {
             "pull_request_message"
         );
     }
+
+    // added by the coverage pass: session.rs
+
+    #[test]
+    fn every_ask_purpose_has_its_wire_word() {
+        assert_eq!(AskPurpose::Classifier.as_str(), "classifier");
+        assert_eq!(AskPurpose::Decision { point: None }.as_str(), "decision");
+        assert_eq!(AskPurpose::CommitMessage.as_str(), "commit_message");
+        assert_eq!(
+            AskPurpose::PullRequestMessage.as_str(),
+            "pull_request_message"
+        );
+    }
 }

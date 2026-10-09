@@ -1330,4 +1330,211 @@ mod tests {
             assert_eq!(SignalSource::parse(s).unwrap().as_str(), s);
         }
     }
+
+    // added by the coverage pass: listen.rs
+
+    #[test]
+    fn the_wire_words_of_a_pause_a_source_a_change_an_end_and_a_sender() {
+        assert_eq!(PauseReason::BudgetSpent.as_str(), "budget_spent");
+        for source in [
+            SignalSource::Schedule,
+            SignalSource::Hook,
+            SignalSource::Message,
+            SignalSource::Signal,
+            SignalSource::Project,
+            SignalSource::Run,
+            SignalSource::Platform,
+            SignalSource::Connector,
+            SignalSource::Check,
+            SignalSource::Test,
+        ] {
+            assert_eq!(SignalSource::parse(source.as_str()), Some(source));
+        }
+        assert_eq!(SignalSource::parse("nope"), None);
+        for (change, word) in [
+            (ProjectChange::Commit, "commit"),
+            (ProjectChange::Push, "push"),
+            (ProjectChange::PullRequest, "pull_request"),
+            (ProjectChange::Merge, "merge"),
+            (ProjectChange::Files, "files"),
+        ] {
+            assert_eq!(change.as_str(), word);
+        }
+        for (end, word) in [
+            (RunEnd::Done, "done"),
+            (RunEnd::Failed, "failed"),
+            (RunEnd::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(end.as_str(), word);
+        }
+        let someone = MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("triager".into())));
+        assert_eq!(
+            (
+                MessageFrom::You.as_str(),
+                MessageFrom::Agents.as_str(),
+                someone.as_str()
+            ),
+            ("you", "agents", "someone")
+        );
+    }
+
+    #[test]
+    fn a_goal_host_names_its_goal_and_a_host_is_read_from_json_as_its_word() {
+        let host = ListenerHost::Goal { goal: goal(1) };
+        assert_eq!(host.goal(), Some(goal(1)));
+        assert_eq!(ListenerHost::Workspace { workflow: wf(1) }.goal(), None);
+        let read: ListenerHost = serde_json::from_value(json!(host.to_string())).unwrap();
+        assert_eq!(read, host);
+        assert!(serde_json::from_value::<ListenerHost>(json!("planet:x")).is_err());
+    }
+
+    #[test]
+    fn a_message_filter_reads_a_mention_input_and_hears_nobody_through_an_unresolved_sender_or_a_mention_the_message_lacks(
+    ) {
+        let input = InputName::new("who").unwrap();
+        let filter = MessageFilter {
+            mentions: Some(ValueRef::Input {
+                input: input.clone(),
+            }),
+            ..MessageFilter::default()
+        };
+        assert_eq!(filter.input_refs(), vec![(&input, "assignee")]);
+        let msg = heard(
+            SignalSource::Message,
+            None,
+            json!({"scope": "s", "author": "aa", "author_kind": "you", "mentions": [], "text": "hi"}),
+        );
+        let unresolved = MessageFilter {
+            from: MessageFrom::Someone(ValueRef::Input { input }),
+            ..MessageFilter::default()
+        };
+        assert!(
+            !unresolved.hears(&msg),
+            "an unresolved sender hears nothing"
+        );
+        let hex = "bb".repeat(32);
+        let person: Assignee = format!("human:{hex}").parse().unwrap();
+        let mentions_a_person = MessageFilter {
+            mentions: Some(ValueRef::Fixed(person)),
+            ..MessageFilter::default()
+        };
+        assert!(
+            !mentions_a_person.hears(&msg),
+            "a person the message does not mention"
+        );
+    }
+
+    // added by the coverage pass: b4-listen.rs
+    #[test]
+    fn a_host_writes_as_its_word_a_scope_names_its_goal_a_project_filter_reads_its_input_and_a_person_is_heard_by_their_key(
+    ) {
+        let host = ListenerHost::Goal { goal: goal(2) };
+        let word = host.to_string();
+        assert_eq!(serde_json::to_value(host).unwrap(), json!(word));
+        assert_eq!(SignalScope::Goal { goal: goal(2) }.goal(), Some(goal(2)));
+        assert_eq!(SignalScope::Workspace.goal(), None);
+        let repo = InputName::new("repo").unwrap();
+        let filter = ProjectFilter {
+            project: Some(ValueRef::Input {
+                input: repo.clone(),
+            }),
+            ..ProjectFilter::default()
+        };
+        assert_eq!(filter.input_refs(), vec![(&repo, "project")]);
+        assert_eq!(filter.project_id(), None);
+        assert!(
+            !RunFilter::default().hears(&heard(SignalSource::Signal, Some("x"), json!({}))),
+            "a run filter hears runs alone"
+        );
+        assert!(
+            !ProjectFilter::default().hears(&heard(SignalSource::Signal, Some("x"), json!({}))),
+            "a project filter hears projects alone"
+        );
+        let hex = "bb".repeat(32);
+        let person: Assignee = format!("human:{hex}").parse().unwrap();
+        let from_them = MessageFilter {
+            from: MessageFrom::Someone(ValueRef::Fixed(person)),
+            ..MessageFilter::default()
+        };
+        let theirs = heard(
+            SignalSource::Message,
+            None,
+            json!({"scope": "s", "author": hex, "author_kind": "person", "mentions": [], "text": "hi"}),
+        );
+        assert!(from_them.hears(&theirs));
+    }
+
+    #[test]
+    fn a_filter_resolves_its_fixed_parts_as_themselves_and_its_templates_through_the_renderer() {
+        let render = |t: &str| -> Result<String, String> { Ok(t.replace("{x}", "X")) };
+        let input = |n: &InputName| -> Result<Assignee, String> { Err(format!("{n} is not read")) };
+        let fixed = MessageFilter {
+            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("a".into()))),
+            mentions: Some(ValueRef::Fixed(Assignee::Agent("b".into()))),
+            ..MessageFilter::default()
+        };
+        assert_eq!(fixed.resolve(&render, &input).unwrap(), fixed);
+        let you = MessageFilter::default();
+        assert_eq!(you.resolve(&render, &input).unwrap(), you);
+        let platform = PlatformFilter {
+            topic: "t".into(),
+            fields: BTreeMap::from([("k".to_string(), "{x}".to_string())]),
+        };
+        assert_eq!(
+            platform.resolve(&render).unwrap().fields["k"],
+            "X",
+            "a platform filter's fields are templates"
+        );
+        let signal = SignalFilter {
+            name: "s.{x}".into(),
+            fields: BTreeMap::from([("k".to_string(), "{x}".to_string())]),
+        };
+        let resolved = signal.resolve(&render).unwrap();
+        assert_eq!(
+            (resolved.name.as_str(), resolved.fields["k"].as_str()),
+            ("s.X", "X")
+        );
+    }
+
+    #[test]
+    fn the_hand_written_schemas_of_the_listening_words_are_a_string_or_a_choice() {
+        for schema in [
+            schemars::schema_for!(ListenerHost),
+            schemars::schema_for!(ListenerKey),
+        ] {
+            let v = serde_json::to_value(&schema).unwrap();
+            assert_eq!(v["type"], "string", "{v}");
+            assert!(v["description"].as_str().is_some_and(|d| !d.is_empty()));
+        }
+        let from = serde_json::to_value(schemars::schema_for!(MessageFrom)).unwrap();
+        assert!(from["anyOf"].is_array(), "{from}");
+    }
+
+    // added by the coverage pass: b5-listen.rs
+    #[test]
+    fn a_message_from_one_agent_is_heard_by_its_id_and_a_fixed_project_resolves_as_itself() {
+        let from_agent = MessageFilter {
+            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("dev".into()))),
+            ..MessageFilter::default()
+        };
+        let theirs = |author: &str| {
+            heard(
+                SignalSource::Message,
+                None,
+                json!({"scope": "s", "author": author, "author_kind": "agent", "mentions": [], "text": "hi"}),
+            )
+        };
+        assert!(from_agent.hears(&theirs("dev")));
+        assert!(!from_agent.hears(&theirs("ops")));
+        let fixed = ProjectFilter {
+            project: Some(ValueRef::Fixed(ProjectId::from_ulid(
+                ulid::Ulid::from_parts(3, 1),
+            ))),
+            ..ProjectFilter::default()
+        };
+        let render = |t: &str| -> Result<String, String> { Ok(t.to_string()) };
+        let input =
+            |n: &InputName| -> Result<ProjectId, String> { Err(format!("{n} is not read")) };
+        assert_eq!(fixed.resolve(&render, &input).unwrap(), fixed);
+    }
 }

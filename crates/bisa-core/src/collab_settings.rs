@@ -478,4 +478,27 @@ mod tests {
             .to_string()
             .contains("not-a-url")
     }
+
+    // added by the coverage pass: collab_settings.rs
+
+    #[test]
+    fn a_policy_word_nobody_knows_is_none_and_a_relay_entry_that_is_no_text_is_passed_over() {
+        assert_eq!(JoinPolicy::parse("maybe"), None);
+        assert_eq!(OutsiderTools::parse("maybe"), None);
+        let sync = SyncSettings::from_resolved(&resolved(&[(
+            keys::SYNC_RELAYS,
+            json!([7, "wss://relay.example", "wss://relay.example", "http://no"]),
+        )]));
+        assert_eq!(sync.relays, vec!["wss://relay.example".to_string()]);
+    }
+
+    // added by the coverage pass: b5-collab_settings.rs
+    #[test]
+    fn a_relay_list_that_is_not_a_list_carries_nothing() {
+        let settings = SyncSettings::from_resolved(&resolved(&[(
+            keys::SYNC_RELAYS,
+            json!("wss://one.example"),
+        )]));
+        assert!(settings.relays.is_empty());
+    }
 }

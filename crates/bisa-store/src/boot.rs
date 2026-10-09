@@ -41,3 +41,19 @@ pub struct Quiet;
 impl BootObserver for Quiet {
     fn phase(&self, _phase: BootPhase) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_phase_has_its_word_and_the_quiet_observer_hears_nothing() {
+        assert_eq!(BootPhase::OpeningWorkspace.name(), "opening_workspace");
+        assert_eq!(
+            BootPhase::RebuildingIndex { done: 1, of: 3 }.name(),
+            "rebuilding_index"
+        );
+        assert_eq!(BootPhase::StartingEngine.name(), "starting_engine");
+        Quiet.phase(BootPhase::StartingEngine);
+    }
+}

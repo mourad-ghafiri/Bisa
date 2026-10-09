@@ -105,11 +105,13 @@ impl Workspace {
             .note_scope(&id.to_string())?
             .ok_or_else(|| not_found(id))?;
         let scope = OwnerScope::from_parts(&kind, scope_id.as_deref()).ok_or_else(|| {
+            // LCOV_EXCL_START: the cache's CHECK admits only the six scope kinds `from_parts` reads (`check_constraints_mirror_the_core_enums`)
             StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-bad-note-scope-index",
                 kind = kind.to_string(),
                 scope_id = format!("{scope_id:?}")
             ))
+            // LCOV_EXCL_STOP
         })?;
         self.read_note(&scope, id)
     }
@@ -138,8 +140,10 @@ impl Workspace {
                 continue;
             };
             let Some(scope) = OwnerScope::from_parts(&kind, scope_id.as_deref()) else {
+                // LCOV_EXCL_START: the cache's CHECK admits only the six scope kinds `from_parts` reads (`check_constraints_mirror_the_core_enums`)
                 tracing::warn!("note {note_id}: bad scope in index: {kind} {scope_id:?}");
                 continue;
+                // LCOV_EXCL_STOP
             };
             match self.read_note(&scope, note_id) {
                 Ok(def) => out.push(def),
@@ -245,7 +249,7 @@ impl Workspace {
         if let Err(e) = std::fs::remove_file(&path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 return Err(StoreError::io(path.display().to_string(), e));
-            }
+            } // LCOV_EXCL_LINE: `get_note` above read the file; gone only under a concurrent delete
         }
         self.idx().delete_note(&id.to_string())
     }
@@ -368,4 +372,205 @@ fn read_note_file(path: &Path, id: NoteId, scope: OwnerScope) -> Result<Note, Re
         }
     })?;
     Note::from_markdown(id, scope, &text).map_err(ReadError::Unreadable)
+}
+
+// added by the coverage pass: notes_mod.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+
+    fn ws() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        (dir, ws)
+    }
+
+    // --- the notes module's remaining arms ---
+
+    /// A note whose file is gone, nobody may read, or is no note: each is
+    /// refused in its own words on a read and skipped, said, by a list. A
+    /// row that names no note is skipped. The writer recovers from poison.
+    #[test]
+    fn a_notes_file_that_is_gone_unreadable_or_no_note_is_refused_by_name_and_skipped_by_a_list() {
+        let (_d, ws) = ws();
+        let note = ws
+            .create_note(NewNote {
+                scope: OwnerScope::Workspace,
+                title: "Kept".into(),
+                body: "words".into(),
+            })
+            .unwrap();
+        let odd = ws
+            .create_note(NewNote {
+                scope: OwnerScope::Workspace,
+                title: "Odd".into(),
+                body: "words".into(),
+            })
+            .unwrap();
+        let path = ws.note_path(&OwnerScope::Workspace, note.id).unwrap();
+        std::fs::write(&path, b"no front matter here").unwrap();
+        let err = ws.get_note(note.id).unwrap_err();
+        assert!(
+            matches!(&err, StoreError::Unreadable { what, .. } if *what == "note"),
+            "{err:?}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.get_note(note.id);
+            let listed = ws.list_notes(OwnerFilter::All);
+            let rebuilt = ws.rebuild_index();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(
+                matches!(unreadable, Err(StoreError::Io { .. })),
+                "{unreadable:?}"
+            );
+            let listed = listed.unwrap();
+            assert_eq!(
+                listed.len(),
+                1,
+                "the list skips what it cannot read: {listed:?}"
+            );
+            assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+            // The rebuild that stopped left the cache half-built, as a crash
+            // would: the next one, with the file readable again, completes it.
+            ws.rebuild_index().unwrap();
+        }
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            ws.get_note(note.id),
+            Err(StoreError::DefinitionNotFound { kind: "note", .. })
+        ));
+        assert_eq!(ws.list_notes(OwnerFilter::All).unwrap().len(), 1);
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE notes SET id = 'not-a-note' WHERE id = '{}'",
+                odd.id
+            ))
+            .unwrap();
+        assert!(ws.list_notes(OwnerFilter::All).unwrap().is_empty());
+        ws.rebuild_index().unwrap();
+        let ws = std::sync::Arc::new(ws);
+        let poisoner = std::sync::Arc::clone(&ws);
+        let poisoned = std::thread::spawn(move || {
+            let _writer = poisoner.note_writer();
+            panic!("poison the notes writer on purpose");
+        })
+        .join();
+        assert!(poisoned.is_err());
+        let renamed = ws
+            .update_note(
+                odd.id,
+                NotePatch {
+                    title: Some("Odd still".into()),
+                    ..Default::default()
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(renamed.title, "Odd still");
+    }
+
+    /// What the rebuild walks past in a notes folder: a stray file, a goal
+    /// note whose goal cannot be indexed; what a deletion refuses: a file
+    /// or a folder nobody may remove.
+    #[test]
+    fn the_rebuild_walks_past_strays_and_orphans_and_a_deletion_names_what_it_cannot_remove() {
+        let (_d, ws) = ws();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("noted"))
+            .unwrap();
+        let of_goal = ws
+            .create_note(NewNote {
+                scope: OwnerScope::Goal { id: goal.id },
+                title: "Of the goal".into(),
+                body: "words".into(),
+            })
+            .unwrap();
+        let folder = ws
+            .note_path(&OwnerScope::Goal { id: goal.id }, of_goal.id)
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        std::fs::write(folder.join("README.md"), b"not a note").unwrap();
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.list_notes(OwnerFilter::All).unwrap().len(), 1);
+        // The goal's snapshot torn: the goal has no row, so its note is an
+        // orphan the rebuild leaves on disk and out of the cache.
+        let snapshot = ws.paths.state_dir(&Paths::ns_goal(goal.id)).join(format!(
+            "{}-{}.json",
+            bisa_core::kind::KIND_GOAL,
+            goal.id
+        ));
+        let kept = std::fs::read(&snapshot).unwrap();
+        std::fs::write(&snapshot, b"{torn").unwrap();
+        ws.rebuild_index().unwrap();
+        assert!(ws.list_notes(OwnerFilter::All).unwrap().is_empty());
+        std::fs::write(&snapshot, kept).unwrap();
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.list_notes(OwnerFilter::All).unwrap().len(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let unremovable = ws.delete_note(of_goal.id);
+            let parent = folder.parent().unwrap().to_path_buf();
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let unremovable_folder = ws.remove_notes_of(OwnerScope::Goal { id: goal.id }, &folder);
+            std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                matches!(unremovable, Err(StoreError::Io { .. })),
+                "{unremovable:?}"
+            );
+            assert!(
+                matches!(unremovable_folder, Err(StoreError::Io { .. })),
+                "{unremovable_folder:?}"
+            );
+        }
+    }
+
+    // added by the coverage pass: notes-s7.rs
+
+    /// A note whose file is gone while its row stands is refused as not
+    /// found — by a read and by a deletion alike — and skipped by a list.
+    #[test]
+    fn a_note_whose_file_is_gone_is_not_found_and_skipped_by_a_list() {
+        let (_d, ws) = ws();
+        let gone = ws
+            .create_note(NewNote {
+                scope: OwnerScope::Workspace,
+                title: "Gone".into(),
+                body: "words".into(),
+            })
+            .unwrap();
+        let kept = ws
+            .create_note(NewNote {
+                scope: OwnerScope::Workspace,
+                title: "Kept".into(),
+                body: "words".into(),
+            })
+            .unwrap();
+        std::fs::remove_file(ws.note_path(&OwnerScope::Workspace, gone.id).unwrap()).unwrap();
+        assert!(matches!(
+            ws.get_note(gone.id),
+            Err(StoreError::DefinitionNotFound { kind: "note", .. })
+        ));
+        assert_eq!(
+            ws.list_notes(OwnerFilter::All)
+                .unwrap()
+                .iter()
+                .map(|n| n.id)
+                .collect::<Vec<_>>(),
+            vec![kept.id]
+        );
+        assert!(matches!(
+            ws.delete_note(gone.id),
+            Err(StoreError::DefinitionNotFound { kind: "note", .. })
+        ));
+    }
 }

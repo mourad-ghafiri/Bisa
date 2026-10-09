@@ -1,6 +1,6 @@
 //! One engine per workspace.
 
-use bisa_engine::{Engine, EngineConfig, EngineError};
+use bisa_engine::{Engine, EngineConfig, EngineError, EngineLock};
 use bisa_harness::HarnessCatalog;
 use bisa_store::{MemoryKeyStore, Paths, Workspace};
 
@@ -100,4 +100,15 @@ fn the_lock_file_is_private_to_the_owner() {
             & 0o777;
         assert_eq!(mode, 0o600, "run/engine.lock is 0600");
     }
+}
+
+// added by the coverage pass
+
+#[test]
+fn the_lock_names_the_file_it_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let lock = EngineLock::acquire(&paths).unwrap();
+    assert_eq!(lock.path(), paths.engine_lock());
+    assert!(lock.path().ends_with("engine.lock"));
 }

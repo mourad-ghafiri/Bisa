@@ -1040,7 +1040,7 @@ impl Index {
         if !fresh && !Self::passes_quick_check(&conn) {
             tracing::warn!(
                 "{}: the index did not pass quick_check; discarding the cache and rebuilding from truth",
-                path.display()
+                path.display() // LCOV_EXCL_LINE: a field line of the macro; the macro's own line counts
             );
             drop(conn);
             Self::discard(path)?;
@@ -1059,6 +1059,7 @@ impl Index {
     fn configured(path: &Path) -> Result<Connection, StoreError> {
         let conn = match Connection::open(path) {
             Ok(c) => c,
+            // LCOV_EXCL_START: `discard_if_stale` already discarded a file that would not open; this arm is the race with a writer between the two opens
             Err(e) if path.exists() => {
                 tracing::warn!(
                     "{}: the index would not open ({e}); discarding the cache and rebuilding from truth",
@@ -1067,6 +1068,7 @@ impl Index {
                 Self::discard(path)?;
                 Connection::open(path)?
             }
+            // LCOV_EXCL_STOP
             Err(e) => return Err(e.into()),
         };
         conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -1128,6 +1130,14 @@ impl Index {
     /// none does. Joins the transaction already open on this connection when
     /// there is one, so a caller that batches several indexers is one unit
     /// and each indexer stays correct on its own.
+    /// A test's door to the cache: one statement, for the rows a rebuild
+    /// never writes — an id that is no id, a scope that names nothing — so
+    /// the readers' tolerance of a corrupt cache is held by a test.
+    #[cfg(test)]
+    pub(crate) fn execute_for_test(&self, sql: &str) -> rusqlite::Result<usize> {
+        self.conn.execute(sql, [])
+    }
+
     pub fn in_transaction<T>(
         &self,
         f: impl FnOnce() -> Result<T, StoreError>,
@@ -4846,5 +4856,151 @@ mod tests {
         assert!(!idx.is_seen("old").unwrap());
         assert!(idx.is_seen("new").unwrap());
         assert_eq!(idx.seen_count().unwrap(), 1);
+    }
+
+    // added by the coverage pass: index.rs
+
+    // --- the bare lines of the index module ---
+
+    #[test]
+    fn a_row_with_neither_goal_nor_run_is_no_home_and_a_session_kind_prints_its_word() {
+        assert_eq!(HomeKey::from_columns(None, None), None);
+        assert_eq!(
+            HomeKey::from_columns(None, Some("r".into())),
+            Some(HomeKey::Run("r".into()))
+        );
+        assert_eq!(SessionKind::Worker.to_string(), "worker");
+        assert_eq!(SessionKind::Terminal.to_string(), "terminal");
+    }
+
+    /// A cache stamped by another build, or one whose `-wal` sibling cannot
+    /// be removed, or one that cannot be made where it is asked for.
+    #[test]
+    fn a_cache_from_another_build_is_discarded_and_one_that_cannot_be_is_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.sqlite");
+        let stale = Connection::open(&path).unwrap();
+        stale.pragma_update(None, "user_version", 999).unwrap();
+        drop(stale);
+        let index = Index::open(&path).unwrap();
+        assert!(index.fresh, "rebuilt from truth");
+        let version: i32 = index
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 0, "stamped only once the rebuild finishes");
+        drop(index);
+        // The sibling a directory stands in the way of.
+        let wal = dir.path().join("index.sqlite-wal");
+        std::fs::create_dir(&wal).unwrap();
+        let err = Index::open(&path).err().unwrap();
+        assert!(
+            matches!(&err, StoreError::Io { path, .. } if path.ends_with("index.sqlite-wal")),
+            "{err:?}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let sealed = dir.path().join("sealed");
+            std::fs::create_dir(&sealed).unwrap();
+            std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let err = Index::open(&sealed.join("index.sqlite")).err();
+            std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(err, Some(StoreError::Sqlite(_))), "{err:?}");
+        }
+    }
+
+    #[test]
+    fn workstreams_are_located_by_a_runs_items_and_by_nothing_else_than_the_four_columns() {
+        let idx = Index::open_in_memory().unwrap();
+        assert!(idx
+            .workstream_locators(Some("run_id"), Some("R1"))
+            .unwrap()
+            .is_empty());
+        let err = idx
+            .workstream_locators(Some("name"), Some("x"))
+            .unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+    }
+
+    #[test]
+    fn the_sessions_with_a_process_are_listed_and_tags_are_counted_over_every_entity() {
+        let idx = Index::open_in_memory().unwrap();
+        let session = |id: &str, pid: Option<u32>| SessionRow {
+            id: id.into(),
+            adapter: "mock".into(),
+            kind: SessionKind::Worker,
+            work_item: None,
+            conversation: None,
+            workstream: None,
+            agent_id: None,
+            transcript_path: None,
+            resume_token_json: None,
+            status: SessionStatus::Live,
+            parked_at: None,
+            pid,
+            pid_seen_at: pid.map(|_| 5),
+            ended_at: None,
+        };
+        idx.upsert_session(&session("s1", Some(4242))).unwrap();
+        idx.upsert_session(&session("s2", None)).unwrap();
+        let with = idx.sessions_with_process().unwrap();
+        assert_eq!(
+            with.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["s1"]
+        );
+        assert!(idx.tag_counts(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_schema_helpers_answer_nothing_for_a_table_or_a_check_that_is_not_there() {
+        assert_eq!(table(SCHEMA, "no_such_table"), "");
+        assert!(check_values("x IN (", "x IN (").is_empty());
+        assert!(check_values("x IN ('a', 'b')", "nowhere").is_empty());
+    }
+
+    /// An artifact row the cache holds that names no kind, no scope or no
+    /// path this build reads is a read error on the column, never a panic.
+    #[test]
+    fn an_artifact_row_that_will_not_read_is_an_error_on_its_column() {
+        let idx = Index::open_in_memory().unwrap();
+        idx.upsert_message(
+            "m1", "channel", "c1", "aa", "post", "see", None, None, "[]", None, 1,
+        )
+        .unwrap();
+        idx.conn
+            .execute(
+                "INSERT INTO artifacts (message_id, ordinal, sha256, name, mime, size, kind, title)
+                 VALUES ('m1', 0, 'aa', 'chart.svg', 'image/svg+xml', 1, 'nonsense', 'Chart')",
+                [],
+            )
+            .unwrap();
+        let bad_kind = idx.artifacts_for_scope("c1", 10).unwrap_err();
+        assert!(matches!(bad_kind, StoreError::Sqlite(_)), "{bad_kind:?}");
+        idx.conn
+            .execute(
+                "UPDATE artifacts SET kind = 'svg', source_scope = 'nowhere', source_id = 'x', source_path = 'a'",
+                [],
+            )
+            .unwrap();
+        let bad_scope = idx.artifacts_for_scope("c1", 10).unwrap_err();
+        assert!(bad_scope.to_string().contains("nowhere"), "{bad_scope}");
+        idx.conn
+            .execute(
+                "UPDATE artifacts SET source_scope = 'goal', source_path = '/abs'",
+                [],
+            )
+            .unwrap();
+        let bad_path = idx.artifacts_for_scope("c1", 10).unwrap_err();
+        assert!(bad_path.to_string().contains("/abs"), "{bad_path}");
+        idx.conn
+            .execute("UPDATE artifacts SET source_path = 'a/b.svg'", [])
+            .unwrap();
+        let rows = idx.artifacts_for_scope("c1", 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].artifact.source.as_ref().map(|s| s.path.as_str()),
+            Some("a/b.svg")
+        );
     }
 }

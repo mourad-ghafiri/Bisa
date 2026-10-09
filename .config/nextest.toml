@@ -18,3 +18,16 @@ journeys = { max-threads = 2 }
 filter = 'package(bisa-cli) & test(/^e2e::/)'
 test-group = 'journeys'
 slow-timeout = { period = "60s", terminate-after = 4 }
+
+# Under the coverage meter (`scripts/coverage/measure`, when nextest is in the
+# tree) every binary is instrumented and slower: the same rules with the
+# windows doubled, so a journey that holds under `default` is not ended for
+# being measured. A custom profile inherits what it does not say.
+# (https://nexte.st/docs/configuration/#profiles)
+[profile.coverage]
+slow-timeout = { period = "60s", terminate-after = 4 }
+
+[[profile.coverage.overrides]]
+filter = 'package(bisa-cli) & test(/^e2e::/)'
+test-group = 'journeys'
+slow-timeout = { period = "120s", terminate-after = 4 }

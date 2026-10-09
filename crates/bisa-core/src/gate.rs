@@ -90,4 +90,12 @@ mod tests {
         assert!("acceptance".parse::<Gate>().is_err());
         assert_eq!(Gate::ALL.len(), 3);
     }
+
+    // added by the coverage pass: b5-gate.rs
+    #[test]
+    fn a_gate_prints_as_its_word() {
+        for gate in Gate::ALL {
+            assert_eq!(gate.to_string(), gate.as_str());
+        }
+    }
 }

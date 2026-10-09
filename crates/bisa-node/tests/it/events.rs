@@ -2102,3 +2102,98 @@ async fn a_listener_that_failed_is_a_notice_on_its_hosts_row() {
 
     node.shutdown().await;
 }
+
+/// A run begun by another run's end says which run ended: that run's
+/// workflow by name, and its number among the workflow's runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_begun_by_a_runs_end_names_the_run_that_ended() {
+    let node = Node::start().await;
+    let nightly = node
+        .workflow(json!({
+            "name": "Nightly report",
+            "steps": [{"id": "say", "name": "Say", "kind": "notify", "template": "reported"}]
+        }))
+        .await;
+    let follow = node
+        .workflow(json!({
+            "name": "After the report",
+            "steps": [
+                {"id": "ended", "name": "A report ended", "kind": "start",
+                 "on": {"event": "run", "workflow": nightly, "outcome": "done"},
+                 "then": ["hold"]},
+                hold(),
+            ]
+        }))
+        .await;
+    node.turn_on(&follow, json!({})).await;
+    node.ok(
+        "POST",
+        &format!("/workflows/{nightly}/runs"),
+        Some(json!({})),
+    )
+    .await;
+    let ended = node
+        .until(
+            "the report to end",
+            &format!("/workflows/{nightly}/runs"),
+            |v| {
+                let run = v["runs"].as_array()?.first()?;
+                (run["outcome"] == json!("done")).then(|| run["id"].as_str().unwrap().to_string())
+            },
+        )
+        .await;
+    // The ear is fed by hand here (`events_enabled: false`): the end of the
+    // run, as the bus would say it.
+    let run = node.ws.get_run(ended.parse().unwrap()).unwrap();
+    bisa_engine::listen::ear::on_event(
+        &node.inner,
+        &bisa_engine::EngineEvent::of_run(
+            &run,
+            None,
+            bisa_engine::EnginePayload::RunFinished {
+                run: run.id,
+                workflow: run.workflow.id,
+                outcome: run.outcome.unwrap(),
+            },
+        ),
+    );
+    node.drain().await;
+    let runs = runs_of(&node, &follow, 1).await;
+    assert_eq!(runs[0]["started_by"]["by"], json!("event"), "{}", runs[0]);
+    let detail = runs[0].to_string();
+    assert!(detail.contains("Nightly report #1"), "{detail}");
+    node.shutdown().await;
+}
+
+/// A goal with no workflow has no listeners to show; a public call to a
+/// hook start that takes none has no secret to be verified against and is
+/// refused as unauthorized, saying no more.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goal_with_no_workflow_lists_no_listeners_and_a_local_hook_takes_no_public_call() {
+    let node = Node::start().await;
+    let made = node
+        .ok(
+            "POST",
+            "/goals",
+            Some(json!({"statement": "listens to nothing"})),
+        )
+        .await;
+    let goal = made["goal"]["id"].as_str().expect("the goal").to_string();
+    let listeners = node
+        .ok("GET", &format!("/goals/{goal}/listeners"), None)
+        .await;
+    assert_eq!(listeners, json!([]), "{listeners}");
+
+    node.set_machine("events.public_hooks", json!(true)).await;
+    let wf = node.workflow(hook_workflow("local only", false)).await;
+    node.turn_on(&wf, json!({})).await;
+    let r = node
+        .outside(
+            &public_path(&wf),
+            &[],
+            json!({"subject": "knock"}).to_string(),
+        )
+        .await;
+    assert_eq!(r.status, 401, "{}", r.raw);
+    node.shutdown().await;
+}

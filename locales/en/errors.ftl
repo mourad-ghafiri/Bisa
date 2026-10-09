@@ -165,7 +165,7 @@ error-core-review-note-empty-body = a review note needs a body
 
 # RunError
 error-core-run-not-started = the run has not started
-error-core-run-no-start = the workflow has no start step; a run cannot begin
+error-core-run-no-start = the run has no way in: its start is gone, or the workflow has no start by hand
 error-core-run-amend-changes-workflow = the amendment is workflow { $got }, but this run is running { $expected }
 error-core-run-amend-needs-input = the amendment cannot bind this run's inputs: { $v0 }
 error-core-run-already-started = the run has already started

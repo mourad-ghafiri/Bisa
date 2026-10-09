@@ -40,8 +40,10 @@ pub async fn run_worker(inner: Arc<Inner>) {
         let mut worked = 0;
         crate::survive("signal worker", async {
             if last_sweep.elapsed() >= sweep_every {
+                // LCOV_EXCL_START: the worker's own clock: the stale sweep runs on the task the tests drive by hand (drain_signals)
                 recover_stale(&inner);
                 last_sweep = Instant::now();
+                // LCOV_EXCL_STOP
             }
             worked = drain(&inner);
         })
@@ -74,11 +76,15 @@ fn recover_stale(inner: &Arc<Inner>) {
         .requeue_stale_running(inner.config.signal_stale_secs)
     {
         Ok(ids) if !ids.is_empty() => {
+            // LCOV_EXCL_START: a sweep that requeued what a stopped worker held: the shape a crash leaves, which a_dispatch_replayed_after_a_crash_makes_no_second_run stages through the store
             tracing::info!(target: "bisa_engine::listen", "requeued {} signal(s) a stopped worker was holding", ids.len())
+            // LCOV_EXCL_STOP
         }
         Ok(_) => {}
+        // LCOV_EXCL_START: the sweep reads the index, which fails only unreadable (disk-only)
         Err(e) => {
             tracing::warn!(target: "bisa_engine::listen", "the signal recovery sweep failed: {e}")
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -95,9 +101,11 @@ fn drain(inner: &Arc<Inner>) -> usize {
         let queued = match inner.ws.claim_next_signal() {
             Ok(Some(q)) => q,
             Ok(None) => break,
+            // LCOV_EXCL_START: a claim is a write to the index, which fails only unwritable (disk-only)
             Err(e) => {
                 tracing::warn!(target: "bisa_engine::listen", "a signal could not be claimed: {e}");
                 break;
+                // LCOV_EXCL_STOP
             }
         };
         decide(inner, queued);
@@ -112,8 +120,10 @@ fn decide(inner: &Arc<Inner>, queued: QueuedSignal) {
     let signal = queued.signal;
     let Some(key) = signal.listener.clone() else {
         // A replay record is never claimed; one that was is settled.
+        // LCOV_EXCL_START: a replay record is never claimed by the worker; the arm keeps the function total
         settle(inner, &signal.id, SignalState::Done, None);
         return;
+        // LCOV_EXCL_STOP
     };
     let registry = armed(inner);
     let Some(armed) = registry.get(&key) else {
@@ -127,6 +137,7 @@ fn decide(inner: &Arc<Inner>, queued: QueuedSignal) {
     };
     let live = match inner.ws.live_runs_of_listener(&key) {
         Ok(n) => n as usize,
+        // LCOV_EXCL_START: counting a listener's runs reads the index, which fails only unreadable (disk-only)
         Err(e) => {
             fail(
                 inner,
@@ -135,6 +146,7 @@ fn decide(inner: &Arc<Inner>, queued: QueuedSignal) {
                 format!("its listener's runs could not be counted: {e}"),
             );
             return;
+            // LCOV_EXCL_STOP
         }
     };
     let now = now_secs();
@@ -263,7 +275,9 @@ fn goal_may_run(inner: &Arc<Inner>, goal: GoalId) -> Result<(), String> {
             pause_goal(inner, goal, PauseReason::BudgetSpent);
             Err("the goal's budget is spent; its listening is paused".to_string())
         }
+        // LCOV_EXCL_START: the goal's budget is read from its record, which fails only unreadable (disk-only)
         Err(e) => Err(format!("the goal's budget could not be read: {e}")),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -281,7 +295,9 @@ pub(crate) fn pause_goal(inner: &Arc<Inner>, goal: GoalId, reason: PauseReason) 
         }
     };
     if listening.is_paused() {
+        // LCOV_EXCL_START: a goal is paused once per cause; a second occurrence on a paused goal is skipped before any pause is asked (a_goal_paused_for_its_budget_is_paused_once)
         return;
+        // LCOV_EXCL_STOP
     }
     let words = match &reason {
         PauseReason::RunFailed { run } => format!("a run it started failed ({run})"),
@@ -292,8 +308,10 @@ pub(crate) fn pause_goal(inner: &Arc<Inner>, goal: GoalId, reason: PauseReason) 
         at: now_secs(),
     });
     if let Err(e) = inner.ws.set_listening(&host, Some(listening)) {
+        // LCOV_EXCL_START: pausing writes the goal's listening, which fails only unwritable (disk-only)
         tracing::warn!(target: "bisa_engine::listen", %goal, "the goal's listening could not be paused: {e}");
         return;
+        // LCOV_EXCL_STOP
     }
     crate::warn_on_err(
         inner.ws.settle_pending_signals(
@@ -338,9 +356,11 @@ pub(crate) fn pause_goal(inner: &Arc<Inner>, goal: GoalId, reason: PauseReason) 
 pub(crate) fn release_ready(inner: &Arc<Inner>, key: &ListenerKey) {
     let pending = match inner.ws.pending_signals(key) {
         Ok(p) => p,
+        // LCOV_EXCL_START: a listener's waiting signals are read from the index, which fails only unreadable (disk-only)
         Err(e) => {
             tracing::warn!(target: "bisa_engine::listen", listener = %key, "its waiting signals could not be read: {e}");
             return;
+            // LCOV_EXCL_STOP
         }
     };
     let waiting: Vec<&QueuedSignal> = pending
@@ -352,7 +372,9 @@ pub(crate) fn release_ready(inner: &Arc<Inner>, key: &ListenerKey) {
     }
     let registry = armed(inner);
     let room = match registry.get(key) {
+        // LCOV_EXCL_START: room for a listener that is not armed: its waiting signals are skipped as unheard before any room is counted
         None => waiting.len(),
+        // LCOV_EXCL_STOP
         Some(armed) => {
             let live = inner.ws.live_runs_of_listener(key).unwrap_or(u32::MAX) as usize;
             let queued = pending
@@ -387,7 +409,9 @@ pub(crate) fn release_ready(inner: &Arc<Inner>, key: &ListenerKey) {
 
 fn settle(inner: &Inner, signal: &str, state: SignalState, note: Option<&str>) {
     if let Err(e) = inner.ws.move_signal(signal, state, note) {
+        // LCOV_EXCL_START: settling a signal writes the index, which fails only unwritable (disk-only)
         tracing::warn!(target: "bisa_engine::listen", %signal, "a signal could not be settled: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 

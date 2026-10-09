@@ -510,4 +510,41 @@ mod tests {
             Some("engineering"),
         );
     }
+
+    // added by the coverage pass: origin.rs
+
+    #[test]
+    fn an_agent_from_the_catalog_names_its_slug_and_a_project_origin_nobody_knows_is_refused() {
+        assert_eq!(
+            AgentOrigin::Catalog {
+                slug: "triager".into()
+            }
+            .catalog_slug(),
+            Some("triager")
+        );
+        assert_eq!(AgentOrigin::Local.catalog_slug(), None);
+        let err = serde_json::from_value::<ProjectOrigin>(serde_json::json!({"origin": "mars"}))
+            .unwrap_err();
+        assert!(err.to_string().contains("mars"), "{err}");
+    }
+
+    // added by the coverage pass: b5-origin.rs
+    #[test]
+    fn the_workspace_origins_name_nothing_and_a_step_origin_says_its_word() {
+        assert_eq!(WorkflowOrigin::Workspace.catalog_slug(), None);
+        let workspace = ProjectOrigin::Workspace;
+        assert_eq!(workspace.goal(), None);
+        assert!(workspace.step_ref().is_none());
+        assert_eq!(workspace.as_str(), "workspace");
+        let step = ProjectOrigin::Step {
+            goal: None,
+            step: StepRef {
+                run: RunId::from_ulid(ulid::Ulid::from_parts(1, 1)),
+                step: StepId::new("s").unwrap(),
+                workflow: WorkflowId::from_ulid(ulid::Ulid::from_parts(2, 1)),
+            },
+        };
+        assert_eq!(step.as_str(), "step");
+        assert_eq!(step.goal(), None);
+    }
 }

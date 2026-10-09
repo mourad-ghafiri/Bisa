@@ -154,3 +154,12 @@ test("the chip says the kind in the catalog's word, and the clock ticks exactly 
   assert.ok(card.includes("{kindWord(v.kind)}") && !card.includes(">{v.kind}<"), "the card spells no kind");
   assert.ok(card.includes("const live = ticks(v.kind);") && !card.includes('v.kind === "asking"'), "nor repeats which kinds are at work");
 });
+
+// added by the coverage pass: designStatus.test.mjs
+test("a design status this build has no words for is shown as the agent at work, in the node's word", () => {
+  const view = designView({ design: { status: "weird" } }, { mode: "guided" }, { now: 100 });
+  assert.equal(view.kind, "working");
+  assert.equal(view.tone, "quiet");
+  assert.equal(view.hint, "");
+  assert.ok(view.headline.includes("weird"), view.headline);
+});

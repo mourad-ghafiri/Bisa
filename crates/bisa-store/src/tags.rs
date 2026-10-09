@@ -42,3 +42,42 @@ impl Workspace {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+    use crate::workflows::tests::notify_workflow;
+    use bisa_core::{Tags, WorkflowOrigin};
+
+    #[test]
+    fn a_workflows_tags_are_read_back_by_its_id_and_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        let mut new = notify_workflow("Tagged");
+        new.tags = Tags::new(vec!["ops".to_string(), "nightly".to_string()]).unwrap();
+        let wf = ws.create_workflow(new, WorkflowOrigin::Workspace).unwrap();
+        let id = wf.id.to_string();
+        assert_eq!(
+            ws.tags_of(TagEntity::Workflow, &id).unwrap(),
+            ["nightly", "ops"]
+        );
+        assert_eq!(
+            ws.ids_with_tags(TagEntity::Workflow, &["ops".to_string()], TagMatch::Any)
+                .unwrap(),
+            std::slice::from_ref(&id)
+        );
+        assert!(ws
+            .ids_with_tags(TagEntity::Workflow, &[], TagMatch::All)
+            .unwrap()
+            .is_empty());
+        let counts = ws.tag_counts(Some(TagEntity::Workflow)).unwrap();
+        assert!(
+            counts
+                .iter()
+                .any(|c| c.tag == "ops" && c.count == 1 && c.entity == "workflow"),
+            "{counts:?}"
+        );
+    }
+}

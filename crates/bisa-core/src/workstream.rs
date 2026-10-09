@@ -1290,4 +1290,109 @@ mod tests {
         };
         assert_eq!(copy.label(None), copy.id.to_string());
     }
+
+    // added by the coverage pass: workstream.rs
+
+    #[test]
+    fn every_source_has_its_wire_word_and_a_new_branch_at_a_start_describes_itself() {
+        let cases = [
+            (
+                WorkstreamSource::NewBranch {
+                    name: None,
+                    start: None,
+                },
+                "new_branch",
+            ),
+            (
+                WorkstreamSource::LocalBranch {
+                    name: "main".into(),
+                },
+                "local_branch",
+            ),
+            (
+                WorkstreamSource::RemoteBranch {
+                    remote: "origin".into(),
+                    name: "main".into(),
+                },
+                "remote_branch",
+            ),
+            (
+                WorkstreamSource::Tag {
+                    name: "v1".into(),
+                    branch: None,
+                    create_at: None,
+                },
+                "tag",
+            ),
+            (WorkstreamSource::PullRequest { number: 7 }, "pull_request"),
+        ];
+        for (source, word) in &cases {
+            assert_eq!(source.as_str(), *word);
+        }
+        assert_eq!(
+            WorkstreamSource::NewBranch {
+                name: None,
+                start: Some("v1".into()),
+            }
+            .describe(),
+            "a new branch at v1"
+        );
+    }
+
+    #[test]
+    fn a_branch_name_is_refused_for_each_of_gits_reasons() {
+        for bad in [
+            "", "/x", "x/", "a//b", "a..b", "a@{b", "@", "x.", "x.lock", "-x", ".x", "a/.b",
+            "a/b.lock", "a b", "a~b",
+        ] {
+            assert!(!is_valid_branch_name(bad), "{bad:?}");
+        }
+        assert!(is_valid_branch_name("feature/login-2"));
+    }
+
+    #[test]
+    fn a_workstream_is_published_once_its_work_has_left_this_machine() {
+        assert!(WorkstreamState::Pushed.is_published());
+        assert!(WorkstreamState::PrOpen {
+            number: 1,
+            url: "u".into()
+        }
+        .is_published());
+        assert!(WorkstreamState::Merged {
+            number: 1,
+            url: "u".into()
+        }
+        .is_published());
+        assert!(!WorkstreamState::Open.is_published());
+        assert!(!WorkstreamState::Committed.is_published());
+        assert!(!WorkstreamState::Closed.is_published());
+    }
+
+    // added by the coverage pass: b5-workstream.rs
+    #[test]
+    fn a_new_branch_spec_without_a_start_describes_itself_and_the_primary_says_its_word() {
+        let source: WorkstreamSource = "new:feature".parse().unwrap();
+        assert_eq!(
+            source,
+            WorkstreamSource::NewBranch {
+                name: Some("feature".into()),
+                start: None,
+            }
+        );
+        assert_eq!(source.describe(), "a new branch feature");
+        assert_eq!(WorkstreamKind::Primary.as_str(), "primary");
+    }
+
+    // added by the coverage pass: b7-workstream.rs
+    #[test]
+    fn a_worktree_says_its_word() {
+        assert_eq!(
+            WorkstreamKind::Worktree {
+                branch: "feature".into(),
+                base: "main".into(),
+            }
+            .as_str(),
+            "worktree"
+        );
+    }
 }

@@ -646,10 +646,8 @@ pub enum PartSource {
 /// after `;`, printable ASCII throughout.
 pub fn is_media_type(s: &str) -> bool {
     let printable = s.chars().all(|c| (' '..='~').contains(&c));
-    let Some(essence) = s.split(';').next() else {
-        return false;
-    };
-    let essence = essence.trim();
+    // The essence is what stands before the first `;`, or the whole.
+    let essence = s.split_once(';').map_or(s, |(essence, _)| essence).trim();
     printable
         && essence
             .split_once('/')
@@ -1371,10 +1369,12 @@ impl Connector {
                                     Some(_) => {}
                                 },
                             },
+                            // LCOV_EXCL_START: the connector grammar yields `params` and `account` alone (template.rs the_connector_grammar_has_its_own_two_roots)
                             _ => push(
                                 &field,
                                 crate::text!("problem-connector-reads-params-and-account-only"),
                             ),
+                            // LCOV_EXCL_STOP
                         }
                     }
                 }
@@ -1517,7 +1517,7 @@ impl Connector {
                     ),
                 );
             }
-        }
+        } // LCOV_EXCL_LINE: a connector that deserialized serializes; `to_vec` refuses no value a definition holds
 
         out
     }
@@ -2480,5 +2480,220 @@ mod tests {
         assert!(url_head("nope").is_none());
         assert!(url_head("https://u@h").is_none());
         assert!(url_head("://h").is_none());
+    }
+
+    // added by the coverage pass: connector.rs
+
+    #[test]
+    fn every_wire_word_of_a_scheme_a_method_a_kind_and_a_body_is_its_own() {
+        assert_eq!(
+            (ScopeJoin::Space.separator(), ScopeJoin::Comma.separator()),
+            (" ", ",")
+        );
+        assert_eq!(
+            (JwtAlg::Es256.as_str(), JwtAlg::Rs256.as_str()),
+            ("ES256", "RS256")
+        );
+        for (method, word) in [
+            (HttpMethod::Get, "GET"),
+            (HttpMethod::Post, "POST"),
+            (HttpMethod::Put, "PUT"),
+            (HttpMethod::Patch, "PATCH"),
+            (HttpMethod::Delete, "DELETE"),
+            (HttpMethod::Head, "HEAD"),
+        ] {
+            assert_eq!(method.as_str(), word);
+        }
+        for (kind, word) in [
+            (ParamKind::Text, "text"),
+            (ParamKind::Number, "number"),
+            (ParamKind::Bool, "bool"),
+            (ParamKind::Json, "json"),
+            (ParamKind::File, "file"),
+            (ParamKind::Path, "path"),
+        ] {
+            assert_eq!(kind.as_str(), word);
+        }
+        assert_eq!(OperationBody::Json { value: json!({}) }.kind(), "json");
+        assert_eq!(
+            OperationBody::Form {
+                fields: BTreeMap::new()
+            }
+            .kind(),
+            "form"
+        );
+        assert_eq!(
+            OperationBody::Multipart { parts: vec![] }.kind(),
+            "multipart"
+        );
+        assert_eq!(
+            OperationBody::Raw {
+                content_type: "text/plain".into(),
+                from: InputName::new("f").unwrap()
+            }
+            .kind(),
+            "raw"
+        );
+        assert!(AuthScheme::None.required().is_empty());
+        assert_eq!(
+            AuthScheme::Basic.required(),
+            &[SecretField::Username, SecretField::Password]
+        );
+        assert_eq!(
+            AuthScheme::Basic.fields(),
+            &[SecretField::Username, SecretField::Password]
+        );
+    }
+
+    #[test]
+    fn a_media_type_is_a_type_and_a_subtype_and_the_oauth_hosts_are_read_from_the_urls_that_have_one(
+    ) {
+        assert!(is_media_type("application/json; charset=utf-8"));
+        assert!(!is_media_type("json"));
+        assert!(!is_media_type("application/ json"));
+        let mut c = connector();
+        c.auth = serde_json::from_value(json!({
+            "scheme": "oauth2",
+            "authorization_url": "mailto:nobody",
+            "token_url": "https://t.example/token",
+            "scopes": []
+        }))
+        .unwrap();
+        assert_eq!(c.oauth_hosts(), vec!["t.example".to_string()]);
+    }
+
+    #[test]
+    fn a_definition_names_every_problem_of_its_parameters_operations_and_bodies() {
+        let mut c = connector();
+        c.params = vec![ParamDef {
+            label: " ".into(),
+            ..param("site", ParamKind::Text, true)
+        }];
+        let mut nameless = op("post");
+        nameless.name = " ".into();
+        nameless.description = " ".into();
+        nameless.params = vec![ParamDef {
+            label: String::new(),
+            ..param("x", ParamKind::Text, false)
+        }];
+        nameless.body = Some(OperationBody::Form {
+            fields: BTreeMap::from([(String::new(), "v".to_string())]),
+        });
+        let mut empty_multipart = op("upload");
+        empty_multipart.body = Some(OperationBody::Multipart { parts: vec![] });
+        let mut nameless_part = op("send");
+        nameless_part.body = Some(OperationBody::Multipart {
+            parts: vec![Part {
+                name: " ".into(),
+                source: PartSource::Text { text: "t".into() },
+                filename: None,
+                content_type: None,
+            }],
+        });
+        let mut file_part = op("attach");
+        file_part.body = Some(OperationBody::Multipart {
+            parts: vec![Part {
+                name: "doc".into(),
+                source: PartSource::File {
+                    file: InputName::new("missing").unwrap(),
+                },
+                filename: None,
+                content_type: None,
+            }],
+        });
+        c.operations = vec![nameless, empty_multipart, nameless_part, file_part];
+        let problems = c.validate();
+        let ids: Vec<&str> = problems.iter().map(|p| p.text.id.as_ref()).collect();
+        for id in [
+            "problem-connector-parameter-needs-label",
+            "problem-connector-operation-needs-name",
+            "problem-connector-operation-needs-description",
+            "problem-connector-form-field-needs-name",
+            "problem-connector-multipart-body-needs-least-one-part",
+            "problem-connector-part-needs-name",
+            "problem-connector-not-parameter-operation-2",
+        ] {
+            assert!(ids.contains(&id), "{id} among {ids:?}");
+        }
+        assert_eq!(
+            ids.iter()
+                .filter(|id| **id == "problem-connector-parameter-needs-label")
+                .count(),
+            2,
+            "the connector's parameter and the operation's each need a label"
+        );
+    }
+
+    #[test]
+    fn an_account_of_another_connector_is_refused_by_name_and_an_oauth_account_is_connected_by_its_access_token(
+    ) {
+        let c = connector();
+        let account = ConnectorAccount {
+            id: AccountId::from_ulid(ulid::Ulid::from_parts(1, 1)),
+            connector: ConnectorId::new("other").unwrap(),
+            label: "Mine".into(),
+            params: BTreeMap::new(),
+            default: false,
+            auth: AccountAuth {
+                fields_set: vec![SecretField::AccessToken],
+                expires_at: None,
+                scope: None,
+            },
+            created_at: 0,
+        };
+        let problems = account.validate(&c);
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.text.id == "problem-connector-account-not"),
+            "{problems:?}"
+        );
+        let oauth: AuthScheme = serde_json::from_value(json!({
+            "scheme": "oauth2",
+            "authorization_url": "https://a.example/auth",
+            "token_url": "https://a.example/token",
+            "scopes": []
+        }))
+        .unwrap();
+        assert!(account.is_connected(&oauth));
+        assert!(!ConnectorAccount {
+            auth: AccountAuth::default(),
+            ..account
+        }
+        .is_connected(&oauth));
+    }
+
+    // added by the coverage pass: b5-connector.rs
+    #[test]
+    fn the_plainer_schemes_say_their_words_a_param_is_text_unless_said_and_only_strings_are_leaves()
+    {
+        assert_eq!(
+            (AuthScheme::None.word(), AuthScheme::Basic.word()),
+            ("none", "basic")
+        );
+        assert!(AuthScheme::None.fields().is_empty() && AuthScheme::None.required().is_empty());
+        let read: ParamDef =
+            serde_json::from_value(json!({"name": "repo", "label": "Repo"})).unwrap();
+        assert_eq!(read.kind, ParamKind::Text);
+        let value = json!({"n": 1, "s": "x", "b": true, "list": [null, "y"]});
+        let mut leaves = Vec::new();
+        string_leaves(&value, &mut String::new(), &mut leaves);
+        let mut found: Vec<&str> = leaves.iter().map(|(_, leaf)| *leaf).collect();
+        found.sort_unstable();
+        assert_eq!(found, ["x", "y"], "{leaves:?}");
+    }
+
+    // added by the coverage pass: b7-connector.rs
+    #[test]
+    fn an_api_key_scheme_holds_one_secret_and_says_its_word() {
+        let scheme = AuthScheme::ApiKey {
+            place: KeyPlace::Header {
+                name: "X-Key".into(),
+            },
+            prefix: None,
+        };
+        assert_eq!(scheme.fields(), &[SecretField::ApiKey]);
+        assert_eq!(scheme.required(), &[SecretField::ApiKey]);
+        assert_eq!(scheme.word(), "api_key");
     }
 }

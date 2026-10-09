@@ -304,7 +304,7 @@ impl Workspace {
                 step: step.clone(),
             };
             if let Err(e) = self.identity.delete_hook_secret(&key) {
-                tracing::warn!("{key}: hook secret not removed: {e}");
+                tracing::warn!("{key}: hook secret not removed: {e}"); // LCOV_EXCL_LINE: the file and memory stores delete a secret they hold; only a keyring that lost it fails here
             }
         }
         self.forget_listener_runtimes(host)?;
@@ -557,5 +557,104 @@ mod tests {
         let record = std::fs::read_to_string(ws.paths().listening_file(wf)).unwrap();
         assert!(!record.contains(&hex_secret));
         assert!(!record.to_lowercase().contains("secret"));
+    }
+
+    // added by the coverage pass: s2-listening.rs
+    #[test]
+    fn a_hook_secret_is_deleted_on_request_and_a_rebuild_passes_over_a_stray_file_and_a_record_of_a_workflow_that_is_gone(
+    ) {
+        let (_dir, ws, wf) = ws();
+        let k = key(ListenerHost::Workspace { workflow: wf }, "hook");
+        assert!(ws.ensure_hook_secret(&k).unwrap().is_some());
+        assert!(ws.has_hook_secret(&k).unwrap());
+        ws.delete_hook_secret(&k).unwrap();
+        assert!(!ws.has_hook_secret(&k).unwrap());
+        ws.set_listening(&ListenerHost::Workspace { workflow: wf }, Some(on(1)))
+            .unwrap();
+        let dir = ws.paths.listening_dir();
+        std::fs::write(dir.join("notes.json"), b"{}").unwrap();
+        let gone = WorkflowId::from_ulid(ulid::Ulid::from_parts(9, 9));
+        std::fs::write(
+            ws.paths.listening_file(gone),
+            serde_json::to_vec(&on(2)).unwrap(),
+        )
+        .unwrap();
+        ws.rebuild_index().unwrap();
+        let hosts: Vec<ListenerHost> = ws
+            .list_listening()
+            .unwrap()
+            .into_iter()
+            .map(|(h, _)| h)
+            .collect();
+        assert_eq!(hosts, vec![ListenerHost::Workspace { workflow: wf }]);
+    }
+
+    #[test]
+    fn a_listening_row_whose_id_is_no_id_costs_itself_and_never_the_list() {
+        let (_dir, ws, wf) = ws();
+        ws.set_listening(&ListenerHost::Workspace { workflow: wf }, Some(on(1)))
+            .unwrap();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("x"))
+            .unwrap()
+            .id;
+        ws.set_listening(&ListenerHost::Goal { goal }, Some(on(2)))
+            .unwrap();
+        assert_eq!(ws.list_listening().unwrap().len(), 2);
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE workflows SET id = 'not-a-workflow-id' WHERE id = '{wf}'"
+            ))
+            .unwrap();
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE goals SET id = 'not-a-goal-id' WHERE id = '{goal}'"
+            ))
+            .unwrap();
+        assert!(ws.list_listening().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_listening_record_or_folder_nobody_may_read_or_change_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, ws, wf) = ws();
+        let host = ListenerHost::Workspace { workflow: wf };
+        ws.set_listening(&host, Some(on(1))).unwrap();
+        let k = key(host, "hook");
+        ws.put_listener_runtime(&k, &ListenerRuntime::default())
+            .unwrap();
+        let file = ws.paths.listening_file(wf);
+        let was = std::fs::metadata(&file).unwrap().permissions();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = ws.listening(&host);
+        std::fs::set_permissions(&file, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+        let listening_dir = ws.paths.listening_dir();
+        let was = std::fs::metadata(&listening_dir).unwrap().permissions();
+        std::fs::set_permissions(&listening_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let off = ws.set_listening(&host, None);
+        let forgotten = ws.forget_host(&host, &[]);
+        std::fs::set_permissions(&listening_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let rebuilt = ws.reindex_listening();
+        std::fs::set_permissions(&listening_dir, was).unwrap();
+        assert!(matches!(off, Err(StoreError::Io { .. })), "{off:?}");
+        assert!(
+            matches!(forgotten, Err(StoreError::Io { .. })),
+            "{forgotten:?}"
+        );
+        assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+        let listeners_dir = ws.paths.listeners_dir();
+        let was = std::fs::metadata(&listeners_dir).unwrap().permissions();
+        std::fs::set_permissions(&listeners_dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let kept = ws.forget_listener_runtimes(&host);
+        std::fs::set_permissions(&listeners_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let unlisted = ws.forget_listener_runtimes(&host);
+        std::fs::set_permissions(&listeners_dir, was).unwrap();
+        assert!(matches!(kept, Err(StoreError::Io { .. })), "{kept:?}");
+        assert!(
+            matches!(unlisted, Err(StoreError::Io { .. })),
+            "{unlisted:?}"
+        );
     }
 }

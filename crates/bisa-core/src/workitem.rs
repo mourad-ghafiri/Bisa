@@ -412,4 +412,82 @@ mod tests {
             assert_eq!(s.apply(&T::Cancel), Ok(Cancelled));
         }
     }
+
+    // added by the coverage pass: workitem.rs
+
+    #[test]
+    fn every_transition_and_state_has_its_wire_word_and_a_release_and_a_rejection_move_as_the_table_says(
+    ) {
+        let words = [
+            (WorkItemTransition::Claim { by: pk() }, "claim"),
+            (WorkItemTransition::Start, "start"),
+            (WorkItemTransition::Release, "release"),
+            (WorkItemTransition::Block { reason: "r".into() }, "block"),
+            (WorkItemTransition::Unblock, "unblock"),
+            (WorkItemTransition::Reset, "reset"),
+            (WorkItemTransition::Submit, "submit"),
+            (WorkItemTransition::Accept, "accept"),
+            (WorkItemTransition::Reject { evidence: vec![] }, "reject"),
+            (WorkItemTransition::Cancel, "cancel"),
+        ];
+        for (t, word) in &words {
+            assert_eq!(t.name(), *word);
+        }
+        assert_eq!(
+            WorkItemState::Rejected { evidence: vec![] }.as_str(),
+            "rejected"
+        );
+        let claimed = WorkItemState::Claimed { by: pk() };
+        assert_eq!(
+            claimed.apply(&WorkItemTransition::Release).unwrap(),
+            WorkItemState::Open
+        );
+        let working = WorkItemState::InProgress { by: pk() };
+        assert_eq!(
+            working.apply(&WorkItemTransition::Release).unwrap(),
+            WorkItemState::Open
+        );
+        let review = WorkItemState::Review { by: pk() };
+        assert_eq!(
+            review
+                .apply(&WorkItemTransition::Reject {
+                    evidence: vec!["flaky".into()]
+                })
+                .unwrap(),
+            WorkItemState::Rejected {
+                evidence: vec!["flaky".into()]
+            }
+        );
+    }
+
+    // added by the coverage pass: b5-workitem.rs
+    #[test]
+    fn a_spec_without_a_tier_writes_and_the_unsettled_states_say_their_words() {
+        let mut json = serde_json::to_value(spec()).unwrap();
+        json.as_object_mut().unwrap().remove("tier_ceiling");
+        let read: WorkItemSpec = serde_json::from_value(json).unwrap();
+        assert_eq!(read.tier_ceiling, ToolTier::Write);
+        let by = pk();
+        let unsettled = [
+            WorkItemState::Claimed { by: by.clone() },
+            WorkItemState::InProgress { by: by.clone() },
+            WorkItemState::Blocked {
+                by: by.clone(),
+                reason: "a gate".into(),
+            },
+            WorkItemState::Review { by },
+        ];
+        for state in &unsettled {
+            assert!(state.is_unsettled(), "{}", state.as_str());
+        }
+        assert_eq!(
+            unsettled
+                .iter()
+                .map(WorkItemState::as_str)
+                .collect::<Vec<_>>(),
+            ["claimed", "in_progress", "blocked", "review"]
+        );
+        assert!(!WorkItemState::Open.is_unsettled());
+        assert!(!WorkItemState::Accepted.is_unsettled());
+    }
 }

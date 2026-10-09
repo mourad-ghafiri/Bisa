@@ -56,7 +56,7 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 # The code host's port to git's credential helpers is an async trait.
 async-trait = { workspace = true }
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [dev-dependencies]
 # The real MCP client, so a test drives the envelope it builds (`Scope::apply`)

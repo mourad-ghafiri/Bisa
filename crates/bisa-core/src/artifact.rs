@@ -353,10 +353,6 @@ impl ArtifactRef {
         }
     }
 
-    pub fn looks_like_an_image(&self) -> bool {
-        matches!(self.kind, ArtifactKind::Image) || self.mime.starts_with("image/")
-    }
-
     /// The hash is a hash, the name and the title are lines, the size is one
     /// attachment's.
     pub fn validate(&self) -> Result<(), crate::CoreError> {
@@ -673,5 +669,31 @@ mod tests {
         );
         let no_source = serde_json::to_value(ArtifactRef { source: None, ..a }).unwrap();
         assert!(no_source.get("source").is_none());
+    }
+
+    // added by the coverage pass: artifact.rs
+
+    #[test]
+    fn an_artifact_needs_a_title_that_is_words() {
+        let blank = ArtifactRef {
+            sha256: "0".repeat(64),
+            name: "report.pdf".into(),
+            mime: "application/pdf".into(),
+            size: 1,
+            title: " ".into(),
+            kind: ArtifactKind::Pdf,
+            source: None,
+        };
+        assert!(matches!(
+            blank.validate(),
+            Err(crate::CoreError::InvalidArtifactTitle(t)) if t == " "
+        ));
+    }
+
+    // added by the coverage pass: b5-artifact.rs
+    #[test]
+    fn a_kind_prints_as_its_word() {
+        assert_eq!(ArtifactKind::Html.to_string(), ArtifactKind::Html.as_str());
+        assert_eq!(ArtifactKind::File.to_string(), "file");
     }
 }

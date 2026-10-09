@@ -429,6 +429,20 @@ fn a_secret_reaches_an_agent_as_a_placeholder_and_a_call_above_the_ceiling_is_th
     let unruled = ws.json(&["security", "try", "--tool", "Read", "--path", "README.md"]);
     assert_eq!(unruled["verdict"], "fallthrough", "{unruled}");
     assert!(unruled.get("rule").is_none(), "{unruled}");
+    // A command is tried as a command; a tool with neither, and a try with
+    // neither text nor tool, are refused before anything is asked.
+    let command = ws.json(&["security", "try", "--tool", "Bash", "--command", "ls -la"]);
+    assert_eq!(command["verdict"], "fallthrough", "{command}");
+    let neither = ws.refused(&["security", "try", "--tool", "Bash"]);
+    assert!(
+        neither.contains("command") && neither.contains("path"),
+        "{neither}"
+    );
+    let nothing = ws.refused(&["security", "try"]);
+    assert!(
+        nothing.contains("text") || nothing.contains("tool"),
+        "{nothing}"
+    );
 
     // --- the log's folder and the paths ----------------------------------------------
     let paths = ws.json(&["paths"]);

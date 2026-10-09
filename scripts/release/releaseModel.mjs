@@ -194,6 +194,24 @@ export function bumpTomlVersion(text, table, from, to) {
 }
 
 /**
+ * A member manifest's requirement on the workspace-hack crate — the one line
+ * cargo-hakari writes, `bisa-deps = { version = "<major.minor>", path = "../bisa-deps" }`
+ * — moved from `from`'s major and minor to `to`'s, every other byte kept; a
+ * dependency's own `version` elsewhere is never touched. `null` when the
+ * manifest has no such line (the hack crate's own, a crate outside the
+ * workspace). Two such lines, or one at another minor, are refused.
+ */
+export function bumpHakariRequirement(text, from, to) {
+  const minor = (v) => String(v).split(".").slice(0, 2).join(".");
+  const re = /^(bisa-deps = \{ version = ")([^"]*)(", path = "\.\.\/bisa-deps" \})$/gm;
+  const found = [...String(text).matchAll(re)];
+  if (found.length === 0) return null;
+  if (found.length !== 1) throw new Error(`expected one bisa-deps requirement, found ${found.length}`);
+  if (found[0][2] !== minor(from)) throw new Error(`the bisa-deps requirement is "${found[0][2]}", not "${minor(from)}"`);
+  return String(text).replace(re, `$1${minor(to)}$3`);
+}
+
+/**
  * Every file that repeats the workspace's version, by how it is read
  * (contributing/release.md §One version); `platformIdentity.test.mjs` holds
  * the same set equal to the workspace. The addons' folder holds one
@@ -206,6 +224,8 @@ export const VERSION_FILES = Object.freeze({
   ]),
   json: Object.freeze(["desktop/package.json", "desktop/src-tauri/tauri.conf.json", "addons/sdk/package.json"]),
   addons: "library/addons",
+  /** The crates whose manifests carry cargo-hakari's requirement on `bisa-deps`. */
+  crates: "crates",
 });
 
 /**

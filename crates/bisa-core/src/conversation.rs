@@ -600,4 +600,13 @@ mod tests {
         assert_eq!(c.mode_after_plan(), ConversationMode::Manual);
         assert!(!ConversationOrigin::Workspace.is_checkout());
     }
+
+    // added by the coverage pass: conversation.rs
+
+    #[test]
+    fn a_conversation_about_a_workflow_names_it_and_the_others_do_not() {
+        let id = crate::id::WorkflowId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        assert_eq!(ConversationOrigin::Workflow { id }.workflow(), Some(id));
+        assert_eq!(ConversationOrigin::Node.workflow(), None);
+    }
 }

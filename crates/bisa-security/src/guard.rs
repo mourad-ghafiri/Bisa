@@ -1088,4 +1088,74 @@ mod tests {
             "the guard matches commands; it never runs one"
         );
     }
+
+    // added by the coverage pass: guard.rs
+
+    // --- the words, the home forms and the debug ---
+
+    #[test]
+    fn an_action_and_a_host_print_their_words_and_a_guard_debugs_as_a_count() {
+        assert_eq!(Action::Allow.as_str(), "allow");
+        assert_eq!(Action::Deny.as_str(), "deny");
+        assert_eq!(Action::Ask.as_str(), "ask");
+        assert_eq!(Action::Classify.as_str(), "classify");
+        assert_eq!(Host::Platform.as_str(), "platform");
+        assert_eq!(Host::Terminal.as_str(), "terminal");
+        let g = guard(vec![rule(
+            "secret_file",
+            Action::Deny,
+            Matcher::Path {
+                glob: "**/secret.txt".into(),
+            },
+        )]);
+        let debug = format!("{g:?}");
+        assert!(debug.contains("rules: 1"), "{debug}");
+        assert!(
+            !debug.contains("secret.txt"),
+            "the rules are a count: {debug}"
+        );
+    }
+
+    /// The home itself — `~` alone — is a path in every form, and a relative
+    /// path is normalised without touching the disk: `.` vanishes, `..` pops
+    /// what it can and stays where it cannot.
+    #[test]
+    fn the_home_alone_is_a_path_in_every_form_and_a_relative_path_is_normalised() {
+        let home = Path::new("/home/me");
+        let input = json!({ "file_path": "~" });
+        let call = ToolCall {
+            tool: "Read",
+            input: &input,
+            cwd: Some(home),
+            home: Some(home),
+            host: Host::Platform,
+            canonical: None,
+        };
+        let forms = call.candidates("~");
+        assert!(forms.contains(&"~".to_string()), "{forms:?}");
+        assert!(forms.contains(&"/home/me".to_string()), "{forms:?}");
+        let forms = call.candidates("/home/me");
+        assert!(forms.contains(&"~".to_string()), "{forms:?}");
+        assert_eq!(normalise(Path::new("a/./b/../c")), PathBuf::from("a/c"));
+        assert_eq!(normalise(Path::new("../x")), PathBuf::from("../x"));
+        assert_eq!(normalise(Path::new("./a/../../b")), PathBuf::from("../b"));
+    }
+
+    // added by the coverage pass: guard2.rs
+
+    #[test]
+    fn a_path_outside_the_home_has_no_tilde_form() {
+        let home = Path::new("/home/me");
+        let input = json!({ "file_path": "/etc/hosts" });
+        let call = ToolCall {
+            tool: "Read",
+            input: &input,
+            cwd: Some(home),
+            home: Some(home),
+            host: Host::Platform,
+            canonical: None,
+        };
+        let forms = call.candidates("/etc/hosts");
+        assert_eq!(forms, vec!["/etc/hosts".to_string()]);
+    }
 }

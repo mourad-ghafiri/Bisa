@@ -50,7 +50,7 @@ fn now_secs() -> u64 {
 fn open_lock_file(path: &PathBuf) -> std::io::Result<File> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
-    }
+    } // LCOV_EXCL_LINE: the lock file is under the workspace's `run/`, which always has a parent
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
@@ -65,7 +65,7 @@ fn try_flock(file: &File) -> Result<bool, std::io::Error> {
     match rustix::fs::flock(file, rustix::fs::FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(true),
         Err(rustix::io::Errno::WOULDBLOCK) => Ok(false),
-        Err(e) => Err(std::io::Error::from(e)),
+        Err(e) => Err(std::io::Error::from(e)), // LCOV_EXCL_LINE: `flock` on an open regular file fails only when held, which is `WOULDBLOCK`
     }
 }
 

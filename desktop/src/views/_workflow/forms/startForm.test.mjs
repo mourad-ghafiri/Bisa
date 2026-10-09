@@ -328,3 +328,15 @@ test("what a host is asked when it begins listening: what its events do not supp
     assert.ok(/(startInputs|askedAtStart)\(/.test(text) && !text.includes("needs.has("), `${screen} asks by the model's rule`);
   }
 });
+
+// added by the coverage pass: startForm.test.mjs
+test("an unknown event reads as its own word, samples nothing, and each event's templates are its own fields", () => {
+  assert.equal(eventPhrase({ event: "weird" }), "weird");
+  assert.deepEqual(samplePayload({ event: "weird" }), {});
+  assert.deepEqual(startTemplates({ event: "message", in: "support", contains: "{inputs.word}" }), ["support", "{inputs.word}"]);
+  assert.deepEqual(startTemplates({ event: "message" }), []);
+  assert.deepEqual(startTemplates({ event: "project", branch: "main", glob: "src/**" }), ["main", "src/**"]);
+  assert.deepEqual(startTemplates({ event: "platform", topic: "goal.closed", fields: { goal: "{inputs.goal}", n: 3 } }), ["{inputs.goal}"]);
+  assert.deepEqual(startTemplates({ event: "connector", params: { channel: "{inputs.channel}" } }), ["{inputs.channel}"]);
+  assert.deepEqual(startTemplates({ event: "connector" }), []);
+});

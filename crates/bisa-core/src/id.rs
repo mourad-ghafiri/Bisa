@@ -724,4 +724,64 @@ mod tests {
         assert!(!AgentId::CORE.contains(&AgentId::DECISION_MAKING));
         assert_eq!(AgentId::CORE, [AgentId::GENERAL, AgentId::WORKFLOW]);
     }
+
+    // added by the coverage pass: id.rs
+
+    #[test]
+    fn a_slug_id_prints_in_debug_derefs_to_its_word_compares_with_text_and_parses() {
+        let id = AgentId::new("ada").unwrap();
+        assert_eq!(format!("{id:?}"), "AgentId(\"ada\")");
+        assert_eq!(&*id, "ada");
+        assert!(id == *"ada");
+        assert_eq!("ada".parse::<AgentId>().unwrap(), id);
+        assert!("Not A Slug".parse::<AgentId>().is_err());
+    }
+
+    #[test]
+    fn a_principal_a_commit_and_a_hash_print_short_in_debug_and_parse_from_text() {
+        let hex = "ab".repeat(32);
+        let p = PrincipalId::new(hex.clone()).unwrap();
+        assert_eq!(format!("{p:?}"), "PrincipalId(abababab…)");
+        assert_eq!(hex.parse::<PrincipalId>().unwrap(), p);
+        assert!("zz".parse::<PrincipalId>().is_err());
+
+        let commit = "0123456789abcdef0123456789abcdef01234567";
+        let c = CommitIdStr::new(commit).unwrap();
+        assert_eq!(format!("{c:?}"), "CommitIdStr(0123456)");
+        let read: CommitIdStr = serde_json::from_value(serde_json::json!(commit)).unwrap();
+        assert_eq!(read, c);
+        assert!(serde_json::from_value::<CommitIdStr>(serde_json::json!("not hex")).is_err());
+
+        let zeros = "0".repeat(64);
+        let h = Sha256::new(zeros.clone()).unwrap();
+        assert_eq!(h.to_string(), zeros);
+        assert_eq!(format!("{h:?}"), "Sha256(00000000…)");
+        assert_eq!(zeros.parse::<Sha256>().unwrap(), h);
+        assert!("0".repeat(63).parse::<Sha256>().is_err());
+    }
+
+    // added by the coverage pass: b4-id.rs
+    #[test]
+    fn every_hand_written_id_schema_says_it_is_a_string_and_a_slug_id_reads_as_text() {
+        let value = |s: schemars::Schema| serde_json::to_value(s).unwrap();
+        for schema in [
+            value(schemars::schema_for!(GoalId)),
+            value(schemars::schema_for!(AgentId)),
+            value(schemars::schema_for!(PrincipalId)),
+            value(schemars::schema_for!(CommitIdStr)),
+            value(schemars::schema_for!(Sha256)),
+        ] {
+            assert_eq!(schema["type"], "string", "{schema}");
+        }
+        let agent = AgentId::new("dev").unwrap();
+        let text: &str = agent.as_ref();
+        assert_eq!(text, "dev");
+        assert_eq!(
+            format!("{:?}", GoalId::from_ulid(ulid::Ulid::from_parts(1, 1))),
+            format!(
+                "GoalId({})",
+                GoalId::from_ulid(ulid::Ulid::from_parts(1, 1))
+            )
+        );
+    }
 }

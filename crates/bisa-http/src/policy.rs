@@ -71,7 +71,7 @@ pub(crate) fn masked(url: &Url) -> String {
     }
     let mut shown = url.clone();
     if shown.set_password(None).is_err() {
-        return url.to_string();
+        return url.to_string(); // LCOV_EXCL_LINE: a URL that holds a password has a host, and `set_password(None)` fails only without one
     }
     let shown = shown.to_string();
     match shown.find('@') {
@@ -226,5 +226,41 @@ mod tests {
         assert!(!manual(None, None, &["a.example"]).names_a_proxy());
         assert!(manual(Some("http://p.example"), None, &[]).names_a_proxy());
         assert!(!HttpPolicy::default().names_a_proxy());
+    }
+
+    // added by the coverage pass: b6-policy.rs
+    #[test]
+    fn the_environment_prints_as_its_word_and_a_url_without_a_password_is_shown_whole() {
+        assert_eq!(format!("{:?}", ProxyPolicy::Environment), "Environment");
+        let plain = Url::parse("http://ada@proxy.example:3128/").unwrap();
+        assert_eq!(masked(&plain), "http://ada@proxy.example:3128/");
+        // A password with no login: nothing stands before the host once it
+        // is dropped, so there is no `@` to write the mask after.
+        let nameless = Url::parse("http://:s3cret@proxy.example:3128/").unwrap();
+        let shown = masked(&nameless);
+        assert!(!shown.contains("s3cret"), "{shown}");
+        assert_eq!(shown, "http://proxy.example:3128/");
+        assert_eq!(HttpPolicy::default().no_proxy_value(), "");
+    }
+
+    #[test]
+    fn a_manual_http_proxy_sets_the_http_names_and_removes_the_https_ones() {
+        let env = manual(Some("http://proxy.example:3128"), None, &[]).child_env();
+        assert_eq!(
+            env.set.get("HTTP_PROXY").map(String::as_str),
+            Some("http://proxy.example:3128/")
+        );
+        assert_eq!(
+            env.set.get("http_proxy").map(String::as_str),
+            Some("http://proxy.example:3128/")
+        );
+        assert_eq!(
+            env.remove,
+            vec!["ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy"]
+        );
+        assert_eq!(
+            env.set.get("NO_PROXY").map(String::as_str),
+            Some("localhost,127.0.0.1,::1")
+        );
     }
 }

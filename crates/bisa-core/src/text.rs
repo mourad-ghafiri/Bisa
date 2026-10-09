@@ -401,6 +401,18 @@ pub mod plain {
     pub(super) fn select_for_test(body: &str, selector: &str, text: &Text) -> String {
         select(body, selector, text)
     }
+
+    /// The variants read out of a select body, for the module's tests.
+    #[cfg(test)]
+    pub(super) fn variants_for_test(body: &str) -> Vec<(bool, String, String)> {
+        variants(body)
+    }
+
+    /// The placeables of one value substituted, for the module's tests.
+    #[cfg(test)]
+    pub(super) fn substitute_for_test(value: &str, text: &Text) -> String {
+        substitute(value, text)
+    }
 }
 
 /// A [`Text`] in one expression: `text!("error-goal-not-found", id = goal.id)`.
@@ -498,6 +510,47 @@ mod tests {
             Arg::from(u64::MAX),
             Arg::Int(i64::MAX),
             "clamped, never wrapped"
+        );
+    }
+
+    // added by the coverage pass: text.rs
+
+    #[test]
+    fn every_argument_kind_becomes_the_scalar_it_is_and_two_kinds_are_never_equal() {
+        let s = String::from("s");
+        assert_eq!(Arg::from(&s), Arg::Str("s".into()));
+        assert_eq!(
+            Arg::from(std::borrow::Cow::Borrowed("c")),
+            Arg::Str("c".into())
+        );
+        assert_eq!(Arg::from(7i64), Arg::Int(7));
+        assert_eq!(Arg::from(7i16), Arg::Int(7));
+        assert_eq!(Arg::from(7i8), Arg::Int(7));
+        assert_eq!(Arg::from(7u8), Arg::Int(7));
+        assert_eq!(Arg::from(0.5f32), Arg::Num(0.5));
+        assert_ne!(Arg::Int(1), Arg::Str("1".into()));
+        assert_eq!(Arg::Num(0.5).to_string(), "0.5");
+    }
+
+    #[test]
+    fn the_plain_renderer_reads_a_select_cut_short_a_number_key_an_unquoted_placeable_and_a_brace_left_open(
+    ) {
+        assert_eq!(
+            plain::variants_for_test(" [one] x *[other"),
+            vec![(false, "one".to_string(), "x".to_string())],
+            "a variant whose bracket never closes ends the list"
+        );
+        assert_eq!(
+            plain::select_for_test(" [1.5] half *[other] rest ", "n", &text!("x", n = 1.5)),
+            "half"
+        );
+        assert_eq!(
+            plain::substitute_for_test("a { b } c", &text!("x")),
+            "a { b } c"
+        );
+        assert_eq!(
+            plain::substitute_for_test("a { $n", &text!("x", n = 1)),
+            "a { $n"
         );
     }
 }

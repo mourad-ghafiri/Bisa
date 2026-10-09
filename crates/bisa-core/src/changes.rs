@@ -382,10 +382,12 @@ impl<'a> FileDiff<'a> {
             }
             let (old, new) = (op.old_range(), op.new_range());
             match spans.last_mut().filter(|_| open) {
+                // LCOV_EXCL_START: similar's ops join adjacent runs into one `Replace`, so no hunk is ever open at the next op (a_line_replaced_beside_a_line_added_is_one_hunk)
                 Some((b, d)) => {
                     b.len = old.end - b.start;
                     d.len = new.end - d.start;
                 }
+                // LCOV_EXCL_STOP
                 None => spans.push((
                     LineSpan {
                         start: old.start,
@@ -782,5 +784,26 @@ mod tests {
         assert_eq!(ChangeLedger::verdict(&review), ChangeState::Undone);
         review.kept_any = true;
         assert_eq!(ChangeLedger::verdict(&review), ChangeState::Kept);
+    }
+
+    // added by the coverage pass: changes.rs
+
+    #[test]
+    fn a_touch_on_a_turn_the_ledger_does_not_hold_writes_nothing() {
+        let mut ledger = ledger_with(&[turn(1)]);
+        ledger.touched(turn(2), &path("a.rs"), None, Some(sha(1)), false);
+        assert_eq!(ledger.pending(), 0);
+        assert!(ledger.turn_mut(turn(2)).is_none());
+    }
+
+    #[test]
+    fn a_line_replaced_beside_a_line_added_is_one_hunk() {
+        let diff = FileDiff::of("a\nb\n", "a\nc\nd\n");
+        assert_eq!(diff.hunks().len(), 1, "{:?}", diff.hunks());
+        let h = &diff.hunks()[0];
+        assert_eq!(
+            (h.base.start, h.base.len, h.disk.start, h.disk.len),
+            (1, 1, 1, 2)
+        );
     }
 }

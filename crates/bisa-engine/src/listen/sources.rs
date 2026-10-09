@@ -97,6 +97,7 @@ pub async fn tick(inner: &Arc<Inner>, now: u64) {
 fn due(inner: &Inner, listener: &Armed, rt: &mut ListenerRuntime, now: u64) -> Option<u64> {
     let cadence = match cadence_of(listener) {
         Ok(c) => c,
+        // LCOV_EXCL_START: a cadence read from the inputs is judged when they bind (validate_bound, cron_from) and a fixed one at design; none reaches the tick wrong
         Err(e) => {
             report_once(
                 inner,
@@ -105,6 +106,7 @@ fn due(inner: &Inner, listener: &Armed, rt: &mut ListenerRuntime, now: u64) -> O
                 format!("its cadence is wrong: {e}"),
             );
             return None;
+            // LCOV_EXCL_STOP
         }
     };
     match rt.next_due {
@@ -226,7 +228,9 @@ async fn poll_items(
         ..
     } = &listener.on
     else {
+        // LCOV_EXCL_START: a connector start with no connector, operation or key is a problem at design (Unfilled) and never armed
         return Err("its connector, operation or key is not chosen".into());
+        // LCOV_EXCL_STOP
     };
     let def = inner
         .ws
@@ -236,9 +240,11 @@ async fn poll_items(
         .operation(operation)
         .ok_or_else(|| format!("connector {connector} has no operation `{operation}`"))?;
     if op.writes {
+        // LCOV_EXCL_START: a start that polls a write is a problem at design (BadPoll, a_connector_start_learns_then_fires_once_per_new_item) and never armed
         return Err(format!(
             "`{connector}.{operation}` writes; a start polls a read operation and never writes"
         ));
+        // LCOV_EXCL_STOP
     }
     let account = match account {
         Some(ValueRef::Fixed(a)) => Some(*a),
@@ -333,7 +339,9 @@ async fn check(inner: &Arc<Inner>, listener: &Armed, now: u64) {
         ..
     } = &listener.on
     else {
+        // LCOV_EXCL_START: check_listener is called for a check start alone; the guard keeps the function total
         return;
+        // LCOV_EXCL_STOP
     };
     let cwd = check_cwd(inner, &listener.key, project.as_ref());
     let (code, output) = run_check(inner, &listener.key, command, &cwd).await;

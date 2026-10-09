@@ -127,4 +127,22 @@ mod tests {
         append(dir.path(), &fact(11, "resumed")).unwrap();
         assert_eq!(read_all(dir.path()).unwrap().len(), 2);
     }
+
+    // added by the coverage pass: activity_log.rs
+
+    #[cfg(unix)]
+    #[test]
+    fn a_log_folder_nobody_may_read_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("activity");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let unreadable = read_all(&logs);
+        std::fs::set_permissions(&logs, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            matches!(unreadable, Err(StoreError::Io { .. })),
+            "{unreadable:?}"
+        );
+    }
 }

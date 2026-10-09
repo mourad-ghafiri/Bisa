@@ -75,3 +75,17 @@ fn a_language_not_shipped_falls_back_to_english_and_the_shipped_catalog_builds()
     assert_eq!(bisa_i18n::english(&text!("not-a-message")), "not-a-message");
     assert!(!shipped.has(&Locale::english(), "not-a-message"));
 }
+
+#[test]
+fn the_crate_s_front_door_reads_the_shipped_catalog_s_attributes_and_content() {
+    let en = Locale::english();
+    let theme = text!("setting-appearance-theme");
+    let help = bisa_i18n::attribute(&en, &theme.id, "help", &theme);
+    assert!(help.as_deref().is_some_and(|h| !h.is_empty()), "{help:?}");
+    assert_eq!(bisa_i18n::content_id("pet", "cat"), "catalog-pet-cat");
+    assert_eq!(
+        bisa_i18n::content(&en, "catalog-pet-cat", None, "Cat"),
+        "Cat",
+        "English ships no content entries: the file's own text"
+    );
+}

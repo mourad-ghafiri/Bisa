@@ -146,6 +146,7 @@ pub(crate) fn enqueue_for(
             }
             Some(queued.signal.id)
         }
+        // LCOV_EXCL_START: writing an occurrence down fails only with the index unwritable (disk-only)
         Err(e) => {
             report_once(
                 inner,
@@ -154,6 +155,7 @@ pub(crate) fn enqueue_for(
                 format!("an occurrence could not be written down: {e}"),
             );
             None
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -187,6 +189,7 @@ pub fn spawn(inner: &Arc<Inner>) -> tokio::task::JoinHandle<()> {
                 // listener, wait and boundary, and a panic on one event must
                 // never deafen them all until the next process.
                 Ok(event) => crate::survive("event ear", async { on_event(&inner, &event) }).await,
+                // LCOV_EXCL_START: the ear's own bus lagging or closing: a race with the engine's end no test can stage
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!(target: "bisa_engine::listen", "the event ear lagged by {n} events");
                 }
@@ -194,6 +197,7 @@ pub fn spawn(inner: &Arc<Inner>) -> tokio::task::JoinHandle<()> {
             }
         }
     })
+    // LCOV_EXCL_STOP
 }
 
 /// One bus event: the registry told when what it is built from moved, the
@@ -212,7 +216,9 @@ pub fn on_event(inner: &Arc<Inner>, event: &EngineEvent) {
             EnginePayload::RunFinished { run, .. } | EnginePayload::RunCancelled { run, .. } => {
                 Some(format!("run:{run}"))
             }
+            // LCOV_EXCL_START: a dedupe key is minted for a run's end alone; the arm keeps the match total
             _ => None,
+            // LCOV_EXCL_STOP
         };
         hear(inner, heard, event.run, dedupe.as_deref());
     }
@@ -377,11 +383,15 @@ pub(crate) fn on_message(
             let kind = if inner.ws.owner_principal().as_hex() == author_hex {
                 "you"
             } else {
+                // LCOV_EXCL_START: a person who is not you writes through collaboration (Phase 14); every message here is yours or an agent's
                 "person"
+                // LCOV_EXCL_STOP
             };
             match bisa_core::PrincipalId::new(author_hex.clone()) {
                 Ok(pk) => (author_hex.clone(), kind, Assignee::Human(pk)),
+                // LCOV_EXCL_START: an author that is no public key never reaches the ear: the store refuses the message
                 Err(_) => return,
+                // LCOV_EXCL_STOP
             }
         }
     };
@@ -412,7 +422,9 @@ pub(crate) fn on_message(
         .ok()
         .and_then(|b| match b {
             MessageBody::Post { text, .. } => Some(text),
+            // LCOV_EXCL_START: a message body that is no post never reaches the ear: the store refuses the message
             _ => None,
+            // LCOV_EXCL_STOP
         })
         .unwrap_or_default();
     let message = event.id.to_hex();

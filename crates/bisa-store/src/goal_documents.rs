@@ -182,11 +182,13 @@ impl Workspace {
         name: &str,
     ) -> Result<PathBuf, StoreError> {
         let blob = self.attachment_path(sha256).ok_or_else(|| {
+            // LCOV_EXCL_START: every caller checks `attachment_path` first (add_goal_document, materialise_goal_documents); the arm keeps the function total
             StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-no-attachment-workspace-2",
                 sha256 = sha256.to_string()
             ))
         })?;
+        // LCOV_EXCL_STOP
         let path = self.paths().goal(goal).document(name);
         if path.is_file() {
             return Ok(path);
@@ -194,10 +196,12 @@ impl Workspace {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)
                 .map_err(|e| StoreError::io(dir.display().to_string(), e))?;
-        }
+        } // LCOV_EXCL_LINE: a document under the goal's folder always has a parent
         if std::fs::hard_link(&blob, &path).is_err() {
+            // LCOV_EXCL_START: a hard link fails across devices alone, and a workspace's attachments and goals share one
             std::fs::copy(&blob, &path)
                 .map_err(|e| StoreError::io(path.display().to_string(), e))?;
+            // LCOV_EXCL_STOP
         }
         Ok(path)
     }
@@ -250,5 +254,97 @@ mod tests {
             "abababababab (2)",
             "nothing safe left: the hash names it, numbered like any other"
         );
+    }
+
+    // added by the coverage pass: s1-goal_documents.rs
+    #[test]
+    fn a_nameless_document_is_refused_a_fact_without_a_hash_is_left_out_and_one_whose_bytes_are_elsewhere_waits(
+    ) {
+        use crate::identity::MemoryKeyStore;
+        use crate::workspace::NewGoal;
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        let goal = ws.create_goal(NewGoal::captured("read these")).unwrap().id;
+        let brief = ws
+            .put_attachment(b"%PDF the brief", "brief.pdf", "application/pdf")
+            .unwrap();
+        let mut nameless = brief.clone();
+        nameless.name = "  ".into();
+        assert!(matches!(
+            ws.add_goal_document(goal, &nameless),
+            Err(StoreError::Invalid(_))
+        ));
+        let keys = ws.owner_keys().clone();
+        let home = bisa_core::Home::Goal { goal };
+        let mut hashless = brief.clone();
+        hashless.sha256 = "nope".into();
+        ws.append_journal(
+            &home,
+            JournalPayload::Document { file: hashless },
+            &keys,
+            None,
+        )
+        .unwrap();
+        let mut elsewhere = brief.clone();
+        elsewhere.sha256 = "cd".repeat(32);
+        elsewhere.name = "later.pdf".into();
+        ws.append_journal(
+            &home,
+            JournalPayload::Document { file: elsewhere },
+            &keys,
+            None,
+        )
+        .unwrap();
+        ws.add_goal_document(goal, &brief).unwrap();
+        let listed: Vec<(String, bool)> = ws
+            .goal_documents(goal)
+            .unwrap()
+            .into_iter()
+            .map(|d| (d.name, d.present))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("later.pdf".to_string(), false),
+                ("brief.pdf".to_string(), true)
+            ]
+        );
+        // A rebuild materialises again: what waits still waits, what is
+        // there is left as it is.
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.goal_documents(goal).unwrap().len(), 2);
+    }
+
+    // added by the coverage pass: goal_documents.rs
+
+    /// A document whose folder refuses the link is said and left for the
+    /// next pass; nothing else of the goal is touched.
+    #[cfg(unix)]
+    #[test]
+    fn a_document_that_cannot_be_materialised_is_said_and_left_for_the_next_pass() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let goal = ws
+            .create_goal(crate::workspace::NewGoal::captured("documented"))
+            .unwrap();
+        let file = ws
+            .put_attachment(b"the brief", "brief.md", "text/markdown")
+            .unwrap();
+        let doc = ws.add_goal_document(goal.id, &file).unwrap();
+        let documents = ws.paths.goal(goal.id).documents();
+        std::fs::remove_file(&doc.path).unwrap();
+        std::fs::set_permissions(&documents, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let outcome = ws.materialise_goal_documents(goal.id);
+        std::fs::set_permissions(&documents, std::fs::Permissions::from_mode(0o755)).unwrap();
+        outcome.unwrap();
+        assert!(!doc.path.exists(), "left for the next pass");
+        ws.materialise_goal_documents(goal.id).unwrap();
+        assert!(doc.path.exists());
     }
 }

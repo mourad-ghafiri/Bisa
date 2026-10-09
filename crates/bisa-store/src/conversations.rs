@@ -362,4 +362,72 @@ mod tests {
         assert_eq!(fts_query("say \"hi\""), "\"say\" \"\"\"hi\"\"\"");
         assert_eq!(fts_query(""), "");
     }
+
+    // added by the coverage pass: conversations.rs
+
+    // --- the bare lines of the conversations module ---
+
+    /// A mode already held is kept as it is; a row that names no
+    /// conversation refuses a removal by name; a snapshot that will not
+    /// read is walked past by the rebuild; a log nobody may remove is an
+    /// I/O error by its path.
+    #[test]
+    fn a_mode_held_is_kept_and_bad_rows_and_torn_snapshots_are_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = crate::workspace::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        let project = ws
+            .create_project(crate::projects::NewProject::managed("web").unwrap())
+            .unwrap();
+        let origin = ConversationOrigin::Workstream {
+            id: bisa_core::WorkstreamId::from_ulid(project.id.0),
+            project: project.id,
+        };
+        let new = |title: &str| NewConversation {
+            origin: origin.clone(),
+            title: Some(title.into()),
+            mode: ConversationMode::Auto,
+        };
+        let one = ws.create_conversation(new("one")).unwrap();
+        let same = ws
+            .set_conversation_mode(one.id, ConversationMode::Auto)
+            .unwrap();
+        assert_eq!(same, one);
+        let two = ws.create_conversation(new("two")).unwrap();
+        ws.idx()
+            .execute_for_test(&format!(
+                "UPDATE conversations SET id = 'not-a-conversation' WHERE id = '{}'",
+                two.id
+            ))
+            .unwrap();
+        let err = ws
+            .remove_conversations_of(origin.kind(), &origin.id().unwrap_or_default())
+            .unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        let snapshot = ws
+            .paths
+            .state_dir(Paths::NS_CONVERSATIONS)
+            .join(format!("{KIND_CONVERSATION}-{}.json", two.id));
+        std::fs::write(&snapshot, b"{torn").unwrap();
+        ws.rebuild_index().unwrap();
+        assert!(ws.get_conversation(one.id).is_ok());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let log = ws.paths.conversation_log(&one.id.to_string()).unwrap();
+            std::fs::create_dir_all(log.parent().unwrap()).unwrap();
+            std::fs::write(&log, b"").unwrap();
+            let folder = log.parent().unwrap().to_path_buf();
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let unremovable = ws.delete_conversation(one.id);
+            std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                matches!(unremovable, Err(StoreError::Io { .. })),
+                "{unremovable:?}"
+            );
+        }
+    }
 }

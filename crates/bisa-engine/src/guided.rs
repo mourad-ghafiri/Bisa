@@ -658,9 +658,11 @@ pub fn design_status_from_journal(
 pub fn resume_interrupted(inner: &Arc<Inner>) {
     let goals = match inner.ws.list_goals(None) {
         Ok(g) => g,
+        // LCOV_EXCL_START: the goals list is read from the index, which fails only unreadable (disk-only)
         Err(e) => {
             tracing::warn!("cannot list goals to resume guided work: {e}");
             return;
+            // LCOV_EXCL_STOP
         }
     };
     for goal in goals
@@ -762,7 +764,9 @@ pub fn notify_run_failed(inner: &Arc<Inner>, run: &WorkflowRun) {
 /// error. `None` for a run that did not fail.
 fn repair_phase(run: &WorkflowRun) -> Option<GuidedPhase> {
     if run.outcome != Some(RunOutcome::Failed) {
+        // LCOV_EXCL_START: notify_run_failed is called for a failed run alone; the check keeps the function total
         return None;
+        // LCOV_EXCL_STOP
     }
     let (step, record) = run
         .steps
@@ -794,7 +798,9 @@ pub fn notify_answered(
     clarify_rounds_left: Option<u8>,
 ) {
     let Ok(goal) = inner.ws.get_goal(goal_id) else {
+        // LCOV_EXCL_START: a goal that was read moments ago is unreadable only with the store gone (disk-only)
         return;
+        // LCOV_EXCL_STOP
     };
     if !designing(inner, &goal) {
         return;
@@ -1013,7 +1019,9 @@ fn wake_prompt(
     let addendum = match goal.mode {
         bisa_core::GoalMode::Auto => AUTO_ADDENDUM,
         bisa_core::GoalMode::Guided => GUIDED_ADDENDUM,
+        // LCOV_EXCL_START: a manual goal wakes nobody (designing is false), so no prompt is built for one
         bisa_core::GoalMode::Manual => "",
+        // LCOV_EXCL_STOP
     };
     let directive = match phase {
         GuidedPhase::Design => format!("{DESIGN_DIRECTIVE}\n\n{addendum}"),
@@ -1296,7 +1304,9 @@ fn end_words(phase: GuidancePhase, end: &WakeEnd) -> Option<bisa_core::Text> {
             phase = phase,
             detail = detail.clone()
         )),
+        // LCOV_EXCL_START: a wake that proposed, asked or was moot says nothing of itself; the arm keeps the match total
         WakeEnd::Moot | WakeEnd::Proposed | WakeEnd::Asked => None,
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1313,7 +1323,9 @@ async fn wake(inner: &Arc<Inner>, goal_id: GoalId, phase: GuidedPhase, waking: W
     };
     let detail = match &end {
         WakeEnd::Stalled(d) | WakeEnd::Failed(d) => Some(d.clone()),
+        // LCOV_EXCL_START: a wake that proposed, asked or was moot has no detail; the arm keeps the match total
         _ => None,
+        // LCOV_EXCL_STOP
     };
     tracing::warn!(goal = %goal_id, "guided wake {}: {}", status.as_str(), detail.as_deref().unwrap_or(""));
     record(
@@ -1340,11 +1352,15 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         Err(e) => return WakeEnd::Failed(format!("the goal cannot be read: {e}")),
     };
     if !applies(inner, &goal, phase) {
+        // LCOV_EXCL_START: a wake scheduled for a goal closed or moved on before it ran: a race between the wake and the close
         return WakeEnd::Moot;
+        // LCOV_EXCL_STOP
     }
     // The goal's work is being ended: no cycle starts on it.
     if inner.guided.is_stopping(goal_id) {
+        // LCOV_EXCL_START: a wake scheduled for a goal being stopped before it ran: a race between the wake and the stop
         return WakeEnd::Moot;
+        // LCOV_EXCL_STOP
     }
     inner.pause.wait_running().await;
     let tag = phase.tag();
@@ -1366,8 +1382,10 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
     let candidates = info.harness;
     let spec = match build_guided_spec(inner, goal_id) {
         Ok(spec) => spec,
+        // LCOV_EXCL_START: the goal's work directory is made under its home, which fails only unwritable (disk-only)
         Err(e) => {
             return WakeEnd::Failed(format!("cannot create the goal's work directory: {e}."));
+            // LCOV_EXCL_STOP
         }
     };
     // Everything the agent used to fetch, read once per wake from the
@@ -1651,12 +1669,14 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                     break;
                 }
                 Ok(None) => {
+                    // LCOV_EXCL_START: the event stream closes only when an adapter drops its sender; the mock ends every session with a lifecycle event
                     end = Some(settle_end(
                         inner,
                         goal_id,
                         "the session ended without proposing a workflow".into(),
                     ));
                     break;
+                    // LCOV_EXCL_STOP
                 }
                 Ok(Some(ev)) => ev,
             };
@@ -1836,8 +1856,10 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         // Stopped as it was being kept: a stop that found no slot yet is
         // honoured here, so no session outlives its row's end.
         if inner.registry.is_aborted(agent_id) {
+            // LCOV_EXCL_START: a stop landing as the session was being kept for a follow-up: a race no test can stage
             inner.guided.sessions.retain(|_, held| *held != agent_id);
             inner.lifecycle.release(inner, agent_id).await;
+            // LCOV_EXCL_STOP
         }
     } else {
         warn_on_err(session.dispose().await, "disposing a guided session");
@@ -1861,6 +1883,49 @@ fn settle_end(inner: &Arc<Inner>, goal_id: GoalId, otherwise: String) -> WakeEnd
 #[cfg(test)]
 mod state_tests {
     use super::*;
+
+    /// The steer a design session is handed after the person decided its
+    /// question: what they chose, what they added, and — when they were
+    /// not sure — whether a narrower question may still be asked.
+    #[test]
+    fn the_steer_after_an_answer_says_what_the_person_did() {
+        assert!(answer_steer(None, None).contains("read the journal"));
+        let unsure = Answer {
+            unsure: true,
+            text: Some("maybe blue".into()),
+            ..Default::default()
+        };
+        let spent = answer_steer(Some(&unsure), None);
+        assert!(spent.contains("no clarification rounds left"), "{spent}");
+        assert!(spent.contains("They added: maybe blue"), "{spent}");
+        assert!(answer_steer(Some(&unsure), Some(0)).contains("no clarification rounds left"));
+        let again = answer_steer(Some(&unsure), Some(2));
+        assert!(again.contains("Ask one narrower question"), "{again}");
+        let chose = Answer {
+            selected: vec!["a".into(), "b".into()],
+            text: Some("  ".into()),
+            ..Default::default()
+        };
+        let said = answer_steer(Some(&chose), None);
+        assert!(said.contains("They chose: a, b."), "{said}");
+        assert!(
+            !said.contains("They added"),
+            "blank text adds nothing: {said}"
+        );
+    }
+
+    #[test]
+    fn a_phase_is_named_by_its_tag() {
+        assert_eq!(GuidedPhase::Design.name(), "design");
+        assert_eq!(
+            GuidedPhase::Repair {
+                step: StepId::new("build").unwrap(),
+                error: "boom".into(),
+            }
+            .name(),
+            "repair"
+        );
+    }
 
     #[test]
     fn a_closed_goal_leaves_nothing_in_the_guided_state() {

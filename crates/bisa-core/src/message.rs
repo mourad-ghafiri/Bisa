@@ -718,4 +718,86 @@ mod tests {
         )
         .is_err());
     }
+
+    // added by the coverage pass: message.rs
+
+    #[test]
+    fn every_context_chip_wears_a_one_line_label() {
+        let path: RelPath = "src/a.rs".parse().unwrap();
+        assert_eq!(ContextRef::File { path: path.clone() }.label(), "src/a.rs");
+        assert_eq!(
+            ContextRef::DiffHunk {
+                path: path.clone(),
+                scope: DiffScope::Unstaged,
+                hunk: "@@ -1 +1 @@".into(),
+                patch: String::new(),
+            }
+            .label(),
+            "src/a.rs @ @@ -1 +1 @@"
+        );
+        assert_eq!(
+            ContextRef::Terminal {
+                session: "t1".into(),
+                tail: String::new(),
+            }
+            .label(),
+            "terminal t1"
+        );
+        let id = WorkItemId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        assert_eq!(
+            ContextRef::WorkItem { id }.label(),
+            format!("work item {id}")
+        );
+        let commit = CommitIdStr::new("0123456789abcdef0123456789abcdef01234567").unwrap();
+        assert_eq!(ContextRef::Commit { id: commit }.label(), "commit 0123456");
+    }
+
+    #[test]
+    fn a_fence_that_closes_leaves_nothing_open() {
+        assert_eq!(open_fence("```rs\nlet a = 1;\n```\n"), None);
+        assert_eq!(open_fence("```rs\nlet a = 1;\n").as_deref(), Some("```rs"));
+    }
+
+    // added by the coverage pass: b5-message.rs
+    #[test]
+    fn a_said_post_carries_its_sentence_and_a_post_is_bounded_in_text_and_context() {
+        let sentence = crate::text::Text::new("step-summary-start-manual");
+        let body = MessageBody::said(sentence.clone());
+        assert_eq!(body.sentence(), Some(&sentence));
+        assert_eq!(body.kind(), "post");
+        assert!(body.artifacts().is_empty());
+        assert_eq!(body.thinking(), None);
+        assert!(matches!(&body, MessageBody::Post { text, .. } if *text == sentence.to_string()));
+        assert!(matches!(
+            MessageBody::post("x".repeat(MAX_TEXT_BYTES + 1)).validate(),
+            Err(crate::CoreError::TextTooLarge { bytes }) if bytes == MAX_TEXT_BYTES + 1
+        ));
+        let with_context = MessageBody::Post {
+            text: "see".into(),
+            context: vec![ContextRef::File {
+                path: crate::path::RelPath::new("src/lib.rs").unwrap(),
+            }],
+            artifacts: vec![],
+            thinking: None,
+            said: None,
+        };
+        assert!(with_context.validate().is_ok());
+    }
+
+    // added by the coverage pass: b7-message.rs
+    #[test]
+    fn a_membership_event_is_no_post_and_carries_no_sentence_artifact_or_thinking() {
+        let body = MessageBody::Membership(crate::channel::MembershipEvent {
+            channel: crate::id::ChannelId::new("eng").unwrap(),
+            member: crate::channel::Member::Agent(crate::id::AgentId::new("dev").unwrap()),
+            change: crate::channel::MembershipChange::Joined,
+            cause: crate::channel::MembershipCause::Enabled,
+            at: 1,
+        });
+        assert_eq!(body.kind(), "membership");
+        assert_eq!(body.sentence(), None);
+        assert!(body.artifacts().is_empty());
+        assert_eq!(body.thinking(), None);
+        assert!(body.validate().is_ok());
+    }
 }

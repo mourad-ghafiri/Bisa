@@ -329,6 +329,12 @@ pub async fn group_output(mut cmd: Command) -> std::io::Result<std::process::Out
     #[cfg(unix)]
     cmd.process_group(0);
     cmd.kill_on_drop(true);
+    // What the command says is the caller's to read — `wait_with_output`
+    // collects piped streams alone — and never the node's own stdio; a
+    // command that reads its stdin finds it closed.
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     let child = cmd.spawn()?;
     let _sweep = GroupSweep(ProcGroup::of_child(&child));
     child.wait_with_output().await
@@ -742,6 +748,20 @@ mod tests {
                 prop_assert!(lines.iter().all(|l| !l.cut));
             }
         }
+    }
+
+    /// What a grouped command says on either stream is collected for the
+    /// caller, with its status; nothing of it reaches the process's own
+    /// streams, and its stdin is closed.
+    #[tokio::test]
+    async fn a_grouped_commands_streams_and_status_are_collected() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg("echo said; echo complained >&2; read line; exit 3");
+        let out = group_output(cmd).await.unwrap();
+        assert_eq!(out.status.code(), Some(3));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "said\n");
+        assert_eq!(String::from_utf8_lossy(&out.stderr), "complained\n");
     }
 
     /// The child asks its own environment for the token by name — `printenv`

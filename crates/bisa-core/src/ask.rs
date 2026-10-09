@@ -39,11 +39,6 @@ impl AskOption {
         }
     }
 
-    pub fn detail(mut self, detail: impl Into<String>) -> Self {
-        self.detail = Some(detail.into());
-        self
-    }
-
     pub fn recommend(mut self) -> Self {
         self.recommended = true;
         self
@@ -320,5 +315,16 @@ mod tests {
             Err(AnswerError::EmptyOptionId)
         );
         assert!(AskKind::Decision.validate().is_ok());
+    }
+
+    // added by the coverage pass: b5-ask.rs
+    #[test]
+    fn a_question_is_an_answer_kind_and_no_answer_at_all_is_empty() {
+        assert!(AskKind::free_text().is_answer());
+        assert!(!AskKind::Decision.is_answer());
+        assert_eq!(
+            AskKind::free_text().validate_answer(None),
+            Err(AnswerError::Empty)
+        );
     }
 }

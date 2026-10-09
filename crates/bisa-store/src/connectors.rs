@@ -91,7 +91,7 @@ impl Workspace {
                 .iter()
                 .map(|p| match &p.field {
                     Some(field) => format!("{field}: {}", p.text),
-                    None => p.text.to_string(),
+                    None => p.text.to_string(), // LCOV_EXCL_LINE: every problem the core makes names its field (`ConnectorProblem::at`)
                 })
                 .collect();
             return Err(StoreError::Invalid(bisa_core::text!(
@@ -567,7 +567,7 @@ impl Workspace {
         Ok(AccountSecrets {
             fields_set: existing.auth.fields_set,
             source: if self.identity.uses_keyring() {
-                SecretSource::Keyring
+                SecretSource::Keyring // LCOV_EXCL_LINE: the OS keyring; every test runs on the file or the memory store
             } else {
                 SecretSource::File
             },
@@ -734,5 +734,122 @@ mod tests {
         ws.delete_connector_account(&c.id, b.id).unwrap();
         ws.remove_connector(&c.id).unwrap();
         assert!(ws.list_connectors().unwrap().is_empty());
+    }
+
+    // added by the coverage pass: connectors.rs
+
+    // --- the bare lines of the connectors module ---
+
+    /// The connector folders: what is not a definition's or an account's
+    /// file is skipped and said; a file or folder nobody may read is an I/O
+    /// error by its path; a rebuild indexes every definition again.
+    #[test]
+    fn the_connector_folders_skip_strangers_and_name_what_they_cannot_read() {
+        let (_d, ws) = ws();
+        ws.install(crate::catalog::CatalogKind::Connector, "slack")
+            .unwrap();
+        let slack = ConnectorId::new("slack").unwrap();
+        let account = ws
+            .create_connector_account(NewConnectorAccount {
+                connector: slack.clone(),
+                label: "work".into(),
+                params: BTreeMap::new(),
+                default: true,
+            })
+            .unwrap();
+        let connectors = ws.paths.connectors_dir();
+        std::fs::write(connectors.join("Bad Name.json"), b"{}").unwrap();
+        std::fs::write(connectors.join("README"), b"").unwrap();
+        assert_eq!(ws.list_connectors().unwrap().len(), 1);
+        let accounts = ws.paths.connector_accounts_dir(&slack);
+        std::fs::write(accounts.join("Bad Name.json"), b"{}").unwrap();
+        std::fs::write(accounts.join("README"), b"").unwrap();
+        assert_eq!(ws.list_connector_accounts(&slack).unwrap().len(), 1);
+        ws.rebuild_index().unwrap();
+        assert_eq!(ws.get_connector(&slack).unwrap().id, slack);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let sealed = |p: &std::path::Path| {
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o000)).unwrap()
+            };
+            let open = |p: &std::path::Path, mode: u32| {
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap()
+            };
+            let file = ws.paths.connector_file(&slack);
+            sealed(&file);
+            let unreadable = ws.get_connector(&slack);
+            open(&file, 0o644);
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            let account_file = accounts.join(format!("{}.json", account.id));
+            sealed(&account_file);
+            let unreadable = ws.get_connector_account(&slack, account.id);
+            open(&account_file, 0o644);
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            sealed(&accounts);
+            let unreadable = ws.list_connector_accounts(&slack);
+            open(&accounts, 0o755);
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            sealed(&connectors);
+            let unreadable = ws.list_connectors();
+            open(&connectors, 0o755);
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+        }
+    }
+
+    /// Accounts: a blank label is refused by name; the default moves to the
+    /// newest account that asks for it and the others stay as they are; a
+    /// connector with no account has no default; a blank secret is refused.
+    #[test]
+    fn accounts_are_refused_by_name_and_the_default_moves_to_the_one_that_asks() {
+        let (_d, ws) = ws();
+        ws.install(crate::catalog::CatalogKind::Connector, "slack")
+            .unwrap();
+        let slack = ConnectorId::new("slack").unwrap();
+        assert!(ws.default_connector_account(&slack).unwrap().is_none());
+        let err = ws
+            .create_connector_account(NewConnectorAccount {
+                connector: slack.clone(),
+                label: "   ".into(),
+                params: BTreeMap::new(),
+                default: true,
+            })
+            .unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        assert!(err.to_string().contains("label"), "{err}");
+        let new = |label: &str, default: bool| NewConnectorAccount {
+            connector: slack.clone(),
+            label: label.into(),
+            params: BTreeMap::new(),
+            default,
+        };
+        let a = ws.create_connector_account(new("a", true)).unwrap();
+        let b = ws.create_connector_account(new("b", false)).unwrap();
+        let c = ws.create_connector_account(new("c", true)).unwrap();
+        let marks: Vec<(String, bool)> = ws
+            .list_connector_accounts(&slack)
+            .unwrap()
+            .into_iter()
+            .map(|x| (x.label, x.default))
+            .collect();
+        assert_eq!(
+            marks,
+            [
+                ("c".to_string(), true),
+                ("a".to_string(), false),
+                ("b".to_string(), false)
+            ]
+        );
+        assert_eq!(
+            ws.default_connector_account(&slack).unwrap().unwrap().id,
+            c.id
+        );
+        let blank = BTreeMap::from([(SecretField::Token, "   ".to_string())]);
+        let err = ws.set_connector_secrets(&slack, a.id, &blank).unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        assert!(ws
+            .connector_secret(&slack, b.id, SecretField::Token)
+            .unwrap()
+            .is_none());
     }
 }

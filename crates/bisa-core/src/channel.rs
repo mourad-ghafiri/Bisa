@@ -312,10 +312,6 @@ impl DeletableChannel {
     pub fn channel(&self) -> &Channel {
         &self.0
     }
-
-    pub fn into_inner(self) -> Channel {
-        self.0
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -614,5 +610,57 @@ mod tests {
                 "at": 1735689600
             })
         );
+    }
+
+    // added by the coverage pass: channel.rs
+
+    #[test]
+    fn a_listed_team_and_a_listed_person_derive_their_membership_from_the_flip() {
+        let team = TeamId::new("ops").unwrap();
+        let human = person("cc");
+        let mut room = listed("ops-room", &[], &["ops"]);
+        if let RosterPolicy::Listed { humans, .. } = &mut room.roster {
+            humans.push(human.clone());
+        }
+        let for_team = events_for_enablement(Member::Team(team), false, true, &[room.clone()], 1);
+        assert_eq!(for_team.len(), 1);
+        let for_person = events_for_enablement(Member::Human(human), true, false, &[room], 1);
+        assert_eq!(for_person.len(), 1);
+    }
+
+    // added by the coverage pass: b5-channel.rs
+    #[test]
+    fn a_direct_channel_with_an_audience_is_well_formed_and_the_wire_words_hold() {
+        let mut dm = listed("dm", &[], &[]);
+        dm.kind = ChannelKind::Direct;
+        dm.audience = Audience::Restricted(vec![person("aa")]);
+        assert!(dm.validate().is_ok());
+        assert!(dm.audience.is_restricted());
+        assert_eq!(dm.audience.principals(), &[person("aa")]);
+        assert!(!Audience::Workspace.is_restricted());
+        assert!(Audience::Workspace.principals().is_empty());
+        assert_eq!(
+            (ChannelKind::Standing.as_str(), ChannelKind::Direct.as_str()),
+            ("standing", "direct")
+        );
+        assert_eq!(
+            (RosterPolicy::Everyone.as_str(), dm.roster.as_str()),
+            ("everyone", "listed")
+        );
+        assert_eq!(
+            [
+                ChannelOrigin::Local,
+                ChannelOrigin::Catalog { slug: "x".into() },
+                ChannelOrigin::Core
+            ]
+            .map(|o| o.as_str()),
+            ["local", "catalog", "core"]
+        );
+        let agent = Member::Agent(AgentId::new("dev").unwrap());
+        let team = Member::Team(TeamId::new("ops").unwrap());
+        assert_eq!((agent.kind(), agent.id()), ("agent", "dev"));
+        assert_eq!((team.kind(), team.id()), ("team", "ops"));
+        let deletable = DeletableChannel::new(listed("eng", &[], &[])).unwrap();
+        assert_eq!(deletable.channel().name, "eng");
     }
 }

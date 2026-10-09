@@ -539,4 +539,27 @@ mod tests {
             "the built-in stands, not the user's copy"
         );
     }
+
+    // added by the coverage pass: policy.rs
+
+    #[test]
+    fn a_policy_debugs_as_counts_and_never_as_a_rule() {
+        let policy = SecurityPolicy::builtin(&no_env);
+        let debug = format!("{policy:?}");
+        assert!(debug.contains("redact_rules:"), "{debug}");
+        assert!(debug.contains("guard_rules:"), "{debug}");
+        assert!(debug.contains("env_detectors:"), "{debug}");
+        assert!(!debug.contains("ghp_"), "{debug}");
+    }
+
+    // added by the coverage pass: policy2.rs
+
+    #[test]
+    fn a_rule_list_that_is_not_a_list_is_empty_and_no_problem() {
+        let (layer, problems) =
+            SettingsLayer::from_values(&json!("not a list"), &json!(null), &json!(7), &json!(null));
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(layer.redact_rules.is_empty());
+        assert!(layer.guard_rules.is_empty());
+    }
 }

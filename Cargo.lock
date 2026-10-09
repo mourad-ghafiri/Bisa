@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-adapters"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-cache"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "dashmap",
@@ -552,7 +552,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-codehost"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-collab"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bisa-core",
@@ -637,7 +637,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-connectors"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "bisa-netrules",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-decision"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bisa-connectors",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-deps"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "aho-corasick",
  "aws-lc-rs",
@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-engine"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-guest"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-collab",
  "bisa-core",
@@ -864,7 +864,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-harness"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "bisa-cache",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-http"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "reqwest",
@@ -897,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-i18n"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-core",
  "bisa-deps",
@@ -906,13 +906,14 @@ dependencies = [
  "fluent-syntax",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "unic-langid",
 ]
 
 [[package]]
 name = "bisa-iso"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "bisa-vcs",
@@ -924,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-log"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libc",
  "serde",
@@ -939,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-lsp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "serde",
@@ -952,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-mcp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bisa-core",
@@ -968,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-mcp-probe"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -989,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-mobile-development"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "dirs",
@@ -1005,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-net"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bisa-collab",
@@ -1032,14 +1033,14 @@ dependencies = [
 
 [[package]]
 name = "bisa-netrules"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
 ]
 
 [[package]]
 name = "bisa-node"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1083,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-security"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "bisa-netrules",
@@ -1099,7 +1100,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-ssh"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "bisa-deps",
@@ -1112,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-store"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-core",
  "bisa-deps",
@@ -1139,7 +1140,7 @@ dependencies = [
 
 [[package]]
 name = "bisa-vcs"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bisa-deps",
  "serde",

@@ -609,4 +609,118 @@ mod tests {
         assert_eq!(proc.name(), "pg2");
         assert_eq!(proc.kind(), "stdio");
     }
+
+    // added by the coverage pass: mcp.rs
+
+    #[test]
+    fn a_remote_over_sse_is_renamed_unmasked_from_a_remote_and_taken_whole_from_a_process() {
+        let sse = remote(
+            "sse",
+            "https://r.example/sse",
+            &[("Authorization", "secret")],
+        );
+        let renamed = sse.clone().renamed("other".into());
+        assert_eq!(renamed.name(), "other");
+        assert!(matches!(renamed, McpServerConfig::Sse { .. }));
+        let incoming = remote("sse", "https://r.example/sse", &[("Authorization", MASK)]);
+        let kept = McpServerConfig::unmasked_from(&sse, incoming.clone());
+        assert_eq!(
+            kept.headers()
+                .and_then(|h| h.get("Authorization"))
+                .map(String::as_str),
+            Some("secret")
+        );
+        let from_http = McpServerConfig::unmasked_from(
+            &remote(
+                "http",
+                "https://r.example/mcp",
+                &[("Authorization", "secret")],
+            ),
+            incoming.clone(),
+        );
+        assert_eq!(
+            from_http
+                .headers()
+                .and_then(|h| h.get("Authorization"))
+                .map(String::as_str),
+            Some("secret")
+        );
+        let stdio = server("tool").transport;
+        let from_process = McpServerConfig::unmasked_from(&stdio, incoming);
+        assert!(
+            matches!(&from_process, McpServerConfig::Sse { headers, .. } if !headers.contains_key("Authorization")),
+            "a mask with nothing behind it is dropped"
+        );
+    }
+
+    #[test]
+    fn a_server_needs_a_name() {
+        let mut s = server("tool");
+        s.name = " ".into();
+        assert_eq!(s.validate(), Err(McpError::EmptyName));
+    }
+
+    // added by the coverage pass: b5-mcp.rs
+    #[test]
+    fn an_sse_transport_masks_its_headers_and_an_edit_keeps_what_a_mask_stands_for() {
+        let headers = BTreeMap::from([("Authorization".to_string(), "Bearer t".to_string())]);
+        let sse = McpServerConfig::Sse {
+            name: "s".into(),
+            url: "https://x.example/sse".into(),
+            headers: headers.clone(),
+        };
+        let masked = sse.masked();
+        assert!(
+            matches!(&masked, McpServerConfig::Sse { headers, .. } if headers["Authorization"] == MASK)
+        );
+        // The same kind: the mask reads the stored value back.
+        assert_eq!(McpServerConfig::unmasked_from(&sse, masked.clone()), sse);
+        // A stdio edit against a stdio record: the env is filled the same way.
+        let stdio = McpServerConfig::Stdio {
+            name: "p".into(),
+            command: "npx".into(),
+            args: vec![],
+            env: BTreeMap::from([("TOKEN".to_string(), "secret".to_string())]),
+            cwd: None,
+        };
+        assert_eq!(
+            McpServerConfig::unmasked_from(&stdio, stdio.masked()),
+            stdio
+        );
+        // A remote edit against a remote record of the other transport: the
+        // headers carry over; against a stdio record a mask means nothing.
+        let http = McpServerConfig::Http {
+            name: "h".into(),
+            url: "https://x.example/mcp".into(),
+            headers: BTreeMap::from([("Authorization".to_string(), MASK.to_string())]),
+        };
+        assert!(matches!(
+            McpServerConfig::unmasked_from(&sse, http.clone()),
+            McpServerConfig::Http { headers, .. } if headers["Authorization"] == "Bearer t"
+        ));
+        assert!(matches!(
+            McpServerConfig::unmasked_from(&stdio, http),
+            McpServerConfig::Http { headers, .. } if headers.is_empty()
+        ));
+        assert!(matches!(
+            McpServerConfig::unmasked_from(&stdio, masked),
+            McpServerConfig::Sse { headers, .. } if headers.is_empty()
+        ));
+    }
+
+    #[test]
+    fn a_mount_knows_its_provenance_and_a_record_without_the_switch_is_enabled() {
+        let config = server("pg").transport;
+        let platform = McpMount::platform(config.clone());
+        let installed = McpMount::installed(config);
+        assert!(platform.is_platform() && !installed.is_platform());
+        assert_eq!((platform.name(), installed.name()), ("pg", "pg"));
+        assert_eq!(
+            (platform.provenance, installed.provenance),
+            (McpProvenance::Platform, McpProvenance::Installed)
+        );
+        let mut json = serde_json::to_value(server("pg")).unwrap();
+        json.as_object_mut().unwrap().remove("enabled");
+        assert!(serde_json::from_value::<McpServer>(json).unwrap().enabled);
+    }
 }

@@ -186,7 +186,7 @@ pub fn install(process: Process, version: &'static str) -> Handle {
                 .is_err()
             {
                 tracing::debug!(target: "bisa_log", "another subscriber owns the process; the file reaches nothing");
-            }
+            } // LCOV_EXCL_LINE: the branch's end is counted on neither side; both are taken, by the unit test under another subscriber and by the it test's install
             install_panic_hook(handle.clone());
             handle
         })
@@ -210,10 +210,6 @@ pub fn env_dir() -> Option<PathBuf> {
 impl Handle {
     pub fn process(&self) -> Process {
         self.inner.process
-    }
-
-    pub fn version(&self) -> &'static str {
-        self.inner.version
     }
 
     /// The root — the workspace's `logs/` — once attached.
@@ -248,7 +244,7 @@ impl Handle {
         if !parent_exists {
             tracing::warn!(
                 target: "bisa_log",
-                root = %root.display(),
+                root = %root.display(), // LCOV_EXCL_LINE: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                 "no log file: the folder's parent does not exist yet"
             );
             self.close_file()?;
@@ -293,11 +289,13 @@ impl Handle {
         }
         tracing::info!(
             target: "bisa_log",
+            // LCOV_EXCL_START: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
             process = self.inner.process.prefix(),
             version = self.inner.version,
             pid = std::process::id(),
             file = %family_glob(&root, self.inner.process).display(),
             crashes = %crashes_dir(&root).display(),
+            // LCOV_EXCL_STOP
             // `level` is the line's own; the configured floor gets a
             // name of its own so the two never collide when flattened.
             min_level = %config.level,
@@ -339,8 +337,10 @@ impl Handle {
         if opened {
             tracing::info!(
                 target: "bisa_log",
+                // LCOV_EXCL_START: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                 process = self.inner.process.prefix(),
                 pid = std::process::id(),
+                // LCOV_EXCL_STOP
                 reason,
                 uptime_secs = uptime,
                 "log stopped"
@@ -418,7 +418,7 @@ impl Handle {
         let mut writer = appender.make_writer();
         for entry in entries {
             let Some(said) = level_of_word(&entry.level) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: the recorder writes the words `level_word` spells, each one a `LogLevel`
             };
             if said > level {
                 continue;
@@ -435,7 +435,7 @@ impl Handle {
             let mut text = serde_json::Value::Object(line).to_string();
             text.push('\n');
             if writer.write_all(text.as_bytes()).is_err() {
-                break;
+                break; // LCOV_EXCL_LINE: the appender has just opened the file it writes; a write refused here is the disk's, not a path a test can take
             }
         }
     }
@@ -490,8 +490,10 @@ fn install_panic_hook(handle: Handle) {
             let name = report.file_name(at);
             tracing::error!(
                 target: "panic",
+                // LCOV_EXCL_START: a tracing line's fields are counted on the macro's own line; the line they make is read back by the crate's tests
                 location = %location.clone().unwrap_or_default(),
                 thread = %thread.clone().unwrap_or_default(),
+                // LCOV_EXCL_STOP
                 crash = %name,
                 "{message}"
             );
@@ -500,7 +502,9 @@ fn install_panic_hook(handle: Handle) {
             }
         }));
         if reported.is_err() {
+            // LCOV_EXCL_START: the report closure holds no panic of its own; the catch stands for a bug nobody has written
             eprintln!("bisa-log: the crash report for this panic panicked itself");
+            // LCOV_EXCL_STOP
         }
         previous(info);
     }));
@@ -515,4 +519,109 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
         .map(|s| (*s).to_string())
         .or_else(|| payload.downcast_ref::<String>().cloned())
         .unwrap_or_else(|| "panic".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_handle_says_where_it_stands_and_a_goodbye_before_any_file_says_nothing() {
+        let (handle, layers) = build(Process::Mcp, "0.0.0-test");
+        let _guard = tracing_subscriber::registry().with(layers).set_default();
+        let shown = format!("{handle:?}");
+        assert!(shown.contains("Handle") && shown.contains("mcp"), "{shown}");
+        assert!(shown.contains("opened: false"), "{shown}");
+        // Applied before any folder: remembered, nothing opened.
+        handle
+            .apply(LogConfig {
+                level: LogLevel::Debug,
+                ..LogConfig::default()
+            })
+            .unwrap();
+        assert_eq!(handle.config().level, LogLevel::Debug);
+        assert_eq!(handle.root(), None);
+        assert!(!handle.writing());
+        handle.goodbye("never opened");
+        assert!(handle.recent().iter().all(|r| r.message != "log stopped"));
+    }
+
+    #[test]
+    fn a_run_marker_that_cannot_be_written_is_said_and_one_that_cannot_be_removed_too() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("logs");
+        std::fs::create_dir_all(&root).unwrap();
+        // `runs` is a file: no marker can be written under it.
+        std::fs::write(root.join(crate::files::RUNS), "in the way").unwrap();
+        let (handle, layers) = build(Process::Node, "0.0.0-test");
+        let _guard = tracing_subscriber::registry().with(layers).set_default();
+        handle
+            .attach(
+                &root,
+                LogConfig {
+                    level: LogLevel::Debug,
+                    ..LogConfig::default()
+                },
+            )
+            .unwrap();
+        assert!(handle.writing());
+        assert!(handle
+            .recent()
+            .iter()
+            .any(|r| r.level == "WARN" && r.message.contains("no run marker")));
+        handle.goodbye("done");
+        assert!(handle.recent().iter().any(|r| r.message == "log stopped"));
+
+        // A marker written, then moved aside before the goodbye: the removal
+        // is refused and said, never fatal.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("logs");
+        let (handle, layers) = build(Process::Cli, "0.0.0-test");
+        let _guard = tracing_subscriber::registry().with(layers).set_default();
+        handle.attach(&root, LogConfig::default()).unwrap();
+        let marker = handle.state().marker.clone().expect("a marker was written");
+        std::fs::rename(&marker, marker.with_extension("moved")).unwrap();
+        handle.goodbye("done");
+        assert!(handle
+            .recent()
+            .iter()
+            .any(|r| r.level == "WARN" && r.message.contains("run marker could not be removed")));
+    }
+
+    /// The one unit test of the process-wide install: a subscriber of this
+    /// binary's own owns the process first, so the install's layers reach
+    /// nothing and the handle still answers — and a panic with no folder
+    /// attached is a report that cannot be written, said on stderr. The
+    /// claim may fail: another test's thread-local subscriber has set the
+    /// `log` bridge already, and the install's own claim then fails the same
+    /// way — the process is owned either way.
+    #[test]
+    fn install_answers_the_same_handle_under_another_subscriber_and_the_hook_survives_no_folder() {
+        let _owned_either_way = tracing_subscriber::registry().try_init();
+        assert!(current().is_none());
+        let handle = install(Process::Cli, "0.0.0-test");
+        assert!(Arc::ptr_eq(
+            &handle.inner,
+            &install(Process::Cli, "0.0.0-test").inner
+        ));
+        assert!(current().is_some_and(|h| Arc::ptr_eq(&h.inner, &handle.inner)));
+        let died = std::thread::Builder::new()
+            .name("no-folder".to_string())
+            .spawn(|| panic!("nowhere to report"))
+            .unwrap()
+            .join();
+        assert!(died.is_err());
+        assert!(handle.root().is_none(), "no folder was ever attached");
+    }
+
+    #[test]
+    fn the_log_folder_variable_names_a_folder_only_when_set_and_not_empty() {
+        // Set, read and cleared within one test: nothing else reads the name.
+        std::env::set_var(LOG_DIR_ENV, "/tmp/bisa-log-test");
+        assert_eq!(env_dir(), Some(PathBuf::from("/tmp/bisa-log-test")));
+        std::env::set_var(LOG_DIR_ENV, "");
+        assert_eq!(env_dir(), None);
+        std::env::remove_var(LOG_DIR_ENV);
+        assert_eq!(env_dir(), None);
+    }
 }

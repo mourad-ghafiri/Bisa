@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# Line coverage, measured and judged (docs/contributing/coverage.md §Line coverage).
+#
+#   scripts/coverage/measure                      every half — the Rust workspace, the Tauri shell,
+#                                                 the desktop's models — then the gate
+#   scripts/coverage/measure rust|shell|desktop   the named halves (several allowed), judged alone
+#   scripts/coverage/measure crate <crate>…       the named crates' own suites: a report and a file
+#                                                 list, never a verdict (`bisa-` is added)
+#   scripts/coverage/measure judge [--write] [--files <tree>]…
+#                                                 judge what target/coverage/ already holds
+#
+# The Rust half is every suite of every crate, instrumented, plus the three
+# feature-gated suites (`a2a` on the adapters and the node, `iroh` on the
+# wire) merged into one report — cargo-llvm-cov's own `--no-report` then
+# `report` (https://github.com/taiki-e/cargo-llvm-cov). Under nextest when
+# the tree has it, `cargo test` otherwise, as scripts/test runs. The shell is
+# its own workspace. The desktop is Node's own coverage, as lcov. Everything
+# lands under target/coverage/: rust.lcov, shell.lcov, desktop.lcov,
+# summary.json. Without cargo-llvm-cov in the tree (`just install-llvm-cov`)
+# the Rust half runs plain and is said to be unjudged; the desktop is still
+# measured and judged.
+#
+# Why the environment: as scripts/test — no fixture repository may see this
+# machine's git config.
+set -euo pipefail
+
+cd "$(dirname "$0")/../.."
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+# The tree's own tools first: cargo finds `cargo-llvm-cov` and `cargo-nextest`
+# as subcommands on PATH (target/tools/bin/cargo-llvm-cov, target/tools/bin/cargo-nextest).
+export PATH="$PWD/target/tools/bin:$PATH"
+OUT="$PWD/target/coverage"
+mkdir -p "$OUT"
+
+usage() {
+    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+}
+
+have_llvm_cov() { command -v cargo-llvm-cov >/dev/null 2>&1; }
+have_nextest() { command -v cargo-nextest >/dev/null 2>&1; }
+
+crate_name() {
+    case "$1" in
+        bisa-*) printf '%s' "$1" ;;
+        *) printf 'bisa-%s' "$1" ;;
+    esac
+}
+
+# cov <cargo args…> [-- <filter>]: one instrumented run whose profile is kept
+# for the report. Under nextest — its `coverage` profile, whose windows allow
+# for instrumented binaries (.config/nextest.toml) — the filter is a regular
+# expression on the test's name; under cargo test it is a substring, so the
+# anchor goes.
+cov() {
+    local args=() filter=""
+    while [ $# -gt 0 ]; do
+        if [ "$1" = "--" ]; then shift; filter="${1-}"; break; fi
+        args+=("$1"); shift
+    done
+    if have_nextest; then
+        if [ -n "$filter" ]; then
+            cargo llvm-cov nextest --no-report "${args[@]}" -P coverage -E "test(/$filter/)"
+        else
+            cargo llvm-cov nextest --no-report "${args[@]}" -P coverage
+        fi
+    else
+        if [ -n "$filter" ]; then
+            cargo llvm-cov --no-report "${args[@]}" -- "${filter#^}"
+        else
+            cargo llvm-cov --no-report "${args[@]}"
+        fi
+    fi
+}
+
+# A suite that fails fails the gate — after the report, not instead of it:
+# every run goes on (`--no-fail-fast`), the profiles are reported whatever
+# the suites said, and the exit code remembers.
+FAILED=0
+suite() {
+    cov "$@" || { FAILED=1; echo "coverage: a suite failed under: cov $*" >&2; }
+}
+
+# The workspace, or the named packages (`-p` flags).
+rust_measure() {
+    # The tool's own housekeeping before merged runs: the profiles of the last
+    # run under target/llvm-cov-target go, nothing else.
+    cargo llvm-cov clean --workspace
+    if [ $# -eq 0 ]; then
+        suite --workspace --no-fail-fast
+        suite -p bisa-adapters --features a2a --test it -- '^a2a::'
+        suite -p bisa-node --features a2a --test it -- '^a2a::'
+        suite -p bisa-net --features iroh --test it -- '^iroh_e2e::'
+    else
+        suite "$@" --no-fail-fast
+    fi
+    cargo llvm-cov report --lcov --output-path "$OUT/rust.lcov"
+}
+
+shell_measure() {
+    cargo llvm-cov clean --manifest-path desktop/src-tauri/Cargo.toml --workspace
+    suite --manifest-path desktop/src-tauri/Cargo.toml
+    cargo llvm-cov report --manifest-path desktop/src-tauri/Cargo.toml --lcov --output-path "$OUT/shell.lcov"
+}
+
+desktop_measure() {
+    (cd desktop && npm run test:coverage:lcov) || { FAILED=1; echo "coverage: a desktop test failed" >&2; }
+}
+
+# The judge, and then the suites' word: a failed suite fails the gate even
+# when every tree held.
+judge() {
+    node scripts/coverage/check-coverage.mjs "$@" || FAILED=1
+    if [ "$FAILED" -ne 0 ]; then
+        echo "coverage: a suite failed or a tree fell — see above" >&2
+        exit 1
+    fi
+}
+
+case "${1-}" in
+    "")
+        if have_llvm_cov; then
+            rust_measure
+            shell_measure
+            desktop_measure
+            judge --rust --shell --desktop
+        else
+            echo "cargo-llvm-cov is not installed in the tree (just install-llvm-cov): the Rust half runs unmeasured and is not judged — CI measures it" >&2
+            ./scripts/test rust
+            desktop_measure
+            judge --desktop
+        fi
+        ;;
+    rust|shell|desktop)
+        flags=()
+        for half in "$@"; do
+            case "$half" in
+                rust) rust_measure ;;
+                shell) shell_measure ;;
+                desktop) desktop_measure ;;
+                *) usage ;;
+            esac
+            flags+=("--$half")
+        done
+        judge "${flags[@]}"
+        ;;
+    crate)
+        [ $# -ge 2 ] || usage
+        shift
+        pkgs=()
+        flags=()
+        for c in "$@"; do
+            pkgs+=(-p "$(crate_name "$c")")
+            flags+=(--crate "$(crate_name "$c")")
+        done
+        rust_measure "${pkgs[@]}"
+        judge "${flags[@]}" --files "crates/$(crate_name "$1")"
+        ;;
+    judge)
+        shift
+        judge "$@"
+        ;;
+    *)
+        usage
+        ;;
+esac

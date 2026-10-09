@@ -398,4 +398,35 @@ pub(crate) mod tests {
             "origin has no default"
         );
     }
+
+    // added by the coverage pass: agent.rs
+
+    #[test]
+    fn an_agent_needs_a_harness_and_an_update_keeps_its_id_and_its_birth() {
+        let mut g = agent("ada", true);
+        g.harness = " ".into();
+        assert_eq!(g.validate(), Err(AgentError::EmptyHarness));
+        let a = agent("ada", true);
+        let mut renamed = a.clone();
+        renamed.id = AgentId::new("bob").unwrap();
+        assert_eq!(a.check_update(&renamed), Err(AgentError::Immutable("id")));
+        let mut reborn = a.clone();
+        reborn.created_at = 9;
+        assert_eq!(
+            a.check_update(&reborn),
+            Err(AgentError::Immutable("created_at"))
+        );
+    }
+
+    // added by the coverage pass: b5-agent.rs
+    #[test]
+    fn a_blank_name_is_refused_and_a_record_without_the_switch_is_enabled() {
+        let mut a = agent("dev", true);
+        a.name = "  ".into();
+        assert_eq!(a.validate(), Err(AgentError::EmptyName));
+        let mut json = serde_json::to_value(agent("dev", true)).unwrap();
+        json.as_object_mut().unwrap().remove("enabled");
+        assert!(serde_json::from_value::<Agent>(json).unwrap().enabled);
+        assert!(agent("general", true).validate().is_ok());
+    }
 }

@@ -194,7 +194,7 @@ where
                 Some(k) => {
                     self.inner.map.remove(&k);
                 }
-                None => break,
+                None => break, // LCOV_EXCL_LINE: a map past its cap holds an entry, so the least recently used is always found
             }
         }
     }
@@ -307,5 +307,18 @@ mod tests {
             10
         );
         assert_eq!(calls, 1);
+    }
+
+    // added by the coverage pass: b6-keyed.rs
+    #[test]
+    fn a_clone_shares_the_map_and_clear_empties_it_but_keeps_the_counters() {
+        let cache: TtlCache<&str, i32> = TtlCache::new("test.keyed.clone");
+        let twin = cache.clone();
+        cache.insert("k", 1);
+        assert_eq!(twin.get(Duration::from_secs(60), &"k"), Some(1));
+        cache.clear();
+        assert_eq!(twin.get(Duration::from_secs(60), &"k"), None);
+        let s = cache.stats();
+        assert_eq!((s.entries, s.hits, s.misses), (0, 1, 1));
     }
 }

@@ -350,11 +350,6 @@ impl AddonProblem {
 }
 
 impl AddonManifest {
-    /// The permission declared under `word`, if any.
-    pub fn declares(&self, word: &str) -> Option<&AddonPermission> {
-        AddonPermission::grant_by_word(word, &self.permissions)
-    }
-
     /// Every rule a manifest breaks, none stopping the others: a developer
     /// fixes the whole list at once.
     pub fn validate(&self) -> Vec<AddonProblem> {

@@ -178,3 +178,9 @@ test("the Turn on dialog asks what the node names and no default fills — each 
   const dialog = readFileSync(new URL("./TurnOnDialog.tsx", import.meta.url), "utf8");
   assert.ok(dialog.includes("const needs = neededInputs(row);") && dialog.includes("turnOnBody(toRequest(needs, values), ceiling.budget)"), "the dialog asks, checks and sends the same list");
 });
+
+// added by the coverage pass: listeningModel.test.mjs
+test("a pause for a reason the model does not know is said in general words", () => {
+  assert.equal(pausedWords({ reason: { reason: "weird" }, at: 1 }), "it stopped hearing its events");
+  assert.equal(pausedWords(undefined), "it stopped hearing its events");
+});

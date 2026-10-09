@@ -16,7 +16,7 @@ description = "The one place an outbound HTTP client is built: a proxy policy ap
 reqwest = { workspace = true }
 url = { workspace = true }
 thiserror = { workspace = true }
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [lints]
 workspace = true

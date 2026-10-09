@@ -140,7 +140,7 @@ fn owner_key(paths: &Paths, findings: &mut Vec<Finding>) {
         Ok(Some(hex)) => nostr::key::Keys::parse(hex.trim())
             .err()
             .map(|e| e.to_string()),
-        Ok(None) => None,
+        Ok(None) => None, // LCOV_EXCL_LINE: the file was there a moment ago (`is_file` above)
         Err(e) => Some(e.to_string()),
     };
     if let Some(e) = unreadable {
@@ -226,4 +226,50 @@ fn walk(dir: &Path, visit: &mut dyn FnMut(&Path)) -> Result<(), StoreError> {
         }
     }
     Ok(())
+}
+
+// added by the coverage pass: check_mod.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::KeyStore;
+
+    /// No owner key file — a key in the keyring, or a memory store — is
+    /// nothing to check; one nobody may read is the finding that stops an
+    /// open.
+    #[test]
+    fn an_owner_key_that_is_no_file_is_nothing_to_check_and_an_unreadable_one_is_the_finding() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let _memory = crate::workspace::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        assert!(check_files(&paths).unwrap().is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().unwrap();
+            let paths = Paths::new(dir.path());
+            let store = crate::identity::FileKeyStore::new(paths.identity_dir());
+            let _file = crate::workspace::Workspace::open_with_keystore(
+                dir.path(),
+                Box::new(crate::identity::FileKeyStore::new(paths.identity_dir())),
+            )
+            .unwrap();
+            let key = store.path_of(crate::identity::OWNER_KEY_NAME).unwrap();
+            assert!(key.is_file());
+            std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let findings = check_files(&paths);
+            std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+            let findings = findings.unwrap();
+            assert!(
+                findings
+                    .iter()
+                    .any(|f| f.kind == FindingKind::OwnerKeyUnreadable),
+                "{findings:?}"
+            );
+        }
+    }
 }

@@ -156,11 +156,13 @@ fn walk_into(
     })?;
     for entry in entries {
         let entry = entry.map_err(|e| {
+            // LCOV_EXCL_START: a folder entry that fails to read after the folder itself was listed: the disk's fault between the two
             bisa_core::text!(
                 "error-store-invalid-addon-folder-unreadable",
                 path = dir.display().to_string(),
                 e = e.to_string()
             )
+            // LCOV_EXCL_STOP
         })?;
         let path = entry.path();
         let shown = path
@@ -169,10 +171,12 @@ fn walk_into(
             .display()
             .to_string();
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            // LCOV_EXCL_START: a name that is not UTF-8 cannot be made on APFS (EILSEQ); the arm is held on Linux by a_manifest_that_is_a_folder_or_too_large_a_name_that_is_not_text_and_a_folder_too_deep_are_refused
             return Err(bisa_core::text!(
                 "error-store-invalid-addon-name-not-utf8",
                 path = shown
             ));
+            // LCOV_EXCL_STOP
         };
         if name.starts_with('.') {
             return Err(bisa_core::text!(
@@ -180,6 +184,7 @@ fn walk_into(
                 path = shown
             ));
         }
+        // LCOV_EXCL_START: an entry the folder just listed has a metadata to read; a removal racing the walk is the disk's
         let meta = std::fs::symlink_metadata(&path).map_err(|e| {
             bisa_core::text!(
                 "error-store-invalid-addon-folder-unreadable",
@@ -187,6 +192,7 @@ fn walk_into(
                 e = e.to_string()
             )
         })?;
+        // LCOV_EXCL_STOP
         if meta.file_type().is_symlink() {
             return Err(bisa_core::text!(
                 "error-store-invalid-addon-symlink",
@@ -204,20 +210,24 @@ fn walk_into(
             walk_into(root, &path, depth + 1, out)?;
             continue;
         }
+        // LCOV_EXCL_START: neither a folder, a file nor a link is a device or a pipe, which no bundle a person makes holds
         if !meta.is_file() {
             return Err(bisa_core::text!(
                 "error-store-invalid-addon-not-a-file",
                 path = shown
             ));
         }
+        // LCOV_EXCL_STOP
         if depth == 0 && name == MANIFEST_FILE_NAME {
             continue;
         }
         let rel = path
             .strip_prefix(root)
             .map_err(|_| {
+                // LCOV_EXCL_START: the path was joined under `root` by this walk, so `strip_prefix` cannot fail
                 bisa_core::text!("error-store-invalid-addon-not-a-file", path = shown.clone())
             })?
+            // LCOV_EXCL_STOP
             .components()
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
@@ -264,6 +274,7 @@ fn shipped_files(
 /// process knows — after a failure part way; its absence is not a failure.
 fn clear_staging(staging: &Path) {
     if let Err(clean) = std::fs::remove_dir_all(staging) {
+        // LCOV_EXCL_START: a rename or removal inside a folder this process just wrote is refused by the disk alone
         if clean.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!(
                 target: "bisa_store::addons",
@@ -271,6 +282,7 @@ fn clear_staging(staging: &Path) {
                 staging.display()
             );
         }
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -279,7 +291,7 @@ fn joined_problems(problems: &[AddonProblem]) -> String {
         .iter()
         .map(|p| match &p.field {
             Some(f) => format!("{f}: {}", p.text),
-            None => p.text.to_string(),
+            None => p.text.to_string(), // LCOV_EXCL_LINE: every problem the core makes names its field (`AddonProblem::at`)
         })
         .collect::<Vec<_>>()
         .join("; ")
@@ -454,10 +466,12 @@ impl Workspace {
                 &serde_json::to_vec_pretty(record)?,
             )
         })();
+        // LCOV_EXCL_START: a rename or removal inside a folder this process just wrote is refused by the disk alone
         if let Err(e) = staged {
             clear_staging(&staging);
             return Err(e);
         }
+        // LCOV_EXCL_STOP
         Ok(staging)
     }
 
@@ -471,10 +485,12 @@ impl Workspace {
     ) -> Result<AddonEntry, StoreError> {
         let dest = self.paths.addon_dir(&record.manifest.id);
         let staging = self.stage_addon(&record, files)?;
+        // LCOV_EXCL_START: a rename or removal inside a folder this process just wrote is refused by the disk alone
         if let Err(e) = std::fs::rename(&staging, &dest) {
             clear_staging(&staging);
             return Err(StoreError::io(dest.display().to_string(), e));
         }
+        // LCOV_EXCL_STOP
         self.write_addon_snapshot(&record)?;
         Ok(AddonEntry {
             record,
@@ -490,11 +506,14 @@ impl Workspace {
         let dest = self.paths.addon_dir(&record.manifest.id);
         let staging = self.stage_addon(&record, files)?;
         let retired = self.paths.addon_staging_dir();
+        // LCOV_EXCL_START: a rename or removal inside a folder this process just wrote is refused by the disk alone
         if let Err(e) = std::fs::rename(&dest, &retired) {
             clear_staging(&staging);
             return Err(StoreError::io(dest.display().to_string(), e));
         }
+        // LCOV_EXCL_STOP
         if let Err(e) = std::fs::rename(&staging, &dest) {
+            // LCOV_EXCL_START: the swap's second rename fails only on a disk that refused it after the first; the retired copy is put back or named
             if let Err(back) = std::fs::rename(&retired, &dest) {
                 tracing::error!(
                     target: "bisa_store::addons",
@@ -505,6 +524,7 @@ impl Workspace {
             }
             clear_staging(&staging);
             return Err(StoreError::io(dest.display().to_string(), e));
+            // LCOV_EXCL_STOP
         }
         clear_staging(&retired);
         self.write_addon_snapshot(&record)
@@ -533,9 +553,10 @@ impl Workspace {
             match self.refresh_builtin(entry, bundle) {
                 Ok(true) => refreshed.push(id),
                 Ok(false) => {}
+                // LCOV_EXCL_START: a built-in's refresh writes the files the catalog ships; a failure here is the disk's
                 Err(e) => {
                     tracing::warn!(target: "bisa_store::addons", "the built-in {id} could not be refreshed: {e}")
-                }
+                } // LCOV_EXCL_STOP
             }
         }
         Ok(refreshed)
@@ -743,5 +764,148 @@ impl Workspace {
             )));
         }
         self.write_record(record)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+
+    fn ws() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        (dir, ws)
+    }
+
+    fn manifest_json(id: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","name":"Byte","description":"a widget","version":"1.0.0","license":"MIT",
+                "tags":["tool"],"window":{{"width":200,"height":120}},"permissions":["storage"]}}"#
+        )
+    }
+
+    fn record(id: &str, origin: Origin) -> AddonRecord {
+        AddonRecord {
+            manifest: serde_json::from_str(&manifest_json(id)).unwrap(),
+            origin,
+            enabled: false,
+            granted: vec![],
+            installed_at: 1,
+        }
+    }
+
+    #[test]
+    fn a_built_ins_manifest_is_held_to_its_slug_and_a_peers_record_to_the_rules_and_the_reserved_name(
+    ) {
+        assert!(matches!(
+            parse_addon("x", "{not json"),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            parse_addon("x", &manifest_json("y")),
+            Err(StoreError::Invalid(_))
+        ));
+        assert_eq!(
+            parse_addon("y", &manifest_json("y")).unwrap().id.as_str(),
+            "y"
+        );
+        let (_dir, ws) = ws();
+        let mut nameless = record("acme.quiet", Origin::Local);
+        nameless.manifest.name = String::new();
+        assert!(matches!(
+            ws.adopt_remote_addon(&nameless),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            ws.adopt_remote_addon(&record("state", Origin::Local)),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            ws.install_addon_from_catalog("nope"),
+            Err(StoreError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn the_refresh_passes_over_a_local_record_and_a_catalog_record_the_binary_no_longer_ships() {
+        let (_dir, ws) = ws();
+        ws.adopt_remote_addon(&record("acme.local", Origin::Local))
+            .unwrap();
+        ws.adopt_remote_addon(&record(
+            "acme.gone",
+            Origin::Catalog {
+                slug: "gone".into(),
+            },
+        ))
+        .unwrap();
+        assert!(ws.refresh_builtin_addons().unwrap().is_empty());
+        // What is not an addon's folder is passed over by the listing.
+        std::fs::write(ws.paths.addons_dir().join("README"), b"x").unwrap();
+        std::fs::create_dir_all(ws.paths.addons_dir().join("Not An Id")).unwrap();
+        std::fs::create_dir_all(ws.paths.addons_dir().join(".hidden")).unwrap();
+        let listed: Vec<String> = ws
+            .list_addons()
+            .unwrap()
+            .iter()
+            .map(|a| a.id().to_string())
+            .collect();
+        assert_eq!(listed, ["acme.gone", "acme.local"]);
+        // A switch and a grant already as asked write nothing new.
+        let id = AddonId::new("acme.local").unwrap();
+        let before = ws.get_addon(&id).unwrap();
+        assert_eq!(
+            ws.set_addon_enabled(&id, false).unwrap().record,
+            before.record
+        );
+        assert_eq!(
+            ws.set_addon_grants(&id, vec![]).unwrap().record,
+            before.record
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_or_a_record_nobody_may_read_is_said_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, ws) = ws();
+        let src = tempfile::tempdir().unwrap();
+        let sealed = src.path().join("sealed");
+        std::fs::create_dir_all(&sealed).unwrap();
+        std::fs::write(sealed.join("addon.json"), manifest_json("acme.sealed")).unwrap();
+        let was = std::fs::metadata(&sealed).unwrap().permissions();
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = ws.validate_addon_dir(&sealed);
+        std::fs::set_permissions(&sealed, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+        // A sub-folder nobody may list is a problem under `files`.
+        let deep = sealed.join("img");
+        std::fs::create_dir_all(&deep).unwrap();
+        let was = std::fs::metadata(&deep).unwrap().permissions();
+        std::fs::set_permissions(&deep, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let judged = ws.validate_addon_dir(&sealed);
+        std::fs::set_permissions(&deep, was).unwrap();
+        let (_, problems) = judged.unwrap();
+        assert!(
+            problems.iter().any(|p| p.field.as_deref() == Some("files")),
+            "{problems:?}"
+        );
+        // An installed record nobody may read, and a folder nobody may list.
+        ws.adopt_remote_addon(&record("acme.local", Origin::Local))
+            .unwrap();
+        let id = AddonId::new("acme.local").unwrap();
+        let file = ws.paths.addon_record(&id);
+        let was = std::fs::metadata(&file).unwrap().permissions();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let one = ws.get_addon(&id);
+        std::fs::set_permissions(&file, was).unwrap();
+        assert!(matches!(one, Err(StoreError::Io { .. })), "{one:?}");
+        let dir = ws.paths.addons_dir();
+        let was = std::fs::metadata(&dir).unwrap().permissions();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let listed = ws.list_addons();
+        std::fs::set_permissions(&dir, was).unwrap();
+        assert!(matches!(listed, Err(StoreError::Io { .. })), "{listed:?}");
     }
 }

@@ -216,7 +216,9 @@ impl Workspace {
         if let Err(e) = def.validate() {
             // Nothing is written yet; the minted key is the one thing to undo.
             if let Err(k) = self.identity.delete_agent(def.pubkey.as_hex()) {
+                // LCOV_EXCL_START: the file and memory stores delete the key they just minted; only a keyring that lost it fails here
                 tracing::warn!("could not discard the key of a refused agent: {k}");
+                // LCOV_EXCL_STOP
             }
             return Err(e.into());
         }
@@ -404,5 +406,96 @@ mod tests {
         assert_eq!(slugify("  ÜBER  ").as_deref(), Some("ber"));
         assert_eq!(slugify("!!!"), None);
         assert_eq!(slugify("-lead"), Some("lead".into()));
+    }
+
+    // added by the coverage pass: agents.rs
+
+    // --- the bare lines of the agents module ---
+
+    fn ws5() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::MemoryKeyStore::default()),
+        )
+        .unwrap();
+        (dir, ws)
+    }
+
+    fn scout() -> NewAgent {
+        NewAgent {
+            name: "Scout".into(),
+            harness: "mock".into(),
+            system_prompt: "look".into(),
+            ..Default::default()
+        }
+    }
+
+    /// An id taken is refused; the folder skips what is not an agent's file
+    /// and names what it cannot read; an agent's own folder goes with it,
+    /// and one that cannot be removed is said by its path.
+    #[test]
+    fn agent_ids_are_taken_once_and_the_folder_skips_strangers() {
+        let (_d, ws) = ws5();
+        let id = ws.add_agent(scout()).unwrap().id;
+        let err = ws
+            .add_agent_with_id(&id, scout(), AgentOrigin::Local)
+            .unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        let agents = ws.paths.agents_dir();
+        std::fs::write(agents.join("Bad Name.json"), b"{}").unwrap();
+        std::fs::write(agents.join("README"), b"").unwrap();
+        let before = ws.list_agents().unwrap().len();
+        let own = ws.paths.agent(&id).dir().to_path_buf();
+        std::fs::create_dir_all(own.join("work")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file = ws.paths.agent_file(&id);
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.get_agent(&id);
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.list_agents();
+            std::fs::set_permissions(&agents, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            let sealed = own.join("work").join("sealed");
+            std::fs::create_dir_all(&sealed).unwrap();
+            std::fs::write(sealed.join("f"), b"").unwrap();
+            std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unremovable = ws.remove_agent(&id);
+            std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(
+                matches!(unremovable, Err(StoreError::Io { .. })),
+                "{unremovable:?}"
+            );
+            // The definition file went first; the rest goes with a fresh one.
+            ws.add_agent_with_id(&id, scout(), AgentOrigin::Local)
+                .unwrap();
+        }
+        ws.remove_agent(&id).unwrap();
+        assert!(!own.exists(), "the agent's own folder went with it");
+        assert_eq!(ws.list_agents().unwrap().len(), before - 1);
+    }
+
+    /// A key the file store cannot remove is said, and the agent still goes.
+    #[cfg(unix)]
+    #[test]
+    fn an_agent_whose_key_cannot_be_removed_still_goes() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let identity = Paths::new(dir.path()).identity_dir();
+        let ws = Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(crate::identity::FileKeyStore::new(identity.clone())),
+        )
+        .unwrap();
+        let id = ws.add_agent(scout()).unwrap().id;
+        std::fs::set_permissions(&identity, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let removed = ws.remove_agent(&id);
+        std::fs::set_permissions(&identity, std::fs::Permissions::from_mode(0o700)).unwrap();
+        removed.unwrap();
+        assert!(ws.get_agent(&id).is_err());
     }
 }

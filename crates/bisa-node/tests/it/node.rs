@@ -10297,3 +10297,207 @@ async fn inspecting_a_folder_asks_the_same_questions_as_adopting_it() {
     );
     node.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// A run of the workspace's work item, and the workflow routes' refusals
+// ---------------------------------------------------------------------------
+
+/// A run of the workspace's work item, from its id alone: its home is the
+/// run and its label the workflow's name and the run's number; a result the
+/// journal holds is read back; a captured patch is served as text; a
+/// settled item is forgotten on request.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_runs_item_is_labelled_read_and_forgotten() {
+    let node = Node::start().await;
+    let wf = node.workflow(agent_workflow()).await;
+    let v = node.post(&format!("/workflows/{wf}/runs"), json!({})).await;
+    let run: RunId = serde_json::from_value(v["run"]["id"].clone()).unwrap();
+    let run_home = json!({"home": "run", "run": run.to_string()});
+    // The item settles blocked on its own: no harness of that name exists.
+    let mut item = String::new();
+    for _ in 0..100 {
+        let rows = node.get("/work-items").await;
+        let found = rows["work_items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["home"] == run_home && r["item"]["state"]["state"] == json!("blocked"));
+        if let Some(row) = found {
+            item = row["item"]["id"].as_str().unwrap().to_string();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(!item.is_empty(), "the run's item never settled");
+    let v = node.get(&format!("/work-items/{item}")).await;
+    assert_eq!(v["home"], run_home, "{v}");
+    assert_eq!(v["label"], json!("Build it #1"), "{v}");
+    assert!(v["result"].is_null(), "{v}");
+    assert_eq!(v["has_result"], json!(false));
+
+    // A result the journal holds is read back.
+    let home = bisa_core::Home::Run { run };
+    let item_id: WorkItemId = item.parse().unwrap();
+    node.ws
+        .append_journal(
+            &home,
+            JournalPayload::Result {
+                work_item: item_id,
+                output: json!({"ok": true}),
+                artifacts: vec![],
+            },
+            node.ws.owner_keys(),
+            None,
+        )
+        .unwrap();
+    let v = node.get(&format!("/work-items/{item}")).await;
+    assert_eq!(v["result"], json!({"ok": true}), "{v}");
+
+    // A captured patch is served as text.
+    let patch = node.ws.paths().home(&home).result(item_id);
+    std::fs::create_dir_all(patch.parent().unwrap()).unwrap();
+    std::fs::write(&patch, "--- a/x\n+++ b/x\n").unwrap();
+    assert_eq!(
+        node.get(&format!("/work-items/{item}")).await["has_result"],
+        json!(true)
+    );
+    let (code, headers, len) = request_headers(
+        node.socket(),
+        "GET",
+        &format!("/work-items/{item}/result"),
+        None,
+    )
+    .await;
+    assert_eq!(code, 200);
+    assert_eq!(
+        headers.get("content-type").and_then(|v| v.to_str().ok()),
+        Some("text/x-patch")
+    );
+    assert_eq!(len, "--- a/x\n+++ b/x\n".len());
+
+    // A blocked item is not settled: it is cancelled first, then forgotten.
+    let (code, v) = node
+        .req("DELETE", &format!("/work-items/{item}"), None)
+        .await;
+    assert_eq!(code, 400, "{v}");
+    node.ws
+        .transition_work_item(&home, item_id, &bisa_core::WorkItemTransition::Cancel)
+        .unwrap();
+    let (code, v) = node
+        .req("DELETE", &format!("/work-items/{item}"), None)
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["ok"], json!(true));
+    assert_eq!(v["home"], run_home);
+    assert_eq!(v["work_item"], json!(item));
+    let (code, _) = node.req("GET", &format!("/work-items/{item}"), None).await;
+    assert_eq!(code, 404, "forgotten");
+    node.shutdown().await;
+}
+
+/// The workflow routes refuse in words: a goal that is no id, a scope word
+/// nobody knows, and a workflow nobody made on every route that names one.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_workflow_routes_refuse_a_bad_goal_a_bad_scope_and_a_workflow_nobody_made() {
+    let node = Node::start().await;
+    let (code, v) = node.req("GET", "/workflows?goal=not-an-id", None).await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node.req("GET", "/workflows?scope=everything", None).await;
+    assert_eq!(code, 400, "{v}");
+    let nobody = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    for (method, path, body) in [
+        ("GET", format!("/workflows/{nobody}"), None),
+        ("GET", format!("/workflows/{nobody}/runs"), None),
+        (
+            "POST",
+            format!("/workflows/{nobody}/retire"),
+            Some(json!({"workflow": "archive", "projects": "keep"})),
+        ),
+        (
+            "POST",
+            format!("/workflows/{nobody}/archive"),
+            Some(json!({"archived": true})),
+        ),
+    ] {
+        let (code, v) = node.req(method, &path, body).await;
+        assert_eq!(code, 404, "{method} {path}: {v}");
+    }
+    node.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// A goal's routes at their edges
+// ---------------------------------------------------------------------------
+
+/// The goal routes' edges: a capture of a workflow that listens at once
+/// shows its public hook's secret this once; a goal pointed at a workflow
+/// and handed a definition in one body is refused; a start step named on
+/// a goal with no workflow is refused; a queued run that is no id is 404;
+/// a message posted on the goal's thread lands there.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_goal_routes_at_their_edges() {
+    let node = Node::start().await;
+    let hears = node
+        .workflow(json!({
+            "name": "Hears a call",
+            "steps": [
+                {"id": "ticket", "name": "A ticket arrives", "kind": "start",
+                 "on": {"event": "hook", "public": true}, "then": ["say"]},
+                {"id": "say", "name": "Say", "kind": "notify", "template": "heard"}
+            ]
+        }))
+        .await;
+    let (code, made) = node
+        .req(
+            "POST",
+            "/goals",
+            Some(json!({"statement": "listen for tickets", "workflow": hears.to_string(), "inputs": {}})),
+        )
+        .await;
+    assert_eq!(code, 200, "{made}");
+    let secrets = made["secrets"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the secrets, shown once: {made}"));
+    assert_eq!(secrets.len(), 1, "{made}");
+    assert_eq!(secrets[0]["step"], json!("ticket"));
+    assert_eq!(secrets[0]["secret"].as_str().map(str::len), Some(64));
+
+    let goal = node.new_goal("edges").await;
+    let (code, v) = node
+        .req(
+            "PUT",
+            &format!("/goals/{goal}/workflow"),
+            Some(json!({"workflow": hears.to_string(), "definition": human_workflow()})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/goals/{goal}/run"),
+            Some(json!({"start": "ticket"})),
+        )
+        .await;
+    assert!(
+        code == 400 || code == 409,
+        "a goal with no workflow starts nothing: {code} {v}"
+    );
+    let (code, v) = node
+        .req("DELETE", &format!("/goals/{goal}/runs/not-an-id"), None)
+        .await;
+    assert_eq!(code, 404, "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/goals/{goal}/messages"),
+            Some(json!({"content": "a word on the goal"})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let thread = node.get(&format!("/goals/{goal}/messages")).await;
+    assert!(
+        thread.to_string().contains("a word on the goal"),
+        "{thread}"
+    );
+    node.shutdown().await;
+}

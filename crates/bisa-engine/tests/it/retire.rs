@@ -550,7 +550,17 @@ fn quiet_harness() -> MockAdapter {
 #[tokio::test(flavor = "multi_thread")]
 async fn deleting_a_running_goal_aborts_its_session_before_the_folder_goes() {
     let dir = tempfile::tempdir().unwrap();
-    let engine = engine_with(&dir, vec![quiet_harness()]);
+    let adapter = std::sync::Arc::new(quiet_harness());
+    let mut catalog = bisa_harness::HarnessCatalog::new();
+    catalog.register(
+        std::sync::Arc::clone(&adapter) as std::sync::Arc<dyn bisa_harness::HarnessAdapter>
+    );
+    let engine = Engine::start(
+        common::workspace(&dir),
+        catalog,
+        common::design_off_config(),
+    )
+    .unwrap();
     let mut bus = engine.events();
     let (goal, run) = run_on(
         &engine,
@@ -566,6 +576,13 @@ async fn deleting_a_running_goal_aborts_its_session_before_the_folder_goes() {
             .iter()
             .any(|s| s.goal == Some(goal.id) && s.state.is_live())
             .then_some(())
+    })
+    .await;
+    // Driven, not merely launched: the stop counts a session its driver is
+    // on; a launch still in flight would be ended as a launch and counted
+    // as nothing.
+    until("the worker to be prompted", || {
+        (!adapter.prompts.lock().unwrap().is_empty()).then_some(())
     })
     .await;
 
@@ -663,7 +680,17 @@ async fn deleting_a_running_goal_aborts_its_session_before_the_folder_goes() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_goal_whose_design_is_used_elsewhere_is_refused_before_anything_stops() {
     let dir = tempfile::tempdir().unwrap();
-    let engine = engine_with(&dir, vec![quiet_harness()]);
+    let adapter = std::sync::Arc::new(quiet_harness());
+    let mut catalog = bisa_harness::HarnessCatalog::new();
+    catalog.register(
+        std::sync::Arc::clone(&adapter) as std::sync::Arc<dyn bisa_harness::HarnessAdapter>
+    );
+    let engine = Engine::start(
+        common::workspace(&dir),
+        catalog,
+        common::design_off_config(),
+    )
+    .unwrap();
     let ws = engine.workspace();
     let (goal, _) = run_on(
         &engine,
@@ -671,6 +698,13 @@ async fn a_goal_whose_design_is_used_elsewhere_is_refused_before_anything_stops(
         new_workflow("running", vec![agent_step("work", "mock")]),
     );
     step_in_state(&engine, goal.id, "work", "running").await;
+    // The session is counted by the stop once the driver is driving it —
+    // its first prompt sent — not when its row appears: a slow launch would
+    // otherwise be ended as a launch, and counted as nothing.
+    until("the worker to be prompted", || {
+        (!adapter.prompts.lock().unwrap().is_empty()).then_some(())
+    })
+    .await;
     // The goal's own design, held by another goal: deleting the first would
     // take the design from under the second.
     let design = ws
@@ -747,7 +781,24 @@ async fn a_goal_whose_design_is_used_elsewhere_is_refused_before_anything_stops(
         )
         .await
         .unwrap();
-    assert_eq!(done.stopped_sessions, 1);
+    // The one session was told to stop — settled within the deadline, or
+    // still being ended when the retirement stopped waiting — and its row
+    // ends either way.
+    assert_eq!(
+        done.stopped_sessions + done.unsettled_sessions,
+        1,
+        "{done:?}"
+    );
+    until("the worker's row to end", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .iter()
+            .all(|s| s.goal != Some(goal.id) || !s.state.is_live())
+            .then_some(())
+    })
+    .await;
     assert!(ws.get_goal(goal.id).unwrap().is_archived());
     engine.shutdown().await;
 }

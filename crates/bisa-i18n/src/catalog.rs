@@ -128,7 +128,9 @@ impl Catalog {
     pub fn global() -> &'static Catalog {
         static GLOBAL: LazyLock<Catalog> = LazyLock::new(|| {
             Catalog::shipped().unwrap_or_else(|faults| {
+                // LCOV_EXCL_START: the shipped files parse: every_catalog_file_parses_as_fluent holds each one
                 panic!("the shipped catalog does not parse:\n{}", faults.join("\n"))
+                // LCOV_EXCL_STOP
             })
         });
         &GLOBAL
@@ -147,13 +149,13 @@ impl Catalog {
                 Ok(b) => {
                     bundles.insert(tag.to_string(), b);
                 }
-                Err(f) => faults.extend(f),
+                Err(f) => faults.extend(f), // LCOV_EXCL_LINE: the shipped files parse: every_catalog_file_parses_as_fluent holds each one
             }
         }
         if faults.is_empty() {
             Ok(Catalog { bundles })
         } else {
-            Err(faults)
+            Err(faults) // LCOV_EXCL_LINE: the shipped files parse: every_catalog_file_parses_as_fluent holds each one
         }
     }
 
@@ -250,5 +252,103 @@ impl Catalog {
                 .format_pattern(attr.value(), Some(&args), &mut errors)
                 .into_owned(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn english() -> Locale {
+        Locale::english()
+    }
+
+    #[test]
+    fn a_language_not_shipped_has_no_source_and_a_bad_tag_or_file_is_a_fault() {
+        assert!(Namespace::Settings.source("fr").is_none());
+        let faults = Catalog::from_sources("not a tag!", &[])
+            .err()
+            .expect("a fault");
+        assert!(
+            faults[0].contains("not a language identifier"),
+            "{faults:?}"
+        );
+        let faults = Catalog::from_sources("en", &["bad = {"])
+            .err()
+            .expect("a fault");
+        assert!(faults.iter().all(|f| f.starts_with("en: ")), "{faults:?}");
+        let faults = Catalog::from_sources("en", &["a = x", "a = y"])
+            .err()
+            .expect("a fault");
+        assert!(
+            faults.iter().any(|f| f.contains("a")),
+            "a message said twice is a fault: {faults:?}"
+        );
+    }
+
+    #[test]
+    fn a_number_argument_rides_through_a_miss_is_said_once_and_a_fault_still_renders() {
+        let c =
+            Catalog::from_sources("en", &["units = { $n } units", "lost = { $missing }"]).unwrap();
+        assert_eq!(
+            c.render(&english(), &Text::new("units").arg("n", 1.5f64)),
+            "1.5 units"
+        );
+        assert_eq!(
+            c.render(&english(), &Text::new("units").arg("n", 2i64)),
+            "2 units"
+        );
+        assert_eq!(
+            c.render(&english(), &Text::new("nothing-here")),
+            "nothing-here"
+        );
+        assert_eq!(
+            c.render(&english(), &Text::new("nothing-here")),
+            "nothing-here"
+        );
+        assert!(c.render(&english(), &Text::new("lost")).contains("missing"));
+        // A catalog of another language alone: English has no bundle to fall
+        // back on, so the id is shown.
+        let fr = Catalog::from_sources("fr", &["units = { $n } unités"]).unwrap();
+        assert_eq!(
+            fr.render(&english(), &Text::new("units").arg("n", 1)),
+            "units"
+        );
+        assert!(!fr.has(&english(), "units"));
+    }
+
+    #[test]
+    fn a_content_field_is_the_translation_when_one_ships_else_the_fallback() {
+        let c = Catalog::from_sources(
+            "en",
+            &["catalog-pet-cat = Chat\n    .description = Un chat\ncatalog-pet-dog =\n    .tagline = Woof\n"],
+        )
+        .unwrap();
+        let en = english();
+        assert_eq!(c.content(&en, "catalog-pet-cat", None, "Cat"), "Chat");
+        assert_eq!(
+            c.content(&en, "catalog-pet-cat", Some("description"), "A cat"),
+            "Un chat"
+        );
+        assert_eq!(
+            c.content(&en, "catalog-pet-cat", Some("tagline"), "Meow"),
+            "Meow"
+        );
+        assert_eq!(
+            c.content(&en, "catalog-pet-dog", None, "Dog"),
+            "Dog",
+            "no value, the file's text"
+        );
+        assert_eq!(
+            c.content(&en, "catalog-pet-dog", Some("tagline"), "Bark"),
+            "Woof"
+        );
+        assert_eq!(c.content(&en, "catalog-pet-fox", None, "Fox"), "Fox");
+        let fr = Catalog::from_sources("fr", &["catalog-pet-cat = Chat"]).unwrap();
+        assert_eq!(
+            fr.content(&en, "catalog-pet-cat", None, "Cat"),
+            "Cat",
+            "no bundle, the file's text"
+        );
     }
 }

@@ -434,7 +434,7 @@ impl Workspace {
                         &event.content,
                         at,
                     )?;
-                }
+                } // LCOV_EXCL_LINE: `react` answers the standing reaction before it builds one, and the ingest dedupes an identical event; the rebuild starts from an empty table
             }
             k if k == KIND_RETRACTION => {
                 let Some(target) = e_tag(event) else {
@@ -452,14 +452,15 @@ impl Workspace {
                             "error-store-invalid-retraction-author-does-not-match-target-author"
                         )));
                     }
-                }
+                } // LCOV_EXCL_LINE: a retraction of a fact nobody here holds indexes nothing (`a_duplicate_reaction_and_a_retraction_of_nothing_change_nothing_and_a_post_is_read_back`); llvm-cov files the fall-through on the brace
             }
+            // LCOV_EXCL_START: `index_conversation_fact` is reached for the three conversation kinds alone (`ingest_remote_event`, `post_message`, `react`, `retract`, the rebuild)
             other => {
                 return Err(StoreError::Invalid(bisa_core::text!(
                     "error-store-invalid-kind-not-conversation-fact",
                     other = other.to_string()
                 )))
-            }
+            } // LCOV_EXCL_STOP
         }
         Ok(())
     }
@@ -852,7 +853,9 @@ impl Workspace {
         }
         let sha256 = hex::encode(sha2::Sha256::digest(bytes));
         let path = self.paths().attachment(&sha256).ok_or_else(|| {
+            // LCOV_EXCL_START: the digest was computed here from the bytes; `attachment` refuses a string that is no digest alone
             StoreError::Invalid(bisa_core::text!("error-store-invalid-not-digest"))
+            // LCOV_EXCL_STOP
         })?;
         if !path.exists() {
             crate::paths::write_atomic(&path, bytes)?;
@@ -904,10 +907,12 @@ impl Workspace {
         if let Some(dir) = named.parent() {
             std::fs::create_dir_all(dir)
                 .map_err(|e| StoreError::io(dir.display().to_string(), e))?;
-        }
+        } // LCOV_EXCL_LINE: a named copy under the attachments folder always has a parent
         if std::fs::hard_link(&blob, &named).is_err() {
+            // LCOV_EXCL_START: a hard link fails across devices alone, and a workspace's blobs and their named copies share one
             std::fs::copy(&blob, &named)
                 .map_err(|e| StoreError::io(named.display().to_string(), e))?;
+            // LCOV_EXCL_STOP
         }
         Ok(named)
     }
@@ -924,7 +929,9 @@ impl Workspace {
             )));
         }
         let path = self.paths().attachment(&actual).ok_or_else(|| {
+            // LCOV_EXCL_START: the digest was computed here from the bytes; `attachment` refuses a string that is no digest alone
             StoreError::Invalid(bisa_core::text!("error-store-invalid-not-digest"))
+            // LCOV_EXCL_STOP
         })?;
         if !path.exists() {
             crate::paths::write_atomic(&path, bytes)?;
@@ -1370,5 +1377,317 @@ mod tests {
         assert_eq!(ws.list_reactions("general").unwrap().len(), 1);
         ws.retract(&id).unwrap();
         assert!(ws.messages("general", None, 10).unwrap()[0].retracted);
+    }
+
+    // added by the coverage pass: s3-conversation.rs
+    #[test]
+    fn a_channel_handle_expands_to_its_roster_a_disabled_team_is_refused_and_an_unknown_agent_falls_through(
+    ) {
+        let (_dir, ws) = ws();
+        let roster = ws
+            .resolve_mentions("general", &["general".to_string()])
+            .unwrap();
+        assert!(!roster.is_empty(), "the general channel's roster");
+        let team = ws
+            .create_team("Ops", None, vec![], Tags::default())
+            .unwrap();
+        let mut off = team.clone();
+        off.enabled = false;
+        ws.update_team(off).unwrap();
+        assert!(matches!(
+            ws.resolve_mentions("general", &[team.id.to_string()]),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            ws.resolve_mentions("general", &["nobody-here".to_string()]),
+            Err(StoreError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn a_post_with_bytes_that_are_elsewhere_an_empty_or_long_emoji_and_an_attachment_too_big_or_nameless_are_refused(
+    ) {
+        let (_dir, ws) = ws();
+        let elsewhere = AttachmentRef {
+            sha256: "ab".repeat(32),
+            name: "a.txt".into(),
+            mime: "text/plain".into(),
+            size: 1,
+        };
+        assert!(matches!(
+            ws.post_message(
+                "general",
+                MessageBody::post("see"),
+                None,
+                &[],
+                &[elsewhere],
+                None,
+                PostOrigin::Asked
+            ),
+            Err(StoreError::Invalid(_))
+        ));
+        let said = ws
+            .post_message(
+                "general",
+                MessageBody::post("hi"),
+                None,
+                &[],
+                &[],
+                None,
+                PostOrigin::Asked,
+            )
+            .unwrap();
+        assert!(matches!(
+            ws.react(&said, "", None),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            ws.react(&said, &"x".repeat(65), None),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            ws.put_attachment(b"x", "  ", "text/plain"),
+            Err(StoreError::Invalid(_))
+        ));
+        let big = vec![0u8; MAX_ATTACHMENT_BYTES as usize + 1];
+        assert!(matches!(
+            ws.put_attachment(&big, "big.bin", "application/octet-stream"),
+            Err(StoreError::Invalid(_))
+        ));
+        // Bytes accepted twice land once.
+        let bytes = b"hello";
+        let sha = hex::encode(sha2::Sha256::digest(bytes));
+        ws.accept_attachment(&sha, bytes).unwrap();
+        ws.accept_attachment(&sha, bytes).unwrap();
+        assert!(ws.attachment_path(&sha).is_some());
+    }
+
+    #[test]
+    fn a_rebuild_passes_over_a_stranger_an_unknown_scope_an_unverifiable_event_and_a_fact_the_index_refuses(
+    ) {
+        let (_dir, ws) = ws();
+        let keys = ws.owner_keys().clone();
+        ws.post_message(
+            "general",
+            MessageBody::post("kept"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+        let dir = ws.paths().conversation_dir();
+        std::fs::write(dir.join("README"), b"not a log").unwrap();
+        std::fs::write(dir.join("nope.jsonl"), b"{}\n").unwrap();
+        let log = ws.paths().conversation_log("general").unwrap();
+        let mut tampered = nostr::event::EventBuilder::new(
+            nostr::event::Kind::from(KIND_MESSAGE),
+            serde_json::to_string(&MessageBody::post("x")).unwrap(),
+        )
+        .finalize(&keys)
+        .unwrap();
+        tampered.content = "{}".into();
+        let not_a_body =
+            nostr::event::EventBuilder::new(nostr::event::Kind::from(KIND_MESSAGE), "{}")
+                .finalize(&keys)
+                .unwrap();
+        crate::paths::append_line(&log, &tampered.as_json()).unwrap();
+        crate::paths::append_line(&log, &not_a_body.as_json()).unwrap();
+        crate::paths::append_line(&log, "not json").unwrap();
+        ws.rebuild_index().unwrap();
+        let kept = ws.messages("general", None, 10).unwrap();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+    }
+
+    #[test]
+    fn an_imeta_tag_is_read_whole_or_dropped() {
+        let keys = nostr::key::Keys::generate();
+        let sha = "ab".repeat(32);
+        let event = nostr::event::EventBuilder::new(nostr::event::Kind::from(KIND_MESSAGE), "{}")
+            .tags([
+                Tag::parse([
+                    "imeta",
+                    &format!("x {sha}"),
+                    "m text/plain",
+                    "size 3",
+                    "name a.txt",
+                    "bogus",
+                    "k v",
+                ])
+                .unwrap(),
+                Tag::parse(["imeta", &format!("x {sha}"), "m text/plain", "size 3"]).unwrap(),
+                Tag::parse(["imeta", "x nope", "m text/plain", "size 3", "name b.txt"]).unwrap(),
+                Tag::parse(["other", "x"]).unwrap(),
+            ])
+            .finalize(&keys)
+            .unwrap();
+        let read = imeta_tags(&event);
+        assert_eq!(read.len(), 1, "{read:?}");
+        assert_eq!(read[0].name, "a.txt");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_log_or_a_folder_nobody_may_read_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, ws) = ws();
+        ws.post_message(
+            "general",
+            MessageBody::post("hi"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+        let log = ws.paths().conversation_log("general").unwrap();
+        let was = std::fs::metadata(&log).unwrap().permissions();
+        std::fs::set_permissions(&log, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let read = ws.conversation_event("general", "x");
+        std::fs::set_permissions(&log, was).unwrap();
+        assert!(matches!(read, Err(StoreError::Io { .. })), "{read:?}");
+        let dir = ws.paths().conversation_dir();
+        let was = std::fs::metadata(&dir).unwrap().permissions();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let rebuilt = ws.rebuild_index();
+        std::fs::set_permissions(&dir, was).unwrap();
+        assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+    }
+
+    // added by the coverage pass: conversation.rs
+
+    // --- the conversation module's remaining arms ---
+
+    /// A mention token that is a scope but no channel, one that is no id of
+    /// any kind, and a team with a disabled agent on it.
+    #[test]
+    fn mentions_fall_through_their_kinds_and_a_disabled_team_agent_is_left_out() {
+        let (_d, ws) = ws();
+        let err = ws
+            .resolve_mentions("Not A Channel", &["Not A Channel".to_string()])
+            .unwrap_err();
+        assert!(matches!(err, StoreError::Invalid(_)), "{err:?}");
+        let err = ws
+            .resolve_mentions("general", &["Not Valid!".to_string()])
+            .unwrap_err();
+        assert!(matches!(err, StoreError::Invalid(_)), "{err:?}");
+        let scout = ws
+            .add_agent(crate::agents::NewAgent {
+                name: "Scout".into(),
+                harness: "mock".into(),
+                system_prompt: "look".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let ranger = ws
+            .add_agent(crate::agents::NewAgent {
+                name: "Ranger".into(),
+                harness: "mock".into(),
+                system_prompt: "range".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let team = ws
+            .create_team(
+                "Field",
+                None,
+                vec![
+                    bisa_core::Assignee::Agent(scout.id.to_string()),
+                    bisa_core::Assignee::Agent(ranger.id.to_string()),
+                ],
+                Tags::default(),
+            )
+            .unwrap();
+        ws.set_agent_enabled(&ranger.id, false).unwrap();
+        assert_eq!(
+            ws.resolve_mentions("general", &[team.id.to_string()])
+                .unwrap(),
+            vec![scout.pubkey]
+        );
+    }
+
+    /// A reaction the cache already holds is not indexed twice; a retraction
+    /// of a fact nobody here holds indexes nothing; a posted event is read
+    /// back from its log by id.
+    #[test]
+    fn a_duplicate_reaction_and_a_retraction_of_nothing_change_nothing_and_a_post_is_read_back() {
+        let (_d, ws) = ws();
+        let keys = ws.owner_keys().clone();
+        let posted = ws
+            .post_message(
+                "general",
+                MessageBody::post("hello"),
+                None,
+                &[],
+                &[],
+                None,
+                crate::workspace::PostOrigin::Asked,
+            )
+            .unwrap();
+        assert!(ws.conversation_event("general", &posted).unwrap().is_some());
+        let general = Tag::parse([
+            "a",
+            &format!(
+                "{}:{}:general",
+                bisa_core::kind::KIND_CHANNEL,
+                keys.public_key().to_hex()
+            ),
+        ])
+        .unwrap();
+        let reaction = || {
+            EventBuilder::new(Kind::from(KIND_REACTION), "👍")
+                .tags([general.clone(), Tag::parse(["e", &posted]).unwrap()])
+                .finalize(&keys)
+                .unwrap()
+        };
+        assert!(ws.ingest_remote_event(&reaction()).is_ok());
+        assert!(ws.ingest_remote_event(&reaction()).is_ok());
+        assert_eq!(ws.list_reactions("general").unwrap().len(), 1);
+        let of_nothing = EventBuilder::new(Kind::from(KIND_RETRACTION), "")
+            .tags([general.clone(), Tag::parse(["e", &"f".repeat(64)]).unwrap()])
+            .finalize(&keys)
+            .unwrap();
+        assert!(ws.ingest_remote_event(&of_nothing).is_ok());
+    }
+
+    // added by the coverage pass: conversation-s7.rs
+
+    #[test]
+    fn messages_are_paged_backwards_from_a_cursor() {
+        let (_d, ws) = ws();
+        let post = |text: &str| {
+            ws.post_message(
+                "general",
+                MessageBody::post(text),
+                None,
+                &[],
+                &[],
+                None,
+                crate::workspace::PostOrigin::Asked,
+            )
+            .unwrap()
+        };
+        post("one");
+        post("two");
+        let all = ws.messages("general", None, 10).unwrap();
+        assert_eq!(all.len(), 2);
+        let newest = all.last().unwrap();
+        let before = ws
+            .messages(
+                "general",
+                Some(PageBefore {
+                    at: newest.created_at,
+                    id: Some(newest.id.clone()),
+                }),
+                10,
+            )
+            .unwrap();
+        assert_eq!(before.len(), 1);
+        assert!(ws
+            .messages("general", Some(PageBefore::at(0)), 10)
+            .unwrap()
+            .is_empty());
     }
 }

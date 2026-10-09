@@ -304,3 +304,53 @@ impl Workspace {
         Ok(())
     }
 }
+
+// added by the coverage pass: teams_mod.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+
+    fn ws() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        (dir, ws)
+    }
+
+    /// A name taken twice gets a suffix; an id taken is refused; the folder
+    /// skips what is not a team's file and names what it cannot read.
+    #[test]
+    fn team_ids_are_minted_apart_and_the_folder_skips_strangers() {
+        let (_d, ws) = ws();
+        let ops = ws
+            .create_team("Ops", None, vec![], Tags::default())
+            .unwrap();
+        assert_eq!(ops.id.as_str(), "ops");
+        let twin = ws
+            .create_team("Ops", None, vec![], Tags::default())
+            .unwrap();
+        assert!(twin.id.as_str().starts_with("ops-"), "{}", twin.id);
+        let err = ws
+            .create_team_with_id(&ops.id, "Ops", None, vec![], Tags::default(), Origin::Local)
+            .unwrap_err();
+        assert!(matches!(&err, StoreError::Invalid(_)), "{err:?}");
+        let teams = ws.paths.teams_dir();
+        std::fs::write(teams.join("Bad Name.json"), b"{}").unwrap();
+        std::fs::write(teams.join("README"), b"").unwrap();
+        assert_eq!(ws.list_teams().unwrap().len(), 2);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file = ws.paths.team_file(&ops.id);
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.get_team(&ops.id);
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+            std::fs::set_permissions(&teams, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let unreadable = ws.list_teams();
+            std::fs::set_permissions(&teams, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(matches!(unreadable, Err(StoreError::Io { .. })));
+        }
+    }
+}

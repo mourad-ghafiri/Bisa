@@ -243,4 +243,25 @@ mod tests {
         assert_eq!(r.origin, Origin::Workspace);
         assert_eq!(ws.settings(None).unwrap().len(), bisa_core::SETTINGS.len());
     }
+
+    // added by the coverage pass: settings.rs
+
+    #[cfg(unix)]
+    #[test]
+    fn a_settings_layer_nobody_may_read_is_an_io_error_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let ws =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        ws.set_setting(Scope::Workspace, None, "editor.tab_size", json!(4))
+            .unwrap();
+        let file = ws.paths.workspace_settings();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let unreadable = ws.setting("editor.tab_size", None);
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            matches!(unreadable, Err(StoreError::Io { .. })),
+            "{unreadable:?}"
+        );
+    }
 }

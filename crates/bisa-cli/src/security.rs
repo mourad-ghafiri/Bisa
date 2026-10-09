@@ -414,4 +414,22 @@ mod tests {
             "the classifier reads it first — publishing"
         );
     }
+
+    // added by the coverage pass: cli-security.rs
+
+    #[test]
+    fn the_guard_previews_other_verdicts_read_as_words_and_a_switch_reads_off() {
+        assert_eq!(on_off(&json!(false)), "off");
+        assert_eq!(on_off(&json!(null)), "off");
+        assert_eq!(verdict_word("weird"), "no rule");
+        let ask =
+            guard_lines(&json!({ "verdict": "ask", "rule": "ask_rule", "label": "asks first" }));
+        assert!(ask[0].contains("asks first"), "{ask:?}");
+        let allow = guard_lines(&json!({ "verdict": "allow", "rule": "allow_rule" }));
+        assert!(allow[0].contains("allow_rule"), "{allow:?}");
+        let classify = guard_lines(&json!({ "verdict": "classify", "rule": "c" }));
+        assert!(!classify[0].is_empty());
+        let none = guard_lines(&json!({ "verdict": "fallthrough" }));
+        assert!(none[0].contains("harness"), "{none:?}");
+    }
 }

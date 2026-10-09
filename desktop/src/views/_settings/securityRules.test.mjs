@@ -82,6 +82,7 @@ test("a rule says where it applies: the platform's agents, a terminal's harnesse
   assert.equal(appliesWords({ applies_to: "terminal" }), "harnesses in a terminal only");
   assert.equal(appliesWords({}), "");
   assert.equal(appliesWords({ applies_to: null }), "");
+  assert.equal(appliesWords({ applies_to: "elsewhere" }), "", "a host the model does not know has no words");
   // A built-in that steers an agent to the platform's own tools wears the third phrase; one that protects the machine does not.
   const steering = { action: "deny", matcher: { kind: "command", regex: "--headless" }, applies_to: "platform" };
   assert.equal(ruleWords(steering), "refused — the agent hears why · the platform's agents only · commands matching --headless", "the scope before the pattern, which is what a row truncates");
@@ -108,11 +109,16 @@ test("verdicts, actions, matchers and detectors read as phrases", () => {
   assert.deepEqual(verdictWords("allowed"), { tone: "ok", text: "allowed" });
   assert.deepEqual(verdictWords("fallthrough"), { tone: "quiet", text: "no rule applies" });
   assert.equal(actionWords("ask"), "put to you in the Inbox");
+  assert.equal(actionWords("allow"), "runs without asking");
+  assert.equal(actionWords("classify"), "the classifier reads it first");
+  assert.equal(actionWords("elsewhere"), "elsewhere", "an action the model does not know is said as it is");
+  assert.equal(actionWords(undefined), "");
   assert.equal(matcherWords({ kind: "path", glob: "**/.env*" }), "paths matching **/.env*");
   assert.equal(matcherWords({ kind: "tool", name: "WebFetch" }), "the tool WebFetch");
   assert.equal(matcherWords({ kind: "any" }), "every call");
   assert.equal(detectorWords({ kind: "env_value", name: "MY_KEY" }), "the value of MY_KEY");
   assert.equal(detectorWords({ kind: "pattern", regex: "x+" }), "pattern x+");
+  assert.equal(detectorWords({ kind: "elsewhere" }), "", "a detector the model does not know has no words");
 });
 
 test("a harness is judged before it runs, judged and rewritable, or only observed", () => {

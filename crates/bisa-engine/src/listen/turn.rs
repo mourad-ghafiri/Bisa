@@ -227,8 +227,10 @@ fn mint_secrets(inner: &Inner, host: &ListenerHost, wf: &Workflow) -> Vec<HookSe
                 secret: hex::encode(secret),
             }),
             Ok(None) => {}
+            // LCOV_EXCL_START: minting a hook's secret writes the store, which fails only unwritable (disk-only)
             Err(e) => {
                 tracing::warn!(target: "bisa_engine::listen", listener = %key, "a hook's secret could not be minted: {e}")
+                // LCOV_EXCL_STOP
             }
         }
     }

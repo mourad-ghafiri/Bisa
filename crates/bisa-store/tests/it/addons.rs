@@ -486,3 +486,52 @@ fn a_record_from_a_peer_lists_with_its_files_absent_and_cannot_be_enabled() {
         .addon_files_dir(&id("clock"))
         .exists());
 }
+
+#[test]
+fn a_manifest_that_is_a_folder_or_too_large_a_name_that_is_not_text_and_a_folder_too_deep_are_refused(
+) {
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    let folderish = src.path().join("folderish");
+    std::fs::create_dir_all(folderish.join("addon.json")).unwrap();
+    assert!(ws.validate_addon_dir(&folderish).is_err());
+    let huge = src.path().join("huge");
+    std::fs::create_dir_all(&huge).unwrap();
+    std::fs::File::create(huge.join("addon.json"))
+        .unwrap()
+        .set_len(bisa_core::addon::MAX_MANIFEST_BYTES + 1)
+        .unwrap();
+    assert!(ws.validate_addon_dir(&huge).is_err());
+    let deep = plain(src.path(), "deep", "acme.deep");
+    let mut nested = deep.clone();
+    for level in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+        nested = nested.join(level);
+    }
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("x.js"), b"// x").unwrap();
+    let (_, problems) = ws.validate_addon_dir(&deep).unwrap();
+    assert!(
+        problems.iter().any(|p| p.field.as_deref() == Some("files")),
+        "{problems:?}"
+    );
+    assert!(ws.install_addon(&deep, vec![], false).is_err());
+    let reserved = plain(src.path(), "reserved", "state");
+    let (_, problems) = ws.validate_addon_dir(&reserved).unwrap();
+    assert!(
+        problems.iter().any(|p| p.field.as_deref() == Some("id")),
+        "{problems:?}"
+    );
+    // APFS refuses a name that is not UTF-8 (EILSEQ); the arm is held where
+    // a filesystem allows one.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let odd = plain(src.path(), "odd", "acme.odd");
+        std::fs::write(odd.join(std::ffi::OsStr::from_bytes(b"\xff.js")), b"// x").unwrap();
+        let (_, problems) = ws.validate_addon_dir(&odd).unwrap();
+        assert!(
+            problems.iter().any(|p| p.field.as_deref() == Some("files")),
+            "{problems:?}"
+        );
+    }
+}

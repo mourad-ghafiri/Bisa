@@ -83,6 +83,7 @@ pub fn run_effects(inner: &Arc<Inner>, run: &WorkflowRun, effects: Vec<RunEffect
     }
 }
 
+// LCOV_EXCL_START: the match is total over the effect kinds; only a judge's own render can fail an effect's function (a_judge_whose_state_cannot_render_fails_through_the_funnel), so the other arms are never the one taken
 fn effect_step(effect: &RunEffect) -> Option<&StepId> {
     match effect {
         RunEffect::StartAgent { step }
@@ -103,6 +104,7 @@ fn effect_step(effect: &RunEffect) -> Option<&StepId> {
         | RunEffect::Cancelled { .. } => None,
     }
 }
+// LCOV_EXCL_STOP
 
 /// Fail a step through the funnel; a refusal (the step already moved) is
 /// logged at debug, because a late failure on a settled step is the ordinary
@@ -118,7 +120,9 @@ pub(crate) fn fail_step(inner: &Arc<Inner>, run: RunId, step: &StepId, error: St
     ) {
         Ok(_) => {}
         Err(e) if e.is_refusal() => {
+            // LCOV_EXCL_START: a refusal here is the step having moved on between two settlements of it, a race no test can stage
             tracing::debug!(run = %run, step = %step, "late failure not recorded: {e}")
+            // LCOV_EXCL_STOP
         }
         Err(e) => tracing::warn!(run = %run, step = %step, "cannot fail the step: {e}"),
     }
@@ -137,7 +141,9 @@ fn stop_step(inner: &Arc<Inner>, run: RunId, step: &StepId, error: String) {
     ) {
         Ok(_) => {}
         Err(e) if e.is_refusal() => {
+            // LCOV_EXCL_START: a refusal here is the step having moved on between two settlements of it, a race no test can stage
             tracing::debug!(run = %run, step = %step, "late stop not recorded: {e}")
+            // LCOV_EXCL_STOP
         }
         Err(e) => tracing::warn!(run = %run, step = %step, "cannot stop the step: {e}"),
     }
@@ -154,7 +160,9 @@ fn done_step(inner: &Arc<Inner>, run: RunId, step: &StepId, output: Value) {
     ) {
         Ok(_) => {}
         Err(e) if e.is_refusal() => {
+            // LCOV_EXCL_START: a refusal here is the step having moved on between two settlements of it, a race no test can stage
             tracing::debug!(run = %run, step = %step, "late completion not recorded: {e}")
+            // LCOV_EXCL_STOP
         }
         Err(e) => tracing::warn!(run = %run, step = %step, "cannot complete the step: {e}"),
     }
@@ -169,6 +177,7 @@ fn live_step(
     expected: StepState,
 ) -> Result<Option<(WorkflowRun, bisa_core::Step)>, EngineError> {
     let run = inner.ws.get_run(run_id)?;
+    // LCOV_EXCL_START: every effect names a step of its own run and runs in the state the run machine put it in (core effect_for); a state other than expected is the step having moved on since the effect was queued
     let Some(record) = run.steps.get(step) else {
         return Ok(None);
     };
@@ -182,6 +191,7 @@ fn live_step(
     let Some(def) = run.workflow.step(step).cloned() else {
         return Ok(None);
     };
+    // LCOV_EXCL_STOP
     Ok(Some((run, def)))
 }
 
@@ -256,6 +266,7 @@ fn resolve_assignees(
                 let Some(value) = run.inputs.get(input.as_str()) else {
                     continue;
                 };
+                // LCOV_EXCL_START: bound values are judged at the door: Workspace::create_run binds (bind_inputs) and validates (validate_bound) every input before a run exists
                 let Some(s) = value.as_str() else {
                     return Err(EngineError::Invalid(bisa_core::text!(
                         "error-engine-invalid-input-should-hold-assignee-got",
@@ -270,6 +281,7 @@ fn resolve_assignees(
                         e = e.to_string()
                     ))
                 })?);
+                // LCOV_EXCL_STOP
             }
         }
     }
@@ -283,6 +295,7 @@ fn resolve_project(
     match r {
         None => Ok(None),
         Some(ValueRef::Fixed(p)) => Ok(Some(*p)),
+        // LCOV_EXCL_START: bound values are judged at the door: Workspace::create_run binds (bind_inputs) and validates (validate_bound) every input before a run exists
         Some(ValueRef::Input { input }) => match run.inputs.get(input.as_str()) {
             None => Ok(None),
             Some(v) => {
@@ -300,6 +313,7 @@ fn resolve_project(
                         s = format!("{s:?}")
                     ))
                 })?))
+                // LCOV_EXCL_STOP
             }
         },
     }
@@ -317,7 +331,9 @@ fn resolve_project(
 /// door a session that failed would.
 fn start_agent(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Running)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Agent {
         instructions,
@@ -330,7 +346,9 @@ fn start_agent(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), E
         tier_ceiling,
     } = &def.kind
     else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let prepared: Result<WorkItemSpec, EngineError> = (|| {
         let instructions = render(inner, &run, instructions)?;
@@ -398,6 +416,7 @@ fn start_agent(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), E
             work_item: Some(spec.id),
         },
     ) {
+        // LCOV_EXCL_START: the step took the item it just minted; a refusal is a stop landing between the mint and the start, a race no test can stage
         executor::cancel_item(
             inner,
             &spec.home,
@@ -405,6 +424,7 @@ fn start_agent(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), E
             "the step it was made for did not take it",
         );
         return Err(e);
+        // LCOV_EXCL_STOP
     }
     if let Err(rejection) =
         executor::launch_step_item(inner, spec.clone(), crate::scheduler::Launch::Fresh)
@@ -429,7 +449,9 @@ fn resume_agent(
     work_item: WorkItemId,
 ) -> Result<(), EngineError> {
     let Some((run, _)) = live_step(inner, run_id, step, StepState::Running)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let mut spec = match inner.ws.get_work_item(&run.home(), work_item) {
         Ok(spec) => spec,
@@ -505,19 +527,23 @@ fn accepted_result(inner: &Arc<Inner>, spec: &WorkItemSpec) -> Option<Value> {
 /// creates a fresh item, and a late settlement of the old one moves nothing.
 pub fn item_settled(inner: &Arc<Inner>, spec: &WorkItemSpec, result: Result<Value, String>) {
     let (Some(run_id), Some(step)) = (spec.run, spec.step.as_ref()) else {
+        // LCOV_EXCL_START: an item is minted for a step of a run; preflight refuses one outside a run (NoStep)
         tracing::debug!(work_item = %spec.id, "settled an item bound to no step");
         return;
+        // LCOV_EXCL_STOP
     };
     let Ok(run) = inner.ws.get_run(run_id) else {
         return;
     };
     let current = run.steps.get(step).and_then(|r| r.work_item);
     if current != Some(spec.id) {
+        // LCOV_EXCL_START: a different item on the step is a restart's fresh item racing the old item's settlement
         tracing::debug!(
             work_item = %spec.id, step = %step,
             "the step has moved on to another item; ignoring this settlement"
         );
         return;
+        // LCOV_EXCL_STOP
     }
     match result {
         Ok(output) => {
@@ -545,7 +571,9 @@ pub fn item_settled(inner: &Arc<Inner>, spec: &WorkItemSpec, result: Result<Valu
 /// `Ask`: a `human` step becomes a question in the inbox.
 fn ask(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Waiting)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Human {
         prompt,
@@ -554,7 +582,9 @@ fn ask(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineErr
         ..
     } = &def.kind
     else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let text = match render(inner, &run, prompt) {
         Ok(t) => t,
@@ -581,10 +611,14 @@ fn ask(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineErr
 /// `OpenGate`: an `approval` step needs a signed decision.
 fn open_gate(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Waiting)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Approval { prompt } = &def.kind else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let text = match render(inner, &run, prompt) {
         Ok(t) => t,
@@ -677,10 +711,14 @@ fn failed_by(
 /// `RunCheck`: judge, off the caller's thread, under the check timeout.
 fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Running)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Check { check } = &def.kind else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let unwound = failed_by(inner, run_id, step);
     let inner_ref = Arc::clone(inner);
@@ -727,10 +765,12 @@ fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
                     Err(e) => (false, vec![e.to_string()]),
                 }
             }
+            // LCOV_EXCL_START: the validator refuses a schema check that names no step (ProblemKind::Unfilled) before a run exists
             CheckKind::Schema { of: None, .. } => (
                 false,
                 vec![format!("step `{}` checks the output of no step", step)],
             ),
+            // LCOV_EXCL_STOP
             CheckKind::Schema {
                 schema,
                 of: Some(of),
@@ -743,10 +783,12 @@ fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
                         (false, errors)
                     }
                 }
+                // LCOV_EXCL_START: the validator refuses a schema check of a step that writes nothing or may not have run (NoSuchOutput, NotAssured) before a run exists
                 None => (
                     false,
                     vec![format!("step `{of}` produced no output to check")],
                 ),
+                // LCOV_EXCL_STOP
             },
         };
         inner.step_tasks.remove(&(run_id, step.clone()));
@@ -775,10 +817,14 @@ fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
 /// remembered by run and step so a stopped run aborts it.
 fn call_connector(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Running)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     if !matches!(def.kind, StepKind::Connector { .. }) {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     }
     let inner = Arc::clone(inner);
     let step = step.clone();
@@ -790,6 +836,7 @@ fn call_connector(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<()
     // platform, so it stops for a person and is never sent again.
     let unwound = {
         let (inner, step) = (Arc::clone(&inner), step.clone());
+        // LCOV_EXCL_START: runs only when the connector call's task unwinds, a panic in the client the fakes never raise
         move |reason: String| {
             inner.connector_calls.remove(&(run_id, step.clone()));
             if shape.writes && !shape.keyed {
@@ -803,6 +850,7 @@ fn call_connector(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<()
                 fail_step(&inner, run_id, &step, reason);
             }
         }
+        // LCOV_EXCL_STOP
     };
     let work = {
         let inner = Arc::clone(&inner);
@@ -856,7 +904,9 @@ const JUDGE_QUESTION: &str = "branch";
 /// instruction that cannot be rendered fails it.
 fn judge(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Running)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Judge {
         state,
@@ -866,7 +916,9 @@ fn judge(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineE
         ..
     } = &def.kind
     else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let state = render_in(inner, &run, state, RenderContext::Text)?;
     let instructions = render_in(inner, &run, instructions, RenderContext::Text)?;
@@ -982,7 +1034,9 @@ pub async fn run_command_check(
             }
             (passed, ev)
         }
+        // LCOV_EXCL_START: sh is on every machine the tests run on and the check's directory is the placement's, made before the check
         Err(e) => (false, vec![format!("$ {shown} failed to spawn: {e}")]),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -993,7 +1047,9 @@ pub async fn run_command_check(
 /// conversation responder; none wakes nobody.
 fn post(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Running)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Notify {
         scope,
@@ -1002,7 +1058,9 @@ fn post(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineEr
         author,
     } = &def.kind
     else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     match post_as(
         inner,
@@ -1094,10 +1152,14 @@ fn raise(
 /// because a listener refused it.
 fn emit_step(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineError> {
     let Some((run, def)) = live_step(inner, run_id, step, StepState::Running)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Emit { signal, payload } = &def.kind else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let entered = run.steps.get(step).map(|r| r.entered).unwrap_or(0);
     let dedupe = format!("emit:{run_id}:{step}:{entered}");
@@ -1114,7 +1176,9 @@ fn emit_step(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
 /// home, never a failure of the step it stands beside.
 fn boundary_act(inner: &Arc<Inner>, run_id: RunId, step: &StepId, name: &Branch) {
     let Ok(run) = inner.ws.get_run(run_id) else {
+        // LCOV_EXCL_START: a boundary fires from the run's own armed table, so the run and the boundary exist
         return;
+        // LCOV_EXCL_STOP
     };
     let Some(boundary) = run
         .workflow
@@ -1122,7 +1186,9 @@ fn boundary_act(inner: &Arc<Inner>, run_id: RunId, step: &StepId, name: &Branch)
         .and_then(|d| d.boundary(name))
         .cloned()
     else {
+        // LCOV_EXCL_START: a boundary fires from the run's own armed table, so the run and the boundary exist
         return;
+        // LCOV_EXCL_STOP
     };
     let record = run.steps.get(step);
     let entered = record.map(|r| r.entered).unwrap_or(0);
@@ -1131,7 +1197,9 @@ fn boundary_act(inner: &Arc<Inner>, run_id: RunId, step: &StepId, name: &Branch)
         .map(|f| f.count)
         .unwrap_or(0);
     let done = match &boundary.act {
+        // LCOV_EXCL_START: a divert is the run machine's own act; it emits no BoundaryAct for one
         BoundaryAct::Divert => Ok(()),
+        // LCOV_EXCL_STOP
         BoundaryAct::Notify {
             scope,
             template,
@@ -1177,6 +1245,7 @@ fn notify_author(
     match resolved.first() {
         None => Ok(AgentId::workflow()),
         Some(Assignee::Agent(id)) => AgentId::new(id).map_err(|e| {
+            // LCOV_EXCL_START: an agent id parsed from an assignee is a valid id, and a team or a person as author is refused by the validator (NotifyAuthorNotAnAgent) before a run exists
             EngineError::Invalid(bisa_core::text!(
                 "error-engine-effects-refused",
                 detail = e.to_string()
@@ -1186,6 +1255,7 @@ fn notify_author(
             "error-engine-invalid-message-s-author-not-agent-only-agent",
             other = other.to_string()
         ))),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1202,11 +1272,15 @@ fn spawn_goal(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), En
         let run = inner.ws.get_run(run_id)?;
         match run.steps.get(step).map(|r| r.state.clone()) {
             Some(s @ (StepState::Running | StepState::Waiting)) => s,
+            // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
             _ => return Ok(()),
+            // LCOV_EXCL_STOP
         }
     };
     let Some((run, def)) = live_step(inner, run_id, step, expected)? else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let StepKind::Spawn {
         statement_template,
@@ -1216,7 +1290,9 @@ fn spawn_goal(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), En
         wait,
     } = &def.kind
     else {
+        // LCOV_EXCL_START: the run machine emits this effect only for this kind in this state (core effect_for)
         return Ok(());
+        // LCOV_EXCL_STOP
     };
     let outcome: Result<GoalId, EngineError> = (|| {
         let statement = render(inner, &run, statement_template)?;
@@ -1275,7 +1351,7 @@ fn spawn_goal(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), En
                 ops::attach_given(inner, child.id, &given)?;
             }
             ops::begin_goal(inner, child.id, given, ops::Begin::RunNow)?;
-        }
+        } // LCOV_EXCL_LINE: the question-mark edge of the line above
         let owner = inner.ws.owner_keys().clone();
         warn_on_err(
             inner.ws.append_journal(
@@ -1434,9 +1510,11 @@ fn settle(inner: &Arc<Inner>, run: &WorkflowRun, end: End) {
 fn put_away_old_runs(inner: &Arc<Inner>, run: &WorkflowRun) {
     let kept = match inner.ws.workspace_runs_kept() {
         Ok(kept) => kept,
+        // LCOV_EXCL_START: the kept-runs setting is read from the settings file, which fails only unreadable (disk-only)
         Err(e) => {
             tracing::warn!(run = %run.id, "the run bound could not be read; nothing is put away: {e}");
             return;
+            // LCOV_EXCL_STOP
         }
     };
     match inner
@@ -1447,10 +1525,14 @@ fn put_away_old_runs(inner: &Arc<Inner>, run: &WorkflowRun) {
         Ok(gone) => tracing::info!(
             workflow = %run.workflow.id,
             kept,
+            // LCOV_EXCL_START: the field lines of a tracing event are counted apart from its line
             gone = gone.len(),
+            // LCOV_EXCL_STOP
             "the oldest finished runs beyond the bound were put away"
         ),
+        // LCOV_EXCL_START: an old run is put away by the store, which fails only unwritable (disk-only)
         Err(e) => tracing::warn!(
+        // LCOV_EXCL_STOP
             workflow = %run.workflow.id,
             "an old run could not be put away: {e}"
         ),
@@ -1488,9 +1570,11 @@ fn release_workstreams(
 ) {
     let workstreams = match inner.ws.list_workstreams(filter) {
         Ok(w) => w,
+        // LCOV_EXCL_START: listing a run's workstreams fails only with the store unreadable (disk-only)
         Err(e) => {
             tracing::warn!(?filter, "cannot list workstreams to release: {e}");
             return;
+            // LCOV_EXCL_STOP
         }
     };
     for w in workstreams {

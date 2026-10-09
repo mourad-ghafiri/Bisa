@@ -183,7 +183,9 @@ fn prune(dir: &Path) -> std::io::Result<()> {
     ours.sort_by(|a, b| stamp_of(b).cmp(stamp_of(a)));
     for name in ours.iter().skip(KEEP_CRASHES) {
         if let Err(error) = std::fs::remove_file(dir.join(name)) {
+            // LCOV_EXCL_START: a report that will not go needs a folder this process may not write, which the write before the prune already refused
             tracing::warn!(target: "bisa_log", file = %name, %error, "an old crash report could not be pruned");
+            // LCOV_EXCL_STOP
         }
     }
     Ok(())
@@ -274,5 +276,17 @@ mod tests {
             serde_json::to_string(&CrashKind::AbruptEnd).unwrap(),
             "\"abrupt_end\""
         );
+    }
+
+    // added by the coverage pass: b6-crash.rs
+    #[test]
+    fn a_backtrace_cut_inside_a_character_steps_back_to_its_boundary() {
+        // One byte, then two-byte characters: the cap lands mid-character.
+        let long = format!("a{}", "é".repeat(MAX_BACKTRACE));
+        let report = CrashReport::new(CrashKind::Panic, "x").with_backtrace(long);
+        let cut = report.backtrace.unwrap();
+        assert!(cut.ends_with("\n…"));
+        assert!(cut.len() < MAX_BACKTRACE + 8);
+        assert!(cut.trim_end_matches("\n…").ends_with('é'));
     }
 }

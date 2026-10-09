@@ -45,7 +45,7 @@ bisa-log = { workspace = true }
 ulid = { workspace = true }
 # Delete a project folder to the OS Trash rather than hard-removing it.
 trash = { workspace = true }
-bisa-deps = { version = "0.3", path = "../bisa-deps" }
+bisa-deps = { version = "0.4", path = "../bisa-deps" }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

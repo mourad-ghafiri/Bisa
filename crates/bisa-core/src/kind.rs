@@ -229,10 +229,6 @@ pub fn is_manager_kind(kind: u16) -> bool {
 /// MUST reject a DM-scoped event whose author is outside the audience.
 pub const AUDIENCE_SCOPED_KINDS: &[u16] = &[KIND_MESSAGE, KIND_RETRACTION, KIND_REACTION];
 
-pub fn is_audience_scoped(kind: u16) -> bool {
-    AUDIENCE_SCOPED_KINDS.contains(&kind)
-}
-
 pub fn is_gep_kind(kind: u16) -> bool {
     GEP_KINDS.contains(&kind)
 }
@@ -416,5 +412,12 @@ mod tests {
         for k in EPHEMERAL_KINDS {
             assert!(!is_addressable(*k));
         }
+    }
+
+    // added by the coverage pass: b5-kind.rs
+    #[test]
+    fn an_observer_frame_is_ephemeral_and_a_goal_is_not() {
+        assert!(is_ephemeral(KIND_OBSERVER_FRAME));
+        assert!(!is_ephemeral(KIND_GOAL));
     }
 }

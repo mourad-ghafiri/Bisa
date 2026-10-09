@@ -256,6 +256,10 @@ async fn a_steer_and_a_follow_up_are_redacted_like_a_prompt() {
     };
     let raw = adapter.launch(spec).await.unwrap();
     let session = RedactedSession::wrap(raw, Arc::clone(&engine.inner().security));
+    // What the decorator leaves alone: the snapshot and the phase are the
+    // inner session's.
+    let _snapshot = session.snapshot();
+    let _phase = session.phase();
     session
         .follow_up(Steer {
             text: format!("and use {FAKE_TOKEN}"),
@@ -2330,6 +2334,639 @@ async fn an_unreadable_settings_layer_is_a_named_problem_never_a_policy_that_fai
             .iter()
             .any(|r| r.id == "publishing" && r.enabled),
         "and the built-ins stand, since nothing readable switched one off"
+    );
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// The switches, the previews' words, the platform's own commands and the
+// terminal hook's restores — added by the coverage pass
+// ---------------------------------------------------------------------------
+
+/// With the redactor switched off nothing is redacted: the harness sees the
+/// token raw, the state says so, and a session is not wrapped.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_redactor_off_the_harness_sees_the_token_raw() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    let agent = ws.add_agent(new_agent("Scout", "mock")).unwrap();
+    let dm = ws.open_dm(std::slice::from_ref(&agent.pubkey)).unwrap();
+    let mock = MockAdapter::default();
+    let prompts = Arc::clone(&mock.prompts);
+    let engine = Engine::start(ws, catalog_with(vec![mock]), design_off_config()).unwrap();
+    set(&engine, "security.redactor.enabled", json!(false));
+    let security = &engine.inner().security;
+    assert_eq!(
+        security.redact(&format!("key {FAKE_TOKEN}")).text,
+        format!("key {FAKE_TOKEN}")
+    );
+    let mut value = json!({ "k": FAKE_TOKEN });
+    assert_eq!(security.redact_value(&mut value).count, 0);
+    assert_eq!(value, json!({ "k": FAKE_TOKEN }));
+    assert!(!engine.security_status().redactor_enabled);
+    // A call judged with the redactor off restores nothing; an answer
+    // recorded for a call with no home and no session is remembered nowhere.
+    let judged = bisa_engine::security::decide_tool(
+        engine.inner(),
+        "fake-probe",
+        &json!({ "x": 1 }),
+        bisa_engine::security::Judge::platform(None, None),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(judged, bisa_engine::security::Outcome::Fallthrough { .. }),
+        "{judged:?}"
+    );
+    bisa_engine::security::record_person(
+        engine.inner(),
+        &bisa_engine::security::Judge::platform(None, None),
+        "fake-probe",
+        &json!({ "x": 1 }),
+        true,
+    );
+    engine
+        .workspace()
+        .post_message(
+            dm.id.as_str(),
+            MessageBody::post(format!("push with {FAKE_TOKEN} please")),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    until("the agent's reply", || {
+        engine
+            .workspace()
+            .messages(dm.id.as_str(), None, 20)
+            .unwrap()
+            .into_iter()
+            .find(|m| m.author == agent.pubkey.as_hex())
+    })
+    .await;
+    let prompt = prompts.lock().unwrap().last().cloned().unwrap();
+    assert!(
+        prompt.contains(FAKE_TOKEN),
+        "the redactor is off: the token goes raw, as the status says: {prompt}"
+    );
+    engine.shutdown().await;
+}
+
+/// With the guard switched off a call is judged by its reach alone — a
+/// read within the ceiling runs with nobody asked — and nothing is refused
+/// by rules; with the terminal hooks off a terminal harness gets no hook.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_guard_off_a_call_is_judged_by_its_reach_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = asking_worker_yielding("fake-tool verify");
+    let engine = engine_with(&dir, vec![worker]);
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([command_rule("no_fake_tool", "deny", "fake-tool")]),
+    );
+    set(&engine, "security.guard.enabled", json!(false));
+    let mut rx = engine.events();
+    let (goal, _) = run_on(
+        &engine,
+        "judged by reach",
+        new_workflow("A", vec![agent_step("work", "mock")]),
+    );
+    // The deny rule is idle; the command is above the step's ceiling, so the
+    // reach alone puts it to the person.
+    let (gate_id, question) = opened_gate(&mut rx).await;
+    assert!(question.contains("fake-tool verify"), "{question}");
+    engine.decide(&gate_id, true, None, None, None).unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(bisa_core::RunOutcome::Done), "{done:?}");
+    let inner = engine.inner();
+    assert!(
+        bisa_engine::security::refuse_by_rules_lines(inner, "fake-tool verify", None).is_none()
+    );
+    assert!(
+        bisa_engine::security::terminal_guard_argv(inner, "mock").is_none(),
+        "no guard, no hook"
+    );
+    set(&engine, "security.guard.enabled", json!(true));
+    assert!(bisa_engine::security::terminal_guard_argv(inner, "mock").is_some());
+    // The hooks' switch is this machine's alone.
+    engine
+        .set_setting(
+            SettingScope::Machine,
+            None,
+            "security.guard.terminal_hooks",
+            json!(false),
+        )
+        .unwrap();
+    assert!(
+        bisa_engine::security::terminal_guard_argv(inner, "mock").is_none(),
+        "the hooks switched off"
+    );
+    engine.shutdown().await;
+}
+
+/// A host entry that is not one is a named problem of the status; the
+/// classifier's readiness names what is missing for each provider.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bad_host_entry_is_named_and_the_classifiers_readiness_says_what_is_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    set(&engine, "security.net.deny_hosts", json!(["not a host!!"]));
+    let status = engine.security_status();
+    assert!(
+        status
+            .problems
+            .iter()
+            .any(|p| p.rule.starts_with("security.net.deny_hosts")),
+        "{:?}",
+        status.problems
+    );
+    set(&engine, "security.classifier.provider", json!("harness"));
+    set(&engine, "security.classifier.harness", json!("nope"));
+    let status = engine.security_status();
+    assert!(!status.classifier_ready);
+    assert!(
+        status
+            .classifier_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("not a harness this node can launch"),
+        "{:?}",
+        status.classifier_note
+    );
+    set(&engine, "security.classifier.harness", json!("mock"));
+    let status = engine.security_status();
+    assert!(status.classifier_ready, "{:?}", status.classifier_note);
+    set(
+        &engine,
+        "security.classifier.provider",
+        json!("decision_making_agent"),
+    );
+    let status = engine.security_status();
+    assert!(
+        !status.classifier_ready,
+        "nobody configured the Decision-Making Agent: {:?}",
+        status.classifier_note
+    );
+    assert!(status.classifier_note.is_some());
+    set(&engine, "security.classifier.provider", json!("agent"));
+    set(&engine, "security.classifier.agent", json!("nobody"));
+    let status = engine.security_status();
+    assert!(!status.classifier_ready);
+    assert!(
+        status
+            .classifier_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("missing or disabled"),
+        "{:?}",
+        status.classifier_note
+    );
+    engine.shutdown().await;
+}
+
+/// A preview words every verdict the rules can give.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guard_preview_words_every_verdict() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([
+            command_rule("allow_fake_allow", "allow", "fake-allow"),
+            command_rule("classify_fake_classify", "classify", "fake-classify"),
+            command_rule("ask_fake_ask", "ask", "fake-ask"),
+        ]),
+    );
+    let verdict = |cmd: &str| {
+        engine
+            .guard_preview("Bash", &json!({ "command": cmd }))
+            .verdict
+    };
+    assert_eq!(verdict("fake-allow x"), "allow");
+    assert_eq!(verdict("fake-classify x"), "classify");
+    assert_eq!(verdict("fake-ask x"), "ask");
+    assert_eq!(verdict("ls"), "fallthrough");
+    engine.shutdown().await;
+}
+
+/// A command the platform runs for itself that a rule puts to a person:
+/// with no goal and no run there is nobody to ask, so it is refused; in a
+/// goal it opens an Escalation gate in the Inbox, runs when approved and is
+/// refused when not. A tool asked about with no input is a bare question.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_platform_command_asked_with_no_home_is_refused_and_with_a_home_goes_to_the_inbox() {
+    use bisa_engine::security::{decide_command, decide_tool, CommandOutcome, Judge, Outcome};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([
+            command_rule("ask_fake_tool", "ask", "fake-tool"),
+            {
+                "id": "ask_fake_probe",
+                "label": "fake probe",
+                "action": "ask",
+                "matcher": { "kind": "tool", "name": "fake-probe" }
+            }
+        ]),
+    );
+    let inner = Arc::clone(engine.inner());
+    let nobody = decide_command(&inner, "fake-tool verify", Judge::platform(None, None)).await;
+    assert!(
+        matches!(&nobody, CommandOutcome::Refused(why) if why.contains("nobody to ask")),
+        "{nobody:?}"
+    );
+    let goal = engine
+        .workspace()
+        .create_goal(bisa_store::NewGoal::captured("asked in the inbox"))
+        .unwrap()
+        .id;
+    let home = bisa_core::Home::Goal { goal };
+    let mut rx = engine.events();
+    let asked = {
+        let inner = Arc::clone(&inner);
+        tokio::spawn(async move {
+            decide_command(
+                &inner,
+                "fake-tool verify",
+                Judge::platform(Some(home), None),
+            )
+            .await
+        })
+    };
+    let (gate_id, question) = opened_gate(&mut rx).await;
+    assert!(question.contains("fake-tool verify"), "{question}");
+    engine.decide(&gate_id, true, None, None, None).unwrap();
+    let ran = asked.await.unwrap();
+    assert!(
+        matches!(&ran, CommandOutcome::Run { command, shown } if command == "fake-tool verify" && shown == "fake-tool verify"),
+        "{ran:?}"
+    );
+    let asked = {
+        let inner = Arc::clone(&inner);
+        tokio::spawn(async move {
+            decide_command(&inner, "fake-tool again", Judge::platform(Some(home), None)).await
+        })
+    };
+    let (gate_id, _) = opened_gate(&mut rx).await;
+    engine.decide(&gate_id, false, None, None, None).unwrap();
+    let refused = asked.await.unwrap();
+    assert!(
+        matches!(&refused, CommandOutcome::Refused(why) if why.contains("refused by the person")),
+        "{refused:?}"
+    );
+    let bare = decide_tool(
+        &inner,
+        "fake-probe",
+        &Value::Null,
+        Judge::platform(Some(home), None),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(&bare, Outcome::Ask { question, .. } if question.starts_with("Allow `fake-probe`?\n\n") && !question.contains("```")),
+        "{bare:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// The terminal hook hands a restored input back: an allowed call carries
+/// the restored command, and a call no rule speaks of but whose command
+/// held a placeholder is put to the person at the keyboard with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_terminal_hook_hands_a_restored_input_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![terminal_mock()]);
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([command_rule("allow_fake_tool", "allow", "fake-tool")]),
+    );
+    let inner = engine.inner();
+    let goal = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..bisa_engine::SubmitRequest::captured("sit in a terminal")
+        })
+        .unwrap()
+        .id;
+    let opened = inner
+        .interactive
+        .open(
+            inner,
+            OpenInteractive {
+                scope: FileScope::Goal,
+                id: goal.to_string(),
+                harness: "mock".into(),
+            },
+        )
+        .unwrap()
+        .unwrap();
+    let secret = opened.env[ENV_SECRET].clone();
+    let placeholder = inner
+        .security
+        .vault()
+        .placeholder_for("github_token", FAKE_TOKEN)
+        .to_string();
+    let hook = |command: String| json!({ "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": command }, "cwd": dir.path() });
+    let allowed = inner
+        .interactive
+        .guard(
+            inner,
+            opened.session,
+            &secret,
+            &hook(format!("fake-tool login {placeholder}")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(allowed.decision.as_deref(), Some("allow"));
+    assert_eq!(
+        allowed.updated_input,
+        Some(json!({ "command": format!("fake-tool login {FAKE_TOKEN}") })),
+        "the placeholder is restored for the tool that runs"
+    );
+    let unruled = inner
+        .interactive
+        .guard(
+            inner,
+            opened.session,
+            &secret,
+            &hook(format!("other-tool {placeholder}")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unruled.decision.as_deref(), Some("ask"));
+    assert!(unruled.reason.is_none());
+    assert_eq!(
+        unruled.updated_input,
+        Some(json!({ "command": format!("other-tool {FAKE_TOKEN}") })),
+        "no opinion, but a restore the person must see"
+    );
+    engine.shutdown().await;
+}
+
+/// The three admin doors the node holds: a member admitted and removed, a
+/// file put by its bytes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_admin_doors_admit_and_remove_a_member_and_put_an_attachment() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let inner = engine.inner();
+    let bob = bisa_core::PrincipalId::new("b".repeat(64)).unwrap();
+    bisa_engine::admin::add_member(
+        inner,
+        bob.clone(),
+        bisa_core::MemberRole::Member,
+        bisa_store::Admission {
+            label: Some("Bob".into()),
+            photo: None,
+            invited_by: None,
+            client: None,
+        },
+    )
+    .unwrap();
+    assert!(engine.workspace().is_member(&bob).unwrap());
+    bisa_engine::admin::remove_member(inner, &bob).unwrap();
+    assert!(!engine.workspace().is_member(&bob).unwrap());
+    let file = bisa_engine::admin::put_attachment(inner, b"the brief", "brief.md", "text/markdown")
+        .unwrap();
+    assert_eq!(file.name, "brief.md");
+    assert!(engine.workspace().attachment_path(&file.sha256).is_some());
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// The permission funnel's other kinds: a question and a sign-in
+// ---------------------------------------------------------------------------
+
+/// What a mock session was answered, by request id.
+type Answered = Arc<std::sync::Mutex<Vec<(String, InputAnswer)>>>;
+
+fn asking_with(request: InputRequest) -> (MockAdapter, Answered) {
+    let adapter = MockAdapter {
+        id: "mock".into(),
+        input_request: Some(request),
+        script: Some(vec![
+            SessionEvent::Progress(ProgressEvent::TurnEnded),
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Completed,
+                is_terminal: true,
+            }),
+        ]),
+        ..Default::default()
+    };
+    let answered = Arc::clone(&adapter.answered);
+    (adapter, answered)
+}
+
+/// A harness's question goes to the Inbox and the person's words come back
+/// as the answer; a question declined is a refusal the harness hears.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_harnesss_question_is_answered_from_the_inbox_or_declined() {
+    let dir = tempfile::tempdir().unwrap();
+    let (worker, answered) = asking_with(InputRequest::question(
+        "q1",
+        "Which colour?",
+        vec!["red".into(), "blue".into()],
+    ));
+    let engine = engine_with(&dir, vec![worker]);
+    let mut rx = engine.events();
+    let (goal, _) = run_on(
+        &engine,
+        "a question",
+        new_workflow("A", vec![agent_step("work", "mock")]),
+    );
+    let (gate_id, question) = opened_gate(&mut rx).await;
+    assert!(question.contains("Which colour?"), "{question}");
+    engine
+        .decide(
+            &gate_id,
+            true,
+            None,
+            Some(&bisa_core::Answer {
+                selected: vec!["blue".into()],
+                ..Default::default()
+            }),
+            None,
+        )
+        .unwrap();
+    finished_run(&engine, goal.id).await;
+    let answers = answered.lock().unwrap().clone();
+    assert!(
+        answers
+            .iter()
+            .any(|(id, a)| id == "q1" && matches!(a, InputAnswer::Text { text } if text == "blue")),
+        "{answers:?}"
+    );
+    engine.shutdown().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (worker, answered) = asking_with(InputRequest::question("q2", "Why?", vec![]));
+    let engine = engine_with(&dir, vec![worker]);
+    let mut rx = engine.events();
+    let (goal, _) = run_on(
+        &engine,
+        "declined",
+        new_workflow("A", vec![agent_step("work", "mock")]),
+    );
+    let (gate_id, _) = opened_gate(&mut rx).await;
+    // "I do not know" is an answer with nothing in it: the harness hears a
+    // decline, not a word.
+    engine
+        .decide(
+            &gate_id,
+            true,
+            None,
+            Some(&bisa_core::Answer {
+                unsure: true,
+                ..Default::default()
+            }),
+            None,
+        )
+        .unwrap();
+    finished_run(&engine, goal.id).await;
+    let answers = answered.lock().unwrap().clone();
+    assert!(
+        answers.iter().any(|(id, a)| id == "q2"
+            && matches!(a, InputAnswer::Deny { reason } if reason.contains("declined"))),
+        "{answers:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A sign-in the harness needs is put to the person with the address; done
+/// is an allow, not done a refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_in_the_harness_needs_is_put_to_the_person() {
+    for (done, url) in [
+        (true, Some("https://example.test/login".to_string())),
+        (false, None),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let (worker, answered) = asking_with(InputRequest::auth("a1", "Example", url.clone()));
+        let engine = engine_with(&dir, vec![worker]);
+        let mut rx = engine.events();
+        let (goal, _) = run_on(
+            &engine,
+            "a sign-in",
+            new_workflow("A", vec![agent_step("work", "mock")]),
+        );
+        let (gate_id, question) = opened_gate(&mut rx).await;
+        assert!(question.contains("sign in to Example"), "{question}");
+        if let Some(url) = &url {
+            assert!(question.contains(url), "{question}");
+        }
+        engine.decide(&gate_id, done, None, None, None).unwrap();
+        finished_run(&engine, goal.id).await;
+        let answers = answered.lock().unwrap().clone();
+        let allowed = answers
+            .iter()
+            .any(|(id, a)| id == "a1" && matches!(a, InputAnswer::Allow { .. }));
+        assert_eq!(allowed, done, "{answers:?}");
+        engine.shutdown().await;
+    }
+}
+
+/// A session that raises a request it cannot take an answer to is aborted,
+/// the reason logged, and the run goes on to its end.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_that_cannot_take_an_answer_is_aborted() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = MockAdapter {
+        caps: bisa_core::HarnessCaps::STEER,
+        ..asking_worker("fake-tool verify")
+    };
+    let engine = engine_with(&dir, vec![worker]);
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([command_rule("allow_fake_tool", "allow", "fake-tool")]),
+    );
+    let (goal, _) = run_on(
+        &engine,
+        "unanswerable",
+        new_workflow("A", vec![agent_step("work", "mock")]),
+    );
+    let done = finished_run(&engine, goal.id).await;
+    assert!(done.is_finished(), "{done:?}");
+    engine.shutdown().await;
+}
+
+/// Under the Decision-Making Agent as the classifier's reader, with the
+/// agent off, a classify rule has no verdict and the person is asked.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_decision_making_agent_off_a_classify_rule_asks_the_person() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![asking_worker_yielding("fake-net fetch")]);
+    set(
+        &engine,
+        "security.classifier.provider",
+        json!("decision_making_agent"),
+    );
+    set(
+        &engine,
+        "security.guard.rules",
+        json!([command_rule("classify_fake_net", "classify", "fake-net")]),
+    );
+    let mut rx = engine.events();
+    let (goal, _) = run_on(
+        &engine,
+        "nobody to read for the classifier",
+        new_workflow("A", vec![agent_step("work", "mock")]),
+    );
+    let (gate_id, question) = opened_gate(&mut rx).await;
+    assert!(question.contains("fake-net fetch"), "{question}");
+    engine.decide(&gate_id, true, None, None, None).unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(bisa_core::RunOutcome::Done), "{done:?}");
+    assert!(
+        guard_facts(&engine, goal.id)
+            .iter()
+            .any(|(v, by, _, _)| *v == GuardVerdict::Asked && *by == GuardJudge::Classifier),
+        "no verdict went to the person: {:?}",
+        guard_facts(&engine, goal.id)
+    );
+    engine.shutdown().await;
+}
+
+/// A harness's question in a direct message — a turn for no goal and no run
+/// — has nobody to put it to: the harness hears a refusal, and the turn
+/// goes on to its reply.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_question_asked_in_a_direct_message_has_no_goal_to_go_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    let agent = ws.add_agent(new_agent("Scout", "mock")).unwrap();
+    let dm = ws.open_dm(std::slice::from_ref(&agent.pubkey)).unwrap();
+    let (worker, answered) = asking_with(InputRequest::question("q1", "Which?", vec!["a".into()]));
+    let engine = Engine::start(ws, catalog_with(vec![worker]), design_off_config()).unwrap();
+    engine
+        .workspace()
+        .post_message(
+            dm.id.as_str(),
+            MessageBody::post("hello"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let answers = until("the question answered", || {
+        let answers = answered.lock().unwrap().clone();
+        (!answers.is_empty()).then_some(answers)
+    })
+    .await;
+    assert!(
+        answers
+            .iter()
+            .any(|(id, a)| id == "q1" && matches!(a, InputAnswer::Deny { .. })),
+        "{answers:?}"
     );
     engine.shutdown().await;
 }

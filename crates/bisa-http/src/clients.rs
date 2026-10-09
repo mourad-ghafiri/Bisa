@@ -18,11 +18,13 @@ const USER_AGENT: &str = "bisa";
 pub struct HttpError(String);
 
 impl HttpError {
+    // LCOV_EXCL_START: reqwest builds a client unless its TLS backend or its resolver cannot start on this machine (docs.rs/reqwest, `ClientBuilder::build`)
     fn from_reqwest(e: reqwest::Error) -> Self {
         // reqwest's message can carry a URL, and a proxy URL can carry a
         // login; the policy's own `Debug` masks, the error names the cause.
         HttpError(e.to_string())
     }
+    // LCOV_EXCL_STOP
 }
 
 struct Set {
@@ -230,5 +232,32 @@ mod tests {
         };
         assert!(Clients::new(&policy).is_ok());
         assert!(!policy.names_a_proxy());
+    }
+
+    // added by the coverage pass: b6-clients.rs
+    #[test]
+    fn the_shared_set_is_one_and_every_client_and_the_child_env_read_the_policy() {
+        assert!(Arc::ptr_eq(&Clients::shared(), &Clients::shared()));
+        let clients = Clients::new(&HttpPolicy {
+            proxy: ProxyPolicy::Manual {
+                http: Some(Url::parse("http://proxy.example:3128").unwrap()),
+                https: None,
+                no_proxy: vec![".corp.example".into()],
+            },
+            http1_only: false,
+        })
+        .unwrap();
+        assert!(Arc::ptr_eq(&clients.outbound(), &clients.outbound()));
+        assert!(Arc::ptr_eq(&clients.strict(), &clients.strict()));
+        assert!(!Arc::ptr_eq(&clients.outbound(), &clients.strict()));
+        assert_eq!(clients.child_env(), clients.policy().child_env());
+        assert_eq!(
+            clients
+                .child_env()
+                .set
+                .get("HTTP_PROXY")
+                .map(String::as_str),
+            Some("http://proxy.example:3128/")
+        );
     }
 }

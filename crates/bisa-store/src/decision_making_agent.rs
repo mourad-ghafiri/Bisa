@@ -59,16 +59,20 @@ pub struct DecisionMakingAgent {
 /// The Decision-Making Agent's definition, read from the compiled-in file.
 pub fn decision_making_agent() -> Result<DecisionMakingAgent, StoreError> {
     let file: AgentFile = toml::from_str(DECISION_MAKING_AGENT_TOML).map_err(|e| {
+        // LCOV_EXCL_START: the compiled-in file parses and names the agent: the_definition_and_the_settings_registry_say_the_same holds it
         StoreError::Invalid(bisa_core::text!(
             "error-store-invalid-library-core-decision-making-agent-toml",
             e = e.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
     if file.agent.name != DECISION_MAKING_AGENT_NAME {
+        // LCOV_EXCL_START: the compiled-in file parses and names the agent: the_definition_and_the_settings_registry_say_the_same holds it
         return Err(StoreError::Invalid(bisa_core::text!(
             "error-store-invalid-decision-making-agent-s-name-fixed",
             name = (DECISION_MAKING_AGENT_NAME).to_string()
         )));
+        // LCOV_EXCL_STOP
     }
     Ok(DecisionMakingAgent {
         id: AgentId::DECISION_MAKING.to_string(),

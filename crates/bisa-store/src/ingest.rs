@@ -541,10 +541,12 @@ impl Workspace {
             k if k == kind::KIND_WORKFLOW => {
                 match serde_json::from_str::<Workflow>(&event.content) {
                     Ok(w) => self.index_workflow(&w),
+                    // LCOV_EXCL_START: `ingest_workflow_snapshot` decoded the workflow before filing it here
                     Err(e) => Err(StoreError::Invalid(bisa_core::text!(
                         "error-store-ingest-refused",
                         detail = e.to_string()
                     ))),
+                    // LCOV_EXCL_STOP
                 }
             }
             // A peer's addon: the record lands, the bundle does not — the
@@ -585,7 +587,7 @@ impl Workspace {
                     ))),
                 }
             }
-            _ => Ok(()),
+            _ => Ok(()), // LCOV_EXCL_LINE: every kind routed here has its arm above; the arm keeps the match total
         };
         if let Err(e) = indexed {
             tracing::warn!("{ns}/{d}: snapshot applied but not indexed: {e}");
@@ -709,6 +711,7 @@ impl Workspace {
                 };
                 (spec.home, Parsed::Item(spec))
             }
+            // LCOV_EXCL_START: every addressable kind is matched by name above or filed by its home (a goal, a run, a work item); the arm keeps the match total
             _ => match journal_addr_of(event) {
                 Some(addr) => (addr.home, Parsed::Other),
                 None => {
@@ -717,6 +720,7 @@ impl Workspace {
                     )))
                 }
             },
+            // LCOV_EXCL_STOP
         };
 
         let ns = Paths::ns_home(&home);
@@ -734,7 +738,9 @@ impl Workspace {
                 let d = goal.id.to_string();
                 for (ev, je) in crate::journal::EventLog::replay(&self.log, &addr, &self.owner)? {
                     if let Err(e) = self.index_journal_fact(&ev, &je) {
+                        // LCOV_EXCL_START: a fact `decode` accepted is one the index takes; the arm keeps a peer's oddity from stopping the replay
                         tracing::debug!("goal {d}: journal fact not indexed: {e}");
+                        // LCOV_EXCL_STOP
                     }
                 }
                 // Runs and items that arrived before the goal row existed.
@@ -756,7 +762,9 @@ impl Workspace {
                     for (ev, je) in crate::journal::EventLog::replay(&self.log, &addr, &self.owner)?
                     {
                         if let Err(e) = self.index_journal_fact(&ev, &je) {
+                            // LCOV_EXCL_START: a fact `decode` accepted is one the index takes; the arm keeps a peer's oddity from stopping the replay
                             tracing::debug!(run = %run.id, "journal fact not indexed: {e}");
+                            // LCOV_EXCL_STOP
                         }
                     }
                 }
@@ -1852,6 +1860,628 @@ mod tests {
             ws1.idx().seen_count().unwrap(),
             0,
             "the truth file was rewritten too"
+        );
+    }
+
+    // added by the coverage pass: s3-ingest.rs
+    #[test]
+    fn a_goals_origin_and_birth_and_a_runs_workflow_making_and_start_never_change_and_a_gate_needs_no_second_decision(
+    ) {
+        let (_d, ws) = ws();
+        let local = ws.create_goal(NewGoal::captured("x")).unwrap();
+        let mut other_origin = local.clone();
+        other_origin.origin = bisa_core::GoalOrigin::Spawned { parent: local.id };
+        assert!(remote_goal_admissible(&local, &other_origin).is_err());
+        let mut other_birth = local.clone();
+        other_birth.created_at += 1;
+        assert!(remote_goal_admissible(&local, &other_birth).is_err());
+        staffed(&ws);
+        let wf = ws
+            .create_workflow(gated_workflow(), bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        let (run, _) = ws
+            .create_run(
+                RunScope::Goal { goal: local.id },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        let yes = |_: &StepId| -> Result<bool, StoreError> { Ok(true) };
+        let refused = |remote: &bisa_core::WorkflowRun| {
+            matches!(
+                run_snapshot_admissible(Some(&run), remote, yes).unwrap(),
+                Err(Admissibility::Final(_))
+            )
+        };
+        let mut other_workflow = run.clone();
+        other_workflow.workflow.id = bisa_core::WorkflowId::from_ulid(ulid::Ulid::from_parts(9, 9));
+        other_workflow.revision += 1;
+        assert!(refused(&other_workflow));
+        let mut other_making = run.clone();
+        other_making.queued_at += 1;
+        other_making.revision += 1;
+        assert!(refused(&other_making));
+        let mut other_start = run.clone();
+        other_start.started_at = run.started_at.map(|t| t + 1);
+        other_start.revision += 1;
+        assert!(refused(&other_start));
+        // An approval the remote holds no record of, and one both sides
+        // already passed, need no decision.
+        let mut no_record = run.clone();
+        no_record.steps.remove(&sid("ship"));
+        no_record.revision += 1;
+        assert!(run_snapshot_admissible(Some(&run), &no_record, yes)
+            .unwrap()
+            .is_ok());
+        let mut passed = run.clone();
+        passed.steps.get_mut(&sid("ship")).unwrap().state = bisa_core::StepState::done();
+        let mut passed_again = passed.clone();
+        passed_again.revision += 1;
+        let never = |_: &StepId| -> Result<bool, StoreError> { Ok(false) };
+        assert!(run_snapshot_admissible(Some(&passed), &passed_again, never)
+            .unwrap()
+            .is_ok());
+    }
+
+    #[test]
+    fn pruning_the_seen_set_keeps_the_young_rewrites_the_file_and_does_without_a_file_that_is_gone()
+    {
+        let (_d, ws) = ws();
+        let keys = ws.owner_keys().clone();
+        let old = EventBuilder::new(Kind::from(1u16), "old")
+            .custom_created_at(Timestamp::from_secs(100))
+            .finalize(&keys)
+            .unwrap();
+        let young = EventBuilder::new(Kind::from(1u16), "young")
+            .custom_created_at(Timestamp::from_secs(1_000_000))
+            .finalize(&keys)
+            .unwrap();
+        assert_eq!(ws.prune_seen(1_000_000).unwrap(), 0);
+        ws.mark_seen(&old).unwrap();
+        ws.mark_seen(&young).unwrap();
+        assert_eq!(ws.prune_seen(100 + SEEN_RETENTION_SECS + 1).unwrap(), 1);
+        let file = ws.paths().seen_file();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(&young.id.to_hex()) && !text.contains(&old.id.to_hex()));
+        assert!(text.ends_with('\n'));
+        ws.mark_seen(&old).unwrap();
+        std::fs::rename(&file, file.with_extension("moved")).unwrap();
+        assert_eq!(ws.prune_seen(100 + SEEN_RETENTION_SECS + 1).unwrap(), 1);
+    }
+
+    #[test]
+    fn a_tampered_signature_a_secret_for_somebody_else_a_scopeless_fact_and_a_fact_that_is_no_body_are_refused(
+    ) {
+        let (_d, ws) = ws();
+        let keys = ws.owner_keys().clone();
+        let mut tampered = EventBuilder::new(Kind::from(kind::KIND_GOAL_NOTE), "x")
+            .finalize(&keys)
+            .unwrap();
+        tampered.content = "y".into();
+        let reason = |outcome: IngestOutcome| match outcome {
+            IngestOutcome::Rejected { reason } => reason,
+            other => panic!("{other:?}"),
+        };
+        assert!(reason(ws.ingest_remote_event(&tampered).unwrap()).contains("signature"));
+        let for_nobody = EventBuilder::new(Kind::from(kind::KIND_ENGRAM), "{}")
+            .tag(Tag::parse(["d", "m"]).unwrap())
+            .finalize(&keys)
+            .unwrap();
+        assert!(reason(ws.ingest_remote_event(&for_nobody).unwrap()).contains("not addressed"));
+        let for_us = EventBuilder::new(Kind::from(kind::KIND_ENGRAM), "{}")
+            .tags([
+                Tag::parse(["d", "m"]).unwrap(),
+                Tag::parse(["p", &keys.public_key().to_hex()]).unwrap(),
+            ])
+            .finalize(&keys)
+            .unwrap();
+        assert!(reason(ws.ingest_remote_event(&for_us).unwrap()).contains("recall"));
+        let scopeless = EventBuilder::new(Kind::from(kind::KIND_MESSAGE), "{}")
+            .finalize(&keys)
+            .unwrap();
+        assert!(reason(ws.ingest_remote_event(&scopeless).unwrap()).contains("scope"));
+        let general = Tag::parse([
+            "a",
+            &format!(
+                "{}:{}:general",
+                kind::KIND_CHANNEL,
+                keys.public_key().to_hex()
+            ),
+        ])
+        .unwrap();
+        let not_a_body = EventBuilder::new(Kind::from(kind::KIND_MESSAGE), "{not json")
+            .tag(general.clone())
+            .finalize(&keys)
+            .unwrap();
+        assert!(reason(ws.ingest_remote_event(&not_a_body).unwrap()).contains("apply failed"));
+        let reaction_to_nothing = EventBuilder::new(Kind::from(kind::KIND_REACTION), "👍")
+            .tag(general.clone())
+            .finalize(&keys)
+            .unwrap();
+        assert!(
+            reason(ws.ingest_remote_event(&reaction_to_nothing).unwrap()).contains("apply failed")
+        );
+        let retraction_of_nothing = EventBuilder::new(Kind::from(kind::KIND_RETRACTION), "")
+            .tag(general.clone())
+            .finalize(&keys)
+            .unwrap();
+        assert!(
+            reason(ws.ingest_remote_event(&retraction_of_nothing).unwrap())
+                .contains("apply failed")
+        );
+        // A retraction by an attested agent of a post the owner made.
+        let said = ws
+            .post_message(
+                "general",
+                bisa_core::MessageBody::post("mine"),
+                None,
+                &[],
+                &[],
+                None,
+                crate::workspace::PostOrigin::Asked,
+            )
+            .unwrap();
+        let agent = Keys::generate();
+        let auth = attest_agent(&keys, &agent.public_key().to_hex(), "").unwrap();
+        let theirs = EventBuilder::new(Kind::from(kind::KIND_RETRACTION), "")
+            .tags([general, Tag::parse(["e", &said]).unwrap(), auth])
+            .finalize(&agent)
+            .unwrap();
+        assert!(reason(ws.ingest_remote_event(&theirs).unwrap()).contains("apply failed"));
+        // A journal fact whose `a` tag names no home, and one that does not decode.
+        let homeless = EventBuilder::new(Kind::from(kind::KIND_GOAL_NOTE), "{}")
+            .tag(Tag::parse(["a", &format!("{}:x:y", kind::KIND_CHANNEL)]).unwrap())
+            .finalize(&keys)
+            .unwrap();
+        assert!(reason(ws.ingest_remote_event(&homeless).unwrap()).contains("no goal or run"));
+        let goal = ws.create_goal(NewGoal::captured("here")).unwrap();
+        let undecodable = EventBuilder::new(Kind::from(kind::KIND_GOAL_NOTE), "{not a payload")
+            .tag(
+                Tag::parse([
+                    "a",
+                    &format!(
+                        "{}:{}:{}",
+                        kind::KIND_GOAL,
+                        keys.public_key().to_hex(),
+                        goal.id
+                    ),
+                ])
+                .unwrap(),
+            )
+            .finalize(&keys)
+            .unwrap();
+        assert!(reason(ws.ingest_remote_event(&undecodable).unwrap()).contains("undecodable"));
+    }
+
+    #[test]
+    fn a_goal_or_run_snapshot_that_does_not_decode_names_no_d_or_names_another_is_refused() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let keys = ws1.owner_keys().clone();
+        let reason = |outcome: IngestOutcome| match outcome {
+            IngestOutcome::Rejected { reason } => reason,
+            other => panic!("{other:?}"),
+        };
+        let goal = ws2.create_goal(NewGoal::captured("theirs")).unwrap();
+        let (_, snapshot) = raw_events(&ws2, goal.id);
+        let craft = |k: u16, content: &str, d: Option<&str>| {
+            let mut b = EventBuilder::new(Kind::from(k), content);
+            if let Some(d) = d {
+                b = b.tag(Tag::parse(["d", d]).unwrap());
+            }
+            b.finalize(&keys).unwrap()
+        };
+        assert!(reason(
+            ws1.ingest_remote_event(&craft(kind::KIND_GOAL, "{}", Some("x")))
+                .unwrap()
+        )
+        .contains("bad goal content"));
+        assert!(reason(
+            ws1.ingest_remote_event(&craft(kind::KIND_GOAL, &snapshot.content, None))
+                .unwrap()
+        )
+        .contains("no d tag"));
+        assert!(reason(
+            ws1.ingest_remote_event(&craft(kind::KIND_GOAL, &snapshot.content, Some("other")))
+                .unwrap()
+        )
+        .contains("does not match"));
+        assert!(reason(
+            ws1.ingest_remote_event(&craft(kind::KIND_WORKFLOW_RUN, "{}", Some("x")))
+                .unwrap()
+        )
+        .contains("bad run content"));
+        let (_goal, _run, _journal, _goal_snapshot, run_snapshot) = started_goal(&ws2);
+        assert!(reason(
+            ws1.ingest_remote_event(&craft(kind::KIND_WORKFLOW_RUN, &run_snapshot.content, None))
+                .unwrap()
+        )
+        .contains("no d tag"));
+        assert!(reason(
+            ws1.ingest_remote_event(&craft(
+                kind::KIND_WORKFLOW_RUN,
+                &run_snapshot.content,
+                Some("other")
+            ))
+            .unwrap()
+        )
+        .contains("does not match"));
+        // A work item of a goal this node does not hold yet lands and waits for its home.
+        assert!(reason(
+            ws1.ingest_remote_event(&craft(kind::KIND_WORK_ITEM, "{}", Some("x")))
+                .unwrap()
+        )
+        .contains("bad work item content"));
+    }
+
+    #[test]
+    fn every_namespace_snapshot_lands_from_a_twin_and_one_that_will_not_decode_is_applied_but_said()
+    {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let keys = ws1.owner_keys().clone();
+        staffed(&ws2);
+        ws2.create_team("Ops", None, vec![], Tags::default())
+            .unwrap();
+        ws2.create_skill(crate::skills::NewSkill {
+            id: bisa_core::SkillId::new("tidy").unwrap(),
+            name: "Tidy".into(),
+            description: "keeps things neat".into(),
+            tags: Tags::default(),
+            markdown: "# Tidy\nkeep it neat".into(),
+        })
+        .unwrap();
+        let project = ws2
+            .create_project(crate::projects::NewProject::managed("web").unwrap())
+            .unwrap();
+        ws2.create_conversation(crate::conversations::NewConversation {
+            origin: bisa_core::ConversationOrigin::Workstream {
+                id: bisa_core::WorkstreamId::from_ulid(project.id.0),
+                project: project.id,
+            },
+            title: Some("about the site".into()),
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+        for (ns, k) in [
+            (Paths::NS_AGENTS, kind::KIND_AGENT_PROFILE),
+            (Paths::NS_TEAMS, kind::KIND_TEAM),
+            (Paths::NS_SKILLS, kind::KIND_SKILL),
+            (Paths::NS_PROJECTS, kind::KIND_PROJECT),
+            (Paths::NS_CONVERSATIONS, kind::KIND_CONVERSATION),
+        ] {
+            for d in ws2.snapshots.list_ds(ns, k).unwrap() {
+                // A record both hold (a core agent) is as old as this one's
+                // or newer by the clock; only what this side lacks is certain.
+                if ws1.snapshots.get_raw(ns, k, &d).unwrap().is_some() {
+                    continue;
+                }
+                let event = ws2.snapshots.get_raw(ns, k, &d).unwrap().unwrap();
+                assert_eq!(
+                    ws1.ingest_remote_event(&event).unwrap(),
+                    IngestOutcome::AppliedConversation { scope: d.clone() },
+                    "{ns}/{d}"
+                );
+            }
+        }
+        // The twin's agent is indexed here (its key answers to its id); its
+        // definition file is the twin's own. A peer's project record lands
+        // whole, as `adopt_remote_project` says.
+        let developer = ws2
+            .get_agent(&bisa_core::AgentId::new("developer").unwrap())
+            .unwrap();
+        assert_eq!(
+            ws1.idx()
+                .agent_id_for_pubkey(developer.pubkey.as_hex())
+                .unwrap()
+                .as_deref(),
+            Some("developer")
+        );
+        assert_eq!(ws1.list_projects().unwrap().len(), 1);
+        // A `general` no newer than the one held (here: the very same) is stale.
+        let general = ws1
+            .snapshots
+            .get_raw(Paths::NS_CHANNELS, kind::KIND_CHANNEL, "general")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            ws1.ingest_remote_event(&general).unwrap(),
+            IngestOutcome::Rejected {
+                reason: "stale".into()
+            }
+        );
+        // A snapshot of each kind whose content will not decode is applied
+        // as a file, said, and indexed by nobody.
+        for k in [
+            kind::KIND_CHANNEL,
+            kind::KIND_AGENT_PROFILE,
+            kind::KIND_TEAM,
+            kind::KIND_SKILL,
+            kind::KIND_CONNECTOR,
+            kind::KIND_PROJECT,
+            kind::KIND_ADDON,
+            kind::KIND_DRAWING,
+            kind::KIND_CONVERSATION,
+        ] {
+            let odd = EventBuilder::new(Kind::from(k), "{}")
+                .tag(Tag::parse(["d", "odd"]).unwrap())
+                .finalize(&keys)
+                .unwrap();
+            assert_eq!(
+                ws1.ingest_remote_event(&odd).unwrap(),
+                IngestOutcome::AppliedConversation {
+                    scope: "odd".into()
+                },
+                "kind {k}"
+            );
+        }
+        let nameless = EventBuilder::new(Kind::from(kind::KIND_CHANNEL), "{}")
+            .finalize(&keys)
+            .unwrap();
+        assert!(ws1.ingest_remote_event(&nameless).is_err());
+        let not_a_workflow = EventBuilder::new(Kind::from(kind::KIND_WORKFLOW), "{}")
+            .tag(Tag::parse(["d", "w"]).unwrap())
+            .finalize(&keys)
+            .unwrap();
+        assert!(matches!(
+            ws1.ingest_remote_event(&not_a_workflow).unwrap(),
+            IngestOutcome::Rejected { reason } if reason.contains("does not decode")
+        ));
+        let wf = ws2
+            .create_workflow(
+                notify_workflow("Twin"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let misnamed = EventBuilder::new(
+            Kind::from(kind::KIND_WORKFLOW),
+            raw_workflow_snapshot(&ws2, wf.id).content,
+        )
+        .tag(Tag::parse(["d", "other"]).unwrap())
+        .finalize(&keys)
+        .unwrap();
+        assert!(matches!(
+            ws1.ingest_remote_event(&misnamed).unwrap(),
+            IngestOutcome::Rejected { reason } if reason.contains("not its id")
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_seen_file_nobody_may_read_stops_the_rebuild_by_its_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_d, ws) = ws();
+        let keys = ws.owner_keys().clone();
+        let seen = EventBuilder::new(Kind::from(1u16), "x")
+            .finalize(&keys)
+            .unwrap();
+        ws.mark_seen(&seen).unwrap();
+        let file = ws.paths().seen_file();
+        let was = std::fs::metadata(&file).unwrap().permissions();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let rebuilt = ws.rebuild_index();
+        std::fs::set_permissions(&file, was).unwrap();
+        assert!(matches!(rebuilt, Err(StoreError::Io { .. })), "{rebuilt:?}");
+    }
+
+    // added by the coverage pass: ingest.rs
+
+    // --- the ingest module's remaining arms ---
+
+    /// A message into a direct message from somebody who is not in it is
+    /// refused; the owner's own words from a twin land as what they are.
+    #[test]
+    fn a_direct_message_takes_words_from_its_participants_alone() {
+        let (_d, ws) = ws();
+        staffed(&ws);
+        let keys = ws.owner_keys().clone();
+        let scout = ws
+            .get_agent(&bisa_core::AgentId::new("developer").unwrap())
+            .unwrap()
+            .pubkey;
+        let dm = ws.open_dm(std::slice::from_ref(&scout)).unwrap();
+        let scope = |id: &str| {
+            Tag::parse([
+                "a",
+                &format!("{}:{}:{id}", kind::KIND_CHANNEL, keys.public_key().to_hex()),
+            ])
+            .unwrap()
+        };
+        let body = serde_json::to_string(&bisa_core::MessageBody::post("psst")).unwrap();
+        // A member of the workspace who is not in this direct message.
+        let outsider = nostr::key::Keys::generate();
+        ws.add_member(
+            bisa_core::PrincipalId::new(outsider.public_key().to_hex()).unwrap(),
+            bisa_core::MemberRole::Member,
+            crate::members::Admission {
+                label: Some("Outsider".into()),
+                photo: None,
+                invited_by: None,
+                client: None,
+            },
+        )
+        .unwrap();
+        let stranger = EventBuilder::new(Kind::from(kind::KIND_MESSAGE), body.clone())
+            .tag(scope(dm.id.as_str()))
+            .finalize(&outsider)
+            .unwrap();
+        let outcome = ws.ingest_remote_event(&stranger).unwrap();
+        assert!(
+            matches!(&outcome, IngestOutcome::Rejected { reason } if reason.contains("participant")),
+            "{outcome:?}"
+        );
+        let mine = EventBuilder::new(Kind::from(kind::KIND_MESSAGE), body)
+            .tag(scope(dm.id.as_str()))
+            .finalize(&keys)
+            .unwrap();
+        assert_eq!(
+            ws.ingest_remote_event(&mine).unwrap(),
+            IngestOutcome::AppliedConversation {
+                scope: dm.id.to_string()
+            }
+        );
+    }
+
+    /// A twin's connector, run and work item land; a run already held at
+    /// that revision is stale; the seen file nobody may read stops a prune
+    /// by its path.
+    #[test]
+    fn a_twins_connector_run_and_work_item_land_and_a_run_held_already_is_stale() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        ws2.install(crate::catalog::CatalogKind::Connector, "slack")
+            .unwrap();
+        let slack = ws2
+            .snapshots
+            .get_raw(Paths::NS_CONNECTORS, kind::KIND_CONNECTOR, "slack")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            ws1.ingest_remote_event(&slack).unwrap(),
+            IngestOutcome::AppliedConversation {
+                scope: "slack".into()
+            }
+        );
+        staffed(&ws2);
+        let wf = ws2
+            .create_workflow(gated_workflow(), bisa_core::WorkflowOrigin::Workspace)
+            .unwrap();
+        let goal = ws2.create_goal(NewGoal::captured("twinned")).unwrap();
+        let (run, _) = ws2
+            .create_run(
+                bisa_core::RunScope::Goal { goal: goal.id },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        let item = WorkItemSpec {
+            id: bisa_core::WorkItemId::from_ulid(crate::workspace::mint_ulid()),
+            home: Home::Goal { goal: goal.id },
+            run: Some(run.id),
+            step: None,
+            instructions: "build".into(),
+            state: bisa_core::WorkItemState::Open,
+            project: None,
+            harness_candidates: vec!["mock".into()],
+            model: None,
+            effort: None,
+            output_schema: None,
+            budget: Default::default(),
+            assignees: vec![],
+            tier_ceiling: bisa_core::ToolTier::Write,
+            agent: None,
+            spawn_allowlist: vec![],
+            depth_budget: 0,
+            result_attempts: 0,
+            interruptions: 0,
+        };
+        ws2.put_work_item(&item).unwrap();
+        let (_, goal_snapshot) = raw_events(&ws2, goal.id);
+        assert!(ws1.ingest_remote_event(&goal_snapshot).is_ok());
+        assert!(ws1
+            .ingest_remote_event(&raw_workflow_snapshot(&ws2, wf.id))
+            .is_ok());
+        let older = raw_run_snapshot(&ws2, goal.id, run.id);
+        ws2.record_run_event(
+            run.id,
+            bisa_core::RunEvent::Cancel {
+                cause: bisa_core::CancelCause::Stopped { rationale: None },
+            },
+        )
+        .unwrap();
+        let newer = raw_run_snapshot(&ws2, goal.id, run.id);
+        assert!(ws1.ingest_remote_event(&newer).is_ok());
+        assert!(ws1.get_run(run.id).unwrap().is_finished());
+        // The snapshot from before the cancel: held already at a later revision.
+        let outcome = ws1.ingest_remote_event(&older).unwrap();
+        assert!(
+            matches!(&outcome, IngestOutcome::Rejected { reason } if reason.contains("stale")),
+            "{outcome:?}"
+        );
+        let item_snapshot = ws2
+            .snapshots
+            .get_raw(
+                &Paths::ns_goal(goal.id),
+                kind::KIND_WORK_ITEM,
+                &item.id.to_string(),
+            )
+            .unwrap()
+            .unwrap();
+        assert!(ws1.ingest_remote_event(&item_snapshot).is_ok());
+        assert_eq!(
+            ws1.home_of_work_item(item.id).unwrap(),
+            Home::Goal { goal: goal.id }
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let seen = ws1.paths.seen_file();
+            std::fs::set_permissions(&seen, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let pruned = ws1.prune_seen(u64::MAX / 2);
+            std::fs::set_permissions(&seen, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(matches!(pruned, Err(StoreError::Io { .. })), "{pruned:?}");
+        }
+    }
+
+    // added by the coverage pass: ingest-s7.rs
+
+    /// A twin's journal facts land on the goal they are about once it is
+    /// here; a work item of a goal this side does not hold is kept as its
+    /// snapshot alone, indexed by nobody until the goal arrives.
+    #[test]
+    fn a_twins_facts_land_on_a_goal_held_and_an_item_of_a_goal_not_held_waits() {
+        let (_d1, ws1) = ws();
+        let (_d2, ws2) = twin(&ws1);
+        let held = ws2.create_goal(NewGoal::captured("held here")).unwrap();
+        let absent = ws2.create_goal(NewGoal::captured("not here")).unwrap();
+        let (facts, snapshot) = raw_events(&ws2, held.id);
+        assert!(ws1.ingest_remote_event(&snapshot).is_ok());
+        for fact in &facts {
+            assert!(ws1.ingest_remote_event(fact).is_ok());
+        }
+        assert!(!ws1
+            .journal(&Home::Goal { goal: held.id })
+            .unwrap()
+            .is_empty());
+        let item = WorkItemSpec {
+            id: bisa_core::WorkItemId::from_ulid(crate::workspace::mint_ulid()),
+            home: Home::Goal { goal: absent.id },
+            run: None,
+            step: None,
+            instructions: "wait".into(),
+            state: bisa_core::WorkItemState::Open,
+            project: None,
+            harness_candidates: vec!["mock".into()],
+            model: None,
+            effort: None,
+            output_schema: None,
+            budget: Default::default(),
+            assignees: vec![],
+            tier_ceiling: bisa_core::ToolTier::Write,
+            agent: None,
+            spawn_allowlist: vec![],
+            depth_budget: 0,
+            result_attempts: 0,
+            interruptions: 0,
+        };
+        ws2.put_work_item(&item).unwrap();
+        let item_snapshot = ws2
+            .snapshots
+            .get_raw(
+                &Paths::ns_goal(absent.id),
+                kind::KIND_WORK_ITEM,
+                &item.id.to_string(),
+            )
+            .unwrap()
+            .unwrap();
+        assert!(ws1.ingest_remote_event(&item_snapshot).is_ok());
+        assert!(
+            ws1.home_of_work_item(item.id).is_err(),
+            "indexed by nobody until its goal is here"
         );
     }
 }

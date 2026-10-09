@@ -3,7 +3,7 @@
 //!
 //! Each test owns a `Registry`, so a `clear` in one test cannot empty a cache
 //! another test is counting; the last test is the one that touches the
-//! process-wide registry, and only to read it.
+//! process-wide registry — reads it, then clears it once, at its end.
 
 use std::time::Duration;
 
@@ -95,5 +95,17 @@ fn a_plain_constructor_joins_the_process_wide_registry() {
             .iter()
             .any(|s| s.name == "regtest.global.cell"),
         "the same registry by name"
+    );
+    // And the one clear of it, at the end of the one test that touches it:
+    // every live cache in the process is emptied, this one included.
+    bisa_cache::clear_all();
+    assert_eq!(
+        cell.get(Duration::from_secs(60)),
+        None,
+        "`clear_all` reached it"
+    );
+    assert!(
+        all_stats().iter().all(|s| s.entries == 0),
+        "nothing in the process-wide registry holds a value now"
     );
 }

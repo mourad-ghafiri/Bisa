@@ -86,7 +86,7 @@ where
             if let Some(old) = self.order.pop_front() {
                 let value = self.map.remove(&old)?;
                 return Some((old, value));
-            }
+            } // LCOV_EXCL_LINE: the order holds every key the map holds, so a map past its bound has an oldest to pop
         }
         None
     }

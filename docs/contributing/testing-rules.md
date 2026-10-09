@@ -46,7 +46,8 @@ Rules that only exist in a document decay. These fail `just verify`:
 | no definition of the API schema carries a name the generator had to number (`Name2` beside `Name`): two types that share a schema name are each given their own, and no hand-written desktop file names a type the TypeScript generator numbered | `crates/bisa-node/src/bin/api-schema.rs` (`Bundle::finish`, and its unit test), `desktop/src/generatedNames.test.mjs` |
 | saying the command line's help in a language moves no argument: every command reads its positionals in the order its verb declares | `crates/bisa-cli/src/localize.rs` — `the_localized_tree_reads_its_arguments_in_the_order_they_are_declared` |
 | what a machine reads is written in code, never in the catalog: the hook's HTTP request and the desktop's bearer | `crates/bisa-cli/src/session.rs` — `the_hooks_request_is_one_a_server_reads`, `the_request_is_spelt_as_http_spells_it`; `desktop/src/apiModel.test.mjs` |
-| the gate can run what it names: `scripts/test changed` reads a changed crate by its whole name — hyphens and digits included (`bisa-mobile-development`, `bisa-mcp-probe`, `bisa-i18n`); `scripts/test lib <crate>` runs the binaries' unit tests of a crate that has no library (the command line); the recipes that need a tool find it under `target/tools/bin`, and the one that changes directory reads its scratch by a path that is still right | `crates/bisa-core/tests/it/layering.rs` — `the_test_runner_names_every_crate_by_its_whole_name`, `the_test_runner_runs_the_unit_tests_of_a_crate_that_is_binaries_alone`, `the_gate_can_run_the_steps_it_names` |
+| the gate can run what it names: `scripts/test changed` reads a changed crate by its whole name — hyphens and digits included (`bisa-mobile-development`, `bisa-mcp-probe`, `bisa-i18n`); `scripts/test lib <crate>` runs the binaries' unit tests of a crate that has no library (the command line); the recipes that need a tool find it under `target/tools/bin` — the licence gate its cargo-deny, the measurer (`scripts/coverage/measure`) its cargo-llvm-cov — the `coverage` recipe proves the gate's own model before it judges, `verify` runs every suite once under it and never the plain forms beside it, CI's `coverage` job follows `rust` and the model's tests run on every pull request, and the recipe that changes directory reads its scratch by a path that is still right | `crates/bisa-core/tests/it/layering.rs` — `the_test_runner_names_every_crate_by_its_whole_name`, `the_test_runner_runs_the_unit_tests_of_a_crate_that_is_binaries_alone`, `the_gate_can_run_the_steps_it_names` |
+| the coverage gate's files hold to the tree: every path in `scripts/coverage/exclusions.json` exists, would otherwise be measured, is listed once in order and says why; every key of `scripts/coverage/baseline.json` is a tree on disk — a crate, the shell or a desktop directory — in order, with a percentage of at most one decimal; the judge's own rules (the two lcov dialects, placement, the floor, the five verdicts, a baseline that never lowers); a Rust source's `#[cfg(test)]` items and its lines that hold only the closing of a `?` are left out of its lines, and an `LCOV_EXCL_LINE` / `LCOV_EXCL_START…STOP` marker carries a reason of at least three words or the run is refused | `scripts/coverage/coverageModel.test.mjs` (under `just coverage`, CI's `coverage` and `licences` jobs) |
 | every verb of the command line — every leaf of clap's own tree — is run by a test that names it, its words one after another in an argument list under `crates/bisa-cli/tests/`; a verb a test reaches by another road is excused by name with the road, and an excuse nothing needs fails | `crates/bisa-cli/src/verbs.rs` — `every_verb_is_run_by_a_test_that_names_it` (`scripts/test lib cli verbs`) |
 | the command line writes the store only where no node runs: every function of it that calls a store writer asks for the node first, or is excused by `<file>:<function>` with its reason; an excuse nothing needs fails | `crates/bisa-node/tests/it/layering.rs` — `the_command_line_asks_for_the_node_before_it_writes_the_store` (`scripts/test module node layering`) |
 | a refusal a journey makes holds the contract a script reads: exit 1 (the verb ran and failed) or 2 (the command line could not be read), nothing on stdout under `--json`, its words on stderr, and never for a lock — which is what a verb that starts an engine beside the node's is answered | `crates/bisa-cli/tests/it/e2e/sealed.rs` — `Sealed::refused`, the one way a journey asks for a refusal |
@@ -274,15 +275,20 @@ GIT_CONFIG_NOSYSTEM=1`, so no fixture repository sees this machine's git config:
 | one desktop directory, or one file | `scripts/test desktop views/_workbench` · `cd desktop && node --test src/views/_work/prFormModel.test.mjs` |
 | the desktop's scenarios | `scripts/test desktop scenarios` |
 | the Tauri shell | `scripts/test tauri` |
+| line coverage, measured and judged · one half · one crate's suites with its file list · the baselines raised | `just coverage` · `just coverage-of desktop` · `just coverage-crate engine` · `just coverage-write` |
 
 Which suites prove which feature — crate by crate and screen by screen — is one page,
 [Feature coverage](coverage.md), held to the feature-status page by a guard.
 
 The whole-workspace forms (`cargo test --workspace`, `cd desktop && npm test`, `just verify`) are
-the gate at the **end** of a crate's hardening pass, never the loop. The desktop's models carry a
-coverage gate — `npm run test:coverage` (`just desktop-coverage`, in `just verify`) fails under 80 %
-of lines across `src/**/*.mjs` — and the Rust side carries none: the guard table above is its
-inventory, and a crate's pass ends when every module of its one integration binary is green.
+the gate at the **end** of a crate's hardening pass, never the loop. Every tree carries a
+line-coverage ratchet — `just coverage` (in `just verify`) measures the workspace, the shell and
+the desktop's models and holds each crate and each desktop directory to the figure in
+`scripts/coverage/baseline.json`, which only rises ([Feature coverage § Line
+coverage](coverage.md#line-coverage)); `just coverage-crate <crate>` is the loop, with the file
+list and the bare lines. The desktop's models keep their quick floor too — `npm run test:coverage`
+(`just desktop-coverage`) fails under 80 % of lines across `src/**/*.mjs`. A crate's pass ends when
+every module of its one integration binary is green and its tree's figure has not fallen.
 
 **A slow suite is a bug**, not a cost to wait out: a naked `sleep` becomes a poll with a deadline
 (`common::until` / `wait_for`), a wall-clock wait becomes a config knob the test sets (engine tests

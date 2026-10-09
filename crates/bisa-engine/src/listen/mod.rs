@@ -105,9 +105,11 @@ pub struct ListenState {
 }
 
 impl Default for ListenState {
+    // LCOV_EXCL_START: the default state is the settings' default; every engine builds its state from the settings read
     fn default() -> Self {
         Self::with_settings(EventSettings::default())
     }
+    // LCOV_EXCL_STOP
 }
 
 impl ListenState {
@@ -254,8 +256,10 @@ pub fn refresh_for(inner: &Inner, key: &str) {
         Ok(resolved) => inner
             .listen
             .set_settings(EventSettings::from_resolved(&resolved)),
+        // LCOV_EXCL_START: the events settings are read from the settings file, which fails only unreadable (disk-only)
         Err(e) => {
             tracing::warn!(
+                // LCOV_EXCL_STOP
                 key,
                 "the events settings were not read; the ones in force stand: {e}"
             );

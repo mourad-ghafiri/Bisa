@@ -187,4 +187,27 @@ mod tests {
         assert_eq!(cs.harness_listing_ttl(), Duration::from_millis(30_000));
         assert_eq!(cs.updates_ttl(), Duration::from_millis(3_600_000));
     }
+
+    // added by the coverage pass: b5-cache_settings.rs
+    #[test]
+    fn every_ttl_getter_reads_its_own_field() {
+        let cs = CacheSettings::default();
+        assert_eq!(
+            cs.path_index_ttl(),
+            Duration::from_millis(cs.path_index_ttl_ms)
+        );
+        assert_eq!(cs.presence_ttl(), Duration::from_millis(cs.presence_ttl_ms));
+        assert_eq!(
+            cs.model_health_ttl(),
+            Duration::from_millis(cs.model_health_ttl_ms)
+        );
+        assert_eq!(
+            cs.harness_usage_ttl(),
+            Duration::from_millis(cs.harness_usage_ttl_ms)
+        );
+        assert_eq!(
+            cs.harness_models_ttl(),
+            Duration::from_millis(cs.harness_models_ttl_ms)
+        );
+    }
 }
