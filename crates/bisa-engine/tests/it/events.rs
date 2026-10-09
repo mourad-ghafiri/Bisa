@@ -3048,6 +3048,7 @@ struct Inbox {
     host: String,
     items: std::sync::Arc<std::sync::Mutex<Value>>,
     calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    served: tokio::task::JoinHandle<()>,
 }
 
 impl Inbox {
@@ -3069,7 +3070,7 @@ impl Inbox {
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
+        let served = tokio::spawn(async move {
             let _served = axum::serve(listener, app).await;
         });
         Self {
@@ -3077,7 +3078,13 @@ impl Inbox {
             host: addr.to_string(),
             items,
             calls,
+            served,
         }
+    }
+
+    /// The platform goes away: nothing answers on its address any more.
+    fn stop(&self) {
+        self.served.abort();
     }
 
     fn set(&self, items: Value) {
@@ -3758,5 +3765,633 @@ async fn the_machines_switch_stops_listening_without_touching_a_record() {
     );
     assert_eq!(engine.drain_signals().await, 1);
     assert_eq!(runs_of(&engine, wf.id).len(), 1);
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// The edges: what turning On refuses, a schedule that never comes due or
+// keeps local time, a poll's odd answers, a check's directory, guard and
+// deadline, an occurrence whose listener is gone or whose payload does not
+// bind, a goal paused twice, a goal's thread heard in its scope, a signal
+// with an odd payload, a hook payload redacted inside its arrays
+// ---------------------------------------------------------------------------
+
+/// What turning On refuses before anything is armed: a goal with no
+/// workflow, a listening input of the wrong kind, and a start whose event
+/// reads an input nobody gave.
+#[tokio::test(flavor = "multi_thread")]
+async fn turning_on_refuses_a_goal_with_no_workflow_a_wrong_kind_and_an_unresolved_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let bare = engine
+        .submit_goal(SubmitRequest::captured("listens with nothing"))
+        .unwrap();
+    let refused = engine
+        .set_listening(ListenerHost::Goal { goal: bare.id }, BTreeMap::new(), None)
+        .unwrap_err();
+    assert!(refused.to_string().contains("workflow"), "{refused}");
+
+    let mut counted = new_workflow(
+        "counted",
+        vec![
+            start(
+                "sig",
+                StartOn::Signal {
+                    filter: SignalFilter {
+                        name: "counted".into(),
+                        fields: BTreeMap::from([("n".to_string(), "{inputs.n}".to_string())]),
+                    },
+                },
+                "hold",
+            ),
+            hold(),
+        ],
+    );
+    counted.inputs = vec![input("n", InputKind::Number, false)];
+    let (_, host) = library(&engine, counted);
+    let refused = engine
+        .set_listening(host, BTreeMap::from([("n".to_string(), json!("x"))]), None)
+        .unwrap_err();
+    assert!(refused.to_string().contains('n'), "{refused}");
+
+    let mut named = new_workflow(
+        "named",
+        vec![
+            start(
+                "sig",
+                StartOn::Signal {
+                    filter: SignalFilter {
+                        name: "{inputs.name}".into(),
+                        fields: BTreeMap::new(),
+                    },
+                },
+                "hold",
+            ),
+            hold(),
+        ],
+    );
+    named.inputs = vec![input("name", InputKind::Text, false)];
+    let (_, host) = library(&engine, named);
+    let refused = engine
+        .set_listening(host, BTreeMap::new(), None)
+        .unwrap_err();
+    assert!(refused.to_string().contains("name"), "{refused}");
+    engine.shutdown().await;
+}
+
+/// A schedule that can never come due is reported once at its first tick;
+/// one that keeps local time comes due on it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_schedule_that_never_comes_due_is_reported_and_one_in_local_time_comes_due() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let mut rx = engine.events();
+    let on = |cron: &str, tz: Option<&str>| StartOn::Schedule {
+        schedule: Schedule::cron(cron, tz.map(str::to_string)),
+    };
+    let (_, never) = library(
+        &engine,
+        new_workflow(
+            "never",
+            vec![start("clock", on("0 0 31 2 *", None), "hold"), hold()],
+        ),
+    );
+    let (local_wf, local) = library(
+        &engine,
+        new_workflow(
+            "local",
+            vec![
+                start("clock", on("* * * * *", Some("local")), "hold"),
+                hold(),
+            ],
+        ),
+    );
+    turn_on(&engine, never);
+    turn_on(&engine, local);
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    let failed = failures(&heard(&mut rx));
+    assert!(
+        failed
+            .iter()
+            .any(|(k, why)| *k == key(never, "clock") && why.contains("no future occurrence")),
+        "{failed:?}"
+    );
+    engine.tick_listeners_at(t0 + 61).await;
+    engine.drain_signals().await;
+    assert_eq!(
+        runs_of(&engine, local_wf.id).len(),
+        1,
+        "the local-time schedule came due"
+    );
+    engine.shutdown().await;
+}
+
+/// A poll answers oddly and is read all the same: one item alone, no
+/// item, a key that is no string; more keys than it keeps are forgotten
+/// oldest first; and a poll of a connector that is gone is reported once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_polls_odd_answers_are_read_and_a_gone_connector_is_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let inbox = Inbox::start(json!([])).await;
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    set(
+        &engine,
+        SettingScope::Workspace,
+        "security.content.screen",
+        json!(false),
+    );
+    ws.create_connector(mail(&inbox)).unwrap();
+    let (_, host) = library(&engine, polling("list"));
+    let listener = key(host, "arrived");
+    turn_on(&engine, host);
+    let mut rx = engine.events();
+    let t0 = now();
+    engine.tick_listeners_at(t0).await; // arms the cadence
+                                        // The first poll learns what is there: one item alone, keyed by a number.
+    inbox.set(json!({ "id": 7, "subject": "one alone" }));
+    engine.tick_listeners_at(t0 + 61).await;
+    assert!(
+        signals(&engine, &host).is_empty(),
+        "the first poll fires on nothing"
+    );
+    assert_eq!(
+        ws.listener_runtime(&listener).seen.unwrap_or_default(),
+        vec!["7".to_string()]
+    );
+    inbox.set(json!(null));
+    engine.tick_listeners_at(t0 + 122).await;
+    assert!(signals(&engine, &host).is_empty(), "nothing is nothing");
+    inbox.set(json!({ "id": "last", "subject": "one more alone" }));
+    engine.tick_listeners_at(t0 + 183).await;
+    let one = signals(&engine, &host);
+    assert_eq!(one.len(), 1, "one item alone is one occurrence: {one:?}");
+    assert_eq!(
+        one[0].signal.payload["item"]["subject"],
+        json!("one more alone")
+    );
+    // More keys than the poll remembers: the oldest are forgotten first.
+    let many: Vec<Value> = (0..1_050)
+        .map(|i| json!({ "id": format!("k{i}"), "subject": "bulk" }))
+        .collect();
+    inbox.set(json!(many));
+    engine.tick_listeners_at(t0 + 244).await;
+    let kept = ws.listener_runtime(&listener).seen.unwrap_or_default();
+    assert_eq!(kept.len(), 1_000, "the oldest keys are forgotten");
+    assert!(!kept.contains(&"7".to_string()), "the first key went first");
+    assert!(!kept.contains(&"last".to_string()));
+    assert!(kept.contains(&"k1049".to_string()));
+
+    // The platform goes away: the next poll fails, and the listener says so.
+    inbox.stop();
+    engine.tick_listeners_at(t0 + 305).await;
+    let failed = failures(&heard(&mut rx));
+    assert!(
+        failed.iter().any(|(k, _)| *k == listener),
+        "a poll that fails is reported: {failed:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A check start runs in the project it names, is refused by the guard
+/// like any command, and is cut off at the node's deadline — each said on
+/// the listener.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_check_start_runs_in_its_project_is_refused_by_the_guard_and_times_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let project = ws
+        .create_project(bisa_store::NewProject::managed("checked").unwrap())
+        .unwrap();
+    let root = ws.project_root_path(&project);
+    let check = |id: &str, command: &str, project: Option<bisa_core::ProjectId>| {
+        start_with(
+            id,
+            StartOn::Check {
+                command: command.into(),
+                project: project.map(ValueRef::Fixed),
+                fire_on: FireOn::StartsFailing,
+                schedule: Schedule::every(60),
+            },
+            &[],
+            Guard::default(),
+            "hold",
+        )
+    };
+    let (_, here) = library(
+        &engine,
+        new_workflow(
+            "in the project",
+            vec![
+                check("look", "pwd > where.txt; exit 1", Some(project.id)),
+                hold(),
+            ],
+        ),
+    );
+    let (_, refused) = library(
+        &engine,
+        new_workflow(
+            "refused",
+            vec![check("look", "fake-tool --now", None), hold()],
+        ),
+    );
+    let (_, slow) = library(
+        &engine,
+        new_workflow("slow", vec![check("look", "sleep 20", None), hold()]),
+    );
+    set(
+        &engine,
+        SettingScope::Machine,
+        "events.check_timeout_secs",
+        json!(5),
+    );
+    for host in [here, refused, slow] {
+        turn_on(&engine, host);
+    }
+    // The rule lands after the start was armed: turning On judges a check's
+    // command too, so only a rule written since reaches the tick.
+    set(
+        &engine,
+        SettingScope::Workspace,
+        "security.guard.rules",
+        json!([{
+            "id": "no_fake_tool", "label": "no fake tool", "action": "deny",
+            "matcher": { "kind": "command", "regex": "^fake-tool\\b" }
+        }]),
+    );
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    engine.tick_listeners_at(t0 + 61).await;
+    let said = std::fs::read_to_string(root.join("where.txt")).unwrap_or_default();
+    assert_eq!(
+        std::fs::canonicalize(said.trim()).ok(),
+        std::fs::canonicalize(&root).ok(),
+        "the check ran in the project: {said}"
+    );
+    let fired = signals(&engine, &here);
+    assert_eq!(fired.len(), 1, "it started failing: {fired:?}");
+    // A check the guard refuses, and one cut off at the deadline, both
+    // count as failing: an occurrence each, with no exit code and the
+    // reason as the output.
+    let judged = |host: ListenerHost| {
+        let heard = signals(&engine, &host);
+        assert_eq!(heard.len(), 1, "{heard:?}");
+        let payload = heard[0].signal.payload.clone();
+        assert_eq!(payload["exit_code"], Value::Null, "{payload}");
+        assert_eq!(payload["passed"], json!(false));
+        payload["output"].as_str().unwrap_or_default().to_string()
+    };
+    assert!(judged(refused).contains("refused by the guard rule"));
+    assert!(judged(slow).contains("timed out after 5s"));
+    engine.shutdown().await;
+}
+
+/// An occurrence met by nobody — its host stopped listening before the
+/// worker reached it — is skipped and says so; one whose payload does not
+/// bind the start's inputs fails and names what is missing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_occurrence_nobody_hears_is_skipped_and_one_that_does_not_bind_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (wf, listener) = listening_hook(&engine, "tickets", Guard::default());
+    let orphan = call(&engine, &listener, json!({"subject": "nobody home"}));
+    // The host still listens, but the start the occurrence names was
+    // renamed under it: nothing is armed for that key any more.
+    let mut renamed = new_workflow(
+        "tickets",
+        vec![
+            start_with(
+                "call",
+                hook(),
+                &[("subject", "{event.payload.subject}")],
+                Guard::default(),
+                "hold",
+            ),
+            hold(),
+        ],
+    );
+    renamed.inputs = vec![input("subject", InputKind::Text, true)];
+    engine.revise_workflow(wf.id, renamed, wf.revision).unwrap();
+    engine.drain_signals().await;
+    let settled = signal(&engine, &orphan);
+    assert_eq!(settled.state, SignalState::Skipped, "{settled:?}");
+    assert!(
+        settled
+            .note
+            .as_deref()
+            .unwrap_or_default()
+            .contains("not armed"),
+        "{settled:?}"
+    );
+
+    let mut needs = new_workflow(
+        "needs a subject",
+        vec![
+            start_with(
+                "ticket",
+                hook(),
+                &[("subject", "{event.payload.subject}")],
+                Guard::default(),
+                "hold",
+            ),
+            hold(),
+        ],
+    );
+    needs.inputs = vec![input("subject", InputKind::Text, true)];
+    let (_, host) = library(&engine, needs);
+    turn_on(&engine, host);
+    let listener = key(host, "ticket");
+    let unbound = call(&engine, &listener, json!({}));
+    engine.drain_signals().await;
+    let settled = signal(&engine, &unbound);
+    assert_eq!(settled.state, SignalState::Failed, "{settled:?}");
+    assert!(
+        settled
+            .note
+            .as_deref()
+            .unwrap_or_default()
+            .contains("subject"),
+        "{settled:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A goal whose budget is spent is paused once: the next occurrence finds
+/// it paused already and is skipped without pausing it again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goal_paused_for_its_budget_is_paused_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let wf = engine.create_workflow(tickets()).unwrap();
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            workflow: Some(wf.id),
+            budget: Some(Budget {
+                max_usd_cents: Some(1),
+                ..Default::default()
+            }),
+            ..SubmitRequest::captured("tickets while the budget lasts")
+        })
+        .unwrap();
+    let host = ListenerHost::Goal { goal: goal.id };
+    turn_on(&engine, host);
+    let listener = key(host, "ticket");
+    engine
+        .workspace()
+        .add_spend(&bisa_core::Home::Goal { goal: goal.id }, 0, 2, 0)
+        .unwrap();
+    let first = call(&engine, &listener, json!({"subject": "one"}));
+    let second = call(&engine, &listener, json!({"subject": "two"}));
+    engine.drain_signals().await;
+    assert_eq!(signal(&engine, &first).state, SignalState::Skipped);
+    let paused = goal_of(&engine, &goal);
+    assert!(!paused.is_listening());
+    let all = notes(&engine, goal.id);
+    let pauses = all
+        .iter()
+        .filter(|n| n.starts_with("listening paused"))
+        .count();
+    assert_eq!(pauses, 1, "paused once: {all:?}");
+    // The second occurrence found the goal paused already: skipped, saying
+    // so, and the goal was not paused a second time.
+    let kept = signal(&engine, &second);
+    assert_eq!(kept.state, SignalState::Skipped, "{kept:?}");
+    assert!(
+        kept.note.as_deref().unwrap_or_default().contains("paused"),
+        "{kept:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A message in a goal's thread is heard in the goal's scope, and who it
+/// mentions is said by agent id.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_in_a_goals_thread_is_heard_in_its_scope_with_its_mentions() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let mut draft = new_workflow(
+        "spoken to",
+        vec![
+            start_with(
+                "said",
+                StartOn::Message {
+                    filter: MessageFilter {
+                        r#in: None,
+                        from: MessageFrom::You,
+                        mentions: None,
+                        contains: Some("ship".into()),
+                    },
+                },
+                &[("text", "{event.payload.text}")],
+                Guard::default(),
+                "hold",
+            ),
+            hold(),
+        ],
+    );
+    draft.inputs = vec![input("text", InputKind::Text, true)];
+    let (goal, host) = goal_with(&engine, "hears its thread", draft);
+    turn_on(&engine, host);
+    let general = ws
+        .get_agent(&bisa_core::AgentId::new("general-agent").unwrap())
+        .unwrap();
+    let thread = goal.id.to_string();
+    ws.post_message(
+        &thread,
+        MessageBody::post("ship it".to_string()),
+        None,
+        std::slice::from_ref(&general.pubkey),
+        &[],
+        None,
+        PostOrigin::Asked,
+    )
+    .unwrap();
+    let heard = heard_signals(&engine, &host, 1).await;
+    let occurrence = &heard[0].signal;
+    assert_eq!(occurrence.scope, SignalScope::Goal { goal: goal.id });
+    assert_eq!(occurrence.payload["mentions"], json!(["general-agent"]));
+    assert_eq!(occurrence.payload["scope"], json!(thread));
+    engine.shutdown().await;
+}
+
+/// A signal raised with a payload that is no object carries it as `value`;
+/// a hook payload is redacted inside its arrays as well as its fields.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_odd_payload_is_carried_as_a_value_and_a_hooks_arrays_are_redacted() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    engine
+        .emit_signal("odd", json!(5), SignalScope::Workspace)
+        .unwrap();
+    let recorded = records(&engine, "odd");
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].payload, json!({ "value": 5 }));
+
+    // A redaction rule of the workspace's own: what matches it never lands
+    // in a signal, inside an array as little as in a field.
+    set(
+        &engine,
+        SettingScope::Workspace,
+        "security.redactor.rules",
+        json!([{ "id": "ticket_keys", "label": "Ticket keys",
+                 "detector": { "kind": "pattern", "regex": "tk-[0-9]{6}" } }]),
+    );
+    // Through the public door, where a payload from outside is redacted
+    // (the local door's is a person's own, on this machine).
+    set(
+        &engine,
+        SettingScope::Workspace,
+        "security.content.screen",
+        json!(false),
+    );
+    set(
+        &engine,
+        SettingScope::Machine,
+        "events.public_hooks",
+        json!(true),
+    );
+    let (_, host) = library(
+        &engine,
+        new_workflow(
+            "tickets",
+            vec![
+                start("ticket", StartOn::Hook { public: true }, "hold"),
+                hold(),
+            ],
+        ),
+    );
+    turn_on(&engine, host);
+    let id = engine
+        .call_hook(
+            &key(host, "ticket"),
+            json!({"subject": "key tk-123456", "items": ["tk-654321", "plain", {"deep": "tk-111111"}]}),
+            None,
+            HookDoor::Public,
+        )
+        .unwrap();
+    let queued = signal(&engine, &id);
+    let text = queued.signal.payload.to_string();
+    assert!(
+        !text.contains("tk-123456") && !text.contains("tk-654321") && !text.contains("tk-111111"),
+        "{text}"
+    );
+    assert_eq!(queued.signal.payload["items"][1], json!("plain"));
+    engine.shutdown().await;
+}
+
+/// The registry says whether any armed start wants a platform topic.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_registry_says_which_platform_topics_are_wanted() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (_, host) = library(
+        &engine,
+        new_workflow(
+            "on close",
+            vec![
+                start(
+                    "closed",
+                    StartOn::Platform {
+                        filter: PlatformFilter {
+                            topic: "goal.closed".into(),
+                            fields: BTreeMap::new(),
+                        },
+                    },
+                    "hold",
+                ),
+                hold(),
+            ],
+        ),
+    );
+    assert!(!engine.armed_listeners().wants_topic("goal.closed"));
+    turn_on(&engine, host);
+    assert!(engine.armed_listeners().wants_topic("goal.closed"));
+    assert!(!engine.armed_listeners().wants_topic("run.finished"));
+    engine.shutdown().await;
+}
+
+/// A listening workflow saved with a problem is not armed again: the
+/// listener says so, once, and hears nothing until the problem is mended.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_listening_workflow_saved_with_a_problem_is_not_armed_and_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let (wf, listener) = listening_hook(&engine, "tickets", Guard::default());
+    let mut broken = new_workflow("tickets", vec![start("ticket", hook(), "nowhere"), hold()]);
+    broken.description = "flows nowhere".into();
+    let (saved, problems) = engine.save_workflow(wf.id, broken, wf.revision).unwrap();
+    assert!(!problems.is_empty(), "the save kept the problem: {saved:?}");
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    // The report lands on the listener's own record, whichever task said it.
+    let why = until("the listener to say why it is not armed", || {
+        ws.listener_runtime(&listener).failed
+    })
+    .await;
+    assert!(why.contains("not armed"), "{why}");
+    assert!(engine.armed_listeners().get(&listener).is_none());
+    engine.shutdown().await;
+}
+
+/// A wait on a project's files — a managed folder, no git — learns the
+/// tree at its first look and completes on the next change that matches
+/// its glob, with the changed paths in the payload.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_on_a_managed_projects_files_hears_the_next_matching_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let project = ws
+        .create_project(bisa_store::NewProject::managed("notes").unwrap())
+        .unwrap();
+    let root = ws.project_root_path(&project);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("old.md"), "already there").unwrap();
+    let (goal, run) = run_on(
+        &engine,
+        "wait for a note",
+        new_workflow(
+            "noted",
+            vec![step(
+                "note",
+                StepKind::Wait {
+                    until: WaitFor::Project {
+                        filter: ProjectFilter {
+                            project: Some(ValueRef::Fixed(project.id)),
+                            change: ProjectChange::Files,
+                            branch: None,
+                            glob: Some("*.md".into()),
+                        },
+                    },
+                },
+            )],
+        ),
+    );
+    step_in_state(&engine, goal.id, "note", "waiting").await;
+    assert!(
+        engine.armed_waits().iter().any(|(r, s, w)| *r == run.id
+            && s == &sid("note")
+            && matches!(w, WaitFor::Project { .. })),
+        "the project wait is armed"
+    );
+    let t0 = now();
+    engine.tick_listeners_at(t0).await; // learns the tree
+    std::fs::write(root.join("ignored.txt"), "not a note").unwrap();
+    engine.tick_listeners_at(t0 + 61).await;
+    assert_eq!(
+        current_run(&engine, goal.id).status(),
+        RunStatus::Waiting,
+        "a file outside the glob is no change"
+    );
+    std::fs::write(root.join("new.md"), "a note").unwrap();
+    engine.tick_listeners_at(t0 + 122).await;
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+    let payload = done.steps[&sid("note")].output.clone().unwrap_or_default();
+    assert!(payload.to_string().contains("new.md"), "{payload}");
     engine.shutdown().await;
 }

@@ -130,7 +130,9 @@ pub fn emit_from_outside(
         match super::hooks::read_outside(&inner, source, &text, home).await {
             Ok(()) => {
                 if let Err(e) = emit(&inner, &name, payload, scope, Chain::default(), None) {
+                    // LCOV_EXCL_START: raising a screened signal writes the index, which fails only unwritable (disk-only)
                     tracing::warn!(target: "bisa_engine::listen", signal = %name, "a screened signal could not be raised: {e}");
+                    // LCOV_EXCL_STOP
                 }
             }
             Err(reason) => hold_for_listeners(&inner, &name, payload, scope, &reason),

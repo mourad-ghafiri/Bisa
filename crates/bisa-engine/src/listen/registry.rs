@@ -127,7 +127,9 @@ fn host_workflow(inner: &Inner, host: &ListenerHost) -> Result<Option<Workflow>,
         ListenerHost::Goal { goal } => {
             let g = inner.ws.get_goal(*goal).map_err(|e| e.to_string())?;
             if g.is_closed() {
+                // LCOV_EXCL_START: a closed goal's listening is turned off by close_goal before the registry is rebuilt (stopping_or_closing_a_goal_stops_its_listening)
                 return Ok(None);
+                // LCOV_EXCL_STOP
             }
             match g.workflow {
                 Some(wf) => inner
@@ -135,7 +137,9 @@ fn host_workflow(inner: &Inner, host: &ListenerHost) -> Result<Option<Workflow>,
                     .get_workflow(wf)
                     .map(Some)
                     .map_err(|e| e.to_string()),
+                // LCOV_EXCL_START: a goal pointed at no workflow has its listening turned off by set_workflow before the registry is rebuilt
                 None => Ok(None),
+                // LCOV_EXCL_STOP
             }
         }
     }
@@ -145,9 +149,11 @@ fn host_workflow(inner: &Inner, host: &ListenerHost) -> Result<Option<Workflow>,
 pub fn build(inner: &Arc<Inner>) -> Registry {
     let hosts = match inner.ws.list_listening() {
         Ok(hosts) => hosts,
+        // LCOV_EXCL_START: the listening hosts are read from the index, which fails only unreadable (disk-only)
         Err(e) => {
             tracing::warn!(target: "bisa_engine::listen", "the listening hosts could not be read; nothing is armed until they can: {e}");
             return Registry::default();
+            // LCOV_EXCL_STOP
         }
     };
     let mut armed = Vec::new();
@@ -157,10 +163,14 @@ pub fn build(inner: &Arc<Inner>) -> Registry {
         }
         let wf = match host_workflow(inner, &host) {
             Ok(Some(wf)) => Arc::new(wf),
+            // LCOV_EXCL_START: a host whose workflow is gone was turned off with it (delete_workflow, close_goal)
             Ok(None) => continue,
+            // LCOV_EXCL_STOP
+            // LCOV_EXCL_START: a host's workflow is read from the store, which fails only unreadable (disk-only)
             Err(e) => {
                 tracing::warn!(target: "bisa_engine::listen", %host, "a listening host's workflow could not be read: {e}");
                 continue;
+                // LCOV_EXCL_STOP
             }
         };
         let keys: Vec<ListenerKey> = wf
@@ -192,9 +202,11 @@ pub fn build(inner: &Arc<Inner>) -> Registry {
                 continue;
             }
             Ok(_) => {}
+            // LCOV_EXCL_START: validating a workflow reads the store, which fails only unreadable (disk-only)
             Err(e) => {
                 tracing::warn!(target: "bisa_engine::listen", %host, "a listening workflow could not be validated: {e}");
                 continue;
+                // LCOV_EXCL_STOP
             }
         }
         for step in &wf.steps {
@@ -264,7 +276,9 @@ pub fn put_runtime(inner: &Inner, key: &ListenerKey, rt: &ListenerRuntime) {
         ..rt.clone()
     };
     if let Err(e) = inner.ws.put_listener_runtime(key, &rt) {
+        // LCOV_EXCL_START: a listener's memory is written to the index, which fails only unwritable (disk-only)
         tracing::warn!(target: "bisa_engine::listen", listener = %key, "the listener's memory could not be kept: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 

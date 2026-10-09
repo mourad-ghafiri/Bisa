@@ -35,6 +35,7 @@ mod projects_and_workstreams;
 mod pulse_and_inbox;
 mod runs_in_the_workspace;
 mod settings_security_and_the_log;
+mod signals_and_listeners_from_the_command_line;
 mod templates_installed_and_run;
 mod the_decision_making_agent;
 mod the_nodes_wire;

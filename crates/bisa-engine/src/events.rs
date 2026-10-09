@@ -1392,3 +1392,90 @@ mod tests {
         assert!(json["outcome"].get("goal").is_none());
     }
 }
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    /// An execution's outcome reads as its word, with the reason where one
+    /// is carried.
+    #[test]
+    fn an_execution_outcome_reads_with_its_reason() {
+        assert_eq!(ExecutionOutcome::Completed.to_string(), "completed");
+        assert_eq!(
+            ExecutionOutcome::Failed {
+                reason: "no disk".into()
+            }
+            .to_string(),
+            "failed: no disk"
+        );
+        assert_eq!(
+            ExecutionOutcome::Cancelled {
+                reason: "amended away".into()
+            }
+            .to_string(),
+            "cancelled: amended away"
+        );
+    }
+
+    /// The listening events' fields, as a log line or the activity feed
+    /// reads them: the signal, its source and its listener; a skip's word;
+    /// a failure's listener; a switch's host and standing.
+    #[test]
+    fn the_listening_events_say_their_fields() {
+        let workflow = WorkflowId::from_ulid(ulid::Ulid::from_parts(3, 3));
+        let listener = bisa_core::ListenerKey {
+            host: bisa_core::ListenerHost::Workspace { workflow },
+            step: StepId::new("ticket").unwrap(),
+        };
+        let received = EnginePayload::SignalReceived {
+            signal: "sig-1".into(),
+            listener: Some(listener.clone()),
+            source: bisa_core::SignalSource::Hook,
+        }
+        .fields();
+        assert_eq!(received["signal"], "sig-1");
+        assert_eq!(received["source"], "hook");
+        assert_eq!(received["listener"], listener.to_string());
+        let unheard = EnginePayload::SignalReceived {
+            signal: "sig-2".into(),
+            listener: None,
+            source: bisa_core::SignalSource::Signal,
+        }
+        .fields();
+        assert!(!unheard.contains_key("listener"));
+        let skipped = EnginePayload::ListenerFired {
+            listener: listener.clone(),
+            signal: "sig-1".into(),
+            outcome: FiredOutcome::Skipped {
+                reason: "debounced".into(),
+            },
+        }
+        .fields();
+        assert_eq!(skipped["outcome"], "skipped");
+        let started = EnginePayload::ListenerFired {
+            listener: listener.clone(),
+            signal: "sig-1".into(),
+            outcome: FiredOutcome::Started {
+                run: RunId::from_ulid(ulid::Ulid::from_parts(4, 4)),
+                goal: Some(GoalId::from_ulid(ulid::Ulid::from_parts(5, 5))),
+            },
+        }
+        .fields();
+        assert!(started.contains_key("run") && started.contains_key("goal"));
+        let failed = EnginePayload::ListenerFailed {
+            listener: listener.clone(),
+            signal: None,
+            error: "its cadence is wrong".into(),
+        }
+        .fields();
+        assert_eq!(failed["listener"], listener.to_string());
+        let changed = EnginePayload::ListeningChanged {
+            host: bisa_core::ListenerHost::Workspace { workflow },
+            on: true,
+        }
+        .fields();
+        assert_eq!(changed["on"], "true");
+        assert_eq!(changed["host"], format!("workspace:{workflow}"));
+    }
+}

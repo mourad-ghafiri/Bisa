@@ -171,8 +171,10 @@ pub(crate) fn screen_held(
         match read_outside(&inner, source, &text, home).await {
             Ok(()) => match inner.ws.release_signal(&signal) {
                 Ok(()) => inner.listen.wake(),
+                // LCOV_EXCL_START: letting a held signal through writes the index, which fails only unwritable (disk-only)
                 Err(e) => {
                     tracing::warn!(target: "bisa_engine::listen", %signal, "a screened signal could not be let through: {e}");
+                    // LCOV_EXCL_STOP
                 }
             },
             Err(reason) => keep_held(&inner, &key, &signal, held_note(&reason)),
@@ -225,7 +227,9 @@ fn keep_held(inner: &Arc<Inner>, key: &ListenerKey, signal: &str, note: String) 
         .ws
         .move_signal(signal, bisa_store::SignalState::Held, Some(&note))
     {
+        // LCOV_EXCL_START: writing a held signal's reason fails only with the index unwritable (disk-only)
         tracing::warn!(target: "bisa_engine::listen", %signal, "a held signal's reason could not be written: {e}");
+        // LCOV_EXCL_STOP
     }
     report_once(inner, key, Some(signal), note);
 }

@@ -345,11 +345,12 @@ pub(crate) fn refused_locally(refusal: HookRefusal) -> ApiError {
             StatusCode::NOT_FOUND,
             bisa_core::text!("error-node-hooks-not-hook-start", listener = listener),
         ),
+        // LCOV_EXCL_START: the public route verifies a hook's secret before the engine's own refusal; a start that takes no public calls has none, so the call is unauthorized first (a_goal_with_no_workflow_lists_no_listeners_and_a_local_hook_takes_no_public_call)
         HookRefusal::NotPublic(listener) => ApiError::text(
             StatusCode::NOT_FOUND,
             bisa_core::text!(
                 "error-node-hooks-takes-no-public-calls",
-                listener = listener
+                listener = listener // LCOV_EXCL_STOP
             ),
         ),
         HookRefusal::Busy(listener) => ApiError::text(
