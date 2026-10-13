@@ -162,6 +162,20 @@ mod tests {
     use bisa_harness::InputKind;
     use serde_json::json;
 
+    /// A payload that names no hook is nothing; a permission with no call
+    /// and no turn is filed under the one word.
+    #[test]
+    fn a_payload_naming_no_hook_is_nothing_and_a_bare_permission_has_the_one_word() {
+        assert!(translate(&json!({"session_id": "s"})).is_empty());
+        assert_eq!(permission_id(&json!({})), "permission");
+        assert_eq!(permission_id(&json!({"turn_id": ""})), "permission");
+        assert_eq!(permission_id(&json!({"turn_id": "t1"})), "permission:t1");
+        assert_eq!(
+            permission_id(&json!({"tool_use_id": "c1", "turn_id": "t1"})),
+            "c1"
+        );
+    }
+
     fn ctx() -> ReportingContext {
         ReportingContext {
             session: "01S".into(),

@@ -434,3 +434,110 @@ async fn a_parked_row_loses_its_pid_and_leaves_after_retention() {
     assert!(inner.presence.get(id).is_none());
     engine.shutdown().await;
 }
+
+// added by the coverage pass: presence.rs
+
+fn terminal_meta() -> SessionMeta {
+    SessionMeta {
+        kind: SessionKind::Terminal,
+        origin: SessionOrigin::Terminal,
+        ..design_meta(GuidancePhase::Design)
+    }
+}
+
+/// A cancelled or a budget-exhausted session ends failed in those words; an
+/// event for a session the roster does not hold moves nothing; an answer
+/// with nothing waiting moves nothing; and the terminals waiting on a person
+/// are listed newest wait first, then by id.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_outcome_has_its_state_a_stranger_moves_nothing_and_waiting_tabs_are_newest_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_retaining_briefly(&dir, vec![MockAdapter::default()]);
+    let inner = engine.inner();
+    let cancelled = LiveRunId::mint();
+    inner
+        .presence
+        .register(inner, cancelled, design_meta(GuidancePhase::Design));
+    inner.presence.hold_ended(
+        inner,
+        cancelled,
+        &bisa_engine::ExecutionOutcome::Cancelled {
+            reason: "the goal stopped".into(),
+        },
+    );
+    assert_eq!(
+        inner.presence.get(cancelled).unwrap().state,
+        SessionState::Failed {
+            reason: "cancelled: the goal stopped".into()
+        }
+    );
+    let spent = LiveRunId::mint();
+    inner
+        .presence
+        .register(inner, spent, design_meta(GuidancePhase::Design));
+    inner.presence.hold_ended(
+        inner,
+        spent,
+        &bisa_engine::ExecutionOutcome::BudgetExhausted,
+    );
+    assert_eq!(
+        inner.presence.get(spent).unwrap().state,
+        SessionState::Failed {
+            reason: "budget exhausted".into()
+        }
+    );
+
+    // A stranger: nothing to move, nothing said.
+    let stranger = LiveRunId::mint();
+    inner.presence.apply(
+        inner,
+        stranger,
+        &SessionEvent::Progress(bisa_harness::ProgressEvent::TurnStarted),
+    );
+    inner.presence.answered(inner, stranger);
+    assert!(inner.presence.get(stranger).is_none());
+
+    // Two tabs waiting on a person: the newer wait first; a tab with no wait
+    // is not among them, and an answer with nothing waiting moves nothing.
+    let quiet = LiveRunId::mint();
+    inner.presence.register(inner, quiet, terminal_meta());
+    inner.presence.answered(inner, quiet);
+    let older = LiveRunId::mint();
+    inner.presence.register(inner, older, terminal_meta());
+    let ask = |id: &str, tool: &str| {
+        SessionEvent::Lifecycle(bisa_harness::LifecycleEvent::InputRequested {
+            request: bisa_harness::InputRequest::permission(
+                id,
+                tool,
+                bisa_core::ToolTier::Exec,
+                "x",
+                serde_json::Value::Null,
+            ),
+        })
+    };
+    inner.presence.apply(inner, older, &ask("a-1", "Bash"));
+    let t0 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    // The clock has to tick once for a later wait to be later.
+    until("the second to pass", || {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        (now > t0).then_some(())
+    })
+    .await;
+    let newer = LiveRunId::mint();
+    inner.presence.register(inner, newer, terminal_meta());
+    inner.presence.apply(inner, newer, &ask("a-2", "Read"));
+    let waiting: Vec<LiveRunId> = inner
+        .presence
+        .waiting_terminals()
+        .iter()
+        .map(|p| p.id)
+        .collect();
+    assert_eq!(waiting, [newer, older], "newest wait first");
+    engine.shutdown().await;
+}

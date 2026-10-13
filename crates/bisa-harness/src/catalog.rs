@@ -530,6 +530,46 @@ mod tests {
         );
     }
 
+    /// A default catalog is an empty one; a custom directory that is no
+    /// directory, or one nobody may read, is said as the disk's word; a file
+    /// that is no descriptor is skipped, and one that cannot be read is said.
+    #[test]
+    fn what_the_custom_directory_holds_is_read_file_by_file_and_the_disk_is_quoted() {
+        let catalog = HarnessCatalog::default();
+        assert!(catalog.adapters().is_empty());
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("not-a-dir");
+        std::fs::write(&file, "x").unwrap();
+        let mut catalog = HarnessCatalog::new();
+        let errors = catalog.load_custom_dir(&file);
+        assert!(
+            matches!(&errors[..], [CatalogError::Io { path, .. }] if path == &file.display().to_string()),
+            "{errors:?}"
+        );
+
+        let custom = dir.path().join("harnesses");
+        std::fs::create_dir(&custom).unwrap();
+        std::fs::write(custom.join("README.txt"), "not a descriptor").unwrap();
+        let unreadable = custom.join("locked.json");
+        std::fs::write(&unreadable, "{}").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let errors = catalog.load_custom_dir(&custom);
+        #[cfg(unix)]
+        assert!(
+            matches!(&errors[..], [CatalogError::Io { path, .. }] if path == &unreadable.display().to_string()),
+            "{errors:?}"
+        );
+        assert!(
+            catalog.custom_specs().is_empty(),
+            "the text file was skipped"
+        );
+    }
+
     #[test]
     fn sanitize_strips_reserved_env_and_rejects_reserved_ids() {
         let mut env = BTreeMap::new();

@@ -75,6 +75,7 @@ pub fn auth_token(auth_json: &str, now_ms: u64) -> Result<String, UsageState> {
     }
 }
 
+// LCOV_EXCL_START: OpenCode's own sign-in file under the person's home and the provider's endpoint, which no test reads; the parsing above is proved on its own
 /// Where OpenCode keeps its sign-ins on this machine.
 fn auth_path() -> Option<std::path::PathBuf> {
     if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
@@ -118,6 +119,7 @@ pub async fn read(http: &bisa_http::Clients, harness: &str) -> UsageState {
         Err(state) => state,
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {

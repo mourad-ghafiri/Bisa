@@ -127,7 +127,7 @@ fn window(limit: &Value, provider: &str) -> Option<UsageWindow> {
 
 /// Read every provider's usage through omp's own CLI.
 pub async fn read(program: &str, harness: &str) -> UsageState {
-    match super::stdout_of(program, &["usage", "--json"]).await {
+    match super::stdout_of(program, &["usage", "--json"], super::READ_TIMEOUT).await {
         Ok(text) => match parse(&text, harness, now_secs()) {
             Ok(report) => UsageState::Report { report },
             Err(state) => state,

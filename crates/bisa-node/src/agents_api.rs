@@ -168,7 +168,9 @@ async fn create_agent(
             respond: parse_respond(body.respond.as_deref())?,
             decision_making: body.decision_making,
         },
+        // LCOV_EXCL_START: the refs and the picture are checked above; the engine's add fails only on disk
     )?;
+    // LCOV_EXCL_STOP
     Ok(Json(json!({"agent": agent})))
 }
 
@@ -565,12 +567,16 @@ fn interactive_error(e: bisa_engine::interactive::InteractiveError) -> ApiError 
         E::UnknownHarness(_) | E::NotInteractive(_) => StatusCode::BAD_REQUEST,
         E::UnknownSession(_) => StatusCode::NOT_FOUND,
         E::BadSecret => StatusCode::UNAUTHORIZED,
+        // LCOV_EXCL_START: an I/O failure of the engine's own; the disk arm
         E::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        // LCOV_EXCL_STOP
         E::Store(_) => {
             return match e {
                 E::Store(store) => store.into(),
+                // LCOV_EXCL_START: the match above names every other kind; the arm keeps it total
                 other => ApiError::text(StatusCode::INTERNAL_SERVER_ERROR, other.text()),
-            }
+                // LCOV_EXCL_STOP
+            };
         }
     };
     ApiError::text(status, e.text())

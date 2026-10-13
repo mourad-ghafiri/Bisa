@@ -219,6 +219,15 @@ impl InstallHint {
 mod tests {
     use super::*;
 
+    /// A line is one platform's command, built at run time the way the
+    /// tables are built at compile time.
+    #[test]
+    fn a_line_is_one_platforms_command() {
+        let line = on(Platform::Linux, "apk add git");
+        assert_eq!(line.platform, Platform::Linux);
+        assert_eq!(line.command, "apk add git");
+    }
+
     #[test]
     fn every_hint_names_its_official_page_and_a_line_for_every_platform() {
         for (name, hint) in [

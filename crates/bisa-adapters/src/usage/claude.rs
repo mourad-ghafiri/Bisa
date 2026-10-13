@@ -69,6 +69,7 @@ fn live_token_of(credentials_json: &str, now: u64) -> Option<String> {
     token_of(credentials_json)
 }
 
+// LCOV_EXCL_START: the person's own sign-in on this machine — the file under the home, the login keychain, the provider's endpoint — which no test reads; the parsing above is proved on its own
 /// The token from the credential file, when there is one with a live token in it.
 async fn file_token() -> Option<String> {
     let dir = config_dir(std::env::var_os(CONFIG_DIR_VAR), std::env::var_os("HOME"))?;
@@ -126,6 +127,7 @@ pub async fn read(http: &bisa_http::Clients, harness: &str) -> UsageState {
         Err(state) => state,
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {

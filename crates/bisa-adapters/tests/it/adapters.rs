@@ -665,6 +665,7 @@ fn opencode_two_stub(dir: &Path) -> PathBuf {
         "opencode",
         r#"
 if [ "$1" = "--version" ]; then echo "opencode v2.0.26"; exit 0; fi
+if [ "$1" = "models" ]; then echo "anthropic/claude-sonnet-5"; echo "openai/gpt-5"; exit 0; fi
 seen="$0.seen"
 echo "args: $*" > "$seen"
 [ "$1" = "acp" ] || exit 9
@@ -1952,4 +1953,643 @@ exec sleep 300
         process_gone_within(child, Duration::from_secs(2)).await,
         "a CLI that ignores EOF is killed past the grace"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Every session facade answers for itself, every launch carries its
+// environment, and every adapter that resumes does so from its own token.
+
+fn token_for(
+    adapter_id: &str,
+    native_id: &str,
+    dir: &Path,
+    transcript: Option<PathBuf>,
+) -> bisa_harness::ResumeToken {
+    bisa_harness::ResumeToken {
+        adapter_id: adapter_id.into(),
+        native_id: native_id.into(),
+        cwd: dir.to_path_buf(),
+        transcript_path: transcript,
+        model: None,
+        effort: None,
+    }
+}
+
+fn reporting_ctx() -> bisa_harness::ReportingContext {
+    bisa_harness::ReportingContext {
+        session: "01S".into(),
+        reporter: vec!["/bin/bisa".into(), "session".into(), "report".into()],
+        files_dir: "/ws/run/interactive/01S".into(),
+        port: Some(41234),
+        guard: None,
+        guard_timeout_secs: 0,
+    }
+}
+
+/// What a stub was started with, once it has said so — a stub that was
+/// just spawned writes its file a moment after the launch returns.
+async fn seen_until(stub: &Path, needle: &str) -> Vec<String> {
+    let path = PathBuf::from(format!("{}.seen", stub.display()));
+    let until = tokio::time::Instant::now() + STUB_DEADLINE;
+    loop {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if text.contains(needle) {
+                return text.lines().map(str::to_string).collect();
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < until,
+            "{} never said {needle:?}: {:?}",
+            path.display(),
+            std::fs::read_to_string(&path)
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A spec whose session keeps one variable and is told its MCP server.
+fn spec_with_env(dir: &Path, prompt: &str) -> SessionSpec {
+    let mut spec = spec(dir, prompt);
+    spec.env.insert("BISA_TEST_KEPT".into(), "yes".into());
+    spec.env_remove.push("BISA_TEST_GONE".into());
+    spec.mcp_servers = vec![bisa_harness::McpMount::platform(
+        bisa_harness::McpServerConfig::Stdio {
+            name: "bisa".into(),
+            command: "/bin/bisa".into(),
+            args: vec!["mcp".into()],
+            env: Default::default(),
+            cwd: Some(dir.display().to_string()),
+        },
+    )];
+    spec
+}
+
+#[tokio::test]
+async fn claude_code_is_told_its_servers_and_its_environment_and_answers_for_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(
+        dir.path(),
+        "claude",
+        r#"
+printf '%s\n' "$*" > "$0.seen"
+echo "kept=$BISA_TEST_KEPT" >> "$0.seen"
+read -r _line
+echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"m"}'
+echo '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-1"}'
+while read -r _l; do :; done
+"#,
+    );
+    let adapter = bisa_adapters::claude_code::ClaudeCodeAdapter {
+        program: stub.display().to_string(),
+        ..Default::default()
+    };
+    let session = adapter
+        .launch(spec_with_env(dir.path(), "do the thing"))
+        .await
+        .unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(ended_completed(&events), "{events:?}");
+    let seen = seen_by(&stub);
+    assert!(seen[0].contains("--mcp-config"), "{seen:?}");
+    assert_eq!(seen[1], "kept=yes");
+
+    assert_eq!(session.phase(), bisa_harness::Phase::Idle);
+    assert_eq!(session.snapshot().phase, bisa_harness::Phase::Idle);
+    session
+        .prompt("".into())
+        .await
+        .expect("nothing to say is nothing sent");
+    session.prompt("again".into()).await.unwrap();
+    assert_eq!(session.phase(), bisa_harness::Phase::Turn);
+    session.follow_up("and then".into()).await.unwrap();
+    assert!(
+        matches!(
+            session.prompt("once more".into()).await,
+            Err(HarnessError::Busy)
+        ),
+        "a turn is running"
+    );
+    session.abort().await.unwrap();
+    assert!(
+        matches!(
+            adapter.translate_report(
+                &serde_json::json!({"hook_event_name": "Stop", "session_id": "s"})
+            )[..],
+            [SessionEvent::Progress(ProgressEvent::TurnEnded)]
+        ),
+        "the adapter's own reporter translation"
+    );
+
+    // A launch with nothing to say starts a session that waits.
+    let quiet = adapter.launch(spec(dir.path(), "")).await.unwrap();
+    assert_eq!(quiet.phase(), bisa_harness::Phase::Idle);
+    quiet.dispose().await.unwrap();
+
+    // Revived from its token: the CLI is asked to resume the session it named.
+    let token = token_for("claude-code", "sess-1", dir.path(), None);
+    let revived = adapter.attach(&token).await.unwrap();
+    assert_eq!(revived.phase(), bisa_harness::Phase::Idle);
+    let seen = seen_until(&stub, "--resume").await;
+    assert!(seen[0].contains("--resume sess-1"), "{seen:?}");
+    revived.dispose().await.unwrap();
+    let wrong = token_for("codex", "cx-1", dir.path(), None);
+    assert!(matches!(
+        adapter.attach(&wrong).await.err(),
+        Some(HarnessError::Protocol(_))
+    ));
+}
+
+/// The pi stub: a plain line before its JSON, the state, a turn per prompt,
+/// an ack for a steer and a follow-up — and what it was started with kept.
+fn pi_like_stub(dir: &Path, name: &str, usage_fixture: &Path) -> PathBuf {
+    write_stub(
+        dir,
+        name,
+        &format!(
+            r#"
+if [ "$1" = "usage" ]; then cat '{usage}'; exit 0; fi
+printf '%s\n' "$*" > "$0.seen"
+echo "kept=$BISA_TEST_KEPT" >> "$0.seen"
+echo "starting up"
+echo '{{"type":"ready","protocolVersion":1,"supportedProtocolVersions":[1,2],"maxFrameBytes":1048576,"maxReassembledFrameBytes":67108864}}'
+while read -r line; do
+  case "$line" in
+    *'"type":"negotiate_protocol"'*)
+      echo '{{"type":"response","command":"negotiate_protocol","success":true,"id":"bisa-proto"}}'
+      ;;
+    *'"type":"get_state"'*)
+      echo '{{"type":"response","command":"get_state","success":true,"id":"bisa-state","data":{{"sessionId":"s-7","sessionFile":"{transcript}"}}}}'
+      ;;
+    *'"type":"prompt"'*)
+      echo '{{"type":"agent_start"}}'
+      echo '{{"type":"rpc_chunk","chunkId":"c-9","index":1,"count":2,"byteLength":4,"data":"YWI="}}'
+      echo '{{"type":"rpc_chunk","chunkId":"c-8","index":0,"count":2,"byteLength":4,"data":"YWI="}}'
+      echo '{{"type":"message_end","message":{{"role":"assistant","content":[{{"type":"text","text":"said"}}]}}}}'
+      echo '{{"type":"agent_end"}}'
+      ;;
+    *'"type":"steer"'*|*'"type":"follow_up"'*)
+      echo '{{"type":"response","command":"steer","success":true}}'
+      ;;
+  esac
+done
+"#,
+            usage = usage_fixture.display(),
+            transcript = dir.join("s-7.jsonl").display(),
+        ),
+    )
+}
+
+#[tokio::test]
+async fn omp_and_pi_revive_from_their_tokens_and_answer_for_themselves() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/usage/omp.json");
+    let omp_stub = pi_like_stub(dir.path(), "omp", &fixture);
+    let pi_stub = pi_like_stub(dir.path(), "pi", &fixture);
+    let omp = bisa_adapters::omp::OmpAdapter {
+        program: omp_stub.display().to_string(),
+        extra_args: vec!["--extra".into()],
+    };
+    let pi = bisa_adapters::pi_rpc::PiRpcAdapter {
+        program: pi_stub.display().to_string(),
+        extra_args: vec![],
+    };
+    for (adapter, stub, id) in [
+        (&omp as &dyn HarnessAdapter, &omp_stub, "omp"),
+        (&pi as &dyn HarnessAdapter, &pi_stub, "pi"),
+    ] {
+        let session = adapter
+            .launch(spec_with_env(dir.path(), "hello"))
+            .await
+            .unwrap();
+        let mut stream = session.subscribe();
+        let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+        assert!(has_text_delta(&events, "said"), "{id}: {events:?}");
+        assert!(ended_completed(&events), "{id}: {events:?}");
+        let seen = seen_by(stub);
+        assert_eq!(seen[1], "kept=yes", "{id}");
+        if id == "omp" {
+            assert!(seen[0].starts_with("--extra --mode rpc"), "{seen:?}");
+        }
+        assert_eq!(session.phase(), bisa_harness::Phase::Idle, "{id}");
+        assert_eq!(session.snapshot().phase, bisa_harness::Phase::Idle);
+        session.follow_up("then".into()).await.unwrap();
+        session.steer("left".into()).await.unwrap();
+        session.prompt("again".into()).await.unwrap();
+        session.abort().await.unwrap();
+
+        let ctx = reporting_ctx();
+        assert_ne!(
+            adapter.interactive_reporting(&ctx),
+            bisa_harness::ReportingPlan::default(),
+            "{id}: the pi family reports through its extension"
+        );
+        assert!(matches!(
+            adapter.translate_report(&serde_json::json!({"event": "session_start"}))[..],
+            [SessionEvent::Lifecycle(LifecycleEvent::Started)]
+        ));
+
+        let wrong = token_for("codex", "cx-1", dir.path(), None);
+        assert!(matches!(
+            adapter.attach(&wrong).await.err(),
+            Some(HarnessError::Protocol(_))
+        ));
+        let placeless = token_for(id, "s-7", dir.path(), None);
+        match adapter.attach(&placeless).await.err() {
+            Some(HarnessError::Protocol(why)) => {
+                assert!(why.contains("names no transcript"), "{why}")
+            }
+            other => panic!("{id}: {other:?}"),
+        }
+        let transcript = dir.path().join("s-7.jsonl");
+        let token = token_for(id, "s-7", dir.path(), Some(transcript.clone()));
+        let revived = adapter.attach(&token).await.unwrap();
+        assert_eq!(revived.phase(), bisa_harness::Phase::Idle, "{id}");
+        let seen = seen_until(stub, "--session").await;
+        assert!(
+            seen[0].contains(&format!("--session {}", transcript.display())),
+            "{id}: {seen:?}"
+        );
+        revived.dispose().await.unwrap();
+    }
+    match pi.usage().await {
+        bisa_harness::UsageState::Unsupported { reason } => {
+            assert!(reason.contains("pi"), "{reason}")
+        }
+        other => panic!("{other:?}"),
+    }
+    match omp.usage().await {
+        bisa_harness::UsageState::Report { report } => {
+            assert_eq!(report.harness, "omp");
+            assert!(
+                report
+                    .windows
+                    .iter()
+                    .any(|w| w.scope.as_deref() == Some("anthropic")),
+                "{report:?}"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    // An omp whose usage is no JSON, and one that exits on the question,
+    // are failed reads said by name.
+    let garbled = write_stub(dir.path(), "omp-garbled", "echo nope\n");
+    let silent = write_stub(dir.path(), "omp-silent", "exit 3\n");
+    for (program, word) in [(garbled, "not JSON"), (silent, "exited with 3")] {
+        let adapter = bisa_adapters::omp::OmpAdapter {
+            program: program.display().to_string(),
+            extra_args: vec![],
+        };
+        match adapter.usage().await {
+            bisa_harness::UsageState::Failed { reason } => {
+                assert!(reason.contains(word), "{reason}")
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+/// The codex stub: `app-server` answers the usage protocol, `exec` a run —
+/// a plain line, then the events the test asked for by its mode file.
+fn codex_stub(dir: &Path) -> PathBuf {
+    let account =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/usage/codex-account.json");
+    let limits =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/usage/codex-limits.json");
+    write_stub(
+        dir,
+        "codex",
+        &format!(
+            r#"
+if [ "$1" = "app-server" ]; then
+  while read -r line; do
+    case "$line" in
+      *'"method":"initialize"'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}' ;;
+      *'"method":"account/read"'*) printf '{{"jsonrpc":"2.0","id":2,"result":%s}}\n' "$(tr -d '\n' < '{account}')" ;;
+      *'"method":"account/rateLimits/read"'*) printf '{{"jsonrpc":"2.0","id":3,"result":%s}}\n' "$(tr -d '\n' < '{limits}')"; exit 0 ;;
+    esac
+  done
+  exit 0
+fi
+printf '%s\n' "$*" > "$0.seen"
+echo "kept=$BISA_TEST_KEPT" >> "$0.seen"
+mode="$(cat "$0.mode" 2>/dev/null || echo quick)"
+echo "plain words first"
+echo '{{"type":"thread.started","thread_id":"cx-3"}}'
+case "$mode" in
+  slow) sleep 30 ;;
+  wall) echo '{{"type":"turn.failed","error":{{"message":"usage limit reached"}}}}'; sleep 30 ;;
+  *) echo '{{"type":"turn.completed","usage":{{"input_tokens":1,"output_tokens":1}}}}' ;;
+esac
+exit 0
+"#,
+            account = account.display(),
+            limits = limits.display(),
+        ),
+    )
+}
+
+#[tokio::test]
+async fn codex_runs_one_process_a_turn_and_the_facade_answers_for_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = codex_stub(dir.path());
+    let adapter = bisa_adapters::codex::CodexAdapter {
+        program: stub.display().to_string(),
+    };
+    // A quick run: the environment reaches the process, the facade answers.
+    let session = adapter
+        .launch(spec_with_env(dir.path(), "list files"))
+        .await
+        .unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(ended_completed(&events), "{events:?}");
+    assert_eq!(seen_by(&stub)[1], "kept=yes");
+    assert_eq!(session.phase(), bisa_harness::Phase::Idle);
+    assert_eq!(session.snapshot().phase, bisa_harness::Phase::Idle);
+    assert!(matches!(
+        session.steer("x".into()).await,
+        Err(HarnessError::NotSupported("steer"))
+    ));
+    assert!(matches!(
+        session.follow_up("x".into()).await,
+        Err(HarnessError::NotSupported("follow_up"))
+    ));
+    session
+        .abort()
+        .await
+        .expect("an abort after the run is nothing to end");
+    let ctx = reporting_ctx();
+    assert_ne!(
+        adapter.interactive_reporting(&ctx),
+        bisa_harness::ReportingPlan::default()
+    );
+    assert!(matches!(
+        adapter.translate_report(
+            &serde_json::json!({"hook_event_name": "Stop", "session_id": "s", "turn_id": "t"})
+        )[..],
+        [SessionEvent::Progress(ProgressEvent::TurnEnded)]
+    ));
+    match adapter.usage().await {
+        bisa_harness::UsageState::Report { report } => {
+            let labels: Vec<&str> = report.windows.iter().map(|w| w.label.as_str()).collect();
+            assert_eq!(labels, ["5h", "Weekly"]);
+            assert_eq!(report.account.unwrap().plan.as_deref(), Some("pro"));
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // A run that goes on: a second prompt is refused busy, and an abort ends
+    // the run's process and the turn, not the session.
+    std::fs::write(format!("{}.mode", stub.display()), "slow").unwrap();
+    let session = adapter
+        .launch(spec(dir.path(), "take your time"))
+        .await
+        .unwrap();
+    assert!(matches!(
+        session.prompt("again".into()).await,
+        Err(HarnessError::Busy)
+    ));
+    let mut stream = session.subscribe();
+    session.abort().await.unwrap();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Aborted,
+                is_terminal: false
+            })
+        )),
+        "{events:?}"
+    );
+    assert_eq!(session.phase(), bisa_harness::Phase::Idle);
+    session.dispose().await.unwrap();
+
+    // A model wall mid-run ends the session; a prompt after it is refused.
+    std::fs::write(format!("{}.mode", stub.display()), "wall").unwrap();
+    let session = adapter
+        .launch(spec(dir.path(), "hit the wall"))
+        .await
+        .unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::ModelUnavailable { .. },
+                is_terminal: true
+            })
+        )),
+        "{events:?}"
+    );
+    assert!(matches!(
+        session.prompt("again".into()).await,
+        Err(HarnessError::Terminated)
+    ));
+
+    // Revived from its token: the next turn resumes the thread it names; a
+    // token of another adapter's is refused; an abort before any run ends nothing.
+    std::fs::write(format!("{}.mode", stub.display()), "quick").unwrap();
+    let token = token_for("codex", "cx-3", dir.path(), None);
+    let revived = adapter.attach(&token).await.unwrap();
+    assert_eq!(revived.phase(), bisa_harness::Phase::Idle);
+    revived
+        .abort()
+        .await
+        .expect("an abort before any run ends nothing");
+    let mut stream = revived.subscribe();
+    revived.prompt("go on".into()).await.unwrap();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(ended_completed(&events), "{events:?}");
+    assert!(
+        seen_by(&stub)[0].starts_with("exec resume cx-3 --json"),
+        "{:?}",
+        seen_by(&stub)
+    );
+    let wrong = token_for("opencode", "ses_1", dir.path(), None);
+    assert!(matches!(
+        adapter.attach(&wrong).await.err(),
+        Some(HarnessError::Protocol(_))
+    ));
+}
+
+#[tokio::test]
+async fn opencode_one_revives_by_its_session_and_the_facade_answers_for_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(
+        dir.path(),
+        "opencode",
+        r#"
+if [ "$1" = "--version" ]; then echo "1.18.23"; exit 0; fi
+printf '%s\n' "$*" > "$0.seen"
+echo "kept=$BISA_TEST_KEPT" >> "$0.seen"
+echo '{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"oc hello"}}'
+exit 0
+"#,
+    );
+    let adapter = bisa_adapters::opencode::OpencodeAdapter {
+        program: stub.display().to_string(),
+        ..Default::default()
+    };
+    let session = adapter
+        .launch(spec_with_env(dir.path(), "hi"))
+        .await
+        .unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(ended_completed(&events), "{events:?}");
+    assert_eq!(seen_by(&stub)[1], "kept=yes");
+    assert_eq!(session.phase(), bisa_harness::Phase::Idle);
+    assert_eq!(session.snapshot().phase, bisa_harness::Phase::Idle);
+    assert!(matches!(
+        session.steer("x".into()).await,
+        Err(HarnessError::NotSupported("steer"))
+    ));
+    assert!(matches!(
+        session.follow_up("x".into()).await,
+        Err(HarnessError::NotSupported("follow_up"))
+    ));
+    let mut stream = session.subscribe();
+    session.prompt("again".into()).await.unwrap();
+    assert!(ended_completed(
+        &collect_until_end(&mut stream, STUB_DEADLINE).await
+    ));
+    session.abort().await.unwrap();
+    // The wire is known now: the next launch asks no version.
+    let again = adapter.launch(spec(dir.path(), "")).await.unwrap();
+    again.dispose().await.unwrap();
+
+    let token = token_for("opencode", "ses_1", dir.path(), None);
+    let revived = adapter.attach(&token).await.unwrap();
+    assert_eq!(revived.phase(), bisa_harness::Phase::Idle);
+    let mut stream = revived.subscribe();
+    revived.prompt("go on".into()).await.unwrap();
+    assert!(ended_completed(
+        &collect_until_end(&mut stream, STUB_DEADLINE).await
+    ));
+    assert!(
+        seen_by(&stub)[0].contains("--session ses_1"),
+        "{:?}",
+        seen_by(&stub)
+    );
+    let wrong = token_for("codex", "cx-1", dir.path(), None);
+    assert!(matches!(
+        adapter.attach(&wrong).await.err(),
+        Some(HarnessError::Protocol(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_custom_harness_resumes_nothing_and_its_facade_answers_for_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(
+        dir.path(),
+        "my-agent",
+        r#"
+read -r _prompt
+echo '{"type":"started"}'
+echo '{"type":"ended","outcome":"completed"}'
+while read -r _l; do :; done
+"#,
+    );
+    let adapter =
+        bisa_adapters::custom_json::CustomJsonAdapter::new(bisa_harness::CustomHarnessSpec {
+            id: "my-agent".into(),
+            label: "My Agent".into(),
+            command: stub.display().to_string(),
+            args: vec![],
+            resume_args: vec![],
+            env: Default::default(),
+            install_hint: None,
+        });
+    let token = token_for("custom:my-agent", "x", dir.path(), None);
+    assert!(matches!(
+        adapter.attach(&token).await.err(),
+        Some(HarnessError::NotSupported("resume"))
+    ));
+    let session = adapter.launch(spec(dir.path(), "go")).await.unwrap();
+    let mut stream = session.subscribe();
+    collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert_eq!(session.snapshot().phase, session.phase());
+    assert!(matches!(
+        session.steer("x".into()).await,
+        Err(HarnessError::NotSupported("steer"))
+    ));
+    session.follow_up("then".into()).await.unwrap();
+    session.dispose().await.unwrap();
+}
+
+/// A pi session launched with nothing to say waits for its first prompt.
+#[tokio::test]
+async fn pi_launched_with_nothing_to_say_waits() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(dir.path(), "pi", "while read -r _l; do :; done\n");
+    let adapter = bisa_adapters::pi_rpc::PiRpcAdapter {
+        program: stub.display().to_string(),
+        extra_args: vec![],
+    };
+    let session = adapter.launch(spec(dir.path(), "")).await.unwrap();
+    assert_eq!(session.phase(), bisa_harness::Phase::Idle);
+    session.dispose().await.unwrap();
+}
+
+/// OpenCode 2 lists its models as its CLI prints them, each taking every
+/// level — the session says which it takes.
+#[tokio::test]
+async fn opencode_two_lists_its_models_with_every_level() {
+    use bisa_adapters::opencode::{OpencodeAdapter, Wire};
+    let dir = tempfile::tempdir().unwrap();
+    let stub = opencode_two_stub(dir.path());
+    let adapter = OpencodeAdapter {
+        program: stub.display().to_string(),
+        ..Default::default()
+    };
+    assert!(adapter.probe().await.available);
+    assert_eq!(adapter.wire_known(), Some(Wire::Acp));
+    let models = adapter.models().await;
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, ["anthropic/claude-sonnet-5", "openai/gpt-5"]);
+    assert!(models
+        .iter()
+        .all(|m| m.efforts == bisa_harness::Effort::ALL.to_vec()));
+}
+
+/// An omp that speaks only the first protocol version is never asked to
+/// negotiate the second: its ready frame passes through and the turn runs.
+#[tokio::test]
+async fn omp_on_the_first_protocol_version_is_not_asked_to_negotiate() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(
+        dir.path(),
+        "omp",
+        r#"
+echo '{"type":"ready","protocolVersion":1,"supportedProtocolVersions":[1]}'
+while read -r line; do
+  case "$line" in
+    *'"type":"negotiate_protocol"'*) echo '{"type":"response","command":"negotiate_protocol","success":false,"error":"unknown"}'; exit 9 ;;
+    *'"type":"get_state"'*)
+      echo '{"type":"response","command":"get_state","success":true,"id":"bisa-state","data":{"sessionId":"omp-v1"}}'
+      ;;
+    *'"type":"prompt"'*)
+      echo '{"type":"agent_start"}'
+      echo '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"v1 says hi"}]}}'
+      echo '{"type":"agent_end"}'
+      ;;
+  esac
+done
+"#,
+    );
+    let adapter = bisa_adapters::omp::OmpAdapter {
+        program: stub.display().to_string(),
+        extra_args: vec![],
+    };
+    let session = adapter.launch(spec(dir.path(), "hello")).await.unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(has_text_delta(&events, "v1 says hi"), "{events:?}");
+    assert!(ended_completed(&events), "{events:?}");
+    assert_eq!(session.resume_token().unwrap().native_id, "omp-v1");
+    session.dispose().await.unwrap();
 }

@@ -576,3 +576,215 @@ async fn a_timed_out_command_takes_what_it_started_with_it() {
         "the timed-out command's child went with its group"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The group handle on its own: what it answers with no process, with a
+// reaped one, and for a child that leaves on `SIGTERM` or ignores it.
+
+/// A group with no process hears no signal and is gone already; a leader
+/// reaped after an explicit end is nobody's to signal again.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_group_with_no_process_hears_nothing_and_a_reaped_one_neither() {
+    let none = bisa_harness::proc::ProcGroup::none();
+    assert!(!none.term());
+    assert!(!none.kill());
+    assert!(!none.alive());
+    assert!(none.wait_gone(Duration::from_millis(10)).await);
+    assert!(
+        !none.terminate(Duration::from_millis(10)).await,
+        "nothing was there to end"
+    );
+    assert!(none.gone_or_killed(Duration::from_millis(10)).await);
+    assert!(none.leave_or_terminate(Duration::from_millis(10)).await);
+
+    let mut proc = ProcHandle::spawn(ProcSpec::new("sleep").arg("300")).expect("spawn sleep");
+    let group = proc.group();
+    proc.kill().await.expect("killed and reaped");
+    assert!(!group.term(), "a reaped group is signalled no more");
+    assert!(!group.alive());
+}
+
+/// `terminate` on the group ends a child that leaves on `SIGTERM` within
+/// the grace and kills one that ignores it past the grace; `gone_or_killed`
+/// kills what stayed after the EOF it was given.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_groups_terminate_lets_a_child_leave_on_term_and_kills_one_that_ignores_it() {
+    let mut leaver = ProcHandle::spawn(
+        ProcSpec::new("sh")
+            .arg("-c")
+            .arg("echo $$; echo $$; exec sleep 300"),
+    )
+    .expect("spawn sh");
+    let (pid, _) = two_pids(&mut leaver).await;
+    let group = leaver.group();
+    let started = std::time::Instant::now();
+    assert!(
+        group.terminate(Duration::from_secs(4)).await,
+        "something was there"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "it left on the signal, well within the grace"
+    );
+    // Reaped by whoever holds the child — here the test — then gone for good.
+    leaver.wait().await.expect("reaped");
+    assert!(gone_within(pid, Duration::from_secs(2)).await);
+
+    let mut stayer = ProcHandle::spawn(
+        ProcSpec::new("sh")
+            .arg("-c")
+            .arg("trap '' TERM; echo $$; echo $$; exec sleep 300"),
+    )
+    .expect("spawn sh");
+    let (pid, _) = two_pids(&mut stayer).await;
+    let group = stayer.group();
+    let started = std::time::Instant::now();
+    assert!(group.terminate(Duration::from_millis(300)).await);
+    assert!(
+        started.elapsed() >= Duration::from_millis(300),
+        "the grace was given before the kill"
+    );
+    let status = tokio::time::timeout(Duration::from_secs(2), stayer.wait())
+        .await
+        .expect("reaped in time")
+        .expect("a status");
+    assert!(!status.success(), "killed past the grace: {status}");
+    assert!(gone_within(pid, Duration::from_secs(2)).await);
+
+    // Given its EOF and nothing more, a sleeper that never reads stdin
+    // stays, and is killed at the grace.
+    let mut deaf = ProcHandle::spawn(
+        ProcSpec::new("sh")
+            .arg("-c")
+            .arg("echo $$; echo $$; exec sleep 300"),
+    )
+    .expect("spawn sh");
+    let (pid, _) = two_pids(&mut deaf).await;
+    deaf.close_stdin().await.expect("stdin closed");
+    deaf.close_stdin()
+        .await
+        .expect("a stdin already closed is closed again quietly");
+    let group = deaf.group();
+    assert!(
+        !group.gone_or_killed(Duration::from_millis(300)).await,
+        "it did not leave on its own"
+    );
+    deaf.wait().await.expect("reaped");
+    assert!(gone_within(pid, Duration::from_secs(2)).await);
+
+    // The abort's way, for a child that ignores EOF but leaves on `SIGTERM`:
+    // not on its own terms, but within the first signal's half.
+    let mut polite = ProcHandle::spawn(
+        ProcSpec::new("sh")
+            .arg("-c")
+            .arg("echo $$; echo $$; exec sleep 300"),
+    )
+    .expect("spawn sh");
+    let (pid, _) = two_pids(&mut polite).await;
+    polite.close_stdin().await.expect("stdin closed");
+    let group = polite.group();
+    assert!(
+        !group.leave_or_terminate(Duration::from_secs(2)).await,
+        "it left on the signal, not on the EOF"
+    );
+    polite.wait().await.expect("reaped");
+    assert!(gone_within(pid, Duration::from_secs(2)).await);
+}
+
+// ---------------------------------------------------------------------------
+// The pump: what a child's output does at its edges.
+
+/// A program that is there but cannot be run is the disk's word, not
+/// *unavailable*: the harness is installed and something else is wrong.
+#[cfg(unix)]
+#[test]
+fn a_program_that_cannot_be_run_is_the_disks_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let not_executable = dir.path().join("harness");
+    std::fs::write(&not_executable, "#!/bin/sh\necho hi\n").unwrap();
+    let err = ProcHandle::spawn(ProcSpec::new(not_executable.display().to_string()))
+        .err()
+        .expect("must fail");
+    assert!(matches!(err, HarnessError::Io(_)), "{err:?}");
+    assert!(!err.is_unavailable());
+}
+
+/// An empty line of stdout is nothing said; a line longer than the limit
+/// is cut at it and the stream goes on; the stderr tail keeps the last
+/// sixty-four lines and no more.
+#[tokio::test]
+async fn the_pump_skips_empty_lines_cuts_the_overlong_and_keeps_a_bounded_stderr_tail() {
+    let mut proc = ProcHandle::spawn(ProcSpec::new("sh").arg("-c").arg(
+        "echo; echo word; head -c 17000000 /dev/zero | tr '\\0' a; echo; echo tail; \
+         i=0; while [ $i -lt 70 ]; do echo \"e$i\" >&2; i=$((i+1)); done",
+    ))
+    .expect("spawn sh");
+    match proc
+        .recv_timeout(Duration::from_secs(20))
+        .await
+        .expect("no timeout")
+    {
+        Some(Line::Text(t)) => assert_eq!(t, "word", "the empty line before it was skipped"),
+        other => panic!("{other:?}"),
+    }
+    match proc
+        .recv_timeout(Duration::from_secs(60))
+        .await
+        .expect("no timeout")
+    {
+        Some(Line::Text(t)) => assert_eq!(
+            t.len(),
+            bisa_harness::proc::MAX_LINE_BYTES,
+            "the line was held to the limit"
+        ),
+        other => panic!("{other:?}"),
+    }
+    match proc
+        .recv_timeout(Duration::from_secs(20))
+        .await
+        .expect("no timeout")
+    {
+        Some(Line::Text(t)) => assert_eq!(t, "tail", "and the stream went on"),
+        other => panic!("{other:?}"),
+    }
+    assert!(proc.wait().await.unwrap().success());
+    let until = tokio::time::Instant::now() + Duration::from_secs(5);
+    while proc.stderr_tail().len() < 64 && tokio::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let tail = proc.stderr_tail();
+    assert_eq!(tail.len(), 64, "the tail is bounded");
+    assert_eq!(tail.first().map(String::as_str), Some("e6"));
+    assert_eq!(tail.last().map(String::as_str), Some("e69"));
+}
+
+/// A handle let go of while its child still talks: the pump stops at the
+/// first line nobody reads, and the child goes with the handle.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_handle_let_go_of_stops_its_pump_at_the_first_unread_line() {
+    let mut proc =
+        ProcHandle::spawn(ProcSpec::new("sh").arg("-c").arg(
+            "echo $$; i=0; while [ $i -lt 3000 ]; do echo l$i; i=$((i+1)); done; exec sleep 300",
+        ))
+        .expect("spawn sh");
+    let pid = match proc
+        .recv_timeout(Duration::from_secs(10))
+        .await
+        .expect("no timeout")
+    {
+        Some(Line::Text(t)) => t.trim().parse::<u32>().expect("a pid"),
+        other => panic!("{other:?}"),
+    };
+    // The channel fills behind the one line read; the rest is never read.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    drop(proc);
+    assert!(
+        gone_within(pid, Duration::from_secs(3)).await,
+        "the child went with the handle"
+    );
+    // The pump's task ends on its own once the receiver is gone: nothing
+    // to assert on but the absence of a hang, which the test's end is.
+}

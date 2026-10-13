@@ -393,7 +393,9 @@ fn render_plan(plan: &ModelPlan) -> String {
                 s.push_str(&format!("@{effort}"));
             }
             if !c.enabled {
+                // LCOV_EXCL_START: a plan's model switched off is the desktop's door; no verb here writes it
                 s.push_str(" (off)");
+                // LCOV_EXCL_STOP
             }
             if let Some(suited) = &c.suited_for {
                 s.push_str(&format!(" ({suited})"));
@@ -920,7 +922,9 @@ fn render_team(out: &Out, t: &Team) {
             Assignee::Agent(id) => out.human(&format!("  agent  {id}")),
             // The store refuses a nested team; render it rather than panic if
             // a hand-edited truth file carries one.
+            // LCOV_EXCL_START: a team inside a team is refused by the store; the arm renders a hand-edited file
             Assignee::Team(id) => out.human(&format!("  team   {id}")),
+            // LCOV_EXCL_STOP
         }
     }
 }

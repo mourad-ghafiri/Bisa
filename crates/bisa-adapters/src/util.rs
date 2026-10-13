@@ -623,7 +623,7 @@ pub async fn drive_until<M, E>(
                         // Keep draining the outbound channel briefly? No —
                         // a terminal end means the run is over; kill and exit.
                         if let Err(e) = proc.kill().await {
-                            tracing::warn!("the harness child did not end on request: {e}");
+                            tracing::warn!("the harness child did not end on request: {e}"); // LCOV_EXCL_LINE: a kill the kernel refuses on a child of ours; nothing says why
                         }
                         return;
                     }
@@ -637,7 +637,7 @@ pub async fn drive_until<M, E>(
                             Ok(s) if s.success() => {
                                 let outcome = match on_clean_exit.take() {
                                     Some(means) => means(&proc.stderr_tail()),
-                                    None => Outcome::Completed,
+                                    None => Outcome::Completed, // LCOV_EXCL_LINE: the exit is read once per driver; the arm keeps the match total
                                 };
                                 shared.end(outcome);
                             }
@@ -650,7 +650,7 @@ pub async fn drive_until<M, E>(
                                     format!("process exited with {s}; stderr tail: {tail}")
                                 });
                             }
-                            Err(e) => shared.end(Outcome::Failed { error: e.to_string() }),
+                            Err(e) => shared.end(Outcome::Failed { error: e.to_string() }), // LCOV_EXCL_LINE: a wait the kernel refuses on a child of ours; nothing says why
                         }
                     }
                     return;
@@ -675,12 +675,12 @@ pub async fn drive_until<M, E>(
                 Some(OutMsg::CloseStdin) => {
                     // A stdin already gone is a child already leaving.
                     if let Err(e) = proc.close_stdin().await {
-                        tracing::debug!("closing the harness's stdin: {e}");
+                        tracing::debug!("closing the harness's stdin: {e}"); // LCOV_EXCL_LINE: a pipe that refuses its close; the kernel's word, which no child of a test says
                     }
                 }
                 Some(OutMsg::Kill) => {
                     if let Err(e) = proc.kill().await {
-                        tracing::warn!("the harness child did not end on request: {e}");
+                        tracing::warn!("the harness child did not end on request: {e}"); // LCOV_EXCL_LINE: a kill the kernel refuses on a child of ours; nothing says why
                     }
                     shared.end(Outcome::Aborted);
                     return;
@@ -694,7 +694,7 @@ pub async fn drive_until<M, E>(
                         .terminate(bisa_harness::proc::DISPOSE_GRACE)
                         .await
                     {
-                        tracing::warn!("the harness child did not end on request: {e}");
+                        tracing::warn!("the harness child did not end on request: {e}"); // LCOV_EXCL_LINE: a wait the kernel refuses on a child of ours; nothing says why
                     }
                     if !shared.is_ended() {
                         shared.end(Outcome::Aborted);
@@ -1660,5 +1660,155 @@ mod resume_tests {
         assert_eq!(parse_semver("v2"), None);
         assert_eq!(parse_semver("2.0"), None);
         assert_eq!(parse_semver("build 7 of 2.0.1"), Some((2, 0, 1)));
+    }
+}
+
+#[cfg(test)]
+mod handle_tests {
+    use super::*;
+    use futures::StreamExt as _;
+
+    fn facade() -> (Shared, mpsc::Receiver<OutMsg>) {
+        let (out_tx, out_rx) = mpsc::channel(8);
+        (
+            Shared::new(out_tx, "test-harness", None, "/work/here"),
+            out_rx,
+        )
+    }
+
+    /// A driver's handle made from a driver's handle is still a driver's;
+    /// once every facade is gone it can queue nothing and send nothing, and
+    /// says so. A session with no process has no group to end. A session
+    /// ended twice is ended once.
+    #[tokio::test]
+    async fn a_drivers_handle_outlives_no_facade_and_an_end_is_said_once() {
+        let (shared, _out_rx) = facade();
+        let driver = shared.for_driver().for_driver();
+        assert!(
+            driver.try_send(OutMsg::CloseStdin).is_ok(),
+            "the facade still holds the channel"
+        );
+        drop(shared);
+        assert!(matches!(
+            driver.try_send(OutMsg::CloseStdin),
+            Err(mpsc::error::TrySendError::Closed(_))
+        ));
+        assert!(matches!(
+            driver.send(OutMsg::CloseStdin).await,
+            Err(HarnessError::Terminated)
+        ));
+        assert!(
+            !driver.terminate_group(Duration::from_millis(10)).await,
+            "no process, nothing to end"
+        );
+
+        let (shared, _out_rx) = facade();
+        let mut stream = shared.broadcaster.subscribe();
+        shared.end(Outcome::Completed);
+        shared.end(Outcome::Failed {
+            error: "again".into(),
+        });
+        assert!(shared.is_ended());
+        let first = stream.next().await;
+        assert!(matches!(
+            first,
+            Some(SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Completed,
+                is_terminal: true
+            }))
+        ));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), stream.next())
+                .await
+                .is_err(),
+            "the second end was not said"
+        );
+    }
+
+    /// A summary is cut on a character, never inside one; a version with a
+    /// number too big to be one is no version; a pattern is its fragments
+    /// and its reason; an excerpt is held to its length.
+    #[test]
+    fn the_small_words_hold_at_their_edges() {
+        let accented = "é".repeat(10);
+        let cut = summarize_args(&serde_json::Value::String(accented), 7);
+        assert_eq!(
+            cut, "ééé…",
+            "seven bytes is three characters and the ellipsis"
+        );
+        assert_eq!(parse_semver("99999999999999999999.1.2"), None);
+        let one = p(&["usage limit"], "the plan's limit");
+        assert_eq!(one.all_of, ["usage limit"]);
+        assert!(one.none_of.is_empty());
+        assert_eq!(one.reason, "the plan's limit");
+        let not = p_not(&["rate limit"], &["github"], "rate limited");
+        assert_eq!(not.none_of, ["github"]);
+        let long = format!("start {} end", "x".repeat(200));
+        let kept = excerpt(&long, "start");
+        assert!(kept.ends_with('…'), "{kept}");
+        assert_eq!(kept.chars().count(), 161);
+    }
+
+    /// The driver's own ends: a line that cannot be written once the stdin
+    /// was closed ends the session failed and says so; a kill queued by a
+    /// facade ends it aborted and the child with it.
+    #[tokio::test]
+    async fn the_driver_ends_on_a_line_it_cannot_write_and_on_a_kill() {
+        let spawn = || {
+            let mut spec = bisa_harness::proc::ProcSpec::new("sh");
+            spec.args = vec!["-c".into(), "sleep 30".into()];
+            bisa_harness::proc::ProcHandle::spawn(spec).unwrap()
+        };
+        let proc = spawn();
+        let (out_tx, out_rx) = mpsc::channel(8);
+        let shared =
+            Shared::new(out_tx, "test-harness", None, std::env::temp_dir()).in_group(proc.group());
+        let task = tokio::spawn(drive(proc, out_rx, shared.for_driver(), |_, _| {
+            Drive::Continue
+        }));
+        let mut stream = shared.broadcaster.subscribe();
+        shared
+            .send(OutMsg::Line("in time".into()))
+            .await
+            .expect("a line while the stdin is open is written");
+        shared.send(OutMsg::CloseStdin).await.unwrap();
+        shared.send(OutMsg::Line("too late".into())).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(20), task)
+            .await
+            .expect("the driver ends")
+            .unwrap();
+        let ended = loop {
+            match stream.next().await {
+                Some(SessionEvent::Lifecycle(LifecycleEvent::Ended { outcome, .. })) => {
+                    break outcome
+                }
+                Some(_) => continue,
+                None => panic!("no end"),
+            }
+        };
+        assert!(
+            matches!(&ended, Outcome::Failed { error } if error.contains("stdin write failed")),
+            "{ended:?}"
+        );
+        // The handle's drop kills the child; tokio reaps it on its own clock.
+        assert!(
+            shared.group.wait_gone(Duration::from_secs(5)).await,
+            "the child went with the driver"
+        );
+
+        let proc = spawn();
+        let (out_tx, out_rx) = mpsc::channel(8);
+        let shared =
+            Shared::new(out_tx, "test-harness", None, std::env::temp_dir()).in_group(proc.group());
+        let task = tokio::spawn(drive(proc, out_rx, shared.for_driver(), |_, _| {
+            Drive::Continue
+        }));
+        shared.try_send(OutMsg::Kill).unwrap();
+        tokio::time::timeout(Duration::from_secs(20), task)
+            .await
+            .expect("the driver ends")
+            .unwrap();
+        assert_eq!(shared.phase(), Phase::Ended);
+        assert!(!shared.group.alive());
     }
 }

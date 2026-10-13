@@ -465,6 +465,32 @@ impl From<String> for Steer {
 }
 
 #[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    /// An attachment is an image by its media type alone; a prompt made from
+    /// an owned string carries the text and nothing beside it.
+    #[test]
+    fn an_image_is_known_by_its_media_type_and_a_string_is_a_bare_prompt() {
+        let png = Attachment {
+            name: "shot.png".into(),
+            mime: "image/png".into(),
+            path: "/ws/files/shot.png".into(),
+        };
+        let pdf = Attachment {
+            name: "spec.pdf".into(),
+            mime: "application/pdf".into(),
+            path: "/ws/files/spec.pdf".into(),
+        };
+        assert!(png.is_image());
+        assert!(!pdf.is_image());
+        let prompt = PromptInput::from(String::from("go"));
+        assert_eq!(prompt.text, "go");
+        assert!(prompt.attachments.is_empty());
+    }
+}
+
+#[cfg(test)]
 mod model_plan_tests {
     use super::*;
     use std::collections::HashMap;

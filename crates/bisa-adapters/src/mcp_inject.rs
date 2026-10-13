@@ -203,6 +203,7 @@ mod tests {
         );
         assert_eq!(toml_string("C:\\path"), "\"C:\\\\path\"");
         assert_eq!(toml_string("two\nlines"), "\"two\\nlines\"");
+        assert_eq!(toml_string("a\rb\tc"), "\"a\\rb\\tc\"");
         assert_eq!(toml_string("bell\u{7}"), "\"bell\\u0007\"");
         assert_eq!(toml_key("BISA_LOG_DIR"), "BISA_LOG_DIR");
         assert_eq!(toml_key("odd key"), "\"odd key\"");

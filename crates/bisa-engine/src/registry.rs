@@ -368,4 +368,45 @@ mod tests {
             Err(RegistryError::Aborted(_))
         ));
     }
+
+    // added by the coverage pass: registry.rs
+
+    /// A vacant entry takes no expectation; an abort repeats quietly; a
+    /// tombstone already there stands, and one that cannot be written is a
+    /// line in the log while the abort stands too.
+    #[test]
+    fn a_vacant_entry_takes_no_expectation_and_an_abort_stands_whatever_the_tombstone_did() {
+        let reg = AgentRegistry::new();
+        let id = new_id();
+        assert_eq!(
+            reg.register_if(aref(id), Some(&aref(id))),
+            Err(RegistryError::CasFailed),
+            "nothing to replace"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("t.jsonl");
+        std::fs::write(&transcript, "x").unwrap();
+        let mut a = aref(id);
+        a.transcript_path = Some(transcript.clone());
+        reg.register_if(a, None).unwrap();
+        // The tombstone was written by somebody else first.
+        std::fs::write(tombstone_path(&transcript), "").unwrap();
+        reg.abort(id).unwrap();
+        assert_eq!(reg.get(id).unwrap().status, AgentStatus::Aborted);
+        let generation = reg.get(id).unwrap().generation;
+        reg.abort(id).unwrap();
+        assert_eq!(
+            reg.get(id).unwrap().generation,
+            generation,
+            "an abort of the aborted moves nothing"
+        );
+        // A transcript whose folder is gone: the tombstone cannot be written,
+        // the abort stands.
+        let orphan = new_id();
+        let mut b = aref(orphan);
+        b.transcript_path = Some(dir.path().join("gone").join("t.jsonl"));
+        reg.register_if(b, None).unwrap();
+        reg.abort(orphan).unwrap();
+        assert_eq!(reg.get(orphan).unwrap().status, AgentStatus::Aborted);
+    }
 }

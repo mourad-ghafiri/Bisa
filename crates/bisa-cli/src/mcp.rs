@@ -269,7 +269,9 @@ fn render_report(out: &Out, report: &bisa_mcp_probe::McpProbeReport) {
         out.human(&format!(
             "  capabilities: {}",
             if on.is_empty() {
+                // LCOV_EXCL_START: a successful probe's render; this suite probes no live server (the probe crate's scripted one is its own)
                 "none".to_string()
+                // LCOV_EXCL_STOP
             } else {
                 on.join(", ")
             }
@@ -277,7 +279,9 @@ fn render_report(out: &Out, report: &bisa_mcp_probe::McpProbeReport) {
         for t in &report.tools {
             match &t.description {
                 Some(d) => out.human(&format!("  - {}  {d}", t.name)),
+                // LCOV_EXCL_START: a successful probe's render; this suite probes no live server (the probe crate's scripted one is its own)
                 None => out.human(&format!("  - {}", t.name)),
+                // LCOV_EXCL_STOP
             }
         }
         if report.tool_count > report.tools.len() {

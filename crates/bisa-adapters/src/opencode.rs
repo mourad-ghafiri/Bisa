@@ -430,9 +430,11 @@ impl HarnessAdapter for OpencodeAdapter {
 
     /// The account's windows through OpenCode's own Claude Pro/Max sign-in —
     /// the same provider endpoint Claude Code reads, with OpenCode's token.
+    // LCOV_EXCL_START: the door to the person's own sign-in; the reader's parse is proved on its own
     async fn usage(&self) -> bisa_harness::UsageState {
         crate::usage::opencode::read(&self.http, self.id()).await
     }
+    // LCOV_EXCL_STOP
 
     /// `opencode models` prints one provider-qualified id per line — on both
     /// wires. The efforts beside each are its provider's variants on the
@@ -628,6 +630,28 @@ mod tests {
         assert!(
             matches!(&events[0], SessionEvent::Progress(ProgressEvent::TextDelta { text }) if text == "Hello.")
         );
+    }
+
+    /// A step that names its model with no provider says the bare id; and
+    /// the adapter's own reporter translation is the bus's.
+    #[tokio::test]
+    async fn a_step_naming_a_model_with_no_provider_says_the_bare_id() {
+        let (s, mut stream) = shared();
+        let line = json!({"type": "step_finish", "sessionID": "ses_abc", "part": {"type": "step-finish", "modelID": "m-1", "tokens": {"input": 3, "output": 2}}});
+        assert!(matches!(map_line(&s, line), Drive::Continue));
+        let events = drain(&mut stream, 1).await;
+        assert!(
+            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ModelChanged { model }) if model == "m-1"),
+            "{events:?}"
+        );
+        let said = OpencodeAdapter::default()
+            .translate_report(&json!({"type": "server.connected", "properties": {}}));
+        assert!(matches!(
+            &said[..],
+            [SessionEvent::Lifecycle(
+                bisa_harness::LifecycleEvent::Started
+            )]
+        ));
     }
 
     #[tokio::test]

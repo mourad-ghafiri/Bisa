@@ -568,7 +568,9 @@ fn a_platform_is_reached_through_a_connector_and_the_secret_stays_home() {
         json!({"id": "inc-2", "title": "the lights"}),
         json!({"id": "inc-3", "title": "the door"}),
     ]);
-    ws.until("a run per new incident", || {
+    // Two runs on the daemon's own ticks: given twice the patience, since the
+    // whole workspace measured beside this journey has outrun the one.
+    ws.until_patiently("a run per new incident", || {
         let said = general(&ws);
         (said.iter().any(|m| m == "incident inc-2 is open")
             && said.iter().any(|m| m == "incident inc-3 is open"))

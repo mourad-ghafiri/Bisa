@@ -108,7 +108,7 @@ impl OneShotSession {
                             if let Drive::End(outcome) = (map)(&shared, v) {
                                 shared.end(outcome);
                                 if let Err(e) = proc.kill().await {
-                                    tracing::warn!("the harness child did not end on request: {e}");
+                                    tracing::warn!("the harness child did not end on request: {e}"); // LCOV_EXCL_LINE: a kill the kernel refuses on a child of ours; nothing says why
                                 }
                                 return;
                             }
@@ -130,7 +130,7 @@ impl OneShotSession {
                                         ),
                                     })
                                 }
-                                Err(e) => Outcome::Failed { error: e.to_string() },
+                                Err(e) => Outcome::Failed { error: e.to_string() }, // LCOV_EXCL_LINE: a wait the kernel refuses on a child of ours; nothing says why
                             };
                             shared.broadcaster.emit(SessionEvent::Progress(ProgressEvent::TurnEnded));
                             shared.set_phase(Phase::Idle);
@@ -145,7 +145,7 @@ impl OneShotSession {
                         // The run's whole group — the CLI and what its tools
                         // ran — told to leave, and killed past the grace.
                         if let Err(e) = proc.terminate(bisa_harness::proc::ABORT_GRACE).await {
-                            tracing::warn!("the harness child did not end on request: {e}");
+                            tracing::warn!("the harness child did not end on request: {e}"); // LCOV_EXCL_LINE: a wait the kernel refuses on a child of ours; nothing says why
                         }
                         shared.set_phase(Phase::Idle);
                         shared.broadcaster.emit(SessionEvent::Lifecycle(LifecycleEvent::Ended {

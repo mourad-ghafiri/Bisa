@@ -16,7 +16,7 @@ never calls a tool and never keeps a connection.
 | `rmcp_probe.rs` | `RmcpProbe` — `rmcp`'s client over stdio (`TokioChildProcess`, the child's stderr kept as a bounded tail for a spawn failure) and Streamable HTTP (`StreamableHttpClientTransport` with the entry's headers), `ClientLifecycleMode::Auto` (discover first, `initialize` as the fallback), then `ping` in the handshake era, `tools/list` and the counts of what is advertised, then goodbye |
 | `sse.rs` | the 2024-11-05 HTTP+SSE transport, ours: GET the stream, the `endpoint` event, POST each message, the answers read off the stream — through `bisa_http::SseFrames`, the platform's one SSE reader (decoded once per complete frame, capped), `resolve_endpoint` |
 | `sanitize.rs` | what an error may carry out: every header and environment value replaced, a URL's userinfo removed |
-| `fake.rs` | `FakeProbe` (`--features fake`): canned reports, and every transport it was asked about |
+| `fake.rs` | `FakeProbe` (`--features fake`): canned reports, every transport it was asked about, and `delayed(duration)` — every answer that late, for a test of two asks at once or an ask dropped mid-probe |
 
 ---
 

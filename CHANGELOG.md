@@ -21,6 +21,10 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A remote A2A agent's session answered a question or a sign-in by whatever request id it was
+  handed: an answer to a request that was not the one waiting took the waiting one with it, and
+  the right answer that followed was refused as *no input request is waiting*. The request
+  waiting is taken by its own id only (`crates/bisa-adapters/src/a2a.rs`).
 - A harness whose installer puts its folder on the `PATH` in the interactive shell's file
   (OpenCode's `~/.opencode/bin` in `.zshrc`) read as *not installed* in the bundled app while
   it answered in every terminal: the desktop now asks an interactive login shell for its `PATH`,

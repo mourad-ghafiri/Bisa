@@ -126,7 +126,7 @@ pub fn materialize(
                     tracing::warn!(
                         "skill {id:?}: {} exists with different content — \
                          leaving it, delivering via prompt",
-                        path.display()
+                        path.display() // LCOV_EXCL_LINE: a tracing event's field, evaluated under a subscriber only
                     );
                 }
                 Err(_) => {
@@ -245,6 +245,85 @@ mod tests {
             "{appendix}"
         );
         assert!(!dir.path().join(".claude").exists());
+    }
+
+    /// A skill id becomes a directory name: anything that is no word
+    /// character is a dash, and an id of nothing but dashes is *skill*.
+    #[test]
+    fn a_skill_id_is_tamed_into_a_directory_name() {
+        assert_eq!(safe_id("release checklist/v2"), "release-checklist-v2");
+        assert_eq!(safe_id("release_checklist-2"), "release_checklist-2");
+        assert_eq!(safe_id("///"), "skill");
+        assert_eq!(safe_id(""), "skill");
+    }
+
+    /// The description is one quoted YAML scalar whatever it carries: a
+    /// quote and a backslash escaped, a line break flattened to a space.
+    #[test]
+    fn a_description_is_one_quoted_scalar_whatever_it_carries() {
+        assert_eq!(
+            yaml_string("say \"hi\" C:\\\\x\nnext\ttab\r"),
+            "\"say \\\"hi\\\" C:\\\\\\\\x next tab \""
+        );
+        let dir = tempfile::tempdir().unwrap();
+        materialize(
+            &[skill("quoted", "say \"hi\"\nand more")],
+            dir.path(),
+            "claude-code",
+        );
+        let written =
+            std::fs::read_to_string(dir.path().join(".claude/skills/quoted/SKILL.md")).unwrap();
+        assert!(
+            written
+                .lines()
+                .any(|l| l == r#"description: "say \"hi\" and more""#),
+            "{written}"
+        );
+    }
+
+    /// A file of the person's own under the skill's name is left alone and
+    /// the skill rides the prompt; a path that cannot be written — a file
+    /// where the skills directory should be — does the same.
+    #[test]
+    fn the_persons_own_file_wins_and_an_unwritable_path_rides_the_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let theirs = dir.path().join(".claude/skills/release-checklist");
+        std::fs::create_dir_all(&theirs).unwrap();
+        std::fs::write(theirs.join("SKILL.md"), "# mine\n").unwrap();
+        let inj = materialize(
+            &[skill(
+                "release-checklist",
+                "Use this when cutting a release.",
+            )],
+            dir.path(),
+            "claude-code",
+        );
+        let appendix = inj.prompt_appendix.expect("delivered via the prompt");
+        assert!(
+            appendix.contains("## Skill: Workstream workflow"),
+            "{appendix}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(theirs.join("SKILL.md")).unwrap(),
+            "# mine\n",
+            "the person's copy stands"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        std::fs::write(dir.path().join(".claude/skills"), "not a directory").unwrap();
+        let inj = materialize(
+            &[skill(
+                "release-checklist",
+                "Use this when cutting a release.",
+            )],
+            dir.path(),
+            "claude-code",
+        );
+        assert!(
+            inj.prompt_appendix.is_some(),
+            "nothing could be written, so the prompt carries it"
+        );
     }
 
     #[test]

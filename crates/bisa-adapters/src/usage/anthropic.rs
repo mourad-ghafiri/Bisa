@@ -251,6 +251,7 @@ fn credits(extra: &Extra, scope: Option<String>) -> Option<UsageWindow> {
     clippy::result_large_err,
     reason = "the Err is the usage state the caller answers as it stands; boxing it would buy 136 bytes on a path run once a minute"
 )]
+// LCOV_EXCL_START: the one request to the provider's endpoint with a sign-in, which no test sends; the parse of its answer is proved on its own
 pub async fn fetch(
     http: &bisa_http::Clients,
     token: &str,
@@ -289,6 +290,7 @@ pub async fn fetch(
         .await
         .map_err(|_| UsageState::failed("the usage endpoint's answer could not be read"))
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {

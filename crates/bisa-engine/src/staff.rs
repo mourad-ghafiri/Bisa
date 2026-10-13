@@ -671,4 +671,28 @@ mod tests {
             .render()
             .starts_with("STAFF — installed and enabled here; name one on every agent step"));
     }
+
+    // added by the coverage pass: staff.rs
+
+    /// A team of people alone reads "no enabled agents" and counts its
+    /// people, one or several; a person is never held by the roster.
+    #[test]
+    fn a_team_of_people_reads_its_count_and_a_person_is_nobodys_staff() {
+        let one = PrincipalId::new("cd".repeat(32)).unwrap();
+        let two = PrincipalId::new("ef".repeat(32)).unwrap();
+        let mut lonely = team("support", &[], true);
+        lonely.members = vec![Assignee::Human(one.clone())];
+        let mut crowded = team("board", &["developer"], true);
+        crowded
+            .members
+            .extend([Assignee::Human(one.clone()), Assignee::Human(two)]);
+        let roster = StaffRoster::from_parts(&[agent("developer", true)], &[lonely, crowded]);
+        let text = roster.render();
+        assert!(text.contains("[members: developer; 2 persons]"), "{text}");
+        assert!(
+            text.contains("[members: no enabled agents; 1 person]"),
+            "{text}"
+        );
+        assert!(!roster.holds(&Assignee::Human(one)));
+    }
 }

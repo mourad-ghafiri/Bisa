@@ -95,7 +95,9 @@ fn body(file: Option<PathBuf>, markdown: Option<String>) -> Result<Option<String
         (None, Some(text)) => Ok(Some(text)),
         (None, None) => Ok(None),
         // clap already refuses both; this arm keeps the function total.
+        // LCOV_EXCL_START: clap refuses both flags; the arm keeps the match total
         (Some(_), Some(_)) => bail!(bisa_core::text!("cli-skills-pass-file-markdown-not-both")),
+        // LCOV_EXCL_STOP
     }
 }
 

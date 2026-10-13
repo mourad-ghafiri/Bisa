@@ -683,8 +683,24 @@ impl Sealed {
 
     /// Ask until `probe` answers, or fail saying what was waited for and
     /// what the daemon and the agent had said by then.
-    pub fn until<T>(&self, what: &str, mut probe: impl FnMut() -> Option<T>) -> T {
-        let deadline = Instant::now() + PATIENCE;
+    pub fn until<T>(&self, what: &str, probe: impl FnMut() -> Option<T>) -> T {
+        self.until_within(what, PATIENCE, probe)
+    }
+
+    /// [`Self::until`], with twice the patience: for what takes the daemon
+    /// several of its own ticks and a run or two — a wait the whole
+    /// instrumented workspace running beside it has outrun once.
+    pub fn until_patiently<T>(&self, what: &str, probe: impl FnMut() -> Option<T>) -> T {
+        self.until_within(what, PATIENCE * 2, probe)
+    }
+
+    fn until_within<T>(
+        &self,
+        what: &str,
+        patience: Duration,
+        mut probe: impl FnMut() -> Option<T>,
+    ) -> T {
+        let deadline = Instant::now() + patience;
         loop {
             if let Some(found) = probe() {
                 return found;

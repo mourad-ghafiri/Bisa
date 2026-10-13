@@ -191,6 +191,29 @@ pub(crate) fn hook_subagent_ended(payload: &Value, ok: bool) -> Option<ProgressE
 mod tests {
     use super::*;
 
+    /// A sub-agent asked with a structured prompt is described by the
+    /// prompt's summary, as a tool's arguments are.
+    #[test]
+    fn a_sub_agent_asked_with_a_structured_prompt_is_described_by_its_summary() {
+        let started = hook_subagent_started(&serde_json::json!({
+            "agent_id": "a1", "agent_type": "explorer",
+            "subagent_input": {"prompt": {"task": "look around"}}
+        }))
+        .expect("an id names a sub-agent");
+        match started {
+            ProgressEvent::SubagentStarted {
+                id,
+                name,
+                description,
+            } => {
+                assert_eq!(id, SubagentId("a1".into()));
+                assert_eq!(name, "explorer");
+                assert!(description.contains("look around"), "{description}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn an_unknown_harness_reports_nothing() {
         assert!(translate(

@@ -342,6 +342,30 @@ impl SessionEvent {
 mod tests {
     use super::*;
 
+    /// A sub-agent's id prints as itself, and an event says the sub-agent it
+    /// was raised in: a nested progress event's, an input request's, and
+    /// nobody's for the rest.
+    #[test]
+    fn an_event_says_the_sub_agent_it_was_raised_in() {
+        let sub = SubagentId("task-7".into());
+        assert_eq!(sub.to_string(), "task-7");
+        let nested =
+            SessionEvent::Progress(ProgressEvent::TurnStarted.raised_by(Some(sub.clone())));
+        assert_eq!(nested.parent(), Some(&sub));
+        let asked = SessionEvent::Lifecycle(LifecycleEvent::InputRequested {
+            request: InputRequest::question("q1", "which?", vec![]).raised_by(Some(sub.clone())),
+        });
+        assert_eq!(asked.parent(), Some(&sub));
+        assert_eq!(
+            SessionEvent::Progress(ProgressEvent::TurnEnded).parent(),
+            None
+        );
+        assert_eq!(
+            SessionEvent::Lifecycle(LifecycleEvent::Started).parent(),
+            None
+        );
+    }
+
     #[test]
     fn an_input_request_flattens_its_kind_on_the_wire() {
         let req = InputRequest::permission(

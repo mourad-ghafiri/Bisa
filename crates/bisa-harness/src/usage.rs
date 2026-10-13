@@ -225,6 +225,17 @@ mod tests {
         }
     }
 
+    /// A window of no length is *Now*; a clock that is no clock — four
+    /// parts, a 25th hour — is no time; and the clock here reads after the
+    /// epoch.
+    #[test]
+    fn a_window_of_no_length_is_now_and_a_broken_clock_is_no_time() {
+        assert_eq!(window_label(0), "Now");
+        assert_eq!(iso_to_unix("2026-09-07T10:00:00:00Z"), None);
+        assert_eq!(iso_to_unix("2026-09-07T25:00:00Z"), None);
+        assert!(now_secs() > 1_700_000_000);
+    }
+
     #[test]
     fn a_window_length_has_its_word() {
         assert_eq!(window_label(5 * 3_600), "5h");

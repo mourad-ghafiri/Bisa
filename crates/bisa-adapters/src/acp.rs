@@ -2365,3 +2365,361 @@ mod effort_tests {
         assert_eq!(minted.native_id, "sess-1");
     }
 }
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+    use futures::{FutureExt as _, StreamExt as _};
+    use serde_json::json;
+
+    fn shared_on(out_tx: mpsc::Sender<OutMsg>, model: Option<&str>) -> Shared {
+        Shared::new(out_tx, "acp:test", model.map(str::to_string), "/work/here")
+    }
+
+    fn state_on(model: Option<&str>, prompt: Option<&str>) -> AcpState {
+        AcpState {
+            beginning: Arc::new(std::sync::Mutex::new(Beginning {
+                exists: false,
+                first: prompt.map(|p| (ID_FIRST_PROMPT, p.to_string())),
+            })),
+            model: model.map(str::to_string),
+            effort: None,
+            options: serde_json::Value::Null,
+            load_session: None,
+            replaying: false,
+            cwd: "/work/here".into(),
+            mcp_servers: json!([]),
+            prompt_ids: Arc::default(),
+            pending: Arc::default(),
+            tools: HashMap::new(),
+        }
+    }
+
+    /// A queue of one, already full: the agent stopped reading its input.
+    fn full() -> (mpsc::Sender<OutMsg>, mpsc::Receiver<OutMsg>) {
+        let (out_tx, out_rx) = mpsc::channel(1);
+        out_tx
+            .try_send(OutMsg::Json(json!({ "jsonrpc": "2.0", "method": "noop" })))
+            .unwrap();
+        (out_tx, out_rx)
+    }
+
+    fn heard_on(shared: &Shared, stream: &mut BoxEventStream) -> Vec<SessionEvent> {
+        let _ = shared;
+        let mut events = Vec::new();
+        while let Some(Some(event)) = stream.next().now_or_never() {
+            events.push(event);
+        }
+        events
+    }
+
+    /// The servers a session is told of, the protocol's way: a stdio entry
+    /// with its pairs — a directory it cannot carry dropped — and a remote
+    /// entry by its kind.
+    #[test]
+    fn the_servers_are_told_the_protocols_way_and_a_directory_is_dropped() {
+        let list = mcp_servers_json(
+            "acp:test",
+            &[
+                McpMount::platform(McpServerConfig::Stdio {
+                    name: "bisa".into(),
+                    command: "/bin/bisa".into(),
+                    args: vec!["mcp".into()],
+                    env: std::collections::BTreeMap::from([("K".to_string(), "v".to_string())]),
+                    cwd: Some("/elsewhere".into()),
+                }),
+                McpMount::platform(McpServerConfig::Http {
+                    name: "docs".into(),
+                    url: "https://mcp.example.com/".into(),
+                    headers: Default::default(),
+                }),
+                McpMount::platform(McpServerConfig::Sse {
+                    name: "feed".into(),
+                    url: "https://sse.example.com/".into(),
+                    headers: Default::default(),
+                }),
+            ],
+        );
+        assert_eq!(
+            list,
+            json!([
+                {"name": "bisa", "command": "/bin/bisa", "args": ["mcp"], "env": [{"name": "K", "value": "v"}]},
+                {"type": "http", "name": "docs", "url": "https://mcp.example.com/", "headers": []},
+                {"type": "sse", "name": "feed", "url": "https://sse.example.com/", "headers": []}
+            ])
+        );
+    }
+
+    /// A handshake the agent refuses is the launch's failure: a model wall
+    /// in its words walks the plan, anything else is said as the handshake's.
+    #[test]
+    fn a_refused_handshake_is_the_launchs_failure() {
+        let (out_tx, _out_rx) = mpsc::channel(8);
+        let shared = shared_on(out_tx, None);
+        let mut state = state_on(None, None);
+        assert!(matches!(
+            map_acp(
+                &shared,
+                &mut state,
+                json!({"jsonrpc": "2.0", "id": ID_INIT, "error": {"message": "usage limit reached"}})
+            ),
+            Drive::End(Outcome::ModelUnavailable { .. })
+        ));
+        match map_acp(
+            &shared,
+            &mut state,
+            json!({"jsonrpc": "2.0", "id": ID_SESSION, "error": {"message": "boom"}}),
+        ) {
+            Drive::End(Outcome::Failed { error }) => assert_eq!(error, "handshake failed: boom"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A prompt the agent refuses ends the turn, not the session: a model
+    /// wall in its words, else the refusal's own; and a turn's stop reason
+    /// is read by name — a refusal, a wall, a word nobody knows.
+    #[test]
+    fn a_refused_prompt_ends_the_turn_and_a_stop_reason_is_read_by_name() {
+        let (out_tx, _out_rx) = mpsc::channel(8);
+        let shared = shared_on(out_tx, None);
+        let mut stream = shared.broadcaster.subscribe();
+        let mut state = state_on(None, None);
+        state.beginning.locked().exists = true;
+        shared.set_native_id("sess-1");
+
+        state.prompt_ids.locked().push(7);
+        shared.set_phase(Phase::Turn);
+        assert!(matches!(
+            map_acp(
+                &shared,
+                &mut state,
+                json!({"jsonrpc": "2.0", "id": 7, "error": {"message": "boom"}})
+            ),
+            Drive::Continue
+        ));
+        assert_eq!(shared.phase(), Phase::Idle);
+        let heard = heard_on(&shared, &mut stream);
+        assert!(
+            matches!(&heard[..], [SessionEvent::Lifecycle(LifecycleEvent::Ended { outcome: Outcome::Failed { error }, is_terminal: false })] if error == "boom"),
+            "{heard:?}"
+        );
+        state.prompt_ids.locked().push(8);
+        map_acp(
+            &shared,
+            &mut state,
+            json!({"jsonrpc": "2.0", "id": 8, "error": {"message": "usage limit reached"}}),
+        );
+        let heard = heard_on(&shared, &mut stream);
+        assert!(
+            matches!(
+                &heard[..],
+                [SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                    outcome: Outcome::ModelUnavailable { .. },
+                    is_terminal: false
+                })]
+            ),
+            "{heard:?}"
+        );
+        // A response to a request that was no prompt is said and let go.
+        map_acp(
+            &shared,
+            &mut state,
+            json!({"jsonrpc": "2.0", "id": 99, "error": {"message": "late"}}),
+        );
+        assert!(heard_on(&shared, &mut stream).is_empty());
+
+        let mut stopped = |reason: &str| {
+            state.prompt_ids.locked().push(9);
+            map_acp(
+                &shared,
+                &mut state,
+                json!({"jsonrpc": "2.0", "id": 9, "result": {"stopReason": reason}}),
+            );
+            heard_on(&shared, &mut stream)
+                .into_iter()
+                .find_map(|e| match e {
+                    SessionEvent::Lifecycle(LifecycleEvent::Ended { outcome, .. }) => Some(outcome),
+                    _ => None,
+                })
+                .expect("the turn ended")
+        };
+        assert!(
+            matches!(stopped("refusal"), Outcome::Failed { error } if error == "agent refused")
+        );
+        assert!(matches!(
+            stopped("usage limit reached"),
+            Outcome::ModelUnavailable { .. }
+        ));
+        assert!(
+            matches!(stopped("weird"), Outcome::Failed { error } if error == "stop reason: weird")
+        );
+    }
+
+    /// A call with no title is named by its kind; an update that is no end,
+    /// an update of a kind nobody knows and a method nobody knows pass
+    /// through raw.
+    #[test]
+    fn a_call_with_no_title_is_named_by_its_kind_and_the_rest_passes_through_raw() {
+        let (out_tx, _out_rx) = mpsc::channel(8);
+        let shared = shared_on(out_tx, None);
+        let mut stream = shared.broadcaster.subscribe();
+        let mut state = state_on(None, None);
+        let update = |u: serde_json::Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "sess-1", "update": u}});
+        map_acp(
+            &shared,
+            &mut state,
+            update(json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "read"})),
+        );
+        map_acp(
+            &shared,
+            &mut state,
+            update(
+                json!({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"}),
+            ),
+        );
+        map_acp(
+            &shared,
+            &mut state,
+            update(json!({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "content": []})),
+        );
+        map_acp(
+            &shared,
+            &mut state,
+            update(json!({"sessionUpdate": "nobody_knows"})),
+        );
+        map_acp(
+            &shared,
+            &mut state,
+            json!({"jsonrpc": "2.0", "method": "nobody/knows", "params": {}}),
+        );
+        let heard = heard_on(&shared, &mut stream);
+        assert!(
+            matches!(&heard[0], SessionEvent::Progress(ProgressEvent::ToolStarted { name, .. }) if name == "read"),
+            "{heard:?}"
+        );
+        assert!(matches!(&heard[1], SessionEvent::Raw(_)), "{heard:?}");
+        assert!(matches!(&heard[2], SessionEvent::Raw(_)), "{heard:?}");
+        assert_eq!(heard.len(), 3, "the update that was no end said nothing");
+    }
+
+    /// Every step of the handshake that cannot be queued ends the session
+    /// saying which: the first prompt after a session on the model already,
+    /// a model set by its option, a model set the draft's way, and the
+    /// first prompt after the model's answer.
+    #[test]
+    fn every_step_of_the_handshake_that_cannot_be_queued_ends_the_session() {
+        let opened = |result: serde_json::Value| json!({"jsonrpc": "2.0", "id": ID_SESSION, "result": result});
+        let lost = |drive: Drive, what: &str| match drive {
+            Drive::End(Outcome::Failed { error }) => {
+                assert!(
+                    error.contains(what) && error.contains("not queued"),
+                    "{error}"
+                )
+            }
+            other => panic!("{other:?}"),
+        };
+        // On the model already: the first prompt is next, and cannot go out.
+        let (out_tx, _out_rx) = full();
+        let shared = shared_on(out_tx, Some("large"));
+        let mut state = state_on(Some("large"), Some("go"));
+        lost(
+            map_acp(
+                &shared,
+                &mut state,
+                opened(
+                    json!({"sessionId": "s1", "configOptions": [{"id": "model", "category": "model", "currentValue": "large", "options": [{"value": "large"}]}]}),
+                ),
+            ),
+            "first prompt",
+        );
+        // The model is set by its option.
+        let (out_tx, _out_rx) = full();
+        let shared = shared_on(out_tx, Some("large"));
+        let mut state = state_on(Some("large"), Some("go"));
+        lost(
+            map_acp(
+                &shared,
+                &mut state,
+                opened(
+                    json!({"sessionId": "s1", "configOptions": [{"id": "model", "category": "model", "currentValue": "small", "options": [{"value": "small"}, {"value": "large"}]}]}),
+                ),
+            ),
+            "model",
+        );
+        // The model is set the draft's way.
+        let (out_tx, _out_rx) = full();
+        let shared = shared_on(out_tx, Some("large"));
+        let mut state = state_on(Some("large"), Some("go"));
+        lost(
+            map_acp(
+                &shared,
+                &mut state,
+                opened(
+                    json!({"sessionId": "s1", "models": {"currentModelId": "small", "availableModels": [{"modelId": "large"}]}}),
+                ),
+            ),
+            "model",
+        );
+        // The model's answer, then the first prompt that cannot go out.
+        let (out_tx, _out_rx) = full();
+        let shared = shared_on(out_tx, None);
+        shared.set_native_id("s1");
+        let mut state = state_on(None, Some("go"));
+        lost(
+            map_acp(
+                &shared,
+                &mut state,
+                json!({"jsonrpc": "2.0", "id": ID_MODEL, "result": {}}),
+            ),
+            "first prompt",
+        );
+        // A session that was made and named nothing keeps its first prompt
+        // for nobody: there is no id to send it under.
+        let (out_tx, _out_rx) = mpsc::channel(8);
+        let shared = shared_on(out_tx, None);
+        let mut state = state_on(None, Some("go"));
+        assert!(matches!(
+            map_acp(&shared, &mut state, opened(json!({}))),
+            Drive::Continue
+        ));
+        assert_eq!(shared.native_id(), None);
+    }
+
+    /// The facade's own answers: its snapshot is the shared state's, it
+    /// takes no steer and no follow-up, and an answer to a request nobody
+    /// made is refused by name.
+    #[tokio::test]
+    async fn the_facade_answers_for_itself_and_refuses_an_answer_nobody_asked_for() {
+        let (out_tx, _out_rx) = mpsc::channel(8);
+        let shared = shared_on(out_tx, None);
+        shared.set_phase(Phase::Idle);
+        let session = AcpSession {
+            adapter_id: "acp:test".into(),
+            shared,
+            next_id: AtomicU64::new(100),
+            prompt_ids: Arc::default(),
+            pending: Arc::default(),
+            beginning: Arc::new(std::sync::Mutex::new(Beginning {
+                exists: true,
+                first: None,
+            })),
+        };
+        assert_eq!(session.snapshot().phase, Phase::Idle);
+        assert_eq!(session.phase(), Phase::Idle);
+        assert!(matches!(
+            session.steer("left".into()).await,
+            Err(HarnessError::NotSupported("steer"))
+        ));
+        assert!(matches!(
+            session.follow_up("then".into()).await,
+            Err(HarnessError::NotSupported("follow_up"))
+        ));
+        match session
+            .answer("nobody", InputAnswer::Allow { input: None })
+            .await
+        {
+            Err(HarnessError::Protocol(why)) => assert!(why.contains("nobody"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+    }
+}

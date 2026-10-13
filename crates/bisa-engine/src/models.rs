@@ -512,4 +512,19 @@ mod tests {
         assert_eq!(ledger.next_rotation(), 1);
         assert_eq!(ledger.next_rotation(), 2);
     }
+
+    // added by the coverage pass: models.rs
+
+    /// The ledger and an in-flight slot say what they hold when printed for
+    /// a log, never the whole table.
+    #[test]
+    fn the_ledger_and_an_in_flight_slot_say_what_they_hold_in_debug() {
+        let ledger = ModelLedger::new();
+        let slot = ledger.acquire("mock", "m1");
+        assert!(
+            format!("{ledger:?}").starts_with("ModelLedger { entries: "),
+            "{ledger:?}"
+        );
+        assert!(format!("{slot:?}").contains("m1"), "{slot:?}");
+    }
 }

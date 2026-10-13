@@ -15,6 +15,9 @@ use std::time::Duration;
 pub struct FakeProbe {
     answers: Mutex<VecDeque<McpProbeReport>>,
     asked: Mutex<Vec<McpServerConfig>>,
+    /// How long every answer takes — a slow server, for a test of what two
+    /// asks at once or an ask dropped mid-probe do.
+    delay: Duration,
 }
 
 impl FakeProbe {
@@ -22,7 +25,13 @@ impl FakeProbe {
         Self {
             answers: Mutex::new(reports.into_iter().collect()),
             asked: Mutex::new(Vec::new()),
+            delay: Duration::ZERO,
         }
+    }
+
+    /// The same, every answer `delay` late.
+    pub fn delayed(self, delay: Duration) -> Self {
+        Self { delay, ..self }
     }
 
     /// A report that says a server answered in the discover era with `tools` tools.
@@ -67,6 +76,9 @@ impl FakeProbe {
 impl McpProbe for FakeProbe {
     async fn probe(&self, config: &McpServerConfig, _budget: Duration) -> McpProbeReport {
         self.asked.locked().push(config.clone());
+        if !self.delay.is_zero() {
+            tokio::time::sleep(self.delay).await;
+        }
         let mut answers = self.answers.locked();
         match answers.len() {
             0 => McpProbeReport::failed(

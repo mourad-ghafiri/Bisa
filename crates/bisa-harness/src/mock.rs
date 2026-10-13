@@ -122,12 +122,12 @@ async fn run_intake_script(script: IntakeScript, spec: SessionSpec) {
         let mut line = request.to_string();
         line.push('\n');
         if write.write_all(line.as_bytes()).await.is_err() {
-            return;
+            return; // LCOV_EXCL_LINE: the intake peer left between its accept and this write: a race
         }
         let mut reader = BufReader::new(read);
         let mut reply = String::new();
         if reader.read_line(&mut reply).await.is_err() {
-            return;
+            return; // LCOV_EXCL_LINE: the intake peer broke the stream mid-reply: a race
         }
         let reply: serde_json::Value =
             serde_json::from_str(reply.trim()).unwrap_or(serde_json::Value::Null);
@@ -987,6 +987,83 @@ mod tests {
         let replies = script.replies.clone();
         run_intake_script(script, spec).await;
         assert!(replies.lock().unwrap().is_empty(), "nothing was answered");
+    }
+
+    /// The intake target is the platform's own stdio mount with its socket:
+    /// a remote mount, a stdio server under another name and a `bisa` mount
+    /// that names no socket are passed over, and a script with none is skipped.
+    #[tokio::test]
+    async fn an_intake_script_needs_the_platforms_stdio_mount_with_its_socket() {
+        let mut spec = spec();
+        spec.mcp_servers = vec![
+            bisa_core::McpMount::platform(bisa_core::McpServerConfig::Http {
+                name: "bisa".into(),
+                url: "http://127.0.0.1:1/mcp".into(),
+                headers: Default::default(),
+            }),
+            bisa_core::McpMount::platform(bisa_core::McpServerConfig::Stdio {
+                name: "other".into(),
+                command: "other-mcp".into(),
+                args: vec!["--socket".into(), "/tmp/other.sock".into()],
+                env: Default::default(),
+                cwd: None,
+            }),
+            bisa_core::McpMount::platform(bisa_core::McpServerConfig::Stdio {
+                name: "bisa".into(),
+                command: "bisa-mcp".into(),
+                args: vec!["--goal".into(), "g1".into()],
+                env: Default::default(),
+                cwd: None,
+            }),
+        ];
+        assert_eq!(intake_target(&spec), None);
+        let script = IntakeScript::new(vec![serde_json::json!({"op": "get_goal"})]);
+        run_intake_script(script.clone(), spec).await;
+        assert!(script.replies().is_empty(), "the script was skipped");
+    }
+
+    /// What a mock's sessions were told is read back off the adapter: the
+    /// answers, the follow-ups and how each session was closed.
+    #[tokio::test]
+    async fn what_a_mocks_sessions_were_told_is_read_back() {
+        let adapter = MockAdapter {
+            input_request: Some(InputRequest::question("q1", "which?", vec![])),
+            ..Default::default()
+        };
+        let session = adapter.launch(spec()).await.unwrap();
+        let mut events = session.subscribe();
+        session.prompt("go".into()).await.unwrap();
+        loop {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), events.next())
+                .await
+                .expect("an event in time")
+                .expect("the stream is open")
+            {
+                SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) => {
+                    assert_eq!(request.id, "q1");
+                    break;
+                }
+                _ => continue,
+            }
+        }
+        session
+            .answer(
+                "q1",
+                InputAnswer::Text {
+                    text: "this one".into(),
+                },
+            )
+            .await
+            .unwrap();
+        session.follow_up("and then".into()).await.unwrap();
+        session.abort().await.unwrap();
+        let other = adapter.launch(spec()).await.unwrap();
+        other.dispose().await.unwrap();
+        assert!(
+            matches!(&adapter.answered()[..], [(id, InputAnswer::Text { text })] if id == "q1" && text == "this one")
+        );
+        assert_eq!(adapter.follow_ups(), vec!["and then".to_string()]);
+        assert_eq!(adapter.closes(), vec![Close::Aborted, Close::Disposed]);
     }
 
     fn spec() -> SessionSpec {

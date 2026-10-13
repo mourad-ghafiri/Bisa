@@ -437,6 +437,62 @@ mod stream_tests {
         );
     }
 
+    /// An item's arguments on the row: a search's query, an MCP tool under
+    /// its server, a tool alone, and nothing for an item that says nothing.
+    #[test]
+    fn an_items_arguments_are_its_query_its_tool_or_nothing() {
+        assert_eq!(
+            item_args(&json!({"query": "where is the port"})),
+            "where is the port"
+        );
+        assert_eq!(
+            item_args(&json!({"server": "docs", "tool": "search"})),
+            "docs/search"
+        );
+        assert_eq!(item_args(&json!({"tool": "search"})), "search");
+        assert_eq!(item_args(&json!({"type": "web_search"})), "");
+    }
+
+    /// A thread that names its model says so before the session starts; a
+    /// turn completed with no usage is over all the same; an item that is
+    /// no tool and no words, and a kind nobody reads, pass through raw.
+    #[tokio::test]
+    async fn what_the_line_says_beside_the_tools_and_the_words() {
+        let (s, mut stream) = shared();
+        map_codex_event(
+            &s,
+            json!({"type": "thread.started", "thread_id": "cx-9", "model": "gpt-5-codex"}),
+        );
+        map_codex_event(&s, json!({"type": "turn.completed"}));
+        map_codex_event(
+            &s,
+            json!({"type": "item.started", "item": {"id": "i1", "type": "agent_message"}}),
+        );
+        map_codex_event(
+            &s,
+            json!({"type": "item.completed", "item": {"id": "i2", "type": "plan"}}),
+        );
+        map_codex_event(&s, json!({"type": "nobody.knows"}));
+        let events = drain(&mut stream, 6).await;
+        assert!(
+            matches!(&events[0], SessionEvent::Progress(ProgressEvent::ModelChanged { model }) if model == "gpt-5-codex")
+        );
+        assert!(matches!(
+            &events[1],
+            SessionEvent::Lifecycle(LifecycleEvent::Started)
+        ));
+        assert!(matches!(
+            &events[2],
+            SessionEvent::Progress(ProgressEvent::TurnEnded)
+        ));
+        assert!(
+            events[3..]
+                .iter()
+                .all(|e| matches!(e, SessionEvent::Raw(_))),
+            "{events:?}"
+        );
+    }
+
     #[tokio::test]
     async fn a_failed_turn_is_the_models_wall_when_the_classifier_says_so() {
         let (s, _stream) = shared();

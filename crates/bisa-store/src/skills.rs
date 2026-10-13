@@ -56,7 +56,7 @@ impl Workspace {
             now_secs(),
             None,
             def.tags.as_slice(),
-        )?;
+        )?; // LCOV_EXCL_LINE: the store's disk arm: a snapshot write that fails below the lock
         self.emit_store_event(StoreEvent::ConversationSnapshot {
             kind: KIND_SKILL,
             d: def.id.to_string(),

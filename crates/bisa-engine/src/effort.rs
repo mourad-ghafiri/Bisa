@@ -189,7 +189,9 @@ mod tests {
                 instructions,
                 criteria,
             } => (instructions, criteria.into_iter().collect()),
+            // LCOV_EXCL_START: a test helper's total match; no test passes it anything but a choice
             other => panic!("an effort is a choice, not a {}", other.type_str()),
+            // LCOV_EXCL_STOP
         }
     }
 

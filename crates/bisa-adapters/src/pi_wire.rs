@@ -180,6 +180,39 @@ mod tests {
         assert!(wire.get("message").is_none());
     }
 
+    /// What the wire says that is nothing to the row passes through raw: a
+    /// command that failed, a state with no data, a message of no text, a
+    /// kind nobody reads.
+    #[tokio::test]
+    async fn what_the_wire_says_that_is_nothing_to_the_row_passes_through_raw() {
+        use futures::{FutureExt as _, StreamExt as _};
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let shared = Shared::new(tx, "pi", None, "/work/here");
+        let mut stream = shared.broadcaster.subscribe();
+        for line in [
+            serde_json::json!({"type": "response", "command": "prompt", "success": false, "error": "no model"}),
+            serde_json::json!({"type": "response", "command": "get_state", "success": true}),
+            serde_json::json!({"type": "message_end", "message": {"content": [{"type": "image"}]}}),
+            serde_json::json!({"type": "message_end", "message": {}}),
+            serde_json::json!({"type": "whatever"}),
+        ] {
+            assert!(matches!(map_pi_event(&shared, line), Drive::Continue));
+        }
+        assert_eq!(
+            shared.native_id(),
+            None,
+            "a state with no data names nothing"
+        );
+        let mut raws = 0;
+        while let Some(Some(event)) = stream.next().now_or_never() {
+            match event {
+                SessionEvent::Raw(_) => raws += 1,
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(raws, 3, "the two responses and the unknown kind");
+    }
+
     #[test]
     fn a_command_carries_its_id_and_its_message_only_when_given() {
         assert_eq!(

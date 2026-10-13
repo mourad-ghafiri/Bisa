@@ -199,8 +199,10 @@ impl Workspace {
         let mut cursor = goal;
         while let Some(current) = cursor {
             if !visited.insert(current) {
+                // LCOV_EXCL_START: a parent chain that cycles, data no door can write; the guard keeps the walk total
                 tracing::warn!("goal {current}: parent chain cycles; stopping the assignee walk");
                 break;
+                // LCOV_EXCL_STOP
             }
             let Ok(g) = self.get_goal(current) else {
                 break;
@@ -231,8 +233,10 @@ impl Workspace {
         let mut cursor = Some(goal);
         while let Some(current) = cursor {
             if !visited.insert(current) {
+                // LCOV_EXCL_START: a parent chain that cycles, data no door can write; the guard keeps the walk total
                 tracing::warn!("goal {current}: parent chain cycles; stopping the staff walk");
                 break;
+                // LCOV_EXCL_STOP
             }
             let Ok(g) = self.get_goal(current) else {
                 break;
@@ -496,5 +500,87 @@ mod tests {
             Err(StoreError::Unreadable { what, .. }) => assert_eq!(what, "governance document"),
             other => panic!("expected Unreadable, got {other:?}"),
         }
+    }
+
+    // added by the coverage pass: governance.rs
+
+    /// A governance document that names no policy reads as the owner's on
+    /// every gate; a file nobody may read is the disk's refusal, not a
+    /// broken document; and a policy that cannot be written is refused.
+    #[cfg(unix)]
+    #[test]
+    fn an_empty_document_is_the_owners_and_an_unreadable_file_is_the_disks_word() {
+        use std::os::unix::fs::PermissionsExt;
+        let bare: Governance = serde_json::from_str("{}").unwrap();
+        assert_eq!(bare, Governance::default());
+        let (_dir, ws) = ws();
+        ws.set_gate_policy(Gate::Approval, GatePolicy::Admins)
+            .unwrap();
+        let file = ws.paths.governance_file();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(
+            matches!(ws.governance(), Err(StoreError::Io { .. })),
+            "unreadable by permission, not a broken document"
+        );
+        assert!(
+            ws.set_gate_policy(Gate::Approval, GatePolicy::Members)
+                .is_err(),
+            "a policy that cannot be written is refused"
+        );
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(ws.governance().unwrap().approval, GatePolicy::Admins);
+    }
+
+    /// The assignee walks pass over what they cannot read — a project or a
+    /// goal nobody has, a team that is no team or that is gone — and the
+    /// approvers of a goal assigned to an agent are its people alone; with
+    /// no goal, the owner's policy reaches nobody else; a listed policy
+    /// passes over team refs it cannot resolve and still finds the member.
+    #[test]
+    fn the_walks_pass_over_what_they_cannot_read_and_a_listed_policy_skips_bad_team_refs() {
+        let (_dir, ws) = ws();
+        let nobody_goal = bisa_core::GoalId::from_ulid(ulid::Ulid::from_parts(5, 5));
+        let nobody_project = bisa_core::ProjectId::from_ulid(ulid::Ulid::from_parts(6, 6));
+        assert!(ws
+            .assignees_for(Some(nobody_goal), &[nobody_project])
+            .is_empty());
+        assert!(ws.staff_scope(nobody_goal).is_empty());
+        assert!(ws
+            .expand_assignees(vec![
+                bisa_core::Assignee::Team("not a team!".into()),
+                bisa_core::Assignee::Team("nobody".into()),
+            ])
+            .is_empty());
+
+        let human = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+        let goal = ws.create_goal(NewGoal::captured("delegated")).unwrap();
+        ws.set_goal_assignees(
+            goal.id,
+            vec![
+                bisa_core::Assignee::Agent(bisa_core::AgentId::GENERAL.into()),
+                bisa_core::Assignee::Human(human.clone()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(ws.assignee_approvers(goal.id), std::slice::from_ref(&human));
+        assert!(
+            !ws.gate_policy_allows_for(Gate::Approval, &human, None)
+                .unwrap(),
+            "with no goal there is no assignment to defer to"
+        );
+
+        let member = PrincipalId::new(Keys::generate().public_key().to_hex()).unwrap();
+        ws.add_member(member.clone(), MemberRole::Member, Admission::default())
+            .unwrap();
+        ws.set_gate_policy(
+            Gate::Escalation,
+            GatePolicy::Listed(vec![
+                "team:not a team!".into(),
+                "team:nobody".into(),
+                member.as_hex().to_string(),
+            ]),
+        )
+        .unwrap();
+        assert!(ws.gate_policy_allows(Gate::Escalation, &member).unwrap());
     }
 }

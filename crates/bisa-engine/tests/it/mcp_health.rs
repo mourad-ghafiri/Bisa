@@ -196,3 +196,75 @@ async fn a_failed_probe_is_a_health_too_and_says_where_it_stopped() {
     assert_eq!(view.tool_count, None);
     assert!(view.error.as_deref().unwrap_or("").contains("no answer"));
 }
+
+// added by the coverage pass: mcp_health.rs
+
+/// Two asks at once dial the server once: the second joins the probe
+/// already running and reads its answer. A probe dropped mid-flight leaves
+/// no slot behind — the next ask is the runner again — and a joiner of a
+/// runner that went away reads what the runner kept, or a failed report
+/// when it kept nothing. And every state has its word.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_ask_joins_the_probe_and_a_dropped_one_leaves_no_slot() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = Arc::new(
+        FakeProbe::answering(vec![FakeProbe::ok_report("stdio", 2)])
+            .delayed(std::time::Duration::from_millis(300)),
+    );
+    let engine = engine_with_probe(&dir, Arc::clone(&probe));
+    let ws = engine.workspace();
+    let id = McpId::new("slow").unwrap();
+    ws.create_mcp(NewMcp {
+        id: id.clone(),
+        description: String::new(),
+        tags: Default::default(),
+        transport: docs("slow"),
+    })
+    .unwrap();
+    let inner = Arc::clone(engine.inner());
+    let first = {
+        let inner = Arc::clone(&inner);
+        let id = id.clone();
+        tokio::spawn(async move { inner.mcp_health.probe_mcp(&inner, &id, None).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let second = inner.mcp_health.probe_mcp(&inner, &id, None).await.unwrap();
+    let first = first.await.unwrap().unwrap();
+    assert!(first.ok && second.ok, "{first:?} {second:?}");
+    assert_eq!(probe.asked().len(), 1, "one dial for the two asks");
+
+    // Dropped mid-flight: the slot goes with the runner.
+    let runner = {
+        let inner = Arc::clone(&inner);
+        let id = id.clone();
+        tokio::spawn(async move { inner.mcp_health.probe_mcp(&inner, &id, None).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    // A joiner waiting on that runner is answered with what the slot kept:
+    // nothing, once the runner's guard took the slot with it.
+    let joiner = {
+        let inner = Arc::clone(&inner);
+        let id = id.clone();
+        tokio::spawn(async move { inner.mcp_health.probe_mcp(&inner, &id, None).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    runner.abort();
+    let _dropped = runner.await;
+    let joined = joiner.await.unwrap().unwrap();
+    assert!(!joined.ok, "{joined:?}");
+    assert!(
+        joined
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("dropped")),
+        "{joined:?}"
+    );
+    let again = inner.mcp_health.probe_mcp(&inner, &id, None).await.unwrap();
+    assert!(again.ok);
+    assert_eq!(probe.asked().len(), 3, "the dropped dial and the fresh one");
+
+    assert_eq!(McpHealthState::Unknown.as_str(), "unknown");
+    assert_eq!(McpHealthState::Ok.as_str(), "ok");
+    assert_eq!(McpHealthState::Failing.as_str(), "failing");
+    engine.shutdown().await;
+}

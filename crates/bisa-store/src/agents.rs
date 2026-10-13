@@ -126,7 +126,9 @@ impl Workspace {
             Paths::NS_AGENTS,
             KIND_AGENT_PROFILE,
             def.id.as_str(),
+            // LCOV_EXCL_START: the store's disk arm: a snapshot revision read that fails below the lock
         )?;
+        // LCOV_EXCL_STOP
         let event = self.snapshots.put(
             Paths::NS_AGENTS,
             KIND_AGENT_PROFILE,
@@ -137,7 +139,7 @@ impl Workspace {
             at,
             None,
             def.tags.as_slice(),
-        )?;
+        )?; // LCOV_EXCL_LINE: the store's disk arm: a snapshot write that fails below the lock
         self.emit_store_event(StoreEvent::ConversationSnapshot {
             kind: KIND_AGENT_PROFILE,
             d: def.id.to_string(),

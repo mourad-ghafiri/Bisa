@@ -296,9 +296,11 @@ impl HarnessAdapter for ClaudeCodeAdapter {
     /// The account's five-hour and weekly windows and the per-model weeks
     /// the plan carries (*Fable* on Max), from the provider's usage endpoint
     /// with Claude Code's own sign-in.
+    // LCOV_EXCL_START: the door to the person's own sign-in; the reader's parse is proved on its own
     async fn usage(&self) -> bisa_harness::UsageState {
         crate::usage::claude::read(&self.http, self.id()).await
     }
+    // LCOV_EXCL_STOP
 
     fn caps(&self) -> HarnessCaps {
         Self::caps_()
@@ -648,6 +650,7 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
                 // the plan's model just went away, so it is worth saying so
                 // loudly rather than letting it pass as noise.
                 Some("model_fallback") => {
+                    // LCOV_EXCL_START: the fields of a tracing event, evaluated under a subscriber only
                     tracing::warn!(
                         target: "bisa_adapters::claude",
                         trigger = value.get("trigger").and_then(|v| v.as_str()).unwrap_or("?"),
@@ -655,6 +658,7 @@ fn map_line(shared: &Shared, line: Line, wire: &WireState) -> Drive {
                         fallback = value.get("fallback_model").and_then(|v| v.as_str()).unwrap_or("?"),
                         "claude code switched models under us",
                     );
+                    // LCOV_EXCL_STOP
                     // The row follows the switch: it now runs on the fallback.
                     if let Some(model) = value
                         .get("fallback_model")
@@ -1008,7 +1012,7 @@ fn user_content(text: &str, attachments: &[Attachment]) -> serde_json::Value {
             })),
             Err(e) => tracing::warn!(
                 "could not read {} to send as an image: {e}; its path is in the prompt",
-                a.path.display()
+                a.path.display() // LCOV_EXCL_LINE: a tracing event's field, evaluated under a subscriber only
             ),
         }
     }
@@ -1165,6 +1169,162 @@ mod tests {
             .await
             .expect("an event in time")
             .expect("stream open")
+    }
+
+    /// What the stream says that the row does not read passes through raw
+    /// or is let go: a line that is no JSON, a control request that is no
+    /// tool question, a system line of another kind, a delta of another
+    /// kind, a kind nobody knows; and a tool's result for a call never
+    /// started ends a call named `?`.
+    #[tokio::test]
+    async fn what_the_stream_says_beside_the_rows_words_passes_through_raw() {
+        use futures::FutureExt as _;
+        let (shared, _out_rx, wire) = harness();
+        let mut events = shared.broadcaster.subscribe();
+        assert!(matches!(
+            map_line(&shared, Line::Text("plain words".into()), &wire),
+            Drive::Continue
+        ));
+        feed(
+            &shared,
+            &wire,
+            r#"{"type":"control_request","request_id":"r9","request":{"subtype":"other"}}"#,
+        );
+        feed(
+            &shared,
+            &wire,
+            r#"{"type":"system","subtype":"compact_boundary"}"#,
+        );
+        feed(
+            &shared,
+            &wire,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"x"}}}"#,
+        );
+        feed(
+            &shared,
+            &wire,
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"nobody","is_error":true}]}}"#,
+        );
+        feed(
+            &shared,
+            &wire,
+            r#"{"type":"user","message":{"content":[{"type":"text","text":"a person's own words"}]}}"#,
+        );
+        feed(&shared, &wire, r#"{"type":"nobody_knows"}"#);
+        let mut heard = Vec::new();
+        while let Some(Some(event)) = events.next().now_or_never() {
+            heard.push(event);
+        }
+        assert!(matches!(&heard[0], SessionEvent::Raw(_)), "{heard:?}");
+        assert!(matches!(&heard[1], SessionEvent::Raw(_)), "{heard:?}");
+        assert!(
+            matches!(&heard[2], SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: false, id: Some(id) }) if name == "?" && id == "nobody"),
+            "{heard:?}"
+        );
+        assert!(matches!(&heard[3], SessionEvent::Raw(_)), "{heard:?}");
+        assert_eq!(heard.len(), 4, "the delta of another kind said nothing");
+    }
+
+    /// A failed result is read typed first — the API status, then the
+    /// CLI's own code — and as prose last; what is neither is an honest
+    /// failure carrying the subtype and whatever the frame said.
+    #[test]
+    fn a_failed_result_is_read_typed_first_and_as_prose_last() {
+        let (shared, _out_rx, _wire) = harness();
+        let wall = |value: serde_json::Value| match result_failure(
+            &shared,
+            &value,
+            "error_during_execution",
+        ) {
+            Outcome::ModelUnavailable { reason, .. } => reason,
+            other => panic!("{other:?}"),
+        };
+        assert!(wall(serde_json::json!({"api_error_status": 529})).contains("overloaded"));
+        assert!(wall(serde_json::json!({"api_error_status": 404})).contains("not found"));
+        assert!(wall(serde_json::json!({"api_error_status": 403})).contains("not permitted"));
+        for (code, word) in [
+            ("rate_limit", "rate limited"),
+            ("overloaded", "overloaded"),
+            ("model_not_found", "not found"),
+            ("billing_error", "billing"),
+            ("account_on_hold", "on hold"),
+        ] {
+            assert!(
+                wall(serde_json::json!({"api_error_status": 500, "error": code})).contains(word),
+                "{code}"
+            );
+        }
+        assert!(
+            wall(serde_json::json!({"error": "something_else", "result": "usage limit reached"}))
+                .contains("usage limit"),
+            "the prose is read last"
+        );
+        match result_failure(
+            &shared,
+            &serde_json::json!({"api_error_status": 500, "result": "boom", "errors": ["and this"]}),
+            "error_during_execution",
+        ) {
+            Outcome::Failed { error } => {
+                assert_eq!(
+                    error,
+                    "result subtype: error_during_execution; boom\nand this"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        match result_failure(&shared, &serde_json::json!({}), "error_max_turns") {
+            Outcome::Failed { error } => assert_eq!(error, "result subtype: error_max_turns"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A turn's content carries its images as images and nothing else: a
+    /// file that reads goes in as bytes, one that does not is skipped with
+    /// its path still in the words, and a document is never inlined. A
+    /// text answer on a permission — no questions asked — is an allow with
+    /// the input as it was.
+    #[test]
+    fn a_turns_images_go_in_as_bytes_and_what_will_not_read_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let shot = dir.path().join("shot.png");
+        std::fs::write(&shot, b"abc").unwrap();
+        let attachments = vec![
+            Attachment {
+                name: "shot.png".into(),
+                mime: "image/png".into(),
+                path: shot,
+            },
+            Attachment {
+                name: "gone.png".into(),
+                mime: "image/png".into(),
+                path: dir.path().join("gone.png"),
+            },
+            Attachment {
+                name: "spec.pdf".into(),
+                mime: "application/pdf".into(),
+                path: dir.path().join("spec.pdf"),
+            },
+        ];
+        let content = user_content("see /ws/files/shot.png", &attachments);
+        assert_eq!(
+            content,
+            serde_json::json!([
+                {"type": "text", "text": "see /ws/files/shot.png"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "YWJj"}}
+            ])
+        );
+        let answered = control_response(
+            "r1",
+            serde_json::json!({"command": "ls"}),
+            InputAnswer::Text {
+                text: "go on".into(),
+            },
+        );
+        assert_eq!(answered["response"]["response"]["behavior"], "allow");
+        assert_eq!(
+            answered["response"]["response"]["updatedInput"],
+            serde_json::json!({"command": "ls"})
+        );
     }
 
     #[tokio::test]

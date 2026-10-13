@@ -244,6 +244,73 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// What the bus says that is nothing to a person translates to
+    /// nothing: a frame with no type, a child session with no id, a status
+    /// that is no state, an assistant message naming no model, a tool part
+    /// still running under another word, and a kind nobody knows. An idle
+    /// status is the turn over; a model with no provider is its bare id; a
+    /// tool part completed or errored is the call ended either way.
+    #[test]
+    fn what_the_bus_says_that_is_nothing_to_a_person_translates_to_nothing() {
+        assert!(translate(&json!({"properties": {}})).is_empty());
+        assert!(translate(
+            &json!({"type": "session.created", "properties": {"info": {"parentID": "root", "id": ""}}})
+        )
+        .is_empty());
+        assert!(translate(
+            &json!({"type": "session.status", "properties": {"status": {"type": "thinking"}}})
+        )
+        .is_empty());
+        assert!(translate(
+            &json!({"type": "message.updated", "properties": {"info": {"role": "assistant", "modelID": ""}}})
+        )
+        .is_empty());
+        assert!(translate(
+            &json!({"type": "message.part.updated", "properties": {"part": {"type": "tool", "tool": "bash", "state": {"status": "pending"}}}})
+        )
+        .is_empty());
+        assert!(translate(&json!({"type": "nobody.knows", "properties": {}})).is_empty());
+
+        let idle = translate(
+            &json!({"type": "session.status", "properties": {"status": {"type": "idle"}}}),
+        );
+        assert!(
+            matches!(
+                &idle[..],
+                [SessionEvent::Progress(ProgressEvent::TurnEnded)]
+            ),
+            "{idle:?}"
+        );
+        let bare = translate(
+            &json!({"type": "message.updated", "properties": {"info": {"role": "assistant", "modelID": "m-1"}}}),
+        );
+        assert!(
+            matches!(&bare[..], [SessionEvent::Progress(ProgressEvent::ModelChanged { model })] if model == "m-1"),
+            "{bare:?}"
+        );
+        let done = translate(
+            &json!({"type": "message.part.updated", "properties": {"part": {"type": "tool", "id": "p1", "tool": "bash", "state": {"status": "completed"}}}}),
+        );
+        assert!(
+            matches!(&done[..], [SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true, id: Some(id) })] if name == "bash" && id == "p1"),
+            "{done:?}"
+        );
+        let failed = translate(
+            &json!({"type": "message.part.updated", "properties": {"part": {"type": "tool", "tool": "bash", "state": {"status": "error"}}}}),
+        );
+        assert!(
+            matches!(
+                &failed[..],
+                [SessionEvent::Progress(ProgressEvent::ToolEnded {
+                    ok: false,
+                    id: None,
+                    ..
+                })]
+            ),
+            "{failed:?}"
+        );
+    }
+
     #[test]
     fn the_recipe_names_a_port_and_pulls_the_event_bus() {
         let ctx = ReportingContext {

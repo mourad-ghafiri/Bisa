@@ -429,3 +429,91 @@ async fn no_git_on_this_machine_is_missing_with_the_git_hint() {
     assert!(!r.ready);
     engine.shutdown().await;
 }
+
+/// A git older than the profiles need is still git: ready, with the
+/// install page beside it and the one thing it cannot do said.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_old_git_is_ready_and_says_what_it_cannot_do() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let stub = dir.path().join("old-git");
+    std::fs::write(&stub, "#!/bin/sh\necho 'git version 2.30.0'\n").unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let config = EngineConfig {
+        git: Some(bisa_vcs::Git::new().with_program(stub.display().to_string())),
+        ..common::design_off_config()
+    };
+    let engine = Engine::start(
+        common::workspace(&dir),
+        common::catalog_with(vec![MockAdapter::default()]),
+        config,
+    )
+    .unwrap();
+    let r = engine.readiness().await;
+    let git = state(&r, CheckId::Git);
+    assert_eq!(git.state, CheckState::Ready);
+    assert!(
+        git.detail.contains("git 2.30.0") && git.detail.contains("2.36"),
+        "{}",
+        git.detail
+    );
+    assert_eq!(
+        git.hint.as_ref().map(|h| h.url),
+        Some("https://git-scm.com/install")
+    );
+    engine.shutdown().await;
+}
+
+/// A core agent on an installed harness with no model to run on is unready
+/// and says so; one whose record cannot be read is unready in the disk's
+/// words, with the Agents door and no fix to offer.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_core_agent_with_no_model_or_no_readable_record_is_unready() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::start(
+        common::workspace(&dir),
+        common::catalog_with(vec![MockAdapter::default()]),
+        common::design_off_config(),
+    )
+    .unwrap();
+    core_agents_on(&engine, "mock");
+    {
+        let ws = engine.workspace();
+        let mut a = ws.get_agent(&AgentId::workflow()).unwrap();
+        a.models.models.clear();
+        ws.update_agent(a).unwrap();
+    }
+    let r = engine.readiness().await;
+    let workflow = state(&r, CheckId::WorkflowAgent);
+    assert_eq!(workflow.state, CheckState::Unready);
+    assert!(
+        workflow.detail.starts_with("It names no model to run on."),
+        "{}",
+        workflow.detail
+    );
+    assert!(
+        !workflow.fixes.is_empty(),
+        "the installed harness is offered"
+    );
+
+    let record = bisa_store::Paths::new(dir.path())
+        .agents_dir()
+        .join(format!("{}.json", AgentId::general()));
+    assert!(record.exists(), "{}", record.display());
+    std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let r = engine.readiness().await;
+    let general = state(&r, CheckId::GeneralAgent);
+    assert_eq!(general.state, CheckState::Unready);
+    assert!(
+        general
+            .detail
+            .starts_with("The General Agent could not be read"),
+        "{}",
+        general.detail
+    );
+    assert_eq!(general.door, Door::Agents);
+    assert!(general.fixes.is_empty());
+    std::fs::set_permissions(&record, std::fs::Permissions::from_mode(0o644)).unwrap();
+    engine.shutdown().await;
+}

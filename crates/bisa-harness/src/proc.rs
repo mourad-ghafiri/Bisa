@@ -210,7 +210,7 @@ impl ProcGroup {
         }
         match self.pgid {
             Some(pgid) => rustix::process::kill_process_group(pgid, signal).is_ok(),
-            None => false,
+            None => false, // LCOV_EXCL_LINE: a child whose pid was gone as it was spawned; the arm keeps the match total
         }
     }
 
@@ -422,11 +422,12 @@ impl ProcHandle {
                             read.text
                         }
                         Ok(None) => break,
+                        // LCOV_EXCL_START: a pipe that fails under a read rather than ending — the kernel's word, which no child of a test says
                         Err(e) => {
                             // Said, because what follows is a session that hears nothing more.
                             tracing::warn!(target: "bisa_harness::proc", %program, "the harness's output could not be read any further: {e}");
                             break;
-                        }
+                        } // LCOV_EXCL_STOP
                     };
                     *last_activity.locked() = Instant::now();
                     let trimmed = line.trim();

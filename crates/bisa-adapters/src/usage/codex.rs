@@ -137,6 +137,11 @@ fn window(value: Option<&Value>, id: &str) -> Option<(u64, UsageWindow)> {
 /// Read the account's usage from the app server. Codex's own binary does
 /// the sign-in; this spawns it, asks, and terminates it.
 pub async fn read(program: &str, harness: &str) -> UsageState {
+    read_within(program, harness, super::READ_TIMEOUT).await
+}
+
+/// [`read`], within `timeout`.
+async fn read_within(program: &str, harness: &str, timeout: std::time::Duration) -> UsageState {
     let mut child = match tokio::process::Command::new(program)
         .arg("app-server")
         .stdin(Stdio::piped())
@@ -149,9 +154,9 @@ pub async fn read(program: &str, harness: &str) -> UsageState {
             return UsageState::failed(format!("{program} app-server could not be started: {e}"))
         }
     };
-    let outcome = tokio::time::timeout(super::READ_TIMEOUT, talk(&mut child)).await;
+    let outcome = tokio::time::timeout(timeout, talk(&mut child)).await;
     if let Err(e) = child.kill().await {
-        tracing::warn!("the codex usage probe did not end on request: {e}");
+        tracing::warn!("the codex usage probe did not end on request: {e}"); // LCOV_EXCL_LINE: a kill the kernel refuses on a child of ours; nothing says why
     }
     match outcome {
         Ok(Ok((account, limits))) => match parse(account.as_ref(), &limits, harness, now_secs()) {
@@ -161,7 +166,7 @@ pub async fn read(program: &str, harness: &str) -> UsageState {
         Ok(Err(state)) => state,
         Err(_) => UsageState::failed(format!(
             "{program} app-server did not answer within {} s",
-            super::READ_TIMEOUT.as_secs()
+            timeout.as_secs()
         )),
     }
 }
@@ -175,11 +180,11 @@ async fn talk(child: &mut tokio::process::Child) -> Result<(Option<Value>, Value
     let mut stdin = child
         .stdin
         .take()
-        .ok_or_else(|| UsageState::failed("the app server has no stdin"))?;
+        .ok_or_else(|| UsageState::failed("the app server has no stdin"))?; // LCOV_EXCL_LINE: both pipes are asked for at the spawn; the arm keeps the Option total
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| UsageState::failed("the app server has no stdout"))?;
+        .ok_or_else(|| UsageState::failed("the app server has no stdout"))?; // LCOV_EXCL_LINE: both pipes are asked for at the spawn; the arm keeps the Option total
     let frames = [
         json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "bisa", "title": "Bisa", "version": env!("CARGO_PKG_VERSION")}}}),
         json!({"jsonrpc": "2.0", "method": "initialized"}),
@@ -290,6 +295,92 @@ mod tests {
             ),
             Err(UsageState::Failed { .. })
         ));
+    }
+
+    fn app_server(dir: &std::path::Path, body: &str) -> String {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join("codex");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path.display().to_string()
+    }
+
+    fn reason(state: UsageState) -> String {
+        match state {
+            UsageState::Failed { reason } => reason,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The app server is asked its two questions over its own protocol: a
+    /// line that is no JSON is passed over, the answers are read by id,
+    /// and a refusal of the limits is said in the server's words. One that
+    /// cannot be started, one that leaves before answering and one that
+    /// outstays its budget are said by name.
+    #[tokio::test]
+    async fn the_app_server_is_asked_over_its_protocol_and_every_end_is_said_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let limits = LIMITS.replace('\n', "");
+        let account = ACCOUNT.replace('\n', "");
+        let answering = app_server(
+            dir.path(),
+            &format!(
+                "echo 'ready, not json'\nwhile read -r line; do case \"$line\" in \
+                 *'\"method\":\"initialize\"'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}' ;; \
+                 *'\"method\":\"account/read\"'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{account}}}' ;; \
+                 *'\"method\":\"account/rateLimits/read\"'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{limits}}}'; exit 0 ;; \
+                 esac; done\n"
+            ),
+        );
+        match read(&answering, "codex").await {
+            UsageState::Report { report } => {
+                assert_eq!(report.windows.len(), 2);
+                assert_eq!(report.account.unwrap().plan.as_deref(), Some("pro"));
+            }
+            other => panic!("{other:?}"),
+        }
+        let refusing = app_server(
+            dir.path(),
+            "while read -r line; do case \"$line\" in \
+             *'\"method\":\"account/rateLimits/read\"'*) echo '{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{\"message\":\"not signed in\"}}'; exit 0 ;; \
+             esac; done\n",
+        );
+        assert_eq!(
+            reason(read(&refusing, "codex").await),
+            "the app server refused the rate-limits read: not signed in"
+        );
+        let wordless = app_server(
+            dir.path(),
+            "while read -r line; do case \"$line\" in \
+             *'\"method\":\"account/rateLimits/read\"'*) echo '{\"jsonrpc\":\"2.0\",\"id\":3,\"error\":{}}'; exit 0 ;; \
+             esac; done\n",
+        );
+        assert_eq!(
+            reason(read(&wordless, "codex").await),
+            "the app server refused the rate-limits read: refused"
+        );
+        let empty = app_server(
+            dir.path(),
+            "while read -r line; do case \"$line\" in \
+             *'\"method\":\"account/rateLimits/read\"'*) echo '{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}'; exit 0 ;; \
+             esac; done\n",
+        );
+        assert_eq!(
+            reason(read(&empty, "codex").await),
+            "the app server answered no rate limits"
+        );
+        let leaving = app_server(dir.path(), "read -r _line; exit 0\n");
+        assert_eq!(
+            reason(read(&leaving, "codex").await),
+            "the app server ended before answering the rate-limits read"
+        );
+        let gone = dir.path().join("nobody").display().to_string();
+        assert!(reason(read(&gone, "codex").await).contains("could not be started"));
+        let slow = app_server(dir.path(), "sleep 5\n");
+        assert!(
+            reason(read_within(&slow, "codex", std::time::Duration::from_millis(100)).await)
+                .contains("did not answer within 0 s")
+        );
     }
 
     #[test]

@@ -188,7 +188,7 @@ impl Workspace {
             monotonic_at,
             Some(&self.owner.public_key()),
             &[],
-        )?;
+        )?; // LCOV_EXCL_LINE: the store's disk arm: a recall write that fails below the lock
         let mut sc = self.read_sidecar(agent)?;
         sc.slugs.insert(slug.to_string(), d);
         self.write_sidecar(agent, &sc)?;

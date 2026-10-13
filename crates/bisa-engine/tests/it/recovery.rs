@@ -991,3 +991,134 @@ async fn a_journal_the_walk_cannot_read_or_write_costs_only_its_questions() {
     }
     engine.shutdown().await;
 }
+
+// added by the coverage pass: sessions.rs (the boot's second sweep)
+
+/// A row that ended but still names the child it was driving — ended
+/// keeping its process, as a park does — has that child terminated at boot
+/// when it is still ours, and its pid cleared either way; a terminal's row
+/// names the desktop's process, which a boot never touches, so only its pid
+/// is cleared.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_row_still_naming_our_child_is_terminated_at_boot_and_a_terminals_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ours = std::process::Command::new("sleep")
+        .arg("300")
+        .spawn()
+        .unwrap();
+    let mut tab = std::process::Command::new("sleep")
+        .arg("300")
+        .spawn()
+        .unwrap();
+    {
+        let ws = store(&dir);
+        ws.record_session(&SessionRow {
+            id: "sess-ended-ours".into(),
+            adapter: "mock".into(),
+            status: SessionStatus::Ended,
+            ended_at: Some(now()),
+            pid: Some(ours.id()),
+            pid_seen_at: Some(now()),
+            ..Default::default()
+        })
+        .unwrap();
+        ws.record_session(&SessionRow {
+            id: "sess-tab".into(),
+            adapter: "mock".into(),
+            kind: bisa_store::SessionKind::Terminal,
+            status: SessionStatus::Ended,
+            ended_at: Some(now()),
+            pid: Some(tab.id()),
+            pid_seen_at: Some(now()),
+            ..Default::default()
+        })
+        .unwrap();
+        // A live row that never learnt its process: ended, nothing to end.
+        ws.record_session(&SessionRow {
+            id: "sess-live-no-pid".into(),
+            adapter: "mock".into(),
+            status: SessionStatus::Live,
+            ..Default::default()
+        })
+        .unwrap();
+        // A live terminal row: the tab's process is the desktop's, so the
+        // row is ended and nothing is signalled.
+        ws.record_session(&SessionRow {
+            id: "sess-live-tab".into(),
+            adapter: "mock".into(),
+            kind: bisa_store::SessionKind::Terminal,
+            status: SessionStatus::Live,
+            ..Default::default()
+        })
+        .unwrap();
+        // An ended row naming a pid that fits no process, and one that never
+        // learnt when it saw its process: neither is signalled, both cleared.
+        ws.record_session(&SessionRow {
+            id: "sess-ended-nobody".into(),
+            adapter: "mock".into(),
+            status: SessionStatus::Ended,
+            ended_at: Some(now()),
+            pid: Some(u32::MAX),
+            pid_seen_at: Some(now()),
+            ..Default::default()
+        })
+        .unwrap();
+        ws.record_session(&SessionRow {
+            id: "sess-ended-unseen".into(),
+            adapter: "mock".into(),
+            status: SessionStatus::Ended,
+            ended_at: Some(now()),
+            pid: Some(u32::MAX - 1),
+            pid_seen_at: None,
+            ..Default::default()
+        })
+        .unwrap();
+    }
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    until("our child to be terminated", || {
+        ours.try_wait().ok().flatten().map(|_| ())
+    })
+    .await;
+    assert_eq!(
+        ws.session_by_id("sess-ended-ours").unwrap().unwrap().pid,
+        None,
+        "the row no longer names a process"
+    );
+    assert!(
+        tab.try_wait().unwrap().is_none(),
+        "a terminal's process is the desktop's: left alone"
+    );
+    assert_eq!(
+        ws.session_by_id("sess-tab").unwrap().unwrap().pid,
+        None,
+        "its pid is cleared all the same"
+    );
+    assert!(
+        ws.list_sessions_with_process().unwrap().is_empty(),
+        "no row names a process after the boot"
+    );
+    assert_eq!(
+        ws.session_by_id("sess-live-no-pid")
+            .unwrap()
+            .unwrap()
+            .status,
+        SessionStatus::Ended,
+        "a live row with no process is ended all the same"
+    );
+    assert_eq!(
+        ws.session_by_id("sess-live-tab").unwrap().unwrap().status,
+        SessionStatus::Ended,
+        "a live terminal row is ended, its tab's process untouched"
+    );
+    for id in ["sess-ended-nobody", "sess-ended-unseen"] {
+        assert_eq!(
+            ws.session_by_id(id).unwrap().unwrap().pid,
+            None,
+            "{id}: a pid that is no process of ours is cleared, not signalled"
+        );
+    }
+    tab.kill().unwrap();
+    let _reaped = tab.wait();
+    engine.shutdown().await;
+}

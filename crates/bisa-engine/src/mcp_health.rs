@@ -205,12 +205,14 @@ impl McpHealth {
             ));
         }
         if def.transport.name() == RESERVED_MCP_NAME {
+            // LCOV_EXCL_START: the reserved name is refused where a server is recorded (McpServer::validate); the arm keeps the check total
             return Ok(McpProbeReport::failed(
                 &def.transport,
                 McpProbeStage::Spawn,
                 RESERVED,
                 Duration::ZERO,
             ));
+            // LCOV_EXCL_STOP
         }
         // Join a probe already running for this id, or become its runner. A
         // runner that went away without an answer — its sender gone — is
@@ -251,7 +253,9 @@ impl McpHealth {
                 // A joiner that stopped listening is not a fault.
                 if tx.send(Some(report.clone())).is_err() {
                     tracing::debug!(target: "bisa_engine::mcp_health", %id, "nobody waited for the probe");
+                    // LCOV_EXCL_START: a joiner that stopped listening before the answer; a race no test can time
                 }
+                // LCOV_EXCL_STOP
                 tracing::info!(
                     target: "bisa_engine::mcp_health",
                     %id,

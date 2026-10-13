@@ -264,9 +264,11 @@ impl OmpAdapter {
                             let negotiate = serde_json::json!({
                                 "id": "bisa-proto", "type": "negotiate_protocol", "protocolVersion": 2
                             });
+                            // LCOV_EXCL_START: the queue is bounded and empty when the ready frame arrives; a negotiation it cannot take is a race with the driver's own end
                             if let Err(e) = shared.try_send(OutMsg::Json(negotiate)) {
                                 tracing::warn!("omp: the protocol negotiation was not queued: {e}");
                             }
+                            // LCOV_EXCL_STOP
                         }
                         shared.broadcaster.emit(SessionEvent::Raw(value));
                         Drive::Continue
@@ -649,5 +651,91 @@ mod interactive_tests {
         assert_eq!(token.adapter_id, ADAPTER_ID);
         assert_eq!(token.model.as_deref(), Some("opus"));
         assert_eq!(token.effort, Some(Effort::Max));
+    }
+}
+
+#[cfg(test)]
+mod reassembly_tests {
+    use super::*;
+
+    fn chunk(
+        id: &str,
+        index: u64,
+        count: u64,
+        byte_length: usize,
+        data: &[u8],
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "type": "rpc_chunk", "chunkId": id, "index": index, "count": count,
+            "byteLength": byte_length,
+            "data": base64::engine::general_purpose::STANDARD.encode(data),
+        })
+    }
+
+    /// Every way a chunk sequence can go wrong is refused by name and drops
+    /// what was gathered: a frame missing a field, a length past the ceiling,
+    /// a sequence not starting at zero, another sequence's chunk, a count or
+    /// a length that changed, a chunk out of order, more bytes than declared,
+    /// fewer bytes than declared at the end, bytes that are no text, and text
+    /// that is no JSON.
+    #[test]
+    fn every_broken_chunk_sequence_is_refused_by_name() {
+        let mut state = None;
+        let err = |r: Result<Option<serde_json::Value>, String>| r.unwrap_err();
+        assert_eq!(
+            err(reassemble(
+                &mut state,
+                &serde_json::json!({"type": "rpc_chunk"})
+            )),
+            "missing chunkId"
+        );
+        assert!(err(reassemble(
+            &mut state,
+            &chunk("c", 0, 1, MAX_REASSEMBLY_BYTES + 1, b"x")
+        ))
+        .contains("exceeds reassembly ceiling"));
+        assert!(
+            err(reassemble(&mut state, &chunk("c", 1, 2, 4, b"ab"))).contains("starts at index 1")
+        );
+
+        assert_eq!(
+            reassemble(&mut state, &chunk("c", 0, 2, 4, b"ab")).unwrap(),
+            None
+        );
+        assert_eq!(
+            err(reassemble(&mut state, &chunk("d", 1, 2, 4, b"cd"))),
+            "interleaved chunk id"
+        );
+        assert!(state.is_none(), "dropped");
+
+        reassemble(&mut state, &chunk("c", 0, 2, 4, b"ab")).unwrap();
+        assert_eq!(
+            err(reassemble(&mut state, &chunk("c", 1, 3, 4, b"cd"))),
+            "inconsistent count/byteLength"
+        );
+        reassemble(&mut state, &chunk("c", 0, 2, 4, b"ab")).unwrap();
+        assert!(err(reassemble(&mut state, &chunk("c", 0, 2, 4, b"ab"))).contains("out-of-order"));
+        reassemble(&mut state, &chunk("c", 0, 2, 4, b"ab")).unwrap();
+        assert_eq!(
+            err(reassemble(&mut state, &chunk("c", 1, 2, 4, b"cdefg"))),
+            "chunk data exceeds declared byteLength"
+        );
+        reassemble(&mut state, &chunk("c", 0, 2, 10, b"ab")).unwrap();
+        assert!(err(reassemble(&mut state, &chunk("c", 1, 2, 10, b"cd")))
+            .contains("reassembled 4 bytes, declared 10"));
+        assert!(
+            err(reassemble(&mut state, &chunk("c", 0, 1, 1, &[0xff]))).contains("invalid utf-8")
+        );
+        assert!(err(reassemble(&mut state, &chunk("c", 0, 1, 4, b"nope"))).contains("invalid json"));
+        assert!(err(reassemble(&mut state, &serde_json::json!({"type": "rpc_chunk", "chunkId": "c", "index": 0, "count": 1, "byteLength": 1, "data": "%%%"})))
+            .contains("bad base64"));
+        assert!(
+            state.is_some(),
+            "a chunk that is no base64 is not the sequence's end"
+        );
+
+        state = None;
+        let whole = reassemble(&mut state, &chunk("c", 0, 1, 7, b"{\"a\":1}")).unwrap();
+        assert_eq!(whole, Some(serde_json::json!({"a": 1})));
     }
 }

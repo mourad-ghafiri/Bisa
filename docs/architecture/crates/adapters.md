@@ -101,6 +101,7 @@ no effort.
 | A verdict is printed in the shape its harness reads, and no opinion prints nothing | `hooks/mod.rs` — `a_verdict_is_printed_in_the_shape_its_harness_reads_and_no_opinion_prints_nothing`; `hooks/copilot.rs` — `every_event_a_row_reads_runs_the_reporter_under_its_pascal_case_name`, `the_guard_is_a_second_pre_tool_use_entry_with_its_own_time_and_only_there` |
 | A dead-model line is classified once, conservatively; the excerpt survives a lowercasing that changes byte length | `util.rs` tests |
 | The A2A adapter is behind its feature and its id pattern is `a2a:<base-url>` | `tests/it/a2a.rs` |
+| A remote task that stops for a person is answered on the task, by the request's own id: an answer to a request that is not the one waiting is refused and leaves the one waiting as it is; a sign-in allowed resumes the polling, denied ends the session | `tests/it/a2a.rs` — `a2a_a_task_that_stops_for_a_person_is_answered_on_the_task` |
 | A remote task is polled on a `PollPlan` — 2 s, lengthening ×1.5 to 10 s while its state stays the same, back to 2 s when it moves; never shorter than it was, never a spin — which a test against a loopback stub names in milliseconds (`with_poll`); the Codex usage reader reads its answer with the harness crate's `next_line` | `src/a2a.rs` unit test, `tests/it/a2a.rs` (`FEATURES=a2a`) |
 | This crate never names `HumanConsent` or the consented git tier | `crates/bisa-core/tests/it/layering.rs` |
 

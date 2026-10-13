@@ -98,3 +98,55 @@ fn the_editors_bounds_are_the_registrys() {
     assert_eq!(EditorCaps::MOST_EDITABLE, most_editable);
     assert!(most_editable <= most_refused, "what is edited is read");
 }
+
+/// A `cache.*` write is re-read at once: a new cap for the code host caches
+/// makes them anew, and the same cap again leaves them as they are.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cache_write_is_re_read_and_a_new_cap_rebuilds_the_code_host_caches() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws =
+        Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+    let engine = Engine::start(
+        ws,
+        HarnessCatalog::new(),
+        EngineConfig {
+            design_enabled: false,
+            events_enabled: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(engine.cache_settings().codehost_max_entries, 256);
+    engine
+        .set_setting(
+            SettingScope::Machine,
+            None,
+            "cache.codehost.max_entries",
+            json!(300),
+        )
+        .unwrap();
+    assert_eq!(engine.cache_settings().codehost_max_entries, 300);
+    engine
+        .set_setting(
+            SettingScope::Machine,
+            None,
+            "cache.codehost.max_entries",
+            json!(300),
+        )
+        .unwrap();
+    assert_eq!(engine.cache_settings().codehost_max_entries, 300);
+    engine
+        .set_setting(
+            SettingScope::Machine,
+            None,
+            "cache.codehost.ttl_ms",
+            json!(5_000),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.cache_settings().codehost_max_entries,
+        300,
+        "the cap stands"
+    );
+    engine.shutdown().await;
+}

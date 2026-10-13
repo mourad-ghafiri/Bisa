@@ -727,7 +727,9 @@ impl Presence {
                 tokio::time::sleep(retain).await;
                 owned.presence.drop_ended(&owned, id, epoch);
             });
+            // LCOV_EXCL_START: the engine still being built has no owned handle; every park in a test runs on a built engine
         }
+        // LCOV_EXCL_STOP
     }
 
     /// The retention window closed on a finished — or a parked — session:
@@ -737,7 +739,9 @@ impl Presence {
             e.epoch == epoch
                 && (e.presence.state.is_ended() || e.presence.state == SessionState::Parked)
         }) else {
+            // LCOV_EXCL_START: the row moved after the retention clock started; a race the epoch guards
             return;
+            // LCOV_EXCL_STOP
         };
         // An interactive session has no registry entry: the roster row and
         // the desk's own state — its secret, its files, the reader of its
@@ -818,7 +822,7 @@ impl Presence {
                     Some(entry.presence.clone())
                 }
             }
-            None => None,
+            None => None, // LCOV_EXCL_LINE: the row left between its guard and this lock: a race
         };
         if let Some(presence) = changed {
             self.say(inner, &presence);
@@ -1062,7 +1066,9 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
                         if !made && !entry.presence.children.iter().any(|c| c.id == parent) {
                             // Over the bound, or a child that ended this
                             // turn: its ask is nothing here.
+                            // LCOV_EXCL_START: a child's ask when the child could not be made, over the bound; the bound is held by the word tests
                             return false;
+                            // LCOV_EXCL_STOP
                         }
                         push_wait(entry, wait);
                         let on = child_wait(entry, &parent).cloned();
@@ -1070,7 +1076,9 @@ fn fold(entry: &mut Entry, event: &SessionEvent, now: u64) -> bool {
                             Some(on) => {
                                 child_state(entry, &parent, SessionState::Waiting { on }, now)
                             }
+                            // LCOV_EXCL_START: push_wait always records the wait it was handed; the arm keeps the match total
                             None => false,
+                            // LCOV_EXCL_STOP
                         };
                         moved || made
                     }
@@ -1415,7 +1423,9 @@ fn push_wait(entry: &mut Entry, wait: OpenWait) {
         return;
     }
     match &wait.tool {
+        // LCOV_EXCL_START: a wait on the call is ended before its start is pushed (end_waits_by_tool); the arm keeps the check total
         Some(tool) => {
+            // LCOV_EXCL_STOP
             let same_call = entry.waits.iter().any(|w| {
                 w.owner == owner
                     && w.tool.as_ref().is_some_and(|t| {
@@ -1423,7 +1433,7 @@ fn push_wait(entry: &mut Entry, wait: OpenWait) {
                     })
             });
             if same_call {
-                return;
+                return; // LCOV_EXCL_LINE: a wait's tool id is its request id: same call is the same id
             }
             entry
                 .waits
@@ -1597,7 +1607,9 @@ fn child(
 ) -> bool {
     match entry.presence.children.iter_mut().find(|c| &c.id == id) {
         Some(c) => f(c, now),
+        // LCOV_EXCL_START: every caller makes the child first (ensure_child); the arm keeps the match total
         None => false,
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1918,6 +1930,23 @@ mod tests {
         assert!(e.presence.children.is_empty(), "{:?}", e.presence.children);
         assert!(e.waits.is_empty());
         assert_eq!(e.presence.state, SessionState::Thinking);
+    }
+
+    #[test]
+    fn a_sub_agent_answered_on_one_ask_still_waits_on_its_other() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &spawn("t1", "explore"), 2);
+        fold(&mut e, &child_asks("t1", "toolu_a", "Read"), 3);
+        fold(&mut e, &child_asks("t1", "toolu_b", "Write"), 4);
+        assert_eq!(e.waits.len(), 2);
+        assert!(waiting_on_tool(&child_of(&e, "t1").state, "Write"));
+        // The newer ask answered: the child goes back to the older one.
+        assert!(fold(&mut e, &resolved("toolu_b"), 5));
+        assert!(waiting_on_tool(&child_of(&e, "t1").state, "Read"));
+        // The last one answered: the child thinks again.
+        assert!(fold(&mut e, &resolved("toolu_a"), 6));
+        assert_eq!(child_of(&e, "t1").state, SessionState::Thinking);
     }
 
     #[test]
@@ -2817,5 +2846,123 @@ mod tests {
         assert_eq!(e.presence.pid, None);
         assert_eq!(e.pid_seen_at, None);
         assert!(!e.in_turn);
+    }
+
+    // added by the coverage pass: presence.rs
+
+    fn child_of<'a>(e: &'a Entry, id: &str) -> &'a SubagentPresence {
+        e.presence
+            .children
+            .iter()
+            .find(|c| c.id.0 == id)
+            .unwrap_or_else(|| panic!("no child {id}"))
+    }
+
+    /// A gate and a sign-in have their words, and a gate's wait names its
+    /// gate; a sign-in names none.
+    #[test]
+    fn a_gate_and_a_sign_in_have_their_words_and_a_gate_wait_names_its_gate() {
+        let gate = WaitingOn::Gate {
+            gate: Gate::Approval,
+            gate_id: "g-1".into(),
+        };
+        assert_eq!(
+            gate.words(),
+            format!("the {} gate", Gate::Approval.as_str())
+        );
+        assert_eq!(gate_of(&gate), Some("g-1"));
+        let auth = WaitingOn::Auth {
+            provider: "github".into(),
+            url: None,
+        };
+        assert_eq!(auth.words(), "sign in to github");
+        assert_eq!(gate_of(&auth), None);
+    }
+
+    /// Parked drops the pid and the turn, parked again moves nothing, and
+    /// revived is idle again.
+    #[test]
+    fn a_parked_session_drops_its_pid_and_a_revived_one_is_idle_again() {
+        let mut e = entry();
+        fold(
+            &mut e,
+            &SessionEvent::Lifecycle(LifecycleEvent::ProcessStarted { pid: Some(7) }),
+            1,
+        );
+        fold(&mut e, &turn(), 2);
+        assert!(fold(
+            &mut e,
+            &SessionEvent::Lifecycle(LifecycleEvent::Parked),
+            3
+        ));
+        assert_eq!(e.presence.state, SessionState::Parked);
+        assert_eq!(e.presence.pid, None);
+        assert!(
+            !fold(&mut e, &SessionEvent::Lifecycle(LifecycleEvent::Parked), 4),
+            "already parked"
+        );
+        assert!(fold(
+            &mut e,
+            &SessionEvent::Lifecycle(LifecycleEvent::Revived),
+            5
+        ));
+        assert_eq!(e.presence.state, SessionState::Idle);
+    }
+
+    /// A sub-agent's turn, its tools around a wait of its own, and the
+    /// answer: thinking, waiting through another tool's start and end,
+    /// thinking again — the same word twice moves nothing, and its cost is
+    /// the session's.
+    #[test]
+    fn a_sub_agents_turn_and_tools_keep_its_wait_until_it_is_answered() {
+        let mut e = entry();
+        fold(&mut e, &turn(), 1);
+        fold(&mut e, &spawn("c1", "child"), 2);
+        let nested =
+            |p: ProgressEvent| SessionEvent::Progress(p.raised_by(Some(SubagentId("c1".into()))));
+        // A spawned child thinks from its start: its own turn's word repeats it.
+        fold(&mut e, &nested(ProgressEvent::TurnStarted), 3);
+        assert_eq!(child_of(&e, "c1").state, SessionState::Thinking);
+        assert!(
+            !fold(&mut e, &nested(ProgressEvent::TurnStarted), 4),
+            "the same word again moves nothing"
+        );
+        fold(&mut e, &child_asks("c1", "ask-1", "Bash"), 5);
+        assert!(matches!(
+            child_of(&e, "c1").state,
+            SessionState::Waiting { .. }
+        ));
+        fold(&mut e, &nested_tool("c1", "Read"), 6);
+        assert!(
+            matches!(child_of(&e, "c1").state, SessionState::Waiting { .. }),
+            "another tool's start leaves the wait standing"
+        );
+        fold(
+            &mut e,
+            &nested(ProgressEvent::ToolEnded {
+                name: "Read".into(),
+                ok: true,
+                id: None,
+            }),
+            7,
+        );
+        assert!(matches!(
+            child_of(&e, "c1").state,
+            SessionState::Waiting { .. }
+        ));
+        fold(&mut e, &resolved("ask-1"), 8);
+        assert_eq!(child_of(&e, "c1").state, SessionState::Thinking);
+        fold(
+            &mut e,
+            &nested(ProgressEvent::CostDelta {
+                input_tokens: 10,
+                output_tokens: 5,
+                usd_cents: 2,
+            }),
+            9,
+        );
+        assert_eq!(e.presence.cost.usd_cents, 2);
+        assert_eq!(e.presence.cost.input_tokens, 10);
+        assert_eq!(e.presence.cost.output_tokens, 5);
     }
 }

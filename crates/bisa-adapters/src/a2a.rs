@@ -458,7 +458,7 @@ async fn poll_task(
         tokio::time::sleep(delay).await;
         let task_id = match shared.task_id.locked().clone() {
             Some(t) => t,
-            None => return,
+            None => return, // LCOV_EXCL_LINE: a poll starts only once a task was named; the arm keeps the match total
         };
         let body = json!({
             "jsonrpc": "2.0", "id": new_ulid(),
@@ -716,8 +716,17 @@ impl HarnessSession for A2aSession {
     }
 
     async fn answer(&self, request_id: &str, answer: InputAnswer) -> Result<(), HarnessError> {
-        let pending = self.shared.pending_input.locked().take();
-        if pending.as_deref() != Some(request_id) {
+        // The request waiting is taken by its own id only: an answer to a
+        // request that is not the one waiting leaves the one waiting as it is.
+        let taken = {
+            let mut pending = self.shared.pending_input.locked();
+            if pending.as_deref() == Some(request_id) {
+                pending.take()
+            } else {
+                None
+            }
+        };
+        if taken.is_none() {
             return Err(HarnessError::protocol(format!(
                 "no input request {request_id} is waiting"
             )));

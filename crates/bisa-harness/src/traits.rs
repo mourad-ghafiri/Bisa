@@ -408,3 +408,152 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod default_tests {
+    use super::*;
+    use crate::event::ProgressEvent;
+    use crate::types::{Phase, SessionCost};
+
+    /// An adapter and a session that implement nothing but what the traits
+    /// require: what every default answers for them.
+    struct Bare;
+
+    #[async_trait::async_trait]
+    impl HarnessAdapter for Bare {
+        fn id(&self) -> &str {
+            "bare"
+        }
+        fn display_name(&self) -> &str {
+            "Bare harness"
+        }
+        fn caps(&self) -> HarnessCaps {
+            HarnessCaps::empty()
+        }
+        async fn probe(&self) -> ProbeResult {
+            ProbeResult::available(None)
+        }
+        async fn launch(
+            &self,
+            _spec: SessionSpec,
+        ) -> Result<Box<dyn HarnessSession>, HarnessError> {
+            Ok(Box::new(Bare))
+        }
+        async fn attach(
+            &self,
+            _token: &ResumeToken,
+        ) -> Result<Box<dyn HarnessSession>, HarnessError> {
+            Err(HarnessError::NotSupported("resume"))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HarnessSession for Bare {
+        fn snapshot(&self) -> SessionSnapshot {
+            SessionSnapshot {
+                revision: 1,
+                phase: Phase::Idle,
+                activity: None,
+                cost: SessionCost::default(),
+            }
+        }
+        fn phase(&self) -> Phase {
+            Phase::Idle
+        }
+        async fn prompt(&self, _input: PromptInput) -> Result<(), HarnessError> {
+            Ok(())
+        }
+        async fn steer(&self, _msg: Steer) -> Result<(), HarnessError> {
+            Err(HarnessError::NotSupported("steer"))
+        }
+        async fn follow_up(&self, _msg: Steer) -> Result<(), HarnessError> {
+            Err(HarnessError::NotSupported("follow_up"))
+        }
+        async fn abort(&self) -> Result<(), HarnessError> {
+            Ok(())
+        }
+        fn subscribe(&self) -> BoxEventStream {
+            futures::stream::empty().boxed()
+        }
+        fn resume_token(&self) -> Option<ResumeToken> {
+            None
+        }
+        async fn dispose(self: Box<Self>) -> Result<(), HarnessError> {
+            Ok(())
+        }
+    }
+
+    /// The defaults are the honest answers for a harness that says nothing:
+    /// no models, no efforts, no opinion on a plan or a judge, usage
+    /// unsupported in its own name, no terminal form, the empty reporting
+    /// plan, nothing translated, and an answer nobody asked for refused.
+    #[tokio::test]
+    async fn the_defaults_are_the_honest_answers_of_a_harness_that_says_nothing() {
+        let adapter = Bare;
+        assert!(adapter.models().await.is_empty());
+        assert!(adapter.efforts(Some("opus")).is_empty());
+        assert_eq!(adapter.recommended_plan(), None);
+        assert_eq!(adapter.recommended_judge(), None);
+        match adapter.usage().await {
+            crate::usage::UsageState::Unsupported { reason } => {
+                assert!(reason.contains("Bare harness"), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(adapter.interactive().is_none());
+        let ctx = crate::types::ReportingContext {
+            session: "01S".into(),
+            reporter: vec![],
+            files_dir: "/tmp".into(),
+            port: None,
+            guard: None,
+            guard_timeout_secs: 0,
+        };
+        assert_eq!(
+            adapter.interactive_reporting(&ctx),
+            crate::types::ReportingPlan::default()
+        );
+        assert!(adapter
+            .translate_report(&serde_json::json!({"anything": 1}))
+            .is_empty());
+
+        let spec = SessionSpec {
+            work_item: None,
+            cwd: std::env::temp_dir(),
+            prompt: String::new(),
+            model: None,
+            effort: None,
+            mcp_servers: vec![],
+            env: Default::default(),
+            env_remove: Vec::new(),
+            tier_ceiling: bisa_core::ToolTier::Read,
+            output_schema: None,
+            skills: vec![],
+        };
+        let session = adapter.launch(spec).await.unwrap();
+        match session
+            .answer("r1", InputAnswer::Text { text: "x".into() })
+            .await
+        {
+            Err(HarnessError::NotSupported("answer")) => {}
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A failure emitted as the last resort is the terminal end a late
+    /// subscriber is handed first.
+    #[tokio::test]
+    async fn a_failure_emitted_as_the_last_resort_is_the_terminal_end() {
+        let broadcaster = EventBroadcaster::new(8);
+        broadcaster.emit(SessionEvent::Progress(ProgressEvent::TurnStarted));
+        broadcaster.emit_failure("the wire broke");
+        let mut late = broadcaster.subscribe();
+        match late.next().await {
+            Some(SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Failed { error },
+                is_terminal: true,
+            })) => assert_eq!(error, "the wire broke"),
+            other => panic!("{other:?}"),
+        }
+    }
+}

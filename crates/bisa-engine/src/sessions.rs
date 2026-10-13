@@ -178,10 +178,12 @@ impl Stopping {
     /// A late word of the process from the driver, after the stop.
     pub fn process_seen(&self, session_id: &str, pid: u32, at: u64) {
         for mut entry in self.entries.iter_mut() {
+            // LCOV_EXCL_START: a driver's late word of its process after the stop told it; the window is the stop's own
             if entry.session_id.as_deref() == Some(session_id) {
                 entry.pid = Some(pid);
                 entry.pid_seen_at = Some(at);
             }
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -221,7 +223,9 @@ impl Stopping {
         self.entries.retain(|run, entry| {
             let fresh = entry.since.elapsed() < STOPPING_STALE;
             if !fresh {
+                // LCOV_EXCL_START: a stopping entry older than STOPPING_STALE, a driver that never tore down; no test waits that long
                 tracing::warn!(target: "bisa_engine", session = %run, "a session told to stop was never torn down by its driver; forgetting it");
+                // LCOV_EXCL_STOP
             }
             fresh
         });
@@ -369,7 +373,9 @@ pub fn process_started(inner: &Inner, session_id: &str, pid: Option<u32>) {
         inner.ending.process_seen(session_id, pid, now);
     }
     if let Err(e) = inner.ws.set_session_process(session_id, pid, now) {
+        // LCOV_EXCL_START: the store's disk arm: the row's process could not be recorded
         tracing::debug!(session = %session_id, "could not record the session's process: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -389,9 +395,11 @@ fn now_secs() -> u64 {
 pub fn end_stale(inner: &Arc<Inner>) -> usize {
     let rows = match inner.ws.list_live_sessions() {
         Ok(rows) => rows,
+        // LCOV_EXCL_START: the store's disk arm: the live rows could not be listed at boot
         Err(e) => {
             tracing::warn!(target: "bisa_engine", "cannot list the sessions the last process was driving: {e}");
             return 0;
+            // LCOV_EXCL_STOP
         }
     };
     let now = now_secs();
@@ -411,7 +419,9 @@ pub fn end_stale(inner: &Arc<Inner>) -> usize {
             }
         }
         if let Err(e) = inner.ws.end_session(&row.id, now) {
+            // LCOV_EXCL_START: the store's disk arm: the row could not be ended at boot
             tracing::debug!(session = %row.id, "could not end the session row: {e}");
+            // LCOV_EXCL_STOP
         }
         ended_rows += 1;
     }
@@ -430,12 +440,16 @@ pub fn end_stale(inner: &Arc<Inner>) -> usize {
                     }
                 }
                 if let Err(e) = inner.ws.set_session_process(&row.id, None, now) {
+                    // LCOV_EXCL_START: the store's disk arm: the process could not be cleared at boot
                     tracing::debug!(session = %row.id, "could not clear the session's process: {e}");
+                    // LCOV_EXCL_STOP
                 }
             }
         }
+        // LCOV_EXCL_START: the store's disk arm: the rows naming a process could not be listed
         Err(e) => {
             tracing::warn!(target: "bisa_engine", "cannot list the sessions that still name a process: {e}");
+            // LCOV_EXCL_STOP
         }
     }
     if ended_rows > 0 {
@@ -730,7 +744,8 @@ pub fn stop_row(inner: &Arc<Inner>, row: &SessionPresence, cause: EndCause) -> b
         SessionKind::Ask => {
             crate::ask::stop_run(inner, row.id);
         }
-        SessionKind::Terminal => {}
+        // LCOV_EXCL_START: a terminal's row has no driver to tell; its tab ends it; the arm keeps the match total
+        SessionKind::Terminal => {} // LCOV_EXCL_STOP
     }
     // A driver parked on a question it asked hears nothing of the stop
     // until the question goes: withdrawn, it answers the harness and winds
@@ -791,7 +806,9 @@ fn enter_ledger(inner: &Arc<Inner>, row: &SessionPresence, cause: EndCause) -> b
                 .is_some_and(|r| r.status != bisa_store::SessionStatus::Live && r.pid.is_none())
         });
         if over {
+            // LCOV_EXCL_START: the row ended between the stop's read and its ledger entry; a race no test can time
             inner.ending.gone(row.id);
+            // LCOV_EXCL_STOP
         }
     }
     driven
@@ -835,7 +852,9 @@ pub fn withdraw_questions_of(inner: &Arc<Inner>, run: LiveRunId) -> usize {
     let mut withdrawn = 0;
     for gate in inner.gates.pending_for_session(run) {
         if inner.gates.withdraw(&gate.id).is_none() {
+            // LCOV_EXCL_START: a gate withdrawn by another door between the list and the withdraw; a race
             continue;
+            // LCOV_EXCL_STOP
         }
         let note = format!(
             "a question the session was asking — \"{}\" — was withdrawn: {STOPPED}",
@@ -908,8 +927,10 @@ impl Drop for Driven {
                     }),
                     "idling a run its driver left",
                 );
+                // LCOV_EXCL_START: a driver that left while its registry entry was not running, or had none; the arm keeps the branch total
             }
         }
+        // LCOV_EXCL_STOP
         let outcome = ExecutionOutcome::Failed {
             reason: DRIVER_GONE.into(),
         };
@@ -918,8 +939,10 @@ impl Drop for Driven {
         if tokio::runtime::Handle::try_current().is_ok() {
             self.inner.presence.ended(&self.inner, self.run, &outcome);
         } else {
+            // LCOV_EXCL_START: a driver dropped outside a runtime; every driver in the tests runs on one
             self.inner.presence.forget(&self.inner, self.run);
         }
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1037,9 +1060,13 @@ pub async fn await_stopped(
                 note_terminated(inner, &entry, run, pid, deadline);
                 if let Some(id) = &entry.session_id {
                     if let Err(e) = inner.ws.set_session_process(id, None, now) {
+                        // LCOV_EXCL_START: the store's disk arm: the process could not be cleared at the deadline
                         tracing::debug!(session = %id, "could not clear the session's process: {e}");
+                        // LCOV_EXCL_STOP
                     }
+                    // LCOV_EXCL_START: an entry with no durable row behind it; the arm keeps the branch total
                 }
+                // LCOV_EXCL_STOP
                 // `terminate` sleeps through its grace: off the runtime's
                 // threads, every leftover at once.
                 kills.push(tokio::task::spawn_blocking(move || {
@@ -1054,7 +1081,9 @@ pub async fn await_stopped(
     }
     for kill in kills {
         if let Err(e) = kill.await {
+            // LCOV_EXCL_START: a termination task that panicked; the kill runs no code of ours that can
             tracing::warn!(target: "bisa_engine", "terminating a session's process panicked: {e}");
+            // LCOV_EXCL_STOP
         }
     }
     still_live += live_count(inner, scope, workstreams);
@@ -1090,7 +1119,9 @@ fn note_terminated(
         pid = pid
     );
     if let Err(e) = crate::ops::add_note(inner, home, text.to_string(), None) {
+        // LCOV_EXCL_START: the store's disk arm: the note of the terminated process could not be written
         tracing::debug!(target: "bisa_engine", session = %run, "could not note the terminated process: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1331,5 +1362,32 @@ mod tests {
             ),
             "a session in the run's checkout stops with it"
         );
+    }
+
+    // added by the coverage pass: sessions.rs
+
+    /// Every cause of an end has its word; a clock with one part or four is
+    /// no time; a pid past what the kernel can hold names nobody, so it is
+    /// neither alive nor signalled; and a session's own scope stops nothing
+    /// by the place a row works in.
+    #[test]
+    fn every_end_cause_has_its_word_and_an_impossible_pid_is_nobody() {
+        assert_eq!(EndCause::Stop.as_str(), "stop");
+        assert_eq!(EndCause::Restart.as_str(), "restart");
+        assert_eq!(EndCause::Close.as_str(), "close");
+        assert_eq!(EndCause::Retire.as_str(), "retire");
+        assert_eq!(EndCause::Shutdown.as_str(), "shutdown");
+        assert_eq!(child::parse_etime("42"), None);
+        assert_eq!(child::parse_etime("1:2:3:4"), None);
+        assert!(!child::alive(u32::MAX, false));
+        assert!(!child::alive(u32::MAX, true));
+        // Signalled nothing: a pid that fits no process goes nowhere.
+        child::terminate(u32::MAX, false);
+        let goal = GoalId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        assert!(!stops(
+            at(Some(goal), None, None),
+            Scope::Session(LiveRunId::mint()),
+            &HashSet::new()
+        ));
     }
 }

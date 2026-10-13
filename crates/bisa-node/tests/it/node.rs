@@ -10501,3 +10501,116 @@ async fn the_goal_routes_at_their_edges() {
     );
     node.shutdown().await;
 }
+
+// added by the coverage pass: agents_api.rs, mcp.rs
+
+/// The agent, team, session and MCP doors at their edges: an agent with a
+/// picture, and the same name twice as a second agent; a skill detached from and a server
+/// attached to an agent nobody has; a team member that is no person and a
+/// team with no name; a team made with a picture and patched with tags; a
+/// session id that is no id on a read and on a report; and a server
+/// registered under no name.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_team_session_and_mcp_doors_at_their_edges() {
+    let node = Node::start().await;
+    let png = node
+        .ws
+        .put_attachment(b"\x89PNG\r\n\x1a\nIHDR-tiny", "face.png", "image/png")
+        .unwrap();
+    let photo =
+        json!({"sha256": png.sha256, "name": "face.png", "mime": "image/png", "size": png.size});
+    let v = node
+        .post(
+            "/agents",
+            json!({"name": "Painter", "system_prompt": "You paint.", "harness": "claude-code", "photo": photo}),
+        )
+        .await;
+    let agent = v["agent"]["id"].as_str().unwrap().to_string();
+    assert_eq!(v["agent"]["photo"]["sha256"], json!(png.sha256), "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            "/agents",
+            Some(
+                json!({"name": "Painter", "system_prompt": "You paint.", "harness": "claude-code"}),
+            ),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_ne!(
+        v["agent"]["id"],
+        json!(agent),
+        "the same name twice is a second agent under an id of its own: {v}"
+    );
+    let (code, v) = node
+        .req("DELETE", "/agents/ghost/skills/review", None)
+        .await;
+    assert_eq!(code, 404, "{v}");
+    let (code, v) = node.req("POST", "/agents/ghost/mcps/fs", None).await;
+    assert_eq!(code, 404, "{v}");
+    let (code, v) = node
+        .req("POST", &format!("/agents/{agent}/mcps/nobody"), None)
+        .await;
+    assert_eq!(code, 404, "an MCP server nobody recorded: {v}");
+
+    let (code, v) = node
+        .req(
+            "POST",
+            "/teams",
+            Some(json!({"name": "crew", "members": [{"human": "not-a-key"}]})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            "/teams",
+            Some(json!({"name": "   ", "members": []})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let v = node
+        .post(
+            "/teams",
+            json!({"name": "Portrait crew", "members": [{"agent": agent}], "photo": photo}),
+        )
+        .await;
+    let team = v["team"]["id"].as_str().unwrap().to_string();
+    assert_eq!(v["team"]["photo"]["sha256"], json!(png.sha256), "{v}");
+    let (code, v) = node
+        .req(
+            "PATCH",
+            &format!("/teams/{team}"),
+            Some(json!({"tags": ["Art"]})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["team"]["tags"], json!(["art"]));
+
+    let (code, v) = node.req("GET", "/sessions/not-an-id", None).await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node
+        .req("POST", "/sessions/not-an-id/report", Some(json!({})))
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node.req("POST", "/sessions/not-an-id/close", None).await;
+    assert_eq!(code, 400, "a session id that is not one: {v}");
+
+    let (code, v) = node
+        .req(
+            "POST",
+            "/mcp",
+            Some(json!({"id": "nameless", "transport": {"transport": "stdio", "name": "  ", "command": "x", "args": []}})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            "/mcp/probe",
+            Some(json!({"transport": {"transport": "stdio", "name": "  ", "command": "x"}})),
+        )
+        .await;
+    assert_eq!(code, 400, "a nameless transport is not dialled: {v}");
+    node.shutdown().await;
+}

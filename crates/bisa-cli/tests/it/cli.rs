@@ -947,6 +947,28 @@ fn a_workflow_runs_in_the_workspace_from_the_cli() {
     assert!(!goal_flag.status.success());
 }
 
+/// `harness probe` says why a harness is unavailable, in words; an id the
+/// catalog does not hold is refused.
+#[test]
+fn harness_probe_says_why_a_harness_is_unavailable() {
+    let dir = tempfile::tempdir().unwrap();
+    let harnesses = dir.path().join("harnesses");
+    std::fs::create_dir_all(&harnesses).unwrap();
+    std::fs::write(
+        harnesses.join("ghost.json"),
+        serde_json::json!({"id": "ghost", "label": "Ghost", "command": "bisa-no-such-harness-binary"})
+            .to_string(),
+    )
+    .unwrap();
+    let probe = bisa(dir.path(), &["harness", "probe", "custom:ghost"]);
+    assert_ok(&probe, "harness probe");
+    let text = stdout(&probe);
+    assert!(text.contains("custom:ghost: unavailable"), "{text}");
+    assert!(text.contains("not found on PATH"), "{text}");
+    let unknown = bisa(dir.path(), &["harness", "probe", "custom:nobody"]);
+    assert!(!unknown.status.success(), "an unknown harness is refused");
+}
+
 #[test]
 fn harness_list_reports_probes() {
     let dir = tempfile::tempdir().unwrap();
@@ -4008,9 +4030,27 @@ fn usage_lists_the_holders_and_rm_refuses_while_one_remains() {
     let used = bisa(dir.path(), &["agent", "usage", &agent]);
     assert_ok(&used, "agent usage");
     let text = stdout(&used);
+    assert!(text.contains("1 thing points"), "{text}");
     assert!(text.contains("team"), "{text}");
     assert!(text.contains("Engineering"), "{text}");
     assert!(text.contains("Remove it from the team"), "{text}");
+
+    // Two holders are said in the plural.
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &["team", "create", "Platform", "--agent", &agent],
+        ),
+        "team create",
+    );
+    let twice = bisa(dir.path(), &["agent", "usage", &agent]);
+    assert_ok(&twice, "agent usage");
+    assert!(
+        stdout(&twice).contains("2 things point"),
+        "{}",
+        stdout(&twice)
+    );
+    assert_ok(&bisa(dir.path(), &["team", "rm", "platform"]), "team rm");
 
     // --json is the same answer, structurally.
     let as_json = bisa(dir.path(), &["--json", "agent", "usage", &agent]);
@@ -5920,4 +5960,408 @@ fn the_retired_verb_and_its_flags_are_gone() {
             "`signal {verb}` is in the help:\n{help}"
         );
     }
+}
+
+// added by the coverage pass: agents.rs
+
+/// The agent and team verbs at their edges: every model strategy word and
+/// one nobody knows; the respond policy's words; a prompt read from a file,
+/// a prompt given twice refused, none at all refused; an edit of the prompt,
+/// the description, the policy and the servers; a server attached and
+/// detached by the agent's own verbs; an agent switched off; a harness with
+/// no model list said so; a team made with a
+/// person; a member that is both or neither refused; and an abort that
+/// needs the daemon.
+#[test]
+fn agent_and_team_verbs_at_their_edges() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    for (word, strategy) in [
+        ("round-robin", "round_robin"),
+        ("least_busy", "least_busy"),
+        ("auto-route", "auto_route"),
+    ] {
+        let added = bisa(
+            dir.path(),
+            &[
+                "--json",
+                "agent",
+                "add",
+                "--name",
+                &format!("Strategy {word}"),
+                "--prompt",
+                "p",
+                "--harness",
+                "custom:stub",
+                "--model",
+                "m",
+                "--strategy",
+                word,
+            ],
+        );
+        assert_ok(&added, "agent add --strategy");
+        assert_eq!(
+            json(&added)["agent"]["models"]["strategy"],
+            strategy,
+            "{word}"
+        );
+    }
+    let bogus = bisa(
+        dir.path(),
+        &[
+            "agent",
+            "add",
+            "--name",
+            "Bogus",
+            "--prompt",
+            "p",
+            "--strategy",
+            "bogus",
+        ],
+    );
+    assert!(!bogus.status.success(), "a strategy nobody knows");
+
+    let chatty = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "agent",
+            "add",
+            "--name",
+            "Chatty",
+            "--prompt",
+            "p",
+            "--harness",
+            "custom:stub",
+            "--respond",
+            "members",
+        ],
+    );
+    assert_ok(&chatty, "agent add --respond members");
+    assert_eq!(json(&chatty)["agent"]["respond"], "members");
+    let nobody = bisa(
+        dir.path(),
+        &[
+            "agent",
+            "add",
+            "--name",
+            "Odd",
+            "--prompt",
+            "p",
+            "--respond",
+            "nobody",
+        ],
+    );
+    assert!(!nobody.status.success(), "a policy nobody knows");
+
+    let prompt_file = dir.path().join("prompt.md");
+    std::fs::write(&prompt_file, "You read prompts from files.").unwrap();
+    let prompt_path = prompt_file.to_str().unwrap();
+    let reader = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "agent",
+            "add",
+            "--name",
+            "Reader",
+            "--prompt-file",
+            prompt_path,
+            "--harness",
+            "custom:stub",
+            "--description",
+            "Reads.",
+        ],
+    );
+    assert_ok(&reader, "agent add --prompt-file");
+    assert_eq!(
+        json(&reader)["agent"]["system_prompt"],
+        "You read prompts from files."
+    );
+    let twice = bisa(
+        dir.path(),
+        &[
+            "agent",
+            "add",
+            "--name",
+            "Twice",
+            "--prompt",
+            "p",
+            "--prompt-file",
+            prompt_path,
+        ],
+    );
+    assert!(!twice.status.success(), "a prompt given twice");
+    let mute = bisa(dir.path(), &["agent", "add", "--name", "Mute"]);
+    assert!(!mute.status.success(), "an agent needs a prompt");
+
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &[
+                "mcp",
+                "add",
+                "--id",
+                "fs",
+                "--name",
+                "fs",
+                "--command",
+                "mcp-fs",
+            ],
+        ),
+        "mcp add",
+    );
+    let edited = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "agent",
+            "edit",
+            "reader",
+            "--prompt",
+            "Now you write.",
+            "--description",
+            "Writes.",
+            "--respond",
+            "owner-only",
+            "--mcp",
+            "fs",
+        ],
+    );
+    assert_ok(&edited, "agent edit");
+    let e = json(&edited)["agent"].clone();
+    assert_eq!(e["system_prompt"], "Now you write.");
+    assert_eq!(e["description"], "Writes.");
+    assert_eq!(e["respond"], "owner_only");
+    assert_eq!(e["mcps"], serde_json::json!(["fs"]));
+
+    let attached = bisa(
+        dir.path(),
+        &["--json", "agent", "mcp", "add", "chatty", "fs"],
+    );
+    assert_ok(&attached, "agent mcp add");
+    assert_eq!(json(&attached)["agent"]["mcps"], serde_json::json!(["fs"]));
+    let detached = bisa(
+        dir.path(),
+        &["--json", "agent", "mcp", "rm", "chatty", "fs"],
+    );
+    assert_ok(&detached, "agent mcp rm");
+    assert_eq!(json(&detached)["agent"]["mcps"], serde_json::json!([]));
+
+    let off = bisa(
+        dir.path(),
+        &["--json", "agent", "edit", "chatty", "--enabled", "false"],
+    );
+    assert_ok(&off, "agent edit --enabled false");
+    assert_eq!(json(&off)["agent"]["enabled"], false);
+
+    let models = bisa(dir.path(), &["agent", "models", "custom:stub"]);
+    assert_ok(&models, "agent models");
+    let said = format!(
+        "{}{}",
+        stdout(&models),
+        String::from_utf8_lossy(&models.stderr)
+    );
+    assert!(said.contains("no model list"), "{said}");
+
+    let me = json(&bisa(dir.path(), &["--json", "init"]))["pubkey"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let guild = bisa(
+        dir.path(),
+        &["--json", "team", "create", "Guild", "--human", &me],
+    );
+    assert_ok(&guild, "team create --human");
+    let team_id = json(&guild)["team"]["id"].as_str().unwrap().to_string();
+    assert_eq!(json(&guild)["team"]["members"][0]["human"], me.as_str());
+    let both = bisa(
+        dir.path(),
+        &[
+            "team",
+            "add-member",
+            &team_id,
+            "--human",
+            &me,
+            "--agent",
+            "chatty",
+        ],
+    );
+    assert!(
+        !both.status.success(),
+        "a member is a person or an agent, not both"
+    );
+    let neither = bisa(dir.path(), &["team", "add-member", &team_id]);
+    assert!(!neither.status.success(), "a member is somebody");
+
+    let abort = bisa(
+        dir.path(),
+        &["session", "abort", "01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+    );
+    assert!(!abort.status.success(), "aborting needs the daemon");
+}
+
+// added by the coverage pass: mcp.rs, skills.rs
+
+/// The server and skill verbs at their edges: an environment entry that is
+/// no pair and a server with no transport refused; a working directory
+/// shown; an edit that gives a new transport, offline; a probe through the
+/// daemon; a skill with no procedure refused; a skill renamed and given a
+/// new procedure from a file, offline; and a skill from the catalog says so.
+#[test]
+fn mcp_and_skill_verbs_at_their_edges() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let no_pair = bisa(
+        dir.path(),
+        &[
+            "mcp",
+            "add",
+            "--id",
+            "a",
+            "--name",
+            "a",
+            "--command",
+            "x",
+            "--env",
+            "NOEQUALS",
+        ],
+    );
+    assert!(!no_pair.status.success());
+    assert!(
+        String::from_utf8_lossy(&no_pair.stderr).contains("KEY=VALUE"),
+        "{:?}",
+        no_pair
+    );
+    let no_transport = bisa(dir.path(), &["mcp", "add", "--id", "b", "--name", "b"]);
+    assert!(!no_transport.status.success());
+    assert!(
+        String::from_utf8_lossy(&no_transport.stderr).contains("needs a transport"),
+        "{:?}",
+        no_transport
+    );
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &[
+                "mcp",
+                "add",
+                "--id",
+                "cwdy",
+                "--name",
+                "cwdy",
+                "--command",
+                "x",
+                "--cwd",
+                "/tmp/work",
+            ],
+        ),
+        "mcp add --cwd",
+    );
+    let shown = bisa(dir.path(), &["mcp", "show", "cwdy"]);
+    assert_ok(&shown, "mcp show");
+    assert!(
+        stdout(&shown).contains("in /tmp/work"),
+        "{}",
+        stdout(&shown)
+    );
+    let edited = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "mcp",
+            "edit",
+            "cwdy",
+            "--url",
+            "https://example.test/mcp",
+        ],
+    );
+    assert_ok(&edited, "mcp edit --url");
+    assert_eq!(json(&edited)["mcp"]["transport"]["transport"], "http");
+
+    let node = spawn_daemon(dir.path());
+    let probed = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "mcp",
+            "probe",
+            "--command",
+            "/definitely/not/a/binary",
+            "--timeout-secs",
+            "3",
+        ],
+    );
+    assert_ok(&probed, "mcp probe through the daemon");
+    assert_eq!(json(&probed)["report"]["ok"], false);
+    drop(node);
+
+    let bare = bisa(
+        dir.path(),
+        &[
+            "skill",
+            "add",
+            "--id",
+            "bare",
+            "--name",
+            "Bare",
+            "--description",
+            "d",
+        ],
+    );
+    assert!(!bare.status.success(), "a skill needs a procedure");
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &[
+                "skill",
+                "add",
+                "--id",
+                "how",
+                "--name",
+                "How",
+                "--description",
+                "d",
+                "--markdown",
+                "# Old",
+            ],
+        ),
+        "skill add --markdown",
+    );
+    let body = dir.path().join("how.md");
+    std::fs::write(&body, "# How\nDo it.").unwrap();
+    let renamed = bisa(
+        dir.path(),
+        &[
+            "--json",
+            "skill",
+            "edit",
+            "how",
+            "--name",
+            "How To",
+            "--file",
+            body.to_str().unwrap(),
+        ],
+    );
+    assert_ok(&renamed, "skill edit");
+    assert_eq!(json(&renamed)["skill"]["name"], "How To");
+    assert!(json(&renamed)["skill"]["markdown"]
+        .as_str()
+        .unwrap()
+        .contains("Do it."));
+
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &["catalog", "install", "skill", "acceptance-criteria"],
+        ),
+        "catalog install skill",
+    );
+    let from_catalog = bisa(dir.path(), &["skill", "show", "acceptance-criteria"]);
+    assert_ok(&from_catalog, "skill show");
+    assert!(
+        stdout(&from_catalog).contains("from the catalog: acceptance-criteria"),
+        "{}",
+        stdout(&from_catalog)
+    );
 }

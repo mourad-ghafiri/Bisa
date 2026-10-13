@@ -268,6 +268,7 @@ fn decision_making_agent(inner: &Arc<Inner>, installed: &[Installed]) -> Check {
     };
     let status = match decider::status(inner) {
         Ok(s) => s,
+        // LCOV_EXCL_START: the status reads a compiled-in record that always parses; the arm keeps the match total
         Err(e) => {
             return Check {
                 id: CheckId::DecisionMakingAgent,
@@ -278,7 +279,7 @@ fn decision_making_agent(inner: &Arc<Inner>, installed: &[Installed]) -> Check {
                 door,
                 fixes: Vec::new(),
             }
-        }
+        } // LCOV_EXCL_STOP
     };
     if status.enabled && status.ready {
         // The model, and the effort it works at when a harness answers.

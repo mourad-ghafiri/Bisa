@@ -54,6 +54,18 @@ fn mock_report() -> UsageState {
 }
 
 async fn boot() -> (tempfile::TempDir, PathBuf, tokio::sync::oneshot::Sender<()>) {
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::new(MockAdapter {
+        id: "mock".into(),
+        usage: Some(mock_report()),
+        ..Default::default()
+    }));
+    boot_with(catalog).await
+}
+
+async fn boot_with(
+    catalog: HarnessCatalog,
+) -> (tempfile::TempDir, PathBuf, tokio::sync::oneshot::Sender<()>) {
     let dir = tempfile::tempdir().expect("tempdir");
     let data = dir.path().to_path_buf();
     let ws = Workspace::open_with_keystore(
@@ -61,12 +73,6 @@ async fn boot() -> (tempfile::TempDir, PathBuf, tokio::sync::oneshot::Sender<()>
         Box::new(FileKeyStore::new(Paths::new(&data).identity_dir())),
     )
     .expect("workspace");
-    let mut catalog = HarnessCatalog::new();
-    catalog.register(Arc::new(MockAdapter {
-        id: "mock".into(),
-        usage: Some(mock_report()),
-        ..Default::default()
-    }));
     let engine = Engine::start(
         ws,
         catalog,
@@ -192,4 +198,38 @@ async fn a_harness_usage_is_read_once_said_honestly_and_switched_off() {
     let (status, v) = request(&socket, "GET", "/harnesses/mock/usage?refresh=true", None).await;
     assert_eq!(status, 200, "{v}");
     assert_eq!(v["usage"]["state"], "off");
+}
+
+/// A custom harness — a descriptor under the data directory's `harnesses` —
+/// is listed under its own tier, probed by its command on `PATH`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_custom_harness_is_listed_under_its_own_tier() {
+    let custom = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        custom.path().join("ghost.json"),
+        json!({"id": "ghost", "label": "Ghost", "command": "bisa-no-such-harness-binary"})
+            .to_string(),
+    )
+    .unwrap();
+    let mut catalog = HarnessCatalog::new();
+    assert!(catalog.load_custom_dir(custom.path()).is_empty());
+    let (_dir, socket, _stop) = boot_with(catalog).await;
+    let (status, v) = request(&socket, "GET", "/harnesses", None).await;
+    assert_eq!(status, 200, "{v}");
+    let ghost = v["harnesses"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|r| r["id"] == "custom:ghost")
+        .cloned()
+        .expect("the custom harness is listed");
+    assert_eq!(ghost["tier"], "custom");
+    assert_eq!(ghost["installed"], Value::Bool(false));
+    assert!(
+        ghost["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not found on PATH"),
+        "{ghost}"
+    );
 }

@@ -142,10 +142,11 @@ pub fn refresh_for(inner: &crate::Inner, key: &str) {
     }
     let resolved = match inner.ws.settings(None) {
         Ok(resolved) => resolved,
+        // LCOV_EXCL_START: the write that led here resolved the same layers a moment before; a read that fails between the two is a race
         Err(e) => {
             tracing::warn!(target: "bisa_engine::cache", key, "the cache settings were not read; the ones in force stand: {e}");
             return;
-        }
+        } // LCOV_EXCL_STOP
     };
     inner.cache.set(CacheSettings::from_resolved(&resolved));
 }

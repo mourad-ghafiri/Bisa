@@ -162,6 +162,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A report that names no event is nothing.
+    #[test]
+    fn a_report_naming_no_event_is_nothing() {
+        assert!(translate(&json!({"input": {"x": 1}})).is_empty());
+    }
+
     #[test]
     fn the_extension_bakes_the_reporter_in_and_is_passed_for_one_launch() {
         let ctx = ReportingContext {

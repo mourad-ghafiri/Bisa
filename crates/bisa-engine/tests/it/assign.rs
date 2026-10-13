@@ -899,3 +899,58 @@ async fn a_step_nobody_takes_and_that_names_no_harness_runs_on_the_default() {
     );
     engine.shutdown().await;
 }
+
+// added by the coverage pass: assign.rs
+
+/// Whom an assignee names when a message is addressed to it: a person is
+/// their own key; a disabled agent and one nobody has are nobody; a team
+/// names its enabled agents and its people, each once.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_assignee_names_its_principals_and_the_disabled_and_the_unknown_name_nobody() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let inner = engine.inner();
+    let ws = engine.workspace();
+    let me = ws.owner_principal();
+    assert_eq!(
+        assign::principals(inner, &Assignee::Human(me.clone())),
+        std::slice::from_ref(&me)
+    );
+    assert!(
+        assign::principals(inner, &Assignee::Agent("ghost".into())).is_empty(),
+        "an agent nobody has"
+    );
+    let quiet = agent(ws, "quiet", "mock");
+    let mut off = ws.get_agent(&aid(&quiet)).unwrap();
+    let quiet_key = off.pubkey.clone();
+    off.enabled = false;
+    ws.update_agent(off).unwrap();
+    assert!(
+        assign::principals(inner, &Assignee::Agent(quiet.clone())).is_empty(),
+        "a disabled agent is not addressed"
+    );
+    let loud = agent(ws, "loud", "mock");
+    let loud_key = ws.get_agent(&aid(&loud)).unwrap().pubkey;
+    let team = ws
+        .create_team(
+            "crew",
+            None,
+            vec![
+                Assignee::Agent(loud.clone()),
+                Assignee::Agent(quiet.clone()),
+                Assignee::Human(me.clone()),
+            ],
+            Default::default(),
+        )
+        .unwrap();
+    let named = assign::principals(inner, &Assignee::Team(team.id.to_string()));
+    assert!(
+        named.contains(&loud_key) && named.contains(&me),
+        "{named:?}"
+    );
+    assert!(
+        !named.contains(&quiet_key),
+        "the disabled member is left out: {named:?}"
+    );
+    engine.shutdown().await;
+}

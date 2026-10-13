@@ -113,10 +113,14 @@ pub async fn workers(inner: &Inner, spec: &WorkItemSpec) -> Vec<String> {
             continue;
         }
         let Ok(agent_id) = AgentId::new(&id) else {
+            // LCOV_EXCL_START: an assignee's id is validated where it is written; the arm keeps the loop total
             continue;
+            // LCOV_EXCL_STOP
         };
         let Ok(def) = inner.ws.get_agent(&agent_id) else {
+            // LCOV_EXCL_START: an agent a team or a goal names cannot be removed while named (refuse_if_used); the arm keeps the loop total
             continue;
+            // LCOV_EXCL_STOP
         };
         if !def.enabled {
             continue;
@@ -189,7 +193,8 @@ pub fn principals(inner: &Inner, assignee: &Assignee) -> Vec<PrincipalId> {
                     Assignee::Human(pk) => out.push(pk),
                     // Nesting is rejected at validation; a team inside a team
                     // is data that cannot exist.
-                    Assignee::Team(_) => {}
+                    // LCOV_EXCL_START: a team inside a team is refused at validation; the arm keeps the match total
+                    Assignee::Team(_) => {} // LCOV_EXCL_STOP
                 }
             }
         }
