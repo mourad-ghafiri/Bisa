@@ -260,6 +260,8 @@ test("answers read as one line each, by type — a noul is a probability, not a 
   );
   // 0.5 is the least sure a noul answer can be — |0.5 - 0.5| * 2 = 0.
   assert.match(answerLines({ answers: { e: { type: "noul", noul: 0.5 } } })[0], /\(0% sure\)/);
+  // An answer of a kind the contract does not know reads as no answer.
+  assert.deepEqual(answerLines({ answers: { f: { type: "mystery" } } }), ["f: —"]);
   assert.deepEqual(answerLines(null), []);
 });
 

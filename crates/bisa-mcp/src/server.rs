@@ -134,10 +134,12 @@ impl ToolCore {
             | Scope::Conversation {
                 goal: Some(goal), ..
             } => Some(goal.clone()),
+            // LCOV_EXCL_START: a worker's goal is asked for through resolve_goal, which only the core agents' tools reach and a worker holds none of; the arm keeps the match total
             Scope::WorkItem(_) => match self.run_home().await {
                 Some(RunHome::Goal(goal)) => Some(goal),
                 Some(RunHome::Workspace) | None => None,
             },
+            // LCOV_EXCL_STOP
             // A conversation may itself be a goal thread — a goal's
             // messages are scoped by its own id — so the scope id goes out as
             // a candidate `goal` (see `Scope::apply`) and the engine says
@@ -723,18 +725,21 @@ impl ToolCore {
             .await
             .map_err(intake_err)?
         {
-            GuardedWrite::Written { hash } => Ok(format!("Remembered \"{slug}\" (hash {hash}).")),
-            GuardedWrite::Stale {
+            Ok(GuardedWrite::Written { hash }) => {
+                Ok(format!("Remembered \"{slug}\" (hash {hash})."))
+            }
+            Ok(GuardedWrite::Stale {
                 errors,
                 current_hash,
                 current_value,
-            } => Ok(format!(
+            }) => Ok(format!(
                 "NOT stored — \"{slug}\" changed since you read it ({}).\n\
                  Current value (hash {current_hash}):\n{}\n\
                  Merge and retry with that base_hash.",
                 errors.join("; "),
                 current_value.unwrap_or_default()
             )),
+            Err(errors) => Err(Self::refused(errors)),
         }
     }
 
@@ -4474,6 +4479,74 @@ mod tests {
         assert_eq!(
             browser_words(&outline),
             "tab b1 · http://localhost:5173/\n\ne1 heading \"Welcome\"\ne2 button \"Sign in\""
+        );
+    }
+}
+
+#[cfg(test)]
+mod word_tests {
+    use super::*;
+
+    /// What the words helpers make of what the engine sends at its edges: a
+    /// count where a list was expected, nothing where something was, a
+    /// listing with no next due, a template installed, a workflow with no
+    /// tags and one of the catalog's, a workflow with no problems, no
+    /// drawings and one scoped to nothing, a snapshot of no size, a flutter
+    /// that is not installed, a screenshot beside a device.
+    #[test]
+    fn the_words_helpers_read_the_engines_edges() {
+        assert_eq!(ids(&serde_json::json!(3)), "3");
+        assert_eq!(ids(&serde_json::json!(null)), "");
+        assert_eq!(or_none(String::new()), "none");
+        let overview = render_overview(&serde_json::json!({
+            "agents": {"total": 1, "enabled": 1, "core": [], "installed": 3},
+            "teams": [], "channels": [], "skills": 0,
+            "mcp_servers": {"total": 0, "enabled": 0},
+            "listening": {"workflows": 1, "goals": 1, "paused": 0, "listeners": 1},
+            "projects": [], "goals": {"by_status": {}, "waiting_on_human": []},
+            "workflows": {"total": 0, "catalog": 0}, "running": [], "catalog": {}
+        }));
+        assert!(overview.contains("none scheduled"), "{overview}");
+        let list = render_workflow_list(&serde_json::json!({
+            "templates": [{"slug": "software-feature", "name": "Software feature",
+                           "description": "d", "tags": [], "requires": [], "installed": true}],
+            "workflows": [{"id": "01W", "name": "Ask", "description": "one question",
+                           "steps": 1, "origin": {"catalog": "ask-first"}, "tags": []}]
+        }));
+        assert!(
+            list.contains("[installed]") && list.contains("catalog ask-first"),
+            "{list}"
+        );
+        let shown = render_workflow(&serde_json::json!({
+            "workflow": {"id": "01W", "name": "Ask", "steps": []}, "installed": true, "problems": []
+        }));
+        assert!(shown.contains("No problems."), "{shown}");
+        assert_eq!(
+            draw_words(&serde_json::json!({"drawings": []})),
+            "no drawings"
+        );
+        let rows = draw_words(&serde_json::json!({"drawings": [
+            {"id": "01D", "title": "T", "scope": {"kind": "workspace"}, "element_count": 2}
+        ]}));
+        assert!(
+            rows.contains("- 01D · \"T\" · workspace · 2 elements"),
+            "{rows}"
+        );
+        let snap = draw_words(&serde_json::json!({"path": "/snaps/d.png"}));
+        assert!(snap.contains("snapshot: /snaps/d.png — read"), "{snap}");
+        let mobile = mobile_development_words(&serde_json::json!({
+            "enabled": true, "platforms": "ios",
+            "toolchain": {"flutter": {"installed": false}, "xcode": {}, "android": {}},
+            "devices": [{"id": "A", "name": "n", "platform": "ios", "kind": "simulator", "state": "booted", "os": "18"}],
+            "path": "/shots/a.png"
+        }));
+        assert!(
+            mobile.contains("flutter: not installed") && mobile.contains("xcode: not installed"),
+            "{mobile}"
+        );
+        assert!(
+            mobile.contains("· 18") && mobile.contains("\nscreenshot: /shots/a.png"),
+            "{mobile}"
         );
     }
 }

@@ -20,3 +20,30 @@ impl Localize for crate::client::IntakeError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::IntakeError;
+
+    /// Every failure of the intake client is said under its own id.
+    #[test]
+    fn every_intake_failure_is_said_under_its_own_id() {
+        let connect = IntakeError::Connect {
+            path: "/ws/run/intake.sock".into(),
+            source: std::io::Error::other("refused"),
+        }
+        .text();
+        assert_eq!(connect.id, "error-mcp-intake-connect");
+        assert!(connect.args.contains_key("path") && connect.args.contains_key("source"));
+        assert_eq!(
+            IntakeError::Io(std::io::Error::other("broke")).text().id,
+            "error-mcp-intake-io"
+        );
+        assert_eq!(
+            IntakeError::BadReply("nope".into()).text().id,
+            "error-mcp-intake-bad-reply"
+        );
+        assert_eq!(IntakeError::Closed.text().id, "error-mcp-intake-closed");
+    }
+}

@@ -135,7 +135,7 @@ impl DecisionProvider for SystemOneProvider {
                 .push(("authorization".into(), format!("Bearer {}", key.expose())));
         }
         http.body =
-            Some(serde_json::to_vec(&body).map_err(|e| ProviderError::Unreadable(e.to_string()))?);
+            Some(serde_json::to_vec(&body).map_err(|e| ProviderError::Unreadable(e.to_string()))?); // LCOV_EXCL_LINE: a JSON value always serialises; the arm keeps the Result total
         let insecure = false;
         let response = self
             .transport

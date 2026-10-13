@@ -120,3 +120,22 @@ async fn an_asker_that_fails_is_a_provider_that_cannot_be_reached() {
     );
     assert_eq!(provider.descriptor().model, "general-agent");
 }
+
+/// A noul's criteria are both worded when both are given.
+#[test]
+fn a_nouls_criteria_are_both_worded() {
+    let request = DecisionRequest::one(
+        "the state",
+        "urgent",
+        DecisionQuestion::Noul {
+            instructions: "Is it urgent?".into(),
+            criteria: Some(bisa_core::NoulCriteria {
+                yes: Some("a deadline is named".into()),
+                no: Some("no date at all".into()),
+            }),
+        },
+    );
+    let words = prompt(&request);
+    assert!(words.contains("    true: a deadline is named"), "{words}");
+    assert!(words.contains("    false: no date at all"), "{words}");
+}

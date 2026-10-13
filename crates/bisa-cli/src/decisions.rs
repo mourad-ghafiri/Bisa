@@ -291,11 +291,13 @@ fn answer_lines(response: &Value) -> Vec<String> {
                 answer["choice"].as_str().unwrap_or("?"),
                 answer["confidence"]
             ),
+            // LCOV_EXCL_START: the command line asks a noul or a choice alone, and the contract holds the answer to the question's kind; the arms keep the match total
             Some("score") => format!(
                 "  {id}: {} (confidence {})",
                 answer["score"], answer["confidence"]
             ),
             _ => format!("  {id}: {answer}"),
+            // LCOV_EXCL_STOP
         });
     }
     lines

@@ -21,6 +21,24 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A goal closed or retired with a worker at work could say it stopped no session: the close's
+  record half cancels the run first, the cancel's effects end the rows through their drivers, and
+  a row ended before the close's own pass was entered in the ledger by nobody — not waited for,
+  not counted, and had its harness ignored the abort, nobody's to terminate at the deadline. A
+  close now enters every live session of the goal in the ledger before the record half, as a
+  stop already did, and counts what it ended whichever way the two interleave
+  (`crates/bisa-engine/src/ops.rs`).
+- A settlement committed from the committer desk — who commits set after a refusal — while the
+  run's end was closing the workstream's record made its commit and then reported a failure: the
+  record, read open and closed meanwhile, refused to move, the journal said *left uncommitted* and
+  nothing announced the commit that stood on the branch. A commit made is a commit: a record the
+  run's end closed under it keeps its state, and the commit is journalled and announced
+  (`crates/bisa-engine/src/projects.rs`).
+- A memory an agent could not store because its session had no identity — or because the store
+  refused — was told to it as *NOT stored — changed since you read it … merge and retry*, with
+  nothing to merge: a refusal of `recall_store` that is no conflict is now the tool error it is,
+  in the engine's words; a conflict still names the hash and the value that stand
+  (`crates/bisa-mcp/src/client.rs`, `server.rs`).
 - A remote A2A agent's session answered a question or a sign-in by whatever request id it was
   handed: an answer to a request that was not the one waiting took the waiting one with it, and
   the right answer that followed was refused as *no input request is waiting*. The request

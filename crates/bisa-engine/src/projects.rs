@@ -1836,9 +1836,23 @@ async fn commit_workstream_as(
     // A record the run's end already released (closed) keeps its state: the
     // commit is on the branch, which is what the retry from the committer
     // desk is for — the work is not lost — and the fact is journalled and
-    // announced like any settlement.
+    // announced like any settlement. The release may also land *while* the
+    // commit is made — the record read above open, closed by the time it
+    // is moved — and a commit that stands on the branch is never a failure:
+    // the record is read again, and one that is closed now is the same
+    // released case.
     if !w.state.is_terminal() {
-        transition(inner, &w, &WorkstreamTransition::Committed)?;
+        if let Err(e) = transition(inner, &w, &WorkstreamTransition::Committed) {
+            let closed_meanwhile = inner
+                .ws
+                .get_workstream(id)
+                .map(|now| now.state.is_terminal())
+                .unwrap_or(false);
+            if !closed_meanwhile {
+                return Err(e);
+            }
+            tracing::debug!(workstream = %id, "the record closed while the commit was made; the commit stands");
+        }
     }
     journal_progress(inner, &w, "committed", &branch, Some(commit.short()));
     inner.emit(workstream_event(

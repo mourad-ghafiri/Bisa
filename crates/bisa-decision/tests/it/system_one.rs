@@ -175,3 +175,28 @@ async fn a_refusal_never_repeats_the_key() {
     assert!(said.contains("bad key"), "{said}");
     assert!(!said.contains(FIXTURE_KEY), "{said}");
 }
+
+/// A refusal is quoted as the service said it when there is no key to keep
+/// out of it.
+#[tokio::test]
+async fn a_refusal_with_no_key_to_hide_is_quoted_whole() {
+    let transport =
+        ScriptedTransport::with(vec![http(403, serde_json::json!({"error": "not for you"}))]);
+    let provider = SystemOneProvider::new(
+        DecisionProviderKind::Rlcd,
+        "http://127.0.0.1:8080",
+        "local-rlcd",
+        None,
+        transport,
+        &AllowAll,
+        Arc::new(FixedClock(1_000)),
+    )
+    .unwrap();
+    match provider.decide(&routed(), DEADLINE).await.err() {
+        Some(ProviderError::Refused { status, message }) => {
+            assert_eq!(status, 403);
+            assert!(message.contains("not for you"), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
+}

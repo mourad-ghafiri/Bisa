@@ -311,10 +311,11 @@ impl KeySource for Keystore<'_> {
         let name = key_name(provider)?;
         match self.inner.ws.identity.secret(&name) {
             Ok(value) => value.and_then(cx::Secret::some),
+            // LCOV_EXCL_START: a keystore that refuses a read; the disk's word, which no fixture says
             Err(e) => {
                 tracing::warn!("the decision provider's key cannot be read: {e}");
                 None
-            }
+            } // LCOV_EXCL_STOP
         }
     }
 }
@@ -362,7 +363,7 @@ fn redacted(inner: &Inner, request: &DecisionRequest) -> DecisionRequest {
         Value::String(text) => Value::String(clean(text)),
         other => serde_json::from_str(&clean(&other.to_string())).unwrap_or_else(|_| {
             // A redaction that broke the JSON is still the redacted state.
-            Value::String(clean(&other.to_string()))
+            Value::String(clean(&other.to_string())) // LCOV_EXCL_LINE: a placeholder that lands inside a JSON token; the redactor writes whole strings, so none does
         }),
     };
     let questions = request
@@ -741,7 +742,7 @@ pub(crate) struct Walk {
 /// it; every attempt then fits the answer to its own model.
 pub(crate) async fn walk(inner: &Inner, ask: &WalkAsk<'_>, standing: &Standing) -> Walk {
     let Some(harness) = ask.candidates.first() else {
-        return Walk::default();
+        return Walk::default(); // LCOV_EXCL_LINE: a walk is asked for a plan with a harness; the arm keeps the let-else total
     };
     let lead = async {
         match ask.model_pin {
@@ -920,7 +921,7 @@ fn readiness(inner: &Inner, settings: &DecisionSettings) -> Result<(), String> {
         }
         DecisionProviderKind::Jev => {
             if settings.jev_model.is_empty() {
-                return Err("no model is named".into());
+                return Err("no model is named".into()); // LCOV_EXCL_LINE: the registry's default model stands in for an empty name; the arm keeps the check total
             }
             has_key(inner, settings.provider)
                 .then_some(())

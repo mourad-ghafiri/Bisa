@@ -38,6 +38,7 @@ mod ide_files;
 mod ide_graph;
 mod ide_review;
 mod ide_search;
+mod intake_edges;
 mod intake_scope;
 mod interactive;
 mod lock;

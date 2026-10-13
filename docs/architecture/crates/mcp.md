@@ -57,6 +57,8 @@ intake socket.
 | A validation failure reaches the Workflow Agent as problems grouped by step, and writes nothing | `tests/it/intake.rs::workflow_agent_texts_render_problems_by_step` |
 | A worker of a run of the workspace orients with `get_run`, is refused `get_goal`, and a message it sends with no scope lands in `general` | `tests/it/intake.rs::a_worker_of_a_workspace_run_orients_with_get_run_and_speaks_in_general` |
 | Every post through the tool says who speaks — the scope's agent (`--agent`), else the work item the engine resolves one from — so it is signed as that agent and may publish from where it works; recall speaks as the same | `tests/it/intake.rs::a_post_through_the_tool_says_who_speaks`, the fake intake's own check on every post; the journey `crates/bisa-cli/tests/it/e2e/a_channel_and_what_is_said_in_it.rs` |
+| Every tool of every scope answers over the wire, and every refusal of the engine is a tool error whatever the tool — the only allowances the lifecycle hook, a worker's *no scope given*, and the five reads another scope answers without the engine's say | `tests/it/intake.rs` (`every_tool_of_every_scope_answers_over_the_wire`, `every_refusal_of_the_engine_is_a_tool_error_whatever_the_tool`) |
+| A memory refused for no conflict is a tool error in the engine's words; a conflict names the hash and the value that stand | `tests/it/intake.rs` (`recall_guarded_writes`, `an_engine_that_refuses_the_core_agents_own_reads_is_a_tool_error`) |
 | This crate never names `HumanConsent` or the consented git tier | `crates/bisa-core/tests/it/layering.rs::no_agent_path_reaches_interactive` |
 
 ---

@@ -249,7 +249,7 @@ impl IntakeClient {
                 }
             }
         }
-        unreachable!("loop returns on second attempt")
+        unreachable!("loop returns on second attempt") // LCOV_EXCL_LINE: the loop above answers or fails on its second turn; the line keeps the function total
     }
 
     async fn roundtrip(conn: &mut Framed, line: &[u8]) -> Result<Value, IntakeError> {
@@ -755,7 +755,7 @@ impl IntakeClient {
         slug: &str,
         value: &str,
         base_hash: Option<&str>,
-    ) -> Result<GuardedWrite, IntakeError> {
+    ) -> Result<OpResult<GuardedWrite>, IntakeError> {
         let mut req = json!({"op": "recall_store", "slug": slug, "value": value});
         Self::identity(&mut req, agent, work_item);
         if let Some(h) = base_hash {
@@ -763,18 +763,20 @@ impl IntakeClient {
         }
         let reply = self.call(&req).await?;
         if reply["ok"].as_bool() == Some(true) {
-            Ok(GuardedWrite::Written {
+            return Ok(Ok(GuardedWrite::Written {
                 hash: reply["hash"].as_str().unwrap_or_default().to_string(),
-            })
-        } else {
-            Ok(GuardedWrite::Stale {
+            }));
+        }
+        // A conflict names the hash the memory stands at now, so the model
+        // can merge; any other refusal — no identity, the store's own word —
+        // is a refusal, with nothing to merge.
+        match reply["current_hash"].as_str() {
+            Some(current_hash) => Ok(Ok(GuardedWrite::Stale {
                 errors: string_array(&reply["errors"]),
-                current_hash: reply["current_hash"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string(),
+                current_hash: current_hash.to_string(),
                 current_value: reply["current_value"].as_str().map(str::to_string),
-            })
+            })),
+            None => Ok(Err(string_array(&reply["errors"]))),
         }
     }
 

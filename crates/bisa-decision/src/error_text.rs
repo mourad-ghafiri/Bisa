@@ -33,3 +33,51 @@ impl Localize for crate::provider::ProviderError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::ProviderError;
+
+    /// Every failure of a provider is said under its own id.
+    #[test]
+    fn every_provider_failure_is_said_under_its_own_id() {
+        let id = |e: ProviderError| e.text().id.to_string();
+        assert_eq!(
+            id(ProviderError::Misconfigured("no key".into())),
+            "error-decision-provider-misconfigured"
+        );
+        assert_eq!(
+            id(ProviderError::Refused {
+                status: 401,
+                message: "no".into()
+            }),
+            "error-decision-provider-refused"
+        );
+        assert_eq!(
+            id(ProviderError::Busy {
+                status: 429,
+                retry_after: None
+            }),
+            "error-decision-provider-busy"
+        );
+        assert_eq!(
+            id(ProviderError::Unreachable("down".into())),
+            "error-decision-provider-unreachable"
+        );
+        assert_eq!(
+            id(ProviderError::Unreadable("nope".into())),
+            "error-decision-provider-unreadable"
+        );
+        assert_eq!(
+            id(ProviderError::Contract(
+                bisa_core::DecisionContractError::NoQuestions
+            )),
+            "error-decision-provider-contract"
+        );
+        assert_eq!(
+            id(ProviderError::TimedOut),
+            "error-decision-provider-timed-out"
+        );
+    }
+}

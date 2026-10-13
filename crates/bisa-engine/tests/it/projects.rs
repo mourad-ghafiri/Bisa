@@ -919,6 +919,66 @@ async fn committing_a_clean_workstream_is_refused_by_name() {
     engine.shutdown().await;
 }
 
+/// A commit made while the run's end closes the record — the retry from the
+/// committer desk racing the release — is a commit: it stands on the branch,
+/// the record closed meanwhile keeps its state, and the commit is announced.
+/// A made commit is never reported as a failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_commit_made_while_the_runs_end_closes_the_record_is_still_a_commit() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let (goal, project, root, _origin) =
+        git_project(&engine, "storefront", PublishPolicy::Gated).await;
+    let spec = item(goal, Some(&project), "Add the checkout flow");
+    let w = projects::open_workstream(engine.inner(), &spec, &project)
+        .await
+        .unwrap()
+        .workstream;
+    let checkout = engine.workspace().workstream_checkout(&w).unwrap();
+    std::fs::write(checkout.join("checkout.rs"), "written by the session\n").unwrap();
+    // A pre-commit hook that takes its time: the window the run's end lands in.
+    let hooks = root.join(".git").join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\nsleep 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut rx = engine.events();
+    let committing = tokio::spawn({
+        let inner = Arc::clone(engine.inner());
+        let id = w.id;
+        async move { projects::commit_workstream(&inner, id, "Add the checkout flow").await }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The run's end, while the hook still runs: the record closes.
+    engine
+        .workspace()
+        .transition_workstream(w.id, &WorkstreamTransition::Close)
+        .unwrap();
+    let commit = committing
+        .await
+        .unwrap()
+        .expect("a commit made is a commit, whatever the record did meanwhile");
+    assert!(bisa_vcs::git::status(&checkout).unwrap().is_clean);
+    assert_eq!(
+        raw_git(&checkout, &["log", "-1", "--format=%s"]),
+        "Add the checkout flow"
+    );
+    assert_eq!(
+        engine.workspace().get_workstream(w.id).unwrap().state,
+        WorkstreamState::Closed,
+        "the record the run's end closed keeps its state"
+    );
+    common::wait_for(&mut rx, "the commit to be announced", |e| {
+        matches!(&e.payload, EnginePayload::WorkstreamCommitted { workstream, commit: c, .. }
+            if *workstream == w.id && *c == commit.to_string())
+    })
+    .await;
+
+    engine.shutdown().await;
+}
+
 /// A pull request's draft is asked from what the branch carries beyond its
 /// base — its commits and its diff — and a branch with nothing beyond it is
 /// refused as opening the pull request would be, before anyone is asked. The
@@ -2927,9 +2987,11 @@ async fn a_refused_settlement_is_retried_when_who_commits_is_set() {
         .list_workstreams(WorkstreamFilter::WorkItem(item_id))
         .unwrap();
     assert_eq!(workstreams.len(), 1);
+    // The refusal marks the record dirty, and the run's end, a moment later,
+    // closes it: the tree, left dirty, is what holds the work either way.
     let w = until("the settlement to be refused", || {
         let w = ws.get_workstream(workstreams[0].id).unwrap();
-        (w.state == WorkstreamState::Dirty).then_some(w)
+        matches!(w.state, WorkstreamState::Dirty | WorkstreamState::Closed).then_some(w)
     })
     .await;
     let checkout = ws.workstream_checkout(&w).unwrap();

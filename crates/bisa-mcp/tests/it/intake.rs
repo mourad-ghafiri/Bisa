@@ -51,6 +51,12 @@ struct FakeIntake {
 
 impl FakeIntake {
     fn start() -> Self {
+        Self::start_with(false)
+    }
+
+    /// The fake, refusing every request when `refuse_all` — an engine that
+    /// says no to the ops whose envelope names nothing but the agent.
+    fn start_with(refuse_all: bool) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("intake.sock");
         let listener = UnixListener::bind(&path).unwrap();
@@ -66,7 +72,11 @@ impl FakeIntake {
                     let (r, mut w) = stream.into_split();
                     let mut lines = BufReader::new(r).lines();
                     while let Ok(Some(line)) = lines.next_line().await {
-                        let reply = handle(&line, &submits);
+                        let reply = if refuse_all {
+                            json!({"ok": false, "errors": ["refused on purpose"]})
+                        } else {
+                            handle(&line, &submits)
+                        };
                         let mut buf = reply.to_string();
                         buf.push('\n');
                         if w.write_all(buf.as_bytes()).await.is_err() {
@@ -109,6 +119,12 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
         Ok(v) => v,
         Err(e) => return json!({"ok": false, "errors": [format!("bad request: {e}")]}),
     };
+    // A request carrying these words anywhere — in its scope, its text, its
+    // gate — is refused on purpose: how a test reaches every tool's refusal
+    // arm through one door.
+    if line.contains("refuse me") {
+        return json!({"ok": false, "errors": ["refused on purpose"]});
+    }
     match req["op"].as_str() {
         Some("result_submit") => {
             submits.fetch_add(1, Ordering::SeqCst);
@@ -171,6 +187,11 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
                        "answer": {"selected": [], "text": null, "unsure": true},
                        "clarify_rounds_left": 0})
             }
+            Some("gate-declined") => {
+                json!({"ok": true, "approve": false,
+                       "answer": {"selected": [], "text": "not like this", "unsure": false}})
+            }
+            Some("gate-denied") => json!({"ok": true, "approve": false, "answer": null}),
             _ => json!({"ok": false, "errors": ["unknown gate"]}),
         },
         Some("get_goal") => {
@@ -188,6 +209,7 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
         // for any item but the one of a run of the workspace.
         Some("get_run") => match req["work_item"].as_str() {
             None => json!({"ok": false, "errors": ["request needs `work_item` or `run`"]}),
+            Some("unreadable") => json!({"ok": false, "errors": ["unknown work item"]}),
             Some(WORKSPACE_ITEM) => json!({"ok": true,
                 "run": {"id": RUN, "scope": "workspace", "status": "running", "steps": []},
                 "home": format!("run:{RUN}"), "goal": null,
@@ -229,7 +251,11 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
         Some("amend_workflow") => {
             assert!(req["goal"].is_string());
             assert_eq!(req["agent"], WORKFLOW_AGENT_ID);
-            json!({"ok": true, "gate": "01AMEND"})
+            if req["workflow"]["name"] == json!("ungated") {
+                json!({"ok": true, "gate": null})
+            } else {
+                json!({"ok": true, "gate": "01AMEND"})
+            }
         }
         Some("list_workflow_templates") => {
             assert_eq!(req["agent"], WORKFLOW_AGENT_ID);
@@ -431,6 +457,9 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
             assert!(
                 [CORE_AGENT_ID, WORKFLOW_AGENT_ID].contains(&req["agent"].as_str().unwrap_or(""))
             );
+            if req["kind"] == "team" {
+                return json!({"ok": true, "entries": []});
+            }
             json!({"ok": true, "entries": [
                 {"kind": "agent", "slug": "developer", "name": "Developer",
                  "description": "Writes code.", "tags": ["engineering"],
@@ -475,7 +504,75 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
             json!({"ok": true, "project": "01PROJECT", "slug": req["slug"],
                    "path": "/tmp/ws/storefront", "attached_to": req["goal"]})
         }
+        // -- the ops the real server answers and a session reads back as
+        // words: the shapes are the engine's (`intake.rs`), the words the
+        // server's.
+        Some("note_read") => json!({"ok": true, "title": "Plan", "body": "# Plan\n", "hash": "n1"}),
+        Some("note_append") => json!({"ok": true, "title": "Plan"}),
+        Some("note_write") => {
+            if req["base_hash"] == "same" {
+                json!({"ok": true, "title": "Plan", "hash": "n1", "changed": false})
+            } else {
+                json!({"ok": true, "title": "Plan", "hash": "n2", "changed": true})
+            }
+        }
+        Some("review_notes_list") => {
+            if req["include_resolved"] == true {
+                json!({"ok": true, "notes": [
+                    {"id": "01NOTE", "path": "src/a.rs", "range": {"start": 3, "end": 3},
+                     "scope": {"scope": "branch", "base": "main"}, "body": "rename this",
+                     "hunk": "-a\n+b"},
+                    {"id": "01OLD", "path": "src/b.rs", "range": {"start": 1, "end": 4},
+                     "scope": {"scope": "working"}, "body": "done", "resolved_at": 7},
+                    {"id": "01BARE", "path": "src/c.rs", "body": "?"}
+                ]})
+            } else {
+                json!({"ok": true, "notes": []})
+            }
+        }
+        Some("review_note_resolve") => {
+            json!({"ok": true, "note": {"id": req["note"], "path": "src/a.rs"}})
+        }
+        Some("pr_reviews_list") => json!({"ok": true, "reviews": [], "threads": []}),
+        Some("pr_review_submit") | Some("pr_thread_reply") | Some("pr_thread_resolve") => {
+            json!({"ok": true})
+        }
+        Some("browser_serve") => json!({"ok": true, "result": {
+            "folder": req["folder"], "url": "http://127.0.0.1:1", "page": "http://127.0.0.1:1/index.html"}}),
+        Some("call_connector") => {
+            assert!(
+                req["account"].is_string() || req["account"].is_null(),
+                "{req}"
+            );
+            json!({"ok": true, "output": {"issues": 1}, "truncated": false})
+        }
+        Some("decide") => {
+            let sure = req["request"]["state"]["sure"] != false;
+            json!({"ok": true, "result": {"sure": sure,
+                   "response": {"answers": {"q": {"type": "noul", "noul": 0.9}}}}})
+        }
+        Some("mobile_development") => match req["request"]["action"].as_str() {
+            Some("status") => json!({"ok": true, "result": {"enabled": false, "platforms": "both",
+                "toolchain": {"flutter": {"installed": true}, "xcode": {"version": "16.0"},
+                              "android": {}, "doctor": [{"state": "ok", "name": "Flutter"}]}}}),
+            Some("devices") => json!({"ok": true, "result": {"devices": []}}),
+            Some("boot") => json!({"ok": true, "result": {"device": {"id": "A-1", "name": "iPhone",
+                "platform": "ios", "kind": "simulator", "state": "booted"}}}),
+            Some("screenshot") => {
+                json!({"ok": true, "result": {"path": "/shots/a.png", "width": 1, "height": 2}})
+            }
+            _ => json!({"ok": false, "errors": ["unknown action"]}),
+        },
         Some("draw") => match req["request"]["action"].as_str() {
+            Some("snapshot") => {
+                json!({"ok": true, "result": {"ok": true, "path": "/snaps/d.png", "width": 3, "height": 4}})
+            }
+            Some("erase") => json!({"ok": true, "result": {"ok": true}}),
+            Some("list") if req["request"]["scope_id"].is_string() => {
+                json!({"ok": true, "result": {"ok": true, "drawings": [
+                {"id": "01DRAWING", "scope": {"kind": "goal", "id": GOAL}, "title": "Orders", "pinned": false,
+                 "hash": "abc", "element_count": 3, "created_at": 1, "updated_at": 2}]}})
+            }
             Some("list") => json!({"ok": true, "result": {"ok": true, "drawings": [
                 {"id": "01DRAWING", "scope": {"kind": "workspace"}, "title": "Orders", "pinned": false,
                  "hash": "abc", "element_count": 3, "created_at": 1, "updated_at": 2}]}}),
@@ -816,11 +913,11 @@ async fn recall_guarded_writes() {
         .await
         .unwrap()
     {
-        GuardedWrite::Stale {
+        Ok(GuardedWrite::Stale {
             current_value,
             current_hash,
             ..
-        } => {
+        }) => {
             assert_eq!(current_value.as_deref(), Some("tabs, not spaces"));
             assert_eq!(current_hash, "r1");
         }
@@ -831,7 +928,7 @@ async fn recall_guarded_writes() {
             .recall_store(Some("builder"), None, "style", "merged", Some("r1"))
             .await
             .unwrap(),
-        GuardedWrite::Written { hash: "r2".into() }
+        Ok(GuardedWrite::Written { hash: "r2".into() })
     );
     let got = client
         .recall_get(Some("builder"), None, "style")
@@ -851,17 +948,19 @@ async fn recall_guarded_writes() {
         1
     );
 
-    // No identity at all → intake's explanatory error.
+    // No identity at all → intake's explanatory error: a refusal, not a
+    // conflict — there is nothing to merge, and the tool says so as an error.
     let err = client
         .recall_store(None, None, "style", "x", None)
         .await
         .unwrap();
     match err {
-        GuardedWrite::Stale { errors, .. } => {
-            assert!(errors[0].contains("agent identity"), "{errors:?}")
-        }
+        Err(errors) => assert!(errors[0].contains("agent identity"), "{errors:?}"),
         other => panic!("expected identity error, got {other:?}"),
     }
+    let core = ToolCore::new(fake.path.clone(), goal_scope());
+    let refused = refusal(core.recall_store("style", "x", None).await);
+    assert!(refused.contains("agent identity"), "{refused}");
 }
 
 #[tokio::test]
@@ -1618,4 +1717,692 @@ async fn a_worker_of_a_workspace_run_orients_with_get_run_and_speaks_in_general(
     let not_a_worker = ToolCore::new(fake.path.clone(), goal_scope());
     let refused = refusal(not_a_worker.get_run().await);
     assert!(refused.contains("work-item session"), "{refused}");
+}
+
+// ---------------------------------------------------------------------------
+// The server over the wire: an MCP client in the same process, on a pipe,
+// calls every tool of every scope against the fake intake.
+
+use rmcp::model::CallToolRequestParams;
+use rmcp::ServiceExt as _;
+
+/// The server for `scope`, served on one end of a pipe, and a client on the
+/// other — what a harness session is, minus the process boundary.
+async fn connected(
+    fake: &FakeIntake,
+    scope: Scope,
+) -> (
+    rmcp::service::RunningService<rmcp::RoleClient, ()>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let (client_read, client_write) = tokio::io::split(ours);
+    let (server_read, server_write) = tokio::io::split(theirs);
+    let server = bisa_mcp::BisaServer::new(fake.path.clone(), scope);
+    let serving = tokio::spawn(async move {
+        let running = server
+            .serve((server_read, server_write))
+            .await
+            .expect("the server serves");
+        let _ended_by_the_client = running.waiting().await;
+    });
+    let client = ().serve((client_read, client_write)).await.expect("the client connects");
+    (client, serving)
+}
+
+/// What one tool call came to: the words of its result, or of its refusal.
+enum Said {
+    Result(String),
+    Refused(String),
+}
+
+async fn call(
+    client: &rmcp::service::RunningService<rmcp::RoleClient, ()>,
+    name: &str,
+    args: Value,
+) -> Said {
+    let arguments = args
+        .as_object()
+        .cloned()
+        .expect("a tool's arguments are an object");
+    match client
+        .call_tool(CallToolRequestParams::new(name.to_string()).with_arguments(arguments))
+        .await
+    {
+        Ok(result) if result.is_error == Some(true) => Said::Refused(format!("{result:?}")),
+        Ok(result) => Said::Result(format!("{result:?}")),
+        Err(e) => Said::Refused(e.to_string()),
+    }
+}
+
+/// The arguments every tool takes, as a session would hand them — `None`
+/// for a tool this scope's fake would refuse to hear. `core` says whether
+/// the scope's agent is the General Agent; `conversation` whether the scope
+/// is a conversation.
+fn arguments_for(name: &str, core: bool, conversation: bool) -> Option<Value> {
+    arguments_for_in(name, core, conversation, false)
+}
+
+/// [`arguments_for`], with every word the fake refuses on sight when
+/// `refusing`: each top-level string, and a workflow's name.
+fn arguments_for_in(name: &str, core: bool, conversation: bool, refusing: bool) -> Option<Value> {
+    let mut args = plain_arguments_for(name, core, conversation)?;
+    if refusing {
+        if let Some(fields) = args.as_object_mut() {
+            for value in fields.values_mut() {
+                if value.is_string() {
+                    *value = json!("refuse me");
+                } else if value.get("name").is_some_and(Value::is_string) {
+                    value["name"] = json!("refuse me");
+                }
+            }
+        }
+    }
+    Some(args)
+}
+
+fn plain_arguments_for(name: &str, core: bool, conversation: bool) -> Option<Value> {
+    let tab = json!("b1");
+    Some(match name {
+        "list_connectors"
+        | "get_goal"
+        | "browser_tabs"
+        | "recall_list"
+        | "_Stop"
+        | "get_run"
+        | "workspace_overview"
+        | "list_staff"
+        | "list_workflow_templates"
+        | "pr_reviews_list"
+        | "mobile_development_devices" => json!({}),
+        "call_connector" => {
+            json!({"connector": "jira", "operation": "list", "account": "acct-1", "params": {"q": "x"}})
+        }
+        "browser_open" => json!({"url": "https://example.test/", "tab": tab, "headless": true}),
+        "decide" => {
+            json!({"state": {"page": 1}, "questions": {"q": {"type": "noul", "instructions": "?"}}})
+        }
+        "browser_serve" => json!({"folder": "dist"}),
+        "browser_snapshot" => json!({"tab": tab, "target": "main", "all": true}),
+        "browser_read" => json!({"tab": tab, "target": "main", "format": "text"}),
+        "browser_find" => json!({"tab": tab, "query": "login"}),
+        "browser_click" | "browser_hover" => json!({"tab": tab, "target": "#go"}),
+        "browser_type" => {
+            json!({"tab": tab, "target": "#q", "text": "hi", "clear": true, "submit": false})
+        }
+        "browser_fill" => json!({"tab": tab, "target": "#q", "text": "hi"}),
+        "browser_press" => {
+            json!({"tab": tab, "key": "Enter", "target": "#q", "modifiers": ["Shift"]})
+        }
+        "browser_select" => json!({"tab": tab, "target": "#s", "value": "a", "label": "A"}),
+        "browser_scroll" => json!({"tab": tab, "to": "bottom", "by_x": 0, "by_y": 10}),
+        "browser_wait" => {
+            json!({"tab": tab, "until": "text", "target": "#x", "query": "done", "timeout_ms": 10})
+        }
+        "browser_back" | "browser_forward" | "browser_reload" | "browser_close"
+        | "browser_screenshot" => json!({"tab": tab}),
+        "browser_console" => json!({"tab": tab, "clear": true}),
+        "browser_eval" => json!({"tab": tab, "expression": "1+1"}),
+        "drawing_list" => json!({"scope": "goal", "id": GOAL}),
+        "drawing_read" | "drawing_snapshot" => json!({"drawing": "01DRAWING"}),
+        "drawing_create" => json!({"title": "Orders", "scope": "workspace"}),
+        "drawing_draw" => {
+            json!({"drawing": "01DRAWING", "elements": [{"type": "rectangle"}], "replace": false})
+        }
+        "drawing_mermaid" => {
+            json!({"drawing": "01DRAWING", "text": "graph TD; a-->b", "replace": true})
+        }
+        "drawing_erase" => json!({"drawing": "01DRAWING", "ids": ["e1"]}),
+        "mobile_development_status" => json!({"fresh": true}),
+        "mobile_development_boot" | "mobile_development_screenshot" => json!({"device": "A-1"}),
+        "ask_human" => json!({"question": "ship it?"}),
+        "await_human" => json!({"gate": "gate-1"}),
+        "ask_human_and_wait" => json!({"question": "ship it?", "expects": "decision"}),
+        "add_note" => json!({"text": "noted"}),
+        "spawn_sub_goal" => json!({"statement": "child", "title": "T"}),
+        "emit_signal" => json!({"name": "nobody.listens", "payload": {"status": "green"}}),
+        "post_message" => {
+            json!({"content": "who speaks?", "reply_to": "m0", "mentions": ["@dev"], "attachments": ["notes.md"]})
+        }
+        "recall_store" => json!({"slug": "style", "value": "v", "base_hash": "r1"}),
+        "recall_get" => json!({"slug": "style"}),
+        "create_project" => {
+            if !core {
+                return None;
+            }
+            json!({"slug": "web", "name": "Web", "assignees": ["agent:developer"]})
+        }
+        "note_read" => json!({"note": "01NOTE"}),
+        "note_append" => json!({"text": "more", "note": "01NOTE"}),
+        "note_write" => json!({"text": "all", "base_hash": "n1", "note": "01NOTE"}),
+        "review_notes_list" => json!({"project": "01P", "include_resolved": true}),
+        "review_note_resolve" => json!({"note": "01NOTE", "project": "01P"}),
+        "yield_result" => json!({"output": {"answer": 1}}),
+        "report_progress" => json!({"verb": "fixed", "object": "parser", "outcome": "green"}),
+        "revise_statement" => json!({"statement": "sharper", "why": "clearer"}),
+        "propose_workflow" | "amend_workflow" | "validate_workflow" => {
+            json!({"workflow": good_workflow()})
+        }
+        "list_catalog" => json!({"kind": "agent"}),
+        "get_workflow" => json!({"workflow": "software-feature"}),
+        "save_workflow" => {
+            if !conversation {
+                return None;
+            }
+            json!({"workflow": good_workflow(), "revision": 3})
+        }
+        "install_catalog_entry" => json!({"kind": "agent", "slug": "developer", "goal": GOAL}),
+        "assign" => json!({"assignees": ["agent:developer"], "goal": GOAL, "replace": true}),
+        "capture_goal" => {
+            json!({"statement": "Every Monday at 09:00, post the digest", "title": "Digest"})
+        }
+        "pr_review_submit" => {
+            json!({"event": "comment", "body": "fine", "comments": [{"path": "a.rs", "line": 1, "body": "x"}]})
+        }
+        "pr_thread_reply" => json!({"thread": "t1", "body": "ok", "resolve": true}),
+        "pr_thread_resolve" => json!({"thread": "t1", "resolved": false}),
+        other => panic!("no arguments known for the tool {other}; add a row"),
+    })
+}
+
+/// A goal's thread, as the Workflow Agent is launched into it.
+fn goal_thread_scope(agent: &str) -> Scope {
+    Scope::Conversation {
+        scope: GOAL.to_string(),
+        agent: agent.to_string(),
+        goal: Some(GOAL.to_string()),
+    }
+}
+
+/// Every tool of every scope answers over the wire — with its words when
+/// the engine agrees, as a tool error when it refuses — and the manifest a
+/// client lists is the router's: a tool nobody here knows the arguments of
+/// fails this test, and every tool is called at least once across the scopes.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_tool_of_every_scope_answers_over_the_wire() {
+    let fake = FakeIntake::start();
+    let scopes = [
+        ("a worker", wi_scope(), false, false),
+        ("a goal with no agent", goal_scope(), false, false),
+        (
+            "the General Agent in a goal",
+            core_agent_scope(),
+            true,
+            false,
+        ),
+        (
+            "the Workflow Agent in a goal",
+            workflow_agent_scope(),
+            false,
+            false,
+        ),
+        ("another agent in a channel", channel_scope(), false, true),
+        (
+            "the General Agent in a channel",
+            Scope::Conversation {
+                scope: "general".into(),
+                agent: CORE_AGENT_ID.into(),
+                goal: None,
+            },
+            true,
+            true,
+        ),
+        (
+            "the General Agent in a goal's thread, launched without the goal",
+            Scope::Conversation {
+                scope: GOAL.into(),
+                agent: CORE_AGENT_ID.into(),
+                goal: None,
+            },
+            true,
+            true,
+        ),
+        (
+            "the Workflow Agent in a goal's thread",
+            goal_thread_scope(WORKFLOW_AGENT_ID),
+            false,
+            true,
+        ),
+    ];
+    let mut listed = std::collections::BTreeSet::new();
+    let mut called = std::collections::BTreeSet::new();
+    for (who, scope, core, conversation) in scopes {
+        let (client, serving) = connected(&fake, scope).await;
+        let info = client.peer_info().expect("the server introduced itself");
+        let instructions = info.instructions.clone().unwrap_or_default();
+        assert!(
+            instructions.contains("Bisa"),
+            "{who}: the instructions name the platform: {instructions}"
+        );
+        if who == "the Workflow Agent in a goal's thread" {
+            assert!(
+                instructions.contains("propose_workflow proposes for it"),
+                "{who}: {instructions}"
+            );
+        }
+        if who == "the General Agent in a channel" {
+            assert!(
+                instructions.contains("addressed nobody was routed to you"),
+                "{who}: {instructions}"
+            );
+        }
+        let tools = client.list_all_tools().await.expect("the tools are listed");
+        assert!(tools.len() > 40, "{who}: {} tools", tools.len());
+        for tool in &tools {
+            listed.insert(tool.name.to_string());
+            let Some(args) = arguments_for(&tool.name, core, conversation) else {
+                continue;
+            };
+            let said = call(&client, &tool.name, args).await;
+            called.insert(tool.name.to_string());
+            if let Said::Refused(words) = &said {
+                assert!(
+                    !words.contains("unknown op") && !words.contains("bad request"),
+                    "{who}: {} met a fake that did not know it: {words}",
+                    tool.name
+                );
+            }
+        }
+        client.cancel().await.expect("the client leaves");
+        let _server_ended = tokio::time::timeout(std::time::Duration::from_secs(5), serving).await;
+    }
+    assert_eq!(listed, called, "every listed tool was called in some scope");
+    assert!(called.contains("_Stop") && called.contains("save_workflow"));
+}
+
+/// Every refusal of the engine reaches the session as a tool error, whatever
+/// the tool: a scope the fake refuses on sight makes every call a refusal,
+/// and none of them is dressed as a result.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_refusal_of_the_engine_is_a_tool_error_whatever_the_tool() {
+    let fake = FakeIntake::start();
+    let refusing = [
+        (
+            "a worker",
+            Scope::WorkItem("refuse me".into()),
+            false,
+            false,
+        ),
+        (
+            "the General Agent in a goal",
+            Scope::Goal {
+                goal: "refuse me".into(),
+                agent: Some(CORE_AGENT_ID.into()),
+            },
+            true,
+            false,
+        ),
+        (
+            "the Workflow Agent in a goal",
+            Scope::Goal {
+                goal: "refuse me".into(),
+                agent: Some(WORKFLOW_AGENT_ID.into()),
+            },
+            false,
+            false,
+        ),
+        (
+            "the Workflow Agent in a thread",
+            Scope::Conversation {
+                scope: "refuse me".into(),
+                agent: WORKFLOW_AGENT_ID.into(),
+                goal: Some("refuse me".into()),
+            },
+            false,
+            true,
+        ),
+        (
+            "the General Agent in a channel",
+            Scope::Conversation {
+                scope: "refuse me".into(),
+                agent: CORE_AGENT_ID.into(),
+                goal: None,
+            },
+            true,
+            true,
+        ),
+    ];
+    for (who, scope, core, conversation) in refusing {
+        let worker = who == "a worker";
+        let (client, serving) = connected(&fake, scope).await;
+        let tools = client.list_all_tools().await.expect("the tools are listed");
+        for tool in &tools {
+            let Some(args) = arguments_for_in(&tool.name, core, conversation, true) else {
+                continue;
+            };
+            match call(&client, &tool.name, args).await {
+                Said::Refused(words) => {
+                    // A refusal in the engine's own words; a tool that stops
+                    // before asking says its own.
+                    let _ = words;
+                }
+                Said::Result(words) => assert!(
+                    // The hook asks nothing; a worker whose run cannot be
+                    // read has nowhere to post and says so; an op that
+                    // carries nothing but the agent's own id cannot be
+                    // refused by the scope or an argument outside a worker.
+                    tool.name == "_Stop"
+                        || words.contains("No scope given")
+                        || (!worker
+                            && [
+                                "list_connectors",
+                                "recall_list",
+                                "workspace_overview",
+                                "list_workflow_templates",
+                                "list_staff",
+                            ]
+                            .contains(&tool.name.as_ref())),
+                    "{who}: {} answered a refusing engine with a result: {words}",
+                    tool.name
+                ),
+            }
+        }
+        client.cancel().await.expect("the client leaves");
+        let _server_ended = tokio::time::timeout(std::time::Duration::from_secs(5), serving).await;
+    }
+}
+
+/// The tool core's own refusals, said before the engine is asked, and the
+/// words it gives what the engine answers at its edges.
+#[tokio::test]
+async fn the_tool_core_refuses_at_its_own_edges_and_words_what_it_reads() {
+    let fake = FakeIntake::start();
+
+    // A goal session holds no work item: the worker tools refuse.
+    let goal = ToolCore::new(fake.path.clone(), core_agent_scope());
+    assert!(refusal(goal.yield_result(json!({"answer": 1})).await).contains("work-item session"));
+    assert!(refusal(goal.report_progress("v", "o", None).await).contains("work-item session"));
+    // A goal with no agent cannot sign an amendment, nor the platform tools.
+    let unsigned = ToolCore::new(fake.path.clone(), goal_scope());
+    assert!(refusal(unsigned.amend_workflow(good_workflow()).await).contains("agent"));
+    assert!(refusal(unsigned.propose_workflow(good_workflow()).await).contains("agent"));
+    assert!(refusal(unsigned.list_catalog(None).await).contains("agent"));
+    assert!(refusal(
+        unsigned
+            .install_catalog_entry("agent", "developer", None)
+            .await
+    )
+    .contains("agent"));
+    assert!(refusal(
+        unsigned
+            .capture_goal(StandingGoal {
+                statement: "x".into(),
+                title: None
+            })
+            .await
+    )
+    .contains("agent"));
+    assert!(refusal(unsigned.list_workflow_templates().await).contains("agent"));
+    assert!(refusal(unsigned.get_workflow("x").await).contains("agent"));
+    assert!(refusal(unsigned.validate_workflow(good_workflow()).await).contains("agent"));
+    assert!(refusal(unsigned.workspace_overview().await).contains("agent"));
+    assert!(refusal(unsigned.list_staff().await).contains("agent"));
+    assert!(refusal(
+        unsigned
+            .assign(None, None, &["agent:developer".into()], false)
+            .await
+    )
+    .contains("agent"));
+
+    // A question is said with what it expects; a gate declined or denied
+    // tells the agent not to proceed, with the person's words when they gave any.
+    let worker_asking = ToolCore::new(fake.path.clone(), wi_scope());
+    let sent = worker_asking.ask_human(&ask("ship it?")).await.unwrap();
+    assert!(sent.contains("wait for the decision"), "{sent}");
+    let declined = worker_asking.await_human("gate-declined").await.unwrap();
+    assert!(
+        declined.contains("DECLINED") && declined.contains("not like this"),
+        "{declined}"
+    );
+    let denied = worker_asking.await_human("gate-denied").await.unwrap();
+    assert!(denied.contains("DENIED"), "{denied}");
+
+    // A worker shapes no goal.
+    assert!(
+        refusal(worker_asking.propose_workflow(good_workflow()).await).contains("shapes a goal")
+    );
+    assert!(refusal(worker_asking.amend_workflow(good_workflow()).await).contains("shapes a goal"));
+
+    // The General Agent: an assignee that is no assignee, a project named,
+    // no goal to assign under from a channel, and a catalog page with nothing on it.
+    let general = ToolCore::new(fake.path.clone(), core_agent_scope());
+    let empty = general.list_catalog(Some("team")).await.unwrap();
+    assert!(empty.contains("no entries"), "{empty}");
+    assert!(refusal(
+        general
+            .create_project(None, "web", None, &["nobody:x".into()])
+            .await
+    )
+    .contains("nobody:x"));
+    let in_a_channel = ToolCore::new(
+        fake.path.clone(),
+        Scope::Conversation {
+            scope: "general".into(),
+            agent: CORE_AGENT_ID.into(),
+            goal: None,
+        },
+    );
+    assert!(refusal(
+        in_a_channel
+            .assign(None, None, &["agent:developer".into()], false)
+            .await
+    )
+    .contains("No goal given"));
+    let manifest = bisa_mcp::BisaServer::new(fake.path.clone(), core_agent_scope()).tool_manifest();
+    assert!(
+        manifest.iter().any(|(name, _)| name == "assign"),
+        "{manifest:?}"
+    );
+    assert!(
+        manifest.windows(2).all(|w| w[0].0 <= w[1].0),
+        "sorted by name"
+    );
+    assert!(refusal(
+        general
+            .assign(None, None, &["nobody:x".into()], false)
+            .await
+    )
+    .contains("nobody:x"));
+    let on_project = general
+        .assign(None, Some("01PROJ"), &["agent:developer".into()], true)
+        .await
+        .unwrap();
+    assert!(
+        on_project.contains("project 01PROJ of goal"),
+        "{on_project}"
+    );
+    // A worker of a run of the workspace: no goal to attach a catalog entry to.
+    let workspace_worker = ToolCore::new(fake.path.clone(), Scope::WorkItem(WORKSPACE_ITEM.into()));
+    let posted = workspace_worker
+        .post_message(None, "from the run", None, &[], &[], &[])
+        .await
+        .unwrap();
+    assert!(posted.contains("Message posted"), "{posted}");
+
+    // A worker whose run cannot be read has nowhere to post without a scope.
+    let lost = ToolCore::new(fake.path.clone(), Scope::WorkItem("unreadable".into()));
+    let said = lost
+        .post_message(None, "hello", None, &[], &[], &[])
+        .await
+        .unwrap();
+    assert!(said.contains("could not be read"), "{said}");
+
+    // Notes: nothing to append or write is refused before the engine; a
+    // write that changes nothing says so; a hash is required.
+    let worker = ToolCore::new(fake.path.clone(), wi_scope());
+    assert!(refusal(worker.note_append(None, "  ").await).contains("empty"));
+    assert!(refusal(worker.note_write(None, " ", "n1").await).contains("empty"));
+    assert!(refusal(worker.note_write(None, "x", " ").await).contains("base_hash"));
+    let unchanged = worker.note_write(None, "x", "same").await.unwrap();
+    assert!(unchanged.contains("Nothing changed"), "{unchanged}");
+    let read = worker.note_read(Some("01NOTE")).await.unwrap();
+    assert!(read.starts_with("# Plan\nhash: n1"), "{read}");
+    let appended = worker.note_append(Some("01NOTE"), "more").await.unwrap();
+    assert!(appended.contains("Appended"), "{appended}");
+    let none = worker.review_notes_list(None, false).await.unwrap();
+    assert!(none.starts_with("No open review notes"), "{none}");
+    let some = worker.review_notes_list(Some("01P"), true).await.unwrap();
+    assert!(some.contains("3 review note(s)"), "{some}");
+    assert!(
+        some.contains("`01NOTE` on `src/a.rs:3` (vs main)"),
+        "{some}"
+    );
+    assert!(
+        some.contains("`01OLD` on `src/b.rs:1-4` (working) (resolved)"),
+        "{some}"
+    );
+    assert!(some.contains("```diff\n  -a\n  +b"), "{some}");
+    let resolved = worker
+        .review_note_resolve("01NOTE", Some("01P"))
+        .await
+        .unwrap();
+    assert_eq!(resolved, "Resolved review note 01NOTE on src/a.rs.");
+
+    // Recall: a stale write names the current value; the list names each memory.
+    let stale = worker
+        .recall_store("style", "spaces", Some("r0"))
+        .await
+        .unwrap();
+    assert!(
+        stale.contains("NOT stored") && stale.contains("tabs, not spaces"),
+        "{stale}"
+    );
+    let got = worker.recall_get("style").await.unwrap();
+    assert!(got.starts_with("hash: r1\nlinks: conventions"), "{got}");
+    let missing = worker.recall_get("nothing").await.unwrap();
+    assert!(missing.contains("No memory stored"), "{missing}");
+    let list = worker.recall_list().await.unwrap();
+    assert!(list.contains("style (hash r1, links: 0)"), "{list}");
+
+    // The judge's words: sure, and not sure enough.
+    let sure = worker
+        .decide(json!({"state": {"sure": true}, "questions": {}}))
+        .await
+        .unwrap();
+    assert!(
+        sure.starts_with("The Decision-Making Agent is sure"),
+        "{sure}"
+    );
+    let unsure = worker
+        .decide(json!({"state": {"sure": false}, "questions": {}}))
+        .await
+        .unwrap();
+    assert!(unsure.contains("NOT sure enough"), "{unsure}");
+
+    // What the mobile tools and a served folder read as.
+    let status = worker
+        .mobile_development(json!({"action": "status"}))
+        .await
+        .unwrap();
+    assert!(
+        status.contains("mobile development: off") && status.contains("flutter: installed"),
+        "{status}"
+    );
+    assert!(
+        status.contains("xcode: 16.0") && status.contains("- [ok] Flutter"),
+        "{status}"
+    );
+    let none = worker
+        .mobile_development(json!({"action": "devices"}))
+        .await
+        .unwrap();
+    assert!(none.starts_with("no device"), "{none}");
+    let booted = worker
+        .mobile_development(json!({"action": "boot"}))
+        .await
+        .unwrap();
+    assert!(booted.contains("run: flutter run -d A-1"), "{booted}");
+    let shot = worker
+        .mobile_development(json!({"action": "screenshot"}))
+        .await
+        .unwrap();
+    assert!(shot.starts_with("screenshot: /shots/a.png (1×2)"), "{shot}");
+    let served = worker.browser_serve(Some("dist".into())).await.unwrap();
+    assert!(
+        served.starts_with("serving `dist` at http://127.0.0.1:1"),
+        "{served}"
+    );
+    let snap = worker.draw(json!({"action": "snapshot"})).await.unwrap();
+    assert!(snap.contains("snapshot: /snaps/d.png (3×4)"), "{snap}");
+    let erased = worker
+        .draw(json!({"action": "erase", "ids": ["e1"]}))
+        .await
+        .unwrap();
+    assert_eq!(erased, "done");
+    let listed = worker
+        .draw(json!({"action": "list", "scope_id": GOAL}))
+        .await
+        .unwrap();
+    assert!(listed.contains(&format!("goal {GOAL}")), "{listed}");
+
+    // The PR review tools, on a conversation.
+    let thread = ToolCore::new(fake.path.clone(), goal_thread_scope(CORE_AGENT_ID));
+    assert!(thread.pr_reviews_list().await.unwrap().contains("reviews"));
+    assert!(thread
+        .pr_review_submit("approve", "", json!([]))
+        .await
+        .unwrap()
+        .contains("approve review"));
+    assert_eq!(
+        thread.pr_thread_reply("t1", "ok", true).await.unwrap(),
+        "Replied on the thread and resolved it."
+    );
+    assert_eq!(
+        thread.pr_thread_reply("t1", "ok", false).await.unwrap(),
+        "Replied on the thread."
+    );
+    assert_eq!(
+        thread.pr_thread_resolve("t1", true).await.unwrap(),
+        "Resolved the thread."
+    );
+    assert_eq!(
+        thread.pr_thread_resolve("t1", false).await.unwrap(),
+        "Reopened the thread."
+    );
+    // The Workflow Agent in a goal's thread shapes the goal; the General
+    // Agent there creates a project under it.
+    let shaping = ToolCore::new(fake.path.clone(), goal_thread_scope(WORKFLOW_AGENT_ID));
+    assert!(shaping
+        .revise_statement("sharper", None)
+        .await
+        .unwrap()
+        .contains("revised"));
+    let ungated = shaping.amend_workflow(ungated_workflow()).await.unwrap();
+    assert!(ungated.contains("takes its repair at once"), "{ungated}");
+    let created = thread.create_project(None, "web", None, &[]).await.unwrap();
+    assert!(
+        created.contains(GOAL),
+        "attached to the thread's goal: {created}"
+    );
+
+    // The client's own words.
+    assert_eq!(goal_scope().goal(), Some(GOAL));
+    assert_eq!(wi_scope().goal(), None);
+    assert_eq!(goal_thread_scope(CORE_AGENT_ID).goal(), Some(GOAL));
+    assert_eq!(
+        IntakeClient::new(fake.path.clone()).socket_path(),
+        &fake.path
+    );
+}
+
+/// An engine that refuses the core agents' own reads — the ops whose
+/// envelope names nothing but the agent — is a tool error like any other.
+#[tokio::test]
+async fn an_engine_that_refuses_the_core_agents_own_reads_is_a_tool_error() {
+    let fake = FakeIntake::start_with(true);
+    let general = ToolCore::new(fake.path.clone(), core_agent_scope());
+    for refused in [
+        general.workspace_overview().await,
+        general.list_staff().await,
+        general.list_catalog(None).await,
+        general
+            .install_catalog_entry("agent", "developer", None)
+            .await,
+        general.list_connectors().await,
+        general.recall_list().await,
+    ] {
+        assert!(refusal(refused).contains("refused on purpose"));
+    }
+    let workflow = ToolCore::new(fake.path.clone(), workflow_agent_scope());
+    assert!(refusal(workflow.list_workflow_templates().await).contains("refused on purpose"));
 }

@@ -2145,14 +2145,16 @@ pub fn close_goal(
     goal_id: GoalId,
     reason: bisa_core::ClosureReason,
 ) -> Result<Goal, EngineError> {
+    let noted = note_closing(inner, goal_id)?;
     let goal = close_record(inner, goal_id, reason.clone())?;
     // Whatever was running for the goal is told to stop with it — its
     // workers, its design wake, the turns in its thread, the asks read for
     // it — here and now; the wait for their processes, the goals it spawned
     // and the release follow on a task of their own, since this caller
     // cannot wait (`close_goal_settled` can).
-    let signalled =
+    let mut signalled =
         crate::ending::signal_goal_work(inner, goal_id, sessions::EndCause::Close, None)?;
+    signalled.told = signalled.told.max(noted);
     match (inner.arc(), tokio::runtime::Handle::try_current()) {
         (Some(owned), Ok(_)) => {
             tokio::spawn(async move {
@@ -2177,8 +2179,9 @@ pub async fn close_goal_settled(
     goal_id: GoalId,
     reason: bisa_core::ClosureReason,
 ) -> Result<(Goal, sessions::Ended), EngineError> {
+    let noted = note_closing(inner, goal_id)?;
     let goal = close_record(inner, goal_id, reason.clone())?;
-    let done = crate::ending::end_goal_work(
+    let mut done = crate::ending::end_goal_work(
         inner,
         goal_id,
         sessions::EndCause::Close,
@@ -2186,12 +2189,32 @@ pub async fn close_goal_settled(
         &HashSet::new(),
     )
     .await?;
+    done.ended.sessions = done.ended.sessions.max(noted);
     inner.emit(EngineEvent::scoped(
         goal_id,
         None,
         EnginePayload::GoalClosed { reason },
     ));
     Ok((goal, done.ended))
+}
+
+/// Every live session of the goal entered in the ledger before the record
+/// half cancels its run — what a stop does before its own cancel
+/// (`signal_goal_work`). The cancel's effects end the rows through their
+/// drivers, racing the close's own pass: a row a driver ended first was
+/// never entered, so nothing waited for its process, and the close counted
+/// it as nothing — a goal retired with a worker at work said it stopped no
+/// session. Entered first, the deadline has every row and the count says
+/// what the close ended, whichever way the two interleave. Answers how many
+/// live rows the goal had.
+fn note_closing(inner: &Arc<Inner>, goal_id: GoalId) -> Result<usize, EngineError> {
+    let workstreams = workstreams_of_goal(inner, goal_id)?;
+    Ok(sessions::note_stopping(
+        inner,
+        sessions::Scope::Goal(goal_id),
+        &workstreams,
+        sessions::EndCause::Close,
+    ))
 }
 
 /// The record half of a close: the goal closed, its runs cancelled and

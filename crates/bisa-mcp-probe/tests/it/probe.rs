@@ -419,3 +419,467 @@ async fn a_legacy_stream_that_never_names_its_endpoint_fails_before_the_handshak
         "{report:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The edges: what a server says besides its tools, what it writes before it
+// dies, and the ways a stream can fail to be one.
+
+/// A server that advertises nothing has no tools to count and is said by its
+/// name alone; one that leaves saying nothing is a failure with no words of
+/// its own; one that writes more than is kept is quoted by its last words;
+/// and a working directory named is the one the server is started in.
+#[tokio::test(flavor = "multi_thread")]
+async fn what_a_server_says_besides_its_tools_and_what_it_writes_before_it_dies() {
+    let bare = RmcpProbe
+        .probe(&scripted("bare", &[]), DEFAULT_BUDGET)
+        .await;
+    assert!(bare.ok, "{bare:?}");
+    assert_eq!(bare.tool_count, 0);
+    assert!(!bare.capabilities.tools);
+    assert_eq!(bare.words(), "bare-mcp · 2025-06-18 · 0 tools", "{bare:?}");
+
+    let quiet = RmcpProbe
+        .probe(&scripted("quiet", &[]), Duration::from_secs(5))
+        .await;
+    assert!(!quiet.ok);
+    assert!(
+        !quiet
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("the server wrote"),
+        "nothing was written: {quiet:?}"
+    );
+
+    let noisy = RmcpProbe
+        .probe(&scripted("noisy", &[]), Duration::from_secs(5))
+        .await;
+    assert!(!noisy.ok);
+    let error = noisy.error.clone().unwrap_or_default();
+    assert!(error.contains("the last word"), "{error}");
+    assert!(
+        !error.contains("line 0000"),
+        "the first lines were let go: {error}"
+    );
+    assert!(error.len() < 8 * 1024, "the tail is bounded");
+
+    let placed = McpServerConfig::Stdio {
+        name: "scripted".into(),
+        command: env!("CARGO_BIN_EXE_scripted-mcp").into(),
+        args: vec!["handshake:2025-06-18".into()],
+        env: BTreeMap::new(),
+        cwd: Some(std::env::temp_dir().display().to_string()),
+    };
+    let report = RmcpProbe.probe(&placed, DEFAULT_BUDGET).await;
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.tool_count, 2);
+}
+
+/// A stage's words for a person, and a report's: the failure's stage with
+/// or without its error, and a success by the server's name — alone when
+/// it says no version — the revision and the count.
+#[test]
+fn a_report_reads_as_one_line() {
+    assert_eq!(
+        McpProbeStage::Initialize.failure_words(),
+        "reached the server, but the MCP handshake did not complete"
+    );
+    assert_eq!(
+        McpProbeStage::Ping.failure_words(),
+        "answered the handshake, but not a ping"
+    );
+    assert_eq!(
+        McpProbeStage::Tools.failure_words(),
+        "answered the handshake, but not the tool list"
+    );
+    assert_eq!(McpProbeStage::Done.failure_words(), "answered");
+    let config = scripted("hang", &[]);
+    let mut failed = bisa_mcp_probe::McpProbeReport::failed(
+        &config,
+        McpProbeStage::Ping,
+        "no answer within 3 s",
+        Duration::from_millis(10),
+    );
+    assert_eq!(
+        failed.words(),
+        "answered the handshake, but not a ping: no answer within 3 s"
+    );
+    failed.error = None;
+    assert_eq!(failed.words(), "answered the handshake, but not a ping");
+    let mut ok = failed.clone();
+    ok.ok = true;
+    ok.stage = McpProbeStage::Done;
+    ok.tool_count = 1;
+    assert_eq!(ok.words(), "1 tool");
+    ok.server = Some(bisa_mcp_probe::McpServerInfo {
+        name: "docs".into(),
+        version: String::new(),
+        title: None,
+    });
+    ok.protocol_version = Some("2025-06-18".into());
+    assert_eq!(ok.words(), "docs · 2025-06-18 · 1 tool");
+}
+
+/// A Streamable HTTP server that advertises resources is asked for them and
+/// they are counted; one that advertises nothing has nothing counted.
+async fn streamable_with(
+    capabilities: Value,
+) -> impl Fn(
+    Json<Value>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = axum::response::Response> + Send>>
+       + Clone {
+    move |Json(body): Json<Value>| {
+        let capabilities = capabilities.clone();
+        Box::pin(async move {
+            let Some(id) = body.get("id").cloned() else {
+                return axum::http::StatusCode::ACCEPTED.into_response();
+            };
+            let result = match body["method"].as_str().unwrap_or("") {
+                "initialize" => json!({
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": capabilities,
+                    "serverInfo": {"name": "loopback-http", "version": "2.0.0"}
+                }),
+                "ping" => json!({}),
+                "tools/list" => json!({"tools": []}),
+                "resources/list" => json!({"resources": [{"uri": "file:///a", "name": "a"}, {"uri": "file:///b", "name": "b"}]}),
+                _ => return Json(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found"}})).into_response(),
+            };
+            Json(json!({"jsonrpc": "2.0", "id": id, "result": result})).into_response()
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_streamable_server_is_asked_for_what_it_advertises_and_nothing_else() {
+    let app = Router::new().route(
+        "/mcp",
+        post(streamable_with(json!({"tools": {}, "resources": {}})).await).get(no_stream),
+    );
+    let base = serve(app).await;
+    let config = McpServerConfig::Http {
+        name: "docs".into(),
+        url: format!("{base}/mcp"),
+        headers: BTreeMap::new(),
+    };
+    let report = RmcpProbe.probe(&config, DEFAULT_BUDGET).await;
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.resource_count, Some(2));
+    assert_eq!(report.prompt_count, None);
+
+    let app = Router::new().route(
+        "/mcp",
+        post(streamable_with(json!({})).await).get(no_stream),
+    );
+    let base = serve(app).await;
+    let config = McpServerConfig::Http {
+        name: "docs".into(),
+        url: format!("{base}/mcp"),
+        headers: BTreeMap::new(),
+    };
+    let report = RmcpProbe.probe(&config, DEFAULT_BUDGET).await;
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.tool_count, 0);
+    assert_eq!(report.resource_count, None);
+}
+
+/// A legacy stream as a test writes it: the events in order, the answers
+/// to the messages posted, and how the messages endpoint answers.
+#[derive(Clone)]
+struct LegacyScript {
+    /// What the stream says, in order, before any answer: `(event, data)`.
+    prelude: Vec<(&'static str, String)>,
+    /// How `POST /messages` answers: `None` is 202, `Some(code)` that status.
+    post_status: Option<u16>,
+    /// What rides the stream after a message is posted — `None` closes it.
+    answer: Option<Answer>,
+    /// A server that advertises no tools.
+    no_tools: bool,
+}
+
+#[derive(Clone, Copy)]
+enum Answer {
+    /// The result, after an unrelated message and a non-message event.
+    AfterNoise,
+    /// A JSON-RPC error.
+    Error,
+}
+
+#[derive(Clone)]
+struct LegacyState {
+    script: LegacyScript,
+    answers: Arc<Mutex<Option<mpsc::Sender<Event>>>>,
+}
+
+async fn legacy_stream(State(state): State<LegacyState>) -> impl IntoResponse {
+    let (tx, rx) = mpsc::channel::<Event>(16);
+    let (out_tx, out_rx) = mpsc::channel::<Result<Event, std::convert::Infallible>>(16);
+    *state.answers.lock().unwrap() = Some(tx);
+    let prelude = state.script.prelude.clone();
+    let closes = state.script.answer.is_none();
+    tokio::spawn(async move {
+        let mut rx = rx;
+        for (event, data) in prelude {
+            let ev = if event == "comment" {
+                Event::default().comment(data)
+            } else {
+                Event::default().event(event).data(data)
+            };
+            if out_tx.send(Ok(ev)).await.is_err() {
+                return;
+            }
+        }
+        if closes {
+            return;
+        }
+        while let Some(ev) = rx.recv().await {
+            if out_tx.send(Ok(ev)).await.is_err() {
+                return;
+            }
+        }
+    });
+    Sse::new(ReceiverStream::new(out_rx)).keep_alive(KeepAlive::default())
+}
+
+async fn legacy_messages(
+    State(state): State<LegacyState>,
+    Json(body): Json<Value>,
+) -> axum::http::StatusCode {
+    if let Some(code) = state.script.post_status {
+        return axum::http::StatusCode::from_u16(code).unwrap();
+    }
+    let Some(id) = body.get("id").cloned() else {
+        return axum::http::StatusCode::ACCEPTED;
+    };
+    let result = match body["method"].as_str().unwrap_or("") {
+        "initialize" if state.script.no_tools => {
+            json!({"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "loopback-sse", "version": "0.9.0"}})
+        }
+        "initialize" => {
+            json!({"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "loopback-sse", "version": "0.9.0"}})
+        }
+        "ping" => json!({}),
+        "tools/list" => {
+            json!({"tools": [{"name": "legacy_tool", "inputSchema": {"type": "object"}}]})
+        }
+        _ => json!({}),
+    };
+    let tx = state.answers.lock().unwrap().clone();
+    if let Some(tx) = tx {
+        match state.script.answer {
+            Some(Answer::AfterNoise) => {
+                // A probe that has already left drops the channel: nothing to tell.
+                tx.try_send(Event::default().event("ping").data("{}")).ok();
+                tx.try_send(
+                    Event::default()
+                        .event("message")
+                        .data(json!({"jsonrpc": "2.0", "id": 99, "result": {}}).to_string()),
+                )
+                .ok();
+                tx.try_send(
+                    Event::default()
+                        .event("message")
+                        .data(json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string()),
+                )
+                .ok();
+            }
+            Some(Answer::Error) => {
+                tx.try_send(Event::default().event("message").data(
+                    json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": "not today"}}).to_string(),
+                ))
+                .ok();
+            }
+            None => {}
+        }
+    }
+    axum::http::StatusCode::ACCEPTED
+}
+
+async fn legacy(script: LegacyScript) -> McpServerConfig {
+    let state = LegacyState {
+        script,
+        answers: Arc::new(Mutex::new(None)),
+    };
+    let app = Router::new()
+        .route("/sse", get(legacy_stream))
+        .route("/messages", post(legacy_messages))
+        .with_state(state);
+    let base = serve(app).await;
+    McpServerConfig::Sse {
+        name: "old".into(),
+        url: format!("{base}/sse"),
+        headers: BTreeMap::new(),
+    }
+}
+
+fn endpoint_first() -> Vec<(&'static str, String)> {
+    vec![("endpoint", "/messages".to_string())]
+}
+
+/// The legacy stream at its edges: a comment and a stray event before the
+/// endpoint are passed over, as a ping event and another message's answer
+/// are while an answer is awaited; an error answered is the stage's failure;
+/// a messages endpoint that refuses, a stream that ends before naming its
+/// endpoint or before answering, and a server with no tools each say so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_legacy_stream_at_its_edges() {
+    let noisy = legacy(LegacyScript {
+        prelude: vec![
+            ("comment", "keep-alive".into()),
+            ("ping", "{}".into()),
+            ("endpoint", "/messages".into()),
+        ],
+        post_status: None,
+        answer: Some(Answer::AfterNoise),
+        no_tools: true,
+    })
+    .await;
+    let report = RmcpProbe.probe(&noisy, DEFAULT_BUDGET).await;
+    assert!(report.ok, "{report:?}");
+    assert_eq!(report.tool_count, 0, "no tools advertised, none asked for");
+
+    let refusing = legacy(LegacyScript {
+        prelude: endpoint_first(),
+        post_status: Some(500),
+        answer: None,
+        no_tools: false,
+    })
+    .await;
+    let report = RmcpProbe.probe(&refusing, Duration::from_secs(5)).await;
+    assert!(!report.ok);
+    assert_eq!(report.stage, McpProbeStage::Initialize);
+    assert!(
+        report
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("the endpoint answered 500"),
+        "{report:?}"
+    );
+
+    let erring = legacy(LegacyScript {
+        prelude: endpoint_first(),
+        post_status: None,
+        answer: Some(Answer::Error),
+        no_tools: false,
+    })
+    .await;
+    let report = RmcpProbe.probe(&erring, Duration::from_secs(5)).await;
+    assert!(!report.ok);
+    assert!(
+        report
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("the server answered an error: not today"),
+        "{report:?}"
+    );
+
+    let silent = legacy(LegacyScript {
+        prelude: endpoint_first(),
+        post_status: None,
+        answer: None,
+        no_tools: false,
+    })
+    .await;
+    let report = RmcpProbe.probe(&silent, Duration::from_secs(5)).await;
+    assert!(!report.ok);
+    assert!(
+        report
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("ended before the answer"),
+        "{report:?}"
+    );
+
+    let nameless = legacy(LegacyScript {
+        prelude: vec![("ping", "{}".into())],
+        post_status: None,
+        answer: None,
+        no_tools: false,
+    })
+    .await;
+    let report = RmcpProbe.probe(&nameless, Duration::from_secs(5)).await;
+    assert!(!report.ok);
+    assert_eq!(report.stage, McpProbeStage::Spawn);
+    assert!(
+        report
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("ended before naming its endpoint"),
+        "{report:?}"
+    );
+}
+
+/// How a raw host misbehaves on the wire.
+#[derive(Clone, Copy)]
+enum Cut {
+    /// The connection closes with a chunk unfinished, before the endpoint.
+    BeforeEndpoint,
+    /// The same, once the endpoint was named.
+    AfterEndpoint,
+    /// A frame that runs past what the probe reads, never ending.
+    Overlong,
+}
+
+/// A stream cut mid-frame by its host — the connection closed with a chunk
+/// unfinished — fails as a stream, before the endpoint and after it; a frame
+/// that never ends is a stream the probe does not read.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stream_cut_mid_frame_fails_as_a_stream() {
+    use std::io::{Read as _, Write as _};
+    fn cutting_server(cut: Cut) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut head = [0u8; 4096];
+                let n = stream.read(&mut head).unwrap_or(0);
+                let request = String::from_utf8_lossy(&head[..n]).to_string();
+                if request.starts_with("POST") {
+                    // The probe may hang up first: a failed write is the same cut.
+                    stream
+                        .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n")
+                        .ok();
+                    continue;
+                }
+                let body = match cut {
+                    Cut::BeforeEndpoint => "event: endpo".to_string(),
+                    Cut::AfterEndpoint => "event: endpoint\ndata: /messages\n\n".to_string(),
+                    Cut::Overlong => {
+                        format!("data: {}", "x".repeat(bisa_http::MAX_SSE_FRAME_BYTES + 16))
+                    }
+                };
+                let chunk = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{body}\r\n",
+                    body.len()
+                );
+                stream.write_all(chunk.as_bytes()).ok();
+                stream.flush().ok();
+                std::thread::sleep(Duration::from_millis(300));
+                // Closed with the chunked body unfinished: no terminating chunk.
+            }
+        });
+        format!("http://{addr}/sse")
+    }
+    for (cut, said) in [
+        (Cut::BeforeEndpoint, "the stream failed"),
+        (Cut::AfterEndpoint, "the stream failed"),
+        (Cut::Overlong, "not one the probe reads"),
+    ] {
+        let config = McpServerConfig::Sse {
+            name: "cut".into(),
+            url: cutting_server(cut),
+            headers: BTreeMap::new(),
+        };
+        let report = RmcpProbe.probe(&config, Duration::from_secs(5)).await;
+        assert!(!report.ok, "{report:?}");
+        assert!(
+            report.error.as_deref().unwrap_or("").contains(said),
+            "{said}: {report:?}"
+        );
+    }
+}

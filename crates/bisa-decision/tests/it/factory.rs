@@ -83,3 +83,48 @@ fn a_remote_provider_with_no_key_cannot_be_asked() {
     assert_eq!("none".parse::<RlcdAuth>(), Ok(RlcdAuth::None));
     assert!("basic".parse::<RlcdAuth>().is_err());
 }
+
+/// A prompted provider needs a harness, or an agent, by name.
+#[test]
+fn a_prompted_provider_needs_its_harness_or_its_agent_named() {
+    let asker = ScriptedAsker::with(vec![]);
+    let ports = ports(ScriptedTransport::with(vec![]), asker.as_ref(), &NoKeys);
+    let settings = DecisionSettings {
+        provider: DecisionProviderKind::Harness,
+        harness: "  ".into(),
+        ..DecisionSettings::default()
+    };
+    assert!(matches!(
+        build(&settings, &ports).err(),
+        Some(ProviderError::Misconfigured(why)) if why == "no harness is named"
+    ));
+    let settings = DecisionSettings {
+        provider: DecisionProviderKind::Agent,
+        agent: String::new(),
+        ..DecisionSettings::default()
+    };
+    assert!(matches!(
+        build(&settings, &ports).err(),
+        Some(ProviderError::Misconfigured(why)) if why == "no agent is named"
+    ));
+}
+
+/// The scripted provider: its kind is whatever a test says, a choice among
+/// one option is certain, and a script that ran out is a provider that
+/// cannot be reached.
+#[tokio::test]
+async fn the_scripted_provider_answers_from_its_script_and_no_further() {
+    use bisa_decision::{DecisionProvider as _, ScriptedProvider};
+    let provider = ScriptedProvider::new(vec![]).of_kind(DecisionProviderKind::Jev);
+    assert_eq!(provider.descriptor().kind, DecisionProviderKind::Jev);
+    match ScriptedProvider::choice("only", &["only"], 0.3) {
+        bisa_core::DecisionAnswer::Choice { probabilities, .. } => {
+            assert_eq!(probabilities.get("only").copied(), Some(1.0));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(
+        provider.decide(&routed(), DEADLINE).await.err(),
+        Some(ProviderError::Unreachable(why)) if why == "the script ran out"
+    ));
+}

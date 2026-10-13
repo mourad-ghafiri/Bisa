@@ -8,6 +8,9 @@
 //!   `<revision>`, `ping` answers, `tools/list` answers two tools.
 //! - `hang` — reads and never answers.
 //! - `exit` — writes a line to stderr and exits with status 3 at once.
+//! - `noisy` — writes more than the probe keeps of stderr, then exits 3.
+//! - `quiet` — exits 0 at once, saying nothing.
+//! - `bare` — the handshake era with no capability advertised at all.
 //!
 //! Nothing here reads a file or a network; only stdin and stdout.
 
@@ -32,6 +35,16 @@ fn main() {
     if mode == "exit" {
         eprintln!("scripted-mcp: refusing to start: no API key");
         std::process::exit(3);
+    }
+    if mode == "noisy" {
+        for i in 0..400 {
+            eprintln!("scripted-mcp: line {i:04} of a long complaint about its configuration");
+        }
+        eprintln!("scripted-mcp: the last word");
+        std::process::exit(3);
+    }
+    if mode == "quiet" {
+        std::process::exit(0);
     }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -78,6 +91,14 @@ fn main() {
                 }}),
             ),
             "server/discover" => write(&mut out, &error(-32601, "Method not found")),
+            "initialize" if mode == "bare" => write(
+                &mut out,
+                &serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "serverInfo": {"name": "bare-mcp", "version": ""}
+                }}),
+            ),
             "initialize" if !discover => write(
                 &mut out,
                 &serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {

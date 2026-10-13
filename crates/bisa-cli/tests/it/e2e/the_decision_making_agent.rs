@@ -33,6 +33,9 @@ fn judge() -> Value {
               "say": ["I would rather not say."] },
             { "scope": "none", "when": "Does this convey urgency?",
               "say": [json!({ "answers": { "q": { "type": "noul", "noul": 0.97 } } }).to_string()] },
+            { "scope": "none", "when": "Who should look?",
+              "say": [json!({ "answers": { "q": { "type": "choice", "choice": "dev",
+                      "probabilities": { "dev": 0.8, "ops": 0.2 }, "confidence": 0.6 } } }).to_string()] },
         ],
     })
 }
@@ -169,6 +172,59 @@ fn a_judge_step_takes_the_branch_a_sure_answer_names_and_otherwise_when_nobody_i
         "{unread}"
     );
     assert_eq!(unread["asked"]["state"]["state"], "done");
+
+    // A choice tried reads as its pick and how sure; the newest judgement
+    // alone when asked for one; the points on for the workspace once it is
+    // switched on; a remote provider's key kept from stdin.
+    let picked = ws.bisa(&[
+        "decisions",
+        "try",
+        "--state",
+        "the build is red on main",
+        "--choice",
+        "Who should look?",
+        "--option",
+        "dev=a developer",
+        "--option",
+        "ops=an operator",
+    ]);
+    let said = String::from_utf8_lossy(&picked.stdout).to_string();
+    assert!(
+        said.contains("dev (confidence"),
+        "{said}\n{}",
+        String::from_utf8_lossy(&picked.stderr)
+    );
+    let one = ws.json(&["decisions", "list", "--limit", "1"]);
+    assert_eq!(one["judgements"].as_array().map(Vec::len), Some(1), "{one}");
+    ws.ok(&["settings", "set", "workspace", "decisions.enabled", "true"]);
+    let on = ws.bisa(&["decisions", "status"]);
+    let said = String::from_utf8_lossy(&on.stdout).to_string();
+    assert!(
+        said.contains("assign.pick") && said.contains(" on"),
+        "{said}"
+    );
+    ws.ok(&["settings", "set", "workspace", "decisions.enabled", "false"]);
+    ws.ok(&["settings", "set", "workspace", "decisions.provider", "jev"]);
+    let stored = ws.bisa_stdin(
+        &["decisions", "key", "set", "jev", "--from", "@stdin"],
+        "fixture-key-not-real\n",
+    );
+    assert!(
+        stored.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stored.stderr)
+    );
+    let remote = ws.bisa(&["decisions", "status"]);
+    let said = String::from_utf8_lossy(&remote.stdout).to_string();
+    assert!(said.contains("stored"), "{said}");
+    ws.ok(&["decisions", "key", "clear", "jev"]);
+    ws.ok(&[
+        "settings",
+        "set",
+        "workspace",
+        "decisions.provider",
+        "harness",
+    ]);
 
     // Every judgement is kept with what became of it, newest first.
     let kept = ws.json(&["decisions", "list"]);
