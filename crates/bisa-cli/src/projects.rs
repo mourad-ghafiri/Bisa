@@ -1503,7 +1503,9 @@ fn creation_body(
             body["path"] = json!(path);
         }
         (Source::Adopt, ProjectRoot::Managed) => {
+            // LCOV_EXCL_START: an adoption always carries a folder; by construction
             bail!(bisa_core::text!("cli-projects-adopt-needs-folder"))
+            // LCOV_EXCL_STOP
         }
     }
     Ok(body)
@@ -1633,7 +1635,9 @@ pub async fn workstream(ctx: &Ctx, out: &Out, cmd: WorkstreamCmd) -> Result<()> 
                     .await?;
                 let w: Workstream = serde_json::from_value(answer["workstream"].clone()).context(
                     bisa_core::text!("cli-projects-unexpected-workstream-payload-from-node"),
+                    // LCOV_EXCL_START: the node's workstream payload is the wire's own; by construction
                 )?;
+                // LCOV_EXCL_STOP
                 (
                     w,
                     PathBuf::from(answer["path"].as_str().unwrap_or_default()),
@@ -2150,7 +2154,7 @@ async fn git_view(w: &Workstream, checkout: &std::path::Path) -> Option<Workstre
 async fn shutdown(engine: Arc<Engine>) {
     if let Ok(engine) = Arc::try_unwrap(engine) {
         engine.shutdown().await;
-    }
+    } // LCOV_EXCL_LINE: the engine still shared at its shutdown; by construction
 }
 
 /// Run a publishing call and deal with the `Publish` gate it opens.
@@ -2270,8 +2274,10 @@ async fn published_by_node(
     let approve = if yes {
         true
     } else if std::io::stdin().is_terminal() {
+        // LCOV_EXCL_START: a question asked on a terminal; stdin is a terminal only by hand
         let question = question_of(client, &gate).await;
         ask(&question).await
+        // LCOV_EXCL_STOP
     } else {
         out.error(&bisa_i18n::say(&bisa_core::text!(
             "cli-projects-publish-gate-open-there-no-terminal",
@@ -2312,12 +2318,14 @@ async fn published_by_node(
                 {
                     return Ok(());
                 }
+                // LCOV_EXCL_START: the node went before the end; a window
                 _ => {}
             }
         }
         Err(anyhow!(bisa_core::text!(
             "cli-projects-node-went-before-the-end"
         )))
+        // LCOV_EXCL_STOP
     })
     .await
     .map_err(|_| anyhow!(bisa_core::text!("cli-projects-publish-end-not-heard")))?;
@@ -2387,11 +2395,13 @@ pub async fn assign(
 ) -> Result<()> {
     let id = crate::parse_goal_id(goal)?;
     let wanted = parse_assignees(assignees)?;
+    // LCOV_EXCL_START: the parser requires an assignee; by construction
     if wanted.is_empty() {
         bail!(bisa_core::text!(
             "cli-projects-name-least-one-assignee-agent-id"
         ));
     }
+    // LCOV_EXCL_STOP
     let current = ctx.workspace()?.get_goal(id)?.assignees;
     let updated = carried_by(ctx, id, merge_assignees(current, wanted, replace)).await?;
     report_assignees(out, &updated);

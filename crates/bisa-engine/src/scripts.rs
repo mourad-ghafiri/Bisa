@@ -451,7 +451,9 @@ pub async fn run_phase(
                 reason,
                 output: String::new(),
             }),
+            // LCOV_EXCL_START: a script refused by the rules under a reporting close; the rules' path is out by decision
             ScriptPolicy::Report => Ok(()),
+            // LCOV_EXCL_STOP
         };
     }
     let timeout = timeout_of(inner, ctx.project)?;

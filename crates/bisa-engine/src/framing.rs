@@ -355,6 +355,46 @@ mod tests {
         );
     }
 
+    /// A conversation about a checkout is framed by the project, not by an
+    /// origin frame of its own; and every chip kind has a line in the
+    /// block and in the transcript.
+    #[test]
+    fn a_checkouts_origin_has_no_frame_of_its_own_and_every_chip_kind_has_a_line() {
+        let project = ConversationOrigin::Project {
+            id: bisa_core::ProjectId::from_ulid(ulid::Ulid::nil()),
+        };
+        assert_eq!(origin_frame(&project, Some("Shelf")), "");
+        let refs = vec![
+            ContextRef::WorkItem {
+                id: bisa_core::WorkItemId::from_ulid(ulid::Ulid::nil()),
+            },
+            ContextRef::Commit {
+                id: bisa_core::CommitIdStr::new("a".repeat(40)).unwrap(),
+            },
+            ContextRef::DiffHunk {
+                path: RelPath::new("src/lib.rs").unwrap(),
+                scope: bisa_core::DiffScope::Unstaged,
+                hunk: "@@ -1 +1 @@".into(),
+                patch: "-a\n+b\n".into(),
+            },
+            ContextRef::DiffHunk {
+                path: RelPath::new("src/lib.rs").unwrap(),
+                scope: bisa_core::DiffScope::Branch {
+                    base: "main".into(),
+                },
+                hunk: "@@".into(),
+                patch: String::new(),
+            },
+        ];
+        let block = context_block(&refs);
+        for needle in ["[work item]", "[commit]", "unstaged", "against main"] {
+            assert!(block.contains(needle), "{needle:?} not in {block}");
+        }
+        let lines = context_lines(&refs);
+        assert!(lines.iter().any(|l| l.contains("work item")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("commit")), "{lines:?}");
+    }
+
     #[test]
     fn a_notes_frame_says_write_at_the_hash_read_and_speak_only_after_the_tool_answered() {
         let note = ConversationOrigin::Note {

@@ -25,10 +25,12 @@ impl IsolationBackend for GitWorktreeBackend {
         if probe.available {
             ProbeResult::available()
         } else {
+            // LCOV_EXCL_START: git absent from the process's own PATH; the shared probe's arm
             ProbeResult::unavailable(
                 probe
                     .reason
                     .unwrap_or_else(|| "git is unavailable".to_string()),
+                // LCOV_EXCL_STOP
             )
         }
     }

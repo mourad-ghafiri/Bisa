@@ -32,6 +32,7 @@ starts.
 | Invariant | Held by |
 |---|---|
 | Every `BackendKind` is dispatchable; an unavailable one says so rather than failing later | `tests/it/backends.rs` |
+| A backend refuses a merged path already there rather than writing into it; a copy skips links; a worktree folder git no longer counts as one is still removed on stop; a diff tells bytes apart, never moments, and a binary has no text | `tests/it/backends.rs` (`a_copy_refuses_a_merged_path_already_there…`, `a_worktree_refuses_a_merged_path_already_there…`, `a_plain_diff_reads_unchanged_bytes_and_binaries`, `a_worktree_diff_reads_staged_adds_deletes_and_binaries`) |
 | A copy's teardown captures its diff before removing anything | `tests/it/backends.rs` |
 
 ---

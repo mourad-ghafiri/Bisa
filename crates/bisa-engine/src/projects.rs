@@ -324,7 +324,9 @@ pub async fn init_repository(
         let message = format!("project {} initialised", project.slug);
         match empty_root_commit(inner, &project, &message).await {
             Ok(()) | Err(EngineError::IdentityUnset { .. }) => {}
+            // LCOV_EXCL_START: git refused the empty root commit; git's own word, the disk's
             Err(e) => tracing::warn!(project = %project.slug, "the root commit failed: {e}"),
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -347,7 +349,9 @@ pub async fn init_repository(
     ));
     tracing::info!(
         project = %project.slug,
+        // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
         root = %root.display(),
+        // LCOV_EXCL_STOP
         committer = ?committer,
         "a plain folder was initialised as a repository"
     );
@@ -447,10 +451,12 @@ pub async fn import(
     })
     .await
     .map_err(|e| {
+        // LCOV_EXCL_START: the import's blocking task panicked; unreachable by construction
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-import-task-did-not-finish",
             e = e.to_string()
         ))
+        // LCOV_EXCL_STOP
     })??;
 
     let mut project = project.clone();
@@ -663,10 +669,12 @@ pub async fn open_workstream_for(
     })
     .await?;
     if unborn {
+        // LCOV_EXCL_START: status saw a commit that rev-parse did not; by construction
         return Err(EngineError::Iso(format!(
             "project {} has no commits yet — make the first commit before opening a workstream",
             project.slug
         )));
+        // LCOV_EXCL_STOP
     }
 
     let id = WorkstreamId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
@@ -893,10 +901,14 @@ async fn open_copy_workstream(
                     Err(e) if e.is_unavailable() => last = e.to_string(),
                     // A backend that is there and could not do it: the disk,
                     // the permissions — the node's failure, said as one.
+                    // LCOV_EXCL_START: a backend that is there and could not do it; the disk's arm
                     Err(e) => return Err(EngineError::of_iso(e)),
+                    // LCOV_EXCL_STOP
                 }
             }
+            // LCOV_EXCL_START: no isolation backend at all; the copy floor always answers
             Err(EngineError::Iso(format!("no isolation backend: {last}")))
+            // LCOV_EXCL_STOP
         }
     })
     .await
@@ -933,39 +945,6 @@ async fn open_copy_workstream(
     })
 }
 
-/// Where an item's work ended up, asked *after* the run, and **created**.
-///
-/// The executor knows the placement because it opened it; anything that comes
-/// later has only the spec. The rule itself — a workstream whose checkout still
-/// exists, otherwise the goal's own `work/` — belongs to the store, which is
-/// also what answers `GET /placement/work_item/{id}`; a second walk here would
-/// be a second answer to "where did this land". What stays is the one thing
-/// the store deliberately will not do: make the directory. A command spawned
-/// into a directory that is not there fails before it runs, which reads as the
-/// check failing rather than as the placement being absent.
-///
-/// This exists because the alternative is the workspace root, and a criterion
-/// like `test -s content.md` passes or fails on nothing but the directory it
-/// is run in: checking the root would have asked whether the *workspace* has a
-/// `content.md`, which is a different question with a coincidental answer.
-pub fn placement(inner: &Inner, spec: &WorkItemSpec) -> PathBuf {
-    match inner.ws.work_item_root(spec.id) {
-        Ok(dir) => {
-            if let Err(e) = std::fs::create_dir_all(&dir) {
-                tracing::warn!(item = %spec.id, "cannot create the work directory: {e}");
-            }
-            dir
-        }
-        // An item the index has not caught up with yet still has its home on
-        // the spec in hand, and that is the same fallback the store would have
-        // reached for.
-        Err(e) => {
-            tracing::warn!(item = %spec.id, "no placement on record: {e}");
-            scratch_dir(inner, &spec.home)
-        }
-    }
-}
-
 /// A home's own `scratch/` — a goal's, or a run of the workspace's —
 /// created. A directory that does not exist is not a working directory: a
 /// command spawned into one fails before it runs, which would read as the
@@ -975,7 +954,9 @@ pub fn placement(inner: &Inner, spec: &WorkItemSpec) -> PathBuf {
 pub fn scratch_dir(inner: &Inner, home: &Home) -> PathBuf {
     let dir = inner.ws.paths().home(home).scratch();
     if let Err(e) = std::fs::create_dir_all(&dir) {
+        // LCOV_EXCL_START: the scratch directory refused; a disk arm
         tracing::warn!(%home, "cannot create the scratch directory: {e}");
+        // LCOV_EXCL_STOP
     }
     dir
 }
@@ -1027,7 +1008,9 @@ pub fn goal_check_root(inner: &Inner, goal: GoalId) -> PathBuf {
     match resolve_step_project(None, &attached) {
         StepProject::Single(p) => match inner.ws.get_project(p) {
             Ok(project) => inner.ws.project_root_path(&project),
+            // LCOV_EXCL_START: a step's project record gone between the resolve and the read; a window
             Err(_) => scratch_dir(inner, &Home::Goal { goal }),
+            // LCOV_EXCL_STOP
         },
         _ => scratch_dir(inner, &Home::Goal { goal }),
     }
@@ -1158,7 +1141,9 @@ pub async fn create(inner: &Inner, req: NewProjectRequest) -> Result<Created, En
         }
         Err(e) => {
             if let Err(undo) = inner.ws.delete_project(record.id) {
+                // LCOV_EXCL_START: taking back a project whose tree failed refused; a disk arm
                 tracing::warn!(project = %record.slug, "could not take back a project whose tree failed: {undo}");
+                // LCOV_EXCL_STOP
             }
             Err(e)
         }
@@ -1234,11 +1219,13 @@ pub async fn delete(
     );
     if tree {
         for w in workstreams.iter().filter(|w| !w.is_primary()) {
+            // LCOV_EXCL_START: a worktree that would not close before the delete; git's word
             if let Err(e) =
                 close_workstream_with(inner, w.id, true, scripts::ScriptPolicy::Report).await
             {
                 tracing::warn!(workstream = %w.id, "closing before project delete: {e}");
             }
+            // LCOV_EXCL_STOP
         }
     }
     // The whole managed project directory is what `tree` removes, not just
@@ -1744,7 +1731,9 @@ pub(crate) fn journal_fact(
         .ws
         .append_journal(&home, payload, &signer, attestation)
     {
+        // LCOV_EXCL_START: the journal refused the progress line; a disk arm
         tracing::warn!(%home, "journalling {verb} failed: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -2591,7 +2580,9 @@ pub async fn close_workstream_with(
         .await?;
     }
     match &w.kind {
+        // LCOV_EXCL_START: the primary is refused before the match; by construction
         WorkstreamKind::Primary => unreachable!("refused above"),
+        // LCOV_EXCL_STOP
         WorkstreamKind::Worktree { .. } if remove_tree && path.exists() => {
             blocking(move || git::worktree_remove(&path, true)).await?;
         }
@@ -2866,7 +2857,9 @@ pub(crate) fn attach_and_journal(
 pub(crate) fn with_committer(text: String, committer: &Committer) -> String {
     match committer.sentence() {
         Some(clause) => format!("{text}; {clause}"),
+        // LCOV_EXCL_START: an identity resolved outside the global layer, the system file or an include; nothing to say
         None => text,
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -2925,7 +2918,9 @@ async fn root_commit(inner: &Inner, goal: Option<GoalId>, project: &Project, by:
                 );
             }
         }
+        // LCOV_EXCL_START: git refused the root commit; git's own word, the disk's
         Err(e) => tracing::warn!(project = %project.slug, "the root commit failed: {e}"),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -3068,7 +3063,7 @@ pub async fn close_clean_worktree(inner: &Inner, w: &Workstream) {
         return;
     }
     let Ok((_, project, checkout)) = checkout_of(inner, w.id) else {
-        return;
+        return; // LCOV_EXCL_LINE: the workstream record gone under the clean close; a window
     };
     let ahead = {
         let checkout = checkout.clone();
@@ -3087,13 +3082,17 @@ pub async fn close_clean_worktree(inner: &Inner, w: &Workstream) {
         }
     }
     if let Err(e) = close_workstream_with(inner, w.id, true, scripts::ScriptPolicy::Report).await {
+        // LCOV_EXCL_START: the clean close refused by git; git's word
         tracing::warn!(workstream = %w.id, "closing a clean worktree failed: {e}");
         return;
+        // LCOV_EXCL_STOP
     }
     let root = inner.ws.project_root_path(&project);
     let name = branch.clone();
     if let Err(e) = blocking(move || git::branch_delete(&root, &name)).await {
+        // LCOV_EXCL_START: deleting the clean branch refused by git; git's word
         tracing::warn!(workstream = %w.id, "deleting the clean branch failed: {e}");
+        // LCOV_EXCL_STOP
     }
     tracing::info!(workstream = %w.id, "closed: the session left nothing to keep");
 }

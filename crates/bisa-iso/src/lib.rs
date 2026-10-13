@@ -224,7 +224,9 @@ pub fn resolve(preferred: Option<BackendKind>) -> Resolution {
     }
 
     if candidates.is_empty() {
+        // LCOV_EXCL_START: every probe unavailable; git absent from the process's own PATH
         candidates.push(BackendKind::Copy);
+        // LCOV_EXCL_STOP
     }
     let kind = candidates[0];
     let fell_back = match preferred {

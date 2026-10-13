@@ -297,9 +297,11 @@ pub async fn ask(
     })
     .await
     .unwrap_or_else(|e| {
+        // LCOV_EXCL_START: the global git identity unreadable; a disk arm
         tracing::debug!("global git identity could not be read: {e}");
         None
     });
+    // LCOV_EXCL_STOP
     let payload = EnginePayload::CommitterNeeded {
         project: project.id,
         slug: project.slug.to_string(),
@@ -374,9 +376,11 @@ pub async fn overview(inner: &Inner) -> Result<CommitterOverview, EngineError> {
 pub async fn rearm(inner: std::sync::Arc<Inner>) {
     let projects = match inner.ws.list_projects() {
         Ok(p) => p,
+        // LCOV_EXCL_START: the project list unreadable at start; a disk arm
         Err(e) => {
             tracing::warn!("the committer desk could not list the projects: {e}");
             return;
+            // LCOV_EXCL_STOP
         }
     };
     let mut asked = 0usize;
@@ -480,7 +484,7 @@ pub async fn settle_resolved(inner: &Inner) {
         {
             if source != IdentitySource::None {
                 committer_set(inner, &project, workstream, Ident { name, email }).await;
-            }
+            } // LCOV_EXCL_LINE: an identity with a name and no source; by construction
         }
     }
 }

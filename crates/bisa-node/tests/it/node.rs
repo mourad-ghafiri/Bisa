@@ -11237,3 +11237,163 @@ async fn the_pulse_names_a_conversation_by_its_first_line_and_cuts_a_long_statem
     assert!(long.starts_with(title.trim_end_matches('…')));
     node.shutdown().await;
 }
+
+/// A project's doors at their edges: an attachment through the plain door
+/// needs a goal, a clone needs a URL, a patch refuses a blank name and
+/// takes assignees, tags and a picture, a goal's projects narrow by tag, a
+/// workstream for a goal the project is not attached to is refused, a copy
+/// workstream is nobody's repository, and the status of a project whose
+/// folder went says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_projects_doors_at_their_edges() {
+    let node = Node::start().await;
+    let (code, v) = node
+        .req(
+            "POST",
+            "/projects",
+            Some(json!({"kind": "attach", "project": "01ARZ3NDEKTSV4RRFFQ69G5FAV"})),
+        )
+        .await;
+    assert_eq!(code, 400, "attaching needs a goal: {v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            "/projects",
+            Some(json!({"kind": "clone", "slug": "cloned", "url": "   "})),
+        )
+        .await;
+    assert_eq!(code, 400, "a clone needs a URL: {v}");
+
+    let (status, v) = node
+        .req(
+            "POST",
+            "/projects",
+            Some(json!({"kind": "new", "slug": "site"})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let pid = v["project"]["id"].as_str().unwrap().to_string();
+    let root = PathBuf::from(v["path"].as_str().unwrap());
+    let (code, v) = node
+        .req(
+            "PATCH",
+            &format!("/projects/{pid}"),
+            Some(json!({"name": "   "})),
+        )
+        .await;
+    assert_eq!(code, 400, "a blank name: {v}");
+    let v = node
+        .post(
+            "/agents",
+            json!({"name": "Scout", "system_prompt": "research", "harness": "claude-code"}),
+        )
+        .await;
+    let agent = v["agent"]["id"].as_str().unwrap().to_string();
+    let photo = node
+        .ws
+        .put_attachment(b"\x89PNG\r\n\x1a\nIHDR-tiny", "site.png", "image/png")
+        .unwrap();
+    let (code, v) = node
+        .req(
+            "PATCH",
+            &format!("/projects/{pid}"),
+            Some(json!({"assignees": [format!("agent:{agent}")], "tags": ["web"], "photo": photo})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["project"]["tags"], json!(["web"]));
+    assert_eq!(v["project"]["assignees"], json!([{"agent": agent}]));
+    assert_eq!(v["project"]["photo"]["sha256"], json!(photo.sha256));
+    let (code, v) = node
+        .req(
+            "PATCH",
+            &format!("/projects/{pid}"),
+            Some(json!({"photo": null})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert!(
+        v["project"]["photo"].is_null(),
+        "the picture is cleared: {v}"
+    );
+    // The primary workstream is the project itself: nothing of its own to push.
+    let (code, v) = node
+        .req("POST", &format!("/workstreams/{pid}/push"), Some(json!({})))
+        .await;
+    assert_eq!(code, 400, "the primary has no branch of its own: {v}");
+
+    let goal = node.new_goal("site work").await;
+    node.post(
+        &format!("/goals/{goal}/projects"),
+        json!({"kind": "attach", "project": pid}),
+    )
+    .await;
+    let tagged = node.get(&format!("/goals/{goal}/projects?tag=web")).await;
+    assert_eq!(tagged["projects"].as_array().unwrap().len(), 1, "{tagged}");
+    let untagged = node.get(&format!("/goals/{goal}/projects?tag=nope")).await;
+    assert_eq!(
+        untagged["projects"].as_array().unwrap().len(),
+        0,
+        "{untagged}"
+    );
+
+    let elsewhere = node.new_goal("elsewhere").await;
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/projects/{pid}/workstreams"),
+            Some(json!({"label": "x", "goal": elsewhere.to_string()})),
+        )
+        .await;
+    assert_eq!(code, 400, "a goal the project is not attached to: {v}");
+
+    // A copy workstream — an adopted plain folder's — is nobody's repository.
+    let outside = tempfile::tempdir().unwrap();
+    let plain = outside.path().join("plain-folder");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(plain.join("notes.md"), "notes\n").unwrap();
+    let (status, v) = node
+        .req(
+            "POST",
+            "/projects",
+            Some(json!({"kind": "adopt", "slug": "plain", "path": plain.to_string_lossy()})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let plain_id = v["project"]["id"].as_str().unwrap().to_string();
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/projects/{plain_id}/workstreams"),
+            Some(json!({"label": "copy"})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["workstream"]["kind"]["kind"], json!("copy"), "{v}");
+    let wid = v["workstream"]["id"].as_str().unwrap().to_string();
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/workstreams/{wid}/commit"),
+            Some(json!({"message": "nothing to commit to"})),
+        )
+        .await;
+    assert_eq!(code, 400, "a copy is no repository: {v}");
+    let (code, v) = node
+        .req("POST", &format!("/workstreams/{wid}/push"), Some(json!({})))
+        .await;
+    assert_eq!(code, 400, "a copy has no branch to push: {v}");
+    let v = node.get(&format!("/workstreams/{wid}/git/status")).await;
+    assert_eq!(
+        v["status"]["git"],
+        json!(false),
+        "a copy is no repository: {v}"
+    );
+
+    // The status of a project whose folder went.
+    std::fs::rename(&root, root.with_extension("moved-aside")).unwrap();
+    let v = node.get(&format!("/workstreams/{pid}/git/status")).await;
+    assert_eq!(v["status"]["exists"], json!(false), "{v}");
+    assert_eq!(v["status"]["clean"], json!(true), "{v}");
+    node.shutdown().await;
+}

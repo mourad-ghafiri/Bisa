@@ -5528,3 +5528,615 @@ async fn under_ask_a_made_project_under_a_global_identity_is_asked_once_with_the
     );
     engine.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// The edges of projects and workstreams: what a creation refuses, what an
+// import skips and names, a folder that will not go, a remote branch already
+// local, a step's project resolved or refused, a clean close that leaves
+// things alone, a workflow's born projects retired, the committer desk's
+// sweeps, and a close script that is reported rather than refused.
+// ---------------------------------------------------------------------------
+
+/// A clone needs a URL and an adoption needs a folder: both are refused
+/// before any record is written.
+#[tokio::test(flavor = "multi_thread")]
+async fn creating_refuses_a_clone_without_a_url_and_an_adoption_without_a_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let blank = projects::create(
+        engine.inner(),
+        projects::NewProjectRequest {
+            new: NewProject::managed("blank-clone").unwrap(),
+            source: bisa_engine::ProjectSource::Clone {
+                url: "   ".into(),
+                depth: None,
+            },
+            git_config: vec![],
+        },
+    )
+    .await
+    .expect_err("a clone with no URL");
+    assert!(blank.is_refusal(), "{blank}");
+    assert!(blank.to_string().to_lowercase().contains("url"), "{blank}");
+    let folderless = projects::create(
+        engine.inner(),
+        projects::NewProjectRequest {
+            new: NewProject::managed("no-folder").unwrap(),
+            source: bisa_engine::ProjectSource::Adopt,
+            git_config: vec![],
+        },
+    )
+    .await
+    .expect_err("an adoption with no folder");
+    assert!(folderless.is_refusal(), "{folderless}");
+    assert!(
+        engine.workspace().list_projects().unwrap().is_empty(),
+        "nothing was written"
+    );
+    engine.shutdown().await;
+}
+
+/// An import writes only into a managed folder; it skips what is no file
+/// and no folder, and what it cannot read is named by its path.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_import_refuses_an_adopted_folder_skips_what_is_no_file_and_names_what_it_cannot_read() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let ws = engine.workspace();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::fs::write(elsewhere.path().join("plan.md"), "a plan\n").unwrap();
+    let adopted = ws
+        .create_project(NewProject {
+            root: bisa_core::ProjectRoot::External {
+                path: elsewhere.path().to_string_lossy().into_owned(),
+            },
+            ..NewProject::managed("adopted").unwrap()
+        })
+        .unwrap();
+    let source = tempfile::tempdir().unwrap();
+    std::fs::write(source.path().join("readme.md"), "hello\n").unwrap();
+    let refused = projects::import(engine.inner(), &adopted, source.path(), Default::default())
+        .await
+        .expect_err("importing into an adopted folder would write where Bisa does not");
+    assert!(refused.is_refusal(), "{refused}");
+    assert!(
+        !elsewhere.path().join("readme.md").exists(),
+        "the adopted folder was written into by nobody"
+    );
+
+    // A named pipe is neither a file nor a folder: skipped, counted.
+    std::fs::create_dir(source.path().join("sub")).unwrap();
+    std::fs::write(source.path().join("sub/notes.txt"), "notes\n").unwrap();
+    let pipe = source.path().join("a.pipe");
+    let made = Command::new("mkfifo").arg(&pipe).status().unwrap();
+    assert!(made.success(), "mkfifo");
+    let managed = ws
+        .create_project(NewProject::managed("copied").unwrap())
+        .unwrap();
+    let (_, stats) = projects::import(engine.inner(), &managed, source.path(), Default::default())
+        .await
+        .expect("import");
+    assert_eq!(stats.files, 2, "{stats:?}");
+    assert_eq!(stats.skipped_special, 1, "{stats:?}");
+    assert!(ws
+        .project_root_path(&managed)
+        .join("sub/notes.txt")
+        .exists());
+
+    // A file nobody may read fails the import, and the error names it.
+    std::fs::remove_file(&pipe).unwrap();
+    let secret_free = source.path().join("locked.txt");
+    std::fs::write(&secret_free, "locked\n").unwrap();
+    std::fs::set_permissions(&secret_free, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let other = ws
+        .create_project(NewProject::managed("locked").unwrap())
+        .unwrap();
+    let err = projects::import(engine.inner(), &other, source.path(), Default::default())
+        .await
+        .expect_err("an unreadable file");
+    std::fs::set_permissions(&secret_free, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        err.to_string().contains("locked.txt"),
+        "the path is in the error: {err}"
+    );
+    engine.shutdown().await;
+}
+
+/// A project whose folder cannot be removed is still deleted: the record
+/// goes, the answer says the folder stays and why.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_whose_folder_cannot_be_removed_is_deleted_and_says_the_folder_stays() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let ws = engine.workspace();
+    // Removed, not moved to the Trash: nothing leaves the fixture.
+    engine
+        .set_setting(
+            bisa_core::SettingScope::Machine,
+            None,
+            "editor.delete.trash",
+            serde_json::json!(false),
+        )
+        .unwrap();
+    let project = ws
+        .create_project(NewProject::managed("stuck").unwrap())
+        .unwrap();
+    let root = projects::materialize(engine.inner(), &project)
+        .await
+        .unwrap();
+    let locked = root.join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::write(locked.join("file.txt"), "x\n").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let deleted = projects::delete(engine.inner(), project.id, true).await;
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let deleted = deleted.expect("the record goes whatever the folder does");
+    assert!(!deleted.removed_tree, "{deleted:?}");
+    assert!(
+        deleted.kept.is_some(),
+        "the folder stays, with a reason: {deleted:?}"
+    );
+    assert!(
+        locked.join("file.txt").exists(),
+        "the folder is still there"
+    );
+    assert!(ws.get_project(project.id).is_err(), "the record is gone");
+    engine.shutdown().await;
+}
+
+/// A workstream from a remote branch that already exists locally takes the
+/// local branch rather than making a tracking twin.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workstream_from_a_remote_branch_already_local_takes_the_local_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let (goal, project, root, origin) = git_project(&engine, "both", PublishPolicy::Auto).await;
+    let base = bisa_vcs::git::default_branch(&root).unwrap();
+    bisa_vcs::git::push(&root, "origin", &base, true).expect("push base");
+    bisa_vcs::git::branch_create(&root, "feature/both", None, false).unwrap();
+    bisa_vcs::git::push(&root, "origin", "feature/both", true).expect("push the branch");
+    assert!(origin_branches(&origin).contains(&"feature/both".to_string()));
+    let place = projects::open_workstream_for(
+        engine.inner(),
+        &project,
+        from_source(
+            "ignored",
+            WorkstreamSource::RemoteBranch {
+                remote: "origin".into(),
+                name: "feature/both".into(),
+            },
+            Some(goal),
+        ),
+    )
+    .await
+    .expect("from a branch both sides have");
+    assert_eq!(place.workstream.branch(), Some("feature/both"));
+    assert_eq!(standing(&place.cwd).0, "feature/both");
+    let locals = bisa_vcs::git::branch_list(&root, None).unwrap();
+    assert_eq!(
+        locals.iter().filter(|b| b.name == "feature/both").count(),
+        1,
+        "no twin branch: {locals:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A workstream by hand on a repository with no commits yet runs in the
+/// primary, as an item's does: there is nothing to branch from, and nothing
+/// is invented.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workstream_by_hand_on_an_unborn_repository_runs_in_the_primary() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config_with_git(isolated_git(&dir)));
+    let (goal, project) = plain_project(&engine, "unborn");
+    let project = projects::init_git(engine.inner(), &project)
+        .await
+        .expect("init_git");
+    let place =
+        projects::open_workstream_for(engine.inner(), &project, by_hand("First", None, Some(goal)))
+            .await
+            .expect("the primary");
+    assert!(place.workstream.is_primary());
+    assert_eq!(place.cwd, engine.workspace().project_root_path(&project));
+    engine.shutdown().await;
+}
+
+/// A step's project: a goal with two and a step that names none is
+/// ambiguous, an archived one is refused, a lone one is taken and written
+/// onto the item.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_steps_project_is_ambiguous_refused_or_taken_by_what_the_goal_has() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let ws = engine.workspace();
+    let goal = ws
+        .create_goal(bisa_store::NewGoal::captured("which project?"))
+        .unwrap()
+        .id;
+    let first = attached_project(ws, goal, NewProject::managed("first").unwrap());
+    let second = attached_project(ws, goal, NewProject::managed("second").unwrap());
+
+    let mut spec = item(goal, None, "work somewhere");
+    let err = projects::project_for_step(engine.inner(), &mut spec)
+        .await
+        .expect_err("two attached, none named");
+    assert!(err.to_string().contains('2'), "{err}");
+    let step: bisa_core::StepId = "build".parse().unwrap();
+    let resolved = projects::resolve_for_step(engine.inner(), goal, None, &step);
+    assert!(
+        matches!(
+            resolved,
+            Err(EngineError::ProjectAmbiguous { count: 2, .. })
+        ),
+        "{resolved:?}"
+    );
+    let mut named = item(goal, None, "work somewhere, from a step");
+    named.step = Some(step.clone());
+    let err = projects::project_for_step(engine.inner(), &mut named)
+        .await
+        .expect_err("ambiguous, with the step named");
+    assert!(
+        matches!(err, EngineError::ProjectAmbiguous { count: 2, .. }),
+        "{err:?}"
+    );
+
+    ws.detach(goal, second.id).unwrap();
+    engine.archive_project(first.id, true).unwrap();
+    let mut spec = item(goal, None, "work in the archived one");
+    let err = projects::project_for_step(engine.inner(), &mut spec)
+        .await
+        .expect_err("the only project is archived");
+    assert!(err.to_string().contains("archived"), "{err}");
+
+    engine.archive_project(first.id, false).unwrap();
+    let mut spec = item(goal, None, "work in the lone one");
+    let taken = projects::project_for_step(engine.inner(), &mut spec)
+        .await
+        .expect("the lone project")
+        .expect("a project");
+    assert_eq!(taken.id, first.id);
+    assert_eq!(spec.project, Some(first.id), "written onto the item");
+    assert_eq!(
+        ws.get_work_item(&spec.home, spec.id).unwrap().project,
+        Some(first.id),
+        "and kept"
+    );
+    engine.shutdown().await;
+}
+
+/// Closing a clean worktree leaves alone a copy, a record that is not open,
+/// and a checkout that is no longer on disk.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_clean_worktree_leaves_a_copy_a_dirty_record_and_a_missing_checkout_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let ws = engine.workspace();
+    let (goal, project, root, _origin) = git_project(&engine, "tidy", PublishPolicy::Auto).await;
+    let project = ws.get_project(project.id).unwrap();
+
+    let dirty =
+        projects::open_workstream_for(engine.inner(), &project, by_hand("Dirty", None, Some(goal)))
+            .await
+            .expect("a worktree");
+    let dirty = ws
+        .transition_workstream(dirty.workstream.id, &WorkstreamTransition::CommitRefused)
+        .unwrap();
+    projects::close_clean_worktree(engine.inner(), &dirty).await;
+    assert_eq!(
+        ws.get_workstream(dirty.id).unwrap().state,
+        WorkstreamState::Dirty,
+        "a record that is not open is left alone"
+    );
+
+    let gone =
+        projects::open_workstream_for(engine.inner(), &project, by_hand("Gone", None, Some(goal)))
+            .await
+            .expect("a worktree");
+    std::fs::rename(&gone.cwd, gone.cwd.with_extension("moved-aside")).unwrap();
+    projects::close_clean_worktree(engine.inner(), &gone.workstream).await;
+    assert_eq!(
+        ws.get_workstream(gone.workstream.id).unwrap().state,
+        WorkstreamState::Open,
+        "nothing can be told of a checkout that is gone: kept"
+    );
+    assert_eq!(bisa_vcs::git::worktree_list(&root).unwrap().len(), 3);
+
+    let (_, plain) = plain_project(&engine, "plain");
+    let copy =
+        projects::open_workstream_for(engine.inner(), &plain, by_hand("Copy", None, Some(goal)))
+            .await
+            .expect("a copy workstream");
+    assert!(matches!(copy.workstream.kind, WorkstreamKind::Copy));
+    projects::close_clean_worktree(engine.inner(), &copy.workstream).await;
+    assert_eq!(
+        ws.get_workstream(copy.workstream.id).unwrap().state,
+        WorkstreamState::Open,
+        "a copy is nobody's clean worktree"
+    );
+    engine.shutdown().await;
+}
+
+/// Retiring a workflow reaches the projects its runs made: with a fate
+/// other than keep, what stands in them is stopped and counted, and the
+/// preview counts the sessions at work in a goal's born project.
+#[tokio::test(flavor = "multi_thread")]
+async fn retiring_a_workflow_reaches_its_born_projects_and_a_preview_counts_their_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::new(MockAdapter {
+        turn_delay: Duration::from_millis(2500),
+        ..Default::default()
+    }));
+    let engine = Engine::start(workspace(&dir), catalog, config()).unwrap();
+    let ws = engine.workspace();
+
+    // A project born of a run of a workflow.
+    let wf = engine
+        .create_workflow(common::new_workflow(
+            "Maker",
+            vec![common::agent_step("make", "mock")],
+        ))
+        .unwrap();
+    let run: bisa_core::RunId = bisa_core::RunId::from_ulid(ulid());
+    let born = ws
+        .create_project(NewProject {
+            origin: bisa_core::ProjectOrigin::Step {
+                goal: None,
+                step: bisa_core::origin::StepRef {
+                    run,
+                    step: "make".parse().unwrap(),
+                    workflow: wf.id,
+                },
+            },
+            ..NewProject::managed("born-of-a-run").unwrap()
+        })
+        .unwrap();
+    let preview = engine.preview_workflow_retirement(wf.id).unwrap();
+    assert_eq!(preview.projects_born.len(), 1, "{preview:?}");
+    let retired = engine
+        .retire_workflow(
+            wf.id,
+            bisa_engine::retire::WorkflowPlan {
+                workflow: bisa_engine::retire::Fate::Archive,
+                projects: bisa_engine::retire::Fate::Archive,
+                tree: false,
+            },
+        )
+        .await
+        .expect("retire");
+    assert!(
+        ws.get_project(born.id).unwrap().is_archived(),
+        "{retired:?}"
+    );
+
+    // A goal's born project with a worker at work in it: counted.
+    let goal = ws
+        .create_goal(bisa_store::NewGoal::captured("count my worker"))
+        .unwrap()
+        .id;
+    let mine = made_for(&engine, goal, "mine").await;
+    let mut step = common::agent_step("work", "mock");
+    if let bisa_core::StepKind::Agent { project, .. } = &mut step.kind {
+        *project = Some(bisa_core::ValueRef::Fixed(mine.id));
+    }
+    let wf = engine
+        .create_workflow(common::new_workflow("one step", vec![step]))
+        .unwrap();
+    engine.set_workflow(goal, Some(wf.id)).unwrap();
+    engine
+        .start_run(goal, std::collections::BTreeMap::new())
+        .unwrap();
+    let preview = until("the worker is counted on the born project", || {
+        let preview = engine.preview_goal_retirement(goal).unwrap();
+        (preview
+            .projects_born
+            .first()
+            .is_some_and(|p| p.sessions == 1))
+        .then_some(preview)
+    })
+    .await;
+    assert_eq!(preview.projects_born[0].id, mine.id);
+    engine.shutdown().await;
+}
+
+/// The committer desk: a project that went is forgotten by the overview, a
+/// repository still without an identity settles nothing, one whose folder
+/// went is passed over, and the restart's sweep skips a folder that is gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_committer_desk_forgets_what_went_and_settles_nothing_for_what_still_lacks_an_identity()
+{
+    let dir = tempfile::tempdir().unwrap();
+    let (goal, kept, gone) = {
+        let engine = engine_with(&dir, config_with_git(isolated_git(&dir)));
+        let ws = engine.workspace();
+        let goal = ws
+            .create_goal(bisa_store::NewGoal::captured("who commits?"))
+            .unwrap()
+            .id;
+        let gone = made_for(&engine, goal, "gone").await;
+        let kept = made_for(&engine, goal, "kept").await;
+        let pending = bisa_engine::identity::overview(engine.inner())
+            .await
+            .unwrap()
+            .pending;
+        assert_eq!(pending.len(), 2, "both asked: {pending:?}");
+
+        // Still no identity anywhere: nothing settles.
+        bisa_engine::identity::settle_resolved(engine.inner()).await;
+        assert_eq!(
+            bisa_engine::identity::overview(engine.inner())
+                .await
+                .unwrap()
+                .pending
+                .len(),
+            2
+        );
+
+        // A project deleted while its question was open is simply gone.
+        ws.delete_project(gone.id).unwrap();
+        let pending = bisa_engine::identity::overview(engine.inner())
+            .await
+            .unwrap()
+            .pending;
+        assert_eq!(pending.len(), 1, "{pending:?}");
+        assert_eq!(pending[0].project, kept.id);
+
+        // A folder gone from under a pending question is passed over.
+        let kept_root = ws.project_root_path(&kept);
+        std::fs::rename(&kept_root, kept_root.with_extension("moved-aside")).unwrap();
+        bisa_engine::identity::settle_resolved(engine.inner()).await;
+        assert_eq!(
+            bisa_engine::identity::overview(engine.inner())
+                .await
+                .unwrap()
+                .pending
+                .len(),
+            1,
+            "passed over, not settled"
+        );
+        engine.shutdown().await;
+        (goal, kept, gone)
+    };
+    let _ = (goal, gone);
+
+    // The restart's sweep asks about repositories it can read, and skips
+    // one whose folder is gone.
+    let engine = engine_with(&dir, config_with_git(isolated_git(&dir)));
+    bisa_engine::identity::rearm(Arc::clone(engine.inner())).await;
+    let overview = bisa_engine::identity::overview(engine.inner())
+        .await
+        .unwrap();
+    assert!(
+        overview.pending.iter().all(|p| p.project != kept.id),
+        "a folder that is gone is not asked about: {overview:?}"
+    );
+    engine.shutdown().await;
+}
+
+/// A close script that is not approved is reported, not refused, when the
+/// close is one that reports; and a script whose folder is gone could not
+/// be started, said as such.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_close_script_is_reported_when_unapproved_or_when_its_folder_is_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let ws = engine.workspace();
+    let (goal, project, _root, _origin) =
+        git_project(&engine, "scripted", PublishPolicy::Auto).await;
+    let project = ws.get_project(project.id).unwrap();
+    let mut events = engine.events();
+
+    set_script(&engine, &project, "workstreams.script.clean", "echo tidy");
+    let first = projects::open_workstream_for(
+        engine.inner(),
+        &project,
+        by_hand("Unapproved", None, Some(goal)),
+    )
+    .await
+    .expect("a worktree");
+    projects::close_workstream_with(
+        engine.inner(),
+        first.workstream.id,
+        true,
+        bisa_engine::scripts::ScriptPolicy::Report,
+    )
+    .await
+    .expect("reported, not refused");
+    assert_eq!(
+        ws.get_workstream(first.workstream.id).unwrap().state,
+        WorkstreamState::Closed
+    );
+    let skipped = until("the skip is on the bus", || {
+        while let Ok(ev) = events.try_recv() {
+            if let EnginePayload::WorkstreamScriptRan { ok, output, .. } = ev.payload {
+                if !ok && output.contains("skipped") {
+                    return Some(output);
+                }
+            }
+        }
+        None
+    })
+    .await;
+    assert!(skipped.contains("not approved"), "{skipped}");
+
+    // A script whose folder is gone could not be started, and says so.
+    let missing = dir.path().join("nowhere");
+    let outcome = bisa_engine::scripts::run(
+        "true",
+        &missing,
+        &std::collections::BTreeMap::new(),
+        &[],
+        Duration::from_secs(5),
+    )
+    .await;
+    assert_eq!(outcome.status, None);
+    assert!(!outcome.timed_out);
+    assert!(
+        outcome.output.contains("could not be started"),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        outcome.reason(Duration::from_secs(5)),
+        "could not be started"
+    );
+    assert!(!outcome.ok());
+    engine.shutdown().await;
+}
+
+/// A project an agent makes for no goal in particular is created, given
+/// its root commit and attached to nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_an_agent_makes_for_no_goal_is_attached_to_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        config_with_git(git_with_global(&dir, "Grace", "grace@example.invalid")),
+    );
+    let created = projects::create_for_agent(
+        engine.inner(),
+        NewProject::managed("loose").unwrap(),
+        None,
+        Some("agent:general-agent"),
+    )
+    .await
+    .expect("create_for_agent");
+    let root = engine.workspace().project_root_path(&created.project);
+    assert!(root.join(".git").exists());
+    let log = raw_git(&root, &["log", "--oneline"]);
+    assert!(log.contains("project loose created"), "{log}");
+    assert!(!log.contains("for goal"), "no goal is named: {log}");
+    assert!(
+        engine.workspace().list_goals(None).unwrap().is_empty(),
+        "no goal was made for it"
+    );
+    engine.shutdown().await;
+}
+
+/// Keep is no fate for a goal being retired: refused by name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goal_retired_with_keep_as_its_fate_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let goal = engine
+        .workspace()
+        .create_goal(bisa_store::NewGoal::captured("keep me"))
+        .unwrap()
+        .id;
+    let err = engine
+        .retire_goal(
+            goal,
+            bisa_engine::retire::GoalPlan {
+                goal: bisa_engine::retire::Fate::Keep,
+                projects: bisa_engine::retire::Fate::Keep,
+                tree: false,
+            },
+        )
+        .await
+        .expect_err("keep is no fate");
+    assert!(err.is_refusal(), "{err}");
+    assert!(err.to_string().contains("keep"), "{err}");
+    assert!(engine.workspace().get_goal(goal).is_ok(), "untouched");
+    engine.shutdown().await;
+}

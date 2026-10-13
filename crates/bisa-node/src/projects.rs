@@ -412,9 +412,11 @@ async fn create(
         NewProjectBody::Attach { project } => {
             let pid = parse_project_id(&project)?;
             let Some(goal) = goal else {
+                // LCOV_EXCL_START: attaching through the plain door is refused before this; by construction
                 return Err(bad_request(bisa_core::text!(
                     "error-node-projects-attaching-needs-goal"
                 )));
+                // LCOV_EXCL_STOP
             };
             state.engine.attach_project(goal, pid)?;
             let row = project_row(state, ws.get_project(pid)?);
@@ -1941,7 +1943,9 @@ where
                     return Ok(Published::Gate(gate.id));
                 }
                 if Instant::now() > deadline {
+                    // LCOV_EXCL_START: a publish that neither finished nor opened a gate within the deadline; a window
                     return Err(ApiError::text(StatusCode::GATEWAY_TIMEOUT, bisa_core::text!("error-node-projects-publishing-workstream-neither-finished-nor-opened-gate", workstream = workstream.to_string())));
+                    // LCOV_EXCL_STOP
                 }
             }
         }

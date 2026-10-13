@@ -23,6 +23,11 @@ notes (`docs/contributing/release.md`).
   (`crates/bisa-adapters/src/opencode.rs`, `crates/bisa-harness/src/install.rs`; the journey
   `opencode_two_through_the_acp_door.rs`).
 
+### Changed
+
+- The engine's unused `projects::placement` door — a work item's directory read for nobody, every
+  caller having gone through the store's own placement — is removed (`crates/bisa-engine/src/projects.rs`).
+
 ### Fixed
 
 - A live gate whose goal the index no longer listed — a record removed behind the engine's back,

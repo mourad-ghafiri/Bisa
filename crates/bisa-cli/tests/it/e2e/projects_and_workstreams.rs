@@ -723,3 +723,157 @@ fn a_project_belongs_to_no_goal_unless_its_opener_named_one_and_its_going_is_sai
     drop(listening);
     ws.stop();
 }
+
+/// A slug is derived from where a project comes from when nobody names
+/// one; the workstream list narrows by goal and is empty before anything
+/// is opened; a workstream for a goal the project is not attached to is
+/// refused.
+#[test]
+fn a_slug_is_derived_when_nobody_names_one_and_the_workstream_list_narrows_by_goal() {
+    let mut ws = Sealed::bare();
+    ws.start();
+    let empty = ws.json(&["workstream", "list"]);
+    assert_eq!(empty["workstreams"], json!([]), "{empty}");
+
+    let (shelf, tree) = a_project(&ws, "shelf");
+    let folder = a_folder(&ws, "Reading Notes", "readme.md", "notes\n");
+    let imported = ws.json(&[
+        "project",
+        "import",
+        &folder.to_string_lossy(),
+        "--publish",
+        "manual",
+    ]);
+    assert_eq!(imported["project"]["slug"], "reading-notes", "{imported}");
+    let plans = a_folder(&ws, "Plans__2026.git", "plan.md", "a plan\n");
+    let adopted = ws.json(&[
+        "project",
+        "adopt",
+        &plans.to_string_lossy(),
+        "--publish",
+        "manual",
+    ]);
+    assert_eq!(adopted["project"]["slug"], "plans__2026", "{adopted}");
+    let cloned = ws.json(&[
+        "project",
+        "clone",
+        &tree.to_string_lossy(),
+        "--publish",
+        "manual",
+        "--committer",
+        COMMITTER,
+    ]);
+    assert_eq!(
+        cloned["project"]["slug"],
+        tree.file_name().unwrap().to_string_lossy().as_ref(),
+        "the folder's own name: {cloned}"
+    );
+
+    let goal = ws.json(&["new", "shelve the books", "--mode", "manual"])["goal"]
+        .as_str()
+        .expect("the goal")
+        .to_string();
+    ws.ok(&["project", "attach", &shelf, &goal]);
+    // A branch needs a first commit to start from.
+    committed(&ws, &shelf, &tree, "shelf.md", "the shelf\n");
+    let opened = ws.json(&[
+        "workstream",
+        "open",
+        &shelf,
+        "--goal",
+        &goal,
+        "--label",
+        "brackets",
+    ]);
+    let brackets = id_of(&opened, "workstream");
+    let by_goal = ws.json(&["workstream", "list", "--goal", &goal]);
+    assert_eq!(
+        by_goal["workstreams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>(),
+        vec![brackets.clone()],
+        "{by_goal}"
+    );
+    let all = ws.json(&["workstream", "list"]);
+    assert!(
+        all["workstreams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w["id"] == brackets.as_str()),
+        "{all}"
+    );
+
+    let other = ws.json(&["new", "another thing", "--mode", "manual"])["goal"]
+        .as_str()
+        .expect("the goal")
+        .to_string();
+    let said = ws.refused(&["workstream", "open", &shelf, "--goal", &other]);
+    assert!(said.contains("attach"), "{said}");
+
+    // Words that are no id, no policy, no path list.
+    ws.refused(&["project", "show", "not-an-id"]);
+    ws.refused(&["workstream", "close", "not-an-id"]);
+    ws.refused(&["project", "new", "policed", "--publish", "sideways"]);
+    ws.refused(&["project", "stage", &shelf]);
+    // Carried by nobody, said as such.
+    let carried = ws.json(&["project", "assign", &shelf]);
+    assert_eq!(carried["assignees"], json!([]), "{carried}");
+    // The show names the goals it is attached to.
+    let shown = ws.json(&["project", "show", &shelf]);
+    assert_eq!(shown["project"]["id"], shelf.as_str(), "{shown}");
+
+    // A slug from a name with a run of blanks, and a symlink skipped on import.
+    let blanks = a_folder(&ws, "My  Reading  Notes", "readme.md", "notes\n");
+    std::os::unix::fs::symlink(blanks.join("readme.md"), blanks.join("link.md")).unwrap();
+    let imported = ws.json(&[
+        "project",
+        "import",
+        &blanks.to_string_lossy(),
+        "--publish",
+        "manual",
+    ]);
+    assert_eq!(
+        imported["project"]["slug"], "my-reading-notes",
+        "{imported}"
+    );
+    assert_eq!(imported["imported"]["skipped_symlinks"], 1, "{imported}");
+
+    // A copy workstream is listed as one.
+    let plain = a_folder(&ws, "plain-folder", "notes.md", "notes\n");
+    let adopted = ws.json(&[
+        "project",
+        "adopt",
+        &plain.to_string_lossy(),
+        "--slug",
+        "plain",
+        "--publish",
+        "manual",
+    ]);
+    let plain_id = id_of(&adopted, "project");
+    ws.json(&["workstream", "open", &plain_id, "--label", "copy"]);
+    let rows = listed(&ws, &plain_id);
+    assert!(rows.iter().any(|(_, kind, _)| kind == "copy"), "{rows:?}");
+    let human = ws.bisa(&["workstream", "list", "--project", &plain_id]);
+    assert!(
+        String::from_utf8_lossy(&human.stdout).contains("(copy)"),
+        "the human line says the kind"
+    );
+
+    // A removal with its tree, nothing moved to the Trash from a fixture.
+    ws.ok(&["settings", "set", "machine", "editor.delete.trash", "false"]);
+    let notes = id_of(&imported, "project");
+    let removed = ws.json(&["project", "rm", &notes, "--tree"]);
+    assert_eq!(removed["removed_tree"], true, "{removed}");
+    assert!(!PathBuf::from(removed["path"].as_str().unwrap()).exists());
+
+    // With no node, a workstream by hand on a project with no commits yet is
+    // refused by the command line's own engine.
+    let (fresh, _tree) = a_project(&ws, "fresh");
+    ws.stop();
+    let said = ws.refused(&["workstream", "open", &fresh, "--label", "first"]);
+    assert!(said.contains("no commits yet"), "{said}");
+}

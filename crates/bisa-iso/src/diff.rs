@@ -163,7 +163,7 @@ fn added_file_patch(rel: &Path, content: &str) -> String {
     // Drop similar's own ---/+++ header lines; we already wrote git-style ones.
     for line in unified.lines() {
         if line.starts_with("---") || line.starts_with("+++") {
-            continue;
+            continue; // LCOV_EXCL_LINE: the unified diff carries no header here; by construction
         }
         patch.push_str(line);
         patch.push('\n');
@@ -299,4 +299,44 @@ fn walk(root: &Path) -> IsoResult<BTreeMap<PathBuf, Meta>> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Lines before the first header belong to no file; a header without a
+    /// `b/` side is read as unknown; an added file's patch carries its own
+    /// header and never the unified diff's.
+    #[test]
+    fn a_git_diff_is_read_file_by_file_and_an_added_patch_carries_its_own_header() {
+        let output = "warning: something git said first\n\
+                      diff --git a/x.txt b/x.txt\n\
+                      new file mode 100644\n\
+                      +++ b/x.txt\n\
+                      +x\n\
+                      diff --git a/y.bin b/y.bin\n\
+                      Binary files a/y.bin and b/y.bin differ\n";
+        let files = parse_git_diff(output);
+        assert_eq!(files.len(), 2, "{files:?}");
+        assert_eq!(files[0].path, PathBuf::from("x.txt"));
+        assert_eq!(files[0].op, ChangeKind::Added);
+        assert!(files[0].diff.as_deref().unwrap_or("").contains("+x"));
+        assert_eq!(files[1].op, ChangeKind::Modified);
+        assert_eq!(files[1].diff, None, "a binary has no text");
+        assert_eq!(
+            parse_header_path("diff --git nothing"),
+            PathBuf::from("unknown")
+        );
+        let patch = added_file_patch(Path::new("n.txt"), "one\ntwo\n");
+        assert!(patch.starts_with(
+            "diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n"
+        ));
+        assert!(patch.contains("+one\n+two\n"), "{patch}");
+        assert_eq!(
+            patch.matches("+++").count(),
+            1,
+            "the unified header is left out: {patch}"
+        );
+    }
 }

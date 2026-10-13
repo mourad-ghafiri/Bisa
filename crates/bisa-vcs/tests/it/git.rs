@@ -3121,3 +3121,16 @@ fn an_unsafe_path_in_a_selection_is_still_refused() {
         );
     }
 }
+
+/// A git that is not there probes unavailable, with the reason.
+#[test]
+fn a_git_that_is_not_there_probes_unavailable_with_a_reason() {
+    let probe = bisa_vcs::Git::new()
+        .with_program("/no/such/git-binary")
+        .probe();
+    assert!(!probe.available);
+    assert!(
+        probe.reason.as_deref().unwrap_or("").contains("not usable"),
+        "{probe:?}"
+    );
+}
