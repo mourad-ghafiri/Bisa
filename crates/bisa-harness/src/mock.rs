@@ -307,6 +307,14 @@ pub struct MockAdapter {
     /// — so a test can tell a harness that was told to stop from a roster
     /// row that only says so.
     pub closes: Arc<Mutex<Vec<Close>>>,
+    /// A word that makes the session's event stream panic when a text delta
+    /// carries it — the shape of a reader that unwinds mid-turn, which the
+    /// engine's pumps must survive.
+    pub panic_in_stream_on: Option<String>,
+    /// Answer a follow-up with words of its own and a turn's end, with no new
+    /// turn marker before them — the shape of a harness that continues the
+    /// open turn rather than starting one.
+    pub answers_follow_ups: bool,
 }
 
 /// How a session was closed by whoever held it.
@@ -361,6 +369,8 @@ impl Default for MockAdapter {
             recommended_judge: None,
             attached: Arc::new(Mutex::new(Vec::new())),
             closes: Arc::new(Mutex::new(Vec::new())),
+            panic_in_stream_on: None,
+            answers_follow_ups: false,
         }
     }
 }
@@ -581,6 +591,8 @@ impl HarnessAdapter for MockAdapter {
         session.panic_on_prompt = self.panic_on_prompt;
         session.refuse_prompt = self.refuse_prompt;
         session.ignore_abort = self.ignore_abort;
+        session.panic_in_stream_on = self.panic_in_stream_on.clone();
+        session.answers_follow_ups = self.answers_follow_ups;
         // Announced at launch, before anybody subscribes — the shape of a
         // long-lived adapter's child.
         if let Some(pid) = self.pid {
@@ -675,6 +687,10 @@ pub struct MockSession {
     pub turn_delay: std::time::Duration,
     /// Shared with the launching adapter: see [`MockAdapter::closes`].
     pub closes: Arc<Mutex<Vec<Close>>>,
+    /// See [`MockAdapter::panic_in_stream_on`].
+    pub panic_in_stream_on: Option<String>,
+    /// See [`MockAdapter::answers_follow_ups`].
+    pub answers_follow_ups: bool,
     spec: SessionSpec,
 }
 
@@ -702,6 +718,8 @@ impl MockSession {
             refusal: None,
             turn_delay: std::time::Duration::ZERO,
             closes: Arc::new(Mutex::new(Vec::new())),
+            panic_in_stream_on: None,
+            answers_follow_ups: false,
             spec,
         }
     }
@@ -902,7 +920,15 @@ impl HarnessSession for MockSession {
                 "the session has ended; nothing takes a follow-up",
             ));
         }
-        self.followed_up.locked().push(msg.text);
+        self.followed_up.locked().push(msg.text.clone());
+        if self.answers_follow_ups {
+            self.broadcaster
+                .emit(SessionEvent::Progress(ProgressEvent::TextDelta {
+                    text: format!("follow-up: {}", msg.text),
+                }));
+            self.broadcaster
+                .emit(SessionEvent::Progress(ProgressEvent::TurnEnded));
+        }
         Ok(())
     }
 
@@ -939,7 +965,19 @@ impl HarnessSession for MockSession {
     }
 
     fn subscribe(&self) -> BoxEventStream {
-        self.broadcaster.subscribe()
+        let stream = self.broadcaster.subscribe();
+        let Some(needle) = self.panic_in_stream_on.clone() else {
+            return stream;
+        };
+        Box::pin(futures::StreamExt::map(stream, move |event| {
+            if let SessionEvent::Progress(ProgressEvent::TextDelta { text }) = &event {
+                assert!(
+                    !text.contains(&needle),
+                    "the mock's event stream panics on {needle:?}, as the test asked"
+                );
+            }
+            event
+        }))
     }
 
     fn resume_token(&self) -> Option<ResumeToken> {

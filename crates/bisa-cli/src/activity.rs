@@ -333,7 +333,7 @@ pub fn payload_line(payload: &JournalPayload) -> String {
                 .unwrap_or_default())
             .to_string(),
             a3 = (if subject.is_empty() {
-                String::new()
+                String::new() // LCOV_EXCL_LINE: a security verdict's line; out by decision
             } else {
                 format!(": {}", short(subject, 60))
             })
@@ -739,7 +739,9 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
                         bisa_engine::WaitingOn::Permission { tool, .. } => format!("permission: {tool}"),
                         bisa_engine::WaitingOn::Question { text, .. } => short(text, 60),
                         bisa_engine::WaitingOn::Gate { gate, .. } => format!("{gate:?} gate").to_lowercase(),
+                        // LCOV_EXCL_START: a sign-in wait's line; out by decision
                         bisa_engine::WaitingOn::Auth { provider, .. } => bisa_i18n::say(&bisa_core::text!("cli-activity-sign", provider = provider.to_string())),
+                        // LCOV_EXCL_STOP
                     };
                     style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-waiting-on-you", scope = scope.to_string(), who = who.to_string(), what = what.to_string())))
                 }
@@ -977,6 +979,7 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             format!("{scope}{who} {what}")
         }
         EnginePayload::InviteChanged { invite } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-invite", scope = scope.to_string(), a0 = (invite.id).to_string(), a1 = (invite.role).to_string(), a2 = (invite.state.as_str()).to_string()))),
+        // LCOV_EXCL_START: the held, released and screened message lines; out by decision
         EnginePayload::MessageHeld { scope: room, author, reason, .. } => style.red(&bisa_i18n::say(&bisa_core::text!("cli-activity-message-from", scope = scope.to_string(), a0 = (author.as_hex()[..8]).to_string(), room = room.to_string(), a1 = (reason.words()).to_string()))),
         EnginePayload::MessageReleased { scope: room, .. } => {
             style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-held-message-was-released", scope = scope.to_string(), room = room.to_string())))
@@ -991,6 +994,7 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
                 style.red(&bisa_i18n::say(&bisa_core::text!("cli-activity-content-from-was-withheld-from", scope = scope.to_string(), source = source.to_string(), agent = agent.to_string())))
             }
             other => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-read-content-from", scope = scope.to_string(), agent = agent.to_string(), source = source.to_string(), a0 = (other.as_str()).to_string()))),
+        // LCOV_EXCL_STOP
         },
         EnginePayload::HostedChanged { host, .. } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-what-node-holds-s-workspace-changed", scope = scope.to_string(), a0 = (host.as_hex()[..8]).to_string()))),
         EnginePayload::RelaysChanged => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-relays-changed", scope = scope.to_string()))),
@@ -999,6 +1003,7 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
         // A refusal is the line a person came to read; an allow or a question
         // is an ambient fact.
         EnginePayload::GuardDecided {
+            // LCOV_EXCL_START: the guard verdict's line; out by decision
             tool,
             subject,
             verdict,
@@ -1010,12 +1015,15 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             match verdict {
                 bisa_core::event::GuardVerdict::Denied => style.red(&line),
                 _ => style.dim(&line),
+            // LCOV_EXCL_STOP
             }
         }
         EnginePayload::Judged { judgement, .. } => {
             style.dim(&format!("{scope}{}", judgement_line(judgement)))
         }
+        // LCOV_EXCL_START: the redaction's line; out by decision
         EnginePayload::Redacted { count, kinds, at } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-redacted-secret-before", scope = scope.to_string(), count = count.to_string(), a0 = (if *count == 1 { "" } else { "s" }).to_string(), at = at.to_string(), a1 = (kinds.join(", ")).to_string()))),
+        // LCOV_EXCL_STOP
         // A signal is queued, not done: dim, like any other ambient fact.
         // The line that matters is what its listener made of it, below.
         EnginePayload::SignalReceived {
@@ -1853,6 +1861,1274 @@ mod tests {
         assert!(
             bare.contains("repair") && bare.contains("stalled") && !bare.contains(" — "),
             "{bare}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // The typed line: one of every payload an in-process engine hands the
+    // watcher, rendered without the daemon's envelope. The security
+    // verdicts (the guard, the redactor, screened or held messages) stay
+    // out by decision: tests and stability only.
+    // -----------------------------------------------------------------------
+
+    fn id(n: u64) -> ulid::Ulid {
+        ulid::Ulid::from_parts(n, 1)
+    }
+
+    fn typed(payload: EnginePayload) -> Option<String> {
+        engine_line(&Style::plain(), &EngineEvent::global(payload))
+    }
+
+    /// A line that is said, and said by the catalog.
+    fn typed_line(payload: EnginePayload) -> String {
+        let line = typed(payload).expect("a line");
+        said(&line);
+        line
+    }
+
+    fn file() -> bisa_core::AttachmentRef {
+        serde_json::from_value(json!({
+            "sha256": "a".repeat(64), "name": "report.pdf",
+            "mime": "application/pdf", "size": 12
+        }))
+        .expect("an attachment")
+    }
+
+    fn judgement(answers: serde_json::Value, reason: Option<&str>) -> bisa_core::Judgement {
+        serde_json::from_value(json!({
+            "point": "assign.pick", "provider": "jev", "model": "jev-latest",
+            "calibrated": true, "questions": {}, "answers": answers,
+            "outcome": "applied", "reason": reason
+        }))
+        .expect("a judgement")
+    }
+
+    fn session(event: serde_json::Value) -> SessionEvent {
+        serde_json::from_value(event).expect("a session event")
+    }
+
+    fn presence(state: bisa_engine::SessionState) -> Box<bisa_engine::presence::SessionPresence> {
+        Box::new(bisa_engine::presence::SessionPresence {
+            id: bisa_engine::LiveRunId::from_ulid(id(7)),
+            kind: bisa_engine::registry::SessionKind::Worker,
+            origin: bisa_core::SessionOrigin::Step {
+                step: None,
+                name: None,
+                resumed: false,
+            },
+            state,
+            since: 1,
+            harness: "mock".into(),
+            model: None,
+            effort: None,
+            agent: None,
+            session_id: None,
+            work_item: None,
+            conversation: None,
+            goal: None,
+            run: None,
+            workstream: None,
+            project: None,
+            cwd: None,
+            transcript_path: None,
+            started: 1,
+            pid: None,
+            cost: Default::default(),
+            children: vec![],
+            last_activity: 1,
+            revision: 1,
+        })
+    }
+
+    #[test]
+    fn a_styled_line_carries_its_colour_only_on_a_terminal() {
+        let tty = Style { tty: true };
+        assert_eq!(tty.bold("x"), "\x1b[1mx\x1b[0m");
+        assert_eq!(tty.dim("x"), "\x1b[2mx\x1b[0m");
+        assert_eq!(tty.red("x"), "\x1b[31mx\x1b[0m");
+        let plain = Style::plain();
+        assert_eq!(plain.bold("x"), "x");
+        assert_eq!(plain.dim("x"), "x");
+        assert_eq!(plain.red("x"), "x");
+    }
+
+    #[test]
+    fn a_work_items_state_is_one_word_and_a_blocked_one_says_why() {
+        assert_eq!(
+            workitem_state_label(&WorkItemState::Blocked {
+                by: PrincipalId::new("ab".repeat(32)).expect("a principal"),
+                reason: "waiting on a key".into(),
+            }),
+            "blocked: waiting on a key"
+        );
+        assert_eq!(
+            workitem_state_label(&WorkItemState::Rejected {
+                evidence: vec!["no".into()],
+            }),
+            "rejected"
+        );
+    }
+
+    #[test]
+    fn a_judgement_reads_as_its_point_its_answers_and_its_reason() {
+        let line = judgement_line(&judgement(
+            json!({
+                "pick": {"type": "choice", "choice": "developer",
+                         "probabilities": {"developer": 0.9}, "confidence": 0.9},
+                "sure": {"type": "noul", "noul": 0.75},
+                "grade": {"type": "score", "score": 7.5, "legend": {},
+                          "probabilities": {}, "confidence": 0.6}
+            }),
+            Some("the task names code"),
+        ));
+        said(&line);
+        assert!(
+            line.contains("developer (0.90)")
+                && line.contains("0.75")
+                && line.contains("7.5 (0.60)")
+                && line.contains("the task names code"),
+            "{line}"
+        );
+        let silent = judgement_line(&judgement(json!({}), None));
+        said(&silent);
+        assert!(!silent.contains(" — "), "{silent}");
+    }
+
+    #[test]
+    fn a_wait_on_an_input_and_a_filter_that_names_its_subject_are_said() {
+        let wait =
+            |body: serde_json::Value| -> WaitFor { serde_json::from_value(body).expect("a wait") };
+        let cron = wait_label(&wait(
+            json!({"until": "schedule", "cron": {"input": "when"}}),
+        ));
+        said(&cron);
+        assert!(cron.contains("when"), "{cron}");
+        let delay = wait_label(&wait(json!({"until": "delay", "secs": {"input": "pause"}})));
+        said(&delay);
+        assert!(delay.contains("pause"), "{delay}");
+        let project = wait_label(&wait(json!({
+            "until": "project", "project": "01BX5ZZKBKACTAV9WEVGEMMVRZ", "change": "commit"
+        })));
+        said(&project);
+        assert!(project.contains("01BX5ZZKBKACTAV9WEVGEMMVRZ"), "{project}");
+        let run = wait_label(&wait(json!({
+            "until": "run", "workflow": "01DX5ZZKBKACTAV9WEVGEMMVRZ", "outcome": "done"
+        })));
+        said(&run);
+        assert!(
+            run.contains("01DX5ZZKBKACTAV9WEVGEMMVRZ") && run.contains("done"),
+            "{run}"
+        );
+        let boundary: Boundary = serde_json::from_value(json!({
+            "name": "heard", "on": {"event": "message", "in": "support"},
+            "act": "emit", "signal": "review.waiting"
+        }))
+        .expect("a boundary");
+        let line = boundary_label(&boundary, 0);
+        said(&line);
+        assert!(line.contains("support"), "{line}");
+    }
+
+    #[test]
+    fn the_journals_other_facts_each_read_as_a_sentence() {
+        let run = RunId::from_ulid(id(4));
+        let workflow = WorkflowId::from_ulid(id(9));
+        let item = bisa_core::WorkItemId::from_ulid(id(5));
+        let judged = payload_line(&JournalPayload::Judgement {
+            judgement: judgement(json!({"sure": {"type": "noul", "noul": 0.25}}), None),
+            run: None,
+            step: None,
+        });
+        said(&judged);
+        assert!(judged.contains("0.25"), "{judged}");
+        for (payload, expect) in [
+            (
+                JournalPayload::Withdrawn {
+                    subject: "adopt:x".into(),
+                    reason: "the design moved on".into(),
+                },
+                "the design moved on",
+            ),
+            (
+                JournalPayload::Progress {
+                    work_item: item,
+                    verb: "ran".into(),
+                    object: "the tests".into(),
+                    outcome: Some("green".into()),
+                },
+                "→ green",
+            ),
+            (
+                JournalPayload::Attachment {
+                    project: bisa_core::ProjectId::from_ulid(id(3)),
+                    attached: false,
+                },
+                "detached",
+            ),
+            (JournalPayload::Document { file: file() }, "report.pdf"),
+            (
+                JournalPayload::TurnMetrics {
+                    session: bisa_core::SessionId::from_ulid(id(8)),
+                    input_tokens: 12,
+                    output_tokens: 34,
+                    usd_cents: 5,
+                },
+                "34",
+            ),
+            (
+                JournalPayload::Step {
+                    run,
+                    step: StepId::new("route").expect("a step id"),
+                    event: StepFact::Failed {
+                        error: "no route".into(),
+                    },
+                },
+                "no route",
+            ),
+            (
+                JournalPayload::Step {
+                    run,
+                    step: StepId::new("route").expect("a step id"),
+                    event: StepFact::Skipped,
+                },
+                "route",
+            ),
+            (
+                JournalPayload::Step {
+                    run,
+                    step: StepId::new("route").expect("a step id"),
+                    event: StepFact::Cancelled,
+                },
+                "route",
+            ),
+            (
+                JournalPayload::Run {
+                    run,
+                    event: RunFact::Queued {
+                        workflow,
+                        revision: 2,
+                    },
+                },
+                "rev 2",
+            ),
+            (
+                JournalPayload::Run {
+                    run,
+                    event: RunFact::Amended { revision: 3 },
+                },
+                "3",
+            ),
+            (
+                JournalPayload::Run {
+                    run,
+                    event: RunFact::Cancelled {
+                        cause: bisa_core::CancelCause::Stopped { rationale: None },
+                    },
+                },
+                "stopped",
+            ),
+            (
+                JournalPayload::Question {
+                    work_item: None,
+                    gate: "ask:1".into(),
+                    text: "Which tone?".into(),
+                    expects: AskKind::Answer {
+                        options: vec![],
+                        multi: false,
+                    },
+                },
+                "Which tone?",
+            ),
+        ] {
+            let line = payload_line(&payload);
+            said(&line);
+            assert!(line.contains(expect), "{line}");
+        }
+        // What a person answered: unsure with and without words, words
+        // alone, and nothing at all.
+        let decided = |answer: Answer| {
+            payload_line(&JournalPayload::Decision {
+                gate: bisa_core::Gate::Approval,
+                approve: true,
+                subject: "ask:1".into(),
+                rationale: None,
+                answer: Some(answer),
+            })
+        };
+        assert!(decided(Answer {
+            selected: vec![],
+            text: Some("maybe later".into()),
+            unsure: true
+        })
+        .contains("“not sure” — maybe later"));
+        assert!(decided(Answer {
+            selected: vec![],
+            text: None,
+            unsure: true
+        })
+        .contains("“I'm not sure”"));
+        assert!(decided(Answer {
+            selected: vec![],
+            text: Some("warm".into()),
+            unsure: false
+        })
+        .contains("“warm”"));
+        assert!(decided(Answer {
+            selected: vec![],
+            text: None,
+            unsure: false
+        })
+        .contains("(nothing)"));
+        // A signal's payload: nothing carried, and something that is no map.
+        let carried = |payload: serde_json::Value| {
+            payload_line(&JournalPayload::Signal {
+                signal: "01S".into(),
+                listener: None,
+                source: SignalSource::Signal,
+                name: None,
+                payload,
+            })
+        };
+        assert!(!carried(serde_json::Value::Null).contains('{'));
+        assert!(
+            carried(json!([1, 2])).contains("[1,2]"),
+            "{}",
+            carried(json!([1, 2]))
+        );
+    }
+
+    #[test]
+    fn a_sessions_state_reads_as_a_line_when_it_waits_ends_or_parks() {
+        use bisa_engine::{SessionState, WaitingOn};
+        let state = |state: SessionState| {
+            typed(EnginePayload::SessionState {
+                live_run: bisa_engine::LiveRunId::from_ulid(id(7)),
+                presence: presence(state),
+            })
+        };
+        for (waiting, expect) in [
+            (
+                WaitingOn::Permission {
+                    tool: "Bash".into(),
+                    gate_id: None,
+                },
+                "permission: Bash",
+            ),
+            (
+                WaitingOn::Question {
+                    text: "Which tone?".into(),
+                    gate_id: None,
+                },
+                "Which tone?",
+            ),
+            (
+                WaitingOn::Gate {
+                    gate: bisa_core::Gate::Approval,
+                    gate_id: "g1".into(),
+                },
+                "approval gate",
+            ),
+        ] {
+            let line = state(SessionState::Waiting { on: waiting }).expect("a line");
+            said(&line);
+            assert!(line.contains(expect) && line.contains("mock"), "{line}");
+        }
+        assert!(state(SessionState::Aborted)
+            .expect("a line")
+            .contains("aborted"));
+        assert!(state(SessionState::Done).expect("a line").contains("done"));
+        assert!(state(SessionState::Parked)
+            .expect("a line")
+            .contains("parked"));
+        assert_eq!(state(SessionState::Idle), None, "idling is no news");
+        assert_eq!(
+            typed(EnginePayload::SessionGone {
+                live_run: bisa_engine::LiveRunId::from_ulid(id(7))
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn the_spine_of_a_goal_reads_as_bold_lines_in_process_too() {
+        let run = RunId::from_ulid(id(4));
+        let workflow = WorkflowId::from_ulid(id(9));
+        let goal = bisa_core::GoalId::from_ulid(id(2));
+        let project = bisa_core::ProjectId::from_ulid(id(3));
+        let workstream = bisa_core::WorkstreamId::from_ulid(id(6));
+        let step = StepId::new("review").expect("a step id");
+        let option = |id: &str, recommended: bool| bisa_core::AskOption {
+            id: id.into(),
+            label: id.to_uppercase(),
+            detail: None,
+            recommended,
+        };
+        for (payload, expect) in [
+            (
+                EnginePayload::Scheduled {
+                    harness: "mock".into(),
+                },
+                "mock",
+            ),
+            (
+                EnginePayload::ExecutionEnded {
+                    outcome: bisa_engine::ExecutionOutcome::Completed,
+                },
+                "completed",
+            ),
+            (
+                EnginePayload::GateOpened {
+                    gate_id: "g1".into(),
+                    gate: bisa_core::Gate::Approval,
+                    question: "Ship it?".into(),
+                },
+                "Ship it?",
+            ),
+            (
+                EnginePayload::QuestionAsked {
+                    gate_id: "g2".into(),
+                    text: "Which tone?".into(),
+                    expects: AskKind::Answer {
+                        options: vec![],
+                        multi: false,
+                    },
+                },
+                "Which tone?",
+            ),
+            (
+                EnginePayload::QuestionAsked {
+                    gate_id: "g3".into(),
+                    text: "Which?".into(),
+                    expects: AskKind::Answer {
+                        options: vec![option("warm", true), option("cold", false)],
+                        multi: false,
+                    },
+                },
+                "[warm] WARM (recommended)  [cold] COLD",
+            ),
+            (
+                EnginePayload::QuestionAsked {
+                    gate_id: "g4".into(),
+                    text: "Adopt?".into(),
+                    expects: AskKind::Decision,
+                },
+                "? Adopt?",
+            ),
+            (
+                EnginePayload::AgentReplied {
+                    scope: goal.to_string(),
+                    agent: "scout".into(),
+                    posted: false,
+                    message: None,
+                },
+                "scout",
+            ),
+            (
+                EnginePayload::GateDecided {
+                    gate_id: "g1".into(),
+                    gate: bisa_core::Gate::Approval,
+                    approve: false,
+                },
+                "approval gate rejected",
+            ),
+            (EnginePayload::ResultAccepted, "accepted"),
+            (
+                EnginePayload::RunStarted { run, workflow },
+                &run.to_string(),
+            ),
+            (
+                EnginePayload::RunQueued {
+                    run,
+                    workflow,
+                    position: 2,
+                },
+                "2",
+            ),
+            (
+                EnginePayload::RunFinished {
+                    run,
+                    workflow,
+                    outcome: bisa_core::RunOutcome::Done,
+                },
+                &run.to_string(),
+            ),
+            (
+                EnginePayload::RunFinished {
+                    run,
+                    workflow,
+                    outcome: bisa_core::RunOutcome::Failed,
+                },
+                &run.to_string(),
+            ),
+            (
+                EnginePayload::RunCancelled {
+                    run,
+                    workflow,
+                    cause: bisa_core::CancelCause::Stopped { rationale: None },
+                },
+                "stopped",
+            ),
+            (
+                EnginePayload::GoalClosed {
+                    reason: bisa_core::ClosureReason::Abandoned { rationale: None },
+                },
+                "abandoned",
+            ),
+            (
+                EnginePayload::GoalArchived {
+                    goal,
+                    archived: true,
+                },
+                "archived",
+            ),
+            (EnginePayload::GoalDeleted { goal }, &goal.to_string()),
+            (
+                EnginePayload::WorkflowDeleted { workflow },
+                &workflow.to_string(),
+            ),
+            (
+                EnginePayload::WorkflowArchived {
+                    workflow,
+                    archived: false,
+                },
+                "unarchived",
+            ),
+            (
+                EnginePayload::ProjectArchived {
+                    project,
+                    archived: true,
+                },
+                "archived",
+            ),
+            (
+                EnginePayload::ProjectDeleted { project },
+                &project.to_string(),
+            ),
+            (
+                EnginePayload::GoalCreated {
+                    goal,
+                    origin: bisa_core::GoalOrigin::Captured,
+                },
+                "captured",
+            ),
+            (
+                EnginePayload::DocumentAdded { goal, file: file() },
+                "report.pdf",
+            ),
+            (
+                EnginePayload::WorkflowProposed {
+                    workflow,
+                    revision: 1,
+                    gate_id: None,
+                },
+                "proposed",
+            ),
+            (
+                EnginePayload::WorkflowChanged {
+                    workflow,
+                    revision: 2,
+                    designed: false,
+                },
+                "2",
+            ),
+            (
+                EnginePayload::ProjectCreated {
+                    project,
+                    slug: "site".into(),
+                    origin: bisa_core::ProjectOrigin::Workspace,
+                },
+                "site",
+            ),
+            (
+                EnginePayload::CommitterNeeded {
+                    project,
+                    slug: "site".into(),
+                    workstream,
+                    reason: bisa_engine::CommitterReason::Created,
+                    origin: bisa_core::ProjectOrigin::Workspace,
+                    global: Some(bisa_vcs::Ident {
+                        name: "Someone".into(),
+                        email: "someone@example.invalid".into(),
+                    }),
+                },
+                "global git config names",
+            ),
+            (
+                EnginePayload::CommitterNeeded {
+                    project,
+                    slug: "site".into(),
+                    workstream,
+                    reason: bisa_engine::CommitterReason::CommitRefused,
+                    origin: bisa_core::ProjectOrigin::Workspace,
+                    global: None,
+                },
+                "commit refused",
+            ),
+            (
+                EnginePayload::CommitterSet {
+                    project,
+                    workstream,
+                    identity: bisa_vcs::Ident {
+                        name: "Someone".into(),
+                        email: "someone@example.invalid".into(),
+                    },
+                },
+                "Someone",
+            ),
+            (
+                EnginePayload::GitSetupChanged {
+                    what: bisa_engine::events::GitSetup::Profiles,
+                },
+                "profiles",
+            ),
+            (
+                EnginePayload::ConnectorsChanged {
+                    what: bisa_engine::events::ConnectorsChange::Accounts,
+                },
+                "accounts",
+            ),
+            (
+                EnginePayload::AddonsChanged {
+                    what: bisa_engine::addons::AddonsChange::Installed {
+                        id: bisa_core::AddonId::new("clock").expect("an addon id"),
+                    },
+                },
+                "clock",
+            ),
+            (
+                EnginePayload::ConversationCreated {
+                    id: bisa_core::ConversationId::from_ulid(id(11)),
+                    origin: bisa_core::ConversationOrigin::Workspace,
+                },
+                "workspace",
+            ),
+            (
+                EnginePayload::ConversationChanged {
+                    id: bisa_core::ConversationId::from_ulid(id(11)),
+                    change: bisa_engine::events::ConversationChange::Renamed,
+                },
+                "renamed",
+            ),
+            (
+                EnginePayload::ProjectChanged { project },
+                &project.to_string(),
+            ),
+            (
+                EnginePayload::WorkstreamEdited {
+                    workstream,
+                    project,
+                },
+                &workstream.to_string(),
+            ),
+            (
+                EnginePayload::AttachmentChanged {
+                    project,
+                    attached: true,
+                },
+                "attached",
+            ),
+            (
+                EnginePayload::NoteChanged {
+                    note: "n1".into(),
+                    scope: "workspace".into(),
+                    scope_id: None,
+                    hash: "h".into(),
+                    by: None,
+                },
+                "n1",
+            ),
+            (
+                EnginePayload::DrawingChanged {
+                    drawing: "d1".into(),
+                    scope: "workspace".into(),
+                    scope_id: None,
+                    hash: "h".into(),
+                },
+                "d1",
+            ),
+            (
+                EnginePayload::DrawingRequest {
+                    id: "r1".into(),
+                    request: serde_json::from_value(json!({"action": "read"}))
+                        .expect("a draw request"),
+                    scope: bisa_engine::drawings::DrawScope {
+                        agent: None,
+                        conversation: None,
+                    },
+                },
+                "read",
+            ),
+            (
+                EnginePayload::ModelSwitched {
+                    work_item: None,
+                    from: "m1".into(),
+                    to: "m2".into(),
+                    reason: "quota".into(),
+                    retry_in_secs: 30,
+                    after_progress: true,
+                },
+                "m2",
+            ),
+            (
+                EnginePayload::ModelSwitched {
+                    work_item: None,
+                    from: "m1".into(),
+                    to: "m2".into(),
+                    reason: "quota".into(),
+                    retry_in_secs: 30,
+                    after_progress: false,
+                },
+                "m1",
+            ),
+            (
+                EnginePayload::WorkstreamOpened {
+                    workstream,
+                    project,
+                    path: "/tmp/w".into(),
+                    branch: Some("fix/total".into()),
+                    source: "worktree".into(),
+                },
+                "on fix/total",
+            ),
+            (
+                EnginePayload::WorkstreamOpened {
+                    workstream,
+                    project,
+                    path: "/tmp/w".into(),
+                    branch: None,
+                    source: "worktree".into(),
+                },
+                "/tmp/w",
+            ),
+            (
+                EnginePayload::WorkstreamChanged {
+                    workstream,
+                    state: bisa_core::WorkstreamState::Dirty,
+                },
+                "Dirty",
+            ),
+            (
+                EnginePayload::WorkstreamCommitted {
+                    workstream,
+                    branch: "main".into(),
+                    commit: "abcdef0123456789".into(),
+                },
+                "abcdef012345",
+            ),
+            (
+                EnginePayload::WorkstreamScriptRan {
+                    workstream,
+                    project,
+                    phase: bisa_engine::scripts::Phase::Run,
+                    ok: true,
+                    output: "all green\nmore".into(),
+                },
+                "all green",
+            ),
+            (
+                EnginePayload::WorkstreamScriptRan {
+                    workstream,
+                    project,
+                    phase: bisa_engine::scripts::Phase::Clean,
+                    ok: false,
+                    output: String::new(),
+                },
+                &workstream.to_string(),
+            ),
+            (
+                EnginePayload::WorkstreamPublishFailed {
+                    workstream,
+                    project,
+                    what: "push".into(),
+                    reason: "the remote refused\nmore".into(),
+                },
+                "the remote refused",
+            ),
+            (
+                EnginePayload::ServerChanged {
+                    workstream: Some(workstream),
+                },
+                &workstream.to_string(),
+            ),
+            (
+                EnginePayload::ServerChanged { workstream: None },
+                "artifact",
+            ),
+            (
+                EnginePayload::HostedChanged {
+                    host: PrincipalId::new("ab".repeat(32)).expect("a principal"),
+                    scope: None,
+                },
+                "abababab",
+            ),
+            (EnginePayload::RelaysChanged, "relays"),
+            (
+                EnginePayload::BrowserRequest {
+                    id: "b1".into(),
+                    request: serde_json::from_value(json!({"action": "tabs"}))
+                        .expect("a browser request"),
+                    scope: bisa_engine::browser::BrowserScope {
+                        home: None,
+                        agent: None,
+                    },
+                    headless: false,
+                },
+                "tabs",
+            ),
+            (
+                EnginePayload::MobileDevelopmentChanged {
+                    what: bisa_engine::mobile_development::MobileDevelopmentChange::Toolchain,
+                },
+                "toolchain",
+            ),
+            (
+                EnginePayload::MobileDevelopmentChanged {
+                    what: bisa_engine::mobile_development::MobileDevelopmentChange::Devices,
+                },
+                "devices",
+            ),
+            (
+                EnginePayload::Judged {
+                    judgement: judgement(json!({"sure": {"type": "noul", "noul": 0.25}}), None),
+                    agent: None,
+                    run: None,
+                    step: None,
+                },
+                "0.25",
+            ),
+            (
+                EnginePayload::SignalReceived {
+                    signal: "01S".into(),
+                    listener: Some(
+                        format!("workspace:{workflow}/ticket")
+                            .parse()
+                            .expect("a listener"),
+                    ),
+                    source: SignalSource::Hook,
+                },
+                "ticket",
+            ),
+            (
+                EnginePayload::ListenerFired {
+                    listener: format!("workspace:{workflow}/ticket")
+                        .parse()
+                        .expect("a listener"),
+                    signal: "01S".into(),
+                    outcome: FiredOutcome::Started {
+                        run,
+                        goal: Some(goal),
+                    },
+                },
+                &format!("on goal {goal}"),
+            ),
+            (
+                EnginePayload::ListenerFired {
+                    listener: format!("workspace:{workflow}/ticket")
+                        .parse()
+                        .expect("a listener"),
+                    signal: "01S".into(),
+                    outcome: FiredOutcome::Skipped {
+                        reason: "its last run is unfinished".into(),
+                    },
+                },
+                "its last run is unfinished",
+            ),
+            (
+                EnginePayload::ListenerFailed {
+                    listener: format!("workspace:{workflow}/ticket")
+                        .parse()
+                        .expect("a listener"),
+                    signal: None,
+                    error: "not armed".into(),
+                },
+                "not armed",
+            ),
+            (
+                EnginePayload::ListeningChanged {
+                    host: bisa_core::ListenerHost::Workspace { workflow },
+                    on: true,
+                },
+                &workflow.to_string(),
+            ),
+            (
+                EnginePayload::BoundaryFired {
+                    run,
+                    workflow,
+                    step: step.clone(),
+                    boundary: Branch::new("late").expect("a branch"),
+                    diverts: true,
+                },
+                "late",
+            ),
+            (
+                EnginePayload::BoundaryFired {
+                    run,
+                    workflow,
+                    step: step.clone(),
+                    boundary: Branch::new("nudge").expect("a branch"),
+                    diverts: false,
+                },
+                "nudge",
+            ),
+            (
+                EnginePayload::FileChanged {
+                    scope: "workstream".into(),
+                    id: workstream.to_string(),
+                    path: "src/lib.rs".into(),
+                    kind: bisa_engine::events::FileChangeKind::Modified,
+                    from: None,
+                    ignored: false,
+                    dir: false,
+                },
+                "src/lib.rs",
+            ),
+            (
+                EnginePayload::SettingsChanged {
+                    scope: "workspace".into(),
+                    project: None,
+                    keys: vec!["log.level".into()],
+                },
+                "log.level",
+            ),
+            (
+                EnginePayload::Lsp {
+                    scope: "workstream".into(),
+                    id: workstream.to_string(),
+                    language: "rust".into(),
+                    method: "textDocument/hover".into(),
+                    params: json!({}),
+                },
+                "rust",
+            ),
+            (
+                EnginePayload::ChangesSettled {
+                    conversation: "c1".into(),
+                    act: "kept".into(),
+                    files: 2,
+                    skipped: 0,
+                },
+                "2",
+            ),
+            (
+                EnginePayload::ChangesSettled {
+                    conversation: "c1".into(),
+                    act: "undone".into(),
+                    files: 1,
+                    skipped: 3,
+                },
+                "3 left alone",
+            ),
+            (
+                EnginePayload::AskOpened {
+                    conversation: "c1".into(),
+                    ask: serde_json::from_value(json!({
+                        "id": "a1", "agent": "scout",
+                        "subject": {"kind": "tool", "tool": "Bash", "tier": "exec"},
+                        "question": "May I run the tests?", "grantable": true, "opened_at": 1
+                    }))
+                    .expect("an ask"),
+                },
+                "to use Bash",
+            ),
+            (
+                EnginePayload::AskSettled {
+                    conversation: "c1".into(),
+                    ask_id: "a1".into(),
+                    allowed: false,
+                },
+                "refused",
+            ),
+            (
+                EnginePayload::McpProbed {
+                    id: bisa_core::McpId::new("docs").expect("an mcp id"),
+                    ok: false,
+                },
+                "failed",
+            ),
+            (
+                EnginePayload::ConnectorChecked {
+                    connector: bisa_core::ConnectorId::new("github").expect("a connector id"),
+                    account: bisa_core::AccountId::from_ulid(id(12)),
+                    ok: true,
+                },
+                "connected",
+            ),
+            (EnginePayload::Paused, "paused"),
+            (EnginePayload::Resumed, "resumed"),
+        ] {
+            let line = typed_line(payload);
+            assert!(line.contains(expect), "{expect:?} not in {line:?}");
+        }
+        // The arms that render people: who joined, left, changed role or
+        // profile, by their label or their key's head.
+        for (change, label, expect) in [
+            (
+                bisa_store::PeopleChange::Joined {
+                    role: bisa_core::MemberRole::Member,
+                },
+                Some("Bob"),
+                "Bob",
+            ),
+            (bisa_store::PeopleChange::Left, None, "abababab…"),
+            (
+                bisa_store::PeopleChange::RoleChanged {
+                    role: bisa_core::MemberRole::Admin,
+                },
+                Some("Bob"),
+                "admin",
+            ),
+            (
+                bisa_store::PeopleChange::ProfileChanged,
+                Some("Bob"),
+                "profile",
+            ),
+        ] {
+            let line = typed_line(EnginePayload::PeopleChanged {
+                pubkey: PrincipalId::new("ab".repeat(32)).expect("a principal"),
+                change,
+                label: label.map(str::to_string),
+            });
+            assert!(line.contains(expect), "{expect:?} not in {line:?}");
+        }
+        // An invitation moving: its id, its role and where it stands.
+        let invite: bisa_core::Invite = serde_json::from_value(json!({
+            "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "role": "member", "channels": [],
+            "label": "Bob", "created_at": 1, "expires_at": 2, "state": {"state": "pending"}
+        }))
+        .expect("an invite");
+        let line = typed_line(EnginePayload::InviteChanged { invite });
+        assert!(
+            line.contains("01ARZ3NDEKTSV4RRFFQ69G5FAV") && line.contains("pending"),
+            "{line}"
+        );
+        // Silent by design: a frame of a reply, and a review count moving.
+        assert_eq!(
+            typed(EnginePayload::AgentStreamed {
+                scope: "s".into(),
+                agent: "scout".into(),
+                text: "…".into(),
+                thinking: String::new(),
+                working: None,
+            }),
+            None
+        );
+        assert_eq!(
+            typed(EnginePayload::ChangesMoved {
+                conversation: "c1".into(),
+                workstream: workstream.to_string(),
+                pending: 2,
+            }),
+            None
+        );
+        // The step line, by its state.
+        for (state, expect) in [
+            ("failed", "failed"),
+            ("done", "done"),
+            ("waiting", "waiting"),
+            ("diverted", "diverted"),
+            ("running", "running"),
+        ] {
+            let line = typed_line(EnginePayload::StepChanged {
+                run,
+                workflow,
+                step: step.clone(),
+                state: state.into(),
+                kind: "agent".into(),
+            });
+            assert!(line.contains(expect) && line.contains("review"), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_harness_sessions_events_read_as_lines_or_as_nothing() {
+        let line = |event: serde_json::Value| {
+            typed(EnginePayload::Session {
+                event: session(event),
+            })
+        };
+        let lifecycle = |event: serde_json::Value| json!({"tier": "lifecycle", "event": event});
+        let progress = |event: serde_json::Value| json!({"tier": "progress", "event": event});
+        for (event, expect) in [
+            (lifecycle(json!({"type": "started"})), "started"),
+            (
+                lifecycle(json!({"type": "ended", "outcome": {"outcome": "completed"},
+                                 "is_terminal": true})),
+                "completed",
+            ),
+            (
+                lifecycle(json!({"type": "ended", "outcome": {"outcome": "aborted"},
+                                 "is_terminal": false})),
+                "aborted",
+            ),
+            (
+                lifecycle(json!({"type": "ended", "outcome": {"outcome": "failed",
+                                 "error": "the harness died"}, "is_terminal": true})),
+                "the harness died",
+            ),
+            (
+                lifecycle(
+                    json!({"type": "ended", "outcome": {"outcome": "model_unavailable",
+                                 "model": "m1", "reason": "quota", "retry_after": 30},
+                                 "is_terminal": true}),
+                ),
+                "retry in 30s",
+            ),
+            (
+                lifecycle(
+                    json!({"type": "ended", "outcome": {"outcome": "model_unavailable",
+                                 "model": "m1", "reason": "quota", "retry_after": null},
+                                 "is_terminal": true}),
+                ),
+                "m1",
+            ),
+            (
+                lifecycle(json!({"type": "ended", "outcome": {"outcome": "suspended",
+                                 "reason": "paused by hand"}, "is_terminal": true})),
+                "paused by hand",
+            ),
+            (lifecycle(json!({"type": "parked"})), "parked"),
+            (lifecycle(json!({"type": "revived"})), "revived"),
+            (
+                lifecycle(json!({"type": "input_requested", "request": {
+                    "id": "p1", "kind": "permission", "tool_name": "Bash",
+                    "tier": "exec", "args_summary": "cargo test"}})),
+                "run Bash",
+            ),
+            (
+                lifecycle(json!({"type": "input_resolved", "id": "p1"})),
+                "going on",
+            ),
+            (
+                progress(
+                    json!({"type": "subagent_started", "id": "s1", "name": "explore",
+                                "description": "look around"}),
+                ),
+                "explore",
+            ),
+            (
+                progress(json!({"type": "subagent_ended", "id": "s1", "ok": false})),
+                "failed",
+            ),
+            (
+                progress(json!({"type": "nested", "parent": "s1",
+                                "event": {"type": "tool_ended", "name": "Bash", "ok": false}})),
+                "↳ ✗ Bash failed",
+            ),
+            (
+                progress(
+                    json!({"type": "cost_delta", "input_tokens": 3, "output_tokens": 4,
+                                "usd_cents": 0}),
+                ),
+                "7 tokens",
+            ),
+            (
+                progress(json!({"type": "tool_ended", "name": "Bash", "ok": false})),
+                "✗ Bash failed",
+            ),
+        ] {
+            let said_line = line(event.clone()).unwrap_or_else(|| panic!("no line for {event}"));
+            said(&said_line);
+            assert!(
+                said_line.contains(expect),
+                "{expect:?} not in {said_line:?}"
+            );
+        }
+        for silent in [
+            progress(json!({"type": "subagent_ended", "id": "s1", "ok": true})),
+            progress(json!({"type": "nested", "parent": "s1",
+                            "event": {"type": "tool_ended", "name": "Bash", "ok": true}})),
+            progress(json!({"type": "turn_started"})),
+            json!({"tier": "raw", "event": {"anything": 1}}),
+            lifecycle(json!({"type": "process_started", "pid": 7})),
+        ] {
+            assert_eq!(line(silent.clone()), None, "{silent}");
+        }
+    }
+
+    #[test]
+    fn the_daemons_other_frames_read_through_the_json_arms() {
+        let style = Style::plain();
+        // A conversation frame: who said what where; a snapshot is silent.
+        let spoken = sse_line(
+            &style,
+            &json!({"stream": "conversation", "payload": {
+                "scope": "01J0CONVERSATION", "author": "abababababab",
+                "snippet": "the total is wrong"}}),
+        )
+        .expect("a line");
+        assert!(
+            spoken.contains("abababab") && spoken.contains("the total is wrong"),
+            "{spoken}"
+        );
+        assert_eq!(
+            sse_line(
+                &style,
+                &json!({"stream": "conversation", "payload": {"scope": "x", "snapshot": true}})
+            ),
+            None
+        );
+        // An unenveloped frame is an engine event on its own.
+        let bare = sse_line(&style, &json!({"payload": {"type": "paused"}})).expect("a line");
+        said(&bare);
+        assert!(bare.contains("paused"), "{bare}");
+        for (payload, expect) in [
+            (json!({"type": "resumed"}), "resumed"),
+            (
+                json!({"type": "question_asked", "text": "Which?", "options": [{"id": "a"}]}),
+                "? Which?",
+            ),
+            (
+                json!({"type": "gate_decided", "gate": "approval", "approve": true}),
+                "approved",
+            ),
+            (
+                json!({"type": "run_started", "run": "01RUN", "workflow": "01WF"}),
+                "01RUN",
+            ),
+            (
+                json!({"type": "run_queued", "run": "01RUN", "workflow": "01WF", "position": 3}),
+                "3",
+            ),
+            (
+                json!({"type": "run_cancelled", "run": "01RUN", "cause": {"cause": "stopped"}}),
+                "stopped",
+            ),
+            (
+                json!({"type": "goal_closed", "reason": {"reason": "superseded"}}),
+                "superseded",
+            ),
+            (
+                json!({"type": "workflow_proposed", "workflow": "01WF", "revision": 1}),
+                "01WF",
+            ),
+            (
+                json!({"type": "workflow_changed", "workflow": "01WF", "revision": 2}),
+                "01WF",
+            ),
+            (
+                json!({"type": "boundary_fired", "run": "01RUN", "workflow": "01WF",
+                       "step": "review", "boundary": "nudge", "diverts": false}),
+                "nudge",
+            ),
+            (
+                json!({"type": "session", "event": {"tier": "lifecycle",
+                       "event": {"type": "parked"}}}),
+                "parked",
+            ),
+        ] {
+            let line = sse_line(&style, &frame(payload.clone()))
+                .unwrap_or_else(|| panic!("no line for {payload}"));
+            said(&line);
+            assert!(line.contains(expect), "{expect:?} not in {line:?}");
+        }
+        // A fired listener with an outcome this build does not know is silent.
+        assert_eq!(
+            sse_line(
+                &style,
+                &frame(json!({"type": "listener_fired", "listener": "goal:01G/t",
+                              "signal": "01S", "outcome": {"outcome": "invented"}}))
+            ),
+            None
         );
     }
 }

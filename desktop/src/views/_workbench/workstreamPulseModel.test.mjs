@@ -230,3 +230,10 @@ test("the pulse's sub-agents are the live ones, counted from their own start, an
   assert.equal(over.subagents.total, 0);
   assert.equal(over.liveStart, null, "nothing counts up");
 });
+
+test("a sub-agent that is merely working does not upstage its parent, whatever the parent does", () => {
+  const kid = { id: "c1", name: "explore", description: "map the crate", state: { state: "thinking" }, since: NOW - 4 };
+  const line = pulse([S("s1", { state: "idle" }, { children: [kid] })]);
+  assert.ok(line, "a line stands");
+  assert.notEqual(line.who, "↳ explore", "the parent leads: a working child wants nobody");
+});

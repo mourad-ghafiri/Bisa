@@ -1112,3 +1112,9 @@ test("a page says where it is scrolled to only once the app says a place, and go
   assert.equal(page.listeners.get("scroll").length, listening, "saying a place again adds no second listener");
 });
 
+
+test("an answer whose value cannot be written as JSON carries no value", () => {
+  const a = parseInspectorMessage({ type: INSPECTOR_MESSAGES.ANSWER, id: "r1", ok: true, url: "http://x/", title: "X", value: 10n });
+  assert.equal(a.type, INSPECTOR_MESSAGES.ANSWER);
+  assert.equal(a.value, null);
+});

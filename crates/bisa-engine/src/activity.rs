@@ -255,7 +255,9 @@ pub fn record(inner: &Inner, event: &EngineEvent) {
         // is not a fact of the feed, and reaches the log only at debug.
         tracing::debug!(
             target: "bisa_engine::activity",
+            // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
             kind = event.payload.topic(),
+            // LCOV_EXCL_STOP
             "engine event"
         );
         return;
@@ -265,9 +267,13 @@ pub fn record(inner: &Inner, event: &EngineEvent) {
     tracing::info!(
         target: "bisa_engine::activity",
         kind = %fact.kind,
+        // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
         concept = fact.concept.as_str(),
+        // LCOV_EXCL_STOP
         source = %fact.source.id,
+        // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
         source_kind = fact.source.kind.as_str(),
+        // LCOV_EXCL_STOP
         "activity"
     );
     if let Err(e) = inner.ws.record_activity(&fact, true) {
@@ -276,9 +282,13 @@ pub fn record(inner: &Inner, event: &EngineEvent) {
         tracing::warn!(
             target: "bisa_engine::activity",
             kind = %fact.kind,
+            // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
             concept = fact.concept.as_str(),
+            // LCOV_EXCL_STOP
             source = %fact.source.id,
+            // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
             source_kind = fact.source.kind.as_str(),
+            // LCOV_EXCL_STOP
             "activity not recorded: {e}"
         );
     }

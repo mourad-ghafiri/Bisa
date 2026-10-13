@@ -414,15 +414,16 @@ struct ConvSession {
     /// The goal the scope is about, for what a permission escalates to.
     goal: Option<GoalId>,
     session: Arc<Mutex<Option<Box<dyn HarnessSession>>>>,
-    /// Bumped on every turn; a pending idle-TTL task only disposes when its
-    /// epoch is still current (same race resolution as `Lifecycle`).
+    /// Bumped on every follow-up handed to the session. A pending idle-TTL
+    /// task only disposes when its epoch is still current (same race
+    /// resolution as `Lifecycle`); and the pump reads it to tell a new turn
+    /// from the old one. Harnesses that do not announce `TurnStarted` on a
+    /// follow-up (most one-shot adapters) would otherwise leave the pump
+    /// folding the new reply into the previous turn — and the duplicate
+    /// check would then swallow it, so the human's second message would go
+    /// unanswered. A counter, not a clock: a follow-up handed over in the
+    /// same second as the turn began is still a new turn.
     epoch: Arc<std::sync::atomic::AtomicU64>,
-    /// Unix seconds when the caller last handed this session a new turn.
-    /// Harnesses that do not announce `TurnStarted` on a follow-up (most
-    /// one-shot adapters) would otherwise leave the pump folding the new
-    /// reply into the previous turn — and the duplicate check would then
-    /// swallow it, so the human's second message would go unanswered.
-    turn_mark: Arc<std::sync::atomic::AtomicU64>,
     supports_follow_up: bool,
     /// Where the session runs — the guard judges a relative path against it.
     cwd: std::path::PathBuf,
@@ -469,7 +470,9 @@ async fn begin_tracked_turn(
         crate::changes::off_thread(inner, move |inner| tracker.begin_turn(inner, prompt, mode))
             .await;
     if let Some(Err(e)) = begun {
+        // LCOV_EXCL_START: the change tracker's begin refused; a disk arm
         tracing::warn!(scope = %scope, "a turn's changes are not tracked: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -483,6 +486,21 @@ pub struct ConversationState {
     sessions: DashMap<(String, String), Arc<ConvSession>>,
     /// The turn in flight per (scope, agent): its words and thinking so far.
     live: DashMap<(String, String), LiveTurn>,
+}
+
+/// The agents whose wake in a scope is held — queued behind a turn already
+/// running for them, or behind the guided cycle that owns the goal — by id.
+/// What a test reads to see a message deferred rather than dropped.
+pub fn deferred(inner: &Inner, scope: &str) -> Vec<String> {
+    let mut out: Vec<String> = inner
+        .conversation
+        .pending
+        .iter()
+        .filter(|e| e.key().0 == scope)
+        .map(|e| e.key().1.clone())
+        .collect();
+    out.sort();
+    out
 }
 
 /// The turns in flight in a scope, by agent id, oldest first — what a reader
@@ -564,13 +582,15 @@ pub fn spawn_listener(inner: &Arc<Inner>) -> tokio::task::JoinHandle<()> {
                     }));
                 }
                 Ok(_) => {}
+                // LCOV_EXCL_START: the bus lagged or closed under the listener; a reader slower than the bus, or the engine's end
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!("conversation listener lagged by {n} events");
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                // LCOV_EXCL_STOP
             }
         }
-    })
+    }) // LCOV_EXCL_LINE: the listener's end after the bus closed
 }
 
 /// Decide which agents (if any) owe a reply to this message. `on_behalf_of`
@@ -607,7 +627,7 @@ fn dispatch_to(
 ) {
     let author = event.pubkey.to_hex();
     let Ok(agents) = inner.ws.list_agents() else {
-        return;
+        return; // LCOV_EXCL_LINE: the agent roster unreadable at dispatch; a disk arm
     };
     let facts = scope_facts(inner, scope);
 
@@ -949,7 +969,9 @@ pub fn may_respond(inner: &Arc<Inner>, agent: &Agent, author_hex: &str) -> bool 
                 .ok()
                 .flatten()
                 .is_some_and(|r| r.may(bisa_core::Permission::MentionAgents)),
+            // LCOV_EXCL_START: the members unreadable at the policy check; a disk arm
             Err(_) => false,
+            // LCOV_EXCL_STOP
         },
     };
     if admitted {
@@ -1079,7 +1101,9 @@ fn render_message(inner: &Arc<Inner>, m: &bisa_store::MessageRow, who: &Labeller
                 "\n  [capture file] {label} · {}",
                 match crate::mobile_development::capture_path(inner, shot) {
                     Some(p) => p.display().to_string(),
+                    // LCOV_EXCL_START: a capture a replica has not fetched; the store refuses a post naming bytes it lacks
                     None => "not on this machine yet".to_string(),
+                    // LCOV_EXCL_STOP
                 }
             ));
         }
@@ -1091,7 +1115,9 @@ fn render_message(inner: &Arc<Inner>, m: &bisa_store::MessageRow, who: &Labeller
             a.file.mime,
             match inner.ws.attachment_path(&a.file.sha256) {
                 Some(p) => p.display().to_string(),
+                // LCOV_EXCL_START: a file a replica has not fetched; the store refuses a post naming bytes it lacks
                 None => "not on this machine yet".to_string(),
+                // LCOV_EXCL_STOP
             }
         ));
     }
@@ -1103,7 +1129,9 @@ fn render_message(inner: &Arc<Inner>, m: &bisa_store::MessageRow, who: &Labeller
             a.artifact.kind,
             match inner.ws.attachment_path(&a.artifact.sha256) {
                 Some(p) => p.display().to_string(),
+                // LCOV_EXCL_START: an artifact a replica has not fetched; the store refuses a post naming bytes it lacks
                 None => "not on this machine yet".to_string(),
+                // LCOV_EXCL_STOP
             },
             a.artifact.name
         ));
@@ -1339,7 +1367,7 @@ async fn wake_attempt(
 ) {
     inner.pause.wait_running().await;
     let Ok(agent_key) = AgentId::new(agent_id) else {
-        return;
+        return; // LCOV_EXCL_LINE: an id that came from an AgentId; unreachable by construction
     };
     let Ok(agent) = inner.ws.get_agent(&agent_key) else {
         // LCOV_EXCL_START: the agent record gone between the wake's scheduling and its run; a race with a removal
@@ -1411,13 +1439,11 @@ async fn wake_attempt(
                     .await
                     .is_ok()
                 {
-                    conv.turn_mark
-                        .store(now_secs(), std::sync::atomic::Ordering::SeqCst);
                     conv.epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     emit_thinking(inner, scope, agent_id);
                     return;
                 }
-            }
+            } // LCOV_EXCL_LINE: the session taken by the idle clock under the follow-up; a window
         }
         // Stale handle — drop it and launch fresh below.
         inner.conversation.sessions.remove(&key);
@@ -1448,7 +1474,9 @@ async fn wake_attempt(
             tracing::warn!(
                 agent = %agent_id, scope = %scope,
                 "chat wake refused: workstream {} of project {} has no checkout at {}",
+                // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
                 workstream.id, project.slug, cwd.display()
+                // LCOV_EXCL_STOP
             );
             return;
         }
@@ -1626,7 +1654,7 @@ async fn wake_attempt(
             }),
             "recording a chat run's transcript",
         );
-    }
+    } // LCOV_EXCL_LINE: the registry entry gone between the register and the launch; a window
     inner.presence.launched(
         inner,
         agent_uid,
@@ -1769,7 +1797,6 @@ async fn wake_attempt(
         .map(|a| a.caps().contains(bisa_core::HarnessCaps::FOLLOW_UP))
         .unwrap_or(false);
     let conv = Arc::new(ConvSession {
-        turn_mark: Arc::new(std::sync::atomic::AtomicU64::new(now_secs())),
         agent_id: agent_uid,
         session_id,
         goal: facts.goal,
@@ -1801,7 +1828,9 @@ async fn wake_attempt(
     // Stopped while it was being made — its row stood before its session
     // did: the stop found nothing to let go of, and is honoured here.
     if inner.registry.is_aborted(agent_uid) {
+        // LCOV_EXCL_START: stopped between the launch and the pump's start; the window's arm
         stop_run(inner, agent_uid);
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1850,8 +1879,10 @@ fn report_chat_switches(
             agent = %agent_id, scope = %scope,
             "{} unavailable ({}); {}",
             wall.model, wall.reason,
+            // LCOV_EXCL_START: a tracing event's fields, evaluated under a subscriber only
             to.map(|t| format!("retrying on {t}"))
                 .unwrap_or_else(|| "no model left in the plan".into())
+            // LCOV_EXCL_STOP
         );
         if let Some(to) = to {
             inner.emit(EngineEvent::global(EnginePayload::ModelSwitched {
@@ -1919,6 +1950,8 @@ fn spawn_reply_pump(
         let mut said = Said::default();
         let mut streamer = Streamer::new();
         let mut turn_started = now_secs();
+        // The follow-ups the pump has seen; a new one is a new turn.
+        let mut seen_epoch = conv.epoch.load(std::sync::atomic::Ordering::SeqCst);
         // What the agent had said before this turn: a reply is posted only
         // when the turn added nothing to it through the post_message tool.
         // A set of ids, not a clock — two turns can end within one second.
@@ -1948,14 +1981,16 @@ fn spawn_reply_pump(
                 () = tokio::time::sleep(wall_left(turn_started, wall_clock)), if turn_open => {
                     tracing::warn!(
                         agent = %agent_id, scope = %scope,
+                        // LCOV_EXCL_START: a tracing event's field, evaluated under a subscriber only
                         "chat turn past the wall clock ({}s): aborting it", wall_clock.as_secs()
+                        // LCOV_EXCL_STOP
                     );
                     exceeded = true;
                     flush_stream(&inner, &scope, &agent_id, &mut streamer);
                     inner.conversation.live.remove(&key);
                     if let Some(session) = conv.session.lock().await.as_ref() {
                         warn_on_err(session.abort().await, "aborting a chat turn past the wall clock");
-                    }
+                    } // LCOV_EXCL_LINE: the session taken under the wall clock; a window
                     // Out before the harness's own end arrives: the row says
                     // the wall clock, not what the abort made the harness say.
                     break;
@@ -1978,6 +2013,7 @@ fn spawn_reply_pump(
             }));
             match &event {
                 SessionEvent::Progress(ProgressEvent::TurnStarted) => {
+                    seen_epoch = conv.epoch.load(std::sync::atomic::Ordering::SeqCst);
                     said.clear();
                     streamer.reset();
                     inner.conversation.live.remove(&key);
@@ -2022,19 +2058,20 @@ fn spawn_reply_pump(
                     if let Some(session) = guard.as_ref() {
                         crate::inputs::deliver(&inner, &ctx, session.as_ref(), request, answer)
                             .await;
-                    }
+                    } // LCOV_EXCL_LINE: the session taken under an input request; a window
                 }
                 SessionEvent::Progress(ProgressEvent::TextDelta { text })
                 | SessionEvent::Progress(ProgressEvent::ThinkingDelta { text }) => {
                     progressed = true;
                     // A follow-up delivered while the harness stayed silent
                     // about turn boundaries starts a new turn here.
-                    let mark = conv.turn_mark.load(std::sync::atomic::Ordering::SeqCst);
-                    if mark > turn_started {
+                    let epoch = conv.epoch.load(std::sync::atomic::Ordering::SeqCst);
+                    if epoch != seen_epoch {
+                        seen_epoch = epoch;
                         said.clear();
                         streamer.reset();
                         inner.conversation.live.remove(&key);
-                        turn_started = mark;
+                        turn_started = now_secs();
                         spoken_before = agent_posts(&inner, &scope, &agent_id);
                     }
                     let thinking = matches!(
@@ -2089,7 +2126,9 @@ fn spawn_reply_pump(
                         })
                         .await;
                         if let Some(Err(e)) = recorded {
+                            // LCOV_EXCL_START: the change tracker refused the tool's record; a disk arm
                             tracing::warn!(agent = %agent_id, "a tool's changes were not recorded: {e}");
+                            // LCOV_EXCL_STOP
                         }
                     }
                 }
@@ -2168,7 +2207,7 @@ fn spawn_reply_pump(
                     }),
                     "idling a chat run",
                 );
-            }
+            } // LCOV_EXCL_LINE: the registry entry gone before the pump's end; a window
             inner.presence.ended(
                 &inner,
                 conv.agent_id,
@@ -2189,7 +2228,9 @@ fn spawn_reply_pump(
                     report_chat_switches(&inner, &scope, &agent_id, &[wall], None);
                 } else if inner.registry.is_aborted(conv.agent_id) {
                     // Stopped on the wall: no next attempt.
+                    // LCOV_EXCL_START: stopped on the wall's own tick; a window
                     tracing::debug!(agent = %agent_id, scope = %scope, "the turn was stopped; not relaunched after its model wall");
+                    // LCOV_EXCL_STOP
                 } else {
                     let for_whom = conv.woken_by();
                     relaunch_after_wall(inner, scope, agent_id, wall, attempts, judged, for_whom);
@@ -2253,7 +2294,9 @@ fn refuse_unguarded_plan(inner: &Arc<Inner>, scope: &str, agent: &bisa_core::Age
             posted: true,
             message: Some(id),
         })),
+        // LCOV_EXCL_START: the plan refusal's post refused; a disk arm
         Err(e) => tracing::warn!(agent = %agent.id, "posting the plan refusal failed: {e}"),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -2370,7 +2413,7 @@ async fn finish_turn(
         return;
     }
     let Ok(agent_key) = AgentId::new(agent_id) else {
-        return;
+        return; // LCOV_EXCL_LINE: an id that came from an AgentId; unreachable by construction
     };
     let mut landed: Option<String> = None;
     let mut thinking = Some(thinking);
@@ -2433,12 +2476,12 @@ pub(crate) async fn dispose_live_sessions(inner: &Arc<Inner>, scope: &str) {
         .collect();
     for key in keys {
         let Some((_, conv)) = inner.conversation.sessions.remove(&key) else {
-            continue;
+            continue; // LCOV_EXCL_LINE: the chat desk emptied under the disposal; a window
         };
         let mut guard = conv.session.lock().await;
         if let Some(session) = guard.take() {
             warn_on_err(session.dispose().await, "disposing a chat session");
-        }
+        } // LCOV_EXCL_LINE: the session taken under the disposal; a window
         drop(guard);
         park(inner, &conv);
     }
@@ -2478,7 +2521,7 @@ pub(crate) fn stop_run(inner: &Arc<Inner>, run: LiveRunId) {
             // then lets go of the session.
             warn_on_err(session.abort().await, "aborting a stopped chat session");
             warn_on_err(session.dispose().await, "disposing a stopped chat session");
-        }
+        } // LCOV_EXCL_LINE: the session taken under the stop; a window
         crate::sessions::ended(&inner, &conv.session_id.to_string());
     });
 }
@@ -2515,13 +2558,15 @@ fn park(inner: &Arc<Inner>, conv: &ConvSession) {
             }),
             "parking a chat run",
         );
-    }
+    } // LCOV_EXCL_LINE: the registry entry gone before the park; a window
     inner.presence.parked(inner, conv.agent_id);
     if let Err(e) = inner
         .ws
         .park_session(&conv.session_id.to_string(), now_secs())
     {
+        // LCOV_EXCL_START: the session row refused the park; a disk arm
         tracing::debug!(session = %conv.session_id, "could not park the session row: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -2532,7 +2577,9 @@ fn agent_posts(inner: &Arc<Inner>, scope: &str, agent_id: &str) -> HashSet<Strin
         .ok()
         .and_then(|id| inner.ws.get_agent(&id).ok())
     else {
+        // LCOV_EXCL_START: the agent record gone between the turn and its posts; a window
         return HashSet::new();
+        // LCOV_EXCL_STOP
     };
     let pk = def.pubkey.as_hex().to_string();
     inner

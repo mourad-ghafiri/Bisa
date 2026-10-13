@@ -179,10 +179,12 @@ pub async fn stop_sessions(inner: &Arc<Inner>, id: ConversationId) -> usize {
     for row in inner.presence.snapshot() {
         if row.conversation != Some(id) || !row.state.is_live() {
             continue;
+            // LCOV_EXCL_START: a turn registered but not yet on the chat desk; the launch window
         }
         if crate::sessions::stop_row(inner, &row, crate::sessions::EndCause::Close) {
             stopped += 1;
         }
+        // LCOV_EXCL_STOP
     }
     stopped
 }

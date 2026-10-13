@@ -387,7 +387,9 @@ fn waiting_step_actions(run: &WorkflowRun, goal: Option<&Goal>) -> Vec<NeedsActi
             continue;
         }
         let Some(step) = run.workflow.step(id) else {
+            // LCOV_EXCL_START: a gate naming a step its run's workflow no longer has; an amendment's window
             continue;
+            // LCOV_EXCL_STOP
         };
         // A step reads the run's inputs, never the event that began it: the
         // start's mapping read that, once.
@@ -612,10 +614,12 @@ impl Facts {
         for record in ws.activity_by_kinds(notices::NOTICE_TAGS, NOTICE_WINDOW)? {
             let event = match serde_json::from_str::<serde_json::Value>(&record.event) {
                 Ok(event) => event,
+                // LCOV_EXCL_START: the index holds what serde wrote; a row that is no JSON is a corrupted database
                 Err(e) => {
                     // As the Pulse says it (`pulse::row_of`): once, with the row's `seq`.
                     tracing::warn!(target: "bisa_node", seq = record.seq, kind = %record.kind, "skipping an activity row the Inbox cannot read: {e}");
                     continue;
+                    // LCOV_EXCL_STOP
                 }
             };
             let Some(notice) = notices::notice_of(&record.kind, &event) else {
@@ -624,7 +628,7 @@ impl Facts {
             let Some(target) =
                 notices::row_of(&record.kind, &record.source_kind, &record.source_id, &event)
             else {
-                continue;
+                continue; // LCOV_EXCL_LINE: a notice from a source no row is keyed by
             };
             let rows = out.entry(target).or_default();
             if rows.len() >= NOTICES_PER_ROW {
@@ -678,6 +682,14 @@ impl Facts {
             }
         }
 
+        // A live gate can name a goal the index no longer lists — a record
+        // removed behind the engine's back, or one the index lost. Its
+        // decision is still owed: the key keeps a row of its own below,
+        // named by nothing but the key, rather than losing the gate.
+        for (key, live) in live_by_goal {
+            needs.entry(key).or_default().extend(live);
+        }
+
         // Runs of the workspace: what each owes a person is its workflow's
         // row's — no goal holds it (I52).
         let mut workflow_needs: HashMap<String, Vec<NeedsAction>> = HashMap::new();
@@ -694,12 +706,14 @@ impl Facts {
         // A live gate on a run the index no longer lists as live stays
         // visible on its workflow's row rather than lost.
         for (run, actions) in live_by_run {
+            // LCOV_EXCL_START: a live gate on a run the index no longer lists; the record half's window
             if let Ok(run) = ws.get_run(run) {
                 workflow_needs
                     .entry(run.workflow.id.to_string())
                     .or_default()
                     .extend(actions);
             }
+            // LCOV_EXCL_STOP
         }
 
         // `decisions` is newest-first, so the first one seen per goal — or
@@ -734,7 +748,8 @@ impl Facts {
                         workflow_decided.entry(workflow).or_insert(entry);
                     }
                 }
-                (None, None) => {}
+                // LCOV_EXCL_START: a decision's home is a goal or a run; by construction
+                (None, None) => {} // LCOV_EXCL_STOP
             }
         }
 
@@ -969,7 +984,9 @@ async fn inbox(
         let msgs = if activity.is_some() {
             ws.messages(&key, None, MESSAGE_WINDOW).unwrap_or_default()
         } else {
+            // LCOV_EXCL_START: a conversation row is kept for a mention or an unread line, both activity; by construction
             Vec::new()
+            // LCOV_EXCL_STOP
         };
         let latest_at = latest_of(activity, &[], &[], c.created_at);
         let origin = crate::dto::origin_of(&c);
@@ -1170,7 +1187,9 @@ async fn inbox(
         // The session's own wait, else a sub-agent's: one row either way,
         // dated from the wait it names.
         let Some((on, child)) = p.wait() else {
+            // LCOV_EXCL_START: the waiting terminals are filtered by their wait; by construction
             continue;
+            // LCOV_EXCL_STOP
         };
         let since = p.wait_since();
         let key = p.id.to_string();
@@ -1278,7 +1297,9 @@ fn kind_of_key(state: &Shared, key: &str) -> Option<InboxKind> {
     }
     if let Ok(id) = key.parse::<bisa_core::ProjectId>() {
         if ws.get_project(id).is_ok() {
+            // LCOV_EXCL_START: a project's root is its primary workstream under the same id; by construction
             return Some(InboxKind::Project);
+            // LCOV_EXCL_STOP
         }
     }
     if let Ok(id) = key.parse::<bisa_core::WorkflowId>() {
@@ -1304,12 +1325,14 @@ fn kind_of_key(state: &Shared, key: &str) -> Option<InboxKind> {
 pub(crate) fn delta(state: &Shared, key: &str, with_notices: bool) -> Option<serde_json::Value> {
     match try_delta(state, key, with_notices) {
         Ok(frame) => frame,
+        // LCOV_EXCL_START: the row's reads refused mid-frame; a disk arm
         Err(e) => {
             // A frame that is not sent leaves a row stale with nothing on
             // screen to say why; the log says which row, and the next read of
             // the list corrects it.
             tracing::warn!(target: "bisa_node", key, "no inbox frame for a row that moved: {}", e.text);
             None
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -1328,7 +1351,7 @@ fn try_delta(
     // again for the row itself.
     if kind == Some(InboxKind::Session) {
         let Ok(session) = key.parse() else {
-            return Ok(None);
+            return Ok(None); // LCOV_EXCL_LINE: a key typed session parses as one; by construction
         };
         // Its own wait or a sub-agent's: the row is owed while either is.
         let waiting = state

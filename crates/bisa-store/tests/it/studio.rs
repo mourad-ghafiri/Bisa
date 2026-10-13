@@ -838,3 +838,80 @@ fn team_assignment_is_stored_indexed_and_governing() {
         1
     );
 }
+
+/// A team is addressed through the members that can answer: one disabled
+/// is left out, and the rest are reached.
+#[test]
+fn a_team_with_a_disabled_member_is_addressed_without_that_member() {
+    let (_d, ws) = ws();
+    let awake = ws.add_agent(new_agent("Awake")).unwrap();
+    let asleep = ws.add_agent(new_agent("Asleep")).unwrap();
+    let team = ws
+        .create_team(
+            "pair",
+            None,
+            vec![
+                Assignee::Agent(awake.id.to_string()),
+                Assignee::Agent(asleep.id.to_string()),
+            ],
+            Tags::default(),
+        )
+        .unwrap();
+    ws.set_agent_enabled(&asleep.id, false).unwrap();
+    let who = ws
+        .resolve_mentions("general", &[team.id.to_string()])
+        .unwrap();
+    assert_eq!(who, vec![awake.pubkey.clone()]);
+}
+
+/// A conversation's facts beside its record: a membership line gives it no
+/// first line, and an agent that speaks naming itself is counted once.
+#[test]
+fn a_conversation_takes_no_first_line_from_a_membership_and_counts_an_agent_once() {
+    use bisa_core::{Member, MembershipCause, MembershipChange, MembershipEvent};
+    let (_d, ws) = ws();
+    let agent = ws.add_agent(new_agent("Scout")).unwrap();
+    let conversation = ws
+        .create_conversation(bisa_store::NewConversation {
+            origin: bisa_core::ConversationOrigin::Workspace,
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    let scope = conversation.id.to_string();
+    ws.post_message(
+        &scope,
+        MessageBody::Membership(MembershipEvent {
+            channel: ChannelId::general(),
+            member: Member::Agent(agent.id.clone()),
+            change: MembershipChange::Joined,
+            cause: MembershipCause::Enabled,
+            at: 1,
+        }),
+        None,
+        &[],
+        &[],
+        None,
+        PostOrigin::Announced,
+    )
+    .unwrap();
+    let row = ws.conversation_row(conversation.id).unwrap();
+    assert_eq!(row.first_line, None, "a membership is no first line");
+    assert_eq!(row.message_count, 1);
+
+    // The agent speaks, naming itself and the owner: counted once, and a
+    // person is no agent of the conversation.
+    ws.post_message(
+        &scope,
+        MessageBody::post("I am here"),
+        None,
+        &[agent.pubkey.clone(), ws.owner_principal()],
+        &[],
+        Some(&agent.id),
+        PostOrigin::Asked,
+    )
+    .unwrap();
+    let row = ws.conversation_row(conversation.id).unwrap();
+    assert_eq!(row.first_line.as_deref(), Some("I am here"));
+    assert_eq!(row.agents, vec![agent.id.to_string()], "named once");
+}

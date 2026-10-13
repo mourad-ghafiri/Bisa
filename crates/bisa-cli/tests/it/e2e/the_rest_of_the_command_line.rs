@@ -575,3 +575,81 @@ fn the_git_setup_is_read_and_written_through_the_node_that_runs() {
     ws.refused(&["git", "connection", "not-a-workstream"]);
     ws.stop();
 }
+
+/// With no node running, a conversation's record is the whole of it: one
+/// is started, listed and narrowed, titled and untitled, put away and
+/// taken back out, read for its mode and deleted — and every word that is
+/// no conversation, no origin, no id or no mode is refused by name.
+#[test]
+fn conversations_are_kept_whole_with_no_node_running() {
+    let ws = Sealed::bare();
+    let empty = ws.json(&["conversation", "list"]);
+    assert_eq!(empty["conversations"], json!([]), "{empty}");
+
+    let made = ws.json(&["conversation", "new", "workspace", "--title", "Plans"]);
+    let id = made["conversation"]["id"]
+        .as_str()
+        .expect("the id")
+        .to_string();
+    assert_eq!(made["conversation"]["title"], "Plans");
+    assert_eq!(made["conversation"]["origin"]["kind"], "workspace");
+    let untitled = ws.json(&["conversation", "new", "node"]);
+    assert!(untitled["conversation"]["title"].is_null(), "{untitled}");
+
+    let listed = ws.json(&["conversation", "list"]);
+    assert_eq!(
+        listed["conversations"].as_array().unwrap().len(),
+        2,
+        "{listed}"
+    );
+    let narrowed = ws.json(&["conversation", "list", "--origin", "workspace"]);
+    assert_eq!(
+        narrowed["conversations"].as_array().unwrap().len(),
+        1,
+        "{narrowed}"
+    );
+    assert_eq!(narrowed["conversations"][0]["id"], id.as_str());
+
+    let renamed = ws.json(&["conversation", "rename", &id, "The plan"]);
+    assert_eq!(renamed["conversation"]["title"], "The plan");
+    let cleared = ws.json(&["conversation", "rename", &id]);
+    assert!(cleared["conversation"]["title"].is_null(), "{cleared}");
+    let away = ws.json(&["conversation", "archive", &id]);
+    assert_eq!(away["conversation"]["archived"], true);
+    let back = ws.json(&["conversation", "unarchive", &id]);
+    assert_eq!(back["conversation"]["archived"], false);
+    let mode = ws.json(&["conversation", "mode", &id]);
+    assert_eq!(mode["conversation"]["mode"], "manual", "{mode}");
+    ws.refused(&["conversation", "mode", &id, "sideways"]);
+    ws.ok(&["conversation", "delete", &id]);
+    assert_eq!(
+        ws.json(&["conversation", "list"])["conversations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // The words refused by name.
+    ws.refused(&["conversation", "show", "not-an-id"]);
+    ws.refused(&["conversation", "new", "planet"]);
+    ws.refused(&[
+        "conversation",
+        "new",
+        "workspace",
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    ]);
+    ws.refused(&["conversation", "new", "goal"]);
+    ws.refused(&["conversation", "new", "workstream", "not-a-workstream"]);
+    ws.refused(&["conversation", "new", "goal", "not-a-goal"]);
+    ws.refused(&["conversation", "list", "--id", "01ARZ3NDEKTSV4RRFFQ69G5FAV"]);
+    ws.refused(&[
+        "conversation",
+        "list",
+        "--origin",
+        "goal",
+        "--id",
+        "not-a-goal",
+    ]);
+    ws.refused(&["conversation", "list", "--project", "not-a-project"]);
+}

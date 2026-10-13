@@ -1098,3 +1098,83 @@ test("a goal comes to exist three ways — captured, spawned from a goal, made b
   assert.equal(made({ origin: "run", run: RUN, step: "split" }), "goal G00001 spawned by run 00RUN1");
   assert.equal(made(undefined), "goal G00001 captured", "no origin reads as captured, never a throw");
 });
+
+test("the lines of a served folder, a browser or canvas request, a probe and a check, and the silent facts", () => {
+  const at = 100;
+  const line = (payload) => engineLine({ payload }, at);
+  const served = line({ type: "server_changed", workstream: "01J0WS000000000000000001" });
+  assert.equal(served.tone, "dim");
+  assert.match(served.text, /00001|workstream|folder/i);
+  const pages = line({ type: "server_changed" });
+  assert.equal(pages.icon, "icon:page");
+  assert.ok(pages.text.length > 0 && pages.text !== served.text);
+  const browsed = line({ type: "browser_request", id: "b1", request: { action: "open", url: "http://x/" } });
+  assert.match(browsed.text, /open/);
+  const tabs = line({ type: "browser_request", id: "b2", request: { action: "tabs" } });
+  assert.match(tabs.text, /tabs/);
+  const drawn = line({ type: "drawing_request", id: "d1", request: { action: "read" } });
+  assert.equal(drawn.icon, "icon:draw");
+  assert.match(drawn.text, /read/);
+  const probed = line({ type: "mcp_probed", id: "docs", ok: true });
+  assert.equal(probed.tone, "dim");
+  assert.match(probed.text, /docs/);
+  assert.equal(line({ type: "mcp_probed", id: "docs", ok: false }).tone, "danger");
+  const checked = line({ type: "connector_checked", connector: "github", account: "main", ok: true });
+  assert.equal(checked.tone, "dim");
+  assert.match(checked.text, /github/);
+  assert.equal(line({ type: "connector_checked", connector: "github", account: "main", ok: false }).tone, "danger");
+  // A harness session's event rides as a session line; parked is dim.
+  const parked = line({ type: "session", event: { tier: "lifecycle", event: { type: "parked" } } });
+  assert.equal(parked.tone, "dim");
+  assert.equal(line({ type: "session", event: { tier: "progress", event: { type: "turn_started" } } }), null);
+  // Silent by design: a note or a drawing changing, and a frame of a reply.
+  assert.equal(line({ type: "note_changed", note: "n1", scope: "workspace" }), null);
+  assert.equal(line({ type: "drawing_changed", drawing: "d1", scope: "workspace" }), null);
+  assert.equal(line({ type: "agent_streamed", scope: "s", agent: "scout", text: "…" }), null);
+  // A step's other states: pending again, and one this build does not know.
+  assert.match(line({ type: "step_changed", step: "route", state: "pending", kind: "agent" }).text, /route/);
+  const odd = line({ type: "step_changed", step: "route", state: "half_done", kind: "agent" });
+  assert.match(odd.text, /route/);
+  assert.match(odd.text, /half done/);
+  // The Workflow Agent in a status this build does not know still reads.
+  const guided = guidedWords("design", "invented", "because");
+  assert.match(guided.text, /invented/);
+});
+
+test("a judgement's score and noul answers read as clauses, and an answer of no known shape is left out", () => {
+  const line = payloadLine({
+    type: "judgement",
+    judgement: {
+      point: "assign.pick", provider: "jev", model: "jev-latest", calibrated: true, questions: {},
+      answers: {
+        grade: { type: "score", score: 7, probabilities: {}, confidence: 0.5 },
+        sure: { type: "noul", noul: 0.8 },
+        odd: { type: "other" },
+      },
+      outcome: "applied",
+    },
+  });
+  assert.match(line.text, /7 \(0\.50\)/);
+  assert.match(line.text, /yes \(0\.60\)/);
+  assert.doesNotMatch(line.text, /other/);
+});
+
+test("a sign-in asked for and a request of no known kind are said, a sub-agent ending well is silent, and tokens are counted", () => {
+  const asked = sessionLine({ tier: "lifecycle", event: { type: "input_requested", request: { id: "a1", kind: "auth", provider: "example" } } });
+  assert.match(asked.text, /example/);
+  const unknown = sessionLine({ tier: "lifecycle", event: { type: "input_requested", request: { id: "a2", kind: "invented" } } });
+  assert.ok(unknown.text.length > 0);
+  assert.equal(sessionLine({ tier: "progress", event: { type: "subagent_ended", id: "s1", ok: true } }), null);
+  const failed = sessionLine({ tier: "progress", event: { type: "subagent_ended", id: "s1", ok: false } });
+  assert.equal(failed.tone, "fail");
+  const cost = sessionLine({ tier: "progress", event: { type: "cost_delta", input_tokens: 3, output_tokens: 4, usd_cents: 0 } });
+  assert.equal(cost.icon, "icon:cost");
+  assert.match(cost.text, /7/);
+});
+
+test("a stored engine fact whose shape this build cannot read still gives the feed a row", () => {
+  // A browser request with no request: the live words would throw on it.
+  const row = pulseLine(stored({ type: "browser_request", id: "b9" }));
+  assert.ok(row, "a row, not a throw");
+  assert.equal(typeof row.text, "string");
+});

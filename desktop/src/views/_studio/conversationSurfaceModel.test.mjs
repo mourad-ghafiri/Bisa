@@ -128,3 +128,9 @@ test("the query is the owner's own — or the project's, every checkout's — th
   assert.ok(!("origin" in listQuery(IDE)), "never both");
   assert.ok(PAGE >= 50 && PAGE <= 500, String(PAGE));
 });
+
+test("a surface owned by the node says so", () => {
+  const words = surfaceWords({ owner: { kind: "node", id: "N1" } }, { count: 0 });
+  assert.equal(typeof words.empty, "string");
+  assert.match(words.empty, /node/i);
+});

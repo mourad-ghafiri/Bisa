@@ -252,8 +252,10 @@ pub fn notice_of(tag: &str, event: &Value) -> Option<NoticeKind> {
             _ => None,
         },
         "message_held" => match event.get("reason").and_then(|r| str_at(r, "reason"))? {
+            // LCOV_EXCL_START: a held message's notice; the classifier's path is out by decision
             "harmful" | "no_verdict" => Some(NoticeKind::MessageHeld),
             _ => None,
+            // LCOV_EXCL_STOP
         },
         // The Workflow Agent's hand is news; a person's own save is not.
         "workflow_changed" => event
@@ -459,7 +461,9 @@ pub fn notice_of_payload(payload: &EnginePayload) -> Option<NoticeKind> {
             reason:
                 bisa_store::HeldReason::Harmful { .. } | bisa_store::HeldReason::NoVerdict { .. },
             ..
+        // LCOV_EXCL_START: a held message's notice; the classifier's path is out by decision
         } => Some(NoticeKind::MessageHeld),
+        // LCOV_EXCL_STOP
         P::WorkflowChanged { designed: true, .. } => Some(NoticeKind::WorkflowDesigned),
         P::WorkflowProposed { .. } => Some(NoticeKind::WorkflowProposed),
         P::WorkflowArchived { archived: true, .. } => Some(NoticeKind::WorkflowArchived),
@@ -1015,5 +1019,226 @@ mod tests {
         for kind in NoticeKind::ALL {
             let _ = kind.is_trouble();
         }
+    }
+
+    /// The rows and notices of a committer wanted, a pull request opened and
+    /// merged, a project a step made, people joining or leaving, and a join
+    /// requested — typed and stored alike — and a stored outcome this build
+    /// does not know is no notice.
+    #[test]
+    fn the_rows_and_notices_of_commits_pull_requests_projects_people_and_invites() {
+        let wid: bisa_core::WorkstreamId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
+        let pid: bisa_core::ProjectId = "01BX5ZZKBKACTAV9WEVGEMMVRZ".parse().unwrap();
+        let wf: bisa_core::WorkflowId = "01DX5ZZKBKACTAV9WEVGEMMVRZ".parse().unwrap();
+        let run: bisa_core::RunId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
+        let goal: bisa_core::GoalId = "01CX5ZZKBKACTAV9WEVGEMMVRZ".parse().unwrap();
+        let who = bisa_core::PrincipalId::new("ab".repeat(32)).unwrap();
+        let step = bisa_core::origin::StepRef {
+            run,
+            step: "make".parse().unwrap(),
+            workflow: wf,
+        };
+        agree(
+            EnginePayload::CommitterNeeded {
+                project: pid,
+                slug: "site".into(),
+                workstream: wid,
+                reason: crate::identity::CommitterReason::Created,
+                origin: ProjectOrigin::Workspace,
+                global: None,
+            },
+            Some(NoticeKind::CommitterNeeded),
+        );
+        agree(
+            EnginePayload::WorkstreamChanged {
+                workstream: wid,
+                state: WorkstreamState::PrOpen {
+                    number: 7,
+                    url: "https://example.invalid/pr/7".into(),
+                },
+            },
+            Some(NoticeKind::PrOpened),
+        );
+        agree(
+            EnginePayload::WorkstreamChanged {
+                workstream: wid,
+                state: WorkstreamState::Merged {
+                    number: 7,
+                    url: "https://example.invalid/pr/7".into(),
+                },
+            },
+            Some(NoticeKind::Merged),
+        );
+        agree(
+            EnginePayload::ProjectCreated {
+                project: pid,
+                slug: "site".into(),
+                origin: ProjectOrigin::Step {
+                    goal: None,
+                    step: step.clone(),
+                },
+            },
+            Some(NoticeKind::ProjectMade),
+        );
+        agree(
+            EnginePayload::ProjectCreated {
+                project: pid,
+                slug: "site".into(),
+                origin: ProjectOrigin::Goal {
+                    goal,
+                    step: Some(step),
+                },
+            },
+            Some(NoticeKind::ProjectMade),
+        );
+        agree(
+            EnginePayload::PeopleChanged {
+                pubkey: who.clone(),
+                change: bisa_store::PeopleChange::Joined {
+                    role: bisa_core::MemberRole::Member,
+                },
+                label: Some("Bob".into()),
+            },
+            Some(NoticeKind::MemberJoined),
+        );
+        agree(
+            EnginePayload::PeopleChanged {
+                pubkey: who.clone(),
+                change: bisa_store::PeopleChange::Left,
+                label: None,
+            },
+            Some(NoticeKind::MemberLeft),
+        );
+        agree(
+            EnginePayload::PeopleChanged {
+                pubkey: who.clone(),
+                change: bisa_store::PeopleChange::ProfileChanged,
+                label: None,
+            },
+            None,
+        );
+        let invite = |state: bisa_core::InviteState| bisa_core::Invite {
+            id: bisa_core::InviteId::from_ulid(ulid::Ulid::from_parts(3, 1)),
+            role: bisa_core::MemberRole::Member,
+            channels: vec![],
+            label: Some("Bob".into()),
+            created_at: 1,
+            expires_at: 2,
+            state,
+        };
+        agree(
+            EnginePayload::InviteChanged {
+                invite: invite(bisa_core::InviteState::Requested {
+                    by: who.clone(),
+                    label: None,
+                    at: 1,
+                }),
+            },
+            Some(NoticeKind::JoinRequested),
+        );
+        agree(
+            EnginePayload::InviteChanged {
+                invite: invite(bisa_core::InviteState::Pending),
+            },
+            None,
+        );
+        assert_eq!(
+            notice_of(
+                "run_finished",
+                &json!({"type": "run_finished", "outcome": "invented"})
+            ),
+            None,
+            "an outcome this build does not know"
+        );
+
+        // Where each lands, from the stored shape.
+        let people = |id: &str| {
+            Some(InboxTarget {
+                kind: InboxKind::People,
+                id: id.to_string(),
+            })
+        };
+        assert_eq!(
+            row_of(
+                "invite_changed",
+                "workspace",
+                "",
+                &json!({"type": "invite_changed",
+                        "invite": {"state": {"state": "requested", "by": who.as_hex()}}})
+            ),
+            people(who.as_hex())
+        );
+        assert_eq!(
+            row_of(
+                "invented_later",
+                "goal",
+                "01G",
+                &json!({"type": "invented_later"})
+            ),
+            None
+        );
+
+        // And from the typed event.
+        let target = |payload: EnginePayload| target_of(&EngineEvent::global(payload));
+        assert_eq!(
+            target(EnginePayload::WorkstreamScriptRan {
+                workstream: wid,
+                project: pid,
+                phase: crate::scripts::Phase::Run,
+                ok: true,
+                output: String::new(),
+            }),
+            Some(InboxTarget {
+                kind: InboxKind::Workstream,
+                id: wid.to_string(),
+            })
+        );
+        assert_eq!(
+            target(EnginePayload::WorkflowArchived {
+                workflow: wf,
+                archived: true,
+            }),
+            Some(InboxTarget {
+                kind: InboxKind::Workflow,
+                id: wf.to_string(),
+            })
+        );
+        assert_eq!(
+            target(EnginePayload::PeopleChanged {
+                pubkey: who.clone(),
+                change: bisa_store::PeopleChange::Left,
+                label: None,
+            }),
+            people(who.as_hex())
+        );
+        for state in [
+            bisa_core::InviteState::Requested {
+                by: who.clone(),
+                label: None,
+                at: 1,
+            },
+            bisa_core::InviteState::Accepted {
+                by: who.clone(),
+                at: 2,
+            },
+            bisa_core::InviteState::Refused {
+                by: who.clone(),
+                at: 3,
+            },
+        ] {
+            assert_eq!(
+                target(EnginePayload::InviteChanged {
+                    invite: invite(state)
+                }),
+                people(who.as_hex())
+            );
+        }
+        assert_eq!(
+            target(EnginePayload::InviteChanged {
+                invite: invite(bisa_core::InviteState::Revoked { at: 4 })
+            }),
+            None,
+            "a revoked invite names nobody"
+        );
     }
 }

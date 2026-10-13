@@ -304,7 +304,9 @@ impl Workspace {
                             if def.enabled {
                                 out.push(def.pubkey);
                             }
+                            // LCOV_EXCL_START: a team member whose record is gone; the team names ids, the records are read after
                         }
+                        // LCOV_EXCL_STOP
                     }
                     continue;
                 }

@@ -17,6 +17,7 @@ mod connector_health;
 mod connectors;
 mod content;
 mod conversation;
+mod conversation_edges;
 mod conversations;
 mod core_agent;
 mod decisions;

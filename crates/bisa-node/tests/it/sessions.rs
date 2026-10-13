@@ -818,3 +818,109 @@ async fn a_terminal_harness_waiting_at_its_prompt_is_an_inbox_row_until_answered
     );
     node.stop().await;
 }
+
+/// The next inbox frame of `session` on the stream, after the `seen` ones.
+async fn session_frame(
+    body: &mut hyper::body::Incoming,
+    buf: &mut String,
+    seen: &mut usize,
+    session: &str,
+) -> Value {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let frames: Vec<Value> = buf
+                .lines()
+                .filter_map(|l| l.strip_prefix("data: "))
+                .filter_map(|rest| serde_json::from_str::<Value>(rest).ok())
+                .filter(|v| v["stream"] == json!("inbox") && v["payload"]["key"] == json!(session))
+                .collect();
+            if frames.len() > *seen {
+                let frame = frames[*seen].clone();
+                *seen += 1;
+                return frame["payload"].clone();
+            }
+            let frame = body
+                .frame()
+                .await
+                .expect("event stream ended")
+                .expect("frame");
+            if let Some(chunk) = frame.data_ref() {
+                buf.push_str(&String::from_utf8_lossy(chunk));
+            }
+        }
+    })
+    .await
+    .expect("no inbox frame for the session")
+}
+
+/// A terminal harness's wait moves its own Inbox row on the stream: a
+/// frame that says the row is owed while it waits, and not once answered.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_waiting_terminal_moves_its_own_inbox_row_on_the_stream() {
+    let node = Node::start().await;
+    let (session, secret) = node.open().await;
+    let stream = UnixStream::connect(&node.socket).await.expect("connect");
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+        .await
+        .expect("handshake");
+    tokio::spawn(conn);
+    let resp = sender
+        .send_request(
+            Request::builder()
+                .method("GET")
+                .uri("/events")
+                .header(hyper::header::HOST, "localhost")
+                .header(hyper::header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Full::new(Bytes::new()))
+                .unwrap(),
+        )
+        .await
+        .expect("events");
+    assert_eq!(resp.status().as_u16(), 200);
+    let mut body = resp.into_body();
+    let mut buf = String::new();
+    let mut seen = 0usize;
+
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/sessions/{session}/report"),
+            &secret,
+            Some(json!({"events": [{"tier": "lifecycle", "event": {
+                "type": "input_requested",
+                "request": {"id": "p1", "kind": "permission", "tool_name": "Bash",
+                            "tier": "exec", "args_summary": "cargo test"}
+            }}]})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let waiting = session_frame(&mut body, &mut buf, &mut seen, &session).await;
+    assert_eq!(waiting["kind"], json!("session"), "{waiting}");
+    assert_eq!(waiting["waiting"], json!(true), "{waiting}");
+    assert_eq!(waiting["needs_action_count"], json!(1), "{waiting}");
+    let (_, v) = node
+        .req("GET", "/inbox?filter=needs_you", TOKEN, None)
+        .await;
+    let row = &v["rows"][0];
+    assert_eq!(row["key"], json!(session), "{v}");
+    assert!(
+        row["title"].as_str().unwrap().starts_with("mock · goal "),
+        "a terminal on a goal stands at the goal: {row}"
+    );
+
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/sessions/{session}/report"),
+            &secret,
+            Some(json!({"events": [{"tier": "lifecycle", "event": {"type": "input_resolved", "id": "p1"}}]})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let answered = session_frame(&mut body, &mut buf, &mut seen, &session).await;
+    assert_eq!(answered["waiting"], json!(false), "{answered}");
+    assert_eq!(answered["needs_action_count"], json!(0), "{answered}");
+    drop(body);
+    drop(sender);
+    node.stop().await;
+}

@@ -188,3 +188,8 @@ test("a name with an extension is decided by it alone, a bare name by its type â
   for (const nothing of [null, undefined, "", 7]) assert.equal(kindOf(nothing, null), "file");
 });
 
+
+test("a figure with no name is given one for the editor to read a language from", () => {
+  assert.equal(languagePath({ kind: "svg", name: "" }), "figure.svg");
+  assert.equal(languagePath({ kind: "svg", name: "chart" }), "chart.svg");
+});

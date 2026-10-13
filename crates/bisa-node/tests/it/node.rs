@@ -10614,3 +10614,626 @@ async fn the_agent_team_session_and_mcp_doors_at_their_edges() {
     assert_eq!(code, 400, "a nameless transport is not dialled: {v}");
     node.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// Attachments over the wire, and the Inbox's other rows
+// ---------------------------------------------------------------------------
+
+async fn upload(
+    socket: &std::path::Path,
+    query: &str,
+    mime: Option<&str>,
+    bytes: Vec<u8>,
+) -> (u16, Value) {
+    request_raw(
+        socket,
+        "POST",
+        &format!("/attachments?{query}"),
+        mime,
+        bytes,
+    )
+    .await
+}
+
+/// A body sent in chunks with no declared length: what a client that
+/// streams a file does, and the one way past the length check.
+async fn upload_chunked(socket: &std::path::Path, query: &str, chunks: Vec<Bytes>) -> (u16, Value) {
+    use http_body_util::StreamBody;
+    use hyper::body::Frame;
+    let stream = UnixStream::connect(socket).await.expect("connect");
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+        .await
+        .expect("handshake");
+    tokio::spawn(conn);
+    let body = StreamBody::new(futures::stream::iter(
+        chunks
+            .into_iter()
+            .map(|c| Ok::<_, std::convert::Infallible>(Frame::data(c))),
+    ));
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/attachments?{query}"))
+        .header(hyper::header::HOST, "localhost")
+        .header(hyper::header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+        .body(body)
+        .unwrap();
+    let resp = sender.send_request(request).await.expect("request");
+    let status = resp.status().as_u16();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// Bytes in, a descriptor out; a blob with no type is a plain download; a
+/// file past the cap is refused by its declared length before it is sent
+/// and, streamed with no length, once the cap is crossed; and asking a peer
+/// for bytes is refused by name, answered "present" for what is here, and
+/// refused when no sync loop runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_attachment_is_uploaded_over_the_wire_and_refused_past_the_cap() {
+    let node = Node::start().await;
+    let (code, v) = upload(
+        &node.socket,
+        "name=notes.txt&mime=text/plain",
+        Some("text/plain"),
+        b"measure twice".to_vec(),
+    )
+    .await;
+    assert_eq!(code, 201, "{v}");
+    assert_eq!(v["name"], json!("notes.txt"));
+    assert_eq!(v["mime"], json!("text/plain"));
+    assert_eq!(v["size"], json!(13));
+    let sha = v["sha256"].as_str().expect("a digest").to_string();
+    assert!(
+        node.ws.attachment_path(&sha).is_some(),
+        "the bytes are kept"
+    );
+
+    let (code, v) = upload(&node.socket, "name=blob", None, vec![1, 2, 3]).await;
+    assert_eq!(code, 201, "{v}");
+    assert_eq!(v["mime"], json!("application/octet-stream"));
+
+    let (code, headers, len) =
+        request_headers(&node.socket, "GET", &format!("/attachments/{sha}"), None).await;
+    assert_eq!(code, 200);
+    assert_eq!(len, 13);
+    assert_eq!(headers.get("content-disposition").unwrap(), "attachment");
+    assert_eq!(
+        headers.get("content-type").unwrap(),
+        "application/octet-stream"
+    );
+
+    let too_big = vec![0u8; bisa_core::MAX_ATTACHMENT_BYTES as usize + 1];
+    let (code, v) = upload(&node.socket, "name=big.bin", None, too_big.clone()).await;
+    assert_eq!(code, 413, "{v}");
+    assert_eq!(v["limit"], json!(bisa_core::MAX_ATTACHMENT_BYTES));
+    assert!(v["error"].is_string(), "{v}");
+    let chunks: Vec<Bytes> = too_big
+        .chunks(1 << 20)
+        .map(Bytes::copy_from_slice)
+        .collect();
+    let (code, v) = upload_chunked(&node.socket, "name=big.bin", chunks).await;
+    assert_eq!(code, 413, "{v}");
+
+    let (code, v) = upload(&node.socket, "name=%20", None, b"x".to_vec()).await;
+    assert_eq!(code, 400, "a blank name is the store's refusal: {v}");
+
+    let (code, v) = node.req("POST", "/attachments/nope/fetch", None).await;
+    assert_eq!(code, 400, "{v}");
+    let v = node
+        .post(&format!("/attachments/{sha}/fetch"), json!({}))
+        .await;
+    assert_eq!(v["status"], json!("present"));
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/attachments/{}/fetch", "c".repeat(64)),
+            None,
+        )
+        .await;
+    assert_eq!(code, 409, "no sync loop runs here: {v}");
+    node.shutdown().await;
+}
+
+/// A gate can name a goal the index no longer lists; its row is kept, named
+/// by its key, so the decision it waits for is not lost. And what is owed
+/// sorts before what is merely kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gate_whose_goal_is_gone_keeps_its_row_and_a_quiet_row_sorts_last() {
+    let node = Node::start().await;
+    let gone = node.new_goal("ask, then vanish").await;
+    let quiet = node.new_goal("nothing asked").await;
+    let v = node
+        .post(
+            "/agents",
+            json!({"name": "Scout", "system_prompt": "research", "harness": "claude-code"}),
+        )
+        .await;
+    let scout = node
+        .ws
+        .get_agent(&AgentId::new(v["agent"]["id"].as_str().unwrap()).unwrap())
+        .unwrap();
+    // A direct channel keeps its row with nothing said; read, it is kept
+    // and nothing more.
+    let dm = node
+        .ws
+        .open_dm(std::slice::from_ref(&scout.pubkey))
+        .unwrap();
+    node.post("/read", json!({"scope": dm.id.as_str()})).await;
+    node.ask(gone).await;
+    node.ws.delete_goal(gone).unwrap();
+
+    let v = node.get("/inbox").await;
+    let rows = v["rows"].as_array().unwrap();
+    let keys: Vec<&str> = rows.iter().map(|r| r["key"].as_str().unwrap()).collect();
+    let orphan = rows
+        .iter()
+        .find(|r| r["key"] == json!(gone.to_string()))
+        .unwrap_or_else(|| panic!("the gate's row: {v}"));
+    assert_eq!(orphan["kind"], json!("goal"));
+    assert_eq!(
+        orphan["title"],
+        json!(gone.to_string()),
+        "nothing to name it by but its key"
+    );
+    assert_eq!(orphan["needs_action"].as_array().unwrap().len(), 1);
+    assert!(orphan["status"].is_null(), "{orphan}");
+    let kept = rows
+        .iter()
+        .find(|r| r["key"] == json!(dm.id.as_str()))
+        .expect("the direct channel's row");
+    assert_eq!(kept["read"], json!(true));
+    let owed = keys.iter().position(|k| *k == gone.to_string()).unwrap();
+    let new = keys.iter().position(|k| *k == quiet.to_string()).unwrap();
+    let read = keys.iter().position(|k| *k == dm.id.as_str()).unwrap();
+    assert!(
+        owed < new && new < read,
+        "what is owed, then what is new, then what is kept: {keys:?}"
+    );
+    // The row's frame, for a key no record names: the gate alone.
+    let frame = bisa_node_inbox_frame(&node, &gone.to_string()).await;
+    assert_eq!(frame["needs_action_count"], json!(1), "{frame}");
+    assert!(frame["kind"].is_null(), "{frame}");
+    node.shutdown().await;
+}
+
+/// One inbox frame for `key`, read off the event stream after the row is
+/// marked read — the delta a list view updates itself from.
+async fn bisa_node_inbox_frame(node: &Node, key: &str) -> Value {
+    let stream = UnixStream::connect(&node.socket).await.expect("connect");
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+        .await
+        .expect("handshake");
+    tokio::spawn(conn);
+    let resp = sender
+        .send_request(
+            Request::builder()
+                .method("GET")
+                .uri("/events")
+                .header(hyper::header::HOST, "localhost")
+                .header(hyper::header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Full::new(Bytes::new()))
+                .unwrap(),
+        )
+        .await
+        .expect("events");
+    assert_eq!(resp.status().as_u16(), 200);
+    let mut body = resp.into_body();
+    node.post("/read", json!({"scope": key})).await;
+    let frame = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut buf = String::new();
+        loop {
+            let frame = body
+                .frame()
+                .await
+                .expect("event stream ended")
+                .expect("frame");
+            let Some(chunk) = frame.data_ref() else {
+                continue;
+            };
+            buf.push_str(&String::from_utf8_lossy(chunk));
+            for line in buf.lines() {
+                let Some(rest) = line.strip_prefix("data: ") else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<Value>(rest) else {
+                    continue;
+                };
+                if v["stream"] == json!("inbox") && v["payload"]["key"] == json!(key) {
+                    return v["payload"].clone();
+                }
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("no inbox frame for {key}"));
+    drop(body);
+    drop(sender);
+    frame
+}
+
+/// A proposal still owed after the daemon restarts is rebuilt from the
+/// journal: the adoption question is on the goal's row, durable.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_proposal_still_owed_after_a_restart_is_rebuilt_from_the_journal() {
+    let node = Node::start().await;
+    let v = node
+        .post(
+            "/goals",
+            json!({"statement": "sell more socks", "title": "T", "mode": "guided"}),
+        )
+        .await;
+    let id = serde_json::from_value::<Goal>(v["goal"].clone())
+        .expect("goal")
+        .id;
+    let reply = node
+        .intake_op(json!({
+            "op": "propose_workflow",
+            "agent": AgentId::WORKFLOW,
+            "goal": id.to_string(),
+            "workflow": agent_workflow(),
+        }))
+        .await;
+    assert_eq!(reply["ok"], json!(true), "propose failed: {reply}");
+
+    let node = node.restart().await;
+    let inbox = node.get("/inbox").await;
+    let row = inbox["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["key"] == json!(id.to_string()))
+        .unwrap_or_else(|| panic!("no inbox row for the goal: {inbox}"));
+    let owed = &row["needs_action"][0];
+    assert!(
+        owed["subject"].as_str().unwrap_or("").starts_with("adopt:"),
+        "the adoption is still owed: {row}"
+    );
+    assert_eq!(owed["durable"], json!(true), "{owed}");
+    assert!(
+        owed["proposal"]["steps"]
+            .as_array()
+            .is_some_and(|s| !s.is_empty()),
+        "the proposal rides the rebuilt question: {owed}"
+    );
+    node.shutdown().await;
+}
+
+/// The Inbox's rows that are not a goal's: a direct channel with nothing
+/// said keeps its row, a standing channel earns one by an unread line, a
+/// project by a notice that concerns a person, and a conversation whose
+/// first line is a file alone is named as new; and the frame of each says
+/// its kind.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_inbox_has_rows_for_a_dm_a_channel_a_project_and_an_untitled_conversation() {
+    let node = Node::start().await;
+    let v = node
+        .post(
+            "/agents",
+            json!({"name": "Scout", "system_prompt": "research", "harness": "claude-code"}),
+        )
+        .await;
+    let agent = AgentId::new(v["agent"]["id"].as_str().unwrap()).unwrap();
+    let scout = node.ws.get_agent(&agent).unwrap();
+    let dm = node
+        .ws
+        .open_dm(std::slice::from_ref(&scout.pubkey))
+        .unwrap();
+    node.ws
+        .post_message(
+            "general",
+            MessageBody::post("hello all"),
+            None,
+            &[],
+            &[],
+            Some(&agent),
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let (status, v) = node
+        .req(
+            "POST",
+            "/projects",
+            Some(json!({"kind": "new", "slug": "site"})),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let pid = v["project"]["id"].as_str().unwrap().to_string();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    node.ws
+        .record_activity(
+            &bisa_core::ActivityFact {
+                at: now,
+                concept: bisa_core::ActivityConcept::Projects,
+                kind: "project_created".into(),
+                source: bisa_core::ActivitySource::new(
+                    bisa_core::ActivitySourceKind::Project,
+                    pid.clone(),
+                ),
+                author: None,
+                event: json!({
+                    "type": "project_created", "project": pid, "slug": "site",
+                    "origin": {"origin": "step", "run": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                               "step": "make", "workflow": "01DX5ZZKBKACTAV9WEVGEMMVRZ"}
+                }),
+            },
+            true,
+        )
+        .unwrap();
+    let conversation = node
+        .ws
+        .create_conversation(bisa_store::NewConversation {
+            origin: bisa_core::ConversationOrigin::Workspace,
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    let file = node
+        .ws
+        .put_attachment(b"measure twice", "notes.txt", "text/plain")
+        .unwrap();
+    node.ws
+        .post_message(
+            &conversation.id.to_string(),
+            MessageBody::post(""),
+            None,
+            &[],
+            std::slice::from_ref(&file),
+            Some(&agent),
+            PostOrigin::Asked,
+        )
+        .unwrap();
+
+    let v = node.get("/inbox").await;
+    let rows = v["rows"].as_array().unwrap();
+    let row = |key: &str, kind: &str| {
+        rows.iter()
+            .find(|r| r["key"] == json!(key) && r["kind"] == json!(kind))
+            .unwrap_or_else(|| panic!("no {kind} row for {key}: {v}"))
+    };
+    let direct = row(dm.id.as_str(), "dm");
+    assert_eq!(direct["unread_count"], json!(0), "kept with nothing said");
+    let standing = row("general", "channel");
+    assert_eq!(standing["unread_count"], json!(1));
+    // The project's root is its primary workstream, under the same id:
+    // the project's own row is the one typed project.
+    let project = row(&pid, "project");
+    assert_eq!(project["title"], json!("site"));
+    assert_eq!(project["notices"].as_array().unwrap().len(), 1, "{project}");
+    assert_eq!(project["unread_notices"], json!(1));
+    let talk = row(&conversation.id.to_string(), "conversation");
+    assert_eq!(talk["unread_count"], json!(1));
+    assert_eq!(
+        talk["title"],
+        json!("New conversation"),
+        "a file alone is no first line: {talk}"
+    );
+
+    let wf = node.workflow(human_workflow()).await;
+    // A project's root is its primary workstream, under the same id: a frame
+    // for that key is the workstream's.
+    for (key, kind) in [
+        (pid.as_str(), json!("workstream")),
+        (&wf.to_string(), json!("workflow")),
+        (dm.id.as_str(), json!("dm")),
+        ("general", json!("channel")),
+        (&conversation.id.to_string(), json!("conversation")),
+        ("nobody-knows-this-key", Value::Null),
+    ] {
+        let frame = bisa_node_inbox_frame(&node, key).await;
+        assert_eq!(frame["kind"], kind, "{key}: {frame}");
+    }
+    node.shutdown().await;
+}
+
+/// A row carries the newest twenty notices and no more: the feed keeps the
+/// rest.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_row_carries_at_most_twenty_notices() {
+    let node = Node::start().await;
+    let goal = node.new_goal("fail often").await;
+    let wf = node
+        .workflow(json!({
+            "name": "Fail", "description": "ends failed",
+            "steps": [{"id": "end", "name": "End", "kind": "end", "finish": "failed"}]
+        }))
+        .await;
+    for _ in 0..21 {
+        let run = node.start_run(goal, wf).await;
+        let mut ended = None;
+        for _ in 0..250 {
+            let v = node.get(&format!("/runs/{run}")).await;
+            if v["run"]["finished_at"].is_number() {
+                ended = Some(v["run"]["outcome"].clone());
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(ended, Some(json!("failed")), "every run ends failed");
+    }
+    let row = loop {
+        let v = node.get("/inbox").await;
+        let row = v["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["key"] == json!(goal.to_string()))
+            .cloned();
+        if let Some(row) = row.filter(|r| r["notices"].as_array().is_some_and(|n| n.len() >= 20)) {
+            break row;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert_eq!(
+        row["notices"].as_array().unwrap().len(),
+        20,
+        "twenty-one failures, twenty notices: {row}"
+    );
+    assert!(
+        row["notices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|n| n["notice"] == json!("run_failed") || n["notice"] == json!("step_blocked")),
+        "a failed run leaves its own notice and its step's: {row}"
+    );
+    node.shutdown().await;
+}
+
+/// A channel open to everyone takes a roster from a list — the other lists
+/// start empty — and a key that is no key is refused by name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_channels_roster_is_listed_from_everyone_and_a_bad_key_is_refused() {
+    let node = Node::start().await;
+    let v = node.post("/channels", json!({"name": "design"})).await;
+    let channel = v["channel"]["id"].as_str().unwrap().to_string();
+    assert_eq!(v["channel"]["roster"]["policy"], json!("listed"), "{v}");
+    let (code, v) = node
+        .req(
+            "PATCH",
+            &format!("/channels/{channel}"),
+            Some(json!({"humans": ["not-a-key"]})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("not-a-key"), "{v}");
+    let v = node
+        .post(
+            "/agents",
+            json!({"name": "Scout", "system_prompt": "research", "harness": "claude-code"}),
+        )
+        .await;
+    let agent = v["agent"]["id"].as_str().unwrap().to_string();
+    // The general channel is open to everyone, and stays so whatever list
+    // is asked of it: the core channel's roster is not a setting.
+    let general = node.get("/channels/general").await;
+    assert_eq!(
+        general["channel"]["roster"]["policy"],
+        json!("everyone"),
+        "{general}"
+    );
+    let (code, v) = node
+        .req(
+            "PATCH",
+            "/channels/general",
+            Some(json!({"agents": [agent.clone()]})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["channel"]["roster"]["policy"], json!("everyone"), "{v}");
+    // A channel of the workspace's own takes the list.
+    let (code, v) = node
+        .req(
+            "PATCH",
+            &format!("/channels/{channel}"),
+            Some(json!({"agents": [agent]})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let roster = &v["channel"]["roster"];
+    assert_eq!(roster["policy"], json!("listed"), "{v}");
+    assert_eq!(roster["agents"], json!([agent]));
+    assert_eq!(roster["teams"], json!([]));
+    assert_eq!(roster["humans"], json!([]));
+    node.shutdown().await;
+}
+
+/// The conversation list refuses an id with no origin to read it under, and
+/// pages before a moment and an id: the older of two is on the next page.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conversation_list_refuses_an_id_without_an_origin_and_pages_before_a_moment() {
+    let node = Node::start().await;
+    let (code, v) = node
+        .req("GET", "/conversations?id=01ARZ3NDEKTSV4RRFFQ69G5FAV", None)
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let start = |title: &'static str| {
+        let node = &node;
+        async move {
+            let (code, v) = node
+                .req(
+                    "POST",
+                    "/conversations",
+                    Some(json!({"origin": {"kind": "workspace"}, "title": title})),
+                )
+                .await;
+            assert_eq!(code, 201, "{v}");
+            v["conversation"].clone()
+        }
+    };
+    let older = start("older").await;
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let newer = start("newer").await;
+    let at = newer["created_at"].as_u64().expect("a moment");
+    let id = newer["id"].as_str().expect("an id");
+    let page = node
+        .get(&format!(
+            "/conversations?before={at}&before_id={id}&limit=10"
+        ))
+        .await;
+    let titles: Vec<&str> = page["conversations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["title"].as_str().unwrap_or(""))
+        .collect();
+    assert_eq!(titles, vec!["older"], "{page}");
+    assert_eq!(page["conversations"][0]["id"], older["id"]);
+    node.shutdown().await;
+}
+
+/// The Pulse names a conversation's row by its first line, and a goal with
+/// no title by its statement, cut to a glance.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pulse_names_a_conversation_by_its_first_line_and_cuts_a_long_statement() {
+    let node = Node::start().await;
+    let long = "the shelf must hold every book we own and then some more besides";
+    let v = node
+        .post("/goals", json!({"statement": long, "mode": "manual"}))
+        .await;
+    let goal = v["goal"]["id"].as_str().unwrap().to_string();
+    let conversation = node
+        .ws
+        .create_conversation(bisa_store::NewConversation {
+            origin: bisa_core::ConversationOrigin::Workspace,
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    node.ws
+        .post_message(
+            &conversation.id.to_string(),
+            MessageBody::post("first words here\nand more"),
+            None,
+            &[],
+            &[],
+            None,
+            PostOrigin::Asked,
+        )
+        .unwrap();
+    let v = node.get("/pulse?limit=50").await;
+    let rows = v["rows"].as_array().unwrap();
+    let said = rows
+        .iter()
+        .find(|r| r["source"]["kind"] == json!("conversation"))
+        .unwrap_or_else(|| panic!("a conversation's row: {v}"));
+    assert_eq!(said["title"], json!("first words here"));
+    let made = rows
+        .iter()
+        .find(|r| r["event"]["type"] == json!("goal_created") && r["event"]["goal"] == json!(goal))
+        .unwrap_or_else(|| panic!("the goal's row: {v}"));
+    let title = made["title"].as_str().unwrap();
+    assert!(title.ends_with('…'), "{title}");
+    assert_eq!(
+        title.chars().count(),
+        41,
+        "forty characters and the mark: {title}"
+    );
+    assert!(long.starts_with(title.trim_end_matches('…')));
+    node.shutdown().await;
+}

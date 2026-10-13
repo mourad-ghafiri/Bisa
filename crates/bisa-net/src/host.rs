@@ -897,4 +897,52 @@ mod tests {
         assert_eq!(known_client("mobile"), Some("mobile".into()));
         assert_eq!(known_client("toaster"), None);
     }
+
+    /// A profile from a sender nobody hosts is ignored before a byte of it
+    /// is decoded: no member row appears and nothing is kept — the control
+    /// a member removed a moment ago may still send.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_profile_from_a_sender_nobody_hosts_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Arc::new(
+            Workspace::open_with_keystore(
+                dir.path(),
+                Box::new(bisa_store::MemoryKeyStore::default()),
+            )
+            .unwrap(),
+        );
+        let relays = Relays::start(ws.owner_keys().clone(), &[]).await;
+        let host = Host::start(
+            Arc::clone(&ws),
+            relays,
+            NetConfig {
+                relays: vec![],
+                sync_interval_secs: 1,
+                publish_relay_list: false,
+                iroh: false,
+                ..NetConfig::default()
+            },
+            dir.path().to_path_buf(),
+        )
+        .await
+        .unwrap();
+        let stranger = Keys::generate();
+        on_control(
+            &host.inner,
+            stranger.public_key(),
+            &Control::Profile {
+                label: Some("Eve".into()),
+                photo: None,
+                face: None,
+            },
+        )
+        .await;
+        let who = bisa_core::PrincipalId::new(stranger.public_key().to_hex()).unwrap();
+        assert!(
+            ws.member(&who).unwrap().is_none(),
+            "nobody was admitted by a profile"
+        );
+        assert!(ws.people().unwrap().is_empty());
+        host.stop().await;
+    }
 }

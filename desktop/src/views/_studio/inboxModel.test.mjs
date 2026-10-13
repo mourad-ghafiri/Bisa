@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { KIND_LABEL, MARKS_AT_ONCE, RELOAD_DEBOUNCE_MS, RELOAD_ON, SOURCES, aboutWords, applyDelta, askHint, askVerbs, browserHomeOf, compareRows, conversationOf, counts, doorLabel, doorOf, emptyWords, filterOf, filterSegments, groupRows, isHandled, isNewestRead, joinOf, joinWords, keyAction, kindLabel, markBatches, matchesFilter, matchesSource, needsOf, needsReload, nextSelection, noticeLine, noticesOf, readOnSelect, rowGlyph, rowState, sourceIdOf, sourceTabs, summarize, unreadKeys, unreadNoticesOf, visibleRows, waitingOf, waitingWords, wantsList, withReadMark, askTitle } from "./inboxModel.mjs";
+import { KIND_LABEL, MARKS_AT_ONCE, RELOAD_DEBOUNCE_MS, RELOAD_ON, SOURCES, aboutWords, applyDelta, askHint, askVerbs, browserHomeOf, compareRows, conversationOf, counts, doorLabel, doorOf, emptyWords, filterOf, filterSegments, groupRows, isHandled, isNewestRead, joinOf, joinWords, keyAction, kindLabel, markBatches, matchesFilter, matchesSource, needsOf, needsReload, nextSelection, noticeLine, noticesOf, readOnSelect, rowGlyph, rowState, sourceIdOf, sourceTabs, summarize, unreadKeys, unreadNoticesOf, visibleRows, waitingAbout, waitingOf, waitingWords, wantsList, withReadMark, askTitle } from "./inboxModel.mjs";
 
 /** A row with everything the node sends, so a test only states what it means. */
 function row(over = {}) {
@@ -722,4 +722,25 @@ test("an owed decision is told from the next by what it is — the gate, else th
   const { readFileSync } = await import("node:fs");
   const inbox = readFileSync(new URL("../Inbox.tsx", import.meta.url), "utf8");
   assert.ok(inbox.includes("key={needsKey(a)}") && !inbox.includes("`durable:${i}`"), "a card once keyed by its place took the state of the one before it as one was decided");
+});
+
+test("a waiting session's second line names its goal by label, else its project by name, else nothing", () => {
+  const index = {
+    goals: new Map([["G1", { label: "Ship the shelf" }]]),
+    projects: new Map([["P1", "site"]]),
+    workstreams: new Map(),
+  };
+  const waiting = (over) => row({ kind: "session", waiting: { harness: "mock", on: { on: "permission", tool: "Bash" }, words: "permission: Bash", ...over } });
+  assert.match(waitingAbout(waiting({ goal: "G1" }), index), /Ship the shelf/);
+  assert.match(waitingAbout(waiting({ project: "P1" }), index), /site/);
+  assert.equal(waitingAbout(waiting({}), index), null);
+  assert.equal(waitingAbout(row(), index), null, "no wait, no line");
+});
+
+test("two things owed are summarised as a count, and a channel or a direct channel is its own conversation", () => {
+  const two = summarize(row({ needs_action: [gate(), gate({ subject: "amend:01J0RUN@01J0WF" })] }));
+  assert.equal(two.urgent, true);
+  assert.match(two.text, /2/);
+  assert.deepEqual(conversationOf(row({ kind: "channel", key: "design" })), { kind: "channel", scope: "design" });
+  assert.deepEqual(conversationOf(row({ kind: "dm", key: "dm-1" })), { kind: "dm", scope: "dm-1" });
 });

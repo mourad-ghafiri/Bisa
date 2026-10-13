@@ -10,6 +10,10 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- The mock harness takes two more knobs for the engine's own tests: an event stream that panics
+  on a word (`panic_in_stream_on`), the shape of a reader unwinding mid-turn, and follow-ups
+  answered in the open turn with no new turn marker (`answers_follow_ups`)
+  (`crates/bisa-harness/src/mock.rs`).
 - OpenCode 2 (`@opencode/cli`, released 2026-09-11) is supported: the adapter reads the version
   its probe answers and drives OpenCode 2 through its ACP server (`opencode acp` — its session's
   directory and MCP servers in `session/new`, the model and the effort as session config options,
@@ -21,6 +25,15 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A live gate whose goal the index no longer listed — a record removed behind the engine's back,
+  or one the index lost — was dropped from the Inbox, although the Inbox's own rule keeps such a
+  gate on a row of its own so the decision it waits for is not lost: the row was built only for
+  the goals the index returned. The leftover gates are now folded into the rows, keyed and
+  titled by the goal's id (`crates/bisa-node/src/inbox.rs`).
+- A follow-up handed to a warm chat session in the same second as its turn began lost its reply:
+  the pump told a new turn from the old one by a clock in whole seconds, so the words that
+  answered the second message were folded into the first turn and swallowed as already said.
+  The pump now counts follow-ups, not seconds (`crates/bisa-engine/src/conversation.rs`).
 - A goal closed or retired with a worker at work could say it stopped no session: the close's
   record half cancels the run first, the cancel's effects end the rows through their drivers, and
   a row ended before the close's own pass was entered in the ledger by nobody — not waited for,
