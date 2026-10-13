@@ -103,3 +103,32 @@ async fn the_judge_can_deny_a_declared_host() {
     );
     assert!(stub.calls().is_empty());
 }
+
+// added by the coverage pass: hosts.rs
+
+/// A definition that declares no host refuses every host, and says so.
+#[tokio::test]
+async fn a_definition_declaring_no_host_refuses_every_host_in_words() {
+    let bare = bisa_connectors::spec::CallSpec {
+        hosts: vec![],
+        ..offline_spec(bisa_connectors::spec::AuthSpec::None)
+    };
+    let client = client(MemoryCreds::with(
+        &account(),
+        bisa_connectors::creds::Stored::default(),
+    ));
+    let err = client
+        .call(
+            &bare,
+            None,
+            &no_account_params(),
+            &params(&[]),
+            &bisa_connectors::hosts::AllowAll,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, bisa_connectors::ConnectorError::HostRefused { allowed, .. } if allowed.contains("declares no host")),
+        "{err}"
+    );
+}

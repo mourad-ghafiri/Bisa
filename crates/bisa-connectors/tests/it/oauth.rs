@@ -4,7 +4,7 @@
 use crate::support::*;
 use bisa_connectors::creds::{Field, Stored};
 use bisa_connectors::hosts::{AllowAll, HostJudge};
-use bisa_connectors::oauth::{authorize_url, exchange};
+use bisa_connectors::oauth::{authorize_url, exchange, refresh};
 use bisa_connectors::spec::{AuthSpec, ChallengeEncoding, ScopeJoin};
 use bisa_connectors::ConnectorError;
 use serde_json::json;
@@ -539,4 +539,101 @@ async fn a_denied_token_host_is_refused_before_the_form_is_posted() {
         ),
         Err(ConnectorError::HostRefused { .. })
     ));
+}
+
+// added by the coverage pass: oauth.rs
+
+/// An OAuth URL must parse and be https (http only on loopback); without
+/// PKCE the consent URL carries no challenge; a token endpoint that spells
+/// `token_type` in its own case is still bearer; and a refresh passes on
+/// what it met — the host judge's refusal before anything is posted, an
+/// upstream failure as it came.
+#[tokio::test]
+async fn an_oauth_url_is_checked_a_token_type_is_read_in_any_case_and_a_refresh_passes_on_what_it_met(
+) {
+    let stub = Stub::start(vec![
+        Canned::json(
+            "POST",
+            "/oauth/token",
+            200,
+            json!({"access_token": "at-1", "token_type": "BEARER", "expires_in": 60}),
+        ),
+        Canned::json("POST", "/oauth/token", 500, json!({"error": "down"})),
+        Canned::json(
+            "POST",
+            "/oauth/token",
+            200,
+            json!({"access_token": "at-2", "expires_in": 60}),
+        ),
+    ])
+    .await;
+    let entropy = CountingEntropy::from(1);
+    for (url, says) in [
+        ("not a url", "does not parse"),
+        ("http://auth.example.com/auth", "must be https"),
+    ] {
+        let mut auth = oauth(stub.base_url(), BTreeMap::new());
+        let AuthSpec::OAuth2 {
+            authorization_url, ..
+        } = &mut auth
+        else {
+            unreachable!("an OAuth spec")
+        };
+        *authorization_url = url.into();
+        let err = authorize_url(
+            &auth,
+            "client-1",
+            "http://127.0.0.1/x",
+            entropy.as_ref(),
+            &AllowAll,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, ConnectorError::BadDefinition(why) if why.contains(says)),
+            "{err}"
+        );
+    }
+    let mut plain = oauth(stub.base_url(), BTreeMap::new());
+    let AuthSpec::OAuth2 { pkce, .. } = &mut plain else {
+        unreachable!("an OAuth spec")
+    };
+    *pkce = false;
+    let a = authorize_url(
+        &plain,
+        "client-1",
+        "http://127.0.0.1/x",
+        entropy.as_ref(),
+        &AllowAll,
+    )
+    .unwrap();
+    assert!(!a.url.contains("code_challenge"), "{}", a.url);
+
+    let auth = oauth(stub.base_url(), BTreeMap::new());
+    let stored = Stored::default()
+        .with(Field::ClientId, "client-1")
+        .with(Field::ClientSecret, "shh")
+        .with(Field::RefreshToken, "rt-old");
+    let creds = MemoryCreds::with(&account(), stored.clone());
+    let client = client(creds.clone());
+    let tokens = refresh(&client, &auth, &account(), &stored, &AllowAll)
+        .await
+        .unwrap();
+    assert_eq!(tokens.access_token.expose(), "at-1");
+    let err = refresh(&client, &auth, &account(), &stored, &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, ConnectorError::Upstream { status: 500, .. }),
+        "{err}"
+    );
+    let err = refresh(&client, &auth, &account(), &stored, &Deny("127.0.0.1"))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::HostRefused { .. }), "{err}");
+    assert_eq!(stub.calls().len(), 2, "the refused refresh posted nothing");
+    // An answer that names no token type is bearer, as RFC 6749's default.
+    let untyped = refresh(&client, &auth, &account(), &stored, &AllowAll)
+        .await
+        .unwrap();
+    assert_eq!(untyped.access_token.expose(), "at-2");
 }

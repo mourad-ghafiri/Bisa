@@ -227,7 +227,9 @@ impl ConnectorHealth {
                     target: "bisa_engine::connector_health",
                     %connector,
                     %account,
+                    // LCOV_EXCL_START: a field of an info event, evaluated only under a subscriber that wants it
                     state = check.state.as_str(),
+                    // LCOV_EXCL_STOP
                     status = ?check.status,
                     "connector account checked"
                 );

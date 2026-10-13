@@ -24,7 +24,9 @@ impl AuthSigner for ApiKeySigner<'_> {
         _cx: &SignContext<'_>,
     ) -> Result<Applied, ConnectorError> {
         let Credential::ApiKey(key) = credential else {
+            // LCOV_EXCL_START: the store hands each scheme its own kind; the arm keeps the match total
             return Err(mismatch("api_key"));
+            // LCOV_EXCL_STOP
         };
         let value = format!("{}{}", self.prefix.unwrap_or_default(), key.expose());
         match self.place {

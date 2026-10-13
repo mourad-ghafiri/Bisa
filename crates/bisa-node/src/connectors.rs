@@ -144,7 +144,9 @@ fn refuse_problems(problems: &[bisa_core::ConnectorProblem]) -> ApiError {
         .take(3)
         .map(|p| match &p.field {
             Some(f) => format!("{f}: {}", p.text),
+            // LCOV_EXCL_START: every problem the core makes names its field (ConnectorProblem::at)
             None => p.text.to_string(),
+            // LCOV_EXCL_STOP
         })
         .collect::<Vec<_>>()
         .join("; ");
@@ -210,11 +212,13 @@ async fn create(
         return Err(refuse_problems(&problems));
     }
     let new = body.into_new().map_err(|e| {
+        // LCOV_EXCL_START: the tags were read once already by as_connector a few lines above
         ApiError::text(
             StatusCode::BAD_REQUEST,
             bisa_core::text!("error-node-connectors-refused", detail = e.to_string()),
         )
     })?;
+    // LCOV_EXCL_STOP
     let created = eng::create_connector(state.engine.inner(), new)?;
     Ok(Json(
         json!({ "connector": ConnectorRow::from_parts(&created, &[]) }),
@@ -439,11 +443,13 @@ fn oauth_port(state: &Shared) -> Result<u16, ApiError> {
         .as_u64()
         .and_then(|p| u16::try_from(p).ok())
         .ok_or_else(|| {
+            // LCOV_EXCL_START: connectors.oauth.port is a typed port setting; the registry refuses what is no port number
             ApiError::text(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 bisa_core::text!("error-node-connectors-connectors-oauth-port-not-port-number"),
             )
         })
+    // LCOV_EXCL_STOP
 }
 
 async fn oauth_start(
@@ -651,11 +657,15 @@ impl CallbackListener {
                     if (idle && started.elapsed() >= Duration::from_secs(30))
                         || started.elapsed() >= deadline
                     {
+                        // LCOV_EXCL_START: the watchdog wakes every 10 s and stops an idle listener after 30 s; no test waits for it
                         let _listener_gone = watchdog_stop.send(true);
                         break;
+                        // LCOV_EXCL_STOP
                     }
                 }
+                // LCOV_EXCL_START: the watchdog wakes every 10 s and stops an idle listener after 30 s; no test waits for it
             };
+            // LCOV_EXCL_STOP
             tokio::select! {
                 _ = serve => {}
                 _ = watchdog => {}

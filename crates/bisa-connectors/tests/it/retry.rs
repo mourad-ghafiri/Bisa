@@ -171,3 +171,104 @@ async fn a_wait_longer_than_the_deadline_ends_the_call_with_what_it_has() {
     );
     assert_eq!(transport.sent().len(), 1);
 }
+
+// added by the coverage pass: retry.rs
+
+/// The client's last word after its attempts: a platform never reached is
+/// unreachable, an answer that could not be read is a transport failure
+/// said once, and a deadline already spent is a timeout before the next
+/// attempt.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_last_attempt_says_what_it_met() {
+    use bisa_connectors::http::TransportError;
+    let unreachable = ScriptedTransport::with(vec![
+        Err(TransportError::Connect("refused".into())),
+        Err(TransportError::Connect("refused".into())),
+        Err(TransportError::Connect("refused".into())),
+    ]);
+    let creds = MemoryCreds::with(&account(), bisa_connectors::creds::Stored::default());
+    let client = scripted(unreachable.clone(), creds.clone(), FixedClock::at(1_000));
+    let spec = offline_spec(AuthSpec::None);
+    let err = client
+        .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::Unreachable(_)), "{err}");
+    assert_eq!(unreachable.sent().len(), 3, "every attempt was made");
+
+    let cut = ScriptedTransport::with(vec![Err(TransportError::Body("cut".into()))]);
+    let client = scripted(cut.clone(), creds.clone(), FixedClock::at(1_000));
+    let err = client
+        .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::Transport(_)), "{err}");
+    assert_eq!(
+        cut.sent().len(),
+        1,
+        "a broken answer is not asked for again"
+    );
+
+    let spent = ScriptedTransport::with(vec![
+        Err(TransportError::Connect("refused".into())),
+        Err(TransportError::Connect("refused".into())),
+    ]);
+    let client = scripted(spent.clone(), creds, FixedClock::at(1_000));
+    let hurried = bisa_connectors::spec::CallSpec {
+        timeout: std::time::Duration::ZERO,
+        ..offline_spec(AuthSpec::None)
+    };
+    let err = client
+        .call(
+            &hurried,
+            None,
+            &no_account_params(),
+            &params(&[]),
+            &AllowAll,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::Timeout(_)), "{err}");
+    assert_eq!(spent.sent().len(), 0, "no attempt under a spent deadline");
+
+    // A backoff longer than what is left of the deadline: the call ends with
+    // what the one attempt met.
+    let short = ScriptedTransport::with(vec![
+        Err(TransportError::Connect("refused".into())),
+        Err(TransportError::Connect("refused".into())),
+    ]);
+    let client = scripted(
+        short.clone(),
+        MemoryCreds::with(&account(), bisa_connectors::creds::Stored::default()),
+        FixedClock::at(1_000),
+    );
+    let brief = bisa_connectors::spec::CallSpec {
+        timeout: std::time::Duration::from_millis(50),
+        ..offline_spec(AuthSpec::None)
+    };
+    let err = client
+        .call(&brief, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::Unreachable(_)), "{err}");
+    assert_eq!(short.sent().len(), 1, "no second attempt past the deadline");
+
+    // A read that times out on the wire is tried again, and the last timeout
+    // is the call's.
+    let slow = ScriptedTransport::with(vec![
+        Err(TransportError::Timeout),
+        Err(TransportError::Timeout),
+        Err(TransportError::Timeout),
+    ]);
+    let client = scripted(
+        slow.clone(),
+        MemoryCreds::with(&account(), bisa_connectors::creds::Stored::default()),
+        FixedClock::at(1_000),
+    );
+    let err = client
+        .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::Timeout(_)), "{err}");
+    assert_eq!(slow.sent().len(), 3, "every attempt was made");
+}

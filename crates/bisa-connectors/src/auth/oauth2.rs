@@ -21,7 +21,9 @@ impl AuthSigner for OAuth2Signer {
         _cx: &SignContext<'_>,
     ) -> Result<Applied, ConnectorError> {
         let Credential::OAuth2(token) = credential else {
+            // LCOV_EXCL_START: the store hands each scheme its own kind; the arm keeps the match total
             return Err(mismatch("oauth2"));
+            // LCOV_EXCL_STOP
         };
         Ok(write_bearer(req, token))
     }

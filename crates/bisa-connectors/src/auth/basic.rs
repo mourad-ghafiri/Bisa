@@ -24,7 +24,9 @@ impl AuthSigner for BasicSigner {
         _cx: &SignContext<'_>,
     ) -> Result<Applied, ConnectorError> {
         let Credential::Basic { username, password } = credential else {
+            // LCOV_EXCL_START: the store hands each scheme its own kind; the arm keeps the match total
             return Err(mismatch("basic"));
+            // LCOV_EXCL_STOP
         };
         let pair = format!("{username}:{}", password.expose());
         let encoded = base64::engine::general_purpose::STANDARD.encode(pair.as_bytes());

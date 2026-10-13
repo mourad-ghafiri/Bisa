@@ -8,6 +8,13 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- A platform's refusal that carried a blank sentence (`"message": ""`) was explained as that
+  blank, quoted, instead of the next thing the answer said (`error`, `detail`, …); the connector
+  client now passes a blank over like an object or a list (`crates/bisa-connectors/src/outcome.rs`
+  `an_explanation_is_the_first_candidate_that_reads_as_words`).
+
 ## [0.4.0] - 2026-10-09
 
 ### Changed

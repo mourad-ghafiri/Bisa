@@ -171,10 +171,12 @@ fn read_definition(src: &str, id: Option<&str>) -> Result<NewConnector> {
         .map(str::to_string);
     if src.ends_with(".toml") {
         let slug = id.map(str::to_string).or(stem).ok_or_else(|| {
+            // LCOV_EXCL_START: a - source never ends in .toml, and a file always has a stem
             anyhow!(bisa_core::text!(
                 "cli-connector-say-which-id-record-under-id"
             ))
         })?;
+        // LCOV_EXCL_STOP
         return Ok(parse_connector(&slug, &text)?.into_new(&slug)?);
     }
     let parsed: DefinitionJson = serde_json::from_str(&text).with_context(|| {

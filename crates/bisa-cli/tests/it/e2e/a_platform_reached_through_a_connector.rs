@@ -533,6 +533,21 @@ fn a_platform_is_reached_through_a_connector_and_the_secret_stays_home() {
 
     // --- a workflow that polls, and begins a run per item it has not seen -------------
     let watch = recorded(&ws, "watch.json", &the_watch());
+    // What a poll brings in is the connector's to read; the content screen's
+    // own judgement of it — a classifier session per item — is the
+    // security journey's, and off here so a slow classifier cannot hold the
+    // occurrences this journey counts.
+    ws.ok(&[
+        "settings",
+        "set",
+        "workspace",
+        "security.content.screen",
+        "false",
+    ]);
+    // The runtime's tick at its floor: the poll that learns what is there,
+    // and the one that sees the new, come well within the journey's patience
+    // even on an instrumented build.
+    ws.ok(&["settings", "set", "machine", "events.tick_secs", "5"]);
     ws.ok(&["workflow", "on", &watch]);
     let before = stub
         .seen()

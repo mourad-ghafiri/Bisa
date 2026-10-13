@@ -1089,3 +1089,472 @@ async fn the_nodes_deadline_ends_a_call_the_operation_set_none_for() {
     assert!(why.contains("1s") || why.contains("timed out"), "{why}");
     engine.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// The edges: an answer that does not fit, no account here, an account read
+// from a step's own words, an operation gone since the design, a stop
+// cutting a call short, every method and body on the wire, paging, and the
+// roster's words
+// ---------------------------------------------------------------------------
+
+/// An answer the step's own schema does not accept fails the step with
+/// the schema's words; a connector that needs an account and has none here
+/// fails the step saying to add one.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_that_does_not_fit_and_a_connector_with_no_account_fail_the_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        canned("POST", "/post", 200, json!({"ts": "1.1"})),
+        canned("POST", "/post", 200, json!({"ts": "1.2"})),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat(&engine, &stub, Some(TOKEN));
+    let mut say = post_step("say", None, None);
+    if let StepKind::Connector { output_schema, .. } = &mut say.kind {
+        *output_schema = Some(json!({"type": "object", "required": ["id"]}));
+    }
+    let (goal, _) = run_on(
+        &engine,
+        "a shape it is not",
+        new_workflow("shaped", vec![say]),
+    );
+    let failed = finished_run(&engine, goal.id).await;
+    assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{failed:?}");
+    let why = failed.steps[&sid("say")].error.clone().unwrap_or_default();
+    assert!(why.contains("does not fit"), "{why}");
+    // The same answer against a shape it is: the step is done.
+    let mut fits = post_step("say", None, None);
+    if let StepKind::Connector { output_schema, .. } = &mut fits.kind {
+        *output_schema = Some(json!({"type": "string"}));
+    }
+    let (goal, _) = run_on(
+        &engine,
+        "a shape it is",
+        new_workflow("fitting", vec![fits]),
+    );
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+
+    // The account went while the run held before the call: the start
+    // admitted the step when one was there; the call finds none and says
+    // to add one.
+    let ws = engine.workspace();
+    let mut hold = step(
+        "hold",
+        StepKind::Wait {
+            until: bisa_core::WaitFor::Release,
+        },
+    );
+    hold.then = vec![Flow::to(sid("call"))];
+    let (goal, run) = run_on(
+        &engine,
+        "nobody here any more",
+        new_workflow("lonely", vec![hold, post_step("call", None, None)]),
+    );
+    step_in_state(&engine, goal.id, "hold", "waiting").await;
+    let account = ws
+        .list_connector_accounts(&ConnectorId::new("chat").unwrap())
+        .unwrap()[0]
+        .id;
+    ws.delete_connector_account(&ConnectorId::new("chat").unwrap(), account)
+        .unwrap();
+    engine.release_step(run.id, &sid("hold"), None).unwrap();
+    let failed = finished_run(&engine, goal.id).await;
+    assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{failed:?}");
+    let why = failed.steps[&sid("call")].error.clone().unwrap_or_default();
+    assert!(why.contains("no account"), "{why}");
+    engine.shutdown().await;
+}
+
+/// The account a step names by id is the one called with; an input meant
+/// to hold one and holding something else fails the step by name.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_account_a_step_names_is_used_and_an_input_that_is_no_account_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![canned("POST", "/post", 200, json!({"ts": "1.1"}))]).await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let account = install_chat(&engine, &stub, Some(TOKEN)).unwrap();
+    let (goal, _) = run_on(
+        &engine,
+        "by id",
+        new_workflow(
+            "by-id",
+            vec![post_step("say", Some(ValueRef::Fixed(account)), None)],
+        ),
+    );
+    assert_eq!(
+        finished_run(&engine, goal.id).await.outcome,
+        Some(RunOutcome::Done)
+    );
+
+    let mut draft = new_workflow(
+        "by-input",
+        vec![post_step(
+            "say",
+            Some(ValueRef::Input {
+                input: InputName::new("acct").unwrap(),
+            }),
+            None,
+        )],
+    );
+    draft.inputs = vec![InputDef {
+        name: InputName::new("acct").unwrap(),
+        label: "Account".into(),
+        kind: InputKind::Account {
+            connector: Some(ConnectorId::new("chat").unwrap()),
+        },
+        default: None,
+        required: true,
+    }];
+    let (goal, _) = goal_on(&engine, "by a word", draft);
+    let started = engine.start_run(
+        goal.id,
+        BTreeMap::from([("acct".to_string(), json!("not-an-account"))]),
+    );
+    match started {
+        Err(e) => assert!(e.to_string().contains("acct"), "{e}"),
+        Ok(_) => {
+            let failed = finished_run(&engine, goal.id).await;
+            assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{failed:?}");
+            let why = failed.steps[&sid("say")].error.clone().unwrap_or_default();
+            assert!(why.contains("acct"), "{why}");
+        }
+    }
+    engine.shutdown().await;
+}
+
+/// A stop cuts a connector call short — the call's task is aborted — and
+/// leaves another run's call to finish.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_cuts_its_runs_call_short_and_leaves_anothers() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        slow("POST", "/post", 200, json!({"ts": "1"}), 2_500),
+        slow("POST", "/post", 200, json!({"ts": "2"}), 2_500),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat(&engine, &stub, Some(TOKEN));
+    let (stopped, _) = run_on(
+        &engine,
+        "stopped",
+        new_workflow("a", vec![post_step("say", None, None)]),
+    );
+    let (kept, _) = run_on(
+        &engine,
+        "kept",
+        new_workflow("b", vec![post_step("say", None, None)]),
+    );
+    step_in_state(&engine, stopped.id, "say", "running").await;
+    step_in_state(&engine, kept.id, "say", "running").await;
+    engine.stop_goal(stopped.id, None).await.unwrap();
+    let ended = finished_run(&engine, stopped.id).await;
+    assert_eq!(ended.status(), bisa_core::RunStatus::Cancelled, "{ended:?}");
+    let done = finished_run(&engine, kept.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+    engine.shutdown().await;
+}
+
+/// The roster the designer reads names every connector: its default
+/// account marked, and a long description cut at a sentence's length with
+/// an ellipsis.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_roster_marks_the_default_and_cuts_a_long_description() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![]).await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    install_chat(&engine, &stub, Some(TOKEN));
+    let mut wordy = chat(&stub, AuthScheme::None);
+    wordy.id = ConnectorId::new("wordy").unwrap();
+    wordy.description = "A platform ".repeat(20);
+    ws.create_connector(wordy).unwrap();
+    ws.create_connector_account(NewConnectorAccount {
+        connector: ConnectorId::new("chat").unwrap(),
+        label: "spare".into(),
+        params: BTreeMap::new(),
+        default: false,
+    })
+    .unwrap();
+    let rendered = ConnectorRoster::of(ws).unwrap().render();
+    assert!(rendered.contains("(default)"), "{rendered}");
+    assert!(rendered.contains("spare"), "{rendered}");
+    assert!(!rendered.contains("spare (default)"), "{rendered}");
+    assert!(rendered.contains("wordy"), "{rendered}");
+    assert!(
+        rendered.contains('…'),
+        "a long description is cut: {rendered}"
+    );
+    engine.shutdown().await;
+}
+
+/// Every method and every body a definition may write reaches the wire as
+/// written, a bool parameter among them, and a paged read follows the
+/// cursor the answer names.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_method_and_body_reaches_the_wire_and_a_paged_read_follows_the_cursor() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        canned("PUT", "/put", 200, json!({"ok": true})),
+        canned("PATCH", "/patch", 200, json!({"ok": true})),
+        canned("DELETE", "/delete", 200, json!({"ok": true})),
+        canned("HEAD", "/head", 200, json!({})),
+        canned("POST", "/form", 200, json!({"ok": true})),
+        canned("POST", "/raw", 200, json!({"ok": true})),
+        canned("GET", "/pages", 200, json!({"items": [1, 2], "next": "c2"})),
+        canned("GET", "/pages", 200, json!({"items": [3], "next": null})),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let op = |id: &str,
+              method: HttpMethod,
+              path: &str,
+              body: Option<OperationBody>,
+              params: Vec<bisa_core::ParamDef>,
+              page: Option<bisa_core::Paging>,
+              select: Option<&str>| Operation {
+        id: OperationId::new(id).unwrap(),
+        name: id.to_uppercase(),
+        description: format!("{id} on the stub"),
+        method,
+        path: path.into(),
+        query: BTreeMap::new(),
+        headers: BTreeMap::new(),
+        body,
+        params,
+        output: OutputSpec {
+            expect: None,
+            select: select.map(str::to_string),
+            schema: None,
+        },
+        writes: !matches!(method, HttpMethod::Get | HttpMethod::Head),
+        timeout_secs: None,
+        idempotency: None,
+        page,
+    };
+    let mut def = chat(&stub, AuthScheme::None);
+    def.id = ConnectorId::new("shapes").unwrap();
+    def.check = None;
+    def.operations = vec![
+        op("put", HttpMethod::Put, "/put", None, vec![], None, None),
+        op(
+            "patch",
+            HttpMethod::Patch,
+            "/patch",
+            None,
+            vec![],
+            None,
+            None,
+        ),
+        op(
+            "delete",
+            HttpMethod::Delete,
+            "/delete",
+            None,
+            vec![],
+            None,
+            None,
+        ),
+        op("head", HttpMethod::Head, "/head", None, vec![], None, None),
+        op(
+            "form",
+            HttpMethod::Post,
+            "/form",
+            Some(OperationBody::Form {
+                fields: BTreeMap::from([("loud".to_string(), "{params.loud}".to_string())]),
+            }),
+            vec![param("loud", ParamKind::Bool, true)],
+            None,
+            None,
+        ),
+        op(
+            "raw",
+            HttpMethod::Post,
+            "/raw",
+            Some(OperationBody::Raw {
+                content_type: "text/plain".into(),
+                from: bisa_core::connector::ParamName::new("blob").unwrap(),
+            }),
+            vec![param("blob", ParamKind::Text, true)],
+            None,
+            None,
+        ),
+        {
+            let mut pages = op(
+                "pages",
+                HttpMethod::Get,
+                "/pages",
+                None,
+                vec![param("cursor", ParamKind::Text, false)],
+                Some(bisa_core::Paging {
+                    cursor_param: bisa_core::connector::ParamName::new("cursor").unwrap(),
+                    next_cursor: "next".into(),
+                    max_pages: 5,
+                }),
+                Some("items"),
+            );
+            pages.query = BTreeMap::from([("cursor".to_string(), "{params.cursor}".to_string())]);
+            pages
+        },
+    ];
+    ws.create_connector(def).unwrap();
+    let step_for = |id: &str, params: &[(&str, &str)]| {
+        step(
+            id,
+            StepKind::Connector {
+                connector: Some(ConnectorId::new("shapes").unwrap()),
+                operation: Some(OperationId::new(id).unwrap()),
+                account: None,
+                params: params
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+                output_schema: None,
+                unattended: true,
+            },
+        )
+    };
+    let (goal, _) = run_on(
+        &engine,
+        "every shape",
+        new_workflow(
+            "shapes",
+            chain(vec![
+                step_for("put", &[]),
+                step_for("patch", &[]),
+                step_for("delete", &[]),
+                step_for("head", &[]),
+                step_for("form", &[("loud", "true")]),
+                step_for("raw", &[("blob", "hello there")]),
+                step_for("pages", &[]),
+            ]),
+        ),
+    );
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+    let calls = stub.calls();
+    let methods: Vec<String> = calls.iter().map(|c| c.method.clone()).collect();
+    assert_eq!(
+        methods,
+        ["PUT", "PATCH", "DELETE", "HEAD", "POST", "POST", "GET", "GET"]
+    );
+    assert!(calls[4].text.contains("loud=true"), "{}", calls[4].text);
+    assert_eq!(calls[5].text, "hello there");
+    assert_eq!(
+        done.steps[&sid("pages")].output,
+        Some(json!([1, 2, 3])),
+        "the cursor the first page named was followed, and every page's items joined"
+    );
+    engine.shutdown().await;
+}
+
+// added by the coverage pass: connectors.rs (the desk, a step's deadline, the run's files, the call's guards)
+
+/// A step that names no connector gets the machine's deadline; the desk
+/// says how many flows are pending; and the run's files refuse a checkout
+/// that cannot be read, a link that leaves it, a folder, and a file over
+/// the size a connector reads — each by name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deadline_without_a_definition_the_desk_in_words_and_the_runs_files_at_their_edges() {
+    use bisa_connectors::Files;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let inner = engine.inner();
+    let nameless = step(
+        "call",
+        StepKind::Connector {
+            connector: None,
+            operation: None,
+            account: None,
+            params: BTreeMap::new(),
+            output_schema: None,
+            unattended: false,
+        },
+    );
+    let deadline = connectors::step_deadline(inner, &nameless);
+    let machine = std::time::Duration::from_secs(inner.config.connector_timeout_secs.max(1));
+    assert!(
+        deadline > machine,
+        "{deadline:?} is not the machine's plus the overhead"
+    );
+    assert!(format!("{:?}", inner.connectors).contains("pending"));
+
+    let checkout = dir.path().join("checkout");
+    std::fs::create_dir_all(checkout.join("sub")).unwrap();
+    std::fs::write(dir.path().join("outside.txt"), "x").unwrap();
+    std::os::unix::fs::symlink(dir.path().join("outside.txt"), checkout.join("link.txt")).unwrap();
+    let big = std::fs::File::create(checkout.join("big.bin")).unwrap();
+    big.set_len(bisa_connectors::MAX_FILE_BYTES as u64 + 1)
+        .unwrap();
+    let files = connectors::RunFiles {
+        root: checkout.clone(),
+    };
+    let says = |r: Result<bisa_connectors::FileData, String>| r.unwrap_err();
+    assert!(says(files.read("link.txt").await).contains("points outside"));
+    assert!(says(files.read("sub").await).contains("is not a file"));
+    assert!(says(files.read("big.bin").await).contains("a file is read up to"));
+    let gone = connectors::RunFiles {
+        root: dir.path().join("nowhere"),
+    };
+    assert!(says(gone.read("a.txt").await).contains("not readable"));
+    // A file nobody may read: its size is read, its bytes are not.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(checkout.join("locked.txt"), "x").unwrap();
+    std::fs::set_permissions(
+        checkout.join("locked.txt"),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    assert!(says(files.read("locked.txt").await).contains("locked.txt"));
+    engine.shutdown().await;
+}
+
+/// The call's own guards, past the validator: a step that is no connector
+/// step, one naming no connector, one naming no operation, and one naming
+/// an operation its connector lacks — each refused by name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_refuses_a_step_that_names_too_little_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![]).await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat(&engine, &stub, Some(TOKEN)).unwrap();
+    let (_wf, run) = workspace_run(
+        &engine,
+        new_workflow("plain", vec![agent_step("do", "mock")]),
+    );
+    let bare = |connector: Option<&str>, operation: Option<&str>| {
+        step(
+            "call",
+            StepKind::Connector {
+                connector: connector.map(|c| ConnectorId::new(c).unwrap()),
+                operation: operation.map(|o| OperationId::new(o).unwrap()),
+                account: None,
+                params: BTreeMap::new(),
+                output_schema: None,
+                unattended: false,
+            },
+        )
+    };
+    let says = |e: bisa_engine::EngineError| e.to_string();
+    let plain = agent_step("plain", "mock");
+    let err = connectors::call(engine.inner(), &run, &plain)
+        .await
+        .unwrap_err();
+    assert!(says(err).contains("plain"));
+    let err = connectors::call(engine.inner(), &run, &bare(None, None))
+        .await
+        .unwrap_err();
+    assert!(says(err).contains("no connector"));
+    let err = connectors::call(engine.inner(), &run, &bare(Some("chat"), None))
+        .await
+        .unwrap_err();
+    assert!(says(err).contains("no operation"));
+    let err = connectors::call(engine.inner(), &run, &bare(Some("chat"), Some("nope")))
+        .await
+        .unwrap_err();
+    assert!(says(err).contains("nope"));
+    assert!(stub.calls().is_empty(), "nothing reached the wire");
+    engine.shutdown().await;
+}

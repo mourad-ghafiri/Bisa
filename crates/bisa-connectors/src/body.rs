@@ -61,8 +61,10 @@ impl BodyEncoder for JsonEncoder<'_> {
     fn encode(&self, cx: &Sources<'_>) -> Result<Encoded, ConnectorError> {
         let rendered = render_leaves(self.0, cx.spec, cx.values)?;
         let bytes = serde_json::to_vec(&rendered).map_err(|e| {
+            // LCOV_EXCL_START: a serde_json::Value always writes as JSON; the arm keeps the Result total
             ConnectorError::BadDefinition(format!("the body cannot be written as JSON: {e}"))
         })?;
+        // LCOV_EXCL_STOP
         Ok(Encoded {
             content_type: "application/json".into(),
             bytes,

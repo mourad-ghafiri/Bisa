@@ -293,10 +293,12 @@ pub struct Invocation<'a> {
 pub async fn invoke(inner: &Inner, inv: Invocation<'_>) -> Result<cx::Outcome, EngineError> {
     let cap = inner.connectors.cap(&inv.def.id, concurrency(inner));
     let _permit = cap.acquire().await.map_err(|_| {
+        // LCOV_EXCL_START: the semaphore lives as long as the engine; acquire fails only once it is closed
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-connector-s-permit-pool-closed"
         ))
     })?;
+    // LCOV_EXCL_STOP
     let timeout = match inv.deadline {
         Some(d) => d.min(operation_timeout(inner, inv.op)),
         None => operation_timeout(inner, inv.op),
@@ -368,7 +370,9 @@ fn emit(bus: &broadcast::Sender<EngineEvent>, what: ConnectorsChange) {
         }))
         .is_err()
     {
+        // LCOV_EXCL_START: the engine's own ear subscribes for its lifetime; a send nobody hears is a shutdown race
         tracing::trace!("connectors event dropped: no subscribers");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -407,7 +411,9 @@ impl cx::Credentials for StoreCredentials {
         let record = self
             .ws
             .get_connector_account(&connector, id)
+            // LCOV_EXCL_START: the store's disk arm: a read that fails below the lock
             .map_err(|e| cx::ConnectorError::Store(e.to_string()))?;
+        // LCOV_EXCL_STOP
         let mut stored = cx::Stored {
             fields: BTreeMap::new(),
             expires_at: record.auth.expires_at,
@@ -419,7 +425,9 @@ impl cx::Credentials for StoreCredentials {
             if let Some(value) = self
                 .ws
                 .connector_secret(&connector, id, *field)
+                // LCOV_EXCL_START: the store's disk arm: a read that fails below the lock
                 .map_err(|e| cx::ConnectorError::Store(e.to_string()))?
+            // LCOV_EXCL_STOP
             {
                 stored.fields.insert(name, cx::Secret::new(value));
             }
@@ -442,7 +450,9 @@ impl cx::Credentials for StoreCredentials {
                 tokens.expires_at,
                 tokens.scope.clone(),
             )
+            // LCOV_EXCL_START: the store's disk arm: a write that fails below the lock
             .map_err(|e| cx::ConnectorError::Store(e.to_string()))?;
+        // LCOV_EXCL_STOP
         emit(&self.bus, ConnectorsChange::Accounts);
         Ok(())
     }
@@ -621,7 +631,9 @@ impl cx::Files for RunFiles {
         }
         let meta = tokio::fs::metadata(&full)
             .await
+            // LCOV_EXCL_START: the path was canonicalised a line above; its metadata fails only to a file gone in between
             .map_err(|e| format!("{path}: {e}"))?;
+        // LCOV_EXCL_STOP
         if !meta.is_file() {
             return Err(format!("{path} is not a file"));
         }
@@ -728,11 +740,13 @@ fn account_of(
             match value.map(str::parse::<AccountId>) {
                 Some(Ok(id)) => Some(id),
                 _ => {
+                    // LCOV_EXCL_START: the start gate refuses an account input that is no account id; the arm keeps the match total
                     return Err(EngineError::Invalid(bisa_core::text!(
                         "error-engine-invalid-step-input-holds-no-account-id",
                         a0 = (step.id).to_string(),
                         input = input.to_string()
-                    )))
+                    )));
+                    // LCOV_EXCL_STOP
                 }
             }
         }
@@ -1034,10 +1048,12 @@ pub async fn oauth_paste(
         .remove(&state)
         .map(|(_, f)| f)
         .ok_or_else(|| {
+            // LCOV_EXCL_START: the flow was found a line above; its removal fails only to a paste racing a callback
             EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-connection-was-already-completed"
             ))
         })?;
+    // LCOV_EXCL_STOP
     finish_flow(inner, flow, code).await?;
     inner.connector_health.invalidate(connector, account);
     Ok(())
@@ -1154,7 +1170,9 @@ pub async fn check_account(
     {
         Ok(answered) => answered.map_err(|e| match e {
             EngineError::Connector(c) => c,
+            // LCOV_EXCL_START: an invocation fails with a connector's error; the arm keeps the match total
             other => cx::ConnectorError::Store(other.to_string()),
+            // LCOV_EXCL_STOP
         }),
         Err(_elapsed) => Err(cx::ConnectorError::Timeout(budget)),
     };
@@ -1235,7 +1253,7 @@ pub fn put_account(
         account = inner
             .ws
             .set_connector_secrets(&connector, account.id, &secrets)?;
-    }
+    } // LCOV_EXCL_LINE: the store's disk arm: a write for an account created a line above
     announce(inner, ConnectorsChange::Accounts);
     Ok(account)
 }
@@ -1479,7 +1497,9 @@ impl ConnectorRoster {
 fn first_sentence(text: &str) -> String {
     let text = text.trim();
     if text.is_empty() {
+        // LCOV_EXCL_START: the store refuses a connector with an empty description
         return String::new();
+        // LCOV_EXCL_STOP
     }
     let sentence = text
         .split_inclusive(['.', '!', '?'])

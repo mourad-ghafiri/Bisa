@@ -75,6 +75,10 @@ the crate.
 | A `path` parameter keeps its slashes in a URL path, each segment encoded on its own, a slash at either end the template's to write; a text parameter is one segment; `..` is refused as for a segment | `template.rs` unit tests, `tests/it/request.rs` |
 | An OAuth2 scheme's dialect holds — the client's id under `client_id_param` on the consent page and in the token form, scopes joined by `scope_join`, the challenge as `code_challenge` says — and the defaults are RFC 6749's and 7636's words, byte for byte | `tests/it/oauth.rs` |
 | A probe dropped before its answer is abandoned: the next call after the pause is the probe, not a wait on nobody | `breaker.rs` unit tests |
+| A connection cut mid-body is a transport failure asked once; a read that times out on the wire is tried three times and the last timeout is the call's; a backoff longer than what is left of the deadline ends the call with what the one attempt met; a spent deadline sends nothing | `tests/it/hardening.rs`, `tests/it/retry.rs` |
+| An OAuth URL must parse and be https (http on loopback only); without PKCE the consent URL carries no challenge; a token answer naming no type, or `BEARER` in its own case, is bearer; a refresh passes on the judge's refusal before anything is posted and an upstream failure as it came | `tests/it/oauth.rs` |
+| A JSON body leaf that is a literal number or flag goes as written; a raw body from a parameter nobody gave is unresolved by name; a query template naming no root is a bad definition, not a dropped pair; a part's filename keeps its quotes and backslashes escaped; a `file` parameter left unbound is skipped, never read | `tests/it/request.rs` |
+| An error body's explanation is the first candidate that reads as words, a blank string passed over; every failing status has its word; an unmet expectation says why in its reason path's words, or the body's, and an absent expectation holds on an empty list | `outcome.rs` unit tests |
 
 ---
 

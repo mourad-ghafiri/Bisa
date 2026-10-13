@@ -195,7 +195,9 @@ impl HttpTransport for ReqwestTransport {
         insecure_loopback: bool,
     ) -> Result<Response, TransportError> {
         let method = reqwest::Method::from_bytes(req.method.as_str().as_bytes())
+            // LCOV_EXCL_START: Method::as_str is always a token reqwest accepts; the arm keeps the Result total
             .map_err(|e| TransportError::Connect(e.to_string()))?;
+        // LCOV_EXCL_STOP
         let mut builder = self
             .client(insecure_loopback)
             .request(method, req.url.clone())
@@ -253,12 +255,14 @@ fn cause_of(e: &reqwest::Error) -> String {
     }
     let text = source.to_string();
     if std::ptr::eq(source, e as &dyn std::error::Error) || text.is_empty() {
+        // LCOV_EXCL_START: every reqwest failure reaching here carries an inner cause; the fallbacks keep the branch total
         if e.is_connect() {
             "connection refused".to_string()
         } else if e.is_request() {
             "the request could not be sent".to_string()
         } else {
             "request failed".to_string()
+            // LCOV_EXCL_STOP
         }
     } else {
         text

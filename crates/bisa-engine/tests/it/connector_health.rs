@@ -346,3 +346,125 @@ async fn a_check_dropped_mid_flight_leaves_no_slot_behind() {
     assert_eq!(stub.calls().len(), 2, "the dropped request and the new one");
     engine.shutdown().await;
 }
+
+// added by the coverage pass: connector_health.rs
+
+/// A check's state and status, by what the platform answered: a refusal
+/// by status, a platform nobody reaches, a connector with no check; and
+/// the words each state and each health wears.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_check_reads_every_answer_and_every_state_has_its_word() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        canned("GET", "/whoami", 404, json!({"message": "no such user"})),
+        // A 429 is retried: one answer per attempt.
+        canned("GET", "/whoami", 429, json!({"message": "slow down"})),
+        canned("GET", "/whoami", 429, json!({"message": "slow down"})),
+        canned("GET", "/whoami", 429, json!({"message": "slow down"})),
+        canned("GET", "/whoami", 422, json!({"message": "not like that"})),
+        // A 500 is retried on a read: one answer per attempt.
+        canned("GET", "/whoami", 500, json!({"message": "broken"})),
+        canned("GET", "/whoami", 500, json!({"message": "broken"})),
+        canned("GET", "/whoami", 500, json!({"message": "broken"})),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let account = install_chat(&engine, &stub, Some(TOKEN)).unwrap();
+    let health = &engine.inner().connector_health;
+    let gone = health
+        .check(engine.inner(), &cid(), account, None)
+        .await
+        .unwrap();
+    assert_eq!(gone.status, Some(404), "{gone:?}");
+    assert_eq!(gone.state.as_str(), "refused");
+    let limited = health
+        .check(engine.inner(), &cid(), account, None)
+        .await
+        .unwrap();
+    assert_eq!(limited.status, Some(429), "{limited:?}");
+    let unprocessable = health
+        .check(engine.inner(), &cid(), account, None)
+        .await
+        .unwrap();
+    assert_eq!(unprocessable.status, Some(422), "{unprocessable:?}");
+    assert_eq!(unprocessable.state.as_str(), "refused");
+    let broken = health
+        .check(engine.inner(), &cid(), account, None)
+        .await
+        .unwrap();
+    assert_eq!(broken.status, Some(500), "{broken:?}");
+    assert_ne!(broken.state, AccountCheckState::Connected);
+
+    let ws = engine.workspace();
+    let mut nowhere = chat(&stub, bisa_core::AuthScheme::None);
+    nowhere.id = ConnectorId::new("nowhere").unwrap();
+    nowhere.base_url = "http://127.0.0.1:1".into();
+    nowhere.hosts = vec!["127.0.0.1:1".into()];
+    ws.create_connector(nowhere).unwrap();
+    let lost = ws
+        .create_connector_account(bisa_store::NewConnectorAccount {
+            connector: ConnectorId::new("nowhere").unwrap(),
+            label: "lost".into(),
+            params: BTreeMap::new(),
+            default: true,
+        })
+        .unwrap();
+    let unreachable = health
+        .check(
+            engine.inner(),
+            &ConnectorId::new("nowhere").unwrap(),
+            lost.id,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        unreachable.state,
+        AccountCheckState::Unreachable,
+        "{unreachable:?}"
+    );
+    assert_eq!(unreachable.state.as_str(), "unreachable");
+
+    // A scheme that signs: mapped like the rest; an account not yet set up
+    // is refused as unauthenticated before anything is sent.
+    for (id, alg) in [
+        ("signed-es", bisa_core::JwtAlg::Es256),
+        ("signed-rs", bisa_core::JwtAlg::Rs256),
+    ] {
+        let mut signed = chat(
+            &stub,
+            bisa_core::AuthScheme::Jwt {
+                alg,
+                claims: BTreeMap::from([("iss".to_string(), "my-app".to_string())]),
+                header: BTreeMap::new(),
+                ttl_secs: 300,
+            },
+        );
+        signed.id = ConnectorId::new(id).unwrap();
+        ws.create_connector(signed).unwrap();
+        let unset = ws
+            .create_connector_account(bisa_store::NewConnectorAccount {
+                connector: ConnectorId::new(id).unwrap(),
+                label: "unset".into(),
+                params: BTreeMap::new(),
+                default: true,
+            })
+            .unwrap();
+        let not_yet = health
+            .check(
+                engine.inner(),
+                &ConnectorId::new(id).unwrap(),
+                unset.id,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(not_yet.status, Some(401), "{not_yet:?}");
+        assert_eq!(not_yet.state.as_str(), "refused");
+    }
+    assert_eq!(AccountCheckState::NoCheck.as_str(), "no_check");
+    assert_eq!(AccountHealthState::Unknown.as_str(), "unknown");
+    assert_eq!(AccountHealthState::Ok.as_str(), "ok");
+    assert_eq!(AccountHealthState::Failing.as_str(), "failing");
+    engine.shutdown().await;
+}

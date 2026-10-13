@@ -613,3 +613,261 @@ async fn a_check_budget_ends_the_wait_on_a_platform_that_never_answers() {
     assert_eq!(health["check"], "unreachable");
     node.shutdown().await;
 }
+
+// added by the coverage pass: connectors.rs
+
+/// The connector routes' edges: a body naming another connector than the
+/// path, an edit that is refused with its problems and one that lands, a
+/// validation with tags that are no tags, a list narrowed by tag, an
+/// account that is no id, an account edited with its secrets and made the
+/// default in one body, and a pasted code that is blank.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_connector_routes_at_their_edges() {
+    let node = Node::start().await;
+    let (host, _stub) = platform_stub().await;
+    node.post("/connectors", bearer_definition(&host)).await;
+
+    let mut other = bearer_definition(&host);
+    other["id"] = json!("other");
+    let (status, v) = node.req("PUT", "/connectors/acme", Some(other)).await;
+    assert_eq!(status, 400, "{v}");
+    let mut broken = bearer_definition(&host);
+    broken["check"] = json!("missing");
+    let (status, v) = node.req("PUT", "/connectors/acme", Some(broken)).await;
+    assert_eq!(status, 400, "{v}");
+    assert_eq!(v["detail"]["problems"][0]["field"], "check", "{v}");
+    let mut mistagged = bearer_definition(&host);
+    mistagged["tags"] = json!(["not a tag!"]);
+    let (status, v) = node.req("PUT", "/connectors/acme", Some(mistagged)).await;
+    assert_eq!(status, 400, "{v}");
+    let mut renamed = bearer_definition(&host);
+    renamed["description"] = json!("The same platform, described anew.");
+    let (status, v) = node.req("PUT", "/connectors/acme", Some(renamed)).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["connector"]["id"], "acme");
+    let detail = node.get("/connectors/acme").await;
+    assert_eq!(
+        detail["connector"]["description"],
+        "The same platform, described anew."
+    );
+
+    let mut tagged_wrong = bearer_definition(&host);
+    tagged_wrong["id"] = json!("tagged");
+    tagged_wrong["tags"] = json!(["not a tag!"]);
+    let v = node.post("/connectors/validate", tagged_wrong).await;
+    assert_eq!(v["ok"], false, "{v}");
+    assert!(
+        v["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["field"] == json!("tags")),
+        "{v}"
+    );
+
+    // A definition with tags that are no tags is refused at the door, and
+    // one with more problems than the words name says how many more.
+    let mut untagged = bearer_definition(&host);
+    untagged["id"] = json!("untagged");
+    untagged["tags"] = json!(["not a tag!"]);
+    let (status, v) = node.req("POST", "/connectors", Some(untagged)).await;
+    assert_eq!(status, 400, "{v}");
+    let many = json!({
+        "id": "many", "name": " ", "description": " ", "base_url": "", "hosts": [],
+        "auth": {"scheme": "bearer"}, "operations": [], "check": "missing"
+    });
+    let v = node.post("/connectors/validate", many.clone()).await;
+    assert!(v["problems"].as_array().unwrap().len() > 3, "{v}");
+    let (status, v) = node.req("POST", "/connectors", Some(many)).await;
+    assert_eq!(status, 400, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("more"), "{v}");
+    // An account with a parameter the connector never declared.
+    let (status, v) = node
+        .req(
+            "PUT",
+            "/connectors/acme/accounts",
+            Some(json!({"label": "odd", "params": {"nope": 1}, "secrets": {"token": "t-0"}})),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+
+    let listed = node.get("/connectors?tag=ops").await;
+    assert_eq!(
+        listed["connectors"].as_array().unwrap().len(),
+        1,
+        "{listed}"
+    );
+    let none = node.get("/connectors?tag=nope").await;
+    assert_eq!(none["connectors"], json!([]), "{none}");
+
+    let (status, v) = node
+        .req("DELETE", "/connectors/acme/accounts/not-an-id", None)
+        .await;
+    assert_eq!(status, 404, "{v}");
+
+    let first = node
+        .put(
+            "/connectors/acme/accounts",
+            json!({"label": "first", "secrets": {"token": "t-1"}}),
+        )
+        .await;
+    let second = node
+        .put(
+            "/connectors/acme/accounts",
+            json!({"label": "second", "secrets": {"token": "t-2"}}),
+        )
+        .await;
+    assert_eq!(first["default"], true);
+    assert_eq!(second["default"], false);
+    let edited = node
+        .put(
+            "/connectors/acme/accounts",
+            json!({"id": second["id"], "label": "second", "secrets": {"token": "t-3"}, "default": true}),
+        )
+        .await;
+    assert_eq!(edited["default"], true, "{edited}");
+    assert_eq!(edited["secrets_set"], json!(["token"]));
+    let relabelled = node
+        .put(
+            "/connectors/acme/accounts",
+            json!({"id": second["id"], "label": "second, renamed"}),
+        )
+        .await;
+    assert_eq!(relabelled["label"], "second, renamed", "{relabelled}");
+    let rows = node.get("/connectors/acme/accounts").await;
+    let defaults: Vec<bool> = rows["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["default"].as_bool().unwrap())
+        .collect();
+    assert_eq!(
+        defaults.iter().filter(|d| **d).count(),
+        1,
+        "one default: {rows}"
+    );
+
+    let aid = first["id"].as_str().unwrap();
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/connectors/acme/accounts/{aid}/oauth/complete"),
+            Some(json!({"code": "   "})),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    node.shutdown().await;
+}
+
+/// The page the browser lands on when the platform declined: a refusal
+/// with the platform's reason, every angle bracket of it escaped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_declined_consent_lands_on_a_page_that_says_so_and_escapes_the_reason() {
+    let node = Node::start().await;
+    let (host, _stub) = platform_stub().await;
+    let port = free_port();
+    node.put(
+        "/settings/machine",
+        json!({"values": {"connectors.oauth.port": port}}),
+    )
+    .await;
+    node.post("/connectors", oauth_definition(&host)).await;
+    let row = node
+        .put(
+            "/connectors/acme-oauth/accounts",
+            json!({"label": "me", "secrets": {"client_id": "stub-client", "client_secret": "stub-secret"}}),
+        )
+        .await;
+    let aid = row["id"].as_str().unwrap().to_string();
+    node.post(
+        &format!("/connectors/acme-oauth/accounts/{aid}/oauth/start"),
+        json!({}),
+    )
+    .await;
+    let (status, body) = tcp_get(
+        port,
+        "/connectors/oauth/callback?error=access_denied&error_description=%3Cb%3E%22no%22%26%27%3C%2Fb%3E",
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body.contains("&lt;b&gt;&quot;no&quot;&amp;&#39;&lt;/b&gt;"),
+        "{body}"
+    );
+    assert!(!body.contains("<b>"), "{body}");
+    node.shutdown().await;
+}
+
+/// The callback listener: a busy port is said with its number; a second
+/// start on the same port keeps the listener; a start after the port moved
+/// follows it; and a code whose exchange reaches no token endpoint lands on
+/// a page that says the account is not connected.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_callback_listener_follows_its_port_and_a_refused_exchange_lands_on_a_page() {
+    let node = Node::start().await;
+    let (host, _stub) = platform_stub().await;
+    let mut unreachable = oauth_definition(&host);
+    unreachable["auth"]["token_url"] = json!("http://127.0.0.1:1/token");
+    unreachable["hosts"] = json!([host, "127.0.0.1:1"]);
+    node.post("/connectors", unreachable).await;
+    let row = node
+        .put(
+            "/connectors/acme-oauth/accounts",
+            json!({"label": "me", "secrets": {"client_id": "stub-client", "client_secret": "stub-secret"}}),
+        )
+        .await;
+    let aid = row["id"].as_str().unwrap().to_string();
+    let start_path = format!("/connectors/acme-oauth/accounts/{aid}/oauth/start");
+
+    // The port is taken: said, with the port.
+    let taken = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let busy = taken.local_addr().unwrap().port();
+    node.put(
+        "/settings/machine",
+        json!({"values": {"connectors.oauth.port": busy}}),
+    )
+    .await;
+    let (status, v) = node.req("POST", &start_path, Some(json!({}))).await;
+    assert_eq!(status, 409, "{v}");
+    assert!(
+        v["error"].as_str().unwrap().contains(&busy.to_string()),
+        "{v}"
+    );
+    drop(taken);
+
+    // Up on one port, asked again on the same, then moved to another.
+    let first = free_port();
+    node.put(
+        "/settings/machine",
+        json!({"values": {"connectors.oauth.port": first}}),
+    )
+    .await;
+    let (status, v) = node.req("POST", &start_path, Some(json!({}))).await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = node.req("POST", &start_path, Some(json!({}))).await;
+    assert_eq!(status, 200, "{v}");
+    let second = free_port();
+    node.put(
+        "/settings/machine",
+        json!({"values": {"connectors.oauth.port": second}}),
+    )
+    .await;
+    let (status, started) = node.req("POST", &start_path, Some(json!({}))).await;
+    assert_eq!(status, 200, "{started}");
+    let url = started["url"].as_str().unwrap();
+    let state = url
+        .split("state=")
+        .nth(1)
+        .and_then(|rest| rest.split('&').next())
+        .unwrap_or_else(|| panic!("a state in {url}"))
+        .to_string();
+    let (status, body) = tcp_get(
+        second,
+        &format!("/connectors/oauth/callback?code=stale&state={state}"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, 502, "{body}");
+    node.shutdown().await;
+}

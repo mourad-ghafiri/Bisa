@@ -246,4 +246,33 @@ mod tests {
         assert_eq!(retry_after(&junk, 0), None);
         assert_eq!(http_date("Thu, 01 Jan 1970 00:00:00 GMT"), Some(0));
     }
+
+    // added by the coverage pass: retry.rs
+
+    /// A policy of none tries once; an answer that could not be read is
+    /// never tried again; an HTTP date is read in every month and refused
+    /// out of range or in no month at all.
+    #[test]
+    fn none_tries_once_a_broken_answer_is_final_and_a_date_is_read_or_refused() {
+        assert_eq!(RetryPolicy::none().attempts, 1);
+        let p = RetryPolicy::default();
+        assert_eq!(
+            decide(
+                &p,
+                0,
+                &Err(TransportError::Body("cut".into())),
+                false,
+                None,
+                0.5
+            ),
+            Next::Done
+        );
+        assert_eq!(
+            http_date("Thu, 25 Dec 2025 10:00:00 GMT"),
+            Some(1_766_656_800)
+        );
+        assert_eq!(http_date("Thu, 25 Foo 2025 10:00:00 GMT"), None);
+        assert_eq!(http_date("Thu, 32 Dec 2025 10:00:00 GMT"), None);
+        assert_eq!(http_date("Thu, 25 Dec 2025 10:00:00 UTC"), None);
+    }
 }

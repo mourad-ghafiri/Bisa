@@ -236,3 +236,123 @@ async fn five_failures_open_the_hosts_circuit_and_a_probe_closes_it() {
         .breaker()
         .is_open(&spec.hosts[0], 100 + COOLDOWN_SECS));
 }
+
+// added by the coverage pass: hardening.rs
+
+/// The transport's own edges: a header is found whatever its case, every
+/// transport error has its words, the default transport is the strict one,
+/// a port nobody answers on is unreachable in words, and a loopback
+/// platform that asks for the lenient client is still reached.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_transports_edges() {
+    use bisa_connectors::http::{ReqwestTransport, Response, TransportError};
+    let answer = Response {
+        status: 200,
+        headers: vec![("Content-Type".into(), "text/plain".into())],
+        body: vec![],
+    };
+    assert_eq!(answer.header("content-type"), Some("text/plain"));
+    assert_eq!(answer.header("x-missing"), None);
+    assert_eq!(
+        TransportError::Connect("refused".into()).to_string(),
+        "cannot connect: refused"
+    );
+    assert_eq!(
+        TransportError::Body("cut".into()).to_string(),
+        "cannot read the answer: cut"
+    );
+    assert_eq!(TransportError::Timeout.to_string(), "timed out");
+    let _strict = ReqwestTransport::default();
+
+    let nobody = bisa_connectors::spec::CallSpec {
+        base_url: "http://127.0.0.1:1".into(),
+        hosts: vec!["127.0.0.1:1".into()],
+        ..offline_spec(AuthSpec::None)
+    };
+    let client = client(MemoryCreds::with(
+        &account(),
+        bisa_connectors::creds::Stored::default(),
+    ));
+    let err = client
+        .call(&nobody, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, ConnectorError::Unreachable(why) if why.to_lowercase().contains("connection refused")),
+        "{err}"
+    );
+
+    let stub = Stub::start(vec![Canned::json(
+        "GET",
+        "/v1/items/1",
+        200,
+        json!({"ok": 1}),
+    )])
+    .await;
+    let lenient = bisa_connectors::spec::CallSpec {
+        insecure_tls: true,
+        ..spec(&stub, AuthSpec::None)
+    };
+    let out = client
+        .call(
+            &lenient,
+            None,
+            &no_account_params(),
+            &params(&[("id", "1")]),
+            &AllowAll,
+        )
+        .await
+        .unwrap();
+    assert_eq!(out.body, json!({"ok": 1}));
+}
+
+// added by the coverage pass: http.rs
+
+/// A platform that closes the connection mid-body — the head promised a
+/// hundred bytes, five came — fails the call as a transport failure, not a
+/// refusal and not something to send again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_cut_mid_body_is_a_transport_failure_asked_once() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let served = std::thread::spawn(move || {
+        let mut count = 0;
+        listener
+            .set_nonblocking(false)
+            .expect("a blocking listener");
+        for stream in listener.incoming().take(1) {
+            let mut stream = stream.expect("a connection");
+            let mut request = [0u8; 1024];
+            let _bytes_read = stream.read(&mut request);
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"ok\"",
+                )
+                .expect("the head and five bytes");
+            drop(stream);
+            count += 1;
+        }
+        count
+    });
+    let cut = bisa_connectors::spec::CallSpec {
+        base_url: format!("http://{addr}"),
+        hosts: vec![addr.to_string()],
+        timeout: std::time::Duration::from_secs(5),
+        ..offline_spec(AuthSpec::None)
+    };
+    let client = client(MemoryCreds::with(
+        &account(),
+        bisa_connectors::creds::Stored::default(),
+    ));
+    let err = client
+        .call(&cut, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ConnectorError::Transport(_)), "{err}");
+    assert_eq!(
+        served.join().unwrap(),
+        1,
+        "the one connection, never a second"
+    );
+}

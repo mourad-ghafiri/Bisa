@@ -37,6 +37,9 @@ import {
   secretFields,
   secretsLine,
   secretsSetWords,
+  defaultWords,
+  connectedWords,
+  openedWords,
   typedSecrets,
 } from "./connectorsModel.mjs";
 
@@ -290,4 +293,13 @@ test("an account row shows one verb — Connect until an OAuth account holds a t
   const panel = readFileSync(new URL("./ConnectorsPanel.tsx", import.meta.url), "utf8");
   assert.ok(panel.includes("accountVerbs(a, oauth)") && panel.includes("<MoreMenu"), "the row draws the model's verbs; the rest behind one menu");
   assert.ok(panel.includes("onSelect: () => setForgetting(a)"), "Forget still asks first");
+});
+
+// added by the coverage pass: connectorsModel.test.mjs
+test("the words of an account made default, connected, set, and a consent page opening", () => {
+  assert.equal(defaultWords("work"), "work is the default account.");
+  assert.ok(connectedWords("work").startsWith("work connected"));
+  assert.equal(secretsSetWords([]), "Nothing changed.");
+  assert.ok(secretsSetWords(["token"]).includes("token"));
+  assert.ok(openedWords().length > 0);
 });

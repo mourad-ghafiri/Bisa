@@ -23,6 +23,7 @@
 //! when the fixture is.
 
 use serde_json::Value;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -195,7 +196,6 @@ impl Sealed {
     /// journey's own does and what `given` adds — and no workspace named,
     /// since a hook is told where the node is and nothing else.
     pub fn hook(&self, line: &str, given: &[(String, String)], input: &str) -> Output {
-        use std::io::Write as _;
         let mut command = Command::new("/bin/sh");
         command.env_clear();
         for name in KEPT {
@@ -229,6 +229,46 @@ impl Sealed {
             .stdin(Stdio::null())
             .output()
             .expect("the binary runs")
+    }
+
+    /// One verb with words on its stdin, whatever it answers.
+    pub fn bisa_stdin(&self, args: &[&str], input: &str) -> Output {
+        let mut child = self
+            .command()
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the binary runs");
+        child
+            .stdin
+            .take()
+            .expect("the verb's input")
+            .write_all(input.as_bytes())
+            .expect("the words, handed over");
+        child.wait_with_output().expect("the verb ends")
+    }
+
+    /// One verb with words on its stdin, asked as a script asks (`--json`),
+    /// that must answer JSON.
+    pub fn json_stdin(&self, args: &[&str], input: &str) -> Value {
+        let mut all = vec!["--json"];
+        all.extend_from_slice(args);
+        let out = self.bisa_stdin(&all, input);
+        assert!(
+            out.status.success(),
+            "bisa {args:?} failed:\nstdout: {}\nstderr: {}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+            self.what_happened()
+        );
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+            panic!(
+                "bisa {args:?} did not answer JSON ({e}): {}",
+                String::from_utf8_lossy(&out.stdout)
+            )
+        })
     }
 
     /// One verb that must succeed.

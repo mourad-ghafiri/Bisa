@@ -436,3 +436,182 @@ fn a_path_parameter_keeps_its_slashes_where_a_text_one_is_one_segment() {
         Err(ConnectorError::BadDefinition(_))
     ));
 }
+
+// added by the coverage pass: request.rs
+
+/// A base URL that renders into no URL, a header value that is not
+/// printable ASCII, and an idempotency header the platform reserves are
+/// each refused by name before any request is built.
+#[test]
+fn a_bad_base_url_a_control_header_and_a_reserved_idempotency_header_are_refused() {
+    // A host name alone is no URL: it renders, and then does not parse.
+    let account = BTreeMap::from([("site".to_string(), json!("example.com"))]);
+    let mut spec = bisa_connectors::spec::CallSpec {
+        base_url: "{account.site}".into(),
+        ..offline_spec(AuthSpec::None)
+    };
+    let params_map: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let values = Values {
+        account: &account,
+        params: &params_map,
+    };
+    let err = build(&spec, &values).unwrap_err();
+    assert!(
+        matches!(&err, ConnectorError::BadDefinition(t) if t.contains("does not parse")),
+        "{err}"
+    );
+
+    spec.base_url = "https://api.example.com".into();
+    spec.params = vec![p("note", ParamKind::Text, true)];
+    spec.headers = BTreeMap::from([("X-Note".to_string(), "{params.note}".to_string())]);
+    let noisy = BTreeMap::from([("note".to_string(), json!("a\u{7}b"))]);
+    let values = Values {
+        account: &account,
+        params: &noisy,
+    };
+    let err = build(&spec, &values).unwrap_err();
+    assert!(
+        matches!(&err, ConnectorError::BadParam { name, why } if name == "X-Note" && why.contains("printable ASCII")),
+        "{err}"
+    );
+
+    spec.headers.clear();
+    spec.params.clear();
+    spec.idempotency = Some(bisa_connectors::spec::Idempotency {
+        header: "Authorization".into(),
+    });
+    spec.idempotency_key = Some("k-1".into());
+    let values = Values {
+        account: &account,
+        params: &params_map,
+    };
+    let err = build(&spec, &values).unwrap_err();
+    assert!(
+        matches!(&err, ConnectorError::BadDefinition(t) if t.contains("set by the platform")),
+        "{err}"
+    );
+}
+
+// added by the coverage pass: body.rs, template.rs, client.rs
+
+/// The shapes at the edges of a body: a JSON leaf that is a literal number
+/// or flag goes as it is; a raw body from a parameter nobody gave is
+/// unresolved by name; a query whose template names no root is a bad
+/// definition, not a dropped pair; a part's filename keeps its quotes and
+/// backslashes escaped; and a `file` parameter left unbound is skipped,
+/// never read.
+#[tokio::test]
+async fn a_literal_leaf_a_raw_body_from_nothing_a_rootless_query_and_an_odd_filename() {
+    let stub = Stub::start(vec![
+        Canned::json("POST", "/v1/items", 200, json!({"ok": true})),
+        Canned::json("POST", "/v1/upload", 200, json!({"id": "u2"})),
+    ])
+    .await;
+    let client = client(MemoryCreds::with(&account(), Default::default()));
+
+    // A literal leaf beside a rendered one.
+    let mut literal = spec(&stub, AuthSpec::None);
+    literal.method = Method::Post;
+    literal.path = "/v1/items".into();
+    literal.body = Some(CallBody::Json {
+        value: json!({"n": 1, "flag": true, "name": "{params.name}"}),
+    });
+    literal.params = vec![p("name", ParamKind::Text, true)];
+    client
+        .call(
+            &literal,
+            None,
+            &no_account_params(),
+            &params(&[("name", "x")]),
+            &AllowAll,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        stub.calls()[0].body,
+        json!({"n": 1, "flag": true, "name": "x"})
+    );
+
+    // A raw body from a parameter nobody gave.
+    let mut raw = spec(&stub, AuthSpec::None);
+    raw.method = Method::Post;
+    raw.path = "/v1/items".into();
+    raw.body = Some(CallBody::Raw {
+        content_type: "text/plain".into(),
+        from: "blob".into(),
+    });
+    raw.params = vec![p("blob", ParamKind::Text, false)];
+    let err = client
+        .call(&raw, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, ConnectorError::Unresolved(what) if what == "params.blob"),
+        "{err}"
+    );
+
+    // A query that names no root.
+    let mut rootless = spec(&stub, AuthSpec::None);
+    rootless.path = "/v1/items".into();
+    rootless.params = vec![];
+    rootless.query = BTreeMap::from([("q".to_string(), "{nope}".to_string())]);
+    let err = client
+        .call(
+            &rootless,
+            None,
+            &no_account_params(),
+            &params(&[]),
+            &AllowAll,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, ConnectorError::BadDefinition(why) if why.contains("{nope}")),
+        "{err}"
+    );
+
+    // An odd filename, and a file parameter left unbound.
+    let mut upload = spec(&stub, AuthSpec::None);
+    upload.method = Method::Post;
+    upload.path = "/v1/upload".into();
+    upload.body = Some(CallBody::Multipart {
+        parts: vec![Part {
+            name: "media".into(),
+            source: PartSource::File {
+                file: "video".into(),
+            },
+            filename: None,
+            content_type: None,
+        }],
+    });
+    upload.params = vec![
+        p("video", ParamKind::File, true),
+        p("extra", ParamKind::File, false),
+    ];
+    let files = MemoryFiles::with(
+        "out/odd.txt",
+        FileData {
+            filename: "we\"ird\\.txt".into(),
+            content_type: None,
+            bytes: b"X".to_vec(),
+        },
+    );
+    client
+        .call_with(
+            &upload,
+            None,
+            &no_account_params(),
+            &params(&[("video", "out/odd.txt")]),
+            &files,
+            &AllowAll,
+        )
+        .await
+        .unwrap();
+    let text = &stub.calls()[1].text;
+    assert!(text.contains(r#"filename="we\"ird\\.txt""#), "{text}");
+    assert_eq!(
+        stub.calls().len(),
+        2,
+        "nothing was sent for the refused shapes"
+    );
+}

@@ -43,7 +43,9 @@ impl AuthSigner for JwtSigner<'_> {
         cx: &SignContext<'_>,
     ) -> Result<Applied, ConnectorError> {
         let Credential::Jwt(key) = credential else {
+            // LCOV_EXCL_START: the store hands each scheme its own kind; the arm keeps the match total
             return Err(mismatch("jwt"));
+            // LCOV_EXCL_STOP
         };
         let token = self.mint(key.expose(), cx)?;
         let mut applied = write_bearer(req, &crate::creds::Secret::new(token));
@@ -205,5 +207,26 @@ mod tests {
             assert!(err.to_string().contains(says), "{text:?} → {err}");
             assert!(!err.to_string().contains("AQID"), "the key is never quoted");
         }
+    }
+
+    // added by the coverage pass: jwt.rs
+
+    /// The signer refuses a key its algorithm cannot use: one labelled RSA
+    /// for ES256 by its label, and bytes that are no RSA key for RS256 by
+    /// the library's word.
+    #[test]
+    fn the_signer_refuses_a_key_its_algorithm_cannot_use() {
+        let rsa_labelled = Pem::Pkcs1Rsa(vec![1, 2, 3]);
+        let err = sign(JwtAlg::Es256, &rsa_labelled, b"x").unwrap_err();
+        assert!(
+            err.to_string().contains("an RSA key cannot sign ES256"),
+            "{err}"
+        );
+        let err = sign(JwtAlg::Rs256, &rsa_labelled, b"x").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("not an RSA key RS256 can sign with"),
+            "{err}"
+        );
     }
 }

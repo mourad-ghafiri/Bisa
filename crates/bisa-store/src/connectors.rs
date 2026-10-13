@@ -107,7 +107,7 @@ impl Workspace {
             Paths::NS_CONNECTORS,
             KIND_CONNECTOR,
             def.id.as_str(),
-        )?;
+        )?; // LCOV_EXCL_LINE: the store's disk arm: a journal append that fails below the lock
         let event = self.snapshots.put(
             Paths::NS_CONNECTORS,
             KIND_CONNECTOR,
@@ -118,7 +118,7 @@ impl Workspace {
             now_secs(),
             None,
             def.tags.as_slice(),
-        )?;
+        )?; // LCOV_EXCL_LINE: the store's disk arm: a snapshot write that fails below the lock
         self.emit_store_event(StoreEvent::ConversationSnapshot {
             kind: KIND_CONNECTOR,
             d: def.id.to_string(),

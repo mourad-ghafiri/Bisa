@@ -379,4 +379,22 @@ mod tests {
         .unwrap();
         assert_eq!(by_kind, "/v/Projects/Launch%20plan.md/%2Fa%2Fb%2F");
     }
+
+    // added by the coverage pass: template.rs
+
+    /// A placeholder with no root is no placeholder a definition may read,
+    /// and the absence check says so rather than calling it absent.
+    #[test]
+    fn a_rootless_placeholder_is_refused_by_name() {
+        let (account, params) = values();
+        let v = Values {
+            account: &account,
+            params: &params,
+        };
+        let err = render("{site}", &v, Encode::Text).unwrap_err();
+        assert!(err.to_string().contains("not a placeholder"), "{err}");
+        let err = names_absent("{site}", &v).unwrap_err();
+        assert!(err.to_string().contains("not a placeholder"), "{err}");
+        assert!(names_absent("{params.opt}", &v).unwrap());
+    }
 }

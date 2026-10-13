@@ -543,6 +543,11 @@ fn quiet_harness() -> MockAdapter {
         script: Some(vec![bisa_harness::SessionEvent::Lifecycle(
             bisa_harness::LifecycleEvent::Started,
         )]),
+        // The turn says nothing for longer than any test here runs: the
+        // worker is live until the test ends it, never gone on its own
+        // between two assertions — an instrumented run is slow enough for
+        // a turn that ends at once to end first.
+        turn_delay: std::time::Duration::from_secs(30),
         ..Default::default()
     }
 }

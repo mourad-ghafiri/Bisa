@@ -20,6 +20,7 @@ mod a_node_that_dies_with_its_parent;
 mod a_platform_reached_through_a_connector;
 mod a_workspace_that_came_back_broken;
 mod addons_drawings_and_notes;
+mod connectors_from_the_command_line;
 mod copilot_grok_and_gemini;
 mod crash_in_a_step;
 mod events_and_gateways;

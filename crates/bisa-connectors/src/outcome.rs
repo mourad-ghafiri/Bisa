@@ -63,7 +63,8 @@ pub fn explanation(body: &Value) -> Option<String> {
     ];
     let text = candidates.into_iter().flatten().find_map(|v| match v {
         Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
-        Value::Object(_) | Value::Array(_) | Value::Null => None,
+        // A blank string is no sentence either: the next candidate may be.
+        Value::String(_) | Value::Object(_) | Value::Array(_) | Value::Null => None,
         other => Some(other.to_string()),
     })?;
     Some(text.chars().take(300).collect())
@@ -87,7 +88,7 @@ fn status_text(status: u16) -> &'static str {
         404 => "not found",
         409 => "conflict",
         422 => "unprocessable",
-        429 => "too many requests",
+        429 => "too many requests", // LCOV_EXCL_LINE: a 429 is read as RateLimited before the words are asked for
         500 => "internal error",
         502 => "bad gateway",
         503 => "unavailable",
@@ -187,7 +188,7 @@ fn unmet(expect: &Expect, body: &Value) -> Option<String> {
         .and_then(|p| json_path(body, p))
         .and_then(|v| match v {
             Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
-            Value::Object(_) | Value::Array(_) | Value::Null => None,
+            Value::String(_) | Value::Object(_) | Value::Array(_) | Value::Null => None,
             other => Some(other.to_string()),
         })
         .map(|s| s.chars().take(300).collect::<String>())
@@ -429,5 +430,122 @@ mod tests {
             parse(&big, None, None, 0),
             Err(ConnectorError::TooLarge(_))
         ));
+    }
+
+    // added by the coverage pass: outcome.rs
+
+    /// A path with an empty segment names nothing; a cursor given as a
+    /// number is read as its text.
+    #[test]
+    fn an_empty_segment_names_nothing_and_a_numeric_cursor_is_its_text() {
+        let body = json!({"a": {"b": 1}, "next": 5, "last": ""});
+        assert_eq!(json_path(&body, "a..b"), None);
+        assert_eq!(next_cursor(&body, "next").as_deref(), Some("5"));
+        assert_eq!(next_cursor(&body, "last"), None);
+    }
+
+    /// What a platform says of its refusal: a code with an empty sentence
+    /// is no explanation, a number is read as its text, an object or a list
+    /// at a candidate is passed over.
+    #[test]
+    fn an_explanation_is_the_first_candidate_that_reads_as_words() {
+        assert_eq!(
+            explanation(&json!({"error": "bad_scope", "error_description": "  "})).as_deref(),
+            Some("bad_scope")
+        );
+        assert_eq!(explanation(&json!({"message": 7})).as_deref(), Some("7"));
+        assert_eq!(
+            explanation(&json!({"message": "   ", "error": "quota"})).as_deref(),
+            Some("quota"),
+            "a blank sentence is passed over for the next"
+        );
+        assert_eq!(explanation(&json!({"message": ""})), None);
+        assert_eq!(
+            explanation(&json!({"message": {"deep": 1}, "detail": ["x"]})),
+            None
+        );
+    }
+
+    /// Every status the reader has a word for, and the word for the rest.
+    #[test]
+    fn every_failing_status_has_its_word() {
+        for (status, word) in [
+            (400, "bad request"),
+            (401, "unauthorised"),
+            (403, "forbidden"),
+            (404, "not found"),
+            (409, "conflict"),
+            (422, "unprocessable"),
+            (500, "internal error"),
+            (502, "bad gateway"),
+            (503, "unavailable"),
+            (504, "gateway timeout"),
+            (418, "error"),
+        ] {
+            let err = parse(&resp(status, ""), None, None, 0).unwrap_err();
+            assert!(err.to_string().contains(word), "{status}: {err}");
+        }
+    }
+
+    /// An expectation that is not met says why in the platform's words when
+    /// it has any, else in the operation's: a value where none should be, a
+    /// value that is not the one wanted, a path that is not as expected.
+    #[test]
+    fn an_unmet_expectation_says_why() {
+        let expect = |path: &str, equals: Option<Value>, absent: bool, reason: Option<&str>| {
+            crate::spec::Expect {
+                path: path.into(),
+                equals,
+                absent,
+                reason: reason.map(str::to_string),
+            }
+        };
+        let present = expect("errors", None, true, None);
+        let err = parse(&resp(200, r#"{"errors": "one"}"#), None, Some(&present), 0).unwrap_err();
+        assert!(err.to_string().contains("carries errors"), "{err}");
+        let wanted = expect("ok", Some(json!(true)), false, None);
+        let err = parse(&resp(200, r#"{"ok": false}"#), None, Some(&wanted), 0).unwrap_err();
+        assert!(err.to_string().contains("is not true"), "{err}");
+        let vague = expect("ok", None, false, None);
+        let err = parse(&resp(200, r#"{"ok": false}"#), None, Some(&vague), 0).unwrap_err();
+        assert!(
+            err.to_string().contains("not what the operation expects"),
+            "{err}"
+        );
+        let numbered = expect("ok", Some(json!(true)), false, Some("code"));
+        let err = parse(
+            &resp(200, r#"{"ok": false, "code": 42}"#),
+            None,
+            Some(&numbered),
+            0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("42"), "{err}");
+        let shaped = expect("ok", Some(json!(true)), false, Some("why"));
+        let err = parse(
+            &resp(200, r#"{"ok": false, "why": {"deep": 1}}"#),
+            None,
+            Some(&shaped),
+            0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("is not true"), "{err}");
+        // An absent expectation holds on an empty list.
+        let none = expect("errors", None, true, None);
+        assert!(parse(&resp(200, r#"{"errors": []}"#), None, Some(&none), 0).is_ok());
+        // A reason that reads as words is said; a blank one gives way to the
+        // body's own explanation.
+        let worded = expect("ok", Some(json!(true)), false, Some("why"));
+        let err = parse(
+            &resp(200, r#"{"ok": false, "why": "  not today  "}"#),
+            None,
+            Some(&worded),
+            0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("not today"), "{err}");
+        let blank = r#"{"ok": false, "why": "   ", "message": "the body's own words"}"#;
+        let err = parse(&resp(200, blank), None, Some(&worded), 0).unwrap_err();
+        assert!(err.to_string().contains("the body's own words"), "{err}");
     }
 }

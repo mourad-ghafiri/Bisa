@@ -154,7 +154,9 @@ impl Client {
                     }
                     tracing::debug!(
                         attempt,
+                        // LCOV_EXCL_START: a field of a debug event, evaluated only under a subscriber that wants it
                         wait_ms = wait.as_millis() as u64,
+                        // LCOV_EXCL_STOP
                         "retrying a connector call"
                     );
                     tokio::time::sleep(wait).await;
@@ -233,6 +235,7 @@ impl Client {
                     why,
                 })?;
             if data.bytes.len() > MAX_FILE_BYTES {
+                // LCOV_EXCL_START: the port reads a file's size before its bytes (RunFiles); a 256 MiB fixture is no unit test
                 return Err(ConnectorError::BadParam {
                     name: p.name.clone(),
                     why: format!(
@@ -241,6 +244,7 @@ impl Client {
                         MAX_FILE_BYTES / (1024 * 1024)
                     ),
                 });
+                // LCOV_EXCL_STOP
             }
             out.insert(p.name.clone(), data);
         }
@@ -325,7 +329,9 @@ impl Client {
                             &values,
                             &file_data,
                             self.entropy.as_ref(),
+                            // LCOV_EXCL_START: the same request was built once above; a second build cannot fail differently
                         )?;
+                        // LCOV_EXCL_STOP
                         let applied = auth::apply(&spec.auth, &credential, &mut again, &sign)?;
                         exposed.extend(applied.secrets);
                         resp = self

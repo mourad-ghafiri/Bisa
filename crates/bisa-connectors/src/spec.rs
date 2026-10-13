@@ -350,3 +350,62 @@ mod secs {
         u64::deserialize(d).map(Duration::from_secs)
     }
 }
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    /// Every method and every parameter kind has its word on the wire.
+    #[test]
+    fn every_method_and_kind_has_its_word() {
+        assert_eq!(Method::Patch.as_str(), "PATCH");
+        assert_eq!(Method::Delete.as_str(), "DELETE");
+        assert_eq!(Method::Head.as_str(), "HEAD");
+        assert_eq!(ParamKind::Text.as_str(), "text");
+        assert_eq!(ParamKind::Json.as_str(), "json");
+        assert_eq!(ParamKind::Number.as_str(), "number");
+        assert_eq!(ParamKind::Bool.as_str(), "bool");
+        assert_eq!(ParamKind::File.as_str(), "file");
+        assert_eq!(ParamKind::Path.as_str(), "path");
+    }
+
+    /// An OAuth2 scheme written without its dialect reads with the RFCs'
+    /// words: PKCE on, the client id under `client_id`.
+    #[test]
+    fn an_oauth2_scheme_without_a_dialect_reads_with_the_rfcs_words() {
+        let scheme: AuthSpec = serde_json::from_value(serde_json::json!({
+            "scheme": "o_auth2",
+            "authorization_url": "https://auth.example.com/authorize",
+            "token_url": "https://auth.example.com/token",
+            "scopes": ["read"]
+        }))
+        .unwrap();
+        let AuthSpec::OAuth2 {
+            pkce,
+            client_id_param,
+            ..
+        } = scheme
+        else {
+            panic!("an oauth2 scheme");
+        };
+        assert!(pkce);
+        assert_eq!(client_id_param, DEFAULT_CLIENT_ID_PARAM);
+    }
+
+    /// A call's deadline is written and read as whole seconds.
+    #[test]
+    fn a_deadline_is_written_and_read_as_seconds() {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Timed {
+            #[serde(with = "secs")]
+            timeout: std::time::Duration,
+        }
+        let text = serde_json::to_string(&Timed {
+            timeout: std::time::Duration::from_secs(45),
+        })
+        .unwrap();
+        assert_eq!(text, r#"{"timeout":45}"#);
+        let back: Timed = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.timeout, std::time::Duration::from_secs(45));
+    }
+}
