@@ -1366,6 +1366,16 @@ fn spawn_session(
     // all is the environment the login files build. See [`build_command`].
     let mut cmd = build_command(program, launch, resume, &extra);
     cmd.cwd(dir);
+    // The `PATH` the app resolved for the node (`login_env`): what the
+    // Harnesses panel offered is what the tab must find, and the login shell
+    // adds its own on top. The production path only — a test's named
+    // program keeps the test's environment, and never runs anybody's
+    // profile to find out.
+    if program.is_none() {
+        if let Some(path) = crate::login_env::login_path() {
+            cmd.env("PATH", path);
+        }
+    }
     // xterm.js is an xterm-256color emulator with truecolor support. Without
     // these two, programs downgrade to a colourless 8-colour terminal and the
     // panel renders monochrome output nobody can explain.

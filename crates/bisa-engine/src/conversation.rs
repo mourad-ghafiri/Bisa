@@ -1342,7 +1342,9 @@ async fn wake_attempt(
         return;
     };
     let Ok(agent) = inner.ws.get_agent(&agent_key) else {
+        // LCOV_EXCL_START: the agent record gone between the wake's scheduling and its run; a race with a removal
         return;
+        // LCOV_EXCL_STOP
     };
     if !agent.enabled {
         return;
@@ -1430,12 +1432,14 @@ async fn wake_attempt(
         Some((workstream, project, _)) => inner.ws.checkout_in(project, workstream),
         None => match agent_scratch_dir(inner, &agent_key) {
             Ok(dir) => dir,
+            // LCOV_EXCL_START: the agent's work directory cannot be created; the disk arm
             Err(e) => {
                 tracing::warn!(
                     agent = %agent_id, scope = %scope,
                     "chat wake refused: cannot create the agent's work directory: {e}"
                 );
                 return;
+                // LCOV_EXCL_STOP
             }
         },
     };
@@ -2221,7 +2225,9 @@ async fn end_tracked_turn(
     let ended =
         crate::changes::off_thread(inner, move |inner| tracker.end_turn(inner, reply)).await;
     if let Some(Err(e)) = ended {
+        // LCOV_EXCL_START: a turn's change tracker fails to close; the disk arm below the lock
         tracing::warn!(agent = %agent_id, "a turn's changes were not closed: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 

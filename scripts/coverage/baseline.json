@@ -1,5 +1,5 @@
 {
-  "crates/bisa-adapters": 84.6,
+  "crates/bisa-adapters": 84.9,
   "crates/bisa-cache": 100,
   "crates/bisa-cli": 83.6,
   "crates/bisa-codehost": 87.2,
@@ -26,7 +26,7 @@
   "crates/bisa-store": 99.7,
   "crates/bisa-vcs": 94.9,
   "desktop/src": 97.6,
-  "desktop/src-tauri": 49.2,
+  "desktop/src-tauri": 49.4,
   "desktop/src/addons": 96.9,
   "desktop/src/draw": 99.6,
   "desktop/src/draw/library": 100,

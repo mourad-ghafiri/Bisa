@@ -76,7 +76,7 @@
       <tbody>
         <tr><th scope="row">Claude Code</th><td>driven, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>yes</td></tr>
         <tr><th scope="row">Codex CLI</th><td>driven, with the platform's tools</td><td>reports its state, resumed with <code>resume --last</code></td><td>observed</td><td>yes</td></tr>
-        <tr><th scope="row">OpenCode</th><td>driven, with the platform's tools</td><td>read from its own event stream, resumed with <code>--continue</code></td><td>observed</td><td>with a Claude sign-in</td></tr>
+        <tr><th scope="row">OpenCode</th><td>driven, with the platform's tools — OpenCode 2 over ACP, OpenCode 1 in run mode</td><td>OpenCode 1: read from its own event stream; OpenCode 2: a plain terminal; both resumed with <code>--continue</code></td><td>observed</td><td>with a Claude sign-in</td></tr>
         <tr><th scope="row">GitHub Copilot CLI</th><td>driven over ACP, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">Grok Build</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--continue</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">Gemini CLI</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--resume latest</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
@@ -103,7 +103,7 @@
   </section>
   <section id="opencode" aria-labelledby="h-opencode">
     <h2 id="h-opencode">OpenCode</h2>
-    <p>Driven with the platform's tools; in a terminal Bisa reads OpenCode's own event stream — turns, tools, permissions, questions, cost and sub-agents — and injects nothing. Observed by the guard.</p>
+    <p>Driven with the platform's tools. OpenCode 2 is driven over the Agent Client Protocol, as its own ACP server: the session's directory and the platform's tools are handed over the protocol's way, the model and the effort are set the protocol's way. OpenCode 1 runs in its run mode. Observed by the guard. In a terminal Bisa reads OpenCode 1's own event stream — turns, tools, permissions, questions, cost and sub-agents — and injects nothing; a tab on OpenCode 2 is a plain terminal. Bisa finds OpenCode where its installer puts it, even when only your interactive shell knows the folder.</p>
   </section>
   <section id="copilot" aria-labelledby="h-copilot">
     <h2 id="h-copilot">GitHub Copilot CLI</h2>

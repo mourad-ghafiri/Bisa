@@ -449,18 +449,68 @@ pub fn summarize_args(args: &serde_json::Value, max: usize) -> String {
     }
 }
 
-/// Version probe helper: run `<program> <args>` and take the first stdout line.
+/// How long a version command gets. The catalog gives every probe three
+/// seconds together; this is the child's own leash, so one that outstays
+/// the catalog's budget is still ended rather than left behind.
+pub const VERSION_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Version probe helper: run `<program> <args>` and take the first stdout
+/// line — stdin closed, within [`VERSION_BUDGET`], the child ended with the
+/// future if the clock runs out, so a probe never leaves a process behind.
 pub async fn version_of(program: &str, args: &[&str]) -> Option<String> {
-    let out = tokio::process::Command::new(program)
+    let mut command = tokio::process::Command::new(program);
+    command
         .args(args)
-        .output()
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(VERSION_BUDGET, command.output())
         .await
+        .ok()?
         .ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     text.lines()
         .next()
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
+}
+
+/// The first `major.minor.patch` a version line carries — `opencode v2.0.26`
+/// is 2.0.26, `1.18.23` is 1.18.23, `grok 0.1.42 (abc123)` is 0.1.42 — or
+/// nothing for a line with none (`Gemini CLI`, `v2`, `2.0`).
+pub fn parse_semver(line: &str) -> Option<(u64, u64, u64)> {
+    let bytes = line.as_bytes();
+    let mut at = 0;
+    while at < bytes.len() {
+        if !bytes[at].is_ascii_digit() {
+            at += 1;
+            continue;
+        }
+        let mut parts: Vec<u64> = Vec::with_capacity(3);
+        let mut cursor = at;
+        loop {
+            let start = cursor;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                cursor += 1;
+            }
+            let Ok(number) = line[start..cursor].parse::<u64>() else {
+                break;
+            };
+            parts.push(number);
+            if parts.len() == 3 {
+                break;
+            }
+            if cursor < bytes.len() && bytes[cursor] == b'.' {
+                cursor += 1;
+            } else {
+                break;
+            }
+        }
+        if let [major, minor, patch] = parts[..] {
+            return Some((major, minor, patch));
+        }
+        at = cursor.max(at + 1);
+    }
+    None
 }
 
 /// Standard two-phase probe: PATH lookup, then a cheap version command.
@@ -1594,5 +1644,21 @@ mod resume_tests {
             .unwrap();
         assert!(watch.is_ended());
         assert!(!watch.group.alive(), "the child's group is gone with it");
+    }
+
+    // added with OpenCode 2: util.rs
+
+    /// The first three dotted numbers are the version, whatever the line
+    /// says around them; fewer than three are no version at all.
+    #[test]
+    fn a_version_is_read_off_any_line_that_carries_one() {
+        assert_eq!(parse_semver("opencode v2.0.26"), Some((2, 0, 26)));
+        assert_eq!(parse_semver("1.18.23"), Some((1, 18, 23)));
+        assert_eq!(parse_semver("grok 0.1.42 (abc123)"), Some((0, 1, 42)));
+        assert_eq!(parse_semver("scripted-agent 0.4.0"), Some((0, 4, 0)));
+        assert_eq!(parse_semver("Gemini CLI"), None);
+        assert_eq!(parse_semver("v2"), None);
+        assert_eq!(parse_semver("2.0"), None);
+        assert_eq!(parse_semver("build 7 of 2.0.1"), Some((2, 0, 1)));
     }
 }

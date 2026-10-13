@@ -6,7 +6,7 @@ the CLI are the same binary for when you want a daemon or a terminal. You need:
 
 - Rust (stable) — `cargo --version`
 - at least one coding harness: [Claude Code](https://code.claude.com/docs/en/setup) (`claude`),
-  [Codex CLI](https://developers.openai.com/codex) (`codex`), [OpenCode](https://opencode.ai/docs),
+  [Codex CLI](https://developers.openai.com/codex) (`codex`), [OpenCode](https://opencode.ai/v2/docs/),
   [GitHub Copilot CLI](https://github.com/github/copilot-cli) (`copilot`),
   [Grok Build](https://docs.x.ai/build/overview) (`grok`), [Gemini CLI](https://geminicli.com/docs/) (`gemini`), oh-my-pi (`omp`), pi, goose,
   cursor-agent — or any ACP agent — signed in

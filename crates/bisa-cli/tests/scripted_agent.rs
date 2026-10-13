@@ -77,9 +77,15 @@ const PLATFORM_SERVER: &str = "bisa";
 
 fn main() {
     let words: Vec<String> = std::env::args().skip(1).collect();
-    // A probe: answered before any script is read, as a CLI answers it.
+    // A probe: answered as a CLI answers it — with the line the script
+    // beside the binary names, for a harness whose wire is chosen by its
+    // version, else the agent's own.
     if words.iter().any(|word| word == "--version") {
-        println!("scripted-agent {}", env!("CARGO_PKG_VERSION"));
+        let said = Beside::the_binary().version_said();
+        println!(
+            "{}",
+            said.unwrap_or_else(|| format!("scripted-agent {}", env!("CARGO_PKG_VERSION")))
+        );
         return;
     }
     let beside = Beside::the_binary();
@@ -159,6 +165,14 @@ impl Beside {
         let mut name = self.binary.as_os_str().to_owned();
         name.push(suffix);
         PathBuf::from(name)
+    }
+
+    /// The version line the script names, when there is a script and it
+    /// names one — read leniently, since a probe may come before any script.
+    fn version_said(&self) -> Option<String> {
+        let text = std::fs::read_to_string(self.file(".script.json")).ok()?;
+        let script: Value = serde_json::from_str(&text).ok()?;
+        script.get("version")?.as_str().map(str::to_string)
     }
 
     fn script(&self) -> Value {

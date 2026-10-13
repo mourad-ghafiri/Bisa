@@ -611,10 +611,14 @@ exit 0
 #[tokio::test]
 async fn opencode_stub_oneshot_turn() {
     let dir = tempfile::tempdir().unwrap();
+    // OpenCode 1's binary: its version on `--version`, run mode otherwise,
+    // the words it was started with kept beside it.
     let stub = write_stub(
         dir.path(),
         "opencode",
         r#"
+if [ "$1" = "--version" ]; then echo "1.18.23"; exit 0; fi
+echo "args: $*" > "$0.seen"
 echo '{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"oc hello"}}'
 echo '{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","callID":"c1","tool":"bash","state":{"status":"completed","input":{"command":"ls"},"output":"ok"}}}'
 exit 0
@@ -624,6 +628,8 @@ exit 0
         program: stub.display().to_string(),
         ..Default::default()
     };
+    // No probe first: the launch asks the version itself and keeps the wire.
+    assert_eq!(adapter.wire_known(), None);
     let session = adapter.launch(spec(dir.path(), "hi")).await.unwrap();
     let mut stream = session.subscribe();
     let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
@@ -636,6 +642,144 @@ exit 0
     assert!(ended_completed(&events));
     assert_eq!(session.resume_token().unwrap().native_id, "ses_1");
     session.dispose().await.unwrap();
+    assert_eq!(
+        adapter.wire_known(),
+        Some(bisa_adapters::opencode::Wire::RunMode)
+    );
+    assert_eq!(
+        seen_by(&stub),
+        [format!(
+            "args: run --format json --dir {} hi",
+            dir.path().display()
+        )],
+        "OpenCode 1's wire, word for word"
+    );
+}
+
+/// OpenCode 2's binary, as a stub: `--version` says what 2.0.26 says, `acp`
+/// is the ACP handshake with what `session/new` was told kept beside it,
+/// and any other word is the wrong wire and exits 9.
+fn opencode_two_stub(dir: &Path) -> PathBuf {
+    write_stub(
+        dir,
+        "opencode",
+        r#"
+if [ "$1" = "--version" ]; then echo "opencode v2.0.26"; exit 0; fi
+seen="$0.seen"
+echo "args: $*" > "$seen"
+[ "$1" = "acp" ] || exit 9
+while read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*)
+      echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}}'
+      ;;
+    *'"method":"session/new"'*)
+      echo "new: $line" >> "$seen"
+      echo '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"oc-2","configOptions":[]}}'
+      ;;
+    *'"method":"session/prompt"'*)
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"oc-2","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello from opencode two"}}}}'
+      echo '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
+      ;;
+  esac
+done
+"#,
+    )
+}
+
+/// OpenCode 2 — its version says so — is driven through its ACP server:
+/// started with the one word `acp`, told the session's directory and its
+/// MCP servers in `session/new`, its words streamed, its session the token.
+#[tokio::test]
+async fn opencode_two_is_driven_through_its_acp_server_with_the_sessions_directory_and_servers() {
+    use bisa_adapters::opencode::{OpencodeAdapter, Wire};
+    let dir = tempfile::tempdir().unwrap();
+    let stub = opencode_two_stub(dir.path());
+    let adapter = OpencodeAdapter {
+        program: stub.display().to_string(),
+        ..Default::default()
+    };
+    let probe = adapter.probe().await;
+    assert!(probe.available, "{probe:?}");
+    assert_eq!(probe.version.as_deref(), Some("opencode v2.0.26"));
+    assert_eq!(adapter.wire_known(), Some(Wire::Acp));
+
+    let mut asked = spec(dir.path(), "hello");
+    asked.mcp_servers = vec![bisa_core::McpMount::platform(
+        bisa_core::McpServerConfig::Stdio {
+            name: "bisa".into(),
+            command: "/usr/local/bin/bisa".into(),
+            args: vec![
+                "mcp".into(),
+                "--socket".into(),
+                "/tmp/ws/run/intake.sock".into(),
+            ],
+            env: Default::default(),
+            cwd: None,
+        },
+    )];
+    let session = adapter.launch(asked).await.unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(
+        has_text_delta(&events, "hello from opencode two"),
+        "{events:?}"
+    );
+    assert!(ended_completed(&events), "{events:?}");
+    let token = session.resume_token().unwrap();
+    assert_eq!(token.adapter_id, "opencode");
+    assert_eq!(token.native_id, "oc-2");
+    assert_eq!(token.cwd, dir.path());
+    session.dispose().await.unwrap();
+
+    let seen = seen_by(&stub);
+    assert_eq!(
+        seen[0], "args: acp",
+        "the one word, nothing of the run-mode wire"
+    );
+    assert!(
+        seen[1].contains(&format!(r#""cwd":"{}""#, dir.path().display())),
+        "the session's own directory, absolute: {seen:?}"
+    );
+    assert!(
+        seen[1].contains(r#""mcpServers":[{"#) && seen[1].contains(r#""name":"bisa""#),
+        "the platform's server, the protocol's way: {seen:?}"
+    );
+}
+
+/// The probe keeps the wire the version decides: OpenCode 1's by its
+/// version, and run mode for a binary that answers with no version at all;
+/// a binary nobody can find decides nothing.
+#[tokio::test]
+async fn opencodes_probe_decides_its_wire_by_the_version_it_answers() {
+    use bisa_adapters::opencode::{OpencodeAdapter, Wire};
+    let dir = tempfile::tempdir().unwrap();
+    let one = write_stub(dir.path(), "opencode-one", "echo '1.18.23'\n");
+    let adapter = OpencodeAdapter {
+        program: one.display().to_string(),
+        ..Default::default()
+    };
+    let probe = adapter.probe().await;
+    assert!(probe.available, "{probe:?}");
+    assert_eq!(probe.version.as_deref(), Some("1.18.23"));
+    assert_eq!(adapter.wire_known(), Some(Wire::RunMode));
+
+    let wordless = write_stub(dir.path(), "opencode-wordless", "echo 'OpenCode'\n");
+    let adapter = OpencodeAdapter {
+        program: wordless.display().to_string(),
+        ..Default::default()
+    };
+    let probe = adapter.probe().await;
+    assert!(probe.available, "{probe:?}");
+    assert_eq!(adapter.wire_known(), Some(Wire::RunMode));
+
+    let adapter = OpencodeAdapter {
+        program: dir.path().join("opencode-nowhere").display().to_string(),
+        ..Default::default()
+    };
+    let probe = adapter.probe().await;
+    assert!(!probe.available, "{probe:?}");
+    assert_eq!(adapter.wire_known(), None, "nothing to decide on");
 }
 
 // ---------------------------------------------------------------------------

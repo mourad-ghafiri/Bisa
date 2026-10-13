@@ -123,7 +123,9 @@ pub async fn on_remote_message(
                 }
             }
             let Some(role) = current_role(inner, &author, &id) else {
+                // LCOV_EXCL_START: the author removed between the judgement and the release; a race no test can time
                 return;
+                // LCOV_EXCL_STOP
             };
             inner.emit(EngineEvent::global(EnginePayload::MessageReleased {
                 scope: scope.clone(),

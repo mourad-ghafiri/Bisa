@@ -234,7 +234,9 @@ impl Relays {
                         }
                     }
                 }
+                // LCOV_EXCL_START: the inbound stream's end, reached only when a relay hangs up on a pool a test still holds
             })
+            // LCOV_EXCL_STOP
         };
         *pool.inbound.lock().await = Some(task);
         pool

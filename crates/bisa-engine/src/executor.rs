@@ -1140,6 +1140,7 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             attestation.clone(),
         ) {
             Ok(state) => spec.state = state,
+            // LCOV_EXCL_START: a stop landing between the harness's start and the item's claim; the window is the launch's own and no test holds it open
             Err(e) => {
                 // The item could not be claimed — cancelled or stopped while
                 // the harness started, most often: the session is aborted
@@ -1182,6 +1183,7 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
                         .ended(&inner, agent_id, &ExecutionOutcome::Failed { reason });
                 }
                 return;
+                // LCOV_EXCL_STOP
             }
         }
 

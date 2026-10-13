@@ -21,7 +21,7 @@ the fixes it can vouch for as one click each.**
 `Settings { tab }` · `Agents` · `None`, a `Fix` is `Settings { label, set }` or `AgentHarness {
 label, agent, harness, models }`. Every URL and command is the official documentation's, read on
 2026-09-22: git-scm.com/install, code.claude.com/docs/en/setup, the openai/codex README and
-developers.openai.com/codex, opencode.ai/docs — and on 2026-09-30: the github/copilot-cli README
+developers.openai.com/codex, opencode.ai/docs — OpenCode's lines re-read on 2026-10-13 from opencode.ai/v2/docs, OpenCode 2's own installer, tap and `@opencode/cli` package — and on 2026-09-30: the github/copilot-cli README
 (GitHub Copilot CLI: its install script, Homebrew, WinGet and npm lines, `copilot login`) and
 docs.x.ai/build (Grok Build: its two install scripts, `grok login` or `XAI_API_KEY`) — and on
 2026-10-05: geminicli.com/docs (Gemini CLI: `brew install gemini-cli` on a Mac, `npm install -g
@@ -33,6 +33,13 @@ A harness is *installed* when its adapter's probe says so. For Copilot CLI, Grok
 more than a name on `PATH`: the binary has to answer `--version` with a version
 (`util::probe_versioned`), because an editor installs a launcher called `copilot` that answers
 every word with *Install GitHub Copilot CLI?* — a harness that is not there.
+
+In the bundled app the `PATH` the probes look on is not launchd's: the shell asks an
+**interactive** login shell for the `PATH` it builds and appends the folders installers use
+(`desktop/src-tauri/src/login_env.rs`, [crates/desktop](crates/desktop.md)). A login shell alone
+never reads `.zshrc`, where OpenCode's installer writes `~/.opencode/bin` — so OpenCode read as
+*not installed* in the app while `opencode` answered in every terminal. OpenCode's probe also
+keeps the wire its version decides (`crates/bisa-adapters/src/opencode.rs`).
 
 ## The gate
 

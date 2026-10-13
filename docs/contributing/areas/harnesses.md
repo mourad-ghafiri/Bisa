@@ -39,6 +39,7 @@ adapter per harness, the only place a harness's own wording is ever read.
 - Effort levels come from the harness's own documentation, cited with the date read; a level a model does not take is never sent; the harness's own word for it stays in its adapter — above it, *effort*.
 - In a terminal, reporting files go under the session's own run folder, never into the harness's configuration or a project.
 - Never a real harness in a test: `MockAdapter` in the engine, a stub peer in the adapters, the scripted agent in the journeys.
+- A harness whose own CLI changed with a major version is met in its adapter by the version its probe reads — one adapter, a wire per major, the older kept word for word (`crates/bisa-adapters/src/opencode.rs`, `Wire`); never a second id.
 
 ## Testing a change
 
@@ -46,7 +47,7 @@ adapter per harness, the only place a harness's own wording is ever read.
 - `scripts/test crate adapters` — every adapter against its scripted peer; `scripts/test lib adapters` for the unit tests beside each wire; `FEATURES=a2a scripts/test crate adapters a2a` for A2A.
 - `scripts/test module engine models`, `scripts/test module engine readiness`, `scripts/test module engine presence`, `scripts/test module engine interactive`.
 - `desktop/src/ui/harnessMarkModel.test.mjs` — every built-in id wears a mark.
-- Journeys: `crates/bisa-cli/tests/it/e2e/copilot_grok_and_gemini.rs`, `crates/bisa-cli/tests/it/e2e/a_harness_in_a_terminal.rs`, `crates/bisa-cli/tests/it/e2e/models_and_effort.rs`, `crates/bisa-cli/tests/it/e2e/the_setup_gate.rs`; the scripted agent goes under a harness's program name with `Sealed::install_agent_as`.
+- Journeys: `crates/bisa-cli/tests/it/e2e/copilot_grok_and_gemini.rs`, `crates/bisa-cli/tests/it/e2e/opencode_two_through_the_acp_door.rs` (the scripted agent answering OpenCode 2's version through its script's `"version"`), `crates/bisa-cli/tests/it/e2e/a_harness_in_a_terminal.rs`, `crates/bisa-cli/tests/it/e2e/models_and_effort.rs`, `crates/bisa-cli/tests/it/e2e/the_setup_gate.rs`; the scripted agent goes under a harness's program name with `Sealed::install_agent_as`.
 - One module at a time; the whole workspace (`just verify`) only at the end of a pass ([Running](../testing-rules.md#running)).
 
 ## Common changes

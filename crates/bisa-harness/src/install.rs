@@ -105,21 +105,23 @@ pub const CODEX: InstallHint = InstallHint {
     sign_in: Some("run `codex` and choose Sign in with ChatGPT"),
 };
 
-/// OpenCode — https://opencode.ai/docs
+/// OpenCode — https://opencode.ai/v2/docs/ (OpenCode 2's install lines, in
+/// the page's order; the `opencode-ai` package is OpenCode 1, which the
+/// adapter still drives — see `bisa-adapters/src/opencode.rs`)
 pub const OPENCODE: InstallHint = InstallHint {
-    url: "https://opencode.ai/docs",
+    url: "https://opencode.ai/v2/docs/",
     commands: &[
         on(
             Platform::MacOs,
-            "curl -fsSL https://opencode.ai/install | bash",
+            "curl -fsSL https://opencode.ai/v2/install | bash",
         ),
-        on(Platform::MacOs, "brew install anomalyco/tap/opencode"),
+        on(Platform::MacOs, "brew install anomalyco/tap/opencode-v2"),
         on(
             Platform::Linux,
-            "curl -fsSL https://opencode.ai/install | bash",
+            "curl -fsSL https://opencode.ai/v2/install | bash",
         ),
-        on(Platform::Linux, "npm install -g opencode-ai"),
-        on(Platform::Windows, "npm install -g opencode-ai"),
+        on(Platform::Linux, "npm install -g @opencode/cli"),
+        on(Platform::Windows, "npm install -g @opencode/cli"),
     ],
     verify: Some("opencode --version"),
     sign_in: Some("run `opencode`, then `/connect` to sign in to a provider"),
@@ -260,6 +262,16 @@ mod tests {
                 "winget install Anthropic.ClaudeCode"
             ]
         );
+        // OpenCode's lines are OpenCode 2's — its own installer, its own
+        // tap, its own package — never OpenCode 1's `opencode-ai`.
+        assert_eq!(
+            OPENCODE.commands_for(Platform::Linux),
+            [
+                "curl -fsSL https://opencode.ai/v2/install | bash",
+                "npm install -g @opencode/cli"
+            ]
+        );
+        assert!(OPENCODE.url.starts_with("https://opencode.ai/v2/"));
     }
 
     #[test]

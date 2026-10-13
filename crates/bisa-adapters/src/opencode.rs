@@ -1,8 +1,30 @@
-//! OpenCode adapter — `opencode run --format json`, one process per turn,
-//! one JSON object per line on stdout, resume via `--session <id>`.
+//! OpenCode adapter — one adapter, two wires, chosen by what
+//! `opencode --version` answered:
 //!
-//! CLI surface verified against OpenCode 1.18 (`opencode run --help`). The
-//! run-mode vocabulary, one line each (OpenCode's own SDK types, and the
+//! - **OpenCode 1** (`1.x`, and a binary whose version is unreadable):
+//!   `opencode run --format json`, one process per turn, one JSON object per
+//!   line on stdout, resume via `--session <id>` — the wire verified against
+//!   OpenCode 1.18 (`opencode run --help`), unchanged.
+//! - **OpenCode 2** (`2.x` and above): `opencode acp`, its Agent Client
+//!   Protocol server over stdio — "for editor integrations" — through the
+//!   generic ACP driver (`acp.rs`) every ACP harness in the tree runs on.
+//!   OpenCode 2 is a rewrite (https://opencode.ai/v2/docs/migrate-v1/, read
+//!   2026-10-13): `run` lost `--dir` and `--variant`, attaches to a shared
+//!   background service by default, and no longer reads an inline
+//!   configuration from the environment — where the MCP servers travelled.
+//!   Its ACP server is the door built for a tool like this one: `session/new`
+//!   takes the session's absolute `cwd` and its `mcpServers`, the model and
+//!   the effort are `session/set_config_option`s, and it runs a private
+//!   server of its own, never the shared service
+//!   (https://opencode.ai/v2/docs/cli/acp/, read 2026-10-13; verified
+//!   against the 2.0.26 binary's `--help`).
+//!
+//! The version is remembered by the probe — the catalog probes before it
+//! lists — and a launch before any probe asks once itself. A terminal tab
+//! on OpenCode 2 opens the bare TUI as before but pulls no events: its
+//! event bus lives on the shared service, not on a port of the tab's own.
+//!
+//! The run-mode vocabulary, one line each (OpenCode's own SDK types, and the
 //! stream cheat-sheets that document them):
 //!
 //! | `type` | carries | here |
@@ -28,9 +50,10 @@
 //! (https://opencode.ai/docs/models/, read 2026-09-29); a model whose
 //! provider this table does not know is sent none.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use bisa_core::sync::Locked;
 use bisa_core::{HarnessCaps, ToolTier};
 use bisa_harness::proc::ProcSpec;
 use bisa_harness::{
@@ -39,15 +62,44 @@ use bisa_harness::{
     SessionSnapshot, SessionSpec, Steer,
 };
 
+use crate::acp::{self, AcpCommand};
 use crate::oneshot::{MapFn, OneShotSession, SpawnFn};
 use crate::util::{self, Drive, Shared};
 
 pub const ADAPTER_ID: &str = "opencode";
 
+/// The wire a session runs on, by the binary's major version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wire {
+    /// OpenCode 1: `opencode run --format json`, one process per turn.
+    RunMode,
+    /// OpenCode 2: `opencode acp`, the ACP server over stdio.
+    Acp,
+}
+
+impl Wire {
+    /// The wire for a binary of `major` — ACP from 2 on; run mode for 1 and
+    /// for a version nobody could read, the wire this adapter always had.
+    pub fn of(major: Option<u64>) -> Self {
+        match major {
+            Some(major) if major >= 2 => Wire::Acp,
+            _ => Wire::RunMode,
+        }
+    }
+
+    /// The wire for what `--version` answered.
+    pub fn for_version(line: Option<&str>) -> Self {
+        Self::of(line.and_then(util::parse_semver).map(|(major, _, _)| major))
+    }
+}
+
 pub struct OpencodeAdapter {
     pub program: String,
     /// The engine's clients, for the account's usage endpoint.
     pub http: Arc<bisa_http::Clients>,
+    /// The wire the last probe decided, read by every launch after it;
+    /// nothing until a probe or a first launch has asked `--version`.
+    pub wire: Mutex<Option<Wire>>,
 }
 
 impl Default for OpencodeAdapter {
@@ -55,7 +107,37 @@ impl Default for OpencodeAdapter {
         Self {
             program: "opencode".into(),
             http: bisa_http::Clients::shared(),
+            wire: Mutex::new(None),
         }
+    }
+}
+
+impl OpencodeAdapter {
+    /// Keep the wire `--version`'s answer decides.
+    fn remember(&self, version: Option<&str>) -> Wire {
+        let wire = Wire::for_version(version);
+        *self.wire.locked() = Some(wire);
+        wire
+    }
+
+    /// The wire already decided, if a probe or a launch has asked.
+    pub fn wire_known(&self) -> Option<Wire> {
+        *self.wire.locked()
+    }
+
+    /// The wire for this binary: the one remembered, else the one its
+    /// `--version` says now.
+    async fn wire(&self) -> Wire {
+        if let Some(wire) = self.wire_known() {
+            return wire;
+        }
+        let version = util::version_of(&self.program, &["--version"]).await;
+        self.remember(version.as_deref())
+    }
+
+    /// OpenCode 2's ACP server: the program, in protocol mode.
+    fn acp_command(&self) -> AcpCommand {
+        AcpCommand::new(ADAPTER_ID, &self.program, ["acp"])
     }
 }
 
@@ -335,8 +417,15 @@ impl HarnessAdapter for OpencodeAdapter {
             | HarnessCaps::EFFORT
     }
 
+    /// On the run-mode wire the levels are the provider's variants, read off
+    /// the model's prefix; on the ACP wire an agent says which levels it
+    /// takes only once a session is open, and the level is held to those
+    /// there — so all six may be asked for, as for every ACP harness.
     fn efforts(&self, model: Option<&str>) -> Vec<Effort> {
-        efforts_for(model).to_vec()
+        match self.wire_known() {
+            Some(Wire::Acp) => Effort::ALL.to_vec(),
+            _ => efforts_for(model).to_vec(),
+        }
     }
 
     /// The account's windows through OpenCode's own Claude Pro/Max sign-in —
@@ -345,10 +434,19 @@ impl HarnessAdapter for OpencodeAdapter {
         crate::usage::opencode::read(&self.http, self.id()).await
     }
 
-    /// `opencode models` prints one provider-qualified id per line; the
-    /// efforts beside each are its provider's.
+    /// `opencode models` prints one provider-qualified id per line — on both
+    /// wires. The efforts beside each are its provider's variants on the
+    /// run-mode wire, and all six on the ACP wire, where the session says
+    /// which it takes.
     async fn models(&self) -> Vec<ModelInfo> {
-        util::models_from_command(&self.program, &["models"], listed_model).await
+        let listed = util::models_from_command(&self.program, &["models"], listed_model).await;
+        match self.wire_known() {
+            Some(Wire::Acp) => listed
+                .into_iter()
+                .map(|m| ModelInfo::new(&m.id, m.label.as_deref(), Effort::ALL.to_vec()))
+                .collect(),
+            _ => listed,
+        }
     }
 
     /// The bare TUI. `launch` above runs it in `run --format json`; this is
@@ -358,35 +456,57 @@ impl HarnessAdapter for OpencodeAdapter {
         Some(InteractiveLaunch::new(&self.program).resumable_with(vec!["--continue".into()]))
     }
 
+    /// OpenCode 1's TUI serves its event bus on the port the tab names;
+    /// OpenCode 2's attaches to the shared service and names no port, so a
+    /// tab on it is given nothing to pull. A wire nobody has decided yet is
+    /// read as OpenCode 1's — the plan this adapter always made.
     fn interactive_reporting(
         &self,
         ctx: &bisa_harness::ReportingContext,
     ) -> bisa_harness::ReportingPlan {
-        crate::hooks::opencode::reporting(ctx)
+        match self.wire_known() {
+            Some(Wire::Acp) => bisa_harness::ReportingPlan::default(),
+            _ => crate::hooks::opencode::reporting(ctx),
+        }
     }
 
     fn translate_report(&self, payload: &serde_json::Value) -> Vec<SessionEvent> {
         crate::hooks::opencode::translate(payload)
     }
 
+    /// The PATH lookup and `--version` — and the version decides the wire
+    /// every launch after this one runs on.
     async fn probe(&self) -> ProbeResult {
-        util::probe_binary(&self.program, &["--version"]).await
+        let probe = util::probe_binary(&self.program, &["--version"]).await;
+        if probe.available {
+            self.remember(probe.version.as_deref());
+        }
+        probe
     }
 
     async fn launch(&self, spec: SessionSpec) -> Result<Box<dyn HarnessSession>, HarnessError> {
-        let spec = held(spec);
-        let session = OneShotSession::start(
-            ADAPTER_ID,
-            spawn_fn(self.program.clone(), &spec),
-            map_fn(),
-            &spec,
-            None,
-            false,
-        )
-        .await?;
-        Ok(Box::new(OpencodeSession(session)))
+        match self.wire().await {
+            Wire::Acp => acp::open(self.acp_command(), &spec, None).await,
+            Wire::RunMode => {
+                let spec = held(spec);
+                let session = OneShotSession::start(
+                    ADAPTER_ID,
+                    spawn_fn(self.program.clone(), &spec),
+                    map_fn(),
+                    &spec,
+                    None,
+                    false,
+                )
+                .await?;
+                Ok(Box::new(OpencodeSession(session)))
+            }
+        }
     }
 
+    /// Revived on the wire the binary runs on now. A session OpenCode 1 made
+    /// and OpenCode 2 is asked to load is one OpenCode 2 never saw: the
+    /// revival fails as any unknown session does, and the engine restarts
+    /// the work rather than resuming it.
     async fn attach(&self, token: &ResumeToken) -> Result<Box<dyn HarnessSession>, HarnessError> {
         if token.adapter_id != ADAPTER_ID {
             return Err(HarnessError::protocol(format!(
@@ -394,21 +514,30 @@ impl HarnessAdapter for OpencodeAdapter {
                 token.adapter_id
             )));
         }
-        // The token carries the directory the launch chose. This used to be
-        // `current_dir()`, falling back to `/` — the daemon's own placement,
-        // which is never the session's. It carries the model and the effort
-        // too: every turn is its own process, and is told both again.
-        let spec = revival_spec(token);
-        let session = OneShotSession::start(
-            ADAPTER_ID,
-            spawn_fn(self.program.clone(), &spec),
-            map_fn(),
-            &spec,
-            Some(&token.native_id),
-            true,
-        )
-        .await?;
-        Ok(Box::new(OpencodeSession(session)))
+        match self.wire().await {
+            Wire::Acp => {
+                let spec = acp::revival(ADAPTER_ID, token)?;
+                acp::open(self.acp_command(), &spec, Some(token.native_id.clone())).await
+            }
+            Wire::RunMode => {
+                // The token carries the directory the launch chose. This used
+                // to be `current_dir()`, falling back to `/` — the daemon's
+                // own placement, which is never the session's. It carries the
+                // model and the effort too: every turn is its own process,
+                // and is told both again.
+                let spec = revival_spec(token);
+                let session = OneShotSession::start(
+                    ADAPTER_ID,
+                    spawn_fn(self.program.clone(), &spec),
+                    map_fn(),
+                    &spec,
+                    Some(&token.native_id),
+                    true,
+                )
+                .await?;
+                Ok(Box::new(OpencodeSession(session)))
+            }
+        }
     }
 }
 
@@ -890,5 +1019,68 @@ mod tests {
         // A blank line is not a model.
         assert_eq!(listed_model(""), None);
         assert_eq!(listed_model("   "), None);
+    }
+
+    // added with OpenCode 2: the wire
+
+    /// OpenCode 2 and above run on the ACP wire; OpenCode 1, and a binary
+    /// whose version nobody could read, run as they always did.
+    #[test]
+    fn the_wire_is_the_majors_and_run_mode_when_nobody_could_read_one() {
+        assert_eq!(Wire::of(Some(2)), Wire::Acp);
+        assert_eq!(Wire::of(Some(3)), Wire::Acp);
+        assert_eq!(Wire::of(Some(1)), Wire::RunMode);
+        assert_eq!(Wire::of(Some(0)), Wire::RunMode);
+        assert_eq!(Wire::of(None), Wire::RunMode);
+        assert_eq!(Wire::for_version(Some("opencode v2.0.26")), Wire::Acp);
+        assert_eq!(Wire::for_version(Some("1.18.23")), Wire::RunMode);
+        assert_eq!(Wire::for_version(Some("OpenCode")), Wire::RunMode);
+        assert_eq!(Wire::for_version(None), Wire::RunMode);
+    }
+
+    /// The probe's answer is kept and read by the tab's plan: OpenCode 1's
+    /// names the port and pulls the bus; OpenCode 2's pulls nothing; a wire
+    /// nobody decided reads as OpenCode 1's.
+    #[test]
+    fn the_remembered_wire_decides_the_tabs_reporting_plan() {
+        let adapter = OpencodeAdapter::default();
+        let ctx = bisa_harness::ReportingContext {
+            session: "01S".into(),
+            reporter: vec![],
+            files_dir: "/ws/run/interactive/01S".into(),
+            port: Some(41234),
+            guard: None,
+            guard_timeout_secs: 0,
+        };
+        assert_eq!(adapter.wire_known(), None);
+        assert_eq!(
+            adapter.interactive_reporting(&ctx).args,
+            ["--port", "41234"]
+        );
+        assert_eq!(adapter.remember(Some("opencode v2.0.26")), Wire::Acp);
+        assert_eq!(adapter.wire_known(), Some(Wire::Acp));
+        let plan = adapter.interactive_reporting(&ctx);
+        assert!(plan.args.is_empty(), "{:?}", plan.args);
+        assert!(plan.pull.is_none());
+        assert_eq!(adapter.remember(Some("1.18.23")), Wire::RunMode);
+        assert_eq!(
+            adapter.interactive_reporting(&ctx).args,
+            ["--port", "41234"]
+        );
+    }
+
+    /// The levels a model takes are the provider's on the run-mode wire and
+    /// all six on the ACP wire, where the session itself says which stand.
+    #[test]
+    fn the_levels_are_the_providers_on_run_mode_and_the_sessions_to_say_on_acp() {
+        let adapter = OpencodeAdapter::default();
+        assert_eq!(
+            adapter.efforts(Some("anthropic/claude-sonnet-4-5")),
+            [Effort::High, Effort::Max]
+        );
+        assert!(adapter.efforts(Some("large")).is_empty());
+        adapter.remember(Some("opencode v2.0.26"));
+        assert_eq!(adapter.efforts(Some("large")), Effort::ALL);
+        assert_eq!(adapter.efforts(None), Effort::ALL);
     }
 }

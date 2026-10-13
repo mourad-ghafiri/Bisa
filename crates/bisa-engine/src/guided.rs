@@ -1349,7 +1349,9 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
     // read this one record.
     let goal = match inner.ws.get_goal(goal_id) {
         Ok(g) => g,
+        // LCOV_EXCL_START: the goal record unreadable after its wake was scheduled; a race with a retirement
         Err(e) => return WakeEnd::Failed(format!("the goal cannot be read: {e}")),
+        // LCOV_EXCL_STOP
     };
     if !applies(inner, &goal, phase) {
         // LCOV_EXCL_START: a wake scheduled for a goal closed or moved on before it ran: a race between the wake and the close
@@ -1503,7 +1505,9 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         let launched = match launched {
             // Stopped while the harness was being chosen or started: the
             // stop ended the row; the wake says it was stopped.
+            // LCOV_EXCL_START: a stop landing while the harness was being chosen; the window is the launch's own
             None => return WakeEnd::Failed(ended_words(&Outcome::Aborted)),
+            // LCOV_EXCL_STOP
             Some(Ok(ok)) => ok,
             Some(Err(failure)) => {
                 pending_walls.extend(failure.walls);

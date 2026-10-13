@@ -8,8 +8,29 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Added
+
+- OpenCode 2 (`@opencode/cli`, released 2026-09-11) is supported: the adapter reads the version
+  its probe answers and drives OpenCode 2 through its ACP server (`opencode acp` — its session's
+  directory and MCP servers in `session/new`, the model and the effort as session config options,
+  a private server of its own), while OpenCode 1 keeps the run-mode wire word for word; a terminal
+  tab on OpenCode 2 opens as a plain terminal (its TUI attaches to the shared background service
+  and names no port); the install hint names OpenCode 2's installer, tap and package
+  (`crates/bisa-adapters/src/opencode.rs`, `crates/bisa-harness/src/install.rs`; the journey
+  `opencode_two_through_the_acp_door.rs`).
+
 ### Fixed
 
+- A harness whose installer puts its folder on the `PATH` in the interactive shell's file
+  (OpenCode's `~/.opencode/bin` in `.zshrc`) read as *not installed* in the bundled app while
+  it answered in every terminal: the desktop now asks an interactive login shell for its `PATH`,
+  reads the answer by a marker rather than by position, asks the login shell alone when the
+  interactive form says nothing usable, appends the folders installers use when they exist, and
+  hands the same `PATH` to every terminal tab (`desktop/src-tauri/src/login_env.rs`,
+  `desktop/src-tauri/src/terminal.rs`).
+- A harness's version probe is bounded — stdin closed, five seconds, the child ended with the
+  future — so a `--version` that hangs past the catalog's budget never leaves a process behind
+  (`crates/bisa-adapters/src/util.rs`).
 - A platform's refusal that carried a blank sentence (`"message": ""`) was explained as that
   blank, quoted, instead of the next thing the answer said (`error`, `detail`, …); the connector
   client now passes a blank over like an object or a list (`crates/bisa-connectors/src/outcome.rs`

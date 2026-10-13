@@ -273,7 +273,9 @@ pub(crate) fn signal_goal_work(
     let home = Home::Goal { goal };
     for mark in inner.inflight.iter() {
         if mark.home == home {
+            // LCOV_EXCL_START: a launch in flight at the very moment the goal ends; the window is the launch's own
             mark.stop();
+            // LCOV_EXCL_STOP
         }
     }
     out.told = noted.max(sessions::stop_for(

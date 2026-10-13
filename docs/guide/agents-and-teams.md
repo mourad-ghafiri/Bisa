@@ -304,7 +304,7 @@ before stays visible and is fitted at launch.
 |---|---|
 | Claude Code | `low` `medium` `high` `xhigh` `max` on Opus 5.5 and Sonnet 5.5 (and Fable, Opus 4.7 and later, Sonnet 5); no `xhigh` on Opus 4.6 and Sonnet 4.6; none on Haiku |
 | Codex | `low` `medium` `high` |
-| OpenCode | by the model's provider: `high` `max` on Anthropic's, `minimal` to `xhigh` on OpenAI's, `low` `high` on Google's |
+| OpenCode | OpenCode 1, by the model's provider: `high` `max` on Anthropic's, `minimal` to `xhigh` on OpenAI's, `low` `high` on Google's; OpenCode 2, all six, held to what the session offers |
 | pi, Oh My Pi | all six; the harness fits the level to the model itself |
 | GitHub Copilot CLI | `low` `medium` `high` `xhigh`, and `max` on a Claude model; held to what the session offers for the model it is on |
 | Grok Build | `minimal` to `xhigh`; a model that takes no effort is sent none |

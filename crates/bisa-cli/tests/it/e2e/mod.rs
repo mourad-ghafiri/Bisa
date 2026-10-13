@@ -32,6 +32,7 @@ mod goals;
 mod goals_at_their_edges;
 mod models_and_effort;
 mod one_node_per_workspace;
+mod opencode_two_through_the_acp_door;
 mod projects_and_workstreams;
 mod pulse_and_inbox;
 mod runs_in_the_workspace;
