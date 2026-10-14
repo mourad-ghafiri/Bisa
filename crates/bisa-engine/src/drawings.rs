@@ -378,13 +378,15 @@ pub fn spawn_listener(inner: &Arc<Inner>) -> tokio::task::JoinHandle<()> {
                     emit_changed(&inner, &drawing);
                 }
                 Ok(_) => {}
+                // LCOV_EXCL_START a store bus that lagged or closed under the engine; by construction
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!("drawings listener lagged by {n} events");
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                // LCOV_EXCL_STOP
             }
         }
-    })
+    }) // LCOV_EXCL_LINE the end of a listener whose bus closed; by construction
 }
 
 pub fn emit_changed(inner: &Inner, drawing: &Drawing) {
@@ -431,12 +433,12 @@ impl Standing {
                 ConversationOrigin::Drawing { id } => {
                     if let Ok(d) = inner.ws.get_drawing(*id) {
                         return d.scope;
-                    }
+                    } // LCOV_EXCL_LINE a conversation about a drawing that went has no facts; by construction
                 }
                 ConversationOrigin::Note { id } => {
                     if let Ok(n) = inner.ws.get_note(*id) {
                         return n.scope;
-                    }
+                    } // LCOV_EXCL_LINE a conversation about a note that went has no facts; by construction
                 }
                 ConversationOrigin::Node => return OwnerScope::Node,
                 ConversationOrigin::Workspace => return OwnerScope::Workspace,
@@ -467,7 +469,7 @@ pub async fn perform(
                 (Some(kind), None) if !OwnerScope::kind_takes_id(kind) => {
                     match OwnerScope::from_parts(kind, None) {
                         Some(s) => OwnerFilter::Scope(s),
-                        None => return DrawResult::refused(BAD_SCOPE),
+                        None => return DrawResult::refused(BAD_SCOPE), // LCOV_EXCL_LINE a kind taking no id always parses; by construction
                     }
                 }
                 (Some(kind), None) => match OwnerScope::KINDS.iter().find(|k| *k == kind) {
@@ -485,7 +487,7 @@ pub async fn perform(
                     drawings: Some(rows),
                     ..DrawResult::default()
                 },
-                Err(e) => DrawResult::refused(e.to_string()),
+                Err(e) => DrawResult::refused(e.to_string()), // LCOV_EXCL_LINE an index read that fails; a disk arm
             }
         }
         DrawAction::Read => {
@@ -519,7 +521,7 @@ pub async fn perform(
                 },
             ) {
                 Ok(d) => DrawResult::of(&d),
-                Err(e) => DrawResult::refused(e.to_string()),
+                Err(e) => DrawResult::refused(e.to_string()), // LCOV_EXCL_LINE a store write that fails; a disk arm
             }
         }
         DrawAction::Erase => {
@@ -555,7 +557,7 @@ pub async fn perform(
                     emit_changed(inner, &d);
                     DrawResult::of(&d)
                 }
-                Err(e) => DrawResult::refused(e.to_string()),
+                Err(e) => DrawResult::refused(e.to_string()), // LCOV_EXCL_LINE a scene changed between the read and the write; a race
             }
         }
         DrawAction::Draw | DrawAction::Mermaid | DrawAction::Snapshot => {
@@ -579,16 +581,18 @@ pub async fn perform(
             let (park_id, rx) = ask(inner, request, scope);
             let result = inner
                 .draw
+                // LCOV_EXCL_START a sixty-second wait on the canvas; by decision
                 .wait_for(&park_id, rx, ANSWER_TIMEOUT, || {
                     DrawResult::refused(DESKTOP_SILENT)
                 })
+                // LCOV_EXCL_STOP
                 .await
                 .with_named_copy(inner);
             if result.ok {
                 if let Ok(d) = inner.ws.get_drawing(id) {
                     inner.drawings_git.touched(inner);
                     emit_changed(inner, &d);
-                }
+                } // LCOV_EXCL_LINE a drawing gone under the canvas's answer; a race
             }
             result.bounded()
         }
@@ -631,6 +635,7 @@ pub fn ask(
         scope: scope.clone(),
         asked_at: now_secs(),
     };
+    // LCOV_EXCL_START a field read only when debug is logged; by construction
     tracing::debug!(
         id = %id,
         action = ?request.action,
@@ -638,6 +643,7 @@ pub fn ask(
         agent = scope.agent.as_deref().unwrap_or("none"),
         "drawing request parked"
     );
+    // LCOV_EXCL_STOP
     let rx = inner.draw.park(pending);
     inner.emit(EngineEvent::global(EnginePayload::DrawingRequest {
         id: id.clone(),

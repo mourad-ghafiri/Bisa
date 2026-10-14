@@ -16,8 +16,6 @@ import {
   PROTOCOL_VERSION,
   REFUSALS,
   STORAGE_QUOTA_BYTES,
-  paramsOf,
-  refusal,
   errorReply,
   eventMessage,
   fetchResult,
@@ -25,8 +23,10 @@ import {
   helloMessage,
   networkHosts,
   newSession,
+  paramsOf,
   parseAddonMessage,
   permissionWords,
+  refusal,
   refusalWords,
   storageBag,
   storageBytes,
@@ -206,4 +206,16 @@ test("every refusal the bridge makes reaches the diagnostic log with its code â€
   assert.ok(bridge.includes('if (code) log.info("addons", "a call was refused", { addon: addon.id, method, code });'));
   assert.ok(!/post\(errorReply\(/.test(bridge), "no refusal goes to the frame past the log");
   assert.ok(bridge.includes("if (out.reply) answer(out.reply as Reply, parsed.method);"), "a call's answer is judged as it leaves");
+});
+
+test("params that cannot be written down are bad, an address that is no URL is refused, the clipboard is written for a granted addon, and a method nobody handles is unknown", () => {
+  const unwritable = { v: 1, kind: "bisa:call", id: "c9", method: "storage.set", params: { key: "k", value: 1n } };
+  assert.deepEqual(parseAddonMessage(unwritable), { kind: "bad", id: "c9", code: "bad_params" });
+  assert.equal(paramsOf("url.open", { url: "http://[" }).ok, false, "a URL the parser throws on");
+  assert.equal(paramsOf("network.fetch", { url: "http://[" }).ok, false);
+  const s = ready(addon(["clipboard_write"]));
+  const written = handleCall(s, call("clipboard.write", { text: "copied" }), ctx());
+  assert.deepEqual(written.reply, { v: 1, kind: "bisa:reply", id: "c1", ok: true, result: { written: true } });
+  assert.deepEqual(written.effect, { type: "clipboard", text: "copied" });
+  assert.equal(handleCall(ready(), call("nobody.handles"), ctx()).reply.error.code, "unknown_method");
 });

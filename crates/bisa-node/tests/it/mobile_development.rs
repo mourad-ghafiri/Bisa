@@ -66,6 +66,14 @@ fn switch_on(node: &Node) {
         .unwrap();
 }
 
+/// [`get_bytes`], for another module's test.
+pub(crate) async fn get_bytes_at(
+    socket: &std::path::Path,
+    path: &str,
+) -> (u16, Option<String>, Option<String>, Vec<u8>) {
+    get_bytes(socket, path).await
+}
+
 /// One GET answering the status, the content type, the cache header and
 /// the bytes — for the routes that answer an image.
 async fn get_bytes(

@@ -138,6 +138,23 @@ async fn drawings_over_http_with_their_repository() {
         &socket,
         "POST",
         "/drawings",
+        Some(json!({"title": "x".repeat(bisa_core::draw::MAX_DRAWING_TITLE_CHARS + 1), "scope": "workspace"})),
+    )
+    .await;
+    assert_eq!(status, 400, "a title past the cap: {v}");
+    let (status, v) = request(
+        &socket,
+        "PATCH",
+        "/drawings/not-an-id",
+        Some(json!({"title": "x"})),
+    )
+    .await;
+    assert_eq!(status, 400, "an id that is none: {v}");
+
+    let (status, v) = request(
+        &socket,
+        "POST",
+        "/drawings",
         Some(json!({"title": "Orders", "scope": "workspace"})),
     )
     .await;

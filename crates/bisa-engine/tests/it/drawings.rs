@@ -501,3 +501,388 @@ async fn a_conversation_chooses_the_drawing_and_files_a_new_one_where_it_stands_
         .unwrap()
         .contains("drawing_read"));
 }
+
+/// A reading's description is cut to its cap on a character boundary and
+/// says so; a snapshot the desktop uploaded is named beside the store, and
+/// one the store cannot name is a refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_description_is_cut_on_a_character_boundary_and_a_snapshot_is_named_or_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let inner = engine.inner();
+    // Three bytes each, so the cap falls inside a character and the cut
+    // steps back to the boundary before it.
+    let long = DrawResult {
+        ok: true,
+        description: Some("€".repeat(bisa_core::draw::MAX_DESCRIBE_BYTES)),
+        ..DrawResult::default()
+    }
+    .bounded();
+    let text = long.description.unwrap();
+    assert!(
+        text.ends_with(&format!(
+            "… cut at {} bytes",
+            bisa_core::draw::MAX_DESCRIBE_BYTES
+        )),
+        "{}",
+        &text[text.len() - 40..]
+    );
+    let kept = text.split('\n').next().unwrap();
+    assert_eq!(kept.len() % 3, 0, "cut on a character boundary");
+    assert!(
+        kept.len() < bisa_core::draw::MAX_DESCRIBE_BYTES
+            && kept.len() >= bisa_core::draw::MAX_DESCRIBE_BYTES - 2
+    );
+    let short = DrawResult {
+        ok: true,
+        description: Some("short".into()),
+        ..DrawResult::default()
+    }
+    .bounded();
+    assert_eq!(short.description.as_deref(), Some("short"));
+
+    let shot = engine
+        .workspace()
+        .put_attachment(b"\x89PNG\r\n\x1a\n", "snap.png", "image/png")
+        .unwrap();
+    let named = DrawResult {
+        ok: true,
+        snapshot: Some(shot.clone()),
+        ..DrawResult::default()
+    }
+    .with_named_copy(inner);
+    assert!(named.ok);
+    let path = named.path.expect("the named copy's path");
+    assert!(std::path::Path::new(&path).is_file(), "{path}");
+    let nobody = DrawResult {
+        ok: true,
+        snapshot: Some(bisa_core::AttachmentRef {
+            sha256: "0".repeat(64),
+            ..shot
+        }),
+        ..DrawResult::default()
+    }
+    .with_named_copy(inner);
+    assert!(!nobody.ok, "{nobody:?}");
+    assert!(nobody.error.unwrap().contains("could not be kept"));
+    let bare = DrawResult::default().with_named_copy(inner);
+    assert!(bare.path.is_none());
+    engine.shutdown().await;
+}
+
+/// A new drawing a call files without naming a scope lands where the call
+/// stands — the conversation's origin for every kind of conversation, the
+/// goal of a goal's session, the workspace for a session of nothing — and a
+/// scope named by the call is read as given or refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drawing_is_filed_where_the_call_stands_for_every_origin_and_a_named_scope_is_read_or_refused(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![crate::common::yielding("mock", json!({"summary": "ok"}))],
+    );
+    let inner = engine.inner();
+    let ws = engine.workspace();
+    let socket = engine.socket_path().to_path_buf();
+    let create_from = |scope: Option<String>| {
+        let socket = socket.clone();
+        async move {
+            let mut op = json!({"op": "draw", "request": {"action": "create", "title": "Filed"}});
+            if let Some(scope) = scope {
+                op["scope"] = json!(scope);
+                op["agent"] = json!("general-agent");
+            }
+            let reply = intake_roundtrip(&socket, op).await;
+            assert_eq!(reply["result"]["ok"], json!(true), "{reply}");
+            let id: bisa_core::DrawingId =
+                serde_json::from_value(reply["result"]["drawing"].clone()).unwrap();
+            ws.get_drawing(id).unwrap().scope
+        }
+    };
+    let about = |origin: ConversationOrigin| {
+        ws.create_conversation(NewConversation {
+            origin,
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap()
+        .id
+        .to_string()
+    };
+    let goal = engine
+        .submit_goal(bisa_engine::SubmitRequest::captured("file a drawing"))
+        .unwrap();
+    let project = ws
+        .create_project(bisa_store::NewProject::managed("shop").unwrap())
+        .unwrap();
+    let primary = ws.primary_workstream(project.id).unwrap();
+    let workflow = engine
+        .create_workflow(crate::common::new_workflow(
+            "nightly",
+            vec![crate::common::step(
+                "hold",
+                bisa_core::StepKind::Wait {
+                    until: bisa_core::WaitFor::Release,
+                },
+            )],
+        ))
+        .unwrap();
+    let on_goal = drawings::create(
+        inner,
+        NewDrawing {
+            scope: OwnerScope::Goal { id: goal.id },
+            title: "Beside the goal".into(),
+            scene: None,
+        },
+    )
+    .unwrap();
+    let note = ws
+        .create_note(bisa_store::NewNote {
+            scope: OwnerScope::Project { id: project.id },
+            title: "A note".into(),
+            body: String::new(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        create_from(Some(about(ConversationOrigin::Project { id: project.id }))).await,
+        OwnerScope::Project { id: project.id }
+    );
+    assert_eq!(
+        create_from(Some(about(ConversationOrigin::Workstream {
+            id: primary.id,
+            project: project.id
+        })))
+        .await,
+        OwnerScope::Project { id: project.id }
+    );
+    assert_eq!(
+        create_from(Some(about(ConversationOrigin::Workflow {
+            id: workflow.id
+        })))
+        .await,
+        OwnerScope::Workflow { id: workflow.id }
+    );
+    assert_eq!(
+        create_from(Some(about(ConversationOrigin::Drawing { id: on_goal.id }))).await,
+        OwnerScope::Goal { id: goal.id },
+        "beside the drawing the conversation is about"
+    );
+    assert_eq!(
+        create_from(Some(about(ConversationOrigin::Note { id: note.id }))).await,
+        OwnerScope::Project { id: project.id },
+        "beside the note the conversation is about"
+    );
+    assert_eq!(
+        create_from(Some(about(ConversationOrigin::Node))).await,
+        OwnerScope::Node
+    );
+    assert_eq!(
+        create_from(Some(about(ConversationOrigin::Workspace))).await,
+        OwnerScope::Workspace
+    );
+    // A conversation about a drawing or a note that went: the workspace.
+    let gone_drawing = about(ConversationOrigin::Drawing { id: on_goal.id });
+    let gone_note = about(ConversationOrigin::Note { id: note.id });
+    drawings::delete(inner, on_goal.id).unwrap();
+    ws.delete_note(note.id).unwrap();
+    assert_eq!(create_from(Some(gone_drawing)).await, OwnerScope::Workspace);
+    assert_eq!(create_from(Some(gone_note)).await, OwnerScope::Workspace);
+    // A goal's session, and a session of nothing.
+    let from_goal = intake_roundtrip(
+        &socket,
+        json!({"op": "draw", "goal": goal.id, "request": {"action": "create", "title": "Of the goal"}}),
+    )
+    .await;
+    let id: bisa_core::DrawingId =
+        serde_json::from_value(from_goal["result"]["drawing"].clone()).unwrap();
+    assert_eq!(
+        ws.get_drawing(id).unwrap().scope,
+        OwnerScope::Goal { id: goal.id }
+    );
+    assert_eq!(create_from(None).await, OwnerScope::Workspace);
+    // A session of a run of the workspace: under the run's workflow.
+    let (nightly, run) = crate::common::workspace_run(
+        &engine,
+        crate::common::new_workflow(
+            "nightly-run",
+            vec![crate::common::agent_step("build", "mock")],
+        ),
+    );
+    crate::common::run_finished(&engine, run.id).await;
+    let item = ws
+        .list_work_items(&bisa_core::Home::Run { run: run.id })
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("the run's item")
+        .id;
+    let from_run = intake_roundtrip(
+        &socket,
+        json!({"op": "draw", "work_item": item, "request": {"action": "create", "title": "Of the run"}}),
+    )
+    .await;
+    let id: bisa_core::DrawingId = serde_json::from_value(from_run["result"]["drawing"].clone())
+        .unwrap_or_else(|_| panic!("{from_run}"));
+    assert_eq!(
+        ws.get_drawing(id).unwrap().scope,
+        OwnerScope::Workflow { id: nightly.id }
+    );
+
+    // A scope the call names: read as given, or refused.
+    let named = intake_roundtrip(
+        &socket,
+        json!({"op": "draw", "request": {"action": "create", "title": "Named", "scope": "project", "scope_id": project.id}}),
+    )
+    .await;
+    let id: bisa_core::DrawingId =
+        serde_json::from_value(named["result"]["drawing"].clone()).unwrap();
+    assert_eq!(
+        ws.get_drawing(id).unwrap().scope,
+        OwnerScope::Project { id: project.id }
+    );
+    let refused = intake_roundtrip(
+        &socket,
+        json!({"op": "draw", "request": {"action": "create", "title": "Named", "scope": "shelf"}}),
+    )
+    .await;
+    assert_eq!(
+        refused["result"]["error"],
+        json!(drawings::BAD_SCOPE),
+        "{refused}"
+    );
+    engine.shutdown().await;
+}
+
+/// The list narrowed by a scope word, a kind, a record or refused; a
+/// reading, an erasure and a skeleton of a drawing that went; an erasure
+/// naming nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_list_is_narrowed_by_scope_and_a_drawing_that_went_is_said_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    let inner = engine.inner();
+    let socket = engine.socket_path().to_path_buf();
+    let goal = engine
+        .submit_goal(bisa_engine::SubmitRequest::captured("list drawings"))
+        .unwrap();
+    let on_goal = drawings::create(
+        inner,
+        NewDrawing {
+            scope: OwnerScope::Goal { id: goal.id },
+            title: "Of the goal".into(),
+            scene: None,
+        },
+    )
+    .unwrap();
+    let on_workspace = drawings::create(
+        inner,
+        NewDrawing {
+            scope: OwnerScope::Workspace,
+            title: "Of the workspace".into(),
+            scene: None,
+        },
+    )
+    .unwrap();
+    let list = |request: serde_json::Value| {
+        let socket = socket.clone();
+        async move {
+            intake_roundtrip(&socket, json!({"op": "draw", "request": request})).await["result"]
+                .clone()
+        }
+    };
+    let titles = |result: &serde_json::Value| -> Vec<String> {
+        result["drawings"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|d| d["title"].as_str().unwrap_or_default().to_string())
+            .collect()
+    };
+    assert_eq!(
+        titles(&list(json!({"action": "list", "scope": "workspace"})).await),
+        vec!["Of the workspace"]
+    );
+    assert_eq!(
+        titles(&list(json!({"action": "list", "scope": "goal"})).await),
+        vec!["Of the goal"]
+    );
+    assert_eq!(
+        titles(&list(json!({"action": "list", "scope": "goal", "scope_id": goal.id})).await),
+        vec!["Of the goal"]
+    );
+    for bad in [
+        json!({"action": "list", "scope": "shelf"}),
+        json!({"action": "list", "scope": "goal", "scope_id": "not-an-id"}),
+        json!({"action": "list", "scope": "shelf", "scope_id": "x"}),
+    ] {
+        let said = list(bad.clone()).await;
+        assert_eq!(said["error"], json!(drawings::BAD_SCOPE), "{bad}: {said}");
+    }
+
+    // An erasure naming nothing; one with no ids; then the drawing goes and
+    // every verb says so.
+    let said = list(json!({"action": "erase", "ids": ["a"]})).await;
+    assert_eq!(said["error"], json!(NO_DRAWING));
+    let said = list(json!({"action": "erase", "drawing": on_workspace.id})).await;
+    assert!(
+        said["error"].as_str().unwrap().contains("needs the ids"),
+        "{said}"
+    );
+    drawings::delete(inner, on_workspace.id).unwrap();
+    for request in [
+        json!({"action": "read", "drawing": on_workspace.id}),
+        json!({"action": "erase", "drawing": on_workspace.id, "ids": ["a"]}),
+        json!({"action": "draw", "drawing": on_workspace.id, "elements": [box_at("a", 0)]}),
+    ] {
+        let said = list(request.clone()).await;
+        assert_eq!(said["ok"], json!(false), "{request}: {said}");
+        assert!(
+            said["error"]
+                .as_str()
+                .unwrap()
+                .contains(&on_workspace.id.to_string()),
+            "the drawing is named: {said}"
+        );
+    }
+    let _ = on_goal;
+
+    // A skeleton the canvas refuses: the refusal is the op's answer, and
+    // nothing is announced.
+    engine.inner().draw.pending();
+    let kept = drawings::create(
+        inner,
+        NewDrawing {
+            scope: OwnerScope::Workspace,
+            title: "Refused".into(),
+            scene: None,
+        },
+    )
+    .unwrap();
+    let socket2 = socket.clone();
+    let kept_id = kept.id;
+    let call = tokio::spawn(async move {
+        intake_roundtrip(
+            &socket2,
+            json!({"op": "draw", "request": {"action": "draw", "drawing": kept_id, "elements": [box_at("a", 0)]}}),
+        )
+        .await
+    });
+    let pending = until("a parked drawing request", || {
+        let p = engine.inner().draw.pending();
+        (!p.is_empty()).then_some(p)
+    })
+    .await;
+    assert!(engine.inner().draw.answer(
+        &pending[0].id,
+        DrawResult::refused("the canvas could not lay it out")
+    ));
+    let reply = call.await.unwrap();
+    assert_eq!(reply["result"]["ok"], json!(false), "{reply}");
+    assert_eq!(
+        reply["result"]["error"],
+        json!("the canvas could not lay it out")
+    );
+    engine.shutdown().await;
+}

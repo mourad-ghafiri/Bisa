@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { barTitle, grantToggle, isGranted, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, reviewWords, rowStateWords, sameAddon, slotOf, sortAddons, sortedPermissions, stateWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
+import { barTitle, declaredOf, entryOf, grantToggle, manifestWindow, isGranted, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, reviewWords, rowStateWords, sameAddon, slotOf, sortAddons, sortedPermissions, stateWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
 
 const addon = (id, over = {}) => ({ id, manifest: { name: id, version: "1.0.0", license: "MIT", permissions: [], window: { width: 1, height: 1 } }, origin: "local", enabled: true, granted: [], installed_at: 0, files_present: true, active: true, ...over });
 
@@ -136,4 +136,15 @@ test("a switch the node refused goes back alone, on the list as it stands — an
   assert.ok(refresh.includes("const ticket = reads.begin();") && refresh.split("reads.lands(ticket)").length - 1 === 2, "the answer and the refusal are both held to the ticket");
   assert.ok(refresh.includes('set({ ...state, failed: failureReason("addons", "the addons could not be read", e) });') && !refresh.includes("set({ ...state, loaded: true });"), "a read that refused is not a list that was read, and its reason is the node's words or the log's pointer, never an exception's text");
   for (const surface of ["../views/_settings/AddonsPanel.tsx", "../shell/AddonsOverlay.tsx"]) assert.ok(readFileSync(new URL(surface, import.meta.url), "utf8").includes("{failed && "), `${surface} says the refusal`);
+});
+
+test("a manifest's window, permissions and entry are read with their defaults where the wire left them out", () => {
+  assert.deepEqual(manifestWindow({}), { width: 240, height: 160, min_width: null, min_height: null, max_width: null, max_height: null, resizable: true, closable: true, transparent: false, frame: "bar", default_dock: "bottom_right" });
+  const w = manifestWindow({ window: { width: "300", height: 0, min_width: 100, max_height: 400, resizable: false, closable: false, transparent: true, frame: "none", default_dock: "top_left" } });
+  assert.deepEqual(w, { width: 300, height: 160, min_width: 100, min_height: null, max_width: null, max_height: 400, resizable: false, closable: false, transparent: true, frame: "none", default_dock: "top_left" });
+  assert.deepEqual(declaredOf({}), []);
+  assert.deepEqual(declaredOf({ permissions: ["storage"] }), ["storage"]);
+  assert.equal(entryOf({}), "index.html");
+  assert.equal(entryOf({ entry: "" }), "index.html");
+  assert.equal(entryOf({ entry: "main.html" }), "main.html");
 });

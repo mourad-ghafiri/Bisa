@@ -5298,6 +5298,20 @@ async fn a_note_an_agent_appends_to_is_readable_over_http() {
         .await;
     let id = made["note"]["id"].as_str().unwrap().to_string();
     assert_eq!(made["note"]["scope"], json!("goal"));
+    // A body past the cap is refused by the engine; an id that is none by the route.
+    let (status, v) = node
+        .req(
+            "POST",
+            "/notes",
+            Some(json!({"scope": "goal", "id": goal.to_string(),
+                   "title": "too much", "body": "x".repeat(bisa_core::note::MAX_NOTE_BYTES + 1)})),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    let (status, v) = node
+        .req("PATCH", "/notes/not-an-id", Some(json!({"body": "x"})))
+        .await;
+    assert_eq!(status, 400, "{v}");
 
     // The agent's door: the intake socket, exactly as a session speaks.
     let reply = node
@@ -5495,6 +5509,29 @@ async fn a_pet_installs_from_a_folder_and_its_sheet_is_typed_from_its_bytes() {
 
     let (code, _) = node.req("GET", "/pets/byte/sprite", None).await;
     assert_eq!(code, 200);
+
+    // The sheet replaced on disk by something that is no WebP is handed out
+    // as bytes to save, never as an image; a sheet whose file went is not
+    // found; a person's pet is removed.
+    let sheet = node
+        .data_dir()
+        .join("pets")
+        .join("byte")
+        .join("spritesheet.webp");
+    assert!(sheet.is_file(), "{}", sheet.display());
+    std::fs::write(&sheet, b"\x89PNG\r\n\x1a\n not a webp").unwrap();
+    let (code, content_type, _, _) =
+        crate::mobile_development::get_bytes_at(node.socket(), "/pets/byte/sprite").await;
+    assert_eq!(code, 200);
+    assert_eq!(content_type.as_deref(), Some("application/octet-stream"));
+    std::fs::remove_file(&sheet).unwrap();
+    let (code, _) = node.req("GET", "/pets/byte/sprite", None).await;
+    assert_eq!(code, 404, "the sheet went");
+    let (code, v) = node.req("DELETE", "/pets/byte", None).await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["ok"], json!(true));
+    let listed = node.get("/pets").await["pets"].as_array().cloned().unwrap();
+    assert_eq!(listed.len(), 9, "the nine built-ins alone: {listed:?}");
 
     node.shutdown().await;
 }
@@ -10237,6 +10274,60 @@ async fn a_sessions_browser_serve_puts_its_checkout_on_the_nodes_servers() {
         full.to_string().contains(&cap.to_string()),
         "the cap is named: {full}"
     );
+    node.shutdown().await;
+}
+
+/// A skeleton an agent asks for is parked for the desktop, read off the
+/// list, and answered over HTTP: the op hears the answer, and the same
+/// answer sent twice finds nothing waiting.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parked_drawing_request_is_answered_over_http() {
+    let node = Node::start().await;
+    let made = node
+        .post(
+            "/drawings",
+            json!({"title": "Orders", "scope": "workspace"}),
+        )
+        .await;
+    let id = made["drawing"]["id"].as_str().unwrap().to_string();
+    let hash = made["drawing"]["hash"].as_str().unwrap().to_string();
+    // The desktop reads the list: it is home.
+    let listed = node.get("/drawings/requests").await;
+    assert_eq!(listed["requests"], json!([]));
+    let asking = node.intake_op(json!({"op": "draw", "request": {"action": "draw", "drawing": id,
+        "elements": [{"id": "api", "type": "rectangle", "x": 0, "y": 0, "label": {"text": "API"}}]}}));
+    let answering = async {
+        let mut parked = None;
+        for _ in 0..100 {
+            let listed = node.get("/drawings/requests").await;
+            if let Some(first) = listed["requests"].as_array().and_then(|r| r.first()) {
+                parked = Some(first["id"].as_str().unwrap().to_string());
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let parked = parked.expect("the request parked for the desktop");
+        let (code, v) = node
+            .req(
+                "POST",
+                &format!("/drawings/requests/{parked}"),
+                Some(json!({"ok": true, "drawing": id, "hash": hash, "element_count": 1})),
+            )
+            .await;
+        assert_eq!(code, 200, "{v}");
+        assert_eq!(v["answered"], json!(true));
+        let (code, _) = node
+            .req(
+                "POST",
+                &format!("/drawings/requests/{parked}"),
+                Some(json!({"ok": false, "error": "twice"})),
+            )
+            .await;
+        assert_eq!(code, 404, "answered once");
+    };
+    let (reply, ()) = tokio::join!(asking, answering);
+    assert_eq!(reply["result"]["ok"], json!(true), "{reply}");
+    assert_eq!(reply["result"]["element_count"], json!(1), "{reply}");
     node.shutdown().await;
 }
 

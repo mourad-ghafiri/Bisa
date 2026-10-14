@@ -339,6 +339,13 @@ async fn a_bundle_is_served_open_under_its_walls() {
 
     let page = get_open(&socket, "/addons/acme.byte/files/index.html").await;
     assert_eq!(page.status, 200);
+    // A folder of the bundle is no file to serve.
+    assert_eq!(
+        get_open(&socket, "/addons/acme.byte/files/img")
+            .await
+            .status,
+        404
+    );
     assert!(String::from_utf8_lossy(&page.body).contains("bisa-addon.js"));
     assert_eq!(
         page.header("content-type").as_deref(),

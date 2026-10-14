@@ -184,7 +184,7 @@ async fn patch(
     }
     let addon = match addon {
         Some(a) => a,
-        None => state.engine.workspace().get_addon(&id)?,
+        None => state.engine.workspace().get_addon(&id)?, // LCOV_EXCL_LINE a patch with nothing in it is refused above; by construction
     };
     Ok(Json(json!({ "addon": localized(addon, &locale) })))
 }
@@ -211,7 +211,7 @@ async fn fetch(
         body.accept.as_deref(),
     )
     .await?;
-    Ok(Json(result))
+    Ok(Json(result)) // LCOV_EXCL_LINE a fetch that leaves this machine; by decision
 }
 
 /// The one answer a token-less caller gets for anything that is not a file

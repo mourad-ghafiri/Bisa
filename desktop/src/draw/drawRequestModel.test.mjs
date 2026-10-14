@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { DRAWING_GONE, MERMAID_REFUSED, NOT_A_SKELETON, UNKNOWN_ACTION, drawnResult, mergeElements, planDrawRequest, refusedResult, saveBase, snapshotName, snapshotResult } from "./drawRequestModel.mjs";
+import { DRAWING_GONE, MERMAID_REFUSED, NOT_A_SKELETON, UNKNOWN_ACTION, drawingWords, drawnResult, mergeElements, planDrawRequest, refusedResult, saveBase, snapshotName, snapshotResult } from "./drawRequestModel.mjs";
 
 test("a bridge save states the open canvas's record when it drew there, else the hash it read", () => {
   assert.equal(saveBase(true, "record", "read"), "record", "two writers save through the open canvas");
@@ -74,4 +74,11 @@ test("the bridge performs one request at a time, remembers only the latest it to
   assert.ok(retry.includes("current = drawnElements(mod.restoreElements(read.scene.elements"), "and the incoming elements join that scene on the next pass");
   assert.ok(bridge.indexOf("const canvas = await canvasFor(detail);") > bridge.indexOf("regenerateIds: false"), "the canvas is chosen after the shapes are laid out, as late as it can be");
   assert.ok(bridge.includes('log.warn("draw", "an answer to a drawing request was not taken'), "a late answer is a warning: the engine announces its save");
+});
+
+test("the working dot's words count the agents drawing", () => {
+  const one = drawingWords(1);
+  const several = drawingWords(3);
+  assert.ok(one && several && one !== several, `${one} / ${several}`);
+  assert.ok(several.includes("3"), several);
 });

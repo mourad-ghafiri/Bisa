@@ -207,6 +207,41 @@ fn an_addon_is_imported_granted_switched_served_and_removed_and_a_built_in_comes
     ws.start();
     assert_eq!(installed(&ws).len(), 1);
     ws.stop();
+
+    // Without a node: the same verbs on the workspace itself — listed,
+    // shown, imported, granted, switched, installed from the catalog, and
+    // removed — the rows one shape; and an addon whose files went is said so.
+    assert_eq!(installed(&ws), vec!["clock".to_string()]);
+    let shown = ws.json(&["addon", "show", "clock"]);
+    assert_eq!(shown["addon"]["id"], "clock", "{shown}");
+    assert_eq!(shown["addon"]["files_present"], true, "{shown}");
+    let beam = a_folder_with(&ws, "beam", &the_manifest("acme.beam"));
+    let imported = ws.json(&["addon", "import", &beam.to_string_lossy()]);
+    assert_eq!(imported["addon"]["id"], "acme.beam", "{imported}");
+    assert_eq!(imported["addon"]["enabled"], false, "{imported}");
+    let granted = ws.json(&["addon", "grant", "acme.beam", "storage"]);
+    assert_eq!(granted["addon"]["granted"], json!(["storage"]), "{granted}");
+    let on = ws.json(&["addon", "enable", "acme.beam"]);
+    assert_eq!(on["addon"]["active"], true, "{on}");
+    let off = ws.json(&["addon", "disable", "acme.beam"]);
+    assert_eq!(off["addon"]["active"], false, "{off}");
+    let revoked = ws.json(&["addon", "revoke", "acme.beam", "storage"]);
+    assert_eq!(revoked["addon"]["granted"], json!([]), "{revoked}");
+    let weather = ws.json(&["addon", "install", "weather"]);
+    assert_eq!(weather["installed"], json!(["weather"]), "{weather}");
+    let mut listed = installed(&ws);
+    listed.sort();
+    assert_eq!(listed, vec!["acme.beam", "clock", "weather"]);
+    // The bundle moved aside by hand: the record stands, the files do not.
+    let files = ws.data().join("addons").join("acme.beam").join("files");
+    assert!(files.is_dir(), "{}", files.display());
+    std::fs::rename(&files, files.with_extension("aside")).expect("aside");
+    let gone = ws.json(&["addon", "show", "acme.beam"]);
+    assert_eq!(gone["addon"]["files_present"], false, "{gone}");
+    assert_eq!(gone["addon"]["active"], false, "{gone}");
+    let removed = ws.json(&["addon", "remove", "acme.beam"]);
+    assert_eq!(removed["removed"], "acme.beam", "{removed}");
+    assert!(!installed(&ws).contains(&"acme.beam".to_string()));
 }
 
 /// An agent in a conversation about a drawing: it reads the drawing, files a

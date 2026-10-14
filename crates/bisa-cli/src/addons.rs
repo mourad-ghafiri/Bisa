@@ -198,7 +198,7 @@ async fn patch(ctx: &Ctx, id: &AddonId, body: Value) -> Result<Value> {
     }
     Ok(row(&match entry {
         Some(e) => e,
-        None => ws.get_addon(id)?,
+        None => ws.get_addon(id)?, // LCOV_EXCL_LINE every verb's patch names a field; by construction
     }))
 }
 

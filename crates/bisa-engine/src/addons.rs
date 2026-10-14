@@ -171,9 +171,10 @@ pub async fn addon_fetch(
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-addons-bad-accept"
         )));
-    }
+    } // LCOV_EXCL_LINE an accept that passes leads to the fetch; by decision
 
     // Every refusal above stands before this line; nothing below is a rule.
+    // LCOV_EXCL_START a fetch that leaves this machine; by decision
     let response = inner
         .http
         .strict()
@@ -206,10 +207,13 @@ pub async fn addon_fetch(
         body_text: String::from_utf8_lossy(&bytes).into_owned(),
         truncated,
     })
+    // LCOV_EXCL_STOP
 }
 
 /// The body up to `cap` bytes, and whether more was coming. The connection
 /// is dropped at the cap, so a host that streams forever costs one buffer.
+/// The rule itself is [`cap_chunks`], held by a test; this reads the wire.
+// LCOV_EXCL_START a body read off the network; by decision
 async fn read_capped(
     mut response: reqwest::Response,
     cap: usize,
@@ -224,6 +228,7 @@ async fn read_capped(
     }
     Ok((out, false))
 }
+// LCOV_EXCL_STOP
 
 /// The cap rule on its own, for the test that has no host: `chunks` as they
 /// would arrive, `cap` as the broker keeps it.
