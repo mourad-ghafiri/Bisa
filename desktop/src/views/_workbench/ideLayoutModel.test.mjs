@@ -115,3 +115,17 @@ test("a device tab is saved with its id and comes back beside the files (ide/19)
   const bad = restoreLayout({ ...saved, tabs: [{ kind: "device", id: "" }, { kind: "device", id: "a/b" }] });
   assert.deepEqual(bad.tabs, [], "a device with no id or a path is dropped");
 });
+
+test("a tab the saved tree forgot lands in the first leaf of a split tree, walking down its first side", () => {
+  const r = restoreLayout({
+    version: LAYOUT_VERSION,
+    tabs: [{ kind: "file", path: "a.rs" }, { kind: "file", path: "b.rs" }, { kind: "file", path: "c.rs" }],
+    active: null,
+    panes: { kind: "split", id: "s1", dir: "row", ratio: 0.5, a: { kind: "leaf", id: "d1", tabs: ["file:a.rs"], active: "file:a.rs" }, b: { kind: "leaf", id: "d2", tabs: ["file:b.rs"], active: "file:b.rs" } },
+    pinned: [],
+  });
+  const all = leaves(r.panes);
+  assert.equal(all.length, 2, "the split is kept");
+  assert.deepEqual(all[0].tabs, ["file:a.rs", "file:c.rs"], "the forgotten tab joins the first leaf");
+  assert.deepEqual(all[1].tabs, ["file:b.rs"]);
+});

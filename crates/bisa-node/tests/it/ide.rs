@@ -14,9 +14,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::net::UnixStream;
 
-const TOKEN: &str = "test-token-0123456789abcdef";
+pub(crate) const TOKEN: &str = "test-token-0123456789abcdef";
 
-async fn boot() -> (
+pub(crate) async fn boot() -> (
     tempfile::TempDir,
     PathBuf,
     String,
@@ -114,7 +114,7 @@ async fn boot_with(
     (dir, actual, pid, root, stop)
 }
 
-async fn request(
+pub(crate) async fn request(
     socket: &std::path::Path,
     method: &str,
     path: &str,
@@ -346,7 +346,10 @@ async fn the_editors_caps_hold_at_their_edges() {
 }
 
 /// A request whose answer is bytes: the status, the three typing headers, the body.
-async fn raw_bytes(socket: &std::path::Path, path: &str) -> (u16, Vec<(String, String)>, Vec<u8>) {
+pub(crate) async fn raw_bytes(
+    socket: &std::path::Path,
+    path: &str,
+) -> (u16, Vec<(String, String)>, Vec<u8>) {
     let stream = UnixStream::connect(socket).await.expect("connect");
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
@@ -554,7 +557,7 @@ async fn explorer_mutations_and_the_watch_lease() {
 // Search and replace (ide/12)
 // ---------------------------------------------------------------------------
 
-async fn raw_body(socket: &std::path::Path, method: &str, path: &str) -> (u16, String) {
+pub(crate) async fn raw_body(socket: &std::path::Path, method: &str, path: &str) -> (u16, String) {
     let stream = UnixStream::connect(socket).await.expect("connect");
     let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
@@ -2183,7 +2186,7 @@ async fn a_served_folder_hands_out_nothing_hidden_and_nothing_outside_however_th
     }
 }
 
-async fn http_get(port: u16, path: &str) -> (u16, String) {
+pub(crate) async fn http_get(port: u16, path: &str) -> (u16, String) {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
         .await

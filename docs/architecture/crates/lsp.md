@@ -53,7 +53,7 @@ A preset: an entry in `catalog.rs` naming the binary, its argv and the languages
 
 ## Tests
 
-`tests/it/server.rs` against the scripted server built beside them (`tests/scripted_lsp.rs`, the package's `scripted-lsp` binary: the handshake, a hover, a frame that is not one, a crash mid-session); unit tests beside `codec.rs` and `uri.rs`.
+`tests/it/server.rs` against the scripted server built beside them (`tests/scripted_lsp.rs`, the package's `scripted-lsp` binary: the handshake, a hover, a frame that is not one, a crash mid-session; and the moods a test asks for by the file it opens — the server's own questions answered so it never stalls, a frame that is nothing read past, a notification nobody listens for let go, a long stderr cut to its last words, a shutdown refused or ignored still ending the process, a request still waiting hearing the close at a shutdown and at a crash); unit tests beside `catalog.rs` (a probe kept a minute, a shell that is gone or hangs read as unavailable, through a `SHELL` of the test's own), `codec.rs` and `uri.rs`. What stays out by decision: the twenty-second request deadline, and an answer arriving after its asker gave up.
 
 ---
 

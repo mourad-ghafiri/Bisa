@@ -161,3 +161,11 @@ test("a shell's place counts shells only; a noop or a foreign payload is nothing
   assert.equal(railDropVerdict({}, { type: "path", path: "x" }, plan, h, tree), null);
   assert.equal(railCanNest({ type: "path" }, find(h, "project", "p1")), false);
 });
+
+test("a payload of a kind the rail does not drag reorders nowhere and drops to no verdict", () => {
+  const rows = grouped();
+  const odd = { type: "rail-row", kind: "oddity", id: "x", ctx: "ungrouped", label: "?" };
+  assert.equal(railCanReorder(odd, null, { headless: true }), false);
+  assert.equal(railCanReorder(odd, find(rows, "project", "p1")), false);
+  assert.equal(railDropVerdict({}, odd, { index: 0, noop: false }, rows, treeRowsOf(rows, open)), null);
+});

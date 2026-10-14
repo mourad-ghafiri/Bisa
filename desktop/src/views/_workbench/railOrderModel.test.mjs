@@ -61,3 +61,8 @@ test("reorderAmong writes the dimension the plan names and is identity-stable on
   const ws = reorderAmong({}, { kind: "workstreams", project: "p1" }, ["w1", "w2"], ["w1", "w2"], "w2", 0);
   assert.deepEqual(workstreamOrder(ws, "p1"), ["w2", "w1"]);
 });
+
+test("a reorder in a dimension the order does not keep leaves the order as it was", () => {
+  const order = { projects: ["p1", "p2"] };
+  assert.equal(reorderAmong(order, { kind: "nowhere" }, ["a", "b"], ["a", "b"], "b", 0), order);
+});

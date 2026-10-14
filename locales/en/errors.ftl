@@ -586,6 +586,7 @@ error-engine-invalid-only-goal-owes-this-decision = only a goal owes a decision 
 error-engine-invalid-patch-bytes-cap = patch is { $a0 } bytes; the cap is { $max_patch_bytes }
 error-engine-invalid-patch-bytes-cap-2 = patch is { $a0 } bytes; the cap is { $a1 }
 error-engine-invalid-patch-empty = patch is empty
+error-engine-invalid-outside-writable-root = { $relative } is outside what can be written in this folder
 error-engine-invalid-path-not-under-root = the path is not under the root
 error-engine-invalid-pattern-not-valid-regex = the pattern is not a valid regex: { $e }
 error-engine-invalid-project-archived-unarchive-before-opening-workstream = project { $a0 } is archived; unarchive it before opening a workstream

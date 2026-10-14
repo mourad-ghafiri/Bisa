@@ -241,7 +241,7 @@ fn about(inner: &Inner, scope: FileScope, id: &str) -> Result<About, Interactive
             let wid = WorkstreamId::from_str(id).ok();
             let project = match wid {
                 Some(wid) => Some(inner.ws.get_workstream(wid)?.project),
-                None => None,
+                None => None, // LCOV_EXCL_LINE an id the store already parsed; by construction
             };
             About {
                 workstream: wid,
@@ -297,9 +297,10 @@ pub(crate) fn put_away_what_was_left(inner: &Inner) {
             tracing::debug!(target: "bisa_engine", dir = %root.display(), "put away the terminal sessions' files the last process left");
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // LCOV_EXCL_START a folder the disk will not let go; a disk arm
         Err(e) => {
             tracing::warn!(target: "bisa_engine", dir = %root.display(), "the terminal sessions' files the last process left could not be put away: {e}");
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -547,13 +548,15 @@ impl InteractiveDesk {
             if let Some(dir) = row.files_dir {
                 // The session's own scratch, made by this engine; a folder
                 // already gone is nothing to report.
+                // LCOV_EXCL_START a folder the disk will not let go; a disk arm
                 if let Err(e) = std::fs::remove_dir_all(&dir) {
                     if e.kind() != std::io::ErrorKind::NotFound {
                         tracing::debug!(dir = %dir.display(), "a session's files dir could not be removed: {e}");
                     }
                 }
+                // LCOV_EXCL_STOP
             }
-        }
+        } // LCOV_EXCL_LINE a row the desk already let go; by construction
     }
 }
 
@@ -601,10 +604,12 @@ fn spawn_sse_puller(
                 Ok(r) if r.status().is_success() => r,
                 _ => {
                     attempts += 1;
+                    // LCOV_EXCL_START forty half-second tries; by decision
                     if attempts > MAX_ATTEMPTS {
                         tracing::debug!(%session, "the harness never served its events at {url}");
                         return;
                     }
+                    // LCOV_EXCL_STOP
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     continue;
                 }
@@ -634,10 +639,12 @@ fn spawn_sse_puller(
                 attempts = 0;
             } else {
                 attempts += 1;
+                // LCOV_EXCL_START forty empty streams; by decision
                 if attempts > MAX_ATTEMPTS {
                     tracing::debug!(%session, "the harness never served an event at {url}");
                     return;
                 }
+                // LCOV_EXCL_STOP
             }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }

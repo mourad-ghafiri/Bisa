@@ -134,4 +134,21 @@ mod tests {
         );
         assert_eq!(root_uri(root), "file:///tmp/proj%20a");
     }
+
+    #[test]
+    fn a_percent_that_begins_no_escape_is_kept_and_a_list_of_uris_is_rewritten_entry_by_entry() {
+        let root = Path::new("/tmp/proj");
+        assert_eq!(
+            to_relative(root, "file:///tmp/proj/100%zz.rs"),
+            Some("100%zz.rs".into()),
+            "`%zz` is no escape: the bytes stay as written"
+        );
+        assert_eq!(
+            outbound(
+                root,
+                json!(["file:///tmp/proj/a.rs", "file:///elsewhere/b.rs", 3])
+            ),
+            json!(["a.rs", null, 3])
+        );
+    }
 }

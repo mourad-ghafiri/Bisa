@@ -551,6 +551,17 @@ impl HarnessAdapter for MockAdapter {
         self.reporting.clone()
     }
 
+    /// A pulled report, as the mock reads it: the payload's `events`, each
+    /// a [`SessionEvent`] as it serialises — so a test's own event server
+    /// can say anything the fold understands, and nothing else.
+    fn translate_report(&self, payload: &serde_json::Value) -> Vec<SessionEvent> {
+        payload
+            .get("events")
+            .cloned()
+            .and_then(|events| serde_json::from_value(events).ok())
+            .unwrap_or_default()
+    }
+
     async fn usage(&self) -> crate::usage::UsageState {
         self.usage_asked
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);

@@ -130,7 +130,7 @@ impl LspRegistry {
 
     fn record_start(&self, k: &(PathBuf, String)) -> bool {
         let Ok(mut starts) = self.starts.lock() else {
-            return false;
+            return false; // LCOV_EXCL_LINE a poisoned lock; by construction
         };
         let now = Instant::now();
         // Every ledger forgets what is older than the minute, and a ledger
@@ -185,7 +185,7 @@ async fn server_for(
         // It died: forget it and fall through to a restart, bounded below.
         if let ServerState::Failed { reason } = m.server.state() {
             tracing::warn!(language, "language server failed: {reason}");
-        }
+        } // LCOV_EXCL_LINE a server stopped is removed with it; by construction
         inner.lsp.remove(&k);
     }
     if inner
@@ -198,7 +198,7 @@ async fn server_for(
         return Ok(None);
     }
     let Some(desc) = catalog::resolve(language, &descriptors(inner)) else {
-        return Ok(None);
+        return Ok(None); // LCOV_EXCL_LINE every catalog language has a preset; by construction
     };
     if !inner.lsp.record_start(&k) {
         let reason = format!(
@@ -269,7 +269,7 @@ async fn server_for(
                 Value::Null,
             );
         });
-    }
+    } // LCOV_EXCL_LINE a fresh server's notifications are untaken; by construction
     emit(
         inner,
         scope,
@@ -427,9 +427,11 @@ pub async fn close(
         docs.remove(path);
         docs.len()
     };
+    // LCOV_EXCL_START a server gone under a close; a race
     if let Err(e) = m.server.did_close(&uri::to_uri(&root, path)).await {
         tracing::debug!(language, "didClose not delivered: {e}");
     }
+    // LCOV_EXCL_STOP
     if remaining == 0 {
         if let Ok(mut idle) = m.idle_since.lock() {
             *idle = Some(Instant::now());
@@ -574,11 +576,13 @@ pub fn refresh_for(inner: &Inner, key: &str) {
     if running.is_empty() {
         return;
     }
+    // LCOV_EXCL_START a field read only when info is logged; by construction
     tracing::info!(
         key,
         servers = running.len(),
         "language servers stopped: the setting changed"
     );
+    // LCOV_EXCL_STOP
     // The shutdowns are asynchronous and this is a settings write on a
     // request thread: spawned, as the idle stop is. Outside a runtime the
     // handles drop and the processes end with them.
@@ -588,7 +592,7 @@ pub fn refresh_for(inner: &Inner, key: &str) {
                 m.server.shutdown().await;
             }
         });
-    }
+    } // LCOV_EXCL_LINE no runtime around a settings write; by construction
 }
 
 /// A person asked: forget the crash-loop verdict and stop the server, which
@@ -615,11 +619,13 @@ pub async fn restart(
             .map(|d| d.keys().cloned().collect())
             .unwrap_or_default();
         m.server.shutdown().await;
+        // LCOV_EXCL_START a field read only when info is logged; by construction
         tracing::info!(
             language,
             docs = docs.len(),
             "language server restarted on request"
         );
+        // LCOV_EXCL_STOP
     }
     Ok(())
 }

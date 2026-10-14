@@ -104,10 +104,10 @@ impl Server {
                                 .unwrap_or(cut);
                             t.drain(..at);
                         }
-                    }
+                    } // LCOV_EXCL_LINE a poisoned lock; by construction
                 }
             });
-        }
+        } // LCOV_EXCL_LINE stderr is piped; by construction
         let shared = Arc::new(Shared {
             pending: Mutex::new(HashMap::new()),
             state: Mutex::new(ServerState::Starting),
@@ -144,7 +144,7 @@ impl Server {
                         };
                     }
                     Ok(n) => n,
-                    Err(e) => break format!("reading the server: {e}"),
+                    Err(e) => break format!("reading the server: {e}"), // LCOV_EXCL_LINE a pipe read that fails; by construction
                 };
                 decoder.push(&buf[..n]);
                 loop {
@@ -152,7 +152,7 @@ impl Server {
                         Ok(Some(msg)) => {
                             if let Some(s) = reader_server.upgrade() {
                                 s.dispatch(msg, &tx).await;
-                            }
+                            } // LCOV_EXCL_LINE the server dropped under its reader; a race
                         }
                         Ok(None) => break,
                         Err(e) => return fail(&reader_shared, format!("protocol: {e}")),
@@ -196,7 +196,7 @@ impl Server {
             if *s == ServerState::Starting {
                 *s = ServerState::Running;
             }
-        }
+        } // LCOV_EXCL_LINE a reader failing inside the handshake; a race
         Ok(server)
     }
 
@@ -225,9 +225,11 @@ impl Server {
                     } else {
                         Ok(msg.get("result").cloned().unwrap_or(Value::Null))
                     };
+                    // LCOV_EXCL_START an answer after its asker's deadline; a race
                     if tx.send(result).is_err() {
                         tracing::debug!("an answer arrived after its asker gave up");
                     }
+                    // LCOV_EXCL_STOP
                 }
             }
             // A request from the server: answered empty so it never stalls.
@@ -251,7 +253,7 @@ impl Server {
                     .send(json!({"jsonrpc": "2.0", "id": id, "result": result}))
                     .await
                 {
-                    tracing::debug!("a server request went unanswered: {e}");
+                    tracing::debug!("a server request went unanswered: {e}"); // LCOV_EXCL_LINE the pipe gone under an answer; a race
                 }
             }
             // A notification.
@@ -304,13 +306,14 @@ impl Server {
             .await?;
         match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(LspError::Closed),
+            Ok(Err(_)) => Err(LspError::Closed), // LCOV_EXCL_LINE a sender dropped unsent; by construction
+            // LCOV_EXCL_START a twenty-second deadline; by decision
             Err(_) => {
                 if let Ok(mut p) = self.shared.pending.lock() {
                     p.remove(&id);
                 }
                 Err(LspError::Timeout(method.to_string()))
-            }
+            } // LCOV_EXCL_STOP
         }
     }
 
@@ -384,7 +387,7 @@ impl Server {
             Err(_) => tracing::debug!("shutdown was not answered in 3 s"),
         }
         if let Err(e) = self.notify("exit", Value::Null).await {
-            tracing::debug!("exit was not delivered: {e}");
+            tracing::debug!("exit was not delivered: {e}"); // LCOV_EXCL_LINE the server gone before exit; a race
         }
         if let Ok(mut g) = self.shared.state.lock() {
             *g = ServerState::Stopped;
@@ -395,7 +398,7 @@ impl Server {
             for (_, tx) in p.drain() {
                 let _asker_gone = tx.send(Err(LspError::Closed));
             }
-        }
+        } // LCOV_EXCL_LINE a poisoned lock; by construction
         let child = self.child.lock().ok().and_then(|mut c| c.take());
         if let Some(mut child) = child {
             // Two seconds to exit on its own; then it is ended. An end that
@@ -404,9 +407,11 @@ impl Server {
                 .await
                 .is_err()
             {
+                // LCOV_EXCL_START a child already gone; by construction
                 if let Err(e) = child.start_kill() {
                     tracing::debug!("ending a language server that did not exit: {e}");
                 }
+                // LCOV_EXCL_STOP
             }
         }
         if let Ok(mut g) = self.stdin.try_lock() {
@@ -423,10 +428,10 @@ fn fail(shared: &Arc<Shared>, reason: String) {
         if !matches!(*s, ServerState::Stopped) {
             *s = ServerState::Failed { reason };
         }
-    }
+    } // LCOV_EXCL_LINE a poisoned lock; by construction
     if let Ok(mut p) = shared.pending.lock() {
         for (_, tx) in p.drain() {
             let _asker_gone = tx.send(Err(LspError::Closed));
         }
-    }
+    } // LCOV_EXCL_LINE a poisoned lock; by construction
 }

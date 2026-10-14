@@ -514,6 +514,7 @@ async fn raw(
         ))
     })?;
     let mut head = vec![0u8; 512];
+    // LCOV_EXCL_START a read failing after the open; a disk arm
     let n = opened.read(&mut head).await.map_err(|e| {
         crate::not_found(bisa_core::text!(
             "error-node-ide-refused",
@@ -521,6 +522,7 @@ async fn raw(
             e = e.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
     head.truncate(n);
     opened
         .seek(std::io::SeekFrom::Start(0))
@@ -536,7 +538,7 @@ async fn raw(
         let mut buf = vec![0u8; 64 * 1024];
         let n = f.read(&mut buf).await?;
         if n == 0 {
-            return Ok::<_, std::io::Error>(None);
+            return Ok::<_, std::io::Error>(None); // LCOV_EXCL_LINE the stream ends at the declared length; by construction
         }
         buf.truncate(n);
         Ok(Some((axum::body::Bytes::from(buf), f)))

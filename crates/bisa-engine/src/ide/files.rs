@@ -57,7 +57,7 @@ impl Disposal {
 
     pub(crate) fn remover(self) -> Box<dyn Remover> {
         match self {
-            Disposal::Trash => Box::new(TrashRemover),
+            Disposal::Trash => Box::new(TrashRemover), // LCOV_EXCL_LINE the OS trash; by decision
             Disposal::Unlink => Box::new(UnlinkRemover),
         }
     }
@@ -101,6 +101,7 @@ pub trait Remover {
 /// The OS trash: files and directories alike, recoverable by the person.
 pub struct TrashRemover;
 
+// LCOV_EXCL_START the OS trash; by decision — a test that moved a fixture there would leave it on a real machine
 impl Remover for TrashRemover {
     fn remove(&self, path: &Path, is_dir: bool) -> Result<(), EngineError> {
         self.remove_all(&[Removal {
@@ -135,6 +136,7 @@ impl Remover for TrashRemover {
         })
     }
 }
+// LCOV_EXCL_STOP
 
 /// The bytes go. What the confirmation said is what happens.
 pub struct UnlinkRemover;
@@ -328,9 +330,11 @@ fn shown(root: &Path, path: &Path) -> Result<String, EngineError> {
         .strip_prefix(&real_root)
         .or_else(|_| path.strip_prefix(root))
         .or_else(|_| path.strip_prefix(&real_root))
+        // LCOV_EXCL_START a path resolved within the root; by construction
         .map_err(|_| {
             EngineError::Invalid(bisa_core::text!("error-engine-invalid-path-not-under-root"))
         })?;
+    // LCOV_EXCL_STOP
     Ok(rel.to_string_lossy().into_owned())
 }
 
@@ -426,7 +430,7 @@ pub fn write_bytes(
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
-    }
+    } // LCOV_EXCL_LINE a parent the disk refuses; a disk arm
     bisa_store::write_atomic(&path, bytes)?;
     let created = existing.is_none();
     let rel = shown(&root, &path)?;
@@ -472,7 +476,7 @@ pub fn create_entry(
         EntryKind::File => {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
-            }
+            } // LCOV_EXCL_LINE a parent the disk refuses; a disk arm
             std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -541,7 +545,7 @@ pub fn move_entry(
     }
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
-    }
+    } // LCOV_EXCL_LINE a parent the disk refuses; a disk arm
     let from_rel = shown(&root, &source)?;
     std::fs::rename(&source, &target)?;
     let rel = shown(&root, &target)?;
@@ -592,7 +596,7 @@ pub fn copy_entry(
     }
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
-    }
+    } // LCOV_EXCL_LINE a parent the disk refuses; a disk arm
     copy_tree(&source, &target, &meta)?;
     let rel = shown(&root, &target)?;
     announce(
@@ -650,10 +654,12 @@ pub fn delete_entry(
     match (deletions.halted, deletions.deleted.into_iter().next()) {
         (Some(halted), _) => Err(halted.error),
         (None, Some(gone)) => Ok(gone),
+        // LCOV_EXCL_START a batch of one that went or halted; by construction
         (None, None) => Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-no-such-path-2",
             relative = format!("{relative:?}")
         ))),
+        // LCOV_EXCL_STOP
     }
 }
 

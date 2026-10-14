@@ -194,6 +194,20 @@ mod tests {
     }
 
     #[test]
+    fn a_header_that_never_ends_is_refused_past_the_cap_and_an_empty_header_line_is_read_past() {
+        let mut d = Decoder::default();
+        d.push(&vec![b'x'; MAX_HEADER_BYTES + 1]);
+        assert_eq!(d.next_message(), Err(DecodeError::NoHeader));
+        let mut d = Decoder::default();
+        d.push(b"\r\nContent-Length: 2\r\n\r\n{}");
+        assert_eq!(
+            d.next_message(),
+            Ok(Some(json!({}))),
+            "the empty line before the length is nothing"
+        );
+    }
+
+    #[test]
     fn a_content_length_at_the_cap_waits_for_its_body() {
         let mut d = Decoder::default();
         d.push(format!("Content-Length: {MAX_BODY_BYTES}\r\n\r\n").as_bytes());

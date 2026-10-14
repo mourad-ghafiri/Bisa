@@ -160,3 +160,199 @@ async fn wait_until_not_running(server: &Server) -> ServerState {
     }
     panic!("the server is still running");
 }
+
+/// A document opened on the running scripted server, by name — the name
+/// is what asks the server for one of its moods.
+async fn open_named(server: &Server, dir: &tempfile::TempDir, name: &str) -> String {
+    let uri = format!("{}/{name}", bisa_lsp::uri::root_uri(dir.path()));
+    server.did_open(&uri, "text", 1, "").await.unwrap();
+    uri
+}
+
+/// A server that asks its client things is answered — a configuration
+/// item per item asked, the root as its one folder, nothing for anything
+/// else — so it never stalls on a question; a frame that is neither a
+/// request nor a notification is read past; and a document's change and
+/// close reach it as the notifications they are.
+#[tokio::test]
+async fn the_servers_own_questions_are_answered_and_a_frame_that_is_nothing_is_read_past() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = running(&dir).await;
+    let mut notes = server.take_notifications().expect("the listener's end");
+    let uri = open_named(&server, &dir, "chatty.txt").await;
+    let heard = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let note = notes.recv().await.expect("the channel is open");
+            if note.method == "scripted/answered" {
+                return note.params;
+            }
+        }
+    })
+    .await
+    .expect("the server heard its three answers in time");
+    assert_eq!(
+        heard["ask-configuration"],
+        serde_json::json!([null, null]),
+        "one null per item asked: {heard}"
+    );
+    assert_eq!(
+        heard["ask-folders"],
+        serde_json::json!([{"uri": bisa_lsp::uri::root_uri(dir.path()), "name": "root"}]),
+        "{heard}"
+    );
+    assert_eq!(heard["ask-oddity"], serde_json::Value::Null, "{heard}");
+    assert_eq!(
+        server.state(),
+        ServerState::Running,
+        "a frame that is nothing fails nothing"
+    );
+    server.did_change(&uri, 2, "changed").await.unwrap();
+    server.did_close(&uri).await.unwrap();
+    let hover = server
+        .request(
+            "textDocument/hover",
+            serde_json::json!({"textDocument": {"uri": uri}, "position": {"line": 0, "character": 0}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(hover["contents"]["value"], format!("hovering {uri}"));
+    server.shutdown().await;
+}
+
+/// Nobody listening for notifications is the engine letting the server go:
+/// the diagnostic it sends is dropped, and the server is none the worse.
+#[tokio::test]
+async fn a_notification_nobody_listens_for_is_let_go_and_the_server_still_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = running(&dir).await;
+    drop(
+        server
+            .take_notifications()
+            .expect("the listener's end, dropped"),
+    );
+    assert!(server.take_notifications().is_none(), "taken once");
+    let uri = open_named(&server, &dir, "quiet.txt").await;
+    // The diagnostic went nowhere; the server answers as before.
+    let hover = server
+        .request(
+            "textDocument/hover",
+            serde_json::json!({"textDocument": {"uri": uri}, "position": {"line": 0, "character": 0}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(hover["contents"]["value"], format!("hovering {uri}"));
+    assert_eq!(server.state(), ServerState::Running);
+    server.shutdown().await;
+}
+
+/// A server that wrote more to stderr than the supervisor keeps is failed
+/// with its last words, not its first.
+#[tokio::test]
+async fn a_server_that_exits_after_a_long_stderr_is_failed_with_its_last_words_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = running(&dir).await;
+    open_named(&server, &dir, "loud.txt").await;
+    match wait_until_not_running(&server).await {
+        ServerState::Failed { reason } => {
+            assert!(reason.contains("the last words"), "{reason}");
+            assert!(
+                reason.len() < 2048 + 64,
+                "cut to the tail: {}",
+                reason.len()
+            );
+            assert!(
+                !reason.contains(&"x".repeat(2500)),
+                "the beginning is gone: {}",
+                reason.len()
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A shutdown the server refuses, and one it never answers — nor the exit
+/// after it — both end with the process gone and the server `Stopped`; a
+/// second shutdown finds no process to end; and a document opened after is
+/// refused as closed.
+#[tokio::test]
+async fn a_shutdown_refused_or_ignored_still_ends_the_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let refusing = running(&dir).await;
+    open_named(&refusing, &dir, "refuse-shutdown.txt").await;
+    refusing.shutdown().await;
+    assert_eq!(refusing.state(), ServerState::Stopped);
+    // The reader hears the end of the process after the stop and leaves the
+    // word as it is.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(
+        refusing.state(),
+        ServerState::Stopped,
+        "stopped, never failed"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let deaf = running(&dir).await;
+    let uri = open_named(&deaf, &dir, "slow-shutdown.txt").await;
+    let began = std::time::Instant::now();
+    deaf.shutdown().await;
+    let took = began.elapsed();
+    assert!(
+        took >= std::time::Duration::from_secs(4),
+        "three seconds for the answer and two for the exit: {took:?}"
+    );
+    assert_eq!(deaf.state(), ServerState::Stopped);
+    deaf.shutdown().await;
+    assert_eq!(
+        deaf.state(),
+        ServerState::Stopped,
+        "a second shutdown finds nothing to end"
+    );
+    assert!(
+        matches!(
+            deaf.did_open(&uri, "text", 2, "").await,
+            Err(LspError::Closed)
+        ),
+        "the pipe to the server is gone"
+    );
+}
+
+/// A request still waiting when the server is shut down, or when it
+/// crashes, hears the close now rather than never.
+#[tokio::test]
+async fn a_request_still_waiting_hears_the_close_at_a_shutdown_and_at_a_crash() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = running(&dir).await;
+    let uri = open_named(&server, &dir, "mute.txt").await;
+    let hover = |server: std::sync::Arc<Server>, uri: String| async move {
+        server
+            .request(
+                "textDocument/hover",
+                serde_json::json!({"textDocument": {"uri": uri}, "position": {"line": 0, "character": 0}}),
+            )
+            .await
+    };
+    let waiting = tokio::spawn(hover(std::sync::Arc::clone(&server), uri.clone()));
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.shutdown().await;
+    let heard = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+        .await
+        .expect("the waiter hears the close at the shutdown")
+        .unwrap();
+    assert!(matches!(heard, Err(LspError::Closed)), "{heard:?}");
+
+    let dir = tempfile::tempdir().unwrap();
+    let server = running(&dir).await;
+    let uri = open_named(&server, &dir, "mute.txt").await;
+    let waiting = tokio::spawn(hover(std::sync::Arc::clone(&server), uri));
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    open_named(&server, &dir, "crash.txt").await;
+    let heard = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+        .await
+        .expect("the waiter hears the close at the crash")
+        .unwrap();
+    assert!(matches!(heard, Err(LspError::Closed)), "{heard:?}");
+    assert!(matches!(
+        wait_until_not_running(&server).await,
+        ServerState::Failed { .. }
+    ));
+}

@@ -752,3 +752,243 @@ async fn a_terminal_row_whose_process_is_gone_is_swept_as_failed() {
     );
     engine.shutdown().await;
 }
+
+/// A work item of the goal's, run once by the mock, for a terminal to
+/// stand on.
+fn a_work_item(engine: &Engine, goal: bisa_core::GoalId) -> bisa_core::WorkItemId {
+    let spec = bisa_core::workitem::WorkItemSpec {
+        id: bisa_core::WorkItemId::from_ulid(ulid::Ulid::from_datetime(
+            std::time::SystemTime::now(),
+        )),
+        home: bisa_core::Home::Goal { goal },
+        run: None,
+        step: None,
+        instructions: "sit in a terminal".into(),
+        state: bisa_core::workitem::WorkItemState::Open,
+        project: None,
+        harness_candidates: vec!["mock".into()],
+        model: None,
+        effort: None,
+        output_schema: None,
+        budget: bisa_core::Budget::default(),
+        assignees: vec![],
+        tier_ceiling: bisa_core::ToolTier::Write,
+        agent: None,
+        spawn_allowlist: vec![],
+        depth_budget: 0,
+        result_attempts: 0,
+        interruptions: 0,
+    };
+    futures::executor::block_on(common::run_spec(engine, goal, spec))
+}
+
+/// A terminal on a work item stands for the item's goal and run too; one
+/// on a run of the workspace stands for that run and no goal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_on_a_work_item_or_a_run_says_what_it_is_about() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let goal = a_goal(&engine).parse::<bisa_core::GoalId>().unwrap();
+    let item = tokio::task::block_in_place(|| a_work_item(&engine, goal));
+    let opened = engine
+        .inner()
+        .interactive
+        .open(
+            engine.inner(),
+            OpenInteractive {
+                scope: FileScope::WorkItem,
+                id: item.to_string(),
+                harness: "mock".into(),
+            },
+        )
+        .unwrap()
+        .expect("a session");
+    let row = engine.inner().presence.get(opened.session).unwrap();
+    assert_eq!(row.work_item, Some(item));
+    assert_eq!(row.goal, Some(goal), "the item's goal");
+    assert!(row.run.is_some(), "the run the item ran in: {row:?}");
+    assert_eq!(row.workstream, None);
+
+    let (_wf, run) = common::workspace_run(
+        &engine,
+        common::new_workflow(
+            "hold",
+            vec![common::step(
+                "hold",
+                bisa_core::StepKind::Wait {
+                    until: bisa_core::WaitFor::Release,
+                },
+            )],
+        ),
+    );
+    let opened = engine
+        .inner()
+        .interactive
+        .open(
+            engine.inner(),
+            OpenInteractive {
+                scope: FileScope::Run,
+                id: run.id.to_string(),
+                harness: "mock".into(),
+            },
+        )
+        .unwrap()
+        .expect("a session");
+    let row = engine.inner().presence.get(opened.session).unwrap();
+    assert_eq!(row.run, Some(run.id));
+    assert_eq!(row.goal, None, "a run of the workspace has no goal");
+    assert_eq!(row.work_item, None);
+    engine.shutdown().await;
+}
+
+/// With `terminal.status_reporting` off every harness opens as a plain
+/// terminal: nothing is minted, nothing written, no row.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_status_reporting_off_every_harness_opens_as_a_plain_terminal() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    engine
+        .set_setting(
+            bisa_core::SettingScope::Machine,
+            None,
+            "terminal.status_reporting",
+            serde_json::json!(false),
+        )
+        .unwrap();
+    let goal = a_goal(&engine);
+    let opened = engine
+        .inner()
+        .interactive
+        .open(
+            engine.inner(),
+            OpenInteractive {
+                scope: FileScope::Goal,
+                id: goal,
+                harness: "mock".into(),
+            },
+        )
+        .unwrap();
+    assert!(opened.is_none(), "a plain terminal");
+    assert!(engine.inner().presence.snapshot().is_empty());
+    assert_eq!(session_folders(&engine), Vec::<String>::new());
+    engine.shutdown().await;
+}
+
+/// One connection to a harness's own event server, as the test's server
+/// answers it: the request head is read, then `body` is written after the
+/// headers of an event stream and the connection closed.
+async fn serve_once(listener: &tokio::net::TcpListener, body: Vec<u8>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        if socket.read(&mut byte).await.unwrap() == 0 {
+            break;
+        }
+        head.push(byte[0]);
+    }
+    socket
+        .write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+    socket.write_all(&body).await.unwrap();
+    socket.shutdown().await.unwrap();
+}
+
+/// A harness that serves its own events is pulled: the connection is
+/// retried until the harness listens, each event folds into the row like
+/// a reported one, a line that is no JSON is read past, a stream that
+/// closes is dialled again — one that said something earns fresh tries,
+/// one that said nothing counts as a failed try — and a stream that is not
+/// one the engine reads ends the pull. Closing the tab ends the puller.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_harness_that_serves_its_own_events_is_pulled_and_its_words_folded() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let pulling = MockAdapter {
+        id: "mock".into(),
+        interactive: Some(InteractiveLaunch::new("mock")),
+        reporting: ReportingPlan {
+            pull: Some(bisa_harness::PullSource::Sse {
+                url: format!("http://127.0.0.1:{port}/event"),
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let engine = Engine::start(
+        workspace(&dir),
+        catalog_with(vec![pulling]),
+        design_off_config(),
+    )
+    .unwrap();
+    let goal = a_goal(&engine);
+    let opened = engine
+        .inner()
+        .interactive
+        .open(
+            engine.inner(),
+            OpenInteractive {
+                scope: FileScope::Goal,
+                id: goal,
+                harness: "mock".into(),
+            },
+        )
+        .unwrap()
+        .expect("a session that is pulled");
+    assert_eq!(
+        state_of(&engine, opened.session),
+        Some(SessionState::Starting)
+    );
+
+    // Nobody listens yet: the puller tries again. Then the harness serves:
+    // one event the fold understands, one line that is no JSON, and closes.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .expect("the port the harness was given");
+    let started = serde_json::json!({"events": [SessionEvent::Lifecycle(LifecycleEvent::Started), SessionEvent::Progress(ProgressEvent::TurnStarted)]});
+    serve_once(
+        &listener,
+        format!("data: {started}\n\ndata: not json at all\n\n").into_bytes(),
+    )
+    .await;
+    let thinking = tokio::time::timeout(Duration::from_secs(5), async {
+        while state_of(&engine, opened.session) != Some(SessionState::Thinking) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(thinking.is_ok(), "the pulled events folded into the row");
+
+    // Dialled again: a stream that says nothing, then one that is not an
+    // event stream at all — a frame past the cap with no end in sight.
+    serve_once(&listener, Vec::new()).await;
+    let too_long = vec![b'x'; bisa_http::MAX_SSE_FRAME_BYTES + 16];
+    serve_once(&listener, [b"data: ".to_vec(), too_long].concat()).await;
+    // The puller gave up on the stream: nothing dials the port again.
+    let again = tokio::time::timeout(Duration::from_millis(1500), listener.accept()).await;
+    assert!(
+        again.is_err(),
+        "no further connection after a stream that is not one"
+    );
+    assert_eq!(
+        state_of(&engine, opened.session),
+        Some(SessionState::Thinking)
+    );
+
+    engine
+        .inner()
+        .interactive
+        .close(engine.inner(), opened.session, &secret(&opened))
+        .unwrap();
+    assert_eq!(state_of(&engine, opened.session), None);
+    engine.shutdown().await;
+}

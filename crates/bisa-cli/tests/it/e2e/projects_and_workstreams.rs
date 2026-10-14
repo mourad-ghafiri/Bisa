@@ -505,6 +505,49 @@ fn a_workstream_is_opened_from_each_source_placed_on_the_board_and_closed() {
 }
 
 /// The slugs `project list` says, in order.
+/// A workstream closed with terminals open in it stops them, and says how
+/// many: one, or the count.
+#[test]
+fn a_workstream_closed_with_terminals_in_it_says_how_many_it_stopped() {
+    let mut ws = Sealed::bare();
+    ws.start();
+    let (shelf, tree) = a_project(&ws, "shelf");
+    committed(&ws, &shelf, &tree, "shelf.md", "three boards\n");
+    let open = |branch: &str| {
+        let opened = ws.json(&[
+            "workstream",
+            "open",
+            &shelf,
+            "--from",
+            &format!("new:{branch}"),
+        ]);
+        id_of(&opened, "workstream")
+    };
+    let terminal = |checkout: &str| {
+        let (status, opened) = ws.call(
+            "POST",
+            "/sessions/terminal",
+            &[],
+            Some(&json!({"scope": "workstream", "id": checkout, "harness": "claude-code"})),
+        );
+        assert_eq!(status, 200, "a terminal on the checkout: {opened}");
+        assert!(opened["session"].is_string(), "{opened}");
+    };
+    let one = open("feature/one");
+    terminal(&one);
+    let out = ws.ok(&["workstream", "close", &one]);
+    let said = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(said.contains("1 session stopped"), "{said}");
+
+    let two = open("feature/two");
+    terminal(&two);
+    terminal(&two);
+    let out = ws.ok(&["workstream", "close", &two]);
+    let said = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(said.contains("2 sessions stopped"), "{said}");
+    ws.stop();
+}
+
 fn slugs(ws: &Sealed) -> Vec<String> {
     let mut slugs: Vec<String> = ws.json(&["project", "list"])["projects"]
         .as_array()

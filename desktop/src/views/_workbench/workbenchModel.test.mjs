@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { findLeaf, leafOfTab, leaves } from "../../shell/paneTreeModel.mjs";
 
-import { MAX_RECENTLY_CLOSED, MAX_ROOTS, capRoots, heldRoots, activateDoc, closeAllTabs, closeDocPane, closeOtherTabs, closeSavedTabs, closeTab, closeTabsRight, emptyWorkbench, forgetRoot, isPinned, isPreview, keepTab, leafStrip, mergedTabs, moveDocToPane, moveTab, nextActiveAfterClose, nextUntitledSeq, openTab, openTabBeside, panesFor, parseTabId, previewIds, reconcileStrip, reopenLastClosed, replaceTab, retargetTabs, rootKey, savedTabs, splitDocPane, stripOrder, tabId, tabLabel, tabTitle, tabsFor, tabsRightOf, tabsUnder, togglePin, untitledName, tabIn } from "./workbenchModel.mjs";
+import { MAX_RECENTLY_CLOSED, MAX_ROOTS, capRoots, heldRoots, activateDoc, closeAllTabs, closeDocPane, closeOtherTabs, closeSavedTabs, closeTab, closeTabsRight, emptyWorkbench, focusDocPane, forgetRoot, isPinned, isPreview, keepTab, leafStrip, mergedTabs, moveDocToPane, moveTab, nextActiveAfterClose, nextUntitledSeq, openTab, openTabBeside, panesFor, parseTabId, previewIds, reconcileStrip, reopenLastClosed, replaceTab, retargetTabs, rootKey, savedTabs, setDocPaneRatio, splitDocPane, stripOrder, tabId, tabLabel, tabTitle, tabsFor, tabsRightOf, tabsUnder, togglePin, untitledName, tabIn } from "./workbenchModel.mjs";
 
 /** The leaf a document sits in, through the model's own door. */
 const paneOf = (state, key, id) => leafOfTab(panesFor(state, key), id);
@@ -613,4 +613,35 @@ test("openTabBeside splits a single pane and puts the document in the new half; 
   const second = openTabBeside(again, KEY, { kind: "device", id: "Pixel_8" });
   assert.equal(leaves(panesFor(second, KEY)).length, 2, "no third pane");
   assert.ok(paneOf(second, KEY, "device:Pixel_8"), "placed in a pane");
+});
+
+test("an artifact tab is parsed by its last colon — the message id is hex — and refused when its ordinal is none", () => {
+  assert.deepEqual(parseTabId("artifact:ab12cd:3"), { kind: "artifact", message: "ab12cd", ordinal: 3, title: "" });
+  assert.equal(parseTabId("artifact:ab12cd:three"), null, "no ordinal");
+  assert.equal(parseTabId("artifact:ab12cd:-1"), null, "an ordinal below zero");
+  assert.equal(parseTabId("artifact::0"), null, "no message");
+});
+
+test("a pane is focused by its id and a split's ratio is set — and neither changes what is already so", () => {
+  let s = openTab(emptyWorkbench(), KEY, file("a.rs"));
+  s = openTab(s, KEY, file("b.rs"));
+  s = openTab(s, KEY, file("c.rs"));
+  s = activateDoc(s, KEY, "file:c.rs");
+  const split = splitDocPane(s, KEY, "row");
+  const tree = panesFor(split, KEY);
+  assert.equal(tree.kind, "split");
+  const focused = focusedPaneOf(split, KEY);
+  const other = leaves(tree).find((l) => l.id !== focused).id;
+  const refocused = focusDocPane(split, KEY, other);
+  assert.equal(focusedPaneOf(refocused, KEY), other);
+  assert.equal(focusDocPane(refocused, KEY, other), refocused, "focusing the focused pane is nothing");
+  assert.equal(focusDocPane(refocused, KEY, "d99"), refocused, "a pane that is not there focuses nothing");
+  const unopened = emptyWorkbench();
+  assert.equal(focusDocPane(unopened, KEY, "d1"), unopened, "a root nobody opened is left as it is");
+  const resized = setDocPaneRatio(split, KEY, tree.id, 0.7);
+  assert.equal(panesFor(resized, KEY).ratio, 0.7);
+  assert.equal(setDocPaneRatio(resized, KEY, tree.id, 0.7), resized, "the same ratio is no change");
+  assert.equal(setDocPaneRatio(resized, KEY, "s99", 0.3), resized, "a split that is not there changes nothing");
+  const none = emptyWorkbench();
+  assert.equal(setDocPaneRatio(none, KEY, tree.id, 0.3), none, "a root nobody opened is left as it is");
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { annotationChip, attach, chipLabel, contextBytes, fileChip, filePage, fitsBudget, frameChips, hunkChip, MAX_CONTEXT_BYTES, pageWords, sameChip, selectionChip, terminalChip, urlPage } from "./contextChips.mjs";
+import { annotationChip, attach, chipLabel, commitChip, contextBytes, fileChip, filePage, fitsBudget, frameChips, hunkChip, MAX_CONTEXT_BYTES, pageWords, sameChip, selectionChip, terminalChip, urlPage, workItemChip } from "./contextChips.mjs";
 
 test("chips are labelled by what a person would call them", () => {
   assert.equal(chipLabel(fileChip("src/main.rs")), "main.rs");
@@ -88,4 +88,22 @@ test("a capture chip is labelled by its device and its rectangle, and the same s
   assert.ok(!sameChip(marked, whole));
   assert.equal(attach([marked], { ...marked, note: "green" }).length, 1, "replaced, not stacked");
   assert.equal(attach([marked], whole).length, 2);
+});
+
+test("a work item and a commit are chips of their own; a chip of no known kind is still a chip, labelled plainly and keyed whole", () => {
+  assert.deepEqual(workItemChip("01JWORKITEM123456"), { kind: "work_item", id: "01JWORKITEM123456" });
+  assert.deepEqual(commitChip("abcdef0123"), { kind: "commit", id: "abcdef0123" });
+  assert.equal(chipLabel(workItemChip("01JWORKITEM123456")), "work item …123456", "the id's tail");
+  assert.equal(chipLabel(commitChip("abcdef0123")), "commit abcdef0");
+  assert.ok(sameChip(workItemChip("w1"), workItemChip("w1")));
+  assert.equal(sameChip(workItemChip("w1"), workItemChip("w2")), false);
+  assert.ok(sameChip(commitChip("c1"), commitChip("c1")));
+  assert.equal(sameChip(commitChip("c1"), workItemChip("c1")), false, "a commit and a work item are two things");
+  // A kind this model does not know: labelled as context, the same only to itself.
+  const odd = { kind: "oddity", id: "x" };
+  assert.equal(chipLabel(odd), "context");
+  assert.ok(sameChip(odd, { kind: "oddity", id: "x" }));
+  assert.equal(sameChip(odd, { kind: "oddity", id: "y" }), false);
+  // A served page whose address is no URL is labelled by the address as given.
+  assert.equal(chipLabel(annotationChip(urlPage("not a url"), "#cta", "<a>", "x")), "not a url · #cta");
 });

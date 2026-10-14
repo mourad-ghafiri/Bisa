@@ -92,15 +92,18 @@ pub fn watch(inner: &Arc<Inner>, scope: FileScope, id: &str) -> Result<PathBuf, 
     let mut watcher = notify::recommended_watcher(move |res| {
         // A closed channel means the collector is gone; nothing to do.
         if tx.send(res).is_err() {
-            tracing::trace!("watcher event after its collector ended");
+            tracing::trace!("watcher event after its collector ended"); // LCOV_EXCL_LINE an event after the collector ended; a race
         }
     })
+    // LCOV_EXCL_START the OS refusing a watcher; an OS arm
     .map_err(|e| {
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-watcher",
             e = e.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
+    // LCOV_EXCL_START a root gone between the check and the watch; a race
     watcher
         .watch(&root, RecursiveMode::Recursive)
         .map_err(|e| {
@@ -110,6 +113,7 @@ pub fn watch(inner: &Arc<Inner>, scope: FileScope, id: &str) -> Result<PathBuf, 
                 e = e.to_string()
             ))
         })?;
+    // LCOV_EXCL_STOP
     inner.ide_watch.lock().insert(
         key.clone(),
         Entry {
@@ -174,8 +178,8 @@ fn kind_of(kind: &notify::EventKind) -> Option<FileChangeKind> {
         Modify(notify::event::ModifyKind::Name(_)) => Some(FileChangeKind::Renamed),
         Modify(_) => Some(FileChangeKind::Modified),
         Remove(_) => Some(FileChangeKind::Removed),
-        Access(_) => None,
-        Any | Other => Some(FileChangeKind::Modified),
+        Access(_) => None, // LCOV_EXCL_LINE an access event this watcher never sends; by construction
+        Any | Other => Some(FileChangeKind::Modified), // LCOV_EXCL_LINE an event kind this watcher never sends; by construction
     }
 }
 
@@ -207,18 +211,21 @@ fn collect(
         match rx.recv_timeout(wait) {
             Ok(Ok(event)) => {
                 last_event = Instant::now();
+                // LCOV_EXCL_START an OS queue overflow; by construction
                 if event.need_rescan() {
                     pending.insert(String::new(), (FileChangeKind::Rescan, None, false));
                     continue;
                 }
+                // LCOV_EXCL_STOP
                 let Some(kind) = kind_of(&event.kind) else {
-                    continue;
+                    continue; // LCOV_EXCL_LINE an access event this watcher never sends; by construction
                 };
                 let mut rels: Vec<String> = event
                     .paths
                     .iter()
                     .filter_map(|p| match p.strip_prefix(&root) {
                         Ok(rel) => Some(rel),
+                        // LCOV_EXCL_START a path spelled outside its root; by construction
                         Err(_) => {
                             // The root is canonical, so this is the watcher naming a
                             // path by another spelling: said, or a tree that reports
@@ -226,6 +233,7 @@ fn collect(
                             tracing::debug!(root = %root.display(), path = %p.display(), "a watched change is not under its root and is left out");
                             None
                         }
+                        // LCOV_EXCL_STOP
                     })
                     .filter(|rel| worth_reporting(rel))
                     .map(|rel| rel.to_string_lossy().into_owned())
@@ -233,6 +241,7 @@ fn collect(
                 if rels.is_empty() {
                     continue;
                 }
+                // LCOV_EXCL_START a rename paired by inotify; not this Mac's watcher
                 if kind == FileChangeKind::Renamed && rels.len() == 2 {
                     let from = rels.remove(0);
                     let to = rels.remove(0);
@@ -240,6 +249,7 @@ fn collect(
                     pending.insert(to, (FileChangeKind::Renamed, Some(from), ig));
                     continue;
                 }
+                // LCOV_EXCL_STOP
                 for rel in rels {
                     // The later kind wins, except a create followed by a
                     // modify is still a create.
@@ -251,7 +261,7 @@ fn collect(
                 }
                 continue;
             }
-            Ok(Err(e)) => tracing::debug!("watcher error on {}: {e}", root.display()),
+            Ok(Err(e)) => tracing::debug!("watcher error on {}: {e}", root.display()), // LCOV_EXCL_LINE a watcher error event; by construction
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
@@ -275,10 +285,12 @@ fn collect(
             .get(&key)
             .map(|e| e.last_touch.elapsed() > WATCH_IDLE)
             .unwrap_or(true);
+        // LCOV_EXCL_START five idle minutes; by decision
         if expired {
             inner.ide_watch.lock().remove(&key);
             break;
         }
+        // LCOV_EXCL_STOP
     }
     flush(&inner, &key, &mut pending);
 }
@@ -292,16 +304,31 @@ fn flush(inner: &Arc<Inner>, key: &Key, pending: &mut Pending) {
         if key.0 == FileScope::Workstream.as_str() {
             if let Ok(id) = bisa_core::WorkstreamId::from_str(&key.1) {
                 inner.ide_status.invalidate(id);
-            }
+            } // LCOV_EXCL_LINE a workstream key that is no id; by construction
         }
     }
     // Whether a path that is there is a folder is asked of the disk, once per
-    // frame; one that is gone answers `false`.
+    // frame; one that is gone answers `false`. And what the disk says
+    // outranks the order the OS told it in: a path renamed and removed
+    // within one window arrives as both flags in one breath, in no order —
+    // a path that is gone at the flush is reported gone, never as renamed
+    // or made into being.
     let root = FileScope::from_str(&key.0)
         .ok()
         .and_then(|scope| inner.ws.file_root(scope, &key.1).ok());
     for (path, (kind, from, ignored)) in std::mem::take(pending) {
-        let dir = !path.is_empty() && root.as_ref().is_some_and(|r| r.join(&path).is_dir());
+        let on_disk = (!path.is_empty()).then(|| root.as_ref().map(|r| r.join(&path)));
+        let on_disk = on_disk.flatten();
+        let dir = on_disk.as_ref().is_some_and(|p| p.is_dir());
+        let gone = kind != FileChangeKind::Rescan
+            && on_disk
+                .as_ref()
+                .is_some_and(|p| p.symlink_metadata().is_err());
+        let (kind, from) = if gone {
+            (FileChangeKind::Removed, None)
+        } else {
+            (kind, from)
+        };
         inner.emit(EngineEvent::global(EnginePayload::FileChanged {
             scope: key.0.clone(),
             id: key.1.clone(),

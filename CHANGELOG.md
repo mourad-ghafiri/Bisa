@@ -10,6 +10,10 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- The mock harness translates a pulled report's `events` as the session events they serialise to,
+  so a test's own event server can say anything the roster's fold understands
+  (`crates/bisa-harness/src/mock.rs`); the scripted language server takes more moods by the file
+  opened on it (`crates/bisa-lsp/tests/scripted_lsp.rs`).
 - The mock harness takes two more knobs for the engine's own tests: an event stream that panics
   on a word (`panic_in_stream_on`), the shape of a reader unwinding mid-turn, and follow-ups
   answered in the open turn with no new turn marker (`answers_follow_ups`)
@@ -30,6 +34,16 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A search-and-replace in a goal's or a run's folder never wrote: the preview read the folder
+  whole while the apply resolved every path under the scope's writable root (its `scratch/`), so
+  each file was reported as changed since the preview, including the ones under `scratch/`
+  itself. The preview now offers only what can be written, the apply writes those where they
+  are, and a file outside the writable root is failed as read-only
+  (`crates/bisa-engine/src/ide/search.rs`).
+- A file renamed and removed within one watcher window was reported as renamed into being: the
+  OS tells both in one breath, in no order, and the later flag won. What the disk says at the
+  flush now outranks the order — a path that is gone is reported gone
+  (`crates/bisa-engine/src/ide/watch.rs`).
 - Renaming a workstream's own branch from the IDE renamed it in git and then failed: the record
   that names the branch was written through the person's edit door, which refuses any change to
   a workstream's kind, so the route answered 400 over a branch already renamed and the rail kept

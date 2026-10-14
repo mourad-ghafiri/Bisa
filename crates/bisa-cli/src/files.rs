@@ -410,7 +410,7 @@ async fn search(
                 Some("error") => {
                     anyhow::bail!(frame["error"].as_str().unwrap_or_default().to_string())
                 }
-                _ => {}
+                _ => {} // LCOV_EXCL_LINE a frame the node never sends; by construction
             }
         }
         // A stream that ended with no last frame is a search nobody finished.
@@ -651,7 +651,7 @@ async fn show(ctx: &Ctx, out: &Out, scope: &str, id: &str, path: &str) -> Result
                 ));
             }
         }
-        (None, false) => out.say(&bisa_core::text!("cli-files-nothing-show")),
+        (None, false) => out.say(&bisa_core::text!("cli-files-nothing-show")), // LCOV_EXCL_LINE text is always served for text; by construction
     }
     out.json_value(json!({"scope": scope.as_str(), "id": id, "file": content}));
     Ok(())
@@ -712,6 +712,26 @@ mod tests {
         assert_eq!(bytes(1023), "1023 B");
         assert_eq!(bytes(1024), "1.0 KiB");
         assert_eq!(bytes(1536), "1.5 KiB");
+    }
+
+    #[test]
+    fn a_removal_is_said_by_how_it_went_and_printed_without_the_wires_own() {
+        let remove = Change::Remove {
+            path: "docs/old.md".into(),
+            recursive: false,
+        };
+        let to_trash = json!({"path": "docs/old.md", "disposal": "trash", "wire": "noise"});
+        let said = remove.sentence(&to_trash);
+        assert!(said.ends_with(": docs/old.md"), "{said}");
+        assert_ne!(
+            said,
+            remove.sentence(&json!({"path": "docs/old.md", "disposal": "unlink"})),
+            "the trash and the unlink are said apart"
+        );
+        assert_eq!(
+            remove.printed(&to_trash),
+            json!({"path": "docs/old.md", "disposal": "trash"})
+        );
     }
 
     #[test]

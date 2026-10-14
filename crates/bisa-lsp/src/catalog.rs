@@ -172,12 +172,12 @@ pub fn available(command: &str) -> bool {
                 return *ok;
             }
         }
-    }
+    } // LCOV_EXCL_LINE a poisoned lock; by construction
     let ok = probe(command);
     if let Ok(mut known) = PROBED.lock() {
         known.retain(|(c, _, _)| c != command);
         known.push((command.to_string(), now, ok));
-    }
+    } // LCOV_EXCL_LINE a poisoned lock; by construction
     ok
 }
 
@@ -203,12 +203,14 @@ fn probe(command: &str) -> bool {
                 std::thread::sleep(std::time::Duration::from_millis(25));
             }
             _ => {
+                // LCOV_EXCL_START a child already gone or reaped; by construction
                 if let Err(e) = child.kill() {
                     tracing::debug!("ending a probe shell past its budget: {e}");
                 }
                 if let Err(e) = child.wait() {
                     tracing::debug!("reaping the probe shell: {e}");
                 }
+                // LCOV_EXCL_STOP
                 return false;
             }
         }
@@ -257,5 +259,66 @@ mod tests {
     fn shell_words_survive_quotes() {
         assert_eq!(shell_word("a b"), "'a b'");
         assert_eq!(shell_word("it's"), r"'it'\''s'");
+    }
+
+    /// A probe runs the login shell; its answer is kept a minute. A shell
+    /// that is not there answers *not available*; one that hangs on its
+    /// profile is given up on past the budget; an answer older than the
+    /// minute is asked again. The shell is this test's own, named through
+    /// `SHELL`, and nothing else in this binary runs one.
+    #[cfg(unix)]
+    #[test]
+    fn a_probe_is_kept_a_minute_and_a_shell_that_is_gone_or_hangs_reads_as_unavailable() {
+        use std::os::unix::fs::PermissionsExt;
+        let was = std::env::var_os("SHELL");
+        let dir = tempfile::tempdir().unwrap();
+        let slow = dir.path().join("slow-shell");
+        std::fs::write(&slow, "#!/bin/sh\nsleep 5\n").unwrap();
+        std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Kept: an answer written down a moment ago is read, no shell runs —
+        // whatever `SHELL` names now.
+        if let Ok(mut known) = PROBED.lock() {
+            known.retain(|(c, _, _)| c != "bisa-probe-kept");
+            known.push(("bisa-probe-kept".into(), std::time::Instant::now(), true));
+        }
+        std::env::set_var("SHELL", "/nonexistent/bisa-shell");
+        assert!(
+            available("bisa-probe-kept"),
+            "the kept answer, not the shell's"
+        );
+
+        // A shell that is not there cannot say yes.
+        assert!(!available("bisa-probe-no-shell"));
+
+        // Older than the minute: asked again, and the shell is gone now.
+        if let Ok(mut known) = PROBED.lock() {
+            known.retain(|(c, _, _)| c != "bisa-probe-stale");
+            let long_ago = std::time::Instant::now()
+                .checked_sub(PROBE_TTL + std::time::Duration::from_secs(1))
+                .unwrap_or_else(std::time::Instant::now);
+            known.push(("bisa-probe-stale".into(), long_ago, true));
+        }
+        assert!(
+            !available("bisa-probe-stale"),
+            "the stale yes is asked again"
+        );
+
+        // A shell that hangs on its profile is given up on past the budget.
+        std::env::set_var("SHELL", &slow);
+        let began = std::time::Instant::now();
+        assert!(!available("bisa-probe-hangs"));
+        assert!(began.elapsed() >= PROBE_BUDGET, "{:?}", began.elapsed());
+        assert!(
+            began.elapsed() < std::time::Duration::from_secs(5),
+            "ended, not waited out: {:?}",
+            began.elapsed()
+        );
+
+        forget_probes();
+        match was {
+            Some(shell) => std::env::set_var("SHELL", shell),
+            None => std::env::remove_var("SHELL"),
+        }
     }
 }

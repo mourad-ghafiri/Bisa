@@ -196,3 +196,9 @@ test("the client opens a document again through the model, clears a gone server'
   assert.ok(doc.includes("if (sameServer(serverChange(e.payload), { scope, id, language: lspLanguage })) reloadLspStatus();"), "the row is read again when the server starts, fails or stops");
   assert.ok(doc.includes("lspRestarted(scope, id, lspLanguage);"), "and Restart opens what the verdict left on no server");
 });
+
+test("a hover whose contents carry a value and no kind is its value; one of no shape at all is nothing", () => {
+  assert.equal(hoverMarkdown({ value: "just a value" }), "just a value");
+  assert.equal(hoverMarkdown({ unknown: true }), "", "no kind, no language, no value");
+  assert.equal(hoverMarkdown(42), "");
+});

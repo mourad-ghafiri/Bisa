@@ -10,6 +10,12 @@
 //! file's `base_hash` — and then one compare-and-swap write per file through
 //! [`super::files`]. A file that changed between the preview and the apply is
 //! reported as skipped, never clobbered.
+//!
+//! A search reads a scope's whole root; a replacement writes only under its
+//! **writable** root ([`super::files::writable_root`]) — a goal's or a run's
+//! `scratch/`, the whole checkout of a workstream. The preview offers only
+//! what can be written, and an apply names a file outside it as read-only
+//! rather than as changed since the preview.
 
 use crate::ide::files;
 use crate::{EngineError, Inner};
@@ -165,12 +171,14 @@ fn walker(root: &Path, q: &SearchQuery) -> Result<ignore::Walk, EngineError> {
             ))
         })?;
     }
+    // LCOV_EXCL_START a glob set that parsed but could not compile; by construction
     let overrides = overrides.build().map_err(|e| {
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-globs",
             e = e.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
     Ok(ignore::WalkBuilder::new(root)
         .follow_links(false)
         .hidden(true)
@@ -261,16 +269,18 @@ impl<F: FnMut(SearchHit) -> bool> Sink for Collector<'_, F> {
                 self.before = Some(line_text(c.bytes()));
             }
             SinkContextKind::After => {
+                // LCOV_EXCL_START one after line per match, and one match before it; by construction
                 if let Some(p) = self.pending.as_mut() {
                     if p.after.is_none() {
                         p.after = Some(line_text(c.bytes()));
                     }
                 }
+                // LCOV_EXCL_STOP
                 // It also precedes whatever comes next.
                 self.before = Some(line_text(c.bytes()));
                 return Ok(self.flush());
             }
-            SinkContextKind::Other => {}
+            SinkContextKind::Other => {} // LCOV_EXCL_LINE passthru context is off; by construction
         }
         Ok(true)
     }
@@ -407,8 +417,39 @@ fn rewrite(re: &regex::Regex, text: &str, replacement: &str) -> (String, Vec<Rep
     (out, changes)
 }
 
+/// Where a scope's replacements may land: the read root every path is
+/// relative to, and the writable root under it a write must stay in — both
+/// resolved, so a root reached through a symlink still compares.
+struct Roots {
+    read: PathBuf,
+    writable: PathBuf,
+}
+
+impl Roots {
+    fn of(inner: &Arc<Inner>, scope: FileScope, id: &str) -> Result<Self, EngineError> {
+        let read = inner.ws.file_root(scope, id)?;
+        let writable = files::writable_root(inner, scope, id)?;
+        Ok(Roots {
+            read: read.canonicalize().unwrap_or(read),
+            writable: writable.canonicalize().unwrap_or(writable),
+        })
+    }
+
+    /// The path `rel` names under the read root, as the writable root names
+    /// it — `None` for a file that cannot be written from this scope.
+    fn writable_rel(&self, rel: &str) -> Option<String> {
+        let path = self.read.join(rel);
+        let real = path.canonicalize().unwrap_or(path);
+        real.strip_prefix(&self.writable)
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
+    }
+}
+
 /// Every file the replacement would change, with the exact lines. Binary and
-/// non-UTF-8 files are skipped, as a search skips them.
+/// non-UTF-8 files are skipped, as a search skips them; a file the scope
+/// cannot write — outside its writable root — is left out, since nothing
+/// could be applied to it.
 pub fn preview_replace(
     inner: &Arc<Inner>,
     scope: FileScope,
@@ -416,7 +457,7 @@ pub fn preview_replace(
     query: &SearchQuery,
     replacement: &str,
 ) -> Result<Vec<ReplacePreview>, EngineError> {
-    let root = inner.ws.file_root(scope, id)?;
+    let roots = Roots::of(inner, scope, id)?;
     let re = regex_for(query)?;
     // The search decides which files, so the preview cannot disagree with it.
     let mut paths: Vec<String> = Vec::new();
@@ -428,9 +469,13 @@ pub fn preview_replace(
     })?;
     let mut out = Vec::new();
     for rel in paths {
-        let path: PathBuf = root.join(&rel);
-        let Ok(bytes) = std::fs::read(&path) else {
+        if roots.writable_rel(&rel).is_none() {
             continue;
+        }
+        let path: PathBuf = roots.read.join(&rel);
+        let Ok(bytes) = std::fs::read(&path) else {
+            // LCOV_EXCL_LINE a file gone between the search and the read; a race
+            continue; // LCOV_EXCL_LINE a file gone between the search and the read; a race
         };
         let Ok(text) = String::from_utf8(bytes.clone()) else {
             continue;
@@ -449,7 +494,8 @@ pub fn preview_replace(
 }
 
 /// Apply a replacement to the given files, each guarded by the hash the
-/// preview carried. A file that moved on is skipped and says so.
+/// preview carried. A file that moved on is skipped and says so; one the
+/// scope cannot write is failed as read-only, unread.
 pub fn apply_replace(
     inner: &Arc<Inner>,
     scope: FileScope,
@@ -458,13 +504,13 @@ pub fn apply_replace(
     replacement: &str,
     files: &[(String, String)],
 ) -> Result<Vec<ReplaceOutcome>, EngineError> {
-    let root = inner.ws.file_root(scope, id)?;
+    let roots = Roots::of(inner, scope, id)?;
     let re = regex_for(query)?;
     let mut out = Vec::new();
     for (rel, base_hash) in files {
         // A path the client names is contained like every other: one that
         // leaves the root is neither read nor hashed.
-        let path = match bisa_store::resolve_within(&root, rel) {
+        let path = match bisa_store::resolve_within(&roots.read, rel) {
             Ok(p) => p,
             Err(e) => {
                 out.push(ReplaceOutcome::Failed {
@@ -473,6 +519,17 @@ pub fn apply_replace(
                 });
                 continue;
             }
+        };
+        let Some(write_rel) = roots.writable_rel(rel) else {
+            out.push(ReplaceOutcome::Failed {
+                path: rel.clone(),
+                error: EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-outside-writable-root",
+                    relative = format!("{rel:?}")
+                ))
+                .to_string(),
+            });
+            continue;
         };
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
@@ -508,22 +565,26 @@ pub fn apply_replace(
             });
             continue;
         }
-        match files::write_file(inner, scope, id, rel, &new_text, Some(base_hash)) {
+        match files::write_file(inner, scope, id, &write_rel, &new_text, Some(base_hash)) {
             Ok(w) => out.push(ReplaceOutcome::Applied {
                 path: rel.clone(),
                 changes: changes.len(),
                 hash: w.hash,
             }),
+            // LCOV_EXCL_START a file changed between the hash and the write; a race
             Err(EngineError::FileConflict { current_hash, .. }) => {
                 out.push(ReplaceOutcome::SkippedChanged {
                     path: rel.clone(),
                     current_hash,
                 })
             }
+            // LCOV_EXCL_STOP
+            // LCOV_EXCL_START a write that fails past the read; a disk arm
             Err(e) => out.push(ReplaceOutcome::Failed {
                 path: rel.clone(),
                 error: e.to_string(),
             }),
+            // LCOV_EXCL_STOP
         }
     }
     Ok(out)

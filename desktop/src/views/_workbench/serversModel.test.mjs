@@ -120,3 +120,9 @@ test("the toasts and the folder field say what happened and what is wrong", () =
   assert.equal(servingWords(server("s", "site", 4173)), "Serving site/ at http://127.0.0.1:4173/");
   assert.equal(stoppedWords(server("s", "", 4173)), "Stopped serving the checkout on :4173.");
 });
+
+test("a server whose own address is no URL is nobody's page and never throws", () => {
+  const odd = [{ id: "s9", url: "not a url", owner: { kind: "workstream", workstream: "w1", folder: "" } }];
+  assert.equal(serverAt(odd, "http://127.0.0.1:4173/"), null);
+  assert.equal(serverAt(odd, "nope"), null, "an address that is no URL is on no server");
+});

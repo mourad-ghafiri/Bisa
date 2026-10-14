@@ -36,6 +36,7 @@ mod gitsetup;
 mod goal_edges;
 mod guided;
 mod harness_usage;
+mod ide_edges;
 mod ide_files;
 mod ide_git_edges;
 mod ide_graph;

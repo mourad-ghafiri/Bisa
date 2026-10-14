@@ -20,6 +20,7 @@ mod files;
 mod git_edges;
 mod harness_usage;
 mod ide;
+mod ide_edges;
 mod layering;
 mod logs;
 mod mobile_development;

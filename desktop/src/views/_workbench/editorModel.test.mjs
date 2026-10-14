@@ -394,3 +394,8 @@ test("the editor's reads land in order and never on a closed tab", () => {
   assert.ok(load.indexOf("if (!reads.lands(ticket)) return;") < load.indexOf("setBuffer("), "before anything is written");
   assert.ok(doc.includes("return () => reads.close();"), "the tab leaving closes the order");
 });
+
+test("a document read-only for a reason the node did not name is said read-only, and nothing more", () => {
+  assert.equal(sizeNote({ readOnly: true, readOnlyWhy: null, plain: false }), "Read-only.");
+  assert.equal(sizeNote({ readOnly: true, plain: true }), "Read-only.");
+});

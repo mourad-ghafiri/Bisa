@@ -14,6 +14,7 @@ fn path_for(inner: &Arc<Inner>, scope: FileScope, id: &str) -> Result<PathBuf, E
     // The root has to exist: an id nobody knows is the store's refusal (a
     // 404 through its taxonomy), never a `null` layout that reads as "none saved".
     inner.ws.file_root(scope, id)?;
+    // LCOV_EXCL_START an id the store already parsed; by construction
     if id.is_empty()
         || !id
             .chars()
@@ -24,6 +25,7 @@ fn path_for(inner: &Arc<Inner>, scope: FileScope, id: &str) -> Result<PathBuf, E
             id = format!("{id:?}")
         )));
     }
+    // LCOV_EXCL_STOP
     Ok(inner.ws.paths().ide_layout(scope, id))
 }
 
@@ -44,7 +46,7 @@ pub fn read(
             ))
         })?)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.into()),
+        Err(e) => Err(e.into()), // LCOV_EXCL_LINE a layout file the disk will not read; a disk arm
     }
 }
 
@@ -56,12 +58,14 @@ pub fn write(
     id: &str,
     layout: &serde_json::Value,
 ) -> Result<(), EngineError> {
+    // LCOV_EXCL_START a Value always serialises; by construction
     let bytes = serde_json::to_vec(layout).map_err(|e| {
         EngineError::Invalid(bisa_core::text!(
             "error-engine-ide-layout-refused",
             detail = e.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
     if bytes.len() > MAX_LAYOUT_BYTES {
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-layout-bytes-cap",

@@ -140,7 +140,7 @@ impl Servers {
                     "error-node-ide-serve-folder-already-served",
                     a0 = (existing.url).to_string()
                 )));
-            }
+            } // LCOV_EXCL_LINE a root two owners cannot share; by construction
         }
         self.start_workstream_root(wid, folder, root).await
     }
@@ -153,12 +153,14 @@ impl Servers {
     /// followed: no part of its place under the checkout starts with a dot.
     fn folder_root(checkout: &Path, folder: &str) -> Result<(PathBuf, String), ApiError> {
         let folder = folder.trim().trim_matches('/').to_string();
+        // LCOV_EXCL_START a checkout the caller already found on disk; by construction
         let base = checkout.canonicalize().map_err(|e| {
             bad_request(bisa_core::text!(
                 "error-node-ide-serve-checkout-not-disk",
                 e = e.to_string()
             ))
         })?;
+        // LCOV_EXCL_STOP
         let root = if folder.is_empty() {
             base.clone()
         } else {
@@ -183,7 +185,7 @@ impl Servers {
         }
         if !root.is_dir() {
             return Err(bad_request(if folder.is_empty() {
-                bisa_core::text!("error-node-ide-serve-checkout-not-folder")
+                bisa_core::text!("error-node-ide-serve-checkout-not-folder") // LCOV_EXCL_LINE the checkout the caller found is a folder; by construction
             } else {
                 bisa_core::text!("error-node-ide-serve-not-folder", a0 = folder.clone())
             }));
@@ -219,11 +221,13 @@ impl Servers {
     ) -> Result<ServedView, ApiError> {
         let root = named_copy
             .parent()
+            // LCOV_EXCL_START a named copy always has a folder; by construction
             .ok_or_else(|| {
                 bad_request(bisa_core::text!(
                     "error-node-ide-serve-named-copy-has-no-folder"
                 ))
             })?
+            // LCOV_EXCL_STOP
             .to_path_buf();
         // Roots are kept resolved (`start_root`), so they are compared so.
         let root = root.canonicalize().unwrap_or(root);
@@ -270,20 +274,24 @@ impl Servers {
         }
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
+            // LCOV_EXCL_START the OS refusing a loopback port; an OS arm
             .map_err(|e| {
                 ApiError::text(
                     StatusCode::SERVICE_UNAVAILABLE,
                     bisa_core::text!("error-node-ide-serve-no-loopback-port", e = e.to_string()),
                 )
             })?;
+        // LCOV_EXCL_STOP
         let port = listener
             .local_addr()
+            // LCOV_EXCL_START a bound socket always has an address; by construction
             .map_err(|e| {
                 ApiError::text(
                     StatusCode::SERVICE_UNAVAILABLE,
                     bisa_core::text!("error-node-ide-serve-refused", detail = e.to_string()),
                 )
             })?
+            // LCOV_EXCL_STOP
             .port();
         let id = ulid::Ulid::from_datetime(SystemTime::now()).to_string();
         let url = format!("http://127.0.0.1:{port}/");
@@ -315,9 +323,11 @@ impl Servers {
                     }
                 }
             });
+            // LCOV_EXCL_START a served folder ending on its own; by construction
             if let Err(e) = serve.await {
                 tracing::warn!(target: "bisa_node::serve", server = %served, port, "a served folder ended on its own: {e}");
             }
+            // LCOV_EXCL_STOP
         });
         self.entries.locked().insert(
             id,

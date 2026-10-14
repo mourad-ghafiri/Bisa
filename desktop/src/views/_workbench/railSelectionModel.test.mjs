@@ -63,3 +63,8 @@ test("two selections that mean the same cards are the same", () => {
   assert.ok(!sameSelection({ kind: "group", label: "Shop", projects: ["p1"] }, { kind: "group", label: "Shop", projects: ["p1", "p2"] }));
   assert.ok(!sameSelection({ kind: "group", label: "Shop", projects: ["p1"] }, { kind: "project", id: "p1", label: "" }));
 });
+
+test("a rail row of a kind that means no selection selects nothing", () => {
+  assert.equal(selectionOf({ kind: "fold", id: "f1" }), null);
+  assert.equal(selectionOf({ kind: "renaming", id: "r1" }), null);
+});
