@@ -230,6 +230,9 @@ impl CollabDoors for FakeCollab {
         self.note(format!("retract {event}"));
         Box::pin(async move {
             self.known(&host)?;
+            if event == "wire" {
+                return Err(CollabRefusal::Failed("the wire is down".into()));
+            }
             Ok(HostedPosted {
                 id: "x1".into(),
                 scope: "general".into(),
@@ -695,5 +698,140 @@ async fn the_owner_sets_a_name_and_a_face_and_a_face_that_is_not_one_is_refused(
         .await;
     assert_eq!(code, 400, "a team's picture is checked like a project's");
 
+    node.shutdown().await;
+}
+
+/// What the doors refuse before the store is asked — a word that is no
+/// role, an id that is no invite — and the owner's word on a claim that
+/// waited, admitted or refused through the routes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_doors_refuse_a_word_that_is_no_role_an_id_that_is_no_invite_and_settle_a_claim() {
+    let node = Node::start().await;
+    let bob = nostr::key::Keys::generate().public_key().to_hex();
+    let (code, v) = node
+        .req(
+            "POST",
+            "/workspace/people",
+            Some(json!({"pubkey": bob, "role": "toaster"})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    node.post("/workspace/people", json!({"pubkey": bob, "role": "guest"}))
+        .await;
+    let (code, v) = node
+        .req(
+            "PUT",
+            &format!("/workspace/people/{bob}/role"),
+            Some(json!({"role": "toaster"})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    for verb in ["admit", "refuse"] {
+        let (code, v) = node
+            .req("POST", &format!("/workspace/invites/zz/{verb}"), None)
+            .await;
+        assert_eq!(code, 400, "{v}");
+    }
+    let (code, v) = node.req("DELETE", "/workspace/invites/zz", None).await;
+    assert_eq!(code, 400, "{v}");
+
+    // A claim that waited, admitted by the route.
+    let v = node
+        .post("/workspace/invites", json!({"role": "member"}))
+        .await;
+    let id = v["invite"]["id"].as_str().unwrap().to_string();
+    let parsed = bisa_collab::InviteCode::parse(v["code"].as_str().unwrap()).unwrap();
+    let dana = pid(&nostr::key::Keys::generate().public_key().to_hex());
+    node.ws
+        .claim_invite(
+            &bisa_collab::hash_secret(&parsed.secret),
+            &dana,
+            Some("Dana".into()),
+            true,
+        )
+        .unwrap();
+    let (code, v) = node
+        .req("POST", &format!("/workspace/invites/{id}/admit"), None)
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["invite"]["state"]["state"], json!("accepted"));
+    assert_eq!(
+        node.ws.member_role(&dana).unwrap(),
+        Some(MemberRole::Member)
+    );
+
+    // And one turned down.
+    node.post("/channels", json!({"name": "design"})).await;
+    let v = node
+        .post(
+            "/workspace/invites",
+            json!({"role": "guest", "channels": ["design"]}),
+        )
+        .await;
+    let id = v["invite"]["id"].as_str().unwrap().to_string();
+    let parsed = bisa_collab::InviteCode::parse(v["code"].as_str().unwrap()).unwrap();
+    let eve = pid(&nostr::key::Keys::generate().public_key().to_hex());
+    node.ws
+        .claim_invite(&bisa_collab::hash_secret(&parsed.secret), &eve, None, true)
+        .unwrap();
+    let (code, v) = node
+        .req("POST", &format!("/workspace/invites/{id}/refuse"), None)
+        .await;
+    assert_eq!(code, 200, "{v}");
+    assert_eq!(v["invite"]["state"]["state"], json!("refused"));
+    assert_eq!(node.ws.member_role(&eve).unwrap(), None);
+    node.shutdown().await;
+}
+
+/// The hosted doors: the direct messages a guest holds, a mention that is
+/// a key and one that is not, an emoji that is none, a message to nobody —
+/// and a wire that could not do it, said as such.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hosted_doors_refuse_an_empty_emoji_a_message_to_nobody_and_say_when_the_wire_failed() {
+    let (fake, host) = FakeCollab::new();
+    let node = Node::start_with_collab(fake.clone()).await;
+    let v = node.get(&format!("/hosts/{host}/dms")).await;
+    assert_eq!(v["dms"], json!([]));
+    let other = nostr::key::Keys::generate().public_key().to_hex();
+    let messages = format!("/hosts/{host}/channels/general/messages");
+    let v = node
+        .post(&messages, json!({"content": "hi", "mentions": [other]}))
+        .await;
+    assert_eq!(v["id"], json!("m2"));
+    let (code, v) = node
+        .req(
+            "POST",
+            &messages,
+            Some(json!({"content": "hi", "mentions": ["zz"]})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let react = format!("/hosts/{host}/messages/m1/react");
+    for emoji in ["", "   ", &"x".repeat(65)] {
+        let (code, v) = node
+            .req("POST", &react, Some(json!({"emoji": emoji})))
+            .await;
+        assert_eq!(code, 400, "{emoji:?}: {v}");
+    }
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/hosts/{host}/dms"),
+            Some(json!({"members": []})),
+        )
+        .await;
+    assert_eq!(code, 400, "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            &format!("/hosts/{host}/messages/wire/retract"),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(code, 502, "{v}");
+    assert!(
+        v["error"].as_str().unwrap().contains("the wire is down"),
+        "{v}"
+    );
     node.shutdown().await;
 }

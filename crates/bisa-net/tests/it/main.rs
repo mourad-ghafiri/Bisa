@@ -3,4 +3,5 @@
 //! Run one module with `just test-module net <module>`.
 
 mod host;
+mod host_edges;
 mod iroh_e2e;

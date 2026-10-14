@@ -18,25 +18,29 @@ use nostr_relay_builder::local::LocalRelay;
 use std::sync::Arc;
 use std::time::Duration;
 
-async fn start_relay() -> (LocalRelay, String) {
+pub(crate) async fn start_relay() -> (LocalRelay, String) {
     let relay = LocalRelay::new(RelayBuilder::default().addr("127.0.0.1".parse().unwrap()));
     relay.run().await.expect("relay run");
     let url = relay.url().await.to_string();
     (relay, url)
 }
 
-fn open_ws(dir: &std::path::Path) -> Arc<Workspace> {
+pub(crate) fn open_ws(dir: &std::path::Path) -> Arc<Workspace> {
     Arc::new(
         Workspace::open_with_keystore(dir, Box::new(MemoryKeyStore::default()))
             .expect("workspace open"),
     )
 }
 
-fn pid(pk: PublicKey) -> PrincipalId {
+pub(crate) fn pid(pk: PublicKey) -> PrincipalId {
     PrincipalId::new(pk.to_hex()).unwrap()
 }
 
-async fn start_host(ws: &Arc<Workspace>, dir: &std::path::Path, url: &str) -> (Arc<Relays>, Host) {
+pub(crate) async fn start_host(
+    ws: &Arc<Workspace>,
+    dir: &std::path::Path,
+    url: &str,
+) -> (Arc<Relays>, Host) {
     let relays = Relays::start(
         ws.owner_keys().clone(),
         std::slice::from_ref(&url.to_string()),
@@ -54,17 +58,17 @@ async fn start_host(ws: &Arc<Workspace>, dir: &std::path::Path, url: &str) -> (A
     (relays, host)
 }
 
-struct Guest {
-    keys: Keys,
-    relays: Arc<Relays>,
-    guests: Arc<Guests>,
+pub(crate) struct Guest {
+    pub(crate) keys: Keys,
+    pub(crate) relays: Arc<Relays>,
+    pub(crate) guests: Arc<Guests>,
     /// Where this person's node keeps faces and what it says of its owner.
     faces: Arc<MemoryFaces>,
     _router: tokio::task::JoinHandle<()>,
     _dir: tempfile::TempDir,
 }
 
-async fn start_guest(url: &str) -> Guest {
+pub(crate) async fn start_guest(url: &str) -> Guest {
     let keys = Keys::generate();
     let relays = Relays::start(keys.clone(), std::slice::from_ref(&url.to_string())).await;
     let dir = tempfile::tempdir().unwrap();
@@ -88,7 +92,7 @@ async fn start_guest(url: &str) -> Guest {
 }
 
 /// An invite on the host, as its code.
-fn invite(ws: &Workspace, url: &str, role: MemberRole, channels: &[&str]) -> InviteCode {
+pub(crate) fn invite(ws: &Workspace, url: &str, role: MemberRole, channels: &[&str]) -> InviteCode {
     let secret = mint_secret();
     let channels = channels
         .iter()
@@ -104,7 +108,7 @@ fn invite(ws: &Workspace, url: &str, role: MemberRole, channels: &[&str]) -> Inv
 }
 
 /// Wait until `pred` is true, or panic after ~15s.
-async fn wait_for(what: &str, mut pred: impl FnMut() -> bool) {
+pub(crate) async fn wait_for(what: &str, mut pred: impl FnMut() -> bool) {
     for _ in 0..150 {
         if pred() {
             return;
@@ -114,7 +118,7 @@ async fn wait_for(what: &str, mut pred: impl FnMut() -> bool) {
     panic!("timed out waiting for: {what}");
 }
 
-fn post(ws: &Workspace, scope: &str, text: &str) -> String {
+pub(crate) fn post(ws: &Workspace, scope: &str, text: &str) -> String {
     ws.post_message(
         scope,
         MessageBody::post(text),

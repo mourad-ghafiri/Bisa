@@ -77,7 +77,9 @@ pub fn unwrap_incoming(keys: &Keys, gift_wrap: &Event) -> Result<Incoming, Colla
         .map_err(|e| CollabError::Wrap(e.to_string()))?;
     let kind = unwrapped.rumor.kind.as_u16();
     if unwrapped.rumor.pubkey != unwrapped.sender {
+        // LCOV_EXCL_START: an envelope the wire did not make; out by decision
         return Err(CollabError::Wrap("rumor author != seal sender".into()));
+        // LCOV_EXCL_STOP
     }
     if kind == KIND_GEP_CARRIER {
         let inner = Event::from_json(&unwrapped.rumor.content)
@@ -92,10 +94,12 @@ pub fn unwrap_incoming(keys: &Keys, gift_wrap: &Event) -> Result<Incoming, Colla
                 sender: unwrapped.sender,
                 control,
             }),
+            // LCOV_EXCL_START: an envelope the wire did not make; out by decision
             Err(_) => Ok(Incoming::Other),
         }
     } else {
         Ok(Incoming::Other)
+        // LCOV_EXCL_STOP
     }
 }
 

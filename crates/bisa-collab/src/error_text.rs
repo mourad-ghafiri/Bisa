@@ -39,3 +39,40 @@ impl Localize for crate::CollabError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::control::FaceRefusal;
+    use crate::CollabError;
+    use bisa_core::text::plain;
+    use bisa_core::Localize;
+
+    fn judge(said: bisa_core::Text, shown: String) {
+        let id = said.id.to_string();
+        assert!(plain::has(&id), "{id} is a message of the English catalog");
+        assert_eq!(said.to_string(), shown, "{id}");
+    }
+
+    #[test]
+    fn every_refusal_of_the_wire_says_in_the_catalog_what_its_display_says() {
+        let faces = [
+            FaceRefusal::TooLong { chars: 9, max: 4 },
+            FaceRefusal::NotBase64,
+            FaceRefusal::HashLies {
+                expected: "ab".into(),
+            },
+            FaceRefusal::NotAFace,
+        ];
+        for refusal in &faces {
+            judge(refusal.text(), refusal.to_string());
+        }
+        let errors = [
+            CollabError::Wrap("w".into()),
+            CollabError::InviteCode("i".into()),
+            CollabError::Relay("r".into()),
+        ];
+        for e in &errors {
+            judge(e.text(), e.to_string());
+        }
+    }
+}

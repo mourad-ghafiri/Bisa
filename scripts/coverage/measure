@@ -95,13 +95,15 @@ rust_measure() {
     else
         suite "$@" --no-fail-fast
     fi
-    cargo llvm-cov report --lcov --output-path "$OUT/rust.lcov"
+    # One profile a killed process left half-written must not void the rest:
+    # the report fails only when every profile is unreadable.
+    cargo llvm-cov report --failure-mode all --lcov --output-path "$OUT/rust.lcov"
 }
 
 shell_measure() {
     cargo llvm-cov clean --manifest-path desktop/src-tauri/Cargo.toml --workspace
     suite --manifest-path desktop/src-tauri/Cargo.toml
-    cargo llvm-cov report --manifest-path desktop/src-tauri/Cargo.toml --lcov --output-path "$OUT/shell.lcov"
+    cargo llvm-cov report --failure-mode all --manifest-path desktop/src-tauri/Cargo.toml --lcov --output-path "$OUT/shell.lcov"
 }
 
 desktop_measure() {

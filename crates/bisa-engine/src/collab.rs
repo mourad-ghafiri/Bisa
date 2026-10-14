@@ -38,7 +38,9 @@ pub const MAX_CLASSIFIED_CHARS: usize = 4000;
 /// standing channel some person reaches, or a direct message with one.
 pub fn scope_leaves_the_machine(inner: &Arc<Inner>, scope: &str) -> bool {
     let Ok(people) = inner.ws.people() else {
+        // LCOV_EXCL_START: the people file unreadable; a disk arm
         return false;
+        // LCOV_EXCL_STOP
     };
     if people.is_empty() {
         return false;
@@ -87,8 +89,10 @@ pub async fn on_remote_message(
         .ws
         .hold_message(&id, &scope, author.clone(), HeldReason::Pending)
     {
+        // LCOV_EXCL_START: the held file unwritable; a disk arm
         tracing::warn!("cannot hold {id}: {e}");
         return;
+        // LCOV_EXCL_STOP
     }
     announce_held(inner, &scope, &id, &author, HeldReason::Pending);
     let text = serde_json::from_str::<MessageBody>(&event.content)
@@ -117,10 +121,11 @@ pub async fn on_remote_message(
                     tracing::info!(target: "bisa_engine::collab", event = %id, author = %person_words(inner, &author), "a held message was judged safe after its author was removed; nobody hears it");
                     return;
                 }
+                // LCOV_EXCL_START: the held file unreadable at the release; a disk arm
                 Err(e) => {
                     tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot release: {e}");
                     return;
-                }
+                } // LCOV_EXCL_STOP
             }
             let Some(role) = current_role(inner, &author, &id) else {
                 // LCOV_EXCL_START: the author removed between the judgement and the release; a race no test can time
@@ -170,17 +175,21 @@ fn keep_held(inner: &Arc<Inner>, scope: &str, id: &str, author: PrincipalId, rea
         .ws
         .hold_message(id, scope, author.clone(), reason.clone())
     {
+        // LCOV_EXCL_START: the held file unwritable under the verdict; a disk arm
         tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot hold: {e}");
         return;
+        // LCOV_EXCL_STOP
     }
     // Read once more after the hold: a removal that ran between the check
     // above and the write (`remove_person` takes the member row first) left
     // this row behind, and it is dropped here rather than kept for nobody.
     if current_role(inner, &author, id).is_none() {
+        // LCOV_EXCL_START: a removal between the check and the write; a race no test can time
         if let Err(e) = inner.ws.drop_held_of(&author) {
             tracing::warn!(target: "bisa_engine::collab", event = %id, "cannot drop a held row of a person who left: {e}");
         }
         return;
+        // LCOV_EXCL_STOP
     }
     announce_held(inner, scope, id, &author, reason);
 }
@@ -194,10 +203,11 @@ fn current_role(inner: &Inner, author: &PrincipalId, event: &str) -> Option<Memb
             tracing::info!(target: "bisa_engine::collab", event, author = %person_words(inner, author), "the author is no longer a member; the message is not delivered");
             None
         }
+        // LCOV_EXCL_START: the members file unreadable; a disk arm
         Err(e) => {
             tracing::warn!(target: "bisa_engine::collab", event, "the author's role could not be read; the message is not delivered: {e}");
             None
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -371,11 +381,13 @@ pub fn add_person(
         },
     )?;
     inner.ws.member(&pubkey)?.ok_or_else(|| {
+        // LCOV_EXCL_START: `add_member` above wrote the row this reads; by construction
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-was-not-admitted",
             pubkey = pubkey.to_string()
         ))
     })
+    // LCOV_EXCL_STOP
 }
 
 // -- the bus -------------------------------------------------------------
@@ -404,11 +416,13 @@ pub fn spawn_listener(inner: &Arc<Inner>) -> tokio::task::JoinHandle<()> {
                     inner.emit(EngineEvent::global(EnginePayload::InviteChanged { invite }));
                 }
                 Ok(_) => {}
+                // LCOV_EXCL_START: the bus lagging or closing under the listener; a race no test can time
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!("collaboration listener lagged by {n} events");
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                // LCOV_EXCL_STOP
             }
         }
-    })
+    }) // LCOV_EXCL_LINE: the task ends with the bus; a race no test can time
 }

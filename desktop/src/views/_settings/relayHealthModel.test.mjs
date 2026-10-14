@@ -104,3 +104,10 @@ test("the wire's readers read again when the relays move or a sync.* setting doe
     assert.ok(!src.includes('startsWith("sync.")'), `${file} restates no part of it`);
   }
 });
+
+test("the up-time and the bytes moved scale with their size", () => {
+  const now = 10_000_000;
+  assert.equal(relayWords(relay({ connected_at: now - 2 * 3600, bytes_sent: 0, bytes_received: 0 }), now), "42 ms · 75% of 4 attempts · up 2 h");
+  assert.equal(relayWords(relay({ connected_at: now - 3 * 86400, latency_ms: null, attempts: 0, bytes_sent: 3 * 1024 * 1024, bytes_received: 0 }), now), "up 3 d · 3.0 MB moved");
+  assert.equal(relayWords(relay({ connected_at: now - 5, latency_ms: null, attempts: 0, bytes_sent: 10, bytes_received: 0 }), now), "up 5 s · 10 B moved");
+});

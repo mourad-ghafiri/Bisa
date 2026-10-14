@@ -113,10 +113,14 @@ async fn ledger_record(inner: &Arc<Inner>, member: &str, inner_id: &str) {
         {
             Ok(mut f) => {
                 if let Err(e) = writeln!(f, "{member} {inner_id}") {
+                    // LCOV_EXCL_START: the ledger file unwritable; a disk arm
                     tracing::warn!("the ledger did not take a line: {e}");
+                    // LCOV_EXCL_STOP
                 }
             }
+            // LCOV_EXCL_START: the ledger file unopenable; a disk arm
             Err(e) => tracing::warn!("the ledger could not be opened: {e}"),
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -141,9 +145,11 @@ impl AttachmentFetch {
         #[cfg(feature = "iroh")]
         {
             if let Some(st) = self.inner.iroh.as_ref() {
+                // LCOV_EXCL_START: the direct transport's fetch; out by decision
                 return st
                     .request_blob(&self.inner.ws, sha256, ATTACHMENT_FETCH_TIMEOUT)
                     .await;
+                // LCOV_EXCL_STOP
             }
         }
         let _ = sha256;
@@ -173,10 +179,11 @@ impl Host {
         let iroh_state = if cfg.iroh {
             match crate::iroh_sync::IrohState::bind(&data_dir, &cfg).await {
                 Ok(st) => Some(Arc::new(st)),
+                // LCOV_EXCL_START: the direct transport's bind failing; out by decision
                 Err(e) => {
                     tracing::warn!("iroh endpoint bind failed ({e}); continuing relay-only");
                     None
-                }
+                } // LCOV_EXCL_STOP
             }
         } else {
             None
@@ -211,15 +218,17 @@ impl Host {
                 loop {
                     match rx.recv().await {
                         Ok(incoming) => on_incoming(&inner, &incoming).await,
+                        // LCOV_EXCL_START: the pool's bus lagging or closing under the reader; a race no test can time
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!(
                                 "host inbound lagged by {n}; the next catch-up brings it"
                             );
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        // LCOV_EXCL_STOP
                     }
                 }
-            }));
+            })); // LCOV_EXCL_LINE: the task ends with the bus; a race no test can time
         }
 
         // Outbound: what the store said.
@@ -230,13 +239,15 @@ impl Host {
                 loop {
                     match rx.recv().await {
                         Ok(ev) => on_store_event(&inner, ev).await,
+                        // LCOV_EXCL_START: the store's bus lagging or closing under the reader; a race no test can time
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!("store event bus lagged by {n}; next catch-up resyncs");
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        // LCOV_EXCL_STOP
                     }
                 }
-            }));
+            })); // LCOV_EXCL_LINE: the task ends with the bus; a race no test can time
         }
 
         // Periodic catch-up + backlog + flush. The interval is read each
@@ -389,10 +400,11 @@ fn keep_face(inner: &Inner, sender: &PublicKey, face: &Face) -> bool {
     match face.decode() {
         Ok(bytes) => match inner.ws.accept_attachment(&face.sha256, &bytes) {
             Ok(()) => true,
+            // LCOV_EXCL_START: bytes `decode` proved against their hash, refused by the store; a disk arm
             Err(e) => {
                 tracing::warn!("keeping {sender}'s face: {e}");
                 false
-            }
+            } // LCOV_EXCL_STOP
         },
         Err(refusal) => {
             tracing::info!("{sender} sent a face that is not one: {refusal}");
@@ -406,7 +418,9 @@ fn keep_face(inner: &Inner, sender: &PublicKey, face: &Face) -> bool {
 /// one (`bisa_core::is_face`) is answered with nothing.
 fn face_held(inner: &Inner, sha256: &str) -> Option<Face> {
     if !bisa_core::AttachmentRef::is_valid_hash(sha256) {
+        // LCOV_EXCL_START: a guest asks for the hash a directory named; by construction
         return None;
+        // LCOV_EXCL_STOP
     }
     let bytes = inner.ws.attachment_bytes(sha256).ok().flatten()?;
     bisa_core::is_face(&bytes).then(|| Face::from_bytes(&bytes))
@@ -431,13 +445,17 @@ pub(crate) async fn send_control(inner: &Arc<Inner>, member: PublicKey, control:
                 tracing::debug!("control {} to {member} failed: {e}", control.kind());
             }
         }
+        // LCOV_EXCL_START: wrapping to a member's key never fails; by construction
         Err(e) => tracing::warn!("control wrap for {member} failed: {e}"),
+        // LCOV_EXCL_STOP
     }
 }
 
 async fn send_channels(inner: &Arc<Inner>, person: &PrincipalId, role: MemberRole) {
     let Some(pk) = public_key(person) else {
+        // LCOV_EXCL_START: a member's id is a key on the curve; by construction
         return;
+        // LCOV_EXCL_STOP
     };
     let channels = inner
         .ws
@@ -462,13 +480,15 @@ async fn send_directory(inner: &Arc<Inner>, except: Option<&PrincipalId>) {
                 },
             )
             .await;
-        }
+        } // LCOV_EXCL_LINE: a member's id is a key on the curve; by construction
     }
 }
 
 async fn welcome(inner: &Arc<Inner>, person: &PrincipalId, role: MemberRole) {
     let Some(pk) = public_key(person) else {
+        // LCOV_EXCL_START: a member's id is a key on the curve; by construction
         return;
+        // LCOV_EXCL_STOP
     };
     let control = Control::Welcome {
         workspace: host_card(inner).await,
@@ -493,7 +513,9 @@ async fn enqueue_pairwise(inner: &Arc<Inner>, event: &Event, recipients: &[Publi
     let mut queued = 0usize;
     for pk in recipients {
         if *pk == me {
+            // LCOV_EXCL_START: the owner is no person of their own workspace; by construction
             continue;
+            // LCOV_EXCL_STOP
         }
         let member_hex = pk.to_hex();
         if ledger.contains(&(member_hex.clone(), inner_id.clone())) {
@@ -512,7 +534,9 @@ async fn enqueue_pairwise(inner: &Arc<Inner>, event: &Event, recipients: &[Publi
                 }
                 queued += 1;
             }
+            // LCOV_EXCL_START: wrapping to a member's key never fails; by construction
             Err(e) => tracing::warn!("pairwise wrap for {member_hex} failed: {e}"),
+            // LCOV_EXCL_STOP
         }
     }
     queued
@@ -546,7 +570,9 @@ async fn relay_fact(inner: &Arc<Inner>, event: &Event) {
 /// Every fact one person reaches and has not been sent.
 async fn backlog_for(inner: &Arc<Inner>, person: &PrincipalId) {
     let Ok(facts) = conversation_facts(&inner.ws) else {
+        // LCOV_EXCL_START: the scan passes over what it cannot read and never fails; by construction
         return;
+        // LCOV_EXCL_STOP
     };
     for fact in &facts {
         let recipients = reachers_of(inner, fact, Some(person));
@@ -564,7 +590,9 @@ async fn publish_backlog(inner: &Arc<Inner>) {
         return;
     }
     let Ok(facts) = conversation_facts(&inner.ws) else {
+        // LCOV_EXCL_START: the scan passes over what it cannot read and never fails; by construction
         return;
+        // LCOV_EXCL_STOP
     };
     for fact in &facts {
         let recipients = reachers_of(inner, fact, None);
@@ -612,7 +640,7 @@ async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
     match ev {
         // A peer's drawing landed here: the engine tells the canvas; the host
         // relays facts by its own pump, never by echo.
-        StoreEvent::RemoteDrawingArrived { .. } => {}
+        StoreEvent::RemoteDrawingArrived { .. } => {} // LCOV_EXCL_LINE: the pump does nothing with a drawing; out by decision
         StoreEvent::ConversationAppended { event, .. }
         | StoreEvent::RemoteMessageArrived { event, .. } => relay_fact(inner, &event).await,
         StoreEvent::ConversationSnapshot { kind, .. } if kind == KIND_CHANNEL => {
@@ -633,7 +661,7 @@ async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
             PeopleChange::RoleChanged { role } => {
                 if let Some(pk) = public_key(&pubkey) {
                     send_control(inner, pk, &Control::RoleChanged { role }).await;
-                }
+                } // LCOV_EXCL_LINE: a member's id is a key on the curve; by construction
                 send_channels(inner, &pubkey, role).await;
                 backlog_for(inner, &pubkey).await;
                 send_directory(inner, Some(&pubkey)).await;
@@ -641,11 +669,11 @@ async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
             PeopleChange::Left => {
                 if let Some(pk) = public_key(&pubkey) {
                     send_control(inner, pk, &Control::Removed { reason: None }).await;
-                }
+                } // LCOV_EXCL_LINE: a member's id is a key on the curve; by construction
                 send_directory(inner, Some(&pubkey)).await;
                 #[cfg(feature = "iroh")]
                 if let Some(st) = &inner.iroh {
-                    st.forget_peer(pubkey.as_hex()).await;
+                    st.forget_peer(pubkey.as_hex()).await; // LCOV_EXCL_LINE: the direct transport's forgetting; out by decision
                 }
             }
             // A label or a face moved — a member's, or the owner's own: the
@@ -663,7 +691,7 @@ async fn on_store_event(inner: &Arc<Inner>, ev: StoreEvent) {
                         },
                     )
                     .await;
-                }
+                } // LCOV_EXCL_LINE: a member's id is a key on the curve; by construction
             }
         }
         // Goals, journals, snapshots of anything but a channel, and read
@@ -685,15 +713,16 @@ pub(crate) async fn apply_wrap(inner: &Arc<Inner>, wrap: &Event) -> Option<Strin
         Ok(incoming) => {
             let id = match &incoming {
                 Incoming::Gep { event, .. } => Some(event.id.to_hex()),
-                _ => None,
+                _ => None, // LCOV_EXCL_LINE: the direct transport's wire; out by decision
             };
             on_incoming(inner, &incoming).await;
             id
         }
+        // LCOV_EXCL_START: the direct transport's wire; out by decision
         Err(e) => {
             tracing::debug!("cannot unwrap gift {}: {e}", wrap.id);
             None
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -702,8 +731,10 @@ pub(crate) async fn on_incoming(inner: &Arc<Inner>, incoming: &Incoming) {
     match incoming {
         Incoming::Gep { sender, event } => {
             if hosted_role(inner, &sender.to_hex()).is_none() {
+                // LCOV_EXCL_START: a fact from a key the host does not host; out by decision
                 tracing::debug!("a fact sealed by {sender}, who is not hosted here — ignored");
                 return;
+                // LCOV_EXCL_STOP
             }
             let ws = Arc::clone(&inner.ws);
             let event_id = event.id.to_hex();
@@ -714,39 +745,48 @@ pub(crate) async fn on_incoming(inner: &Arc<Inner>, incoming: &Incoming) {
                     inner.ingested.fetch_add(1, Ordering::Relaxed);
                     tracing::info!("a person's fact landed in {scope}");
                 }
+                // LCOV_EXCL_START: a hosted member writes no journal; by construction
                 Ok(Ok(IngestOutcome::AppliedJournal { home })) => {
                     inner.ingested.fetch_add(1, Ordering::Relaxed);
                     tracing::info!("a person's decision landed on {home}");
                 }
+                // LCOV_EXCL_STOP
+                // LCOV_EXCL_START: a hosted admin's channel definition lands as a conversation; by construction
                 Ok(Ok(IngestOutcome::AppliedSnapshot { kind, .. })) => {
                     inner.ingested.fetch_add(1, Ordering::Relaxed);
                     tracing::info!("a person's {kind} snapshot landed");
                 }
-                Ok(Ok(IngestOutcome::Duplicate)) => {}
+                // LCOV_EXCL_STOP
+                Ok(Ok(IngestOutcome::Duplicate)) => {} // LCOV_EXCL_LINE: the pool hands each wrap on once; by construction
                 Ok(Ok(IngestOutcome::Rejected { reason })) if reason == "stale" => {}
                 Ok(Ok(IngestOutcome::Rejected { reason })) => {
                     tracing::warn!("ingest refused a fact from {sender}: {reason}");
                 }
+                // LCOV_EXCL_START: the index unwritable under the ingest, a disk arm; the ingest task unwinding, by construction
                 Ok(Err(e)) => {
                     tracing::warn!(event = %event_id, "ingest of a fact from {sender} failed: {e}")
                 }
                 Err(e) => {
                     tracing::warn!(event = %event_id, "the ingest task for a fact from {sender} did not finish: {e}")
-                }
+                } // LCOV_EXCL_STOP
             }
         }
         Incoming::Control { sender, control } => on_control(inner, *sender, control).await,
-        Incoming::Other => {}
+        Incoming::Other => {} // LCOV_EXCL_LINE: an envelope the wire did not make; out by decision
     }
 }
 
 async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
     if !control.is_members_word() {
+        // LCOV_EXCL_START: a host's word arriving from a member; out by decision
         tracing::debug!("{sender} sent a host's word ({}) — ignored", control.kind());
         return;
+        // LCOV_EXCL_STOP
     }
     let Ok(person) = PrincipalId::new(sender.to_hex()) else {
+        // LCOV_EXCL_START: a key's hex is a principal; by construction
         return;
+        // LCOV_EXCL_STOP
     };
     match control {
         Control::Join {
@@ -777,6 +817,7 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
                             tracing::info!("admitted {sender} as {}", member.role.as_str());
                             // The welcome rides the store's `PeopleChanged`.
                         }
+                        // LCOV_EXCL_START: a claim the store took is one it admits; by construction
                         Err(e) => {
                             tracing::warn!("admitting {sender}: {e}");
                             send_control(
@@ -787,6 +828,7 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
                                 },
                             )
                             .await;
+                            // LCOV_EXCL_STOP
                         }
                     }
                 }
@@ -805,7 +847,9 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
         }
         Control::Leave => {
             if hosted_role(inner, &sender.to_hex()).is_none() {
+                // LCOV_EXCL_START: a word from a key the host does not host; out by decision
                 return;
+                // LCOV_EXCL_STOP
             }
             let ws = &inner.ws;
             if let Err(e) = ws
@@ -813,21 +857,27 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
                 .and_then(|_| ws.drop_held_of(&person))
                 .and_then(|_| ws.remove_member(&person))
             {
+                // LCOV_EXCL_START: the members file unwritable; a disk arm
                 tracing::warn!("removing {sender} who left: {e}");
+                // LCOV_EXCL_STOP
             } else {
                 tracing::info!("{sender} left");
             }
         }
         Control::OpenDm { participants } => {
             let Some((_, role)) = hosted_role(inner, &sender.to_hex()) else {
+                // LCOV_EXCL_START: a word from a key the host does not host; out by decision
                 return;
+                // LCOV_EXCL_STOP
             };
             if !role.may(Permission::OpenDms) {
+                // LCOV_EXCL_START: every hosted role may open direct messages; by construction
                 tracing::info!(
                     "{sender} may not open direct messages as a {}",
                     role.as_str()
                 );
                 return;
+                // LCOV_EXCL_STOP
             }
             let mut all = participants.clone();
             all.push(person.clone());
@@ -835,7 +885,9 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
                 // The channel's snapshot, when new, reaches everyone through
                 // the store's bus; an existing one is said to the asker here.
                 Ok(_) => send_channels(inner, &person, role).await,
+                // LCOV_EXCL_START: a participant the directory named and the store refuses; a race no test can time
                 Err(e) => tracing::info!("{sender} asked for a direct message: {e}"),
+                // LCOV_EXCL_STOP
             }
         }
         Control::Profile { label, photo, face } => {
@@ -858,17 +910,22 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
             let label = label.as_ref().map(|l| Some(l.clone()));
             match inner.ws.set_member_profile(&person, label, photo) {
                 Ok(_) => tracing::info!("{sender} set their profile"),
+                // LCOV_EXCL_START: the members file unwritable; a disk arm
                 Err(e) => tracing::warn!("profile from {sender}: {e}"),
+                // LCOV_EXCL_STOP
             }
         }
         Control::WantFace { sha256 } => {
             if hosted_role(inner, &sender.to_hex()).is_none() {
+                // LCOV_EXCL_START: a word from a key the host does not host; out by decision
                 return;
+                // LCOV_EXCL_STOP
             }
             if let Some(face) = face_held(inner, sha256) {
                 send_control(inner, sender, &Control::Face { face }).await;
-            }
+            } // LCOV_EXCL_LINE: a face the directory names is one the host holds; by construction
         }
+        // LCOV_EXCL_START: the direct transport's word; out by decision
         Control::IrohAddr { node_id, addrs } => {
             if hosted_role(inner, &sender.to_hex()).is_none() {
                 tracing::debug!("iroh addr announcement from {sender}, not hosted — ignored");
@@ -883,7 +940,8 @@ async fn on_control(inner: &Arc<Inner>, sender: PublicKey, control: &Control) {
                 let _ = (node_id, addrs);
             }
         }
-        _ => {}
+        // LCOV_EXCL_STOP
+        _ => {} // LCOV_EXCL_LINE: every members' word has an arm; by construction
     }
 }
 

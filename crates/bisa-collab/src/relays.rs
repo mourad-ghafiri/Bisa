@@ -187,6 +187,13 @@ impl SeenWraps {
         self.set.insert(id);
         true
     }
+
+    /// Forget an id, so the wrap is handed on again when it is seen next.
+    fn forget(&mut self, id: &str) {
+        if self.set.remove(id) {
+            self.order.retain(|x| x != id);
+        } // LCOV_EXCL_LINE: an id noted a moment ago is in the set; by construction
+    }
 }
 
 /// The pool.
@@ -231,7 +238,7 @@ impl Relays {
                     if let ClientNotification::Event { event, .. } = n {
                         if event.kind == Kind::GiftWrap {
                             pool.take_wrap(&event).await;
-                        }
+                        } // LCOV_EXCL_LINE: the subscription asks for gift wraps alone; by construction
                     }
                 }
                 // LCOV_EXCL_START: the inbound stream's end, reached only when a relay hangs up on a pool a test still holds
@@ -287,7 +294,9 @@ impl Relays {
             match added {
                 Ok(_) => {
                     if let Err(e) = self.client.connect_relay(url.as_str()).await {
+                        // LCOV_EXCL_START: a relay the layer just took is one it finds; by construction
                         tracing::debug!("connecting relay {url}: {e}");
+                        // LCOV_EXCL_STOP
                     }
                 }
                 Err(e) => tracing::warn!("relay {url} refused by the pool: {e}"),
@@ -410,13 +419,25 @@ impl Relays {
         self.resubscribe().await;
     }
 
-    /// Send one event to every relay. An error means no relay took it.
+    /// Send one event to every relay. An error means no relay took it —
+    /// the relay layer answers in two lists, the relays that took it and the
+    /// ones that did not, and an event every relay refused is not sent.
     pub async fn publish(&self, event: &Event) -> Result<(), CollabError> {
-        self.client
+        let output = self
+            .client
             .send_event(event)
             .await
-            .map(|_| ())
-            .map_err(|e| CollabError::Relay(e.to_string()))
+            .map_err(|e| CollabError::Relay(e.to_string()))?;
+        if output.success.is_empty() {
+            let why = output
+                .failed
+                .values()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| "no relay took it".into());
+            return Err(CollabError::Relay(why));
+        }
+        Ok(())
     }
 
     /// Say which relays this key reads (NIP-65), so a host's relay hints
@@ -435,11 +456,13 @@ impl Relays {
             .finalize(&self.keys)
         {
             Ok(ev) => {
-                if let Err(e) = self.client.send_event(&ev).await {
+                if let Err(e) = self.publish(&ev).await {
                     tracing::debug!("relay list publish failed: {e}");
                 }
             }
+            // LCOV_EXCL_START: signing with the pool's own key never fails; by construction
             Err(e) => tracing::debug!("relay list build failed: {e}"),
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -459,7 +482,9 @@ impl Relays {
         }
         let filter = relay_filter(self.keys.public_key());
         if let Err(e) = self.client.sync(filter.clone()).await {
+            // LCOV_EXCL_START: the relay layer answers a sync a relay could not do in its output, never as an error; by construction
             tracing::debug!("negentropy sync unavailable ({e}); fetching instead");
+            // LCOV_EXCL_STOP
         }
         let fetch_filter = match since {
             Some(t) if t > WRAP_TIMESTAMP_SLACK_SECS => {
@@ -477,13 +502,14 @@ impl Relays {
                 for ev in events {
                     if ev.kind == Kind::GiftWrap {
                         self.take_wrap(&ev).await;
-                    }
+                    } // LCOV_EXCL_LINE: the filter asks for gift wraps alone; by construction
                 }
             }
+            // LCOV_EXCL_START: the relay layer answers a fetch a relay could not do in its output, never as an error; by construction
             Err(e) => {
                 let relays = self.count().await;
                 tracing::debug!(relays, "catch-up fetch failed across the pool: {e}")
-            }
+            } // LCOV_EXCL_STOP
         }
     }
 
@@ -493,15 +519,21 @@ impl Relays {
             return;
         }
         match unwrap_incoming(&self.keys, wrap) {
+            // LCOV_EXCL_START: an envelope the wire did not make; out by decision
             Ok(Incoming::Other) => {}
+            // LCOV_EXCL_STOP
             Ok(incoming) => {
-                // Nobody subscribed yet is not an error: the next catch-up
-                // brings what a late reader missed.
+                // Nobody subscribed yet is not an error: the id is forgotten,
+                // so the next catch-up hands the wrap to the reader that came
+                // late — a node starting with wraps waiting for it on the relay.
                 if self.incoming.send(incoming).is_err() {
                     tracing::trace!("a wrap arrived before anyone listened");
+                    self.seen.lock().await.forget(&wrap.id.to_hex());
                 }
             }
+            // LCOV_EXCL_START: an envelope the wire did not make; out by decision
             Err(e) => tracing::debug!("cannot unwrap gift {}: {e}", wrap.id),
+            // LCOV_EXCL_STOP
         }
     }
 
@@ -624,6 +656,8 @@ mod tests {
     async fn opening_a_pool_gives_the_process_its_tls_provider_so_no_embedder_can_forget() {
         let pool = Relays::start(Keys::generate(), &[]).await;
         assert!(crate::tls::crypto_provider_ready());
+        pool.publish_relay_list().await;
+        assert_eq!(pool.count().await, 0, "no relay to say the list to");
         pool.stop().await;
     }
 
@@ -709,5 +743,147 @@ mod tests {
         assert!(!seen.note(format!("id{}", SEEN_WRAPS + 5)));
         assert!(seen.note("id0".into()), "the oldest was forgotten");
         assert_eq!(seen.set.len(), SEEN_WRAPS);
+    }
+
+    #[test]
+    fn every_status_of_the_relay_layer_has_a_word() {
+        use RelayStatusWord as W;
+        let words: Vec<W> = [
+            RelayStatus::Initialized,
+            RelayStatus::Pending,
+            RelayStatus::Connecting,
+            RelayStatus::Connected,
+            RelayStatus::Disconnected,
+            RelayStatus::Terminated,
+            RelayStatus::Banned,
+            RelayStatus::Sleeping,
+            RelayStatus::Shutdown,
+        ]
+        .into_iter()
+        .map(W::from)
+        .collect();
+        assert_eq!(
+            words,
+            vec![
+                W::Initialized,
+                W::Pending,
+                W::Connecting,
+                W::Connected,
+                W::Disconnected,
+                W::Terminated,
+                W::Banned,
+                W::Sleeping,
+                W::Shutdown
+            ]
+        );
+    }
+
+    /// An address the relay layer will not take stays on the list as it was
+    /// typed, its row says it was never tried, and it leaves the list as
+    /// quietly as it came.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_address_the_relay_layer_refuses_has_a_row_that_was_never_tried() {
+        let pool = Relays::start(Keys::generate(), &["not a url".to_string()]).await;
+        assert_eq!(pool.urls().await, vec!["not a url".to_string()]);
+        let health = pool.health().await;
+        assert_eq!(health.len(), 1);
+        assert_eq!(health[0].status, RelayStatusWord::Initialized);
+        assert_eq!(health[0].attempts, 0);
+        assert!(!health[0].connected);
+        assert_eq!(health[0].problem, None, "never tried: nothing to say yet");
+        assert_eq!(pool.connected_count().await, 0);
+        pool.set_relays(&[]).await;
+        assert!(pool.health().await.is_empty());
+        pool.stop().await;
+    }
+
+    /// A relay that is down takes nothing: the relay list is not said, a
+    /// catch-up finds nothing, a publish is an error in words — and the pool
+    /// stays up for the relay to come back.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_relay_that_is_down_takes_nothing_and_the_pool_says_so() {
+        let dead = "ws://127.0.0.1:1".to_string();
+        let pool = Relays::start(Keys::generate(), std::slice::from_ref(&dead)).await;
+        assert_eq!(pool.count().await, 1);
+        assert_eq!(pool.connected_count().await, 0);
+        pool.publish_relay_list().await;
+        pool.catch_up(None).await;
+        let wrap = wrap_control(
+            pool.keys(),
+            Keys::generate().public_key(),
+            &Control::Waiting,
+        )
+        .unwrap();
+        let refused = pool.publish(&wrap).await.unwrap_err();
+        assert!(matches!(refused, CollabError::Relay(_)), "{refused}");
+        let health = pool.health().await;
+        assert_eq!(health.len(), 1);
+        assert!(!health[0].connected, "{:?}", health[0]);
+        assert_ne!(health[0].status, RelayStatusWord::Connected);
+        pool.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_reconnect_keeps_the_pool_hearing() {
+        let (_relay, url) = local_relay().await;
+        let alice = Relays::start(Keys::generate(), std::slice::from_ref(&url)).await;
+        let bob = Relays::start(Keys::generate(), std::slice::from_ref(&url)).await;
+        let mut heard = bob.subscribe();
+        bob.reconnect().await;
+        let mut connected = bob.connected_count().await;
+        for _ in 0..30 {
+            if connected == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            connected = bob.connected_count().await;
+        }
+        assert_eq!(connected, 1, "{:?}", bob.health().await);
+        let wrap = wrap_control(alice.keys(), bob.public_key(), &Control::Waiting).unwrap();
+        alice.publish(&wrap).await.expect("published");
+        let got = tokio::time::timeout(Duration::from_secs(10), heard.recv())
+            .await
+            .expect("heard in time")
+            .expect("channel open");
+        assert!(matches!(
+            got,
+            Incoming::Control {
+                control: Control::Waiting,
+                ..
+            }
+        ));
+        bob.stop().await;
+        alice.stop().await;
+    }
+
+    /// A wrap the relay hands over before anybody on this node listens — a
+    /// node starting with wraps waiting for it on the relay — is not lost:
+    /// the next catch-up hands it to the reader that came late.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_wrap_that_arrives_before_anyone_listens_is_handed_on_by_the_next_catch_up() {
+        let (_relay, url) = local_relay().await;
+        let alice = Relays::start(Keys::generate(), std::slice::from_ref(&url)).await;
+        let bob_keys = Keys::generate();
+        let wrap = wrap_control(alice.keys(), bob_keys.public_key(), &Control::Waiting).unwrap();
+        alice.publish(&wrap).await.expect("published");
+        // Bob's pool opens, and the relay streams what waits for him before
+        // anything on his node has subscribed to the pool.
+        let bob = Relays::start(bob_keys, std::slice::from_ref(&url)).await;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let mut heard = bob.subscribe();
+        bob.catch_up(None).await;
+        let got = tokio::time::timeout(Duration::from_secs(10), heard.recv())
+            .await
+            .expect("the late reader hears the wrap")
+            .expect("channel open");
+        assert!(matches!(
+            got,
+            Incoming::Control {
+                control: Control::Waiting,
+                ..
+            }
+        ));
+        bob.stop().await;
+        alice.stop().await;
     }
 }

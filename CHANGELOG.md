@@ -33,6 +33,15 @@ notes (`docs/contributing/release.md`).
   caller having gone through the store's own placement — is removed (`crates/bisa-engine/src/projects.rs`).
 
 ### Fixed
+- A node that started while wraps waited for it on a relay never heard them: the pool marked a
+  wrap as seen when it arrived before anything on the node had subscribed, and every later
+  catch-up passed it over. The pool now forgets a wrap nobody listened to, so the next catch-up
+  hands it to the reader that came late (`crates/bisa-collab/src/relays.rs`).
+- A fact published while every relay was down was recorded as sent and never sent again: the
+  relay layer answers a publish with the relays that took it and the ones that did not, and the
+  pool read any answer as success. A publish no relay took is now an error in words, so the host's
+  outbox keeps the fact for the next flush and a relay that comes back takes it
+  (`crates/bisa-collab/src/relays.rs`, `crates/bisa-net/tests/it/host_edges.rs`).
 
 - A search-and-replace in a goal's or a run's folder never wrote: the preview read the folder
   whole while the apply resolved every path under the scope's writable root (its `scratch/`), so

@@ -37,9 +37,11 @@ pub fn ensure_crypto_provider() {
                 .install_default()
                 .is_err()
             {
+                // LCOV_EXCL_START: a provider installed between the check and here; a race no test can time
                 tracing::debug!(target: "bisa_collab", "a TLS crypto provider was installed meanwhile; it is kept");
+                // LCOV_EXCL_STOP
             }
-        }
+        } // LCOV_EXCL_LINE: a provider installed before the pool's first use; by construction in one process
     });
 }
 

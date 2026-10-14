@@ -67,10 +67,11 @@ fn announce(inner: &Arc<Inner>, member: Member, was: bool, now: bool) {
     }
     let channels = match inner.ws.list_channels() {
         Ok(c) => c,
+        // LCOV_EXCL_START: the channels unreadable; a disk arm
         Err(e) => {
             tracing::warn!("cannot list channels for a membership event: {e}");
             return;
-        }
+        } // LCOV_EXCL_STOP
     };
     for event in events_for_enablement(member, was, now, &channels, now_secs()) {
         warn_on_err(
