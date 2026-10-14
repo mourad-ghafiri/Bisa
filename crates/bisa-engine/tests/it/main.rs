@@ -11,6 +11,7 @@ mod boundaries;
 mod browser;
 mod catalog_connectors;
 mod changes;
+mod codehost_edges;
 mod collab;
 mod common;
 mod connector_health;

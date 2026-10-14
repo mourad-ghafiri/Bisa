@@ -1820,9 +1820,11 @@ pub async fn workstream(ctx: &Ctx, out: &Out, cmd: WorkstreamCmd) -> Result<()> 
             let pr: Option<bisa_engine::codehost::PullRequest> =
                 if let Some(client) = ctx.node_client().await {
                     let answer = client.get(&format!("/workstreams/{id}/pr")).await?;
+                    // LCOV_EXCL_START: a payload the node never sends; by construction
                     serde_json::from_value(answer["pr"].clone()).context(bisa_core::text!(
                         "cli-projects-unexpected-pull-request-payload-from-node"
                     ))?
+                    // LCOV_EXCL_STOP
                 } else {
                     let (engine, _) = ctx.engine().await?;
                     let pr = bisa_engine::codehost::linked_pr(engine.inner(), id).await;
@@ -1855,9 +1857,11 @@ pub async fn workstream(ctx: &Ctx, out: &Out, cmd: WorkstreamCmd) -> Result<()> 
             let checks: Vec<bisa_engine::codehost::CheckRun> =
                 if let Some(client) = ctx.node_client().await {
                     let answer = client.get(&format!("/workstreams/{id}/pr/checks")).await?;
+                    // LCOV_EXCL_START: a payload the node never sends; by construction
                     serde_json::from_value(answer["checks"].clone()).context(bisa_core::text!(
                         "cli-projects-unexpected-pull-request-payload-from-node"
                     ))?
+                    // LCOV_EXCL_STOP
                 } else {
                     let (engine, _) = ctx.engine().await?;
                     let checks = bisa_engine::codehost::checks(engine.inner(), id).await;
@@ -2387,9 +2391,11 @@ fn opened_as_the_node_said(answer: &serde_json::Value) -> Result<(u64, String)> 
         Some(pr) if !pr.is_null() => pr,
         _ => &answer["workstream"]["state"],
     };
+    // LCOV_EXCL_START: a payload the node never sends; by construction
     let number = pr["number"].as_u64().context(bisa_core::text!(
         "cli-projects-unexpected-pull-request-payload-from-node"
     ))?;
+    // LCOV_EXCL_STOP
     Ok((number, pr["url"].as_str().unwrap_or_default().to_string()))
 }
 

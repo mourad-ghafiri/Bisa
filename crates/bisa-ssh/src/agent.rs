@@ -105,6 +105,15 @@ mod tests {
         assert_eq!(listed.keys[1].algorithm, "RSA");
         assert!(listed.holds("SHA256:zzz") && !listed.holds("SHA256:nope"));
 
+        let plain = parse_ssh_add_list(0, "256 SHA256:x plain\n", "");
+        assert_eq!(
+            (
+                plain.keys[0].comment.as_str(),
+                plain.keys[0].algorithm.as_str()
+            ),
+            ("plain", ""),
+            "no parenthesised algorithm: the comment is the rest"
+        );
         let empty = parse_ssh_add_list(1, "", "The agent has no identities.\n");
         assert!(empty.available && empty.keys.is_empty() && empty.reason.is_none());
 

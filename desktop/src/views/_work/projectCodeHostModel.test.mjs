@@ -66,3 +66,8 @@ test("the inspection is asked about one thing by name: a clone's URL or an impor
   assert.equal(inspectBody("clone", "  ", "/Users/ada/web"), null);
   assert.equal(inspectBody("import", "https://example.com/acme/web.git", ""), null);
 });
+
+test("an account from a source this build does not name is read by its note, else by the source's word", () => {
+  const options = accountOptions(inspection({ accounts: [{ login: "x", source: "keychain", note: "from the keychain" }, { login: "y", source: "elsewhere", note: "" }] }));
+  assert.deepEqual(options.map((o) => o.words), ["@x — from the keychain", "@y — elsewhere"]);
+});

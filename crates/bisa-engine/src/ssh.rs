@@ -41,11 +41,13 @@ async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(f)
         .await
         .map_err(|e| {
+            // LCOV_EXCL_START: the blocking task panicked; by construction
             EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-ssh-task",
                 e = e.to_string()
             ))
         })?
+        // LCOV_EXCL_STOP
         .map_err(EngineError::from)
 }
 

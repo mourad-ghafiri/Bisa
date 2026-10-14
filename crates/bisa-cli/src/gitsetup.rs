@@ -150,7 +150,9 @@ pub enum AccountCmd {
 pub async fn git(ctx: &Ctx, out: &Out, cmd: GitCmd) -> Result<()> {
     match cmd {
         GitCmd::Profile { command } => profile(ctx, out, command).await,
+        // LCOV_EXCL_START: the machine's OpenSSH; by decision
         GitCmd::Ssh { command } => ssh_cmd(ctx, out, command).await,
+        // LCOV_EXCL_STOP
         GitCmd::Account { host, command } => account(ctx, out, &host, command).await,
         GitCmd::Health { host } => health_cmd(ctx, out, &host).await,
         GitCmd::Login { host } => login_cmd(ctx, out, &host).await,
@@ -217,6 +219,7 @@ impl Door {
         }
     }
 
+    // LCOV_EXCL_START: the host verifies a token over the network; by decision
     async fn add_account(
         &self,
         kind: codehost::CodeHostKind,
@@ -241,6 +244,7 @@ impl Door {
             }
         }
     }
+    // LCOV_EXCL_STOP
 
     async fn forget_account(&self, kind: codehost::CodeHostKind, login: &str) -> Result<()> {
         match self {
@@ -325,6 +329,7 @@ impl Door {
         }
     }
 
+    // LCOV_EXCL_START: the machine's OpenSSH; by decision
     async fn ssh_overview(&self) -> Result<ssh::SshOverview> {
         match self {
             Door::Node(node) => answered(node.get("/git/ssh").await?),
@@ -384,6 +389,7 @@ impl Door {
             Door::Own(engine) => Ok(ssh::test(engine.inner(), host.to_string(), user, key).await?),
         }
     }
+    // LCOV_EXCL_STOP
 
     async fn connection(&self, wid: WorkstreamId) -> Result<connection::RepoConnection> {
         match self {
@@ -509,6 +515,7 @@ async fn health_cmd(ctx: &Ctx, out: &Out, host: &str) -> Result<()> {
             ));
         }
         match &health.resolves {
+            // LCOV_EXCL_START: the environment's token; by decision
             Some(r) => out.say(&bisa_core::text!(
                 "cli-gitsetup-resolves",
                 a0 =
@@ -518,6 +525,7 @@ async fn health_cmd(ctx: &Ctx, out: &Out, host: &str) -> Result<()> {
                     .to_string(),
                 a1 = format!("{:?}", r.source)
             )),
+            // LCOV_EXCL_STOP
             None => out.say(&bisa_core::text!(
                 "cli-gitsetup-nothing-answers-bisa-git-login-host",
                 a0 = (health.label).to_string(),
@@ -591,12 +599,14 @@ async fn profile(ctx: &Ctx, out: &Out, cmd: ProfileCmd) -> Result<()> {
         match cmd {
             ProfileCmd::List => {
                 let view = door.profiles().await?;
+                // LCOV_EXCL_START: a git older than 2.36; by construction
                 if !view.hasconfig_supported {
                     out.say(&bisa_core::text!(
                         "cli-gitsetup-git-cannot-evaluate-includeif-hasconfig-profiles",
                         a0 = (view.git_version).to_string()
                     ));
                 }
+                // LCOV_EXCL_STOP
                 if view.profiles.is_empty() {
                     out.say(&bisa_core::text!(
                         "cli-gitsetup-no-profiles-yet-bisa-git-profile"
@@ -693,6 +703,7 @@ async fn profile(ctx: &Ctx, out: &Out, cmd: ProfileCmd) -> Result<()> {
     Ok(())
 }
 
+// LCOV_EXCL_START: the machine's OpenSSH; by decision
 async fn ssh_cmd(ctx: &Ctx, out: &Out, cmd: SshCmd) -> Result<()> {
     let door = Door::open(ctx).await?;
     let result: Result<serde_json::Value> = async {
@@ -818,6 +829,7 @@ async fn ssh_cmd(ctx: &Ctx, out: &Out, cmd: SshCmd) -> Result<()> {
     out.json_value(result?);
     Ok(())
 }
+// LCOV_EXCL_STOP
 
 async fn account(ctx: &Ctx, out: &Out, host: &str, cmd: AccountCmd) -> Result<()> {
     let kind = kind_of(host)?;
@@ -835,8 +847,10 @@ async fn account(ctx: &Ctx, out: &Out, host: &str, cmd: AccountCmd) -> Result<()
                 return Err(anyhow!(bisa_core::text!(
                     "cli-gitsetup-no-token-stdin-printf-s-token"
                 )));
+                // LCOV_EXCL_START: the host verifies a token over the network; by decision
             }
             Some(token)
+            // LCOV_EXCL_STOP
         }
         _ => None,
     };
@@ -845,12 +859,14 @@ async fn account(ctx: &Ctx, out: &Out, host: &str, cmd: AccountCmd) -> Result<()
         match cmd {
             AccountCmd::List => {
                 let view = door.accounts(kind).await?;
+                // LCOV_EXCL_START: the environment's token; by decision
                 if view.status.env_override {
                     out.say(&bisa_core::text!(
                         "cli-gitsetup-set-every-request-uses-whatever-checkout",
                         a0 = (kind.env_var()).to_string()
                     ));
                 }
+                // LCOV_EXCL_STOP
                 if let Some(login) = &view.status.cli_login {
                     out.say(&bisa_core::text!(
                         "cli-gitsetup-signed-as",
@@ -887,6 +903,7 @@ async fn account(ctx: &Ctx, out: &Out, host: &str, cmd: AccountCmd) -> Result<()
                 }
                 Ok(serde_json::to_value(&view)?)
             }
+            // LCOV_EXCL_START: the host verifies a token over the network; by decision
             AccountCmd::Add { login } => {
                 let (login, connection) = door
                     .add_account(kind, token.as_deref().unwrap_or_default(), login.as_deref())
@@ -897,6 +914,7 @@ async fn account(ctx: &Ctx, out: &Out, host: &str, cmd: AccountCmd) -> Result<()
                 ));
                 Ok(serde_json::json!({"login": login, "connection": connection}))
             }
+            // LCOV_EXCL_STOP
             AccountCmd::Rm { login } => {
                 door.forget_account(kind, &login).await?;
                 out.human(&format!("@{login} forgotten"));
@@ -947,6 +965,7 @@ fn connection_words(c: &codehost::Connection) -> String {
                 "cli-gitsetup-connected-as",
                 login = login.to_string()
             ));
+            // LCOV_EXCL_START: scopes are the API's answer alone; by decision
             if !scopes.is_empty() {
                 s.push_str(&format!(" · {}", scopes.join(", ")));
             }
@@ -959,6 +978,7 @@ fn connection_words(c: &codehost::Connection) -> String {
                     recommended_missing.join(", ")
                 ));
             }
+            // LCOV_EXCL_STOP
             if !organizations.is_empty() {
                 s.push_str(&format!(" · organizations {}", organizations.join(", ")));
             }
@@ -968,10 +988,12 @@ fn connection_words(c: &codehost::Connection) -> String {
             "cli-gitsetup-refused",
             reason = reason.to_string()
         )),
+        // LCOV_EXCL_START: a host out of reach falls through to the API; by decision
         codehost::Connection::Unreachable { reason } => bisa_i18n::say(&bisa_core::text!(
             "cli-gitsetup-unreachable",
             reason = reason.to_string()
         )),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1022,6 +1044,7 @@ async fn connection_cmd(ctx: &Ctx, out: &Out, workstream: &str, check: bool) -> 
         ));
         out.human(&match &c.transport {
             Transport::Ssh {
+                // LCOV_EXCL_START: the machine's OpenSSH; by decision
                 key,
                 loaded,
                 ssh_configured,
@@ -1047,6 +1070,7 @@ async fn connection_cmd(ctx: &Ctx, out: &Out, workstream: &str, check: bool) -> 
                 })
                 .to_string()
             )),
+            // LCOV_EXCL_STOP
             Transport::Https {
                 helpers,
                 helper_username,
@@ -1103,12 +1127,14 @@ async fn connection_cmd(ctx: &Ctx, out: &Out, workstream: &str, check: bool) -> 
                     a1 = (if a.push { ", can push" } else { "" }).to_string()
                 ));
             }
+            // LCOV_EXCL_START: the machine's OpenSSH; by decision
             if let Some(g) = &probes.ssh {
                 out.say(&bisa_core::text!(
                     "cli-gitsetup-check-ssh",
                     g = format!("{g:?}")
                 ));
             }
+            // LCOV_EXCL_STOP
             if let Some(ls) = &probes.ls_remote {
                 out.say(&bisa_core::text!(
                     "cli-gitsetup-check-ls-remote",

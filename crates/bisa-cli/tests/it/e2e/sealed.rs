@@ -136,6 +136,22 @@ impl Sealed {
         .expect("the agent's script");
     }
 
+    /// A program of the journey's own — a shell script by `name`, placed
+    /// where the journey's path begins, so the platform finds it as it would
+    /// a program a person installed (`gh`, a credential helper). Its path.
+    pub fn install_program(&self, name: &str, text: &str) -> PathBuf {
+        let path = self.agents().join(name);
+        std::fs::create_dir_all(self.agents()).expect("the journey's programs");
+        std::fs::write(&path, text).expect("the program's text");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("runnable");
+        }
+        path
+    }
+
     pub fn data(&self) -> PathBuf {
         self.root.path().join("data")
     }

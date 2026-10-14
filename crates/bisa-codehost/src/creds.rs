@@ -240,7 +240,7 @@ impl TokenStore {
 
     pub fn store_kind(&self) -> StoreKind {
         if self.keyring {
-            StoreKind::Keyring
+            StoreKind::Keyring // LCOV_EXCL_LINE: the OS keyring; by decision
         } else {
             StoreKind::File
         }
@@ -288,7 +288,7 @@ impl TokenStore {
             .map(|login| StoredAccount {
                 login,
                 source: if self.keyring {
-                    TokenSource::Keyring
+                    TokenSource::Keyring // LCOV_EXCL_LINE: the OS keyring; by decision
                 } else {
                     TokenSource::File
                 },
@@ -300,12 +300,14 @@ impl TokenStore {
     pub(crate) fn read(&self, login: &str) -> Option<(Secret, TokenSource)> {
         let login = normalize_login(login).ok()?;
         if self.keyring {
+            // LCOV_EXCL_START: the OS keyring; by decision
             let t = keyring::Entry::new(KEYRING_SERVICE, &self.entry(&login))
                 .ok()?
                 .get_password()
                 .ok()
                 .and_then(Secret::some)?;
             return Some((t, TokenSource::Keyring));
+            // LCOV_EXCL_STOP
         }
         let t = std::fs::read_to_string(self.token_path(&login))
             .ok()
@@ -352,9 +354,11 @@ impl TokenStore {
             return Err(CodeHostError::Refused("an empty token".into()));
         }
         if self.keyring {
+            // LCOV_EXCL_START: the OS keyring; by decision
             keyring::Entry::new(KEYRING_SERVICE, &self.entry(&login))
                 .and_then(|e| e.set_password(token))
                 .map_err(|e| CodeHostError::Transport(format!("keyring: {e}")))?;
+            // LCOV_EXCL_STOP
         } else {
             std::fs::create_dir_all(&self.dir)
                 .map_err(|e| CodeHostError::Transport(format!("{}: {e}", self.dir.display())))?;
@@ -391,12 +395,14 @@ impl TokenStore {
     pub fn forget(&self, login: &str) -> CodeHostResult<()> {
         let login = normalize_login(login)?;
         if self.keyring {
+            // LCOV_EXCL_START: the OS keyring; by decision
             match keyring::Entry::new(KEYRING_SERVICE, &self.entry(&login))
                 .and_then(|e| e.delete_credential())
             {
                 Ok(()) | Err(keyring::Error::NoEntry) => {}
                 Err(e) => return Err(CodeHostError::Transport(format!("keyring: {e}"))),
             }
+            // LCOV_EXCL_STOP
         } else {
             match std::fs::remove_file(self.token_path(&login)) {
                 Ok(()) => {}
@@ -909,6 +915,61 @@ mod tests {
         assert_eq!(
             settings_place(CodeHostKind::Bitbucket),
             "Settings → Git & code hosts → Bitbucket"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plain_store_names_no_helper_and_no_cli_and_says_when_a_token_cannot_be_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = TokenStore::file_only(CodeHostKind::GitHub, "github.com", dir.path());
+        let status = accounts_status(&store).await;
+        assert!(
+            status.helpers.is_empty()
+                && status.helper_username.is_none()
+                && status.cli_login.is_none(),
+            "no git and no CLI attached: nothing to ask"
+        );
+        // A folder where the token file should be cannot be removed as one:
+        // said, never passed over as a login already gone.
+        store.store("ada", "a-word-for-the-test").unwrap();
+        std::fs::remove_file(dir.path().join("ada.token")).unwrap();
+        std::fs::create_dir_all(dir.path().join("ada.token").join("inside")).unwrap();
+        let err = store.forget("ada").unwrap_err();
+        assert!(
+            matches!(&err, CodeHostError::Transport(w) if w.contains("ada.token")),
+            "{err}"
+        );
+        assert_eq!(
+            store.logins(),
+            ["ada"],
+            "a login not forgotten stays listed"
+        );
+    }
+
+    #[test]
+    fn a_named_account_without_a_token_on_a_kind_with_no_cli_and_a_stored_login_whose_file_went() {
+        let none = |_: &str| -> Option<(Secret, TokenSource)> { None };
+        let err = chain(
+            CodeHostKind::Bitbucket,
+            None,
+            Some("dave"),
+            &[],
+            none,
+            None,
+            None,
+        )
+        .unwrap_err();
+        let words = err.to_string();
+        assert!(
+            words.contains("@dave") && !words.contains("auth login"),
+            "Bitbucket has no CLI to sign in with: {words}"
+        );
+        let one = vec!["ada".to_string()];
+        let cli = Some(("carol".to_string(), secret("from-cli")));
+        assert_eq!(
+            chain(CodeHostKind::GitHub, None, None, &one, none, cli, None).unwrap(),
+            (secret("from-cli"), TokenSource::Cli),
+            "the one stored login's file is gone: the CLI answers"
         );
     }
 }

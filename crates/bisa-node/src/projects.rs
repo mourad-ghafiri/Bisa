@@ -1244,13 +1244,17 @@ async fn git_identity(
                 email: s.ident.email,
                 login: s.login,
             }),
+            // LCOV_EXCL_START: a code host that refuses the account read; by construction
             Ok(Err(e)) => {
                 tracing::debug!(target: "bisa_node", workstream = %wid, "no committer suggestion: {e}");
                 None
+                // LCOV_EXCL_STOP
             }
             Err(_) => {
+                // LCOV_EXCL_START: a code host slower than five seconds; by construction
                 tracing::debug!(target: "bisa_node", workstream = %wid, "no committer suggestion: the code host did not answer in time");
                 None
+                // LCOV_EXCL_STOP
             }
         };
     }

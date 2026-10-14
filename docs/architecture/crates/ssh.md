@@ -81,7 +81,11 @@ node started without SSH; the node renders `Refused` as **400**, `Unavailable` a
 Unit tests beside each module, on fixtures — banner text, `ssh -G` output, `ssh-add -l` output, a
 synthetic public key line whose blob is built in the test. `ssh.rs`'s tests run `Ssh` over a
 `FakeSsh` on a `tempfile` directory; `FakeSsh::writing` stands in for `ssh-keygen` laying a `.pub`
-file down. No test reads `~/.ssh`, asks ssh-agent, or connects anywhere.
+file down; a directory that is a file, a `.pub` nobody may read, an agent nobody could ask, a key
+`ssh-keygen` could not make or wrote no `.pub` for, an agent that is not running and a host ssh cannot
+resolve are each said in their words. No test reads `~/.ssh`, asks ssh-agent, or connects anywhere; the
+real runner (`exec.rs`) would spawn the machine's OpenSSH and is left out of the coverage meter by
+decision, with its reason.
 
 ---
 

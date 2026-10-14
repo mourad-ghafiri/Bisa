@@ -8,6 +8,7 @@ mod auth;
 mod bodies;
 mod cache;
 mod changes;
+mod codehost_edges;
 mod collab;
 mod connectors;
 mod conversations;

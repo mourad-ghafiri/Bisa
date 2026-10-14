@@ -294,10 +294,14 @@ impl CliRunner for Cli {
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     if remaining.is_zero() {
                         if let Err(e) = child.kill() {
+                            // LCOV_EXCL_START: a child already gone; by construction
                             tracing::debug!("terminating a timed-out {program:?}: {e}");
+                            // LCOV_EXCL_STOP
                         }
                         if let Err(e) = child.wait() {
+                            // LCOV_EXCL_START: a child already gone; by construction
                             tracing::debug!("reaping a timed-out {program:?}: {e}");
+                            // LCOV_EXCL_STOP
                         }
                         return Err(CliError::Timeout {
                             what,
@@ -307,23 +311,29 @@ impl CliRunner for Cli {
                     std::thread::sleep(nap.min(remaining));
                     nap = (nap * 2).min(Duration::from_millis(25));
                 }
+                // LCOV_EXCL_START: waiting on a child this process spawned; by construction
                 Err(e) => {
                     return Err(CliError::Failed {
                         what,
                         detail: format!("waiting: {e}"),
-                    })
+                    });
+                    // LCOV_EXCL_STOP
                 }
             }
         };
         // A pipe that could not be read to its end is a failure whatever the
         // exit status: a truncated answer would be read as the whole one.
         let stdout = joined(out_reader).map_err(|detail| CliError::Failed {
+            // LCOV_EXCL_START: a reader thread that failed; by construction
             what: what.clone(),
             detail: format!("reading stdout: {detail}"),
+            // LCOV_EXCL_STOP
         })?;
         let stderr = joined(err_reader).map_err(|detail| CliError::Failed {
+            // LCOV_EXCL_START: a reader thread that failed; by construction
             what: what.clone(),
             detail: format!("reading stderr: {detail}"),
+            // LCOV_EXCL_STOP
         })?;
         if let Some(Err(e)) = fed {
             if status.success() {
@@ -375,11 +385,13 @@ pub(crate) async fn run(
     tokio::task::spawn_blocking(move || runner.run(program, &args, &env, stdin.as_deref(), timeout))
         .await
         .unwrap_or_else(|e| {
+            // LCOV_EXCL_START: the blocking task panicked; by construction
             Err(CliError::Failed {
                 what: format!("{} {}", program.binary(), "…"),
                 detail: format!("the blocking task ended: {e}"),
             })
         })
+    // LCOV_EXCL_STOP
 }
 
 /// One account a CLI is signed in as, from its `auth status`.

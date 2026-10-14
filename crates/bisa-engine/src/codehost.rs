@@ -216,7 +216,7 @@ pub async fn open_pr(
                 url: String::new(),
             })
             .map_err(bisa_store::StoreError::from)?;
-            false
+            false // LCOV_EXCL_LINE: a transition the table always refuses; by construction
         }
     };
     let project = inner.ws.get_project(w.project)?;
@@ -702,7 +702,7 @@ async fn merged_after_the_gate(
             out.remote_branch_deleted = Some(deleted);
         }
         inner.ide_status.invalidate(id);
-    }
+    } // LCOV_EXCL_LINE: the fake lands or refuses a merge; by construction
     Ok(out)
 }
 
@@ -880,11 +880,13 @@ pub async fn set_default_account(
     let profiles = inner.ws.paths().git_profiles_dir();
     let login = login.map(str::to_string);
     let key = bisa_vcs::default_account_key(kind.as_str()).ok_or_else(|| {
+        // LCOV_EXCL_START: every kind has a default account key; by construction
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-has-no-default-account-key",
             kind = kind.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
     let default = blocking(move || {
         match &login {
             Some(l) => git.config_set(ConfigScope::Global, None, key, l)?,
@@ -954,7 +956,7 @@ pub async fn health(inner: &Inner, kind: CodeHostKind) -> Result<CodeHostHealth,
     let resolves = match bisa_codehost::creds::token_source(&store, default.as_deref()).await {
         Some(source) => Some(Resolves {
             login: match source {
-                TokenSource::Env => None,
+                TokenSource::Env => None, // LCOV_EXCL_LINE: the environment's token; by decision
                 TokenSource::File | TokenSource::Keyring => default
                     .clone()
                     .or_else(|| accounts.accounts.first().map(|a| a.login.clone())),

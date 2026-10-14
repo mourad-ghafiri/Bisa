@@ -158,3 +158,11 @@ test("a disabled Add account says why: the check still on its way, no token, no 
   const panel = readFileSync(new URL("./CodeHostPanel.tsx", import.meta.url), "utf8");
   assert.ok(panel.includes("disabledReason={blockedAdd ?? undefined}"), "the reason rides on the disabled button");
 });
+
+test("a host that did not answer is a warning with its reason, and a state nobody named reads as unchecked", () => {
+  const away = connectionLine({ state: "unreachable", reason: "timed out" }, "GitLab");
+  assert.equal(away.tone, "warn");
+  assert.match(away.text, /GitLab/);
+  assert.match(away.text, /timed out/);
+  assert.deepEqual(connectionLine({ state: "something-new" }, "GitHub"), connectionLine(null, "GitHub"));
+});

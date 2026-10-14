@@ -3,6 +3,7 @@
 //! Run one module with `just test-module codehost <module>`.
 
 mod bitbucket;
+mod edges;
 mod fake;
 mod gh;
 mod github;

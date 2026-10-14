@@ -72,6 +72,7 @@ pub struct Cli {
 }
 
 impl SshRunner for Cli {
+    // LCOV_EXCL_START: the machine's OpenSSH; by decision
     fn run(&self, program: Program, args: &[String], timeout: Duration) -> SshResult<Output> {
         let what = format!("{} {}", program.binary(), args.join(" "));
         let mut cmd = Command::new(program.binary());
@@ -132,9 +133,11 @@ impl SshRunner for Cli {
             stderr: String::from_utf8_lossy(&stderr).into_owned(),
         })
     }
+    // LCOV_EXCL_STOP
 }
 
 /// Read a child's pipe to its end on a thread of its own, keeping the error.
+// LCOV_EXCL_START: the machine's OpenSSH; by decision
 fn drain<R: std::io::Read + Send + 'static>(
     mut pipe: R,
 ) -> std::thread::JoinHandle<std::io::Result<Vec<u8>>> {
@@ -153,3 +156,4 @@ fn joined(reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>) -> Result<V
         .map_err(|_| "the reader thread panicked".to_string())?
         .map_err(|e| e.to_string())
 }
+// LCOV_EXCL_STOP

@@ -143,7 +143,7 @@ impl GhCli {
         let timeout = if network {
             self.timeouts.network
         } else {
-            self.timeouts.local
+            self.timeouts.local // LCOV_EXCL_LINE: every verb reaches the host; by construction
         };
         let out = run(&self.runner, CliProgram::Gh, args, env, stdin, timeout).await?;
         if !out.success() {

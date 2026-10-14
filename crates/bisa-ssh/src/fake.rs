@@ -110,14 +110,18 @@ impl SshRunner for FakeSsh {
                 for (path, text) in &canned.writes {
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| SshError::Failed {
+                            // LCOV_EXCL_START: the fake's own disk write; by construction
                             what: "the fake's write".to_string(),
                             detail: e.to_string(),
                         })?;
-                    }
+                        // LCOV_EXCL_STOP
+                    } // LCOV_EXCL_LINE: a path with no parent; by construction
                     std::fs::write(path, text).map_err(|e| SshError::Failed {
+                        // LCOV_EXCL_START: the fake's own disk write; by construction
                         what: "the fake's write".to_string(),
                         detail: e.to_string(),
                     })?;
+                    // LCOV_EXCL_STOP
                 }
                 Ok(canned.output)
             }

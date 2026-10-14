@@ -828,7 +828,7 @@ pub async fn open_workstream_for(
                     number: pr.number,
                     url: pr.url.clone(),
                 },
-            )?;
+            )?; // LCOV_EXCL_LINE: the closing of a transition's question mark; by construction
             journal_progress(inner, &linked, "adopted pr", &branch, Some(&pr.url));
             inner.cache.invalidate_codehost(id);
             linked

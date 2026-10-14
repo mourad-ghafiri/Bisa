@@ -425,7 +425,9 @@ async fn account_chain(
     let (login, account_source) = match named {
         Some(source) => (account.clone(), source),
         None if default.is_some() => (default.clone(), AccountSource::Global),
+        // LCOV_EXCL_START: the environment's token; by decision
         None if env_override => (None, AccountSource::Env),
+        // LCOV_EXCL_STOP
         None if stored.len() == 1 => (stored.first().cloned(), AccountSource::OnlyStored),
         None if cli_login.is_some() => (cli_login.clone(), AccountSource::Cli),
         None if helper_username.is_some() => (helper_username.clone(), AccountSource::GitHelper),
@@ -736,8 +738,10 @@ pub async fn check(inner: &Inner, wid: WorkstreamId) -> Result<ConnectionCheck, 
                 .repo_access(&repo)
                 .await
                 .inspect_err(|e| {
+                    // LCOV_EXCL_START: the fake always answers the access read; by construction
                     tracing::debug!(target: "bisa_engine::ide", "repository access not read: {e}")
                 })
+                // LCOV_EXCL_STOP
                 .ok();
             (Some(connection), access)
         }
@@ -760,8 +764,10 @@ pub async fn check(inner: &Inner, wid: WorkstreamId) -> Result<ConnectionCheck, 
             tokio::task::spawn_blocking(move || ssh.test(&host, &user, key.as_deref()))
                 .await
                 .inspect_err(|e| {
+                    // LCOV_EXCL_START: the blocking task panicked; by construction
                     tracing::warn!(target: "bisa_engine::ide", "the ssh test task ended early: {e}")
                 })
+                // LCOV_EXCL_STOP
                 .ok()
                 .and_then(|r| {
                     r.inspect_err(|e| {
@@ -786,11 +792,13 @@ pub async fn check(inner: &Inner, wid: WorkstreamId) -> Result<ConnectionCheck, 
                 heads: 0,
                 detail: Some(e.to_string()),
             },
+            // LCOV_EXCL_START: the blocking task panicked; by construction
             Err(e) => LsRemoteOutcome {
                 ok: false,
                 heads: 0,
                 detail: Some(e.to_string()),
             },
+            // LCOV_EXCL_STOP
         })
     } else {
         None

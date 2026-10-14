@@ -91,10 +91,14 @@ failure is classified into one of those or into a `Fallback` — never a fifth k
 `tests/it/gitlab.rs`, `tests/it/bitbucket.rs` (each API against a stub HTTP server on `127.0.0.1`,
 `tests/it/support/mod.rs` — canned answers, recorded requests, no network); `tests/it/gh.rs`,
 `tests/it/glab.rs` (each CLI over `FakeCli` — the argv recorded, canned stdout and stderr, no program
-run); `tests/it/layered.rs` (the rule); unit tests beside `creds.rs` (a `tempfile` token directory),
+run); `tests/it/layered.rs` (the rule); `tests/it/edges.rs` (the crate at its edges — the layered host
+with no CLI on the machine, the fake refusing what it does not hold, each CLI and each API where the
+answer was short, strange or late, and the real runner against a shell script the test wrote, found on
+a `PATH` handed to the one call); unit tests beside `creds.rs` (a `tempfile` token directory),
 `src/cli/mod.rs` (the parsers on fixture text), `github.rs`, `gitlab.rs`, `bitbucket.rs`, `hosts.rs`
 and `lib.rs`. No test reads a machine's token, keychain, helper, key, `gh`, `glab` or global git
-config.
+config; the one program the real runner is tested against is a script the test wrote. The OS keyring's
+arms and the environment's token are left out of the coverage meter by decision, each with its reason.
 
 ---
 

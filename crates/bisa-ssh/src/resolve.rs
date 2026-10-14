@@ -88,5 +88,14 @@ mod tests {
         assert_eq!(r.identity_files.len(), 2);
         assert_eq!(r.identity_agent, None, "`none` is no agent");
         assert_eq!(parse_ssh_g("", Path::new("/h")).port, 22);
+        let odd = parse_ssh_g(
+            "nospace\nidentityfile ~\nidentityfile /abs/key\n",
+            Path::new("/h"),
+        );
+        assert_eq!(
+            odd.identity_files,
+            [PathBuf::from("/h"), PathBuf::from("/abs/key")],
+            "a line with no value is passed over; `~` alone is home; a bare path stays"
+        );
     }
 }

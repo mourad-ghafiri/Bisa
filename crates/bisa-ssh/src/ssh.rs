@@ -115,10 +115,12 @@ impl Ssh {
                 continue;
             }
             let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: a name that is not text; by construction
             };
             let Some(line) = self.read_public_text(&path)? else {
+                // LCOV_EXCL_START: a file gone between the list and the read; by construction
                 continue;
+                // LCOV_EXCL_STOP
             };
             if let Some(key) = parse_public_key(name, self.dir.join(name), &line) {
                 keys.push(key);
@@ -367,9 +369,11 @@ fn create_dir_owner_only(dir: &Path) -> SshResult<()> {
         return Ok(());
     }
     let io = |e: std::io::Error| SshError::Failed {
+        // LCOV_EXCL_START: the directory could not be made; a disk arm
         what: format!("create {}", dir.display()),
         detail: e.to_string(),
     };
+    // LCOV_EXCL_STOP
     std::fs::create_dir_all(dir).map_err(io)?;
     #[cfg(unix)]
     {
@@ -640,5 +644,137 @@ mod tests {
             .resolve("github.com", Some(Path::new("relative/key")))
             .is_err());
         assert_eq!(fake.calls().len(), 3);
+    }
+
+    #[test]
+    fn a_directory_that_is_a_file_an_unreadable_pub_and_an_agent_nobody_could_ask_are_said() {
+        let root = tempfile::tempdir().unwrap();
+        // The directory is a file: listing it is a failure, never an empty list.
+        let file = root.path().join("not-a-dir");
+        std::fs::write(&file, "x").unwrap();
+        let (ssh, _) = ssh_over(FakeSsh::new(), &file);
+        let err = ssh.keys().unwrap_err();
+        assert!(
+            matches!(&err, SshError::Failed { what, .. } if what.starts_with("list ")),
+            "{err}"
+        );
+        let dir = root.path().join("ssh");
+        write_pub(&dir, "id_ed25519_acme", "ada@acme");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let public = dir.join("id_ed25519_acme.pub");
+            std::fs::set_permissions(&public, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let (ssh, _) = ssh_over(FakeSsh::new(), &dir);
+            let err = ssh.keys().unwrap_err();
+            assert!(
+                matches!(&err, SshError::Failed { what, .. } if what.starts_with("read ")),
+                "a .pub nobody may read: {err}"
+            );
+            std::fs::set_permissions(&public, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        // An agent the runner could not even ask: unavailable, with the reason.
+        let (ssh, fake) = ssh_over(FakeSsh::new(), &dir);
+        let over = ssh.overview().unwrap();
+        assert!(!over.agent.available);
+        assert!(
+            over.agent
+                .reason
+                .as_deref()
+                .unwrap_or_default()
+                .contains("the fake has no answer"),
+            "{:?}",
+            over.agent
+        );
+        assert_eq!(over.keys.len(), 1);
+        assert_eq!(ssh.dir(), dir.as_path());
+        assert_eq!(fake.calls()[0].line(), "ssh-add -l");
+    }
+
+    #[test]
+    fn a_key_ssh_keygen_could_not_make_a_pub_it_did_not_write_and_one_that_is_no_key_are_said() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("fresh").join("ssh");
+        let key = NewKey {
+            name: "id_ed25519_new".into(),
+            comment: "ada@new".into(),
+        };
+        let failing = FakeSsh::new().answer(
+            Program::SshKeygen,
+            &["-t", "ed25519"],
+            1,
+            "",
+            "Saving key failed: no space\n",
+        );
+        let (ssh, fake) = ssh_over(failing, &dir);
+        let err = ssh.generate(&key).unwrap_err();
+        assert!(
+            matches!(&err, SshError::Failed { what, detail } if what == "ssh-keygen" && detail == "Saving key failed: no space"),
+            "{err}"
+        );
+        assert!(fake.calls()[0]
+            .line()
+            .starts_with("ssh-keygen -q -t ed25519 -f "));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_eq!(
+                std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+                0o700,
+                "the directory is made owner-only before the spawn"
+            );
+        }
+        let silent = FakeSsh::new().answer(Program::SshKeygen, &["-t", "ed25519"], 0, "", "");
+        let (ssh, _) = ssh_over(silent, &dir);
+        let err = ssh.generate(&key).unwrap_err();
+        assert!(
+            matches!(&err, SshError::Failed { detail, .. } if detail.ends_with("was not written")),
+            "{err}"
+        );
+        let garbage = dir.join("id_ed25519_new.pub");
+        let odd = FakeSsh::new()
+            .answer(Program::SshKeygen, &["-t", "ed25519"], 0, "", "")
+            .writing(&garbage, "not a key line\n");
+        let (ssh, _) = ssh_over(odd, &dir);
+        let err = ssh.generate(&key).unwrap_err();
+        assert!(
+            matches!(&err, SshError::Failed { detail, .. } if detail.ends_with("is not a public key")),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn an_agent_that_is_not_running_and_a_host_ssh_cannot_resolve_are_said_in_their_words() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("ssh");
+        write_pub(&dir, "id_ed25519_acme", "ada@acme");
+        let private = dir.join("id_ed25519_acme").display().to_string();
+        let fake = FakeSsh::new()
+            .answer(
+                Program::SshAdd,
+                &[&private],
+                2,
+                "",
+                "Could not open a connection to your authentication agent.\n",
+            )
+            .answer(
+                Program::Ssh,
+                &["-G", "nowhere"],
+                255,
+                "",
+                "nowhere: Name or service not known\n",
+            );
+        let (ssh, fake) = ssh_over(fake, &dir);
+        let err = ssh.agent_add("id_ed25519_acme").unwrap_err();
+        assert!(
+            matches!(&err, SshError::Refused(w) if w.starts_with("ssh-agent is not running")),
+            "{err}"
+        );
+        let err = ssh.resolve("nowhere", None).unwrap_err();
+        assert!(
+            matches!(&err, SshError::Failed { what, detail } if what == "ssh -G nowhere" && detail.contains("Name or service")),
+            "{err}"
+        );
+        assert_eq!(fake.calls()[1].line(), "ssh -G nowhere");
     }
 }

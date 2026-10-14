@@ -37,6 +37,9 @@ pub struct FakeState {
     /// Why a merge is refused while a test says so — checks failing, a
     /// conflict with the base, a review still owed; `None` merges.
     pub merge_refusal: Mutex<Option<String>>,
+    /// Why a branch delete is refused while a test says so — a branch
+    /// already gone, a protected one; `None` deletes.
+    pub delete_refusal: Mutex<Option<String>>,
 }
 
 pub struct FakeCodeHost {
@@ -163,6 +166,14 @@ impl FakeCodeHost {
         }
     }
 
+    /// Refuse every branch delete with `why`, as a code host does for a
+    /// branch that is protected or already gone; `None` deletes again.
+    pub fn refuse_branch_deletes(&self, why: Option<&str>) {
+        if let Ok(mut refusal) = self.state.delete_refusal.lock() {
+            *refusal = why.map(str::to_string);
+        }
+    }
+
     /// The logins that answered requests so far — what a test asserts the
     /// engine bound.
     pub fn asked_as(&self) -> Vec<String> {
@@ -280,7 +291,9 @@ impl CodeHost for FakeCodeHost {
             .state
             .prs
             .lock()
+            // LCOV_EXCL_START: a poisoned lock; by construction
             .map_err(|_| CodeHostError::Transport("lock".into()))?;
+        // LCOV_EXCL_STOP
         let number = prs.len() as u64 + 1;
         let pr = PullRequest {
             number,
@@ -303,7 +316,9 @@ impl CodeHost for FakeCodeHost {
             .state
             .prs
             .lock()
+            // LCOV_EXCL_START: a poisoned lock; by construction
             .map_err(|_| CodeHostError::Transport("lock".into()))?;
+        // LCOV_EXCL_STOP
         prs.iter()
             .find(|p| p.number == number)
             .cloned()
@@ -318,7 +333,9 @@ impl CodeHost for FakeCodeHost {
             .state
             .prs
             .lock()
+            // LCOV_EXCL_START: a poisoned lock; by construction
             .map_err(|_| CodeHostError::Transport("lock".into()))?;
+        // LCOV_EXCL_STOP
         Ok(prs
             .iter()
             .filter(|p| filter.state.is_none_or(|s| s == p.state))
@@ -419,7 +436,9 @@ impl CodeHost for FakeCodeHost {
             .state
             .threads
             .lock()
+            // LCOV_EXCL_START: a poisoned lock; by construction
             .map_err(|_| CodeHostError::Transport("lock".into()))?;
+        // LCOV_EXCL_STOP
         let thread = threads
             .iter_mut()
             .find(|t| t.id == thread_id)
@@ -437,7 +456,9 @@ impl CodeHost for FakeCodeHost {
             .state
             .threads
             .lock()
+            // LCOV_EXCL_START: a poisoned lock; by construction
             .map_err(|_| CodeHostError::Transport("lock".into()))?;
+        // LCOV_EXCL_STOP
         let thread = threads
             .iter_mut()
             .find(|t| t.id == thread_id)
@@ -467,7 +488,9 @@ impl CodeHost for FakeCodeHost {
             .state
             .prs
             .lock()
+            // LCOV_EXCL_START: a poisoned lock; by construction
             .map_err(|_| CodeHostError::Transport("lock".into()))?;
+        // LCOV_EXCL_STOP
         let pr = prs
             .iter_mut()
             .find(|p| p.number == number)
@@ -494,10 +517,21 @@ impl CodeHost for FakeCodeHost {
                 "deleting a branch on the remote".into(),
             ));
         }
+        if let Some(why) = self
+            .state
+            .delete_refusal
+            .lock()
+            .ok()
+            .and_then(|r| r.clone())
+        {
+            return Err(CodeHostError::Refused(format!("delete {branch}: {why}")));
+        }
         self.state
             .deleted_branches
             .lock()
+            // LCOV_EXCL_START: a poisoned lock; by construction
             .map_err(|_| CodeHostError::Transport("lock".into()))?
+            // LCOV_EXCL_STOP
             .push(branch.to_string());
         Ok(())
     }

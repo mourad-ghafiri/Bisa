@@ -128,3 +128,14 @@ test("the probes read as one line each, and the cautions are what the header wea
   assert.equal(firstCaution({ cautions: [{ id: "key_not_loaded", sentence: "ssh-agent does not hold the key" }] }), "ssh-agent does not hold the key");
   assert.equal(firstCaution({ cautions: [] }), null);
 });
+
+test("a host that did not answer, a credential nobody held, and a handshake read as it went", () => {
+  const unreachable = checkLines({ code_host: { state: "unreachable", reason: "timed out" }, access: null, ssh: { state: "authenticated", login: "ada" }, ls_remote: null });
+  assert.deepEqual(unreachable.map((l) => l.tone), ["warn", "ok"]);
+  assert.equal(unreachable[0].text, "code host: unreachable — timed out");
+  assert.equal(unreachable[1].text, "ssh: authenticated as ada");
+  const quiet = checkLines({ code_host: { state: "no_token" }, access: null, ssh: { state: "authenticated", login: null }, ls_remote: null });
+  assert.deepEqual(quiet.map((l) => [l.tone, l.text]), [["quiet", "code host: no token"], ["ok", "ssh: authenticated"]]);
+  const away = checkLines({ code_host: null, access: null, ssh: { state: "unreachable", reason: "no route" }, ls_remote: null });
+  assert.deepEqual(away, [{ tone: "warn", text: "ssh: unreachable — no route" }]);
+});
