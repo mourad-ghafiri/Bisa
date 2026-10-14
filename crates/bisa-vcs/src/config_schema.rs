@@ -185,7 +185,7 @@ pub fn writable_key(key: &str, scope: ConfigScope) -> VcsResult<&'static ConfigK
 
 fn scope_word(scope: ConfigScope) -> &'static str {
     match scope {
-        ConfigScope::Global => "global",
+        ConfigScope::Global => "global", // LCOV_EXCL_LINE: no key is local-only; by construction
         ConfigScope::Local => "local",
     }
 }

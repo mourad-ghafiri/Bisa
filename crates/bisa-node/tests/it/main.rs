@@ -16,6 +16,7 @@ mod drawings;
 mod effort;
 mod events;
 mod files;
+mod git_edges;
 mod harness_usage;
 mod ide;
 mod layering;

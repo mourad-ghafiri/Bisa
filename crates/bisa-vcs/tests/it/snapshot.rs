@@ -145,3 +145,44 @@ fn a_repository_with_no_commit_yet_snapshots_from_nothing() {
         vec!["a.txt"]
     );
 }
+
+/// A folder that is no repository has no snapshot; a private index whose
+/// folder cannot be made is said; a linked worktree's own index seeds the
+/// private one as the root's does; two trees compared where there is no
+/// repository is git's error.
+#[test]
+fn a_snapshot_refuses_what_is_no_repository_and_a_worktree_seeds_from_its_own_index() {
+    let c = checkout();
+    let plain = c._dir.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    assert!(snapshot::snapshot_tree(&plain, &c.index).is_err());
+
+    let file = c._dir.path().join("a-file");
+    std::fs::write(&file, "").unwrap();
+    assert!(
+        snapshot::snapshot_tree(&c.root, &file.join("index")).is_err(),
+        "the index's folder is a file"
+    );
+
+    let wt = c._dir.path().join("wt");
+    raw_git(
+        &c.root,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            wt.to_str().unwrap(),
+            "-b",
+            "wt",
+        ],
+    );
+    let own = c._dir.path().join("private-wt").join("index");
+    let before = snapshot::snapshot_tree(&wt, &own).unwrap();
+    std::fs::write(wt.join("more.txt"), "more\n").unwrap();
+    let after = snapshot::snapshot_tree(&wt, &own).unwrap();
+    assert_eq!(
+        names(snapshot::changed_between(&wt, &before, &after).unwrap()),
+        vec!["more.txt"]
+    );
+    assert!(snapshot::changed_between(&plain, &before, &after).is_err());
+}

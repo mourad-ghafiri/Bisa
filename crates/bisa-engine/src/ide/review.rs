@@ -249,4 +249,13 @@ mod tests {
             "@@ -1 +1 @@\n-a\n+b\n"
         );
     }
+
+    #[test]
+    fn a_hunk_cut_inside_a_character_is_cut_before_it() {
+        assert_ne!(MAX_HUNK_BYTES % 3, 0);
+        let wide = "€".repeat(MAX_HUNK_BYTES / 3 + 10);
+        let cut = bounded_hunk(&wide);
+        let body = cut.trim_end_matches("… (truncated)\n");
+        assert!(body.len() < MAX_HUNK_BYTES && body.chars().all(|c| c == '€'));
+    }
 }

@@ -30,6 +30,15 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- Renaming a workstream's own branch from the IDE renamed it in git and then failed: the record
+  that names the branch was written through the person's edit door, which refuses any change to
+  a workstream's kind, so the route answered 400 over a branch already renamed and the rail kept
+  the old name. The record now follows git's rename through the store's record writer, which
+  keeps the kind's word and the state fixed and lets the branch move
+  (`crates/bisa-engine/src/ide/interactive.rs`).
+- A merge foreseen against a revision git cannot merge — a branch that is not there, a blob —
+  read as a conflicting merge with no paths, since `merge-tree` exits 1 for both; a preview that
+  wrote no tree is now git's own refusal, naming the revision (`crates/bisa-vcs/src/git.rs`).
 - A live gate whose goal the index no longer listed — a record removed behind the engine's back,
   or one the index lost — was dropped from the Inbox, although the Inbox's own rule keeps such a
   gate on a row of its own so the decision it waits for is not lost: the row was built only for

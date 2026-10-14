@@ -258,3 +258,93 @@ fn only_the_notes_repository_offers_a_pull() {
     assert!(!Folder::Drawings.pulls());
     assert_eq!(Folder::Drawings.word(), "drawings");
 }
+
+fn raw_git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// The folder repositories at their edges: each knows its folder; an
+/// exclude file somebody wrote without a final newline gets the folder's
+/// lines after one; a status is reused within its moment; a commit under
+/// an index another git holds is git's error, not an identity refusal; a
+/// push with no branch checked out is refused by name; and a folder whose
+/// repository cannot be made says so and goes on.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_folder_repositories_at_their_edges() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let inner = engine.inner();
+    assert_eq!(inner.notes_git.folder(), Folder::Notes);
+    assert_eq!(inner.drawings_git.folder(), Folder::Drawings);
+
+    let drawings_root = Folder::Drawings.root(engine.workspace().paths());
+    std::fs::create_dir_all(&drawings_root).unwrap();
+    raw_git(&drawings_root, &["init", "--quiet"]);
+    let exclude = FolderGit::exclude_file(&drawings_root);
+    std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    std::fs::write(&exclude, "custom").unwrap();
+    inner.drawings_git.ensure(inner).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&exclude).unwrap(),
+        "custom\nstate/\n",
+        "the folder's line lands on a line of its own"
+    );
+    let first = inner.drawings_git.status(inner).await.unwrap();
+    let second = inner.drawings_git.status(inner).await.unwrap();
+    assert_eq!(first.changed, second.changed);
+
+    a_record(&engine, Folder::Notes, "First");
+    inner
+        .notes_git
+        .set_identity(inner, "Ada", "ada@example.com")
+        .await
+        .unwrap();
+    let notes_root = Folder::Notes.root(engine.workspace().paths());
+    let lock = notes_root.join(".git").join("index.lock");
+    std::fs::write(&lock, "").unwrap();
+    let held = inner.notes_git.commit(inner, "held").await;
+    std::fs::remove_file(&lock).unwrap();
+    assert!(
+        matches!(held, Err(EngineError::Vcs(_))),
+        "git's own error: {held:?}"
+    );
+    inner.notes_git.commit(inner, "first").await.unwrap();
+    let origin = bare_origin(&dir);
+    inner
+        .notes_git
+        .set_remote(inner, origin.to_str().unwrap())
+        .await
+        .unwrap();
+    raw_git(&notes_root, &["checkout", "--quiet", "--detach"]);
+    let detached = inner.notes_git.push(inner).await;
+    assert!(
+        matches!(detached, Err(EngineError::Invalid(_))),
+        "{detached:?}"
+    );
+
+    let other = tempfile::tempdir().unwrap();
+    let engine2 = self::engine(&other);
+    let inner2 = engine2.inner();
+    let root2 = Folder::Drawings.root(engine2.workspace().paths());
+    std::fs::create_dir_all(&root2).unwrap();
+    std::fs::set_permissions(&root2, std::fs::Permissions::from_mode(0o555)).unwrap();
+    inner2.drawings_git.touched(inner2);
+    let unmade = inner2.drawings_git.status(inner2).await;
+    std::fs::set_permissions(&root2, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(unmade.is_err(), "no repository could be made");
+}

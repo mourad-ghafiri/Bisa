@@ -5,6 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { abortConsent, conflictedPaths, continueConsent, continuedWords, nextConflict, operationVerbs, operationWord, operationWords, skipConsent, skippedWords } from "./operationModel.mjs";
+import { t } from "../../i18n/l10n.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const facts = { kind: "merge", branch: "main", ours: { role: "branch", name: "main", commit: null, subject: null }, theirs: { role: "branch", name: "feature", commit: SHA, subject: "theirs" }, step: null };
@@ -78,4 +79,10 @@ test("the next conflict is the one after the settled path, wrapping to the first
   assert.equal(nextConflict(["b", "c"], null), "b");
   assert.equal(nextConflict(["a"], "a"), null);
   assert.equal(nextConflict([], "a"), null);
+});
+
+test("continuing a cherry-pick says the next commit is picked", () => {
+  const c = continueConsent("cherry_pick", null);
+  assert.equal(c.body, t("work-operation-commit-made-next-one-picked-another"));
+  assert.equal(c.confirm, "Continue");
 });

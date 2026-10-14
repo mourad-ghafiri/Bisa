@@ -121,12 +121,15 @@ pub async fn rename_branch(
     .await?;
     if let WorkstreamKind::Worktree { branch, base } = &w.kind {
         if branch == &renamed_from {
+            // The record's branch follows git's: a worktree stays a worktree
+            // and its state stays, so the store's record writer takes it —
+            // the person's edit door would refuse a change to the kind.
             let mut edited = w.clone();
             edited.kind = WorkstreamKind::Worktree {
                 branch: renamed_to,
                 base: base.clone(),
             };
-            inner.ws.update_workstream(&edited)?;
+            inner.ws.put_workstream(&edited)?;
         }
     }
     inner.ide_status.invalidate(workstream);
@@ -332,11 +335,13 @@ pub async fn discard_hunk(
     consent: HumanConsent,
 ) -> Result<Done, EngineError> {
     if patch.len() > super::git::MAX_PATCH_BYTES {
+        // LCOV_EXCL_START: the node's body bound is smaller; by construction
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-patch-bytes-cap-2",
             a0 = (patch.len()).to_string(),
             a1 = (super::git::MAX_PATCH_BYTES).to_string()
         )));
+        // LCOV_EXCL_STOP
     }
     let d = consented(inner, workstream, move |p| {
         ops::discard_hunk(p, &patch, &consent)

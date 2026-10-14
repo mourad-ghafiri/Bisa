@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { deleteCopy, deletedWords, discardCopy, discardedWords, recoveryOpWords, recoveryWords, restoreWords, shortRef } from "./gitDiscardModel.mjs";
+import { t } from "../../i18n/l10n.mjs";
 
 test("every recovery kind the vcs crate names has a Safety word, and restore says what comes back", () => {
   const src = readFileSync(new URL("../../../../crates/bisa-vcs/src/git.rs", import.meta.url), "utf8");
@@ -91,4 +92,8 @@ test("the toasts name what happened and, for a discard, where the old text went"
   assert.equal(deletedWords(["notes.txt"], "unlink"), "notes.txt deleted.");
   assert.equal(deletedWords(["a", "b", "c"], "trash"), "3 files moved to the Trash.");
   assert.equal(deletedWords(["a", "b"], "unlink"), "2 files deleted.");
+});
+
+test("a recovery kind nobody named is its own word, never a blank", () => {
+  assert.equal(recoveryWords("elsewhere"), "elsewhere");
 });

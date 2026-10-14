@@ -387,4 +387,36 @@ mod tests {
         );
         assert_eq!(m.merge_msg.as_deref(), Some("Merge branch 'x'"));
     }
+
+    #[test]
+    fn a_rebase_by_the_apply_backend_a_revert_and_a_merged_tag_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = dir.path();
+        std::fs::create_dir_all(g.join("rebase-apply")).unwrap();
+        std::fs::write(g.join("rebase-apply/head-name"), "refs/heads/topic\n").unwrap();
+        std::fs::write(g.join("rebase-apply/onto"), "bbbb\n").unwrap();
+        std::fs::write(g.join("rebase-apply/next"), "1\n").unwrap();
+        std::fs::write(g.join("rebase-apply/last"), "3\n").unwrap();
+        std::fs::write(g.join("rebase-apply/original-commit"), "cccc\n").unwrap();
+        let m = Markers::read(g, InProgress::Rebase);
+        assert_eq!(m.head_name.as_deref(), Some("refs/heads/topic"));
+        assert_eq!(m.onto.as_deref(), Some("bbbb"));
+        assert_eq!(m.step, Some((1, 3)));
+        assert_eq!(m.stopped.as_deref(), Some("cccc"));
+
+        std::fs::write(g.join("REVERT_HEAD"), "dddd\n").unwrap();
+        let m = Markers::read(g, InProgress::Revert);
+        assert_eq!(m.stopped.as_deref(), Some("dddd"));
+        assert_eq!(m.sequencer, None, "one commit: no sequencer");
+
+        let tag = Markers {
+            stopped: sha(8),
+            merge_msg: Some("Merge tag 'v1'".into()),
+            ..Markers::default()
+        };
+        let f = facts_of(InProgress::Merge, &tag, Some("main".into()));
+        assert_eq!(f.theirs.role, SideRole::Commit, "a tag is a commit, named");
+        assert_eq!(f.theirs.name.as_deref(), Some("v1"));
+        assert_eq!(f.theirs.commit, sha(8));
+    }
 }

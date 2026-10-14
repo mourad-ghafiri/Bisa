@@ -383,7 +383,7 @@ pub(crate) fn decorations(text: &str) -> Vec<GraphRef> {
         let mut push = |name: &str| {
             let name = name.trim();
             if name.is_empty() {
-                return;
+                return; // LCOV_EXCL_LINE: names are trimmed before the split; by construction
             }
             // The platform's own refs — the recovery points under
             // `refs/bisa/safety/` — are Safety's to show, never a chip that
@@ -1119,5 +1119,33 @@ d9c9ead\u{1f}d9c9ead\u{1f}Ada L\u{1f}ada@e.invalid\u{1f}1787757290\u{1f}subject:
             (None, Some("something else entirely".into()))
         );
         assert_eq!(stash_subject(""), (None, None));
+    }
+
+    /// What git prints beside the records — an ignored entry, a count it
+    /// cannot say, a header this reader does not know, a worktree line
+    /// before any worktree, a row with no path, a rename cut short, a stash
+    /// subject with no message, an empty decoration, a content line with
+    /// no header — is passed over, never a panic.
+    #[test]
+    fn what_git_prints_beside_the_records_is_passed_over() {
+        let (st, files) = status(
+            b"# branch.oid abc\0# branch.head main\0# branch.ab +x -1\0# branch.nonsense yes\0! ignored.txt\0",
+        );
+        assert!(files.is_empty());
+        assert_eq!((st.ahead, st.behind), (0, 1));
+        assert!(st.is_clean);
+        let entries = worktree_list("HEAD abc\nworktree /x\nsomething else\n");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, PathBuf::from("/x"));
+        assert!(numstat(b"1\t2\0").is_empty(), "a row with no path");
+        assert!(numstat(b"2\t0\t\0old\0").is_empty(), "a rename cut short");
+        assert_eq!(stash_subject("WIP on main"), (Some("main".into()), None));
+        assert_eq!(stash_subject("On main"), (None, Some("On main".into())));
+        assert_eq!(
+            decorations("HEAD -> main, , tag: v1").len(),
+            3,
+            "an empty item is skipped"
+        );
+        assert!(blame("\tcontent with no header\n").is_empty());
     }
 }

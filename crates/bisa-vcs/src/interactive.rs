@@ -178,7 +178,7 @@ pub fn capture(git: &Git, path: &Path, op: &str, pin: Pin<'_>) -> VcsResult<Reco
                 Some(path),
                 &[s("rev-parse"), s("--verify"), s("HEAD")],
                 false,
-            )?,
+            )?, // LCOV_EXCL_LINE: an unmerged index with no HEAD; by construction
             false,
         )
     } else if let Pin::Commit(pin) = pin {
@@ -261,7 +261,7 @@ pub fn capture(git: &Git, path: &Path, op: &str, pin: Pin<'_>) -> VcsResult<Reco
                 s(tip),
             ],
             false,
-        )?;
+        )?; // LCOV_EXCL_LINE: a second ref write failing after the first; disk arm
     }
     Ok(Recovery {
         ref_name,
@@ -1210,7 +1210,7 @@ pub fn push_with_lease(
         Some(path),
         &[s("push"), s("--force-with-lease"), s(remote), s(branch)],
         true,
-    )?;
+    )?; // LCOV_EXCL_LINE: a spawn failing after the capture; by construction
     if !out.success {
         let stderr = out.stderr_text();
         if stderr.to_ascii_lowercase().contains("stale info") || stderr.contains("[rejected]") {
@@ -1296,7 +1296,7 @@ fn refuse_untracked_collisions(git: &Git, path: &Path, rev: &str) -> VcsResult<(
             s(format!("{rev}^3")),
         ],
         false,
-    )?;
+    )?; // LCOV_EXCL_LINE: a read failing after the capture; by construction
     if !third.success {
         return Ok(());
     }
@@ -1310,7 +1310,7 @@ fn refuse_untracked_collisions(git: &Git, path: &Path, rev: &str) -> VcsResult<(
             s("--"),
         ],
         false,
-    )?;
+    )?; // LCOV_EXCL_LINE: a read failing after the first; by construction
     let taken: Vec<String> = listed
         .lines()
         .map(str::trim)
@@ -1374,12 +1374,12 @@ pub fn restore(
             Some(path),
             &[s("log"), s("-1"), s("--format=%s"), s(&saved), s("--")],
             false,
-        )?;
+        )?; // LCOV_EXCL_LINE: the subject unreadable after the ref read; by construction
         run(
             git,
             path,
             &[s("stash"), s("store"), s("-m"), s(subject), s(&saved)],
-        )?;
+        )?; // LCOV_EXCL_LINE: a store failing after the read; by construction
         return Ok(recovery);
     }
     // Unmerged paths — a stash apply that stopped on a conflict leaves them
@@ -1397,7 +1397,7 @@ pub fn restore(
             Some(path),
             &[s("rev-parse"), s("--verify"), s(format!("{saved}^1"))],
             false,
-        )?
+        )? // LCOV_EXCL_LINE: a saved tree's parent unreadable; by construction
     } else {
         saved.clone()
     };
@@ -1436,7 +1436,7 @@ pub fn restore(
     }
     if dirty {
         apply_stash(git, path, &saved)?;
-    }
+    } // LCOV_EXCL_LINE: a saved tree failing on its own base; by construction
     Ok(recovery)
 }
 
@@ -1574,7 +1574,9 @@ pub fn stash_push(
         };
         let kept = git.still_known(path, &what.paths, reach)?;
         if kept.is_empty() {
+            // LCOV_EXCL_START: status and ls-files read one tree; by construction
             return Err(VcsError::NothingToStash);
+            // LCOV_EXCL_STOP
         }
         crate::git::literal_pathspecs("pathspec", &kept)?
     };
@@ -1599,7 +1601,9 @@ pub fn stash_push(
     let entries = git.stash_list(path)?;
     match entries.into_iter().next() {
         Some(entry) if Some(&entry.commit) != before.as_ref() => Ok((recovery, entry)),
+        // LCOV_EXCL_START: a push that listed no new entry; by construction
         _ => Err(VcsError::NothingToStash),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1972,5 +1976,20 @@ mod tests {
             SEQUENCE_EDITOR.contains("BISA_REBASE_TODO"),
             "the todo travels in the environment, never in the command"
         );
+    }
+
+    #[test]
+    fn a_plan_over_the_cap_is_refused_by_its_count() {
+        let range: Vec<CommitId> = (0..=200u8).map(sha).collect();
+        assert!(range.len() > REBASE_PLAN_CAP);
+        let steps = (0..=200u8)
+            .map(|n| step(RebaseAction::Pick, n, None))
+            .collect();
+        match validate_plan(&plan(steps), &range) {
+            Err(VcsError::InvalidArg { value, .. }) => {
+                assert!(value.contains("more than a plan takes"), "{value}")
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

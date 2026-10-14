@@ -36,6 +36,7 @@ mod goal_edges;
 mod guided;
 mod harness_usage;
 mod ide_files;
+mod ide_git_edges;
 mod ide_graph;
 mod ide_review;
 mod ide_search;

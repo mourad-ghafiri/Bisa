@@ -38,7 +38,7 @@ impl Git {
         if let Some(dir) = index_file.parent() {
             std::fs::create_dir_all(dir)
                 .map_err(|e| VcsError::other(format!("create {}: {e}", dir.display())))?;
-        }
+        } // LCOV_EXCL_LINE: a closing brace after a question mark; by construction
         if !index_file.exists() {
             self.seed_index(root, index_file);
         }

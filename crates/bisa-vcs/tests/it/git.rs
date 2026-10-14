@@ -3134,3 +3134,206 @@ fn a_git_that_is_not_there_probes_unavailable_with_a_reason() {
         "{probe:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A folder that is not there, and the reads at their edges
+// ---------------------------------------------------------------------------
+
+/// Every read handed a folder that does not exist is git's refusal, typed —
+/// never a panic and never a half-answer; and under a `git` that cannot be
+/// spawned at all, every read is the spawn's own error, passed up as it is.
+#[test]
+fn every_read_on_a_folder_that_is_not_there_is_an_error_and_never_a_panic() {
+    let fx = Fixture::new();
+    let gone = fx.path("gone");
+    let g = git::Git::default();
+    assert!(matches!(
+        g.default_branch(&gone),
+        Err(VcsError::NotARepository(_))
+    ));
+    assert!(matches!(
+        g.blame(&gone, "README.md", None),
+        Err(VcsError::NotARepository(_))
+    ));
+    assert!(matches!(
+        g.graph_log(&gone, None, git::RefScope::All),
+        Err(VcsError::NotARepository(_))
+    ));
+    assert!(g.diff_stat(&gone).is_err());
+    assert!(g.branch_list(&gone, None).is_err());
+    assert!(g.changed_paths(&gone, "HEAD", "HEAD", 10).is_err());
+    assert!(g.commits_between(&gone, "HEAD", "HEAD", 10).is_err());
+    assert!(g.remote_branch_list(&gone).is_err());
+    assert!(g.tag_list(&gone).is_err());
+    assert!(g.recovery_list(&gone).is_err());
+    assert!(g.stash_diff(&gone, "HEAD").is_err());
+    assert!(g.refs_fingerprint(&gone).is_err());
+    assert!(g.commit_detail(&gone, "HEAD").is_err());
+    assert!(g.list_untracked(&gone).is_err());
+    assert!(g.repo_root(&gone).is_err());
+
+    let none = bisa_vcs::Git::new().with_program("/no/such/git-binary");
+    let repo = fx.repo.as_path();
+    assert!(none.branch_exists(repo, "main").is_err());
+    assert!(none.remote_default_branch(repo).is_err());
+    assert!(none.stash_list(repo).is_err());
+    assert!(none.merge_preview(repo, "HEAD", "HEAD").is_err());
+    assert!(none.remote_get(repo, "origin").is_err());
+    assert!(none.upstream_of(repo).is_err());
+    assert!(none.can_fast_forward(repo, "HEAD").is_err());
+    assert!(none.repo_root(repo).is_err());
+}
+
+/// A checkout standing on no branch, with no `origin/HEAD` to fall back on,
+/// has no default branch to name — said, not guessed.
+#[test]
+fn a_detached_head_with_no_origin_head_has_no_default_branch() {
+    let fx = Fixture::new();
+    raw_git(&fx.repo, &["checkout", "--quiet", "--detach"]);
+    let err = git::default_branch(&fx.repo).expect_err("nothing to name");
+    assert!(err.to_string().contains("detached"), "{err}");
+}
+
+/// A `git` that is there but cannot say its version is as unusable as one
+/// that is not there, and the reason says which.
+#[test]
+fn a_git_whose_version_fails_probes_unavailable() {
+    let dir = tempfile::tempdir().unwrap();
+    let fake = dir.path().join("fake-git");
+    std::fs::write(&fake, "#!/bin/sh\nexit 3\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let probe = bisa_vcs::Git::new().with_program(&fake).probe();
+    assert!(!probe.available);
+    assert!(
+        probe.reason.as_deref().unwrap_or("").contains("failed"),
+        "{probe:?}"
+    );
+}
+
+/// The root of a working tree is read absolute, from the handle and from the
+/// default `git` alike; a detached worktree is added at a commit-ish; a tag
+/// is made at a named target; `origin/HEAD` is never a remote branch.
+#[test]
+fn the_root_a_detached_worktree_a_targeted_tag_and_the_remotes_head() {
+    let fx = Fixture::new();
+    let g = git::Git::default();
+    assert!(same_path(&g.repo_root(&fx.repo).unwrap(), &fx.repo));
+    assert!(same_path(&git::repo_root(&fx.repo).unwrap(), &fx.repo));
+
+    let wt = fx.path("wt-detached");
+    git::worktree_add_detached(&fx.repo, &wt, Some("HEAD")).expect("detached at HEAD");
+    assert!(git::status(&wt).unwrap().detached);
+
+    let head = git::head(&fx.repo).unwrap();
+    git::tag_create(&fx.repo, "v0", Some(head.as_str())).expect("tag at a target");
+    git::tag_create(&fx.repo, "v0-head", None).expect("tag at HEAD");
+    assert!(matches!(
+        git::tag_create(&fx.repo, "v1", Some("-x")),
+        Err(VcsError::InvalidArg { .. })
+    ));
+    let tags = git::tag_list(&fx.repo).unwrap();
+    assert_eq!(tags.len(), 2);
+    assert!(tags.iter().all(|t| t.target == head), "{tags:?}");
+
+    git::push(&fx.repo, "origin", &fx.branch, true).unwrap();
+    raw_git(&fx.repo, &["remote", "set-head", "origin", &fx.branch]);
+    let remote = git::remote_branch_list(&fx.repo).unwrap();
+    assert!(remote.iter().any(|b| b.name == fx.branch), "{remote:?}");
+    assert!(
+        remote.iter().all(|b| b.name != "HEAD"),
+        "origin/HEAD is a pointer, not a branch: {remote:?}"
+    );
+}
+
+/// A ref under the safety prefix whose name is not a recovery point's is
+/// left out of the list rather than failing it; a merge foreseen against a
+/// revision git cannot merge is git's refusal, never a conflict with no
+/// paths; a commit detail asked of a blob is a refusal naming the id.
+#[test]
+fn a_stray_safety_ref_a_missing_revision_and_a_blob_are_each_answered_in_kind() {
+    let fx = Fixture::new();
+    raw_git(
+        &fx.repo,
+        &["update-ref", "refs/bisa/safety/not-a-recovery-name", "HEAD"],
+    );
+    assert!(git::recovery_list(&fx.repo).unwrap().is_empty());
+
+    let err = git::merge_preview(&fx.repo, "HEAD", "no-such-branch")
+        .expect_err("nothing to merge is no conflict");
+    assert!(err.to_string().contains("no-such-branch"), "{err}");
+
+    let blob = raw_git(&fx.repo, &["rev-parse", "HEAD:README.md"]);
+    let err = git::commit_detail(&fx.repo, &blob).expect_err("a blob is no commit");
+    assert!(err.to_string().contains("cannot read commit"), "{err}");
+}
+
+/// A config write under a git directory that cannot be written is git's
+/// refusal; a config file that does not parse is an error, never an empty
+/// layer; a valueless key is read as its name with nothing after it.
+#[cfg(unix)]
+#[test]
+fn config_under_a_read_only_git_directory_is_refused_and_a_corrupt_config_is_an_error() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fx = Fixture::new();
+    let git_dir = fx.repo.join(".git");
+    let config = git_dir.join("config");
+    let original = std::fs::read_to_string(&config).unwrap();
+
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let refused = git::config_unset(ConfigScope::Local, Some(&fx.repo), "pull.rebase");
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(refused.is_err(), "the lock file cannot be made");
+
+    std::fs::write(&config, format!("{original}[bisa]\n\tflag\n")).unwrap();
+    let view = git::config_view(Some(&fx.repo)).expect("a valueless key is read");
+    assert!(view.entries.iter().all(|e| e.key != "bisa.flag"));
+
+    std::fs::write(&config, "[core\n").unwrap();
+    let broken = git::config_view(Some(&fx.repo));
+    std::fs::write(&config, &original).unwrap();
+    assert!(broken.is_err(), "a config that does not parse is said");
+}
+
+/// The free functions answer as the shared handle does, for the reads that
+/// look at one repository.
+#[test]
+fn the_free_functions_read_one_repository_as_the_handle_does() {
+    let fx = Fixture::new();
+    assert_eq!(
+        git::identity(&fx.repo).unwrap().source,
+        bisa_vcs::IdentitySource::Local
+    );
+    let view = git::config_view(Some(&fx.repo)).unwrap();
+    assert!(view.entries.iter().any(|e| e.key == "user.name"));
+    git::config_unset(ConfigScope::Local, Some(&fx.repo), "pull.rebase").unwrap();
+    let origin = git::config_origin(Some(&fx.repo), "user.name")
+        .unwrap()
+        .expect("set locally");
+    assert!(origin.origin.contains("config"), "{origin:?}");
+    assert_eq!(git::account_get(&fx.repo).unwrap(), None);
+    assert!(git::version().is_ok());
+    assert_eq!(
+        ConflictKind::DeletedByUs.deleted_by(),
+        Some(bisa_vcs::ConflictSide::Ours)
+    );
+}
+
+/// A plain folder — no repository — answers a remote's URL and the
+/// upstream with git's refusal, never a quiet `None`; and a selection of
+/// nothing stages and unstages nothing without refusing.
+#[test]
+fn a_plain_folder_refuses_the_remote_and_upstream_reads_and_an_empty_selection_moves_nothing() {
+    let fx = Fixture::new();
+    let plain = fx.path("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    assert!(git::remote_get(&plain, "origin").is_err());
+    assert!(git::upstream_of(&plain).is_err());
+    let none: [&str; 0] = [];
+    git::stage(&fx.repo, &none).expect("nothing to stage is not a refusal");
+    git::unstage(&fx.repo, &none).expect("nothing to unstage is not a refusal");
+    assert!(git::status(&fx.repo).unwrap().is_clean);
+}

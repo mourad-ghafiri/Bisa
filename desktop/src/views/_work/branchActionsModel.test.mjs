@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { branchActions, branchFilter, branchOrder, consentWords, doneWords, halfDoneReason, localNameFor, menuActions, remoteBranchActions, standingWords } from "./branchActionsModel.mjs";
 import { VERB } from "./gitWords.mjs";
+import { t } from "../../i18n/l10n.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ICONS = readFileSync(join(HERE, "../../ui/icons.ts"), "utf8");
@@ -144,4 +145,18 @@ test("the list is filtered by name or upstream, ordered current first then the d
   assert.equal(standingWords(rows[1]), "");
   assert.equal(standingWords({ ahead: 0, behind: 3 }), "3 behind");
   assert.equal(standingWords({ ahead: 4, behind: 0 }), "4 ahead");
+});
+
+test("a kind nobody named still confirms and still toasts, and every remaining toast has its own words", () => {
+  const odd = consentWords("nonsense", { current: "main" });
+  assert.equal(odd.title, "main?");
+  assert.equal(odd.confirm, VERB.continue);
+  assert.equal(consentWords("nonsense", {}).title, "?");
+  assert.equal(doneWords("merge", { name: "topic" }), t("work-branch-actions-merged", { name: "topic" }));
+  assert.match(doneWords("merge", { name: "topic" }), /topic/);
+  assert.equal(doneWords("rebase", { name: "topic" }), t("work-branch-actions-rebased-onto", { name: "topic" }));
+  assert.equal(doneWords("delete_tag", { name: "v1" }), t("work-branch-actions-deleted-tag", { name: "v1" }));
+  assert.equal(doneWords("restore", { name: "x" }), t("work-branch-actions-restored", { name: "x" }));
+  assert.equal(doneWords("tag", { name: "v1" }), t("work-branch-actions-tagged-head", { name: "v1" }));
+  assert.equal(doneWords("nonsense", {}), t("work-branch-actions-done"));
 });

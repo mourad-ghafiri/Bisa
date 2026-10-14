@@ -74,6 +74,7 @@ without touching the process environment; the hardened names are refused.
 | A remote is re-pointed in place; `ensure_remote` adds or re-points; the upstream, a fast-forward and a half-done operation are read from the repository, never from prose; a commit with nobody set to commit is refused before git is asked | `tests/it/git.rs` — `a_remote_is_re_pointed_in_place_and_ensured_whichever_state_it_is_in`, `upstream_fast_forward_and_in_progress_read_the_repository_not_prose`, `identity_is_none_in_a_fresh_repository_and_local_after_it_is_set` |
 | Recovery names are unique within a second and parse back to their op | `tests/it/interactive.rs` |
 | Only `crates/bisa-engine/src/ide/interactive.rs` and `crates/bisa-engine/src/folder_git.rs` name this crate's `interactive` module | `crates/bisa-core/tests/it/layering.rs` |
+| A merge foreseen against a revision git cannot merge — a branch that is not there, a blob — is git's refusal naming the revision, never a conflict with no paths: `merge-tree` exits 1 for both, and a preview that wrote no tree is no merge | `tests/it/git.rs` (`a_stray_safety_ref_a_missing_revision_and_a_blob_are_each_answered_in_kind`) |
 
 ---
 

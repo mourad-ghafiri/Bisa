@@ -5,6 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SIDE_ICON, agentQuestion, gitSideOf, isSwapped, isWholeFileKind, kindChoices, kindWords, sideByGit, sidesOf, tookWords, whatIsAConflict } from "./conflictSidesModel.mjs";
+import { t } from "../../i18n/l10n.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const merge = { kind: "merge", branch: "main", ours: { role: "branch", name: "main", commit: null, subject: null }, theirs: { role: "branch", name: "feature/login", commit: SHA, subject: "Add login" }, step: null };
@@ -112,4 +113,13 @@ test("the explainer, the toast after a take and the question for an agent are in
   const r = agentQuestion("a", { ours: "onto\n", theirs: "commit\n", base: null }, sidesOf("rebase", rebase), { at: 1, of: 1 });
   assert.match(r.text, /--- mine: your commit "Add login"[^\n]*\ncommit\n--- theirs: main/, "under a rebase mine is git's theirs");
   assert.ok(!r.text.includes("--- base"));
+});
+
+test("a path both sides deleted, or one side added, has words naming the side", () => {
+  const s = sidesOf("merge", merge);
+  assert.equal(kindWords("both_deleted", s).short, t("work-conflict-sides-deleted-both"));
+  assert.match(kindWords("added_by_us", s).short, /main/);
+  assert.match(kindWords("added_by_us", s).sentence, /main/);
+  assert.match(kindWords("added_by_them", s).short, /feature\/login/);
+  assert.match(kindWords("added_by_them", s).sentence, /feature\/login/);
 });

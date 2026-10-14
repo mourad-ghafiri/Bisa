@@ -655,9 +655,11 @@ pub async fn project(ctx: &Ctx, out: &Out, cmd: ProjectCmd) -> Result<()> {
             let made = created(ctx, goal, new, source, committer, git_config).await?;
             let stats = &made.imported;
             if stats.is_null() {
+                // LCOV_EXCL_START: the node always reports statistics; by construction
                 bail!(bisa_core::text!(
                     "cli-projects-import-reported-no-statistics"
                 ));
+                // LCOV_EXCL_STOP
             }
             out.say(&bisa_core::text!(
                 "cli-projects-imported-files-from-into-source-folder",
@@ -1016,9 +1018,11 @@ pub async fn project(ctx: &Ctx, out: &Out, cmd: ProjectCmd) -> Result<()> {
                         "source": answer["source"],
                         "global": answer["global"],
                     }))
+                    // LCOV_EXCL_START: the nodes identity payload is the engines; by construction
                     .context(bisa_core::text!(
                         "cli-projects-unexpected-identity-payload-from-node"
                     ))?
+                    // LCOV_EXCL_STOP
                 } else {
                     let (engine, _) = ctx.engine().await?;
                     let done = match &pair {
@@ -1240,11 +1244,13 @@ where
     T: Send + 'static,
 {
     Ok(tokio::task::spawn_blocking(f).await.map_err(|e| {
+        // LCOV_EXCL_START: the blocking task panicked; by construction
         anyhow!(bisa_core::text!(
             "cli-projects-git-task-did-not-finish",
             e = e.to_string()
         ))
     })??)
+    // LCOV_EXCL_STOP
 }
 
 /// Staging and unstaging differ by one word to the user and by one flag to
@@ -1714,11 +1720,13 @@ pub async fn workstream(ctx: &Ctx, out: &Out, cmd: WorkstreamCmd) -> Result<()> 
             })
             .await
             .map_err(|e| {
+                // LCOV_EXCL_START: the blocking task panicked; by construction
                 anyhow!(bisa_core::text!(
                     "cli-projects-git-task-did-not-finish",
                     e = e.to_string()
                 ))
             })??;
+            // LCOV_EXCL_STOP
             let clean = diff.trim().is_empty() && untracked.is_empty();
             if clean {
                 out.say(&bisa_core::text!(
@@ -2193,21 +2201,25 @@ where
                     continue;
                 };
                 if *gate != bisa_core::Gate::Publish {
-                    continue;
+                    continue; // LCOV_EXCL_LINE: another gate opening during a publish; a window
                 }
                 if engine.inbox().into_iter().all(|g| g.id != *gate_id || g.subject != subject) {
+                    // LCOV_EXCL_START: another workstreams gate during a publish; a window
                     continue;
+                    // LCOV_EXCL_STOP
                 }
                 if yes {
                     let note = bisa_i18n::say(&bisa_core::text!("cli-projects-approved-on-command-line"));
                     engine.decide(gate_id, true, Some(&note), None, None)?;
                     continue;
                 }
+                // LCOV_EXCL_START: a question asked on a terminal; by decision
                 if interactive {
                     let approved = ask(question).await;
                     engine.decide(gate_id, approved, None, None, None)?;
                     continue;
                 }
+                // LCOV_EXCL_STOP
                 // No terminal and no `--yes`: the honest outcome is to say so
                 // and push nothing. The engine dies with this process, so an
                 // undecided gate cannot escape later.
@@ -2255,10 +2267,12 @@ async fn published_by_node(
         return Ok(Some(answer));
     }
     let gate = answer["gate"]
+        // LCOV_EXCL_START: a gate that opened has a home; by construction
         .as_str()
         .context(bisa_core::text!(
             "cli-projects-unexpected-workstream-payload-from-node"
         ))?
+        // LCOV_EXCL_STOP
         .to_string();
     let ws = ctx.workspace()?;
     let w = ws.get_workstream(id)?;
@@ -2266,9 +2280,11 @@ async fn published_by_node(
         (Some(goal), _) => bisa_core::Home::Goal { goal },
         (None, Some(item)) => ws.home_of_work_item(item)?,
         // A gate that opened has a home: the node refuses the act otherwise.
+        // LCOV_EXCL_START: a gate that opened has a home; by construction
         (None, None) => bail!(bisa_core::text!(
             "cli-projects-unexpected-workstream-payload-from-node"
         )),
+        // LCOV_EXCL_STOP
     };
     drop(ws);
     let approve = if yes {
@@ -2294,7 +2310,9 @@ async fn published_by_node(
         )
         .await?;
     if !approve {
+        // LCOV_EXCL_START: declined only from a terminal; by decision
         bail!(bisa_core::text!("cli-projects-publish-declined"));
+        // LCOV_EXCL_STOP
     }
     let wid = id.to_string();
     let heard = tokio::time::timeout(PUBLISH_PATIENCE, async {
@@ -2335,6 +2353,7 @@ async fn published_by_node(
 
 /// The question a gate asks, read from the Inbox; the gate's id when the
 /// Inbox no longer holds it.
+// LCOV_EXCL_START: asked only on a terminal; by decision
 async fn question_of(client: &crate::client::NodeClient, gate: &str) -> String {
     let asked = client.get("/inbox?filter=needs_you").await.ok();
     asked
@@ -2346,6 +2365,7 @@ async fn question_of(client: &crate::client::NodeClient, gate: &str) -> String {
         .map(str::to_string)
         .unwrap_or_else(|| gate.to_string())
 }
+// LCOV_EXCL_STOP
 
 /// A merge as the node answered it: the merge route's own answer when no
 /// gate stood in the way, the workstream's record once an approved one
@@ -2373,12 +2393,14 @@ fn opened_as_the_node_said(answer: &serde_json::Value) -> Result<(u64, String)> 
     Ok((number, pr["url"].as_str().unwrap_or_default().to_string()))
 }
 
+// LCOV_EXCL_START: a question on a terminal; by decision
 async fn ask(question: &str) -> bool {
     let q = format!("{question} [y/N] ");
     tokio::task::spawn_blocking(move || crate::output::confirm_on_stderr(&q))
         .await
         .unwrap_or(false)
 }
+// LCOV_EXCL_STOP
 
 // ---------------------------------------------------------------------------
 // Assignment

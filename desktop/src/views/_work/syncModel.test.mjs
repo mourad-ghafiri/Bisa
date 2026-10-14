@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { IN_PROGRESS_LABEL, PULL_LABEL, PULL_MEANING, PULL_MODES, afterPull, forcePushRule, pullBannerWords, pullChoice, syncControls, syncLine, syncMenu, syncState } from "./syncModel.mjs";
+import { t } from "../../i18n/l10n.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SETTINGS = readFileSync(join(HERE, "../../../../crates/bisa-core/src/settings.rs"), "utf8");
@@ -157,4 +158,10 @@ test("a pull's banner is one or two sentences, counted by the catalog, whatever 
   const bar = readFileSync(new URL("./SyncBar.tsx", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.ok(bar.includes("const words = pullBannerWords(banner);"));
   assert.ok(!/stopped on|of its own|already in progress/.test(bar), "the banners' sentences left the component");
+});
+
+test("the line names no repository and a detached head, and says nothing for a state it does not know", () => {
+  assert.equal(syncLine({ kind: "not_git" }), t("work-stash-not-repository"));
+  assert.equal(syncLine({ kind: "detached" }), t("work-sync-head-detached-switch-branch-sync"));
+  assert.equal(syncLine({ kind: "nonsense" }), "");
 });

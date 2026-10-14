@@ -521,3 +521,246 @@ fn what_moves_the_tree_is_kept_first_and_a_branch_goes_out_when_its_project_lets
         .contains("feature/screws"));
     ws.stop();
 }
+
+/// A sealed `git` for the fixture steps the command line does not offer —
+/// a rename staged by hand, a bare clone to push to.
+fn sealed_git(dir: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("git on PATH");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn said(out: &std::process::Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+}
+
+/// The git verbs at their edges while a node runs: an identity read from
+/// the global layer and said so, the global config read through the node
+/// and the project named or `--global` demanded, a key the platform does
+/// not write refused, an empty message refused, a rename listed with what
+/// it was, a brand-new file with no patch yet, a plain folder's workstream
+/// a copy shown without git and the folder made a repository through the
+/// node, a checkout that went shown without git, the project's own tree
+/// pushed, and a tree that will not go said to stay.
+#[cfg(unix)]
+#[test]
+fn the_git_verbs_at_their_edges_with_a_node() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut ws = Sealed::bare();
+    let global = ws.file(
+        "global.gitconfig",
+        "[user]\n\tname = Global Journey\n\temail = global@example.test\n",
+    );
+    ws.set_env("GIT_CONFIG_GLOBAL", &global.to_string_lossy());
+    let files = global.parent().unwrap().to_path_buf();
+    ws.start();
+    let (shelf, tree) = a_project(&ws, "shelf", "auto", &[]);
+
+    let who = ws.json(&["project", "identity", &shelf]);
+    assert_eq!(who["source"], "global", "{who}");
+    assert!(said(&ws.ok(&["project", "identity", &shelf])).contains("global"));
+    assert!(said(&ws.ok(&["project", "git-config", &shelf])).contains("(global)"));
+    assert!(said(&ws.ok(&["project", "git-config", "--global"])).contains("user.name"));
+    ws.refused(&["project", "git-config"]);
+    ws.refused(&["project", "git-config", &shelf, "--unset", "core.hooksPath"]);
+    ws.refused(&["project", "commit", &shelf, "-m", ""]);
+    ws.refused(&["workstream", "commit", &shelf, "-m", " "]);
+
+    write(&tree, "plan.md", &ten_lines());
+    ws.ok(&[
+        "project", "commit", &shelf, "-m", "the plan", "--path", "plan.md",
+    ]);
+    sealed_git(&tree, &["mv", "plan.md", "plans.md"]);
+    let listed = said(&ws.ok(&["project", "files", &shelf]));
+    assert!(
+        listed.contains("plans.md") && listed.contains("was plan.md"),
+        "{listed}"
+    );
+    write(&tree, "new.md", "new\n");
+    assert_eq!(ws.json(&["project", "diff", &shelf, "new.md"])["diff"], "");
+    let no_patch = said(&ws.ok(&["project", "diff", &shelf, "new.md"])).to_ascii_lowercase();
+    assert!(no_patch.contains("patch"), "{no_patch}");
+
+    let plain = files.join("plain-folder");
+    std::fs::create_dir_all(&plain).unwrap();
+    write(&plain, "notes.md", "plain\n");
+    let adopted = ws.json(&[
+        "project",
+        "adopt",
+        &plain.to_string_lossy(),
+        "--slug",
+        "plain",
+        "--publish",
+        "manual",
+    ]);
+    let plain_id = adopted["project"]["id"].as_str().unwrap().to_string();
+    let copy = ws.json(&["workstream", "open", &plain_id, "--label", "copy"]);
+    let copy_id = copy["workstream"]["id"].as_str().unwrap().to_string();
+    let shown = ws.json(&["workstream", "show", &copy_id]);
+    assert_eq!(shown["workstream"]["kind"]["kind"], "copy", "{shown}");
+    let made = ws.json(&["project", "git-init", &plain_id]);
+    assert!(made["project"].is_object(), "{made}");
+
+    let opened = ws.json(&["workstream", "open", &shelf, "--from", "new:feature/gone"]);
+    let gone_id = opened["workstream"]["id"].as_str().unwrap().to_string();
+    let gone = PathBuf::from(opened["path"].as_str().unwrap());
+    std::fs::rename(&gone, gone.with_extension("moved-aside")).unwrap();
+    let shown = ws.json(&["workstream", "show", &gone_id]);
+    assert_eq!(shown["workstream"]["id"], gone_id, "{shown}");
+
+    let bare = files.join("shelf-bare.git");
+    sealed_git(
+        &files,
+        &[
+            "clone",
+            "--quiet",
+            "--bare",
+            &tree.to_string_lossy(),
+            &bare.to_string_lossy(),
+        ],
+    );
+    let twin = ws.json(&[
+        "project",
+        "clone",
+        &bare.to_string_lossy(),
+        "--slug",
+        "twin",
+        "--publish",
+        "auto",
+    ]);
+    let twin_id = twin["project"]["id"].as_str().unwrap().to_string();
+    let twin_tree = PathBuf::from(twin["path"].as_str().unwrap());
+    write(&twin_tree, "more.md", "more\n");
+    ws.ok(&[
+        "project", "commit", &twin_id, "-m", "more", "--path", "more.md",
+    ]);
+    let pushed = ws.json(&["workstream", "push", &twin_id]);
+    assert_eq!(pushed["pushed"], true, "{pushed}");
+
+    ws.ok(&["settings", "set", "machine", "editor.delete.trash", "false"]);
+    let locked = tree.join("locked");
+    std::fs::create_dir_all(&locked).unwrap();
+    write(&locked, "keep.md", "kept\n");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let removed = ws.json(&["project", "rm", &shelf, "--tree"]);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(removed["kept"].is_string(), "the folder stays: {removed}");
+    ws.stop();
+}
+
+/// The same verbs with no node: the command line's own engine stages,
+/// unstages, commits, drafts a message where no agent can, carries an
+/// assignee, writes and reads the global config, opens a workstream, says a
+/// clean diff and an untracked file, refuses an empty message, and pushes a
+/// branch and the project's own tree to an origin on this disk.
+#[test]
+fn the_git_verbs_without_a_node() {
+    let mut ws = Sealed::bare();
+    let global = ws.file(
+        "global.gitconfig",
+        "[user]\n\tname = Global Journey\n\temail = global@example.test\n",
+    );
+    ws.set_env("GIT_CONFIG_GLOBAL", &global.to_string_lossy());
+    let files = global.parent().unwrap().to_path_buf();
+    let (shelf, tree) = a_project(&ws, "shelf", "auto", &["--committer", COMMITTER]);
+
+    write(&tree, "plan.md", &ten_lines());
+    let staged = ws.json(&["project", "stage", &shelf, "plan.md"]);
+    assert_eq!(
+        staged["files"].as_array().map(Vec::len),
+        Some(1),
+        "{staged}"
+    );
+    ws.ok(&["project", "unstage", &shelf, "plan.md"]);
+    assert_eq!(
+        changed(&ws, &shelf),
+        vec![("plan.md".to_string(), "??".to_string())]
+    );
+    ws.ok(&[
+        "project", "commit", &shelf, "-m", "the plan", "--path", "plan.md",
+    ]);
+    let draft = ws.json(&["project", "message", &shelf]);
+    assert!(
+        draft["message"].is_string() || draft["message"].is_null(),
+        "{draft}"
+    );
+    let carried = ws.json(&["project", "assign", &shelf, "agent:general-agent"]);
+    assert_eq!(
+        carried["assignees"].as_array().map(Vec::len),
+        Some(1),
+        "{carried}"
+    );
+    ws.ok(&[
+        "project",
+        "git-config",
+        "--global",
+        "--set",
+        "pull.rebase=true",
+    ]);
+    assert!(said(&ws.ok(&["project", "git-config", "--global"])).contains("pull.rebase"));
+
+    // A plain folder adopted and made a repository by the command line's
+    // own engine, under the global identity: nothing to ask about.
+    let plain = files.join("plain-folder");
+    std::fs::create_dir_all(&plain).unwrap();
+    write(&plain, "notes.md", "plain\n");
+    let adopted = ws.json(&[
+        "project",
+        "adopt",
+        &plain.to_string_lossy(),
+        "--slug",
+        "plain",
+        "--publish",
+        "manual",
+    ]);
+    let plain_id = adopted["project"]["id"].as_str().unwrap().to_string();
+    let made = ws.json(&["project", "git-init", &plain_id]);
+    assert!(made["project"].is_object(), "{made}");
+
+    let opened = ws.json(&["workstream", "open", &shelf, "--from", "new:feature/off"]);
+    let off = opened["workstream"]["id"].as_str().unwrap().to_string();
+    let checkout = PathBuf::from(opened["path"].as_str().unwrap());
+    let clean = ws.json(&["workstream", "diff", &off]);
+    assert_eq!(clean["clean"], true, "{clean}");
+    write(&checkout, "off.md", "off\n");
+    let dirty = ws.json(&["workstream", "diff", &off]);
+    assert_eq!(dirty["untracked"], json!(["off.md"]), "{dirty}");
+    assert!(said(&ws.ok(&["workstream", "diff", &off])).contains("untracked: off.md"));
+    ws.refused(&["workstream", "commit", &off, "-m", ""]);
+    ws.ok(&["workstream", "commit", &off, "-m", "off"]);
+
+    let bare = files.join("shelf-bare.git");
+    sealed_git(
+        &files,
+        &[
+            "clone",
+            "--quiet",
+            "--bare",
+            &tree.to_string_lossy(),
+            &bare.to_string_lossy(),
+        ],
+    );
+    sealed_git(&tree, &["remote", "add", "origin", &bare.to_string_lossy()]);
+    let pushed = ws.json(&["workstream", "push", &off]);
+    assert_eq!(pushed["pushed"], true, "{pushed}");
+    write(&tree, "root.md", "root\n");
+    ws.ok(&[
+        "project", "commit", &shelf, "-m", "root", "--path", "root.md",
+    ]);
+    let pushed = ws.json(&["workstream", "push", &shelf]);
+    assert_eq!(pushed["pushed"], true, "the project's own tree: {pushed}");
+}

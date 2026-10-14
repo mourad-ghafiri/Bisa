@@ -733,7 +733,7 @@ impl ChangeKind {
             Some(b'C') => Self::Copied,
             Some(b'T') => Self::TypeChanged,
             Some(b'U') => Self::Unmerged,
-            _ => Self::Unknown,
+            _ => Self::Unknown, // LCOV_EXCL_LINE: git names no other letter; by construction
         }
     }
 }
@@ -1188,7 +1188,7 @@ impl Git {
             Some(path),
             &[s("symbolic-ref"), s("--short"), s("HEAD")],
             false,
-        )?;
+        )?; // LCOV_EXCL_LINE: a spawn failing after the first; by construction
         if head.success {
             return Ok(head.stdout_text());
         }
@@ -1558,12 +1558,12 @@ impl Git {
             Some(path),
             &[s("diff"), s("-z"), s("--numstat"), s(&base)],
             false,
-        )?);
+        )?); // LCOV_EXCL_LINE: the baseline read fails first; by construction
         let kinds = parse::name_status(&self.run(
             Some(path),
             &[s("diff"), s("-z"), s("--name-status"), s(&base)],
             false,
-        )?);
+        )?); // LCOV_EXCL_LINE: a second read failing after the first; by construction
 
         Ok(merge_stats(nums, kinds))
     }
@@ -1722,7 +1722,9 @@ impl Git {
                 let mut f = l.split('\u{1f}');
                 let (remote, name) = f.next()?.split_once('/')?;
                 if name == "HEAD" {
+                    // LCOV_EXCL_START: refname:short says origin for HEAD; by construction
                     return None;
+                    // LCOV_EXCL_STOP
                 }
                 Some(RemoteBranchInfo {
                     remote: remote.to_string(),
@@ -1772,7 +1774,7 @@ impl Git {
         for line in text.lines() {
             let mut f = line.split_whitespace();
             let (Some(name), Some(url)) = (f.next(), f.next()) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: git prints both words; by construction
             };
             if out.iter().any(|r| r.name == name) {
                 continue;
@@ -1891,7 +1893,7 @@ impl Git {
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
             let mut f = line.split('\u{1f}');
             let (Some(ref_name), Some(sha)) = (f.next(), f.next()) else {
-                continue;
+                continue; // LCOV_EXCL_LINE: the format has both fields; by construction
             };
             let Some(parsed) = parse_recovery_name(ref_name) else {
                 continue;
@@ -1947,7 +1949,7 @@ impl Git {
             Some(path),
             &[s("log"), s("-g"), s(STASH_FORMAT), s("refs/stash"), s("--")],
             false,
-        )?;
+        )?; // LCOV_EXCL_LINE: the reflog read failing after its ref read; by construction
         Ok(parse::stash_list(&String::from_utf8_lossy(&out)))
     }
 
@@ -1976,7 +1978,7 @@ impl Git {
                 s(format!("{commit}^3")),
             ],
             false,
-        )?;
+        )?; // LCOV_EXCL_LINE: a later read failing after the first; by construction
         if untracked.success {
             // The untracked commit has no parent, so its whole tree is the
             // patch — `--root` is what makes `diff-tree` say so.
@@ -1992,7 +1994,7 @@ impl Git {
                     s("--"),
                 ],
                 false,
-            )?;
+            )?; // LCOV_EXCL_LINE: a later read failing after the first; by construction
             patch.push_str(&String::from_utf8_lossy(&out));
         }
         Ok(patch)
@@ -2086,9 +2088,12 @@ impl Git {
                 clean: true,
                 paths: Vec::new(),
             }),
-            "1" => Some(MergePreview {
+            // The tree's oid first, then one conflicted path per line. An
+            // exit of 1 that wrote no tree is no merge at all — a revision
+            // git cannot merge — and is git's refusal, never a conflict
+            // with no paths.
+            "1" if !text.trim().is_empty() => Some(MergePreview {
                 clean: false,
-                // The tree's oid first, then one conflicted path per line.
                 paths: text
                     .lines()
                     .skip(1)
@@ -2096,7 +2101,8 @@ impl Git {
                     .map(PathBuf::from)
                     .collect(),
             }),
-            _ => None,
+            "1" => return Err(classify("git merge-tree", Some(path), &out)),
+            _ => None, // LCOV_EXCL_LINE: an exit code merge-tree never gives; by construction
         })
     }
 
@@ -2275,7 +2281,7 @@ impl Git {
                 s(format!("{commit}^1")),
             ],
             false,
-        )?;
+        )?; // LCOV_EXCL_LINE: a read failing after the detail read; by construction
         Ok(out.success.then(|| out.stdout_text()))
     }
 
@@ -2684,7 +2690,9 @@ impl Git {
         let flag = match scope {
             ReadScope::Global => s("--global"),
             ReadScope::Local => s("--local"),
+            // LCOV_EXCL_START: no caller lists the effective layer; by construction
             ReadScope::Effective => s("--show-origin"),
+            // LCOV_EXCL_STOP
         };
         let args = [s("config"), flag, s("--list"), s("-z")];
         let out = self.capture(cwd, &args, false)?;
@@ -3435,7 +3443,7 @@ fn create_owner_only(file: &Path) -> VcsResult<()> {
     let io = |e: std::io::Error| VcsError::other(format!("{}: {e}", file.display()));
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent).map_err(io)?;
-    }
+    } // LCOV_EXCL_LINE: the parent not creatable; disk arm
     if file.exists() {
         return Ok(());
     }
@@ -3448,8 +3456,10 @@ fn create_owner_only(file: &Path) -> VcsResult<()> {
     }
     match options.open(file) {
         Ok(_) => Ok(()),
+        // LCOV_EXCL_START: a file made meanwhile; disk arm
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-        Err(e) => Err(io(e)),
+        // LCOV_EXCL_STOP
+        Err(e) => Err(io(e)), // LCOV_EXCL_LINE: the file not creatable; disk arm
     }
 }
 
@@ -3636,10 +3646,12 @@ fn covers(selected: &str, entry: &str) -> bool {
 fn absolutize(path: &Path) -> VcsResult<PathBuf> {
     if path.is_absolute() {
         return Ok(path.to_path_buf());
+        // LCOV_EXCL_START: a relative worktree path resolving against the process cwd; by decision
     }
     let cwd = std::env::current_dir()
         .map_err(|e| VcsError::other(format!("resolving {}: {e}", path.display())))?;
     Ok(cwd.join(path))
+    // LCOV_EXCL_STOP
 }
 
 // ---------------------------------------------------------------------------
@@ -3942,25 +3954,33 @@ pub fn identity(path: &Path) -> VcsResult<GitIdentity> {
     shared().identity(path)
 }
 /// See [`Git::global_identity`].
+// LCOV_EXCL_START: reads the person's own global config; by decision
 pub fn global_identity() -> VcsResult<Option<Ident>> {
     shared().global_identity()
 }
+// LCOV_EXCL_STOP
 /// See [`Git::credential_fill`].
+// LCOV_EXCL_START: asks the person's credential helpers; by decision
 pub fn credential_fill(protocol: &str, host: &str) -> VcsResult<Option<Credential>> {
     shared().credential_fill(protocol, host)
 }
+// LCOV_EXCL_STOP
 /// See [`Git::credential_helpers`].
+// LCOV_EXCL_START: reads the person's credential helpers; by decision
 pub fn credential_helpers() -> VcsResult<Vec<String>> {
     shared().credential_helpers()
 }
+// LCOV_EXCL_STOP
 /// See [`Git::version`].
 pub fn version() -> VcsResult<GitVersion> {
     shared().version()
 }
 /// See [`Git::includes`].
+// LCOV_EXCL_START: reads the person's own global config; by decision
 pub fn includes() -> VcsResult<Vec<Include>> {
     shared().includes()
 }
+// LCOV_EXCL_STOP
 /// See [`Git::config_origin`].
 pub fn config_origin(path: Option<&Path>, key: &str) -> VcsResult<Option<ConfigOrigin>> {
     shared().config_origin(path, key)

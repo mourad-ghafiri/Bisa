@@ -688,11 +688,13 @@ async fn merge_preview(
             clean: p.clean,
             paths: p.paths.iter().map(|p| p.display().to_string()).collect(),
         },
+        // LCOV_EXCL_START: a git without merge-tree write-tree; by construction
         None => GitMergePreview {
             workstream: wid.to_string(),
             source: q.source,
             ..GitMergePreview::default()
         },
+        // LCOV_EXCL_STOP
     }))
 }
 

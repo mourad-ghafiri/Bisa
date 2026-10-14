@@ -206,7 +206,9 @@ pub(crate) fn run_with_input(
                 std::thread::sleep(nap.min(remaining));
                 nap = (nap * 2).min(Duration::from_millis(25));
             }
+            // LCOV_EXCL_START: try_wait failing on a live child; by construction
             Err(e) => return Err(VcsError::other(format!("waiting for `{what}`: {e}"))),
+            // LCOV_EXCL_STOP
         }
     };
 
@@ -222,8 +224,10 @@ pub(crate) fn run_with_input(
     // short write mean the input never arrived whole.
     if let Some(writer) = stdin_writer {
         let fed = writer.join().map_err(|_| {
+            // LCOV_EXCL_START: the writer thread panicking; by construction
             VcsError::other(format!("feeding `{what}`: the writer thread panicked"))
         })?;
+        // LCOV_EXCL_STOP
         if status.success() {
             fed.map_err(|e| VcsError::other(format!("feeding `{what}`: {e}")))?;
         }

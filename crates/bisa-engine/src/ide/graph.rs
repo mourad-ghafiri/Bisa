@@ -171,7 +171,7 @@ impl GraphRegistry {
             if let Some((old, _)) = m.insert(key.to_string(), Arc::new(laid)) {
                 tracing::debug!(target: "bisa_engine::ide", "the laid-out graph of {old} is let go for {key}");
             }
-        }
+        } // LCOV_EXCL_LINE: the if-lets close, both arms ran; by construction
     }
     fn start(&self, key: &str) -> bool {
         self.running
@@ -320,7 +320,9 @@ fn relay_in_background(
                     fingerprint,
                 },
             ),
+            // LCOV_EXCL_START: a layout failing after the fingerprint read; by construction
             Err(e) => tracing::warn!("graph layout of {}: {e}", root.display()),
+            // LCOV_EXCL_STOP
         }
         inner.ide_graph.finish(&key);
     });

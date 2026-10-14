@@ -161,4 +161,13 @@ mod tests {
         );
         assert_eq!(normalise(Path::new("/x/./y/../z")), PathBuf::from("/x/z"));
     }
+
+    #[test]
+    fn a_bare_name_and_a_dotted_path_are_keyed_lexically() {
+        assert_eq!(
+            key_of(Path::new("just-a-name-nothing-on-disk-has")),
+            PathBuf::from("just-a-name-nothing-on-disk-has")
+        );
+        assert_eq!(normalise(Path::new("./a/./b")), PathBuf::from("a/b"));
+    }
 }

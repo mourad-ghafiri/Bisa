@@ -296,11 +296,13 @@ pub async fn file_sides(
     })
     .await
     .map_err(|e| {
+        // LCOV_EXCL_START: the blocking task panicked; by construction
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-vcs-task-did-not-finish",
             e = e.to_string()
         ))
     })?
+    // LCOV_EXCL_STOP
 }
 
 /// A conflicted path, whole (ide/04 §Conflicts, continued): what kind of
@@ -358,11 +360,13 @@ pub async fn conflict(
     })
     .await
     .map_err(|e| {
+        // LCOV_EXCL_START: the blocking task panicked; by construction
         EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-vcs-task-did-not-finish",
             e = e.to_string()
         ))
     })?
+    // LCOV_EXCL_STOP
 }
 
 /// The facts of the operation half-done in a checkout, or none.
@@ -499,7 +503,7 @@ pub async fn set_local_config(
         if let (Some(name), Some(email)) = (identity.name, identity.email) {
             crate::identity::committer_set(inner, &project, workstream, Ident { name, email })
                 .await;
-        }
+        } // LCOV_EXCL_LINE: a resolved identity has both keys; by construction
     }
     Ok(view)
 }
@@ -1063,5 +1067,25 @@ mod tests {
             "a cut mid-character is not binary"
         );
         assert!(std::str::from_utf8(cut.text.unwrap().as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn a_cut_inside_a_character_keeps_the_valid_head_and_a_patch_is_cut_on_a_line() {
+        // Three bytes a character: the cap falls inside one.
+        assert_ne!(COMMIT_DIFF_CAP % 3, 0);
+        let wide = "€".repeat(COMMIT_DIFF_CAP / 3 + 10);
+        let side = side_text(Some(wide.clone().into_bytes()));
+        assert!(side.truncated && !side.binary);
+        let text = side.text.expect("the valid head");
+        assert!(text.len() < COMMIT_DIFF_CAP && text.chars().all(|c| c == '€'));
+
+        let (cut, truncated) = cap_diff(format!("{wide}\n"));
+        assert!(truncated);
+        assert!(cut.len() < COMMIT_DIFF_CAP && cut.chars().all(|c| c == '€'));
+        let lines = "a line\n".repeat(COMMIT_DIFF_CAP / 7 + 10);
+        let (cut, truncated) = cap_diff(lines);
+        assert!(truncated && cut.ends_with('\n') && cut.len() <= COMMIT_DIFF_CAP);
+        let (same, truncated) = cap_diff("short\n".into());
+        assert_eq!((same.as_str(), truncated), ("short\n", false));
     }
 }

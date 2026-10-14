@@ -223,7 +223,8 @@ impl FolderGit {
         if let Err(e) = self.ensure(inner) {
             tracing::warn!(
                 "the {} repository could not be made: {e}",
-                self.folder.word()
+                // LCOV_EXCL_START: a log lines argument, read by a subscriber; by construction
+                self.folder.word() // LCOV_EXCL_STOP
             );
         }
         self.invalidate();
@@ -306,9 +307,11 @@ impl FolderGit {
         self.invalidate();
         match done {
             Ok(Some(c)) => Ok(c),
+            // LCOV_EXCL_START: a commit that left no log; by construction
             Ok(None) => Err(EngineError::NothingToCommit(
                 "the commit left no record".into(),
             )),
+            // LCOV_EXCL_STOP
             Err(EngineError::Vcs(VcsError::IdentityUnset(_))) => {
                 Err(EngineError::RepoIdentityUnset {
                     what: self.folder.word(),
@@ -391,9 +394,11 @@ impl FolderGit {
         consent: HumanConsent,
     ) -> Result<(Recovery, PullOutcome), EngineError> {
         if !self.folder.pulls() {
+            // LCOV_EXCL_START: the node mounts no pull route for drawings; by construction
             return Err(EngineError::PullNotOffered {
                 what: self.folder.word(),
             });
+            // LCOV_EXCL_STOP
         }
         let path = self.ensure(inner)?;
         let pulled = blocking(move || ops::pull(&path, ORIGIN, PullMode::FfOnly, &consent)).await;

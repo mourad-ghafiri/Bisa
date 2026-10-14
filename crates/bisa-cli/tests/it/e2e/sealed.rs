@@ -50,6 +50,10 @@ const KEPT: [&str; 3] = [
 pub struct Sealed {
     root: tempfile::TempDir,
     daemon: Option<Child>,
+    /// Variables every command of the journey — the daemon among them —
+    /// carries besides the sealed few: a global git config of the journey's
+    /// own, where a test needs an identity set outside any repository.
+    environment: Vec<(String, String)>,
     /// The daemon's stdin, held while it was started leashed
     /// ([`Self::start_leashed`]): letting go of it is the desktop shell
     /// going away, and the daemon's cue to stop.
@@ -74,6 +78,7 @@ impl Sealed {
         let sealed = Self {
             root,
             daemon: None,
+            environment: Vec::new(),
             leash: None,
             kept,
         };
@@ -188,7 +193,16 @@ impl Sealed {
             .arg("--data-dir")
             .arg(self.data())
             .arg("--file-keys");
+        for (key, value) in &self.environment {
+            command.env(key, value);
+        }
         command
+    }
+
+    /// One variable every later command of the journey carries — set before
+    /// the daemon starts when it is the daemon's too.
+    pub fn set_env(&mut self, key: &str, value: &str) {
+        self.environment.push((key.to_string(), value.to_string()));
     }
 
     /// A command line run the way a harness runs its hook: through `sh`,

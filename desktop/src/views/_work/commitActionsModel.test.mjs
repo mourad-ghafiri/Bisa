@@ -18,6 +18,7 @@ import {
   refNameProblem,
   shortRecovery,
 } from "./commitActionsModel.mjs";
+import { t } from "../../i18n/l10n.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ICONS = readFileSync(join(HERE, "../../ui/icons.ts"), "utf8");
@@ -158,4 +159,13 @@ test("a conflict is read by the node's code, never the status alone", () => {
   assert.equal(conflictWords({ status: 409, code: "conflict", detail: { paths: ["a.rs", "b.rs"], in_progress: "cherry_pick" } }, "x"), "Stopped on 2 conflicted files: a.rs, b.rs. The Resolve card under Git walks you through them, then continues or aborts the cherry-pick.");
   assert.equal(conflictWords({ status: 409, code: "conflict", detail: { paths: ["a.rs"] } }, "x"), "Stopped on 1 conflicted file: a.rs. The Resolve card under Git walks you through it.");
   assert.equal(conflictWords({ status: 409, code: "in_progress", detail: {} }, "A rebase is in progress"), "A rebase is in progress — the Resolve card under Git finishes or aborts it.");
+});
+
+test("a kind nobody named still confirms with Continue and toasts Done, and a revert says what was saved", () => {
+  const odd = consentWords("nonsense", { short: "abc123d" });
+  assert.equal(odd.title, t("work-commit-actions-continue"));
+  assert.equal(odd.body, "");
+  assert.ok(!odd.danger);
+  assert.match(doneWords("revert", { short: "abc123d", recovery: "refs/bisa/safety/wip_3" }), /abc123d.*wip_3/);
+  assert.equal(doneWords("nonsense", { short: "abc123d" }), t("work-branch-actions-done"));
 });

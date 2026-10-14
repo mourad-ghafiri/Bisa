@@ -10,8 +10,8 @@ use std::process::Command;
 
 use bisa_vcs::git;
 use bisa_vcs::interactive::{
-    self, HumanConsent, InProgress, MergeMode, PickRequest, PullMode, RebaseAction, RebasePlan,
-    RebaseRequest, RebaseStep, RevertRequest,
+    self, HumanConsent, InProgress, MergeMode, PickRequest, Pin, PullMode, RebaseAction,
+    RebasePlan, RebaseRequest, RebaseStep, RevertRequest,
 };
 use bisa_vcs::VcsError;
 use bisa_vcs::{ConflictKind, ConflictSide, Resolution};
@@ -2033,4 +2033,402 @@ fn a_stash_with_a_path_gone_since_it_was_listed_stashes_the_rest() {
         matches!(refused, Err(VcsError::NothingToStash)),
         "{refused:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The recovery capture at its edges, and the words of the wire
+// ---------------------------------------------------------------------------
+
+/// A consent prints nothing of itself; an operation name is checked before
+/// anything runs; and the capture is a refusal where git has nothing to
+/// pin — an unborn repository, a git directory that cannot be written, a
+/// pin that names no commit.
+#[cfg(unix)]
+#[test]
+fn consent_prints_nothing_and_a_capture_is_refused_where_nothing_can_be_pinned() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let c = consent();
+    assert_eq!(format!("{c:?}"), "HumanConsent");
+    let fx = Fixture::new();
+    let g = git::Git::default();
+    assert!(matches!(
+        interactive::capture(&g, &fx.repo, "Bad Op", Pin::None),
+        Err(VcsError::InvalidArg { .. })
+    ));
+
+    let unborn = fx._root.path().join("unborn");
+    git::init(&unborn).unwrap();
+    std::fs::write(unborn.join("a.txt"), "a\n").unwrap();
+    assert!(interactive::capture(&g, &unborn, "first", Pin::None).is_err());
+
+    let refs = fx.repo.join(".git").join("refs");
+    std::fs::set_permissions(&refs, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let refused = interactive::capture(&g, &fx.repo, "amend", Pin::Head);
+    std::fs::set_permissions(&refs, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(refused.is_err(), "no ref can be written");
+
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\ndirty\n").unwrap();
+    assert!(
+        interactive::capture(&g, &fx.repo, "push_delete", Pin::Commit("no-such-ref")).is_err(),
+        "the pin names nothing"
+    );
+}
+
+#[test]
+fn the_wire_words_of_the_modes_the_kinds_and_the_sides() {
+    assert_eq!(
+        [
+            MergeMode::Ff,
+            MergeMode::NoFf,
+            MergeMode::FfOnly,
+            MergeMode::Squash
+        ]
+        .map(MergeMode::as_str),
+        ["ff", "no_ff", "ff_only", "squash"]
+    );
+    assert_eq!(
+        PullMode::ALL.map(PullMode::as_str),
+        ["ff_only", "rebase", "merge"]
+    );
+    assert_eq!(InProgress::CherryPick.as_str(), "cherry_pick");
+    assert_eq!(InProgress::Revert.as_str(), "revert");
+    assert_eq!(
+        [
+            RecoveryKind::Commit,
+            RecoveryKind::Tree,
+            RecoveryKind::Stash
+        ]
+        .map(RecoveryKind::as_str),
+        ["commit", "tree", "stash"]
+    );
+    assert_eq!(RecoveryKind::Commit.suffix(), "");
+    assert_eq!(Resolution::from(ConflictSide::Ours), Resolution::Ours);
+    assert_eq!(Resolution::from(ConflictSide::Theirs), Resolution::Theirs);
+}
+
+/// A merge commit is picked or reverted against the parent named as its
+/// mainline, and with `no_commit` the change is staged and nothing is
+/// committed.
+#[test]
+fn a_pick_and_a_revert_take_a_mainline_and_leave_the_change_staged_when_asked() {
+    let fx = Fixture::new();
+    let c = consent();
+    branch_with(&fx, "topic", "t.txt", "t\n", "topic");
+    interactive::ops::merge(&fx.repo, "topic", MergeMode::NoFf, Some("merge topic"), &c).unwrap();
+    let merge = git::head(&fx.repo).unwrap();
+    assert!(has_second_parent(&fx.repo));
+
+    interactive::ops::revert(
+        &fx.repo,
+        &RevertRequest {
+            commits: vec![merge.as_str().to_string()],
+            no_commit: true,
+            mainline: Some(1),
+        },
+        &c,
+    )
+    .expect("revert against the first parent");
+    assert_eq!(git::head(&fx.repo).unwrap(), merge, "nothing committed");
+    let st = git::status(&fx.repo).unwrap();
+    assert_eq!(st.staged, 1, "the removal is staged: {st:?}");
+    assert!(!fx.repo.join("t.txt").exists());
+    git::commit(&fx.repo, "take topic out", false).unwrap();
+
+    interactive::ops::cherry_pick(
+        &fx.repo,
+        &PickRequest {
+            commits: vec![merge.as_str().to_string()],
+            record_origin: false,
+            no_commit: true,
+            mainline: Some(1),
+        },
+        &c,
+    )
+    .expect("pick against the first parent");
+    assert_eq!(read(&fx.repo, "t.txt"), "t\n");
+    assert_eq!(git::status(&fx.repo).unwrap().staged, 1);
+    assert_eq!(
+        raw_git(&fx.repo, &["log", "-1", "--format=%s"]),
+        "take topic out",
+        "nothing committed"
+    );
+}
+
+/// A plan replayed onto another branch: the commits since the upstream land
+/// on it, and the upstream's own history is left behind.
+#[test]
+fn an_interactive_plan_is_replayed_onto_another_branch() {
+    let fx = Fixture::new();
+    let c = consent();
+    raw_git(&fx.repo, &["tag", "base"]);
+    let one = commit_file(&fx.repo, "one.txt", "1\n", "one");
+    let two = commit_file(&fx.repo, "two.txt", "2\n", "two");
+    let wt = fx._root.path().join("wt-other");
+    git::worktree_add(&fx.repo, &wt, "other", "base").unwrap();
+    std::fs::write(wt.join("o.txt"), "o\n").unwrap();
+    git::add_all(&wt).unwrap();
+    let other = git::commit(&wt, "o1", false).unwrap();
+    git::worktree_remove(&wt, false).unwrap();
+
+    let plan = RebasePlan {
+        upstream: "base".into(),
+        onto: Some("other".into()),
+        steps: vec![
+            RebaseStep {
+                action: RebaseAction::Pick,
+                commit: one.as_str().to_string(),
+                message: None,
+            },
+            RebaseStep {
+                action: RebaseAction::Pick,
+                commit: two.as_str().to_string(),
+                message: None,
+            },
+        ],
+    };
+    interactive::ops::rebase_plan(&fx.repo, &plan, &c).expect("onto");
+    assert_eq!(subjects(&fx.repo, "other..HEAD"), vec!["two", "one"]);
+    assert_eq!(
+        raw_git(&fx.repo, &["merge-base", "HEAD", "other"]),
+        other.as_str(),
+        "the replay stands on the other branch"
+    );
+    assert!(
+        matches!(
+            interactive::ops::rebase_plan(
+                &fx.repo,
+                &RebasePlan {
+                    onto: Some("-x".into()),
+                    ..plan
+                },
+                &c
+            ),
+            Err(VcsError::InvalidArg { .. })
+        ),
+        "an option is no branch"
+    );
+}
+
+/// A conflicted path settled by taking this side whole.
+#[test]
+fn a_conflict_is_settled_by_taking_ours() {
+    let fx = Fixture::new();
+    let c = consent();
+    branch_with(&fx, "topic", "README.md", "hello\ntheirs\n", "theirs");
+    commit_file(&fx.repo, "README.md", "hello\nours\n", "ours");
+    let err = interactive::ops::merge(&fx.repo, "topic", MergeMode::NoFf, Some("m"), &c)
+        .expect_err("conflicts");
+    assert!(matches!(err, VcsError::Conflict { .. }), "{err}");
+    let rec =
+        interactive::ops::resolve(&fx.repo, "README.md", Resolution::Ours, &c).expect("take ours");
+    assert!(rec.ref_name.contains("resolve"));
+    assert_eq!(read(&fx.repo, "README.md"), "hello\nours\n");
+    assert_eq!(
+        git::conflicted_paths(&fx.repo).unwrap(),
+        Vec::<PathBuf>::new()
+    );
+    interactive::ops::abort(&fx.repo, InProgress::Merge, &c).unwrap();
+}
+
+/// An amend is refused while an operation is half-done, where nobody is set
+/// to commit, and when another git holds the index — the last after the
+/// recovery point was written, which is the order.
+#[test]
+fn an_amend_is_refused_mid_operation_without_an_identity_and_under_a_held_index() {
+    let fx = Fixture::new();
+    let c = consent();
+    branch_with(&fx, "topic", "README.md", "hello\ntheirs\n", "theirs");
+    commit_file(&fx.repo, "README.md", "hello\nours\n", "ours");
+    assert!(interactive::ops::merge(&fx.repo, "topic", MergeMode::NoFf, Some("m"), &c).is_err());
+    assert!(matches!(
+        interactive::ops::amend(&fx.repo, "mid-merge", &c),
+        Err(VcsError::InProgress(InProgress::Merge))
+    ));
+    interactive::ops::abort(&fx.repo, InProgress::Merge, &c).unwrap();
+
+    let nobody = fx._root.path().join("nobody");
+    git::init(&nobody).unwrap();
+    std::fs::write(nobody.join("a.txt"), "a\n").unwrap();
+    git::add_all(&nobody).unwrap();
+    raw_git(
+        &nobody,
+        &[
+            "-c",
+            "user.name=Nobody In Particular",
+            "-c",
+            "user.email=nobody@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "first",
+        ],
+    );
+    let isolated = git::Git::new()
+        .with_env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .with_env("GIT_CONFIG_NOSYSTEM", "1");
+    assert!(matches!(
+        interactive::amend(&isolated, &nobody, "again", &c),
+        Err(VcsError::IdentityUnset(_))
+    ));
+
+    let lock = fx.repo.join(".git").join("index.lock");
+    std::fs::write(&lock, "").unwrap();
+    let held = interactive::ops::amend(&fx.repo, "held", &c);
+    std::fs::remove_file(&lock).unwrap();
+    assert!(held.is_err(), "the index is another git's");
+    assert_eq!(
+        raw_git(&fx.repo, &["log", "-1", "--format=%s"]),
+        "ours",
+        "nothing was rewritten"
+    );
+}
+
+/// A leased push is a conflict when the remote moved since the last fetch,
+/// and git's own error when the remote is not there at all; a delete on the
+/// remote of a branch it no longer has is git's error too.
+#[test]
+fn a_leased_push_and_a_remote_delete_fail_in_gits_words() {
+    let fx = Fixture::new();
+    let c = consent();
+    git::push(&fx.repo, "origin", &fx.branch, true).unwrap();
+    let other = other_side(&fx);
+    commit_file(&other, "theirs.txt", "t\n", "theirs");
+    git::push(&other, "origin", &fx.branch, false).unwrap();
+    raw_git(
+        &fx.repo,
+        &["commit", "--amend", "-m", "baseline, reworded", "--quiet"],
+    );
+    let stale = interactive::ops::push_with_lease(&fx.repo, "origin", &fx.branch, &c)
+        .expect_err("the remote moved");
+    assert!(matches!(stale, VcsError::Conflict { .. }), "{stale}");
+    assert!(
+        interactive::ops::push_with_lease(&fx.repo, "nowhere", &fx.branch, &c).is_err(),
+        "no such remote"
+    );
+
+    git::branch_create(&fx.repo, "feature/gone", None, false).unwrap();
+    git::push(&fx.repo, "origin", "feature/gone", false).unwrap();
+    raw_git(
+        &fx._root.path().join("origin.git"),
+        &["update-ref", "-d", "refs/heads/feature/gone"],
+    );
+    let err = interactive::ops::push_delete(&fx.repo, "origin", "feature/gone", &c)
+        .expect_err("the remote has no such branch");
+    assert!(err.to_string().contains("push"), "{err}");
+}
+
+/// A stash whose staged half cannot come back staged is applied without it,
+/// and what that leaves is typed as the conflict it is.
+#[test]
+fn a_stash_whose_index_half_conflicts_is_applied_without_it_and_typed() {
+    let fx = Fixture::new();
+    let c = consent();
+    let g = git::Git::default();
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nstaged\n").unwrap();
+    git::stage(&fx.repo, &["README.md"]).unwrap();
+    let (_, entry) = interactive::stash_push(&g, &fx.repo, &StashPush::default(), &c).unwrap();
+    commit_file(&fx.repo, "README.md", "hello\nworld\ndiverged\n", "diverge");
+    let err = interactive::stash_apply(&g, &fx.repo, &target(&entry), &c).expect_err("conflicts");
+    assert!(matches!(err, VcsError::Conflict { .. }), "{err}");
+    assert!(read(&fx.repo, "README.md").contains("<<<<<<<"));
+    assert_eq!(git::stash_list(&fx.repo).unwrap().len(), 1);
+}
+
+/// A pinned commit is restored by moving HEAD to it — on its branch while
+/// the branch still stands there, detached once the branch went on; a
+/// restore over unmerged paths settles them to HEAD first; a ref that names
+/// nothing is a refusal.
+#[test]
+fn a_restore_moves_head_to_the_pinned_commit_and_settles_unmerged_paths_first() {
+    let fx = Fixture::new();
+    let c = consent();
+    let g = git::Git::default();
+    let base = git::head(&fx.repo).unwrap();
+    assert!(interactive::ops::restore(&fx.repo, "refs/bisa/safety/0-nothing", &c).is_err());
+
+    // A stash made at the base, to conflict with later.
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nparked\n").unwrap();
+    let (_, parked) = interactive::stash_push(&g, &fx.repo, &StashPush::default(), &c).unwrap();
+
+    // A dirty tree saved as a checkout moves to a branch at the base.
+    git::branch_create(&fx.repo, "feature", None, false).unwrap();
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\ndirty\n").unwrap();
+    let saved = interactive::ops::checkout(&fx.repo, "feature", &c).unwrap();
+    assert!(!saved.was_clean);
+    git::add_all(&fx.repo).unwrap();
+    git::commit(&fx.repo, "kept on feature", false).unwrap();
+
+    // The branch the tree was saved on goes on, then a stash conflicts here.
+    interactive::ops::checkout(&fx.repo, &fx.branch, &c).unwrap();
+    commit_file(
+        &fx.repo,
+        "README.md",
+        "hello\nworld\nmoved on\n",
+        "moved on",
+    );
+    assert!(interactive::stash_apply(&g, &fx.repo, &target(&parked), &c).is_err());
+    assert!(!git::conflicted_paths(&fx.repo).unwrap().is_empty());
+
+    let restored = interactive::ops::restore(&fx.repo, &saved.ref_name, &c).expect("restore");
+    assert!(restored.ref_name.contains("restore"));
+    assert_eq!(read(&fx.repo, "README.md"), "hello\nworld\ndirty\n");
+    assert!(
+        git::status(&fx.repo).unwrap().detached,
+        "the branch went on, so HEAD detaches onto the saved base"
+    );
+    assert_eq!(
+        raw_git(&fx.repo, &["rev-parse", "HEAD"]),
+        base.as_str(),
+        "the base the tree was saved on"
+    );
+
+    // A pinned commit alone — a deleted branch's tip — is restored the same way.
+    interactive::ops::discard_paths(&fx.repo, &["README.md"], &c).unwrap();
+    interactive::ops::checkout(&fx.repo, &fx.branch, &c).unwrap();
+    let tip = git::head(&fx.repo).unwrap();
+    let pinned = interactive::ops::branch_delete(&fx.repo, "feature", &c).unwrap();
+    assert_ne!(pinned.commit, tip);
+    interactive::ops::restore(&fx.repo, &pinned.ref_name, &c).expect("restore the pin");
+    assert_eq!(
+        raw_git(&fx.repo, &["rev-parse", "HEAD"]),
+        pinned.commit.as_str()
+    );
+    assert!(git::status(&fx.repo).unwrap().detached);
+}
+
+/// A stash is refused while an operation is half-done or a path is
+/// unmerged, and in a repository with no commit to stash against.
+#[test]
+fn a_stash_is_refused_on_a_busy_tree_and_before_the_first_commit() {
+    let fx = Fixture::new();
+    let c = consent();
+    let g = git::Git::default();
+    branch_with(&fx, "topic", "README.md", "hello\ntheirs\n", "theirs");
+    commit_file(&fx.repo, "README.md", "hello\nours\n", "ours");
+    assert!(interactive::ops::merge(&fx.repo, "topic", MergeMode::NoFf, Some("m"), &c).is_err());
+    assert!(matches!(
+        interactive::stash_push(&g, &fx.repo, &StashPush::default(), &c),
+        Err(VcsError::InProgress(InProgress::Merge))
+    ));
+    interactive::ops::abort(&fx.repo, InProgress::Merge, &c).unwrap();
+
+    std::fs::write(fx.repo.join("README.md"), "hello\nours\nparked\n").unwrap();
+    let (_, parked) = interactive::stash_push(&g, &fx.repo, &StashPush::default(), &c).unwrap();
+    commit_file(&fx.repo, "README.md", "hello\nours\nmoved\n", "moved");
+    assert!(interactive::stash_apply(&g, &fx.repo, &target(&parked), &c).is_err());
+    match interactive::stash_push(&g, &fx.repo, &StashPush::default(), &c) {
+        Err(VcsError::Dirty { details, .. }) => {
+            assert!(details.contains("README.md"), "{details}")
+        }
+        other => panic!("unmerged paths refuse a stash: {other:?}"),
+    }
+
+    let unborn = fx._root.path().join("unborn");
+    git::init(&unborn).unwrap();
+    set_identity(&unborn);
+    std::fs::write(unborn.join("a.txt"), "a\n").unwrap();
+    assert!(matches!(
+        interactive::stash_push(&g, &unborn, &StashPush::default(), &c),
+        Err(VcsError::NothingToStash)
+    ));
 }
