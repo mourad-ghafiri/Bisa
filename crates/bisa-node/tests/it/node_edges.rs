@@ -152,3 +152,16 @@ async fn a_data_folder_too_long_for_a_socket_gets_a_short_one_and_a_pointer() {
     assert!(v.is_object());
     node.shutdown().await;
 }
+
+/// A refusal asked for in another language comes rendered — the catalog's
+/// fallback or its own words.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_is_rendered_in_the_language_asked() {
+    let node = Node::start().await;
+    let (code, v) = node
+        .req_in_language("fr-CA, fr;q=0.9", "GET", "/notes?scope=bogus")
+        .await;
+    assert_eq!(code, 400, "{v}");
+    assert!(v["error"].as_str().is_some_and(|e| !e.is_empty()), "{v}");
+    node.shutdown().await;
+}

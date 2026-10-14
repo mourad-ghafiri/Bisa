@@ -403,7 +403,7 @@ mod tests {
         assert!(
             status_lines(&remote)[0].ends_with("answers as jev-latest (jev)"),
             "{}",
-            status_lines(&remote)[0]
+            status_lines(&remote)[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
     }
 
@@ -419,7 +419,7 @@ mod tests {
         assert!(
             lines[0].starts_with("Decision-Making Agent · off for the workspace"),
             "{}",
-            lines[0]
+            lines[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
     }
 }

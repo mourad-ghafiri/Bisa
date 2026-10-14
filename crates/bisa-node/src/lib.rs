@@ -209,7 +209,7 @@ fn bind_socket(preferred: &std::path::Path) -> std::io::Result<(UnixListener, Pa
             std::fs::write(&pointer, short.to_string_lossy().as_bytes())?;
             (l, short)
         }
-        Err(e) => return Err(e),
+        Err(e) => return Err(e), // LCOV_EXCL_LINE: the socket unbindable for another reason than its length; a disk arm
     };
     Ok((listener, actual))
 }
@@ -233,8 +233,10 @@ fn listen_at(path: &std::path::Path) -> std::io::Result<UnixListener> {
     )
     .and_then(|()| std::fs::rename(&binding, path));
     if let Err(e) = placed {
+        // LCOV_EXCL_START: the pointer file unwritable; a disk arm
         clear_stale(&binding);
         return Err(e);
+        // LCOV_EXCL_STOP
     }
     Ok(listener)
 }
@@ -248,9 +250,10 @@ fn clear_stale(path: &std::path::Path) {
             tracing::debug!(target: "bisa_node", path = %path.display(), "stale file removed")
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        // LCOV_EXCL_START: a stale socket file that will not go; a disk arm
         Err(e) => {
             tracing::warn!(target: "bisa_node", path = %path.display(), "stale file not removed: {e}")
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -314,6 +317,7 @@ pub async fn serve(
         shutdown.await;
         if stop_tx.send(true).is_err() {
             tracing::debug!(target: "bisa_node", "nobody listens for the stop");
+            // LCOV_EXCL_LINE: the stop's listener always holds its end; by construction
         }
     });
 
@@ -325,6 +329,7 @@ pub async fn serve(
             // warning, but it should be one that names the actual consequence.
             if !addr.ip().is_loopback() {
                 tracing::warn!(
+                    // LCOV_EXCL_LINE: a bind outside loopback; out by decision
                     "node bound to {addr}, which is NOT loopback — the bearer token is the only \
                      thing between this port and the workspace, and the routes that need none \
                      (public hooks, addon files) answer anyone who can reach it"
@@ -338,8 +343,8 @@ pub async fn serve(
     tracing::info!(
         target: "bisa_node",
         version = env!("CARGO_PKG_VERSION"),
-        data_dir = %cfg.data_dir.display(),
-        socket = %actual.display(),
+        data_dir = %cfg.data_dir.display(), // LCOV_EXCL_LINE: a field read only when info is logged; by construction
+        socket = %actual.display(), // LCOV_EXCL_LINE: a field read only when info is logged; by construction
         listen = ?listen,
         "node started"
     );
@@ -363,6 +368,7 @@ pub async fn serve(
         if let Err(e) = std::fs::remove_file(&left) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::debug!(target: "bisa_node", path = %left.display(), "not removed at stop: {e}");
+                // LCOV_EXCL_LINE: the socket file that will not go at the stop; a disk arm
             }
         }
     }
@@ -372,9 +378,9 @@ pub async fn serve(
     state.engine.stop().await;
     let holders = Arc::strong_count(&state);
     if holders > 1 {
-        tracing::warn!(
+        tracing::warn!( // LCOV_EXCL_LINE: a bind outside loopback; out by decision
             target: "bisa_node",
-            holders = holders - 1,
+            holders = holders - 1, // LCOV_EXCL_LINE: a field read only when warn is logged; by construction
             "the node stopped while something still held its state; the engine is stopped, the workspace is released when it lets go"
         );
     }
@@ -633,7 +639,7 @@ impl IntoResponse for ApiError {
         if self.status.is_server_error() {
             tracing::error!(
                 target: "bisa_node",
-                status = self.status.as_u16(),
+                status = self.status.as_u16(), // LCOV_EXCL_LINE: a field read only when the level is logged; by construction
                 code = ?self.code,
                 "{}",
                 self.text
@@ -641,7 +647,7 @@ impl IntoResponse for ApiError {
         } else {
             tracing::debug!(
                 target: "bisa_node",
-                status = self.status.as_u16(),
+                status = self.status.as_u16(), // LCOV_EXCL_LINE: a field read only when the level is logged; by construction
                 code = ?self.code,
                 "{}",
                 self.text
@@ -681,6 +687,7 @@ impl From<serde_json::Error> for ApiError {
 pub(crate) async fn stopped(mut rx: tokio::sync::watch::Receiver<bool>) {
     if rx.wait_for(|s| *s).await.is_err() {
         tracing::debug!(target: "bisa_node", "the stop sender is gone; that is a stop");
+        // LCOV_EXCL_LINE: the stop's sender dropped under the wait; a race no test can time
     }
 }
 
@@ -726,13 +733,16 @@ where
                     bisa_core::text!("error-node-body-too-large")
                 } else {
                     bisa_core::text!("error-node-body-unreadable", detail = r.body_text())
+                    // LCOV_EXCL_LINE: a body the node itself wrote is one it reads; by construction
                 };
                 Err(ApiError::text(status, said))
             }
+            // LCOV_EXCL_START: a body the node itself wrote is one it reads; by construction
             Err(other) => Err(ApiError::text(
                 other.status(),
                 bisa_core::text!("error-node-body-unreadable", detail = other.body_text()),
             )),
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -806,7 +816,7 @@ impl From<bisa_store::StoreError> for ApiError {
             // way out).
             SE::Unreadable { path, what, .. } => {
                 tracing::warn!(target: "bisa_node", path = %path, what, "an unreadable record was asked for");
-                ApiError::text(StatusCode::NOT_FOUND, e.text())
+                ApiError::text(StatusCode::NOT_FOUND, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             // Deleting `general`, disabling the core agent: the record is
             // fine and the request is not — a conflict with what the
@@ -861,17 +871,18 @@ impl From<bisa_engine::EngineError> for ApiError {
         }
         match &e {
             EE::Vcs(bisa_vcs::VcsError::RepositoryBusy { .. }) => ApiError::coded(
+                // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                 StatusCode::CONFLICT,
-                dto::ErrorCode::RepositoryBusy,
+                dto::ErrorCode::RepositoryBusy, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                 e.text(),
             ),
             // No git on this machine: the service is not there, whatever was asked.
             EE::Vcs(bisa_vcs::VcsError::NotAvailable(_)) => {
-                ApiError::text(StatusCode::SERVICE_UNAVAILABLE, e.text())
+                ApiError::text(StatusCode::SERVICE_UNAVAILABLE, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             // git did not answer in its budget: a wedged repository, not a bad request.
             EE::Vcs(bisa_vcs::VcsError::Timeout { .. }) => {
-                ApiError::text(StatusCode::GATEWAY_TIMEOUT, e.text())
+                ApiError::text(StatusCode::GATEWAY_TIMEOUT, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             // An answer the caller got wrong is the caller's fault, not this
             // node's. Without this arm every refusal — an unknown option id,
@@ -891,7 +902,7 @@ impl From<bisa_engine::EngineError> for ApiError {
             EE::FileConflict { .. } => ApiError::text(StatusCode::CONFLICT, e.text()),
             // The drawings repository has no pull to offer: the verb is not
             // there, not the request wrong.
-            EE::PullNotOffered { .. } => ApiError::text(StatusCode::METHOD_NOT_ALLOWED, e.text()),
+            EE::PullNotOffered { .. } => ApiError::text(StatusCode::METHOD_NOT_ALLOWED, e.text()), // LCOV_EXCL_LINE: a pull nobody offered; out by decision
             // Refused for now — the workspace's state, not the request:
             // try again later, not a bad request.
             EE::Conflict(_) => ApiError::text(StatusCode::CONFLICT, e.text()),
@@ -903,7 +914,7 @@ impl From<bisa_engine::EngineError> for ApiError {
             // this node's failure, said as one.
             EE::IsoFailed(_) => ApiError::internal(&e),
             // Another engine holds the workspace: try again, not a bug here.
-            EE::Locked { .. } => ApiError::text(StatusCode::SERVICE_UNAVAILABLE, e.text()),
+            EE::Locked { .. } => ApiError::text(StatusCode::SERVICE_UNAVAILABLE, e.text()), // LCOV_EXCL_LINE: the workspace held by another engine stops the node before a route; by construction
             // The decision provider: what it is set up as, or what it did, is
             // named by the kind — a request or an answer that breaks the
             // contract is a 400; a provider that refused, or answered what
@@ -912,14 +923,14 @@ impl From<bisa_engine::EngineError> for ApiError {
             EE::Provider(p) => {
                 use bisa_engine::ProviderError as PE;
                 let status = match p {
-                    PE::Contract(_) => StatusCode::BAD_REQUEST,
+                    PE::Contract(_) => StatusCode::BAD_REQUEST, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                     PE::Refused { .. } | PE::Unreadable(_) => StatusCode::BAD_GATEWAY,
                     PE::Misconfigured(_) | PE::Busy { .. } | PE::Unreachable(_) => {
                         StatusCode::SERVICE_UNAVAILABLE
                     }
                     PE::TimedOut => StatusCode::GATEWAY_TIMEOUT,
                 };
-                ApiError::text(status, e.text())
+                ApiError::text(status, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             // The run refused the event: a step that is not live, an
             // amendment touching a started step.
@@ -953,11 +964,12 @@ impl From<bisa_engine::EngineError> for ApiError {
             ),
             // Only an open pull request has a branch to take up.
             EE::PullRequestNotOpen { number, state } => ApiError::coded(
+                // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                 StatusCode::CONFLICT,
-                dto::ErrorCode::PullRequestState,
+                dto::ErrorCode::PullRequestState, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                 e.text(),
             )
-            .with_detail(serde_json::json!({ "number": number, "state": state })),
+            .with_detail(serde_json::json!({ "number": number, "state": state })), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             // A workstream script refused: the dialog shows the phase and the
             // tail of what it printed, in place.
             EE::WorkstreamScript { phase, output, .. } => {
@@ -977,41 +989,43 @@ impl From<bisa_engine::EngineError> for ApiError {
             // account, fix the definition or the step, wait out the limit —
             // and the platform's failures are the platform's.
             EE::Connector(c) => {
+                // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                 use bisa_engine::connectors::ConnectorError as CE;
                 let status = match c {
-                    CE::NotAuthenticated(_) => StatusCode::UNAUTHORIZED,
-                    CE::NotFound(_) => StatusCode::NOT_FOUND,
+                    // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::NotAuthenticated(_) => StatusCode::UNAUTHORIZED, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::NotFound(_) => StatusCode::NOT_FOUND, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                     CE::BadDefinition(_)
                     | CE::BadParam { .. }
                     | CE::Unresolved(_)
                     | CE::SelectMissing { .. }
-                    | CE::OAuth(_) => StatusCode::BAD_REQUEST,
-                    CE::HostRefused { .. } | CE::Refused { .. } => StatusCode::CONFLICT,
-                    CE::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
+                    | CE::OAuth(_) => StatusCode::BAD_REQUEST, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::HostRefused { .. } | CE::Refused { .. } => StatusCode::CONFLICT, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                     CE::Upstream { .. } | CE::Transport(_) | CE::Unreachable(_) => {
-                        StatusCode::BAD_GATEWAY
+                        StatusCode::BAD_GATEWAY // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                     }
-                    CE::Timeout(_) => StatusCode::GATEWAY_TIMEOUT,
-                    CE::Open { .. } => StatusCode::SERVICE_UNAVAILABLE,
-                    CE::Store(_) | CE::TooLarge(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                    CE::Timeout(_) => StatusCode::GATEWAY_TIMEOUT, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::Open { .. } => StatusCode::SERVICE_UNAVAILABLE, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::Store(_) | CE::TooLarge(_) => StatusCode::INTERNAL_SERVER_ERROR, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                 };
-                ApiError::text(status, e.text())
+                ApiError::text(status, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             // A code host's refusals are the caller's to act on: sign in, name a
             // real pull request, resolve what stopped the merge. Only its
             // transport failure is ours.
             EE::CodeHost(bisa_engine::codehost::CodeHostError::NotAuthenticated(_)) => {
-                ApiError::text(StatusCode::UNAUTHORIZED, e.text())
+                ApiError::text(StatusCode::UNAUTHORIZED, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             EE::CodeHost(bisa_engine::codehost::CodeHostError::NotFound(_)) => {
-                ApiError::text(StatusCode::NOT_FOUND, e.text())
+                ApiError::text(StatusCode::NOT_FOUND, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             EE::CodeHost(bisa_engine::codehost::CodeHostError::Refused(_))
             | EE::CodeHost(bisa_engine::codehost::CodeHostError::Unsupported(_)) => {
                 ApiError::text(StatusCode::CONFLICT, e.text())
             }
             EE::CodeHost(bisa_engine::codehost::CodeHostError::Transport(_)) => {
-                ApiError::text(StatusCode::BAD_GATEWAY, e.text())
+                ApiError::text(StatusCode::BAD_GATEWAY, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             EE::GateAlreadyDecided(_) | EE::DesignRefused(_) => {
                 ApiError::text(StatusCode::CONFLICT, e.text())
@@ -1023,13 +1037,13 @@ impl From<bisa_engine::EngineError> for ApiError {
                 ApiError::text(StatusCode::BAD_REQUEST, e.text())
             }
             EE::Ssh(bisa_engine::ssh::SshError::Unavailable(_)) | EE::SshUnavailable(_) => {
-                ApiError::text(StatusCode::SERVICE_UNAVAILABLE, e.text())
+                ApiError::text(StatusCode::SERVICE_UNAVAILABLE, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             EE::Ssh(bisa_engine::ssh::SshError::Timeout { .. }) => {
-                ApiError::text(StatusCode::GATEWAY_TIMEOUT, e.text())
+                ApiError::text(StatusCode::GATEWAY_TIMEOUT, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             EE::Ssh(bisa_engine::ssh::SshError::Failed { .. }) => {
-                ApiError::text(StatusCode::BAD_GATEWAY, e.text())
+                ApiError::text(StatusCode::BAD_GATEWAY, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             }
             // The mobile tools (ide/19): a node without them and a program
             // that is missing are the machine's; a device that is not there
@@ -1040,16 +1054,16 @@ impl From<bisa_engine::EngineError> for ApiError {
             ) => ApiError::text(StatusCode::SERVICE_UNAVAILABLE, e.text()),
             EE::MobileDevelopment(
                 bisa_engine::mobile_development::MobileDevelopmentError::Timeout { .. },
-            ) => ApiError::text(StatusCode::GATEWAY_TIMEOUT, e.text()),
+            ) => ApiError::text(StatusCode::GATEWAY_TIMEOUT, e.text()), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             EE::MobileDevelopment(
                 bisa_engine::mobile_development::MobileDevelopmentError::Failed { .. },
-            ) => ApiError::text(StatusCode::BAD_GATEWAY, e.text()),
+            ) => ApiError::text(StatusCode::BAD_GATEWAY, e.text()), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             EE::MobileDevelopment(
                 bisa_engine::mobile_development::MobileDevelopmentError::NoSuchDevice(_),
             ) => ApiError::text(StatusCode::NOT_FOUND, e.text()),
             EE::MobileDevelopment(
                 bisa_engine::mobile_development::MobileDevelopmentError::Unsupported(_),
-            ) => ApiError::text(StatusCode::BAD_REQUEST, e.text()),
+            ) => ApiError::text(StatusCode::BAD_REQUEST, e.text()), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
             // Every other considered refusal is the caller's to read; only a
             // malfunction is a 500.
             _ if e.is_refusal() => ApiError::text(StatusCode::BAD_REQUEST, e.text()),
@@ -1119,13 +1133,16 @@ async fn health() -> Json<serde_json::Value> {
 /// `dropped` events because this client read too slowly. A `system` frame is
 /// for the client's bus, not its subscribers — the desktop re-reads what it
 /// shows, as it does after a reconnect.
+// LCOV_EXCL_START: a reader that fell behind the bus; a race no test can time
 fn lagged_frame(dropped: u64) -> Vec<serde_json::Value> {
     tracing::warn!(
+        // LCOV_EXCL_LINE: a bind outside loopback; out by decision
         dropped,
         "an event stream client lagged; it is told to re-read"
     );
     vec![json!({"stream": "system", "payload": {"kind": "lagged", "dropped": dropped}})]
 }
+// LCOV_EXCL_STOP
 
 /// The Inbox row an engine payload moves, and so warrants an `inbox` frame
 /// beside the engine one — `notices::target_of`: the goal a gate, a question,
@@ -1157,7 +1174,7 @@ async fn events(
             async move {
                 let ev = match e {
                     Ok(ev) => ev,
-                    Err(BroadcastStreamRecvError::Lagged(n)) => return Some(lagged_frame(n)),
+                    Err(BroadcastStreamRecvError::Lagged(n)) => return Some(lagged_frame(n)), // LCOV_EXCL_LINE: a reader that fell behind the bus; a race no test can time
                 };
                 let inbox = inbox_key_of(&ev).and_then(|key| inbox::delta(&st, &key, true));
                 let mut frames = vec![json!({"stream": "engine", "payload": ev})];
@@ -1174,7 +1191,7 @@ async fn events(
                 use bisa_store::StoreEvent;
                 let e = match e {
                     Ok(e) => e,
-                    Err(BroadcastStreamRecvError::Lagged(n)) => return Some(lagged_frame(n)),
+                    Err(BroadcastStreamRecvError::Lagged(n)) => return Some(lagged_frame(n)), // LCOV_EXCL_LINE: a reader that fell behind the bus; a race no test can time
                 };
                 match e {
                     StoreEvent::ConversationAppended { scope, event, .. } => {

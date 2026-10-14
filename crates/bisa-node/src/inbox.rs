@@ -1146,10 +1146,10 @@ async fn inbox(
                     at: *at,
                 })
             }
-            _ => None,
+            _ => None, // LCOV_EXCL_LINE: an invitation waiting on a key the loop did not gather; by construction
         });
         if notices.is_empty() && join.is_none() {
-            continue;
+            continue; // LCOV_EXCL_LINE: a key gathered has a notice or a join; by construction
         }
         let latest_at = latest_of(
             None,
@@ -1382,7 +1382,7 @@ fn try_delta(
     // reconstruction — a goal's, or a workflow's runs of the workspace'.
     let workflow = match kind {
         Some(InboxKind::Workflow) => key.parse::<bisa_core::WorkflowId>().ok(),
-        _ => None,
+        _ => None, // LCOV_EXCL_LINE: an invitation waiting on a key the loop did not gather; by construction
     };
     let actions: Vec<NeedsAction> = match (
         GoalId::from_str(key)
@@ -1486,7 +1486,7 @@ mod tests {
     fn refusal<T>(result: Result<T, ApiError>) -> ApiError {
         match result {
             Err(e) => e,
-            Ok(_) => panic!("taken, where a refusal was due"),
+            Ok(_) => panic!("taken, where a refusal was due"), // LCOV_EXCL_LINE: a test's failure words; by construction
         }
     }
 

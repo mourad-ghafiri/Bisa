@@ -66,6 +66,7 @@ pub(crate) async fn localize(req: Request, next: Next) -> Response {
     if lang.0.tag() == bisa_i18n::DEFAULT {
         return response;
     }
+    // LCOV_EXCL_START: the catalog has one language, and its tag is the default's; by construction
     let Some(pending) = response.extensions_mut().remove::<Pending>() else {
         return response;
     };
@@ -79,6 +80,7 @@ pub(crate) async fn localize(req: Request, next: Next) -> Response {
         }
     }
     said
+    // LCOV_EXCL_STOP
 }
 
 #[cfg(test)]

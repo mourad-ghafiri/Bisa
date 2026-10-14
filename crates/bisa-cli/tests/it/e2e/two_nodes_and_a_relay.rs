@@ -392,6 +392,7 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
     guest.ok(&["settings", "set", "machine", "sync.relays", "[]"]);
     guest.start();
     let bob = pubkey_of(&guest);
+    assert_eq!(guest.json(&["relay", "list"])["relays"], json!([]));
 
     let added = guest.json(&["relay", "add", &relay.url]);
     assert_eq!(added["added"], true, "{added}");
@@ -600,13 +601,16 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
     assert_eq!(status, 200, "{read}");
     let (status, again) = guest.call("POST", "/sync/relays/reconnect", &[], Some(&json!({})));
     assert_eq!(status, 200, "{again}");
-    let (status, nobody) = guest.call(
-        "GET",
-        &format!("/hosts/{}/channels", "f".repeat(64)),
+    let (status, nobody) = guest.call("GET", &format!("/hosts/{bob}/channels"), &[], None);
+    assert_eq!(status, 404, "{nobody}");
+    // The guest's own word about itself, said to the host.
+    let (status, renamed) = guest.call(
+        "PUT",
+        "/workspace/me",
         &[],
-        None,
+        Some(&json!({"label": "Bobby"})),
     );
-    assert!(status == 404 || status == 400, "{status}: {nobody}");
+    assert_eq!(status, 200, "{renamed}");
     // An attachment asked of the peers: the pump runs, no peer answers.
     let (status, fetched) = guest.call(
         "POST",
@@ -632,15 +636,26 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
     host.ok(&["settings", "set", "workspace", "collab.join", "ask"]);
     let asked = host.json(&["workspace", "invite", "--role", "member", "--label", "bob"]);
     let code = asked["code"].as_str().expect("the code").to_string();
-    guest.stop();
-    guest.ok(&["settings", "set", "machine", "sync.enabled", "true"]);
-    guest.ok(&[
+    // Through the node, with no relay of its own and a code naming none, a
+    // join reaches nobody; the host names its relay again after.
+    host.ok(&["settings", "set", "machine", "sync.relays", "[]"]);
+    let no_way = host.json(&["workspace", "invite", "--role", "member"])["code"]
+        .as_str()
+        .expect("a code")
+        .to_string();
+    guest.ok(&["settings", "set", "machine", "sync.relays", "[]"]);
+    guest.refused(&["workspace", "join", &no_way, "--label", "bob"]);
+    host.ok(&[
         "settings",
         "set",
         "machine",
         "sync.relays",
         &json!([relay.url]).to_string(),
     ]);
+    guest.stop();
+    guest.ok(&["settings", "set", "machine", "sync.enabled", "true"]);
+    // No relay of the guest's own: the code names the host's, and that is enough.
+    guest.ok(&["settings", "set", "machine", "sync.relays", "[]"]);
     let waiting = guest.json(&["workspace", "join", &code, "--label", "bob"]);
     assert!(
         waiting.to_string().contains("requested"),

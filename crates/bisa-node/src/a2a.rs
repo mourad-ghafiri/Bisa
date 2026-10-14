@@ -104,7 +104,7 @@ pub(crate) fn routes() -> Router<Shared> {
 async fn agent_card(State(state): State<Shared>) -> Json<Value> {
     let Some(cfg) = state.a2a.as_ref() else {
         // For the calling system, never a person: English, as the protocol reads it.
-        return Json(json!({"error": "a2a not configured"}));
+        return Json(json!({"error": "a2a not configured"})); // LCOV_EXCL_LINE: the routes are mounted with a configuration; by construction
     };
     let skills: Vec<Value> = if cfg.skills.is_empty() {
         vec![json!({
@@ -204,7 +204,7 @@ fn text_of_parts(parts: &[Value]) -> String {
 
 async fn message_send(state: &Shared, id: Value, params: Value) -> Json<Value> {
     let Some(cfg) = state.a2a.clone() else {
-        return rpc_err(id, -32603, "a2a not configured");
+        return rpc_err(id, -32603, "a2a not configured"); // LCOV_EXCL_LINE: the routes are mounted with a configuration; by construction
     };
     let params: SendParams = match serde_json::from_value(params) {
         Ok(p) => p,

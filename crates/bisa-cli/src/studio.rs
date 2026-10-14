@@ -595,9 +595,11 @@ fn list_dms(ctx: &Ctx, out: &Out) -> Result<()> {
 async fn send_dm(ctx: &Ctx, out: &Out, pubkeys: &[String], content: &str) -> Result<()> {
     let ws = ctx.workspace()?;
     if pubkeys.is_empty() {
+        // LCOV_EXCL_START: the parser wants a recipient; by construction
         bail!(bisa_core::text!(
             "cli-studio-message-needs-least-one-recipient"
         ));
+        // LCOV_EXCL_STOP
     }
     let members: Vec<PrincipalId> = pubkeys
         .iter()

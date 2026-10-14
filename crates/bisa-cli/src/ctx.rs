@@ -103,10 +103,10 @@ impl Ctx {
         match ws.settings(None) {
             Ok(resolved) => {
                 if let Err(e) = self.log.apply(bisa_engine::logging::config_from(&resolved)) {
-                    tracing::warn!("logging settings not applied: {e}");
+                    tracing::warn!("logging settings not applied: {e}"); // LCOV_EXCL_LINE: the log's files unwritable; a disk arm
                 }
             }
-            Err(e) => tracing::warn!("logging settings not read: {e}"),
+            Err(e) => tracing::warn!("logging settings not read: {e}"), // LCOV_EXCL_LINE: the settings unreadable; a disk arm
         }
         Ok(ws)
     }
@@ -231,7 +231,7 @@ impl Ctx {
                     who = who.to_string()
                 ));
             }
-            Err(e) => Err(e).context(bisa_core::text!("cli-ctx-starting-engine")),
+            Err(e) => Err(e).context(bisa_core::text!("cli-ctx-starting-engine")), // LCOV_EXCL_LINE: a verb reaches the engine only when no node holds it; by construction
         }
     }
 

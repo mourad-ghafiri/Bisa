@@ -597,7 +597,7 @@ mod tests {
         assert!(
             err.contains("without a status line")
                 || err.contains("did not arrive")
-                || err.contains("could not send"),
+                || err.contains("could not send"), // LCOV_EXCL_LINE: a test's failure words; by construction
             "{err}"
         );
 
@@ -730,7 +730,7 @@ mod tests {
             assert!(
                 read.is_none(),
                 "an answer that ends after {short} of {} bytes is not read: {read:?}",
-                whole.len()
+                whole.len() // LCOV_EXCL_LINE: a test's failure words; by construction
             );
         }
         // And one that names its length has it.

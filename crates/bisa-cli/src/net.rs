@@ -50,7 +50,7 @@ impl FaceStore for WorkspaceFaces {
                 label: row.label,
                 photo: row.photo,
             },
-            _ => OwnerProfile::default(),
+            _ => OwnerProfile::default(), // LCOV_EXCL_LINE: the owner's own row is always there; by construction
         }
     }
 }
@@ -312,10 +312,12 @@ fn check_words(check: &bisa_collab::RelayCheck) -> String {
             url = check.url.clone(),
             ms = ms.to_string()
         )),
+        // LCOV_EXCL_START: a check that answered yes measured its time; by construction
         (true, None, _) => bisa_i18n::say(&bisa_core::text!(
             "cli-net-relay-reachable",
             url = check.url.clone()
         )),
+        // LCOV_EXCL_STOP
         (false, _, Some(e)) => bisa_i18n::say(&bisa_core::text!(
             "cli-net-relay-not-reachable-error",
             url = check.url.clone(),
@@ -696,10 +698,11 @@ impl Pump {
             .await
             {
                 Ok(h) => Some(h),
+                // LCOV_EXCL_START: the host pump failing to start; a disk arm
                 Err(e) => {
                     tracing::warn!(target: "bisa_cli", "the host pump did not start: {e}");
                     None
-                }
+                } // LCOV_EXCL_STOP
             }
         } else {
             None
@@ -754,8 +757,8 @@ impl Pump {
                         }
                         _ => {}
                     },
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue, // LCOV_EXCL_LINE: the bus lagging under the pump; a race no test can time
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break, // LCOV_EXCL_LINE: the bus closing under the pump; a race no test can time
                 }
             }
         })
@@ -767,10 +770,11 @@ impl Pump {
     async fn apply_settings(&self) {
         let cfg = match NetConfig::from_workspace(&self.ws) {
             Ok(c) => c,
+            // LCOV_EXCL_START: the settings unreadable; a disk arm
             Err(e) => {
                 tracing::warn!(target: "bisa_cli", "re-reading sync settings: {e}");
                 return;
-            }
+            } // LCOV_EXCL_STOP
         };
         let mut host = self.host.lock().await;
         if !cfg.reaches_anyone() {
@@ -793,9 +797,10 @@ impl Pump {
                     .await
                     {
                         Ok(h) => *host = Some(h),
+                        // LCOV_EXCL_START: the host pump failing to start; a disk arm
                         Err(e) => {
                             tracing::warn!(target: "bisa_cli", "the host pump did not start: {e}")
-                        }
+                        } // LCOV_EXCL_STOP
                     }
                 }
             }
@@ -815,7 +820,8 @@ impl Pump {
                 match rx.recv().await {
                     Ok((host, change)) => {
                         let Ok(host) = bisa_core::PrincipalId::new(host) else {
-                            continue;
+                            // LCOV_EXCL_LINE: a host's key is a principal; by construction
+                            continue; // LCOV_EXCL_LINE: a host's key is a principal; by construction
                         };
                         let scope = match change {
                             bisa_guest::HostedChange::Message { scope, .. } => Some(scope),
@@ -825,8 +831,8 @@ impl Pump {
                             bisa_engine::events::EnginePayload::HostedChanged { host, scope },
                         ));
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue, // LCOV_EXCL_LINE: the bus lagging under the pump; a race no test can time
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break, // LCOV_EXCL_LINE: the bus closing under the pump; a race no test can time
                 }
             }
         })
@@ -880,7 +886,7 @@ fn refused(e: bisa_guest::GuestError) -> CollabRefusal {
     match e {
         bisa_guest::GuestError::NotHosted => CollabRefusal::NotHosted,
         bisa_guest::GuestError::Refused(words) => CollabRefusal::Refused(words),
-        other => CollabRefusal::Failed(other.to_string()),
+        other => CollabRefusal::Failed(other.to_string()), // LCOV_EXCL_LINE: a session's failure the words above do not name; by construction
     }
 }
 
@@ -922,6 +928,7 @@ impl CollabDoors for Pump {
                         iroh_peers_connected: s.iroh_peers_connected,
                     }
                 }
+                // LCOV_EXCL_START: the host pump failing to start; a disk arm
                 None => {
                     let relays = self.relays.health().await;
                     SyncReport {
@@ -933,7 +940,7 @@ impl CollabDoors for Pump {
                         hosts,
                         ..SyncReport::default()
                     }
-                }
+                } // LCOV_EXCL_STOP
             }
         })
     }

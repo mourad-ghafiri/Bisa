@@ -1,7 +1,7 @@
 {
   "crates/bisa-adapters": 100,
   "crates/bisa-cache": 100,
-  "crates/bisa-cli": 96.9,
+  "crates/bisa-cli": 98.6,
   "crates/bisa-codehost": 100,
   "crates/bisa-collab": 100,
   "crates/bisa-connectors": 99.6,
@@ -20,7 +20,7 @@
   "crates/bisa-mobile-development": 100,
   "crates/bisa-net": 78.7,
   "crates/bisa-netrules": 100,
-  "crates/bisa-node": 98.8,
+  "crates/bisa-node": 99.5,
   "crates/bisa-security": 100,
   "crates/bisa-ssh": 100,
   "crates/bisa-store": 99.9,

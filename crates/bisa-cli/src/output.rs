@@ -17,6 +17,7 @@ use bisa_i18n::Locale;
 /// anything else — an empty line, a closed stdin, a prompt that could not be
 /// written — is no. The one confirmation the CLI asks, so `run` and `project`
 /// ask it the same way.
+// LCOV_EXCL_START: a question put at a terminal; out by decision
 pub fn confirm_on_stderr(question: &str) -> bool {
     use std::io::Write as _;
     eprint!("{question}");
@@ -29,6 +30,7 @@ pub fn confirm_on_stderr(question: &str) -> bool {
     }
     matches!(line.trim(), "y" | "Y" | "yes")
 }
+// LCOV_EXCL_STOP
 
 pub struct Out {
     json: bool,

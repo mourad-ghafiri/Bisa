@@ -52,6 +52,14 @@ async fn start_node(
     data: &Path,
     a2a: A2aExposeConfig,
 ) -> (PathBuf, tokio::sync::oneshot::Sender<()>) {
+    start_node_with(data, Some(a2a)).await
+}
+
+/// A node with the A2A door configured, or with none.
+async fn start_node_with(
+    data: &Path,
+    a2a: Option<A2aExposeConfig>,
+) -> (PathBuf, tokio::sync::oneshot::Sender<()>) {
     let ws = Workspace::open_with_keystore(
         data,
         Box::new(FileKeyStore::new(
@@ -69,7 +77,7 @@ async fn start_node(
         collab: None,
         fetch_attachment: None,
         token: Some(TOKEN.to_string()),
-        a2a: Some(a2a),
+        a2a,
     };
     tokio::spawn(serve(engine, cfg, async {
         let _stopped_or_dropped = stop_rx.await;
@@ -521,4 +529,74 @@ fn the_expose_file_refuses_a_key_it_does_not_know() {
             "the refusal names `{key}`: {refused}"
         );
     }
+}
+
+/// An exposing node refuses, in the protocol's words, a request with no
+/// method, a task nobody has, params that are none and a message with no
+/// text — and names its own skills on the card.
+#[tokio::test(flavor = "multi_thread")]
+async fn a2a_refuses_in_the_protocol_s_words_and_says_what_it_exposes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = A2aExposeConfig::new("http://example.test:1");
+    cfg.skills.push(bisa_node::a2a::A2aSkill {
+        id: "sort".into(),
+        name: "Sort".into(),
+        description: "sorts the shelf".into(),
+    });
+    let (socket, stop) = start_node_with(dir.path(), Some(cfg)).await;
+    let (_, card) = req(&socket, "GET", "/.well-known/agent-card.json", None).await;
+    assert_eq!(card["skills"][0]["id"], json!("sort"), "{card}");
+    let (code, v) = req(
+        &socket,
+        "POST",
+        "/a2a",
+        Some(json!({"jsonrpc": "2.0", "id": 1}).to_string()),
+    )
+    .await;
+    assert_eq!(code, 200);
+    assert_eq!(v["error"]["code"], json!(-32600), "{v}");
+    let v = rpc(&socket, "tasks/get", json!({"id": "nope"})).await;
+    assert_eq!(v["error"]["message"], json!("task not found"), "{v}");
+    let v = rpc(&socket, "tasks/get", json!({"id": 5})).await;
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("invalid params")),
+        "{v}"
+    );
+    let v = rpc(&socket, "tasks/cancel", json!({"id": "nope"})).await;
+    assert_eq!(v["error"]["message"], json!("task not found"), "{v}");
+    let v = rpc(&socket, "tasks/cancel", json!({"id": 5})).await;
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("invalid params")),
+        "{v}"
+    );
+    let v = rpc(&socket, "message/send", json!({"message": 5})).await;
+    assert!(
+        v["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("invalid params")),
+        "{v}"
+    );
+    let v = rpc(
+        &socket,
+        "message/send",
+        json!({"message": {"parts": [{"kind": "text", "text": ""}]}}),
+    )
+    .await;
+    assert_eq!(
+        v["error"]["message"],
+        json!("invalid params: message has no text parts"),
+        "{v}"
+    );
+    let v = rpc(
+        &socket,
+        "message/send",
+        json!({"message": {"taskId": "nope", "parts": [{"kind": "text", "text": "more"}]}}),
+    )
+    .await;
+    assert_eq!(v["error"]["message"], json!("task not found"), "{v}");
+    drop(stop);
 }

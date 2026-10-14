@@ -486,7 +486,7 @@ mod tests {
     fn refusal<T>(result: Result<T, ApiError>) -> ApiError {
         match result {
             Err(e) => e,
-            Ok(_) => panic!("taken, where a refusal was due"),
+            Ok(_) => panic!("taken, where a refusal was due"), // LCOV_EXCL_LINE: a test's failure words; by construction
         }
     }
 
@@ -541,7 +541,7 @@ mod tests {
         let workflow = bisa_core::WorkflowId::from_ulid(ulid::Ulid::from_parts(2, 2));
         let host = ListenerHost::Workspace { workflow };
         let Ok(key) = listener(host, "ticket") else {
-            panic!("`ticket` is a step id");
+            panic!("`ticket` is a step id"); // LCOV_EXCL_LINE: a test's failure words; by construction
         };
         assert_eq!(key.to_string(), format!("workspace:{workflow}/ticket"));
         assert_eq!(

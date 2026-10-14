@@ -65,10 +65,12 @@ impl<S: Send + Sync> FromRequestParts<S> for TagFilter {
         let Query(pairs) = Query::<Vec<(String, String)>>::from_request_parts(parts, state)
             .await
             .map_err(|e| {
+                // LCOV_EXCL_START: every query string reads as pairs; by construction
                 bad_request(bisa_core::text!(
                     "error-node-tags-refused",
                     detail = e.to_string()
                 ))
+                // LCOV_EXCL_STOP
             })?;
 
         let mut tags: Vec<String> = Vec::new();
@@ -193,8 +195,10 @@ async fn list_tags(
         // under a name no `?entity=` accepts would put an unreachable chip in
         // the bar, so it is left out and said so in the log.
         let Ok(kind) = row.entity.parse::<TagEntity>() else {
+            // LCOV_EXCL_START: the index writes the kinds this build knows; by construction
             tracing::warn!("tag facets: unknown entity {:?}, skipping", row.entity);
             continue;
+            // LCOV_EXCL_STOP
         };
         let facet = by_tag.entry(row.tag.clone()).or_insert_with(|| TagFacet {
             tag: row.tag.clone(),

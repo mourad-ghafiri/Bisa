@@ -115,6 +115,8 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
         let status = ws.json(&["status", &goal]);
         (status["status"] == "waiting").then_some(status)
     });
+    // The inbox for a person: a question with no options offered.
+    ws.ok(&["inbox"]);
     let design = waiting["run"]["workflow"]["id"]
         .as_str()
         .expect("the goal's own design")
@@ -184,6 +186,10 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     let taken = ws.json(&["answer", &goal, "yes"]);
     assert_eq!(taken["answered"], true, "{taken}");
     ws.refused(&["answer", "nonsense", "yes"]);
+    let none_going = ws.json(&["workflow", "restart", &copy]);
+    assert_eq!(none_going["runs"], json!([]), "{none_going}");
+    let _ = ws.bisa(&["workflow", "hook-secret", "workflow", &copy, "fit"]);
+    ws.refused(&["workflow", "hook-secret", "workflow", &copy, "not a step!"]);
     ws.stop();
 
     // --- without a node: the same verbs on the workspace itself ---------------------
@@ -290,7 +296,9 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     let approve = ws.file(
         "approve.json",
         &json!({"name": "Approve it", "steps": [
-            {"id": "ok", "name": "Ok?", "kind": "approval", "prompt": "Go?"},
+            {"id": "ok", "name": "Ok?", "kind": "approval", "prompt": "Go?", "then": ["after"]},
+            {"id": "after", "name": "After", "kind": "agent",
+             "assignee": {"agent": "general-agent"}, "instructions": "say so"},
         ]})
         .to_string(),
     );
@@ -306,6 +314,11 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     assert!(watched.status.success(), "{}", said_by(&watched));
     let again = ws.bisa(&["run", &gated]);
     assert!(again.status.success(), "{}", said_by(&again));
+    let again = ws.bisa(&["run", &gated, "--watch"]);
+    assert!(again.status.success(), "{}", said_by(&again));
+    // A goal left to its designer with no node: the designer is awaited here,
+    // its work said as it happens, and the wait ends with its word.
+    let _ = ws.bisa(&["new", "design this one"]);
     // The inbox with no node: the goal that waits is a row.
     let inbox = ws.json(&["inbox"]);
     assert!(
@@ -317,7 +330,111 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     // Approved by its goal's id: the run moves on and is followed to its end.
     let decided = ws.bisa(&["approve", &gated]);
     assert!(decided.status.success(), "{}", said_by(&decided));
+
+    // Words printed for a person: the guided goal's status, the pulse, the
+    // inbox with a channel nobody read, the catalog's entries.
+    ws.ok(&["status", &guided]);
+    ws.ok(&["pulse"]);
+    ws.ok(&["msg", "quiet", "a word nobody has read"]);
+    ws.ok(&["unread", "quiet"]);
+    let rows = ws.json(&["inbox"]);
+    assert!(
+        rows["rows"]
+            .as_array()
+            .is_some_and(|r| r.iter().any(|x| x["key"] == "quiet")),
+        "{rows}"
+    );
+    ws.ok(&["inbox"]);
+    ws.ok(&["channels", "list"]);
+    for e in entries["entries"]
+        .as_array()
+        .expect("the catalog")
+        .iter()
+        .take(3)
+    {
+        ws.ok(&[
+            "catalog",
+            "show",
+            e["kind"].as_str().expect("a kind"),
+            e["slug"].as_str().expect("a slug"),
+        ]);
+    }
+
+    // A goal's documents from files, and one that is not there; a statement
+    // that is none.
+    let doc = ws.file("plan.md", "measure twice\n");
+    ws.ok(&[
+        "new",
+        "read the plan",
+        "--document",
+        &doc.to_string_lossy(),
+        "--mode",
+        "manual",
+    ]);
+    ws.refused(&[
+        "new",
+        "read nothing",
+        "--document",
+        "/nowhere/none.md",
+        "--mode",
+        "manual",
+    ]);
+    ws.refused(&["new", "   ", "--mode", "manual"]);
+
+    // Workflow verbs with no node: a definition from stdin, a slug nobody
+    // installed, a name that is none, templates filtered to none, a one-step
+    // agent workflow run and watched to its end, its run stopped and
+    // restarted, its runs restarted when none goes, and a goal given its
+    // own design from a draft.
+    let agent_wf = json!({"name": "Think", "steps": [
+        {"id": "think", "name": "Think", "kind": "agent",
+         "assignee": {"agent": "general-agent"}, "instructions": "think"},
+    ]});
+    let think = ws.json_stdin(&["workflow", "new", "--from", "-"], &agent_wf.to_string())
+        ["workflow"]["id"]
+        .as_str()
+        .expect("the workflow")
+        .to_string();
+    ws.refused(&["workflow", "run", "no-such-slug"]);
+    ws.refused(&["workflow", "run", ""]);
+    ws.json(&[
+        "workflow",
+        "list",
+        "--templates",
+        "--tag",
+        "nothing-wears-this",
+    ]);
+    ws.json(&["workflow", "list", "--tag", "nothing-wears-this"]);
+    let watched = ws.bisa(&["workflow", "run", &think, "--watch"]);
+    assert!(watched.status.success(), "{}", said_by(&watched));
+    let started = ws.json(&["workflow", "run", &think]);
+    let run = started["run"].as_str().expect("the run").to_string();
+    let _ = ws.bisa(&["workflow", "stop", &think, "--run", &run]);
+    let _ = ws.bisa(&["workflow", "restart", &think, "--run", &run]);
+    let restarted = ws.json(&["workflow", "restart", &think]);
+    assert!(restarted["runs"].is_array(), "{restarted}");
+    ws.refused(&["workflow", "use", &guided]);
+    ws.json(&[
+        "workflow",
+        "use",
+        &guided,
+        "--from",
+        &approve.to_string_lossy(),
+    ]);
     ws.ok(&["rm", &goal, "--projects", "keep"]);
+
+    // The node once more, with the releases door pointed at nothing and an
+    // opt-in file that is no table: both are said, neither stops the start.
+    std::fs::write(ws.data().join("a2a.toml"), "not = [a table").expect("the file");
+    ws.start_in(&[("BISA_RELEASES_API", "http://127.0.0.1:9")]);
+    ws.stop();
+    std::fs::write(
+        ws.data().join("a2a.toml"),
+        "public_base_url = \"http://127.0.0.1:9\"\n",
+    )
+    .expect("the file");
+    ws.start();
+    ws.stop();
 }
 
 /// An agent that holds a turn open, remembers a thing when asked to, and

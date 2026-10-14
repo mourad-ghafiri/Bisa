@@ -253,6 +253,35 @@ impl Node {
         request(&self.socket, method, path, body).await
     }
 
+    /// A request that names the language it wants its refusal in.
+    pub(crate) async fn req_in_language(
+        &self,
+        lang: &str,
+        method: &str,
+        path: &str,
+    ) -> (u16, Value) {
+        let stream = UnixStream::connect(&self.socket).await.expect("connect");
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+            .await
+            .expect("handshake");
+        tokio::spawn(conn);
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(hyper::header::HOST, "localhost")
+            .header(hyper::header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+            .header(hyper::header::ACCEPT_LANGUAGE, lang)
+            .body(Full::new(Bytes::new()))
+            .unwrap();
+        let resp = sender.send_request(request).await.expect("request");
+        let status = resp.status().as_u16();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
     pub(crate) async fn get(&self, path: &str) -> Value {
         let (code, v) = self.req("GET", path, None).await;
         assert_eq!(code, 200, "GET {path} failed: {v}");

@@ -350,7 +350,7 @@ mod tests {
         assert!(
             block[0].contains(NEVER),
             "it never fired, and says so: {}",
-            block[0]
+            block[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
 
         let hook = json!({
@@ -374,13 +374,13 @@ mod tests {
         assert!(
             block[1].contains("/goals/01DX5ZZKBKACTAV9WEVGEMMVRZ/hooks/ticket"),
             "{}",
-            block[1]
+            block[1] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(
             block[2].contains("/hooks/goal:01DX5ZZKBKACTAV9WEVGEMMVRZ/ticket")
                 && block[2].contains("minted"),
             "{}",
-            block[2]
+            block[2] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(block[3].contains("not armed"), "{}", block[3]);
         assert_eq!(listener_lines(&[hourly(), hook]).len(), 5);
@@ -435,7 +435,7 @@ mod tests {
         assert!(
             lines[1].contains("every=3600") && lines[1].contains("who=the team"),
             "{}",
-            lines[1]
+            lines[1] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert_eq!(lines[2], "each run may spend at most 10000 tokens");
         assert_eq!(
@@ -467,7 +467,7 @@ mod tests {
         assert!(
             lines[0].contains("paused") && lines[0].contains(&run.to_string()),
             "{}",
-            lines[0]
+            lines[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         let spent = Listening {
             paused: Some(Paused {
@@ -479,7 +479,7 @@ mod tests {
         assert!(
             standing_lines(Some(&spent))[0].contains("budget"),
             "{:?}",
-            standing_lines(Some(&spent))
+            standing_lines(Some(&spent)) // LCOV_EXCL_LINE: a test's failure words; by construction
         );
     }
 

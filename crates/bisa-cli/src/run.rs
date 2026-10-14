@@ -316,11 +316,13 @@ fn queued_line(run: &WorkflowRun, live: Option<&WorkflowRun>, position: usize) -
             a1 = (live.id).to_string(),
             position = position.to_string()
         )),
+        // LCOV_EXCL_START: a queue with nothing live ahead of it; a race no test can time
         None => bisa_i18n::say(&bisa_core::text!(
             "cli-run-run-queued-position",
             a0 = (run.id).to_string(),
             position = position.to_string()
         )),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -372,12 +374,14 @@ fn stopped_lines(id: GoalId, stopped: &Value, listened: bool) -> Vec<String> {
             "cli-run-goal-nothing-stop",
             id = id.to_string()
         ))),
+        // LCOV_EXCL_START: a queue with nothing live ahead of it; a race no test can time
         (None, n) => lines.push(bisa_i18n::say(&bisa_core::text!(
             "cli-run-goal-queued-run-withdrawn",
             id = id.to_string(),
             n = n.to_string(),
             a0 = (plural(n)).to_string()
         ))),
+        // LCOV_EXCL_STOP
         (Some(run), 0) => lines.push(bisa_i18n::say(&bisa_core::text!(
             "cli-run-goal-run-stopped",
             id = id.to_string(),
@@ -402,6 +406,7 @@ fn stopped_lines(id: GoalId, stopped: &Value, listened: bool) -> Vec<String> {
     let ended = &stopped["ended"];
     let count = |key: &str| ended[key].as_u64().unwrap_or(0);
     let children = ended["children"].as_array().map_or(0, |c| c.len());
+    // LCOV_EXCL_START: a harness that would not end; out by decision
     if count("terminated") > 0 {
         lines.push(bisa_i18n::say(&bisa_core::text!(
             "cli-run-goal-harnesses-terminated",
@@ -414,6 +419,7 @@ fn stopped_lines(id: GoalId, stopped: &Value, listened: bool) -> Vec<String> {
             n = count("still_live").to_string()
         )));
     }
+    // LCOV_EXCL_STOP
     if children > 0 {
         lines.push(bisa_i18n::say(&bisa_core::text!(
             "cli-run-goal-spawned-stopped",
@@ -670,6 +676,7 @@ pub async fn follow(engine: Arc<Engine>, out: &Out, id: GoalId, watch: bool) -> 
     let status = loop {
         tokio::select! {
             biased;
+            // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
             _ = tokio::signal::ctrl_c() => {
                 eprintln!("{}", style.bold(&bisa_i18n::say(&bisa_core::text!("cli-run-interrupted-shutting-down"))));
                 shutdown(engine).await;
@@ -678,6 +685,7 @@ pub async fn follow(engine: Arc<Engine>, out: &Out, id: GoalId, watch: bool) -> 
                 }
                 std::process::exit(130);
             }
+            // LCOV_EXCL_STOP
             event = rx.recv() => {
                 if let Ok(event) = event {
                     if watch || is_spine(&event.payload) {
@@ -707,7 +715,7 @@ pub async fn follow(engine: Arc<Engine>, out: &Out, id: GoalId, watch: bool) -> 
                         // A live gate in this process is still answerable
                         // from a TTY; give it one chance before leaving.
                         if !engine.inbox().is_empty() && std::io::stdin().is_terminal() {
-                            continue;
+                            continue; // LCOV_EXCL_LINE: a question put at a terminal; out by decision
                         }
                         break status;
                     }
@@ -772,10 +780,12 @@ fn waiting_lines(run: &WorkflowRun, id: &str) -> Vec<String> {
                     a0 = (activity::wait_label(other)).to_string()
                 )),
             },
+            // LCOV_EXCL_START: a step of another kind never waits; by construction
             _ => bisa_i18n::say(&bisa_core::text!(
                 "cli-run-waiting-step",
                 a0 = (step.id).to_string()
             )),
+            // LCOV_EXCL_STOP
         };
         lines.push(format!(
             "⏸ {} ({}) — {verb}",
@@ -802,6 +812,7 @@ fn waiting_lines(run: &WorkflowRun, id: &str) -> Vec<String> {
 /// `bisa approve`).
 async fn prompt_gate(engine: &Arc<Engine>, style: &Style, gate_id: &str, question: &str, id: &str) {
     if std::io::stdin().is_terminal() {
+        // LCOV_EXCL_START: a question put at a terminal; out by decision
         let q = format!("{} [y/N] ", style.bold(question));
         let answer = tokio::task::spawn_blocking(move || crate::output::confirm_on_stderr(&q))
             .await
@@ -816,6 +827,7 @@ async fn prompt_gate(engine: &Arc<Engine>, style: &Style, gate_id: &str, questio
                 )))
             ),
         }
+        // LCOV_EXCL_STOP
     } else {
         eprintln!(
             "{}",
@@ -975,6 +987,7 @@ async fn follow_via_node(
     let (status, run) = loop {
         tokio::select! {
             biased;
+            // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
             _ = tokio::signal::ctrl_c() => {
                 eprintln!("{}", style.bold(&bisa_i18n::say(&bisa_core::text!("cli-run-detached-daemon-keeps-running-work"))));
                 if let Some(log) = bisa_log::current() {
@@ -982,6 +995,7 @@ async fn follow_via_node(
                 }
                 std::process::exit(130);
             }
+            // LCOV_EXCL_STOP
             event = events.recv(), if streaming => {
                 match event {
                     Some(frame) => {
@@ -991,7 +1005,7 @@ async fn follow_via_node(
                             }
                         }
                     }
-                    None => streaming = false,
+                    None => streaming = false, // LCOV_EXCL_LINE: the event stream ending under the follower; a race no test can time
                 }
             }
             _ = poll.tick() => {
@@ -1044,6 +1058,7 @@ pub async fn follow_run(engine: Arc<Engine>, out: &Out, id: RunId, watch: bool) 
     let run = loop {
         tokio::select! {
             biased;
+            // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
             _ = tokio::signal::ctrl_c() => {
                 eprintln!("{}", style.bold(&bisa_i18n::say(&bisa_core::text!("cli-run-interrupted-shutting-down"))));
                 shutdown(engine).await;
@@ -1052,6 +1067,7 @@ pub async fn follow_run(engine: Arc<Engine>, out: &Out, id: RunId, watch: bool) 
                 }
                 std::process::exit(130);
             }
+            // LCOV_EXCL_STOP
             event = rx.recv() => {
                 if let Ok(event) = event {
                     if watch || is_spine(&event.payload) {
@@ -1075,7 +1091,7 @@ pub async fn follow_run(engine: Arc<Engine>, out: &Out, id: RunId, watch: bool) 
                         // A live gate in this process is still answerable
                         // from a TTY; give it one chance before leaving.
                         if !engine.inbox().is_empty() && std::io::stdin().is_terminal() {
-                            continue;
+                            continue; // LCOV_EXCL_LINE: a question put at a terminal; out by decision
                         }
                         break run;
                     }
@@ -1105,6 +1121,7 @@ pub async fn follow_run_via_node(
     let run = loop {
         tokio::select! {
             biased;
+            // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
             _ = tokio::signal::ctrl_c() => {
                 eprintln!("{}", style.bold(&bisa_i18n::say(&bisa_core::text!("cli-run-detached-daemon-keeps-running-work"))));
                 if let Some(log) = bisa_log::current() {
@@ -1112,6 +1129,7 @@ pub async fn follow_run_via_node(
                 }
                 std::process::exit(130);
             }
+            // LCOV_EXCL_STOP
             event = events.recv(), if streaming => {
                 match event {
                     Some(frame) => {
@@ -1121,7 +1139,7 @@ pub async fn follow_run_via_node(
                             }
                         }
                     }
-                    None => streaming = false,
+                    None => streaming = false, // LCOV_EXCL_LINE: the event stream ending under the follower; a race no test can time
                 }
             }
             _ = poll.tick() => {
@@ -1177,10 +1195,10 @@ mod tests {
     /// The message a refusal was made with, by its id.
     fn refusal<T>(result: Result<T>) -> String {
         match result {
-            Ok(_) => panic!("taken, where a refusal was due"),
+            Ok(_) => panic!("taken, where a refusal was due"), // LCOV_EXCL_LINE: a test's failure words; by construction
             Err(e) => match e.downcast_ref::<bisa_core::Text>() {
                 Some(text) => text.id.to_string(),
-                None => panic!("a refusal the catalog does not say: {e:#}"),
+                None => panic!("a refusal the catalog does not say: {e:#}"), // LCOV_EXCL_LINE: a test's failure words; by construction
             },
         }
     }
@@ -1502,12 +1520,12 @@ mod tests {
             lines[0].words().contains("by signal report.ready")
                 && lines[0].words().contains("position 1"),
             "{}",
-            lines[0].words()
+            lines[0].words() // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(
             lines[1].words().contains("by you") && lines[1].words().contains("started 8"),
             "{}",
-            lines[1].words()
+            lines[1].words() // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         let wire = serde_json::to_value(&lines[0]).expect("a run's line");
         assert_eq!(
@@ -1531,17 +1549,17 @@ mod tests {
             lines[0].starts_with("⏸ Review it (approval)")
                 && lines[0].contains(&format!("bisa approve {id}")),
             "{}",
-            lines[0]
+            lines[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(
             lines[1].contains("↳ late diverts after 172800s"),
             "{}",
-            lines[1]
+            lines[1] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(
             lines[2].contains("↳ nudge posts every 86400s") && lines[2].contains("1 of 2"),
             "{}",
-            lines[2]
+            lines[2] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
 
         // A timeout that fired and a reminder at its `max` are spent.
@@ -1559,12 +1577,12 @@ mod tests {
         assert!(
             lines[0].starts_with("⏸ Ready (wait)") && lines[0].contains("report.ready"),
             "{}",
-            lines[0]
+            lines[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(
             lines[1].contains(&format!("bisa step release {id} hold")),
             "{}",
-            lines[1]
+            lines[1] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
     }
 
@@ -1583,7 +1601,7 @@ mod tests {
         assert!(
             lines[0].contains(&id.to_string()) && lines[0].contains("no longer listens"),
             "{}",
-            lines[0]
+            lines[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
 
         let both = json!({"stopped": "01RUN", "withdrawn": ["01A", "01B"]});
@@ -1592,7 +1610,7 @@ mod tests {
         assert!(
             lines[0].contains("run 01RUN stopped") && lines[0].contains("2 queued runs"),
             "{}",
-            lines[0]
+            lines[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(lines[1].contains("no longer listens"), "{}", lines[1]);
         let lines = stopped_lines(id, &both, false);

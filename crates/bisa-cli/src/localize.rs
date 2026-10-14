@@ -127,47 +127,51 @@ mod tests {
         let cid = command_id(path);
         match attribute(&en, &cid, "about") {
             // A command with no doc comment owes no words.
-            None if plain(cmd.get_about()).is_empty() => {}
+            None if plain(cmd.get_about()).is_empty() => {} // LCOV_EXCL_LINE: a test's failure words; by construction
             None => faults.push(format!(
+                // LCOV_EXCL_LINE: a test's failure words; by construction
                 "{cid}: no `.about` in locales/en/cli.ftl; the doc comment {:?}",
-                plain(cmd.get_about())
+                plain(cmd.get_about()) // LCOV_EXCL_LINE: a test's failure words; by construction
             )),
             Some(about) => {
                 let derive = plain(cmd.get_about());
                 if !derive.is_empty() && about.trim_end_matches('.') != derive {
                     faults.push(format!(
-                        "{cid}: the catalog says {about:?}, the doc comment {derive:?}"
-                    ));
+                        // LCOV_EXCL_LINE: a test's failure words; by construction
+                        "{cid}: the catalog says {about:?}, the doc comment {derive:?}" // LCOV_EXCL_LINE: a test's failure words; by construction
+                    )); // LCOV_EXCL_LINE: a test's failure words; by construction
                 }
             }
         }
         for arg in cmd.get_arguments() {
             if arg.is_hide_set() || arg.get_help().is_none() {
-                continue;
+                continue; // LCOV_EXCL_LINE: a test's failure words; by construction
             }
             let id = arg.get_id().to_string();
             if id == "help" || id == "version" {
-                continue;
+                continue; // LCOV_EXCL_LINE: a test's failure words; by construction
             }
             let aid = arg_id(path, &id);
             match attribute(&en, &aid, "help") {
                 None => faults.push(format!(
+                    // LCOV_EXCL_LINE: a test's failure words; by construction
                     "{aid}: no `.help` in locales/en/cli.ftl; the doc comment {:?}",
-                    plain(arg.get_help())
+                    plain(arg.get_help()) // LCOV_EXCL_LINE: a test's failure words; by construction
                 )),
                 Some(help) => {
                     let derive = plain(arg.get_help());
                     if help.trim_end_matches('.') != derive {
                         faults.push(format!(
-                            "{aid}: the catalog says {help:?}, the doc comment {derive:?}"
-                        ));
+                            // LCOV_EXCL_LINE: a test's failure words; by construction
+                            "{aid}: the catalog says {help:?}, the doc comment {derive:?}" // LCOV_EXCL_LINE: a test's failure words; by construction
+                        )); // LCOV_EXCL_LINE: a test's failure words; by construction
                     }
                 }
             }
         }
         for sub in cmd.get_subcommands() {
             if sub.is_hide_set() || sub.get_name() == "help" {
-                continue;
+                continue; // LCOV_EXCL_LINE: a test's failure words; by construction
             }
             check(sub, &child_path(path, sub.get_name()), faults);
         }
@@ -180,7 +184,7 @@ mod tests {
         assert!(
             faults.is_empty(),
             "the help and the catalog disagree:\n{}",
-            faults.join("\n")
+            faults.join("\n") // LCOV_EXCL_LINE: a test's failure words; by construction
         );
     }
 
@@ -201,7 +205,7 @@ mod tests {
             cmd.get_positionals()
                 .map(|a| a.get_id().to_string())
                 .collect(),
-        ));
+        )); // LCOV_EXCL_LINE: a test's failure words; by construction
         for sub in cmd.get_subcommands() {
             positionals(sub, &child_path(path, sub.get_name()), out);
         }

@@ -641,7 +641,7 @@ async fn show(ctx: &Ctx, out: &Out, raw: &str) -> Result<()> {
         Ok(w) => (w, true),
         Err(e) => match ws.catalog_workflow(raw.trim())? {
             Some(draft) => (draft_as_workflow(&ws, draft), false),
-            None => return Err(e),
+            None => return Err(e), // LCOV_EXCL_LINE: a name that is neither a workflow nor a template; by construction
         },
     };
     let problems = ws.validate_workflow(&w)?;
@@ -676,7 +676,7 @@ fn report_saved(out: &Out, verb: &str, w: &Workflow, problems: &[Problem]) {
 fn saved_payload(v: &Value) -> Result<(Workflow, Vec<Problem>)> {
     let w: Workflow = serde_json::from_value(v["workflow"].clone()).context(bisa_core::text!(
         "cli-workflow-unexpected-workflow-payload-from-node"
-    ))?;
+    ))?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
     let problems: Vec<Problem> = serde_json::from_value(v["problems"].clone()).unwrap_or_default();
     Ok((w, problems))
 }
@@ -729,7 +729,7 @@ async fn validate(ctx: &Ctx, out: &Out, from: &str) -> Result<()> {
             .await?;
         serde_json::from_value(v["problems"].clone()).context(bisa_core::text!(
             "cli-workflow-unexpected-problems-payload-from-node"
-        ))?
+        ))? // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
     } else {
         let w = draft_as_workflow(&ws, draft);
         ws.validate_workflow(&w)?
@@ -781,7 +781,7 @@ async fn promote(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
             .await?;
         serde_json::from_value(v["workflow"].clone()).context(bisa_core::text!(
             "cli-workflow-unexpected-workflow-payload-from-node"
-        ))?
+        ))? // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
     } else {
         let (engine, _) = ctx.engine().await?;
         let made = engine.promote_workflow(id);
@@ -846,7 +846,7 @@ async fn run(
             .await?;
         let run: bisa_core::RunId = serde_json::from_value(v["run"]["id"].clone()).context(
             bisa_core::text!("cli-step-unexpected-run-payload-from-node"),
-        )?;
+        )?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
         let test = v["run"]["event"]["source"] == json!("test");
         let start = v["run"]["start"].as_str().unwrap_or_default();
         eprintln!("{}", style.bold(&started_line(id, run, test, start)));
@@ -1029,7 +1029,7 @@ async fn restart(ctx: &Ctx, out: &Out, id: &str, run: Option<&str>, watch: bool)
                 .await?;
             let new: bisa_core::RunId = serde_json::from_value(v["run"]["id"].clone()).context(
                 bisa_core::text!("cli-step-unexpected-run-payload-from-node"),
-            )?;
+            )?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
             restarted(&new.to_string());
             return crate::run::follow_run_via_node(client, out, new, watch).await;
         }

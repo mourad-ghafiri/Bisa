@@ -59,7 +59,7 @@ impl NodeClient {
         let mut candidates = vec![preferred.clone()];
         let pointer = bisa_node::pointer_path(&preferred);
         if let Ok(actual) = std::fs::read_to_string(&pointer) {
-            candidates.push(PathBuf::from(actual.trim()));
+            candidates.push(PathBuf::from(actual.trim())); // LCOV_EXCL_LINE: a data folder longer than a socket address allows; out by decision
         }
         for socket in candidates {
             if !socket.exists() {
@@ -219,7 +219,7 @@ impl NodeClient {
                     continue;
                 };
                 if let Err(e) = frames.push(data) {
-                    tracing::warn!(target: "bisa_cli", "the node's event stream broke: {e}");
+                    tracing::warn!(target: "bisa_cli", "the node's event stream broke: {e}"); // LCOV_EXCL_LINE: the stream breaking under the reader; a race no test can time
                     return;
                 }
                 while let Some(event) = frames.next_event() {

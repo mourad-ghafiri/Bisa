@@ -1167,7 +1167,7 @@ async fn new_goal(ctx: &Ctx, out: &Out, input: NewGoalInput) -> Result<()> {
         let v = client.post("/goals", body).await?;
         let goal: bisa_core::Goal = serde_json::from_value(v["goal"].clone()).context(
             bisa_core::text!("cli-main-unexpected-goal-payload-from-node"),
-        )?;
+        )?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
         out.say(&bisa_core::text!(
             "cli-main-goal-captured",
             a0 = (goal.id).to_string(),
@@ -1374,7 +1374,7 @@ async fn answer(
             .await?;
         let outcome: DecideOutcome = serde_json::from_value(v).context(bisa_core::text!(
             "cli-main-unexpected-decide-payload-from-node"
-        ))?;
+        ))?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
         say_answered(out, &outcome);
         return Ok(());
     }
@@ -1420,7 +1420,7 @@ async fn resolve_answer_target_via_node(
                 let home: bisa_core::Home = serde_json::from_value(action["home"].clone())
                     .context(bisa_core::text!(
                         "cli-main-unexpected-decide-payload-from-node"
-                    ))?;
+                    ))?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
                 return Ok((home, Some(id.to_string())));
             }
         }
@@ -1607,7 +1607,7 @@ async fn amend(ctx: &Ctx, out: &Out, goal: &str, from: &str) -> Result<()> {
             .await?;
         serde_json::from_value(v["run"].clone()).context(bisa_core::text!(
             "cli-main-unexpected-run-payload-from-node"
-        ))?
+        ))? // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
     } else {
         let (engine, _) = ctx.engine().await?;
         let r = engine.amend_run(goal, draft);
@@ -1707,7 +1707,7 @@ async fn approve(
             .await?;
         let outcome: DecideOutcome = serde_json::from_value(outcome).context(bisa_core::text!(
             "cli-main-unexpected-decide-payload-from-node"
-        ))?;
+        ))?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
         render_decision(out, &outcome);
         return Ok(());
     }
@@ -1772,7 +1772,7 @@ async fn status(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
             .context(bisa_core::text!("cli-main-bad-run-payload-from-node"))?;
         let items: Vec<WorkItemSpec> = serde_json::from_value(v["work_items"].clone()).context(
             bisa_core::text!("cli-main-bad-work-items-payload-from-node"),
-        )?;
+        )?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
         let spent: bisa_core::goal::BudgetSpent = serde_json::from_value(v["spent"].clone())
             .context(bisa_core::text!("cli-main-bad-spent-payload-from-node"))?;
         // Who started the current run, as the node's own summary of it says.
@@ -2223,8 +2223,9 @@ async fn stop_signal(leashed: bool) -> &'static str {
         // A reader that could not run to its end is a leash that cannot be
         // held: the same cue, said.
         if let Err(e) = read {
+            // LCOV_EXCL_START: the leash unreadable; a disk arm
             tracing::warn!(target: "bisa_cli", "the stdin leash could not be read: {e}");
-            // LCOV_EXCL_LINE: the leash unreadable; a disk arm
+            // LCOV_EXCL_STOP
         }
     };
     #[cfg(unix)]
@@ -2401,7 +2402,7 @@ async fn governance(ctx: &Ctx, out: &Out, cmd: GovernanceCmd) -> Result<()> {
                         .await?;
                     serde_json::from_value(answer["governance"].clone()).context(
                         bisa_core::text!("cli-main-unexpected-governance-payload-from-node"),
-                    )?
+                    )? // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
                 }
                 None => ws.set_gate_policy(gate, policy)?,
             };
@@ -2949,7 +2950,7 @@ mod tests {
         assert!(
             page[3].contains(&format!("bisa workflow listeners --goal {}", listens.id)),
             "{}",
-            page[3]
+            page[3] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
 
         // With no node to hear them, its events are heard once one runs.
@@ -2981,12 +2982,12 @@ mod tests {
         assert!(
             page[0].contains("paused since 9") && page[0].contains("01BX5ZZKBKACTAV9WEVGEMMVRZ"),
             "{}",
-            page[0]
+            page[0] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
         assert!(
             page[1].contains(&format!("bisa run {}", paused.id)),
             "{}",
-            page[1]
+            page[1] // LCOV_EXCL_LINE: a test's failure words; by construction
         );
     }
 

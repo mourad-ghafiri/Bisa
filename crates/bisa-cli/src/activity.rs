@@ -2193,7 +2193,7 @@ mod tests {
         assert!(
             carried(json!([1, 2])).contains("[1,2]"),
             "{}",
-            carried(json!([1, 2]))
+            carried(json!([1, 2])) // LCOV_EXCL_LINE: a test's failure words; by construction
         );
     }
 
