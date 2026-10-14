@@ -1722,7 +1722,7 @@ mod tests {
                 )
                 .is_ok(),
                 "{}",
-                mode.as_str()
+                mode.as_str() // LCOV_EXCL_LINE: a test's failure words; by construction
             );
         }
         assert!(matches!(
@@ -1770,7 +1770,7 @@ mod tests {
                 )
                 .is_ok(),
                 "{}",
-                kind.as_str()
+                kind.as_str() // LCOV_EXCL_LINE: a test's failure words; by construction
             );
         }
         assert!(matches!(
@@ -1825,7 +1825,7 @@ mod tests {
         use crate::effort::{Effort, EffortChoice};
         let choices = |key: &str| match &SettingDef::lookup(key).unwrap().kind {
             Kind::Choice(words) => words.to_vec(),
-            other => panic!("{key} is {other:?}, not a choice"),
+            other => panic!("{key} is {other:?}, not a choice"), // LCOV_EXCL_LINE: a test's failure words; by construction
         };
         let asked: Vec<&str> = EffortChoice::ALL.iter().map(|c| c.as_str()).collect();
         let levels: Vec<&str> = Effort::ALL.iter().map(|e| e.as_str()).collect();
@@ -1874,6 +1874,7 @@ mod tests {
             ));
             assert!(
                 matches!(
+                    // LCOV_EXCL_LINE: a test's own line the profile attributes to its failure; by construction
                     check_write(key, Scope::Workspace, &json!("auto")),
                     Err(SettingsError::InvalidValue { .. })
                 ),

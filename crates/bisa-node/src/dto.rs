@@ -5626,3 +5626,240 @@ mod strip_tests {
         assert!(err.to_string().contains("zzz_nobody_knows"), "{err}");
     }
 }
+
+#[cfg(test)]
+mod conversions {
+    use super::*;
+    use serde_json::{json, to_value};
+
+    fn principal() -> bisa_core::PrincipalId {
+        bisa_core::PrincipalId::new("a".repeat(64)).unwrap()
+    }
+
+    #[test]
+    fn a_crash_report_carries_its_child_s_exit_and_the_lines_before_it() {
+        let report = bisa_log::CrashReport {
+            process: bisa_log::Process::Node,
+            version: "0.4.0".into(),
+            pid: 7,
+            at: "2026-10-14T00:00:00Z".into(),
+            kind: bisa_log::CrashKind::Panic,
+            message: "kaboom".into(),
+            location: Some("src/x.rs:1".into()),
+            thread: Some("main".into()),
+            backtrace: None,
+            child: Some(bisa_log::ChildExit {
+                process: bisa_log::Process::Cli,
+                pid: 9,
+                code: Some(3),
+                signal: None,
+                stderr: vec!["it said so".into()],
+            }),
+            recent: vec![bisa_log::Recorded {
+                at: "t".into(),
+                level: "WARN".into(),
+                target: "bisa_node".into(),
+                message: "before the end".into(),
+                fields: vec![("k".into(), "v".into())],
+            }],
+        };
+        let view = to_value(CrashReportView::from(report)).unwrap();
+        assert_eq!(view["child"]["code"], json!(3));
+        assert_eq!(view["child"]["stderr"], json!(["it said so"]));
+        assert_eq!(view["recent"][0]["message"], json!("before the end"));
+        assert_eq!(view["recent"][0]["fields"][0][1], json!("v"));
+    }
+
+    #[test]
+    fn every_signal_source_but_the_test_one_is_an_event_kind() {
+        use bisa_core::SignalSource as S;
+        for source in [S::Project, S::Check, S::Run, S::Connector] {
+            assert!(EventKind::of(source).is_some(), "{source:?}");
+        }
+        assert!(EventKind::of(S::Test).is_none());
+    }
+
+    #[test]
+    fn a_proposal_draws_the_on_fail_edges_and_words() {
+        let steps: Vec<bisa_core::workflow::Step> = serde_json::from_value(json!([
+            {"id": "ask", "name": "Ask", "kind": "human", "prompt": "which?",
+             "on_fail": {"on_fail": "skip"}},
+            {"id": "tell", "name": "Tell", "kind": "human", "prompt": "so?",
+             "on_fail": {"on_fail": "then", "step": "ask"}}
+        ]))
+        .unwrap();
+        let wf = bisa_core::Workflow {
+            id: bisa_core::WorkflowId::from_ulid(ulid::Ulid::from_parts(3, 3)),
+            name: "Two".into(),
+            description: String::new(),
+            inputs: vec![],
+            steps,
+            origin: bisa_core::WorkflowOrigin::Workspace,
+            author: principal(),
+            tags: Default::default(),
+            revision: 0,
+            archived: None,
+            decision_making: false,
+            created_at: 0,
+        };
+        let view = to_value(ProposalView::of(&wf)).unwrap();
+        assert_eq!(view["steps"][0]["on_fail"], json!("skip"));
+        assert_eq!(view["steps"][1]["on_fail"], json!("then ask"));
+        let edges = view["edges"].as_array().unwrap();
+        assert!(edges.iter().any(|e| e["kind"] == json!("on_fail")
+            && e["from"] == json!("tell")
+            && e["to"] == json!("ask")));
+    }
+
+    #[test]
+    fn a_conversation_about_a_workflow_sits_with_the_workflows_and_a_live_turn_keeps_its_words() {
+        let origin = bisa_core::ConversationOrigin::Workflow {
+            id: bisa_core::WorkflowId::from_ulid(ulid::Ulid::from_parts(4, 4)),
+        };
+        assert_eq!(
+            to_value(InboxSource::of(InboxKind::Conversation, Some(&origin))).unwrap(),
+            to_value(InboxSource::Workflows).unwrap()
+        );
+        let turn = LiveTurnView::from(bisa_engine::conversations::LiveTurnRow {
+            agent: "scout".into(),
+            text: "so far".into(),
+            thinking: "hm".into(),
+            since: 5,
+            working: Some("reading".into()),
+        });
+        assert_eq!(to_value(turn).unwrap()["working"], json!("reading"));
+    }
+
+    #[test]
+    fn an_indexed_conversation_whose_parts_make_no_origin_reads_as_the_workspace_s() {
+        let row = bisa_store::ConversationRow {
+            id: "c".into(),
+            origin_kind: "nonsense".into(),
+            origin_id: Some("x".into()),
+            project: None,
+            title: None,
+            first_line: None,
+            author: "a".into(),
+            created_at: 0,
+            last_message_at: None,
+            message_count: 0,
+            archived: false,
+            mode: "chat".into(),
+            agents: vec![],
+        };
+        assert!(matches!(
+            origin_of(&row),
+            bisa_core::ConversationOrigin::Workspace
+        ));
+    }
+
+    #[test]
+    fn git_words_cross_the_wire_both_ways() {
+        let ident: bisa_vcs::Ident = GitIdent {
+            name: "A".into(),
+            email: "a@b".into(),
+        }
+        .into();
+        assert_eq!(ident.email, "a@b");
+        use bisa_engine::CommitterReason as R;
+        for (reason, word) in [
+            (R::SettlementRefused, "settlement_refused"),
+            (R::Unresolved, "unresolved"),
+        ] {
+            assert_eq!(
+                to_value(CommitterReason::from(reason)).unwrap(),
+                json!(word)
+            );
+        }
+        use bisa_vcs::ConflictKind as K;
+        let kinds = [
+            K::BothModified,
+            K::BothAdded,
+            K::BothDeleted,
+            K::DeletedByUs,
+            K::DeletedByThem,
+            K::AddedByUs,
+            K::AddedByThem,
+        ];
+        let words: Vec<serde_json::Value> = kinds
+            .into_iter()
+            .map(|k| to_value(GitConflictKind::from(k)).unwrap())
+            .collect();
+        assert_eq!(words.len(), 7);
+        assert_eq!(words[2], json!("both_deleted"));
+        let side = |role| bisa_vcs::SideRef {
+            role,
+            name: None,
+            commit: Some("abc".into()),
+            subject: None,
+        };
+        let facts = GitOperationFacts::from(bisa_vcs::OperationFacts {
+            kind: bisa_vcs::InProgress::Rebase,
+            branch: Some("main".into()),
+            ours: side(bisa_vcs::SideRole::Upstream),
+            theirs: side(bisa_vcs::SideRole::Commit),
+            step: Some(bisa_vcs::Step { done: 1, total: 3 }),
+        });
+        let facts = to_value(facts).unwrap();
+        assert_eq!(facts["ours"]["role"], json!("upstream"));
+        assert_eq!(facts["theirs"]["role"], json!("commit"));
+        assert_eq!(facts["step"]["total"], json!(3));
+        assert!(matches!(
+            bisa_vcs::Resolution::from(ResolutionBody::Ours),
+            bisa_vcs::Resolution::Ours
+        ));
+        assert!(matches!(
+            bisa_vcs::Resolution::from(ResolutionBody::Delete),
+            bisa_vcs::Resolution::Delete
+        ));
+        use bisa_vcs::RebaseAction as A;
+        assert!(matches!(A::from(RebaseActionBody::Squash), A::Squash));
+        assert!(matches!(A::from(RebaseActionBody::Fixup), A::Fixup));
+        use bisa_vcs::MergeMode as M;
+        assert!(matches!(M::from(MergeModeBody::Ff), M::Ff));
+        assert!(matches!(M::from(MergeModeBody::FfOnly), M::FfOnly));
+        assert!(matches!(M::from(MergeModeBody::Squash), M::Squash));
+        use bisa_engine::ide::interactive::InProgress as I;
+        for op in [I::Rebase, I::Revert] {
+            let there: GitInProgress = op.into();
+            let back: I = there.into();
+            assert_eq!(back, op);
+        }
+    }
+
+    #[test]
+    fn the_rest_of_the_store_s_words_have_a_wire_form() {
+        use bisa_store::SignalState as S;
+        assert_eq!(
+            to_value(SignalStateDto::from(S::Skipped)).unwrap(),
+            json!("skipped")
+        );
+        assert_eq!(
+            to_value(SignalStateDto::from(S::Failed)).unwrap(),
+            json!("failed")
+        );
+        use bisa_store::ReferenceKind as K;
+        let kinds = [
+            K::Channel,
+            K::Project,
+            K::WorkItem,
+            K::Workflow,
+            K::Governance,
+            K::Account,
+        ];
+        let words: Vec<serde_json::Value> = kinds
+            .into_iter()
+            .map(|k| to_value(ReferenceKindDto::from(k)).unwrap())
+            .collect();
+        assert_eq!(words[0], json!("channel"));
+        assert_eq!(words[5], json!("account"));
+        assert_eq!(
+            to_value(FileEntryKindDto::from(bisa_store::EntryKind::Note)).unwrap(),
+            json!("note")
+        );
+        assert_eq!(
+            to_value(SecretSourceDto::from(bisa_store::SecretSource::Keyring)).unwrap(),
+            json!("keyring")
+        );
+    }
+}

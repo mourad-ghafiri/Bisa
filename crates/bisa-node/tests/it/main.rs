@@ -26,6 +26,7 @@ mod logs;
 mod mobile_development;
 mod network;
 mod node;
+mod node_edges;
 mod notes_git;
 mod project_delete;
 mod readiness;

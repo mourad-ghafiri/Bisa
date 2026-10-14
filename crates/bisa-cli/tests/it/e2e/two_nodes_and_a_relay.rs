@@ -559,6 +559,63 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
         said_by(&no_role)
     );
 
+    // --- the hosted doors a screen uses, over the wire ----------------------------------
+    let (status, posted) = guest.call(
+        "POST",
+        &format!("/hosts/{owner}/channels/{design}/messages"),
+        &[],
+        Some(&json!({"content": "from bob, by the door"})),
+    );
+    assert_eq!(status, 200, "{posted}");
+    let said = posted["id"].as_str().expect("the message's id").to_string();
+    let (status, reacted) = guest.call(
+        "POST",
+        &format!("/hosts/{owner}/messages/{said}/react"),
+        &[],
+        Some(&json!({"emoji": "👍"})),
+    );
+    assert_eq!(status, 200, "{reacted}");
+    let (status, retracted) = guest.call(
+        "POST",
+        &format!("/hosts/{owner}/messages/{said}/retract"),
+        &[],
+        Some(&json!({})),
+    );
+    assert_eq!(status, 200, "{retracted}");
+    let (status, dms) = guest.call("GET", &format!("/hosts/{owner}/dms"), &[], None);
+    assert_eq!(status, 200, "{dms}");
+    let (status, asked) = guest.call(
+        "POST",
+        &format!("/hosts/{owner}/dms"),
+        &[],
+        Some(&json!({"members": [owner]})),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let (status, read) = guest.call(
+        "POST",
+        &format!("/hosts/{owner}/read"),
+        &[],
+        Some(&json!({"scope": design})),
+    );
+    assert_eq!(status, 200, "{read}");
+    let (status, again) = guest.call("POST", "/sync/relays/reconnect", &[], Some(&json!({})));
+    assert_eq!(status, 200, "{again}");
+    let (status, nobody) = guest.call(
+        "GET",
+        &format!("/hosts/{}/channels", "f".repeat(64)),
+        &[],
+        None,
+    );
+    assert!(status == 404 || status == 400, "{status}: {nobody}");
+    // An attachment asked of the peers: the pump runs, no peer answers.
+    let (status, fetched) = guest.call(
+        "POST",
+        &format!("/attachments/{}/fetch", "0".repeat(64)),
+        &[],
+        None,
+    );
+    assert_eq!(status, 404, "{fetched}");
+
     // --- the guest leaves, and is gone on both sides ------------------------------------
     let left = guest.json(&["workspace", "leave", &owner]);
     assert_eq!(left["left"], owner.as_str(), "{left}");
@@ -570,6 +627,106 @@ fn the_wire_is_off_until_it_is_turned_on_and_a_membership_is_changed_and_ended_b
         let people = host.json(&["workspace", "people"]);
         (people["people"].as_array()?.len() == 1).then_some(())
     });
+
+    // --- a join that waits on the owner, asked with no node of the guest's own -------------
+    host.ok(&["settings", "set", "workspace", "collab.join", "ask"]);
+    let asked = host.json(&["workspace", "invite", "--role", "member", "--label", "bob"]);
+    let code = asked["code"].as_str().expect("the code").to_string();
     guest.stop();
+    guest.ok(&["settings", "set", "machine", "sync.enabled", "true"]);
+    guest.ok(&[
+        "settings",
+        "set",
+        "machine",
+        "sync.relays",
+        &json!([relay.url]).to_string(),
+    ]);
+    let waiting = guest.json(&["workspace", "join", &code, "--label", "bob"]);
+    assert!(
+        waiting.to_string().contains("requested"),
+        "the host asked to admit by hand: {waiting}"
+    );
     host.stop();
+
+    // --- without a node: the host's verbs on the workspace itself ----------------------------
+    let invited = host.json(&[
+        "workspace",
+        "invite",
+        "--role",
+        "member",
+        "--label",
+        "carol",
+    ]);
+    let id = invited["invite"]["id"]
+        .as_str()
+        .expect("the invite")
+        .to_string();
+    assert!(invited["code"].as_str().is_some_and(|c| !c.is_empty()));
+    assert!(!host.json(&["workspace", "invites"])["invites"]
+        .as_array()
+        .expect("the invitations")
+        .is_empty());
+    let withdrawn = host.json(&["workspace", "revoke", &id]);
+    assert_eq!(
+        withdrawn["invite"]["state"]["state"], "revoked",
+        "{withdrawn}"
+    );
+    host.refused(&["workspace", "revoke", "not-an-id"]);
+    // Bob left: a role names nobody; a removal of somebody gone is a removal.
+    let nobody = host.bisa(&["workspace", "role", &bob, "member"]);
+    assert!(!nobody.status.success(), "{}", said_by(&nobody));
+    host.ok(&["workspace", "remove", &bob]);
+    // The relays, read and tried from the settings alone.
+    let listed = host.json(&["relay", "list"]);
+    assert_eq!(listed["enabled"], true, "{listed}");
+    assert_eq!(listed["relays"], json!([relay.url]), "{listed}");
+    let one = host.json(&["relay", "check"]);
+    assert_eq!(one["checks"][0]["ok"], true, "{one}");
+    host.refused(&["relay", "check", "https://not-a-relay.example"]);
+    host.ok(&[
+        "settings",
+        "set",
+        "machine",
+        "sync.relays",
+        &json!([relay.url, "ws://127.0.0.1:9"]).to_string(),
+    ]);
+    let two = host.json(&["relay", "check"]);
+    assert_eq!(two["checks"].as_array().map(Vec::len), Some(2), "{two}");
+    host.ok(&["settings", "set", "machine", "sync.enabled", "false"]);
+    let off = host.json(&["relay", "list"]);
+    assert_eq!(off["enabled"], false, "{off}");
+    host.ok(&["settings", "set", "machine", "sync.relays", "[]"]);
+    let none = host.json(&["relay", "list"]);
+    assert_eq!(none["relays"], json!([]), "{none}");
+    let nothing = host.json(&["relay", "check"]);
+    assert_eq!(nothing["checks"], json!([]), "{nothing}");
+    let added = host.json(&["relay", "add", &relay.url]);
+    assert_eq!(added["added"], true, "{added}");
+    // An invitation made while no relay is configured carries none.
+    host.ok(&["settings", "set", "machine", "sync.relays", "[]"]);
+    let bare_code = host.json(&["workspace", "invite", "--role", "member"])["code"]
+        .as_str()
+        .expect("a code")
+        .to_string();
+
+    // --- without a node: the guest's verbs on what it holds ----------------------------------
+    let hosts = guest.json(&["workspace", "hosts"]);
+    assert_eq!(hosts["hosts"].as_array().map(Vec::len), Some(1), "{hosts}");
+    assert_eq!(guest.json(&["workspace", "invites"])["invites"], json!([]));
+    // A join needs the wire on, and a relay to reach the host through.
+    guest.ok(&["settings", "set", "machine", "sync.enabled", "false"]);
+    guest.refused(&["workspace", "join", &bare_code]);
+    guest.ok(&["settings", "set", "machine", "sync.enabled", "true"]);
+    guest.ok(&["settings", "set", "machine", "sync.relays", "[]"]);
+    guest.refused(&["workspace", "join", &bare_code]);
+    guest.ok(&[
+        "settings",
+        "set",
+        "machine",
+        "sync.relays",
+        &json!([relay.url]).to_string(),
+    ]);
+    // Leaving a host one already left, with no node of one's own, is a leave.
+    let again = guest.json(&["workspace", "leave", &owner]);
+    assert_eq!(again["left"], owner.as_str(), "{again}");
 }

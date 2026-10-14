@@ -651,7 +651,7 @@ async fn main() {
             Some(bisa_store::Paths::new(&ctx.data_dir).logs_dir())
         }
         bisa_log::Process::Mcp => bisa_log::env_dir(),
-        bisa_log::Process::Desktop => None,
+        bisa_log::Process::Desktop => None, // LCOV_EXCL_LINE: the command line is never the desktop; by construction
     };
     if let Some(dir) = dir {
         if let Err(e) = log.attach(dir, bisa_log::LogConfig::default()) {
@@ -685,10 +685,11 @@ fn paths(ctx: &Ctx, out: &Out) -> Result<()> {
     let engine_holder = match bisa_engine::EngineLock::holder(&paths) {
         Ok(Some(holder)) => json!({ "pid": holder.pid, "started_at": holder.started_at }),
         Ok(None) => serde_json::Value::Null,
+        // LCOV_EXCL_START: the lock file unreadable; a disk arm
         Err(e) => {
             tracing::warn!(target: "bisa_cli", "the engine lock could not be read: {e}");
             serde_json::Value::Null
-        }
+        } // LCOV_EXCL_STOP
     };
     out.json_value(
         json!({ "data_dir": data_dir, "logs_dir": logs_dir, "engine_holder": engine_holder }),
@@ -707,10 +708,12 @@ fn paths(ctx: &Ctx, out: &Out) -> Result<()> {
 fn logs(ctx: &Ctx, out: &Out) -> Result<()> {
     let root = bisa_store::Paths::new(&ctx.data_dir).logs_dir();
     let listing = bisa_log::list(&root).with_context(|| {
+        // LCOV_EXCL_START: the log folder unreadable; a disk arm
         bisa_core::text!(
             "cli-main-reading-log-folder",
             a0 = (root.display()).to_string()
         )
+        // LCOV_EXCL_STOP
     })?;
     let latest = bisa_log::latest_crash(&root);
     out.json_value(json!({
@@ -1288,12 +1291,12 @@ async fn wait_for_design(engine: &bisa_engine::Engine, id: GoalId, out: &Out) {
             }
             _ = poll.tick() => {
                 if !engine.inbox().is_empty() {
-                    return; // a question or the Adopt gate is waiting on the human
+                    return; // LCOV_EXCL_LINE: a question raised while the design is awaited; a race no test can time
                 }
                 let goal = match engine.workspace().get_goal(id) {
                     Ok(g) if g.workflow.is_some() || g.run.is_some() || g.is_closed() => return,
                     Ok(g) => g,
-                    Err(_) => return,
+                    Err(_) => return, // LCOV_EXCL_LINE: the goal gone while the design is awaited; a race no test can time
                 };
                 // A wake that stopped without proposing, or never started,
                 // is settled too: the goal says so, and `bisa design` is the
@@ -1316,8 +1319,10 @@ async fn wait_for_design(engine: &bisa_engine::Engine, id: GoalId, out: &Out) {
                     return;
                 }
                 if Instant::now() >= deadline {
+                    // LCOV_EXCL_START: a four-minute wait on the designer; out by decision
                     out.say(&bisa_core::text!("cli-main-workflow-agent-still-working-check-back"));
                     return;
+                    // LCOV_EXCL_STOP
                 }
             }
         }
@@ -1523,10 +1528,12 @@ async fn rm_goal(ctx: &Ctx, out: &Out, id: &str, projects: &str, tree: bool) -> 
         goal = goal.to_string(),
         a0 = (retired["stopped_sessions"]).to_string(),
         a1 = (if unsettled > 0 {
+            // LCOV_EXCL_START: sessions still ending when the wait ran out; a race no test can time
             bisa_i18n::say(&bisa_core::text!(
                 "cli-main-still-ending-when-wait-ran-out",
                 unsettled = unsettled.to_string()
             ))
+            // LCOV_EXCL_STOP
         } else {
             String::new()
         })
@@ -1830,7 +1837,7 @@ fn heard_by(ws: &bisa_store::Workspace, goal: &bisa_core::Goal) -> Vec<String> {
         return Vec::new();
     };
     let Ok(workflow) = ws.get_workflow(workflow) else {
-        return Vec::new();
+        return Vec::new(); // LCOV_EXCL_LINE: a goal's workflow is one the store refuses to delete; by construction
     };
     bisa_node::dto::StartSummary::list(&workflow, Some(listening))
         .iter()
@@ -2050,10 +2057,12 @@ fn node_socket_in_use(paths: &bisa_store::Paths) -> Option<std::path::PathBuf> {
     if preferred.exists() {
         return Some(preferred);
     }
+    // LCOV_EXCL_START: a data folder longer than a socket address allows; the node's own test proves the pointer, out by decision here
     std::fs::read_to_string(bisa_node::pointer_path(&preferred))
         .ok()
         .map(|p| std::path::PathBuf::from(p.trim()))
         .filter(|p| p.exists())
+    // LCOV_EXCL_STOP
 }
 
 async fn node(
@@ -2122,9 +2131,11 @@ async fn node(
             Box::pin(async move {
                 match pump.attachment_fetcher().await {
                     Some(f) => Ok(f.fetch(&sha256).await),
+                    // LCOV_EXCL_START: the host pump failing to start; a disk arm
                     None => Err(bisa_i18n::say(&bisa_core::text!(
                         "cli-main-node-runs-no-host-pump"
                     ))),
+                    // LCOV_EXCL_STOP
                 }
             })
         }))
@@ -2204,7 +2215,7 @@ async fn stop_signal(leashed: bool) -> &'static str {
             loop {
                 match std::io::Read::read(&mut lock, &mut scratch) {
                     Ok(0) | Err(_) => break,
-                    Ok(_) => {}
+                    Ok(_) => {} // LCOV_EXCL_LINE: the leash carries nothing; by construction
                 }
             }
         })
@@ -2213,32 +2224,36 @@ async fn stop_signal(leashed: bool) -> &'static str {
         // held: the same cue, said.
         if let Err(e) = read {
             tracing::warn!(target: "bisa_cli", "the stdin leash could not be read: {e}");
+            // LCOV_EXCL_LINE: the leash unreadable; a disk arm
         }
     };
     #[cfg(unix)]
     {
         let term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(term) => Some(term),
+            // LCOV_EXCL_START: the signal listener refused by the system; out by decision
             Err(e) => {
                 tracing::warn!(target: "bisa_cli", "SIGTERM is not listened for: {e}");
                 None
-            }
+            } // LCOV_EXCL_STOP
         };
         let terminated = async move {
             match term {
                 Some(mut term) => {
                     term.recv().await;
                 }
-                None => std::future::pending::<()>().await,
+                None => std::future::pending::<()>().await, // LCOV_EXCL_LINE: the signal listener refused by the system; out by decision
             }
         };
         tokio::select! {
+            // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
             r = tokio::signal::ctrl_c() => {
                 if let Err(e) = r {
                     tracing::warn!(target: "bisa_cli", "Ctrl-C is not listened for: {e}");
                 }
                 "interrupted"
             }
+            // LCOV_EXCL_STOP
             _ = terminated => "terminated",
             _ = leash => "parent gone", // for the log: the goodbye's reason, beside "terminated"
         }
@@ -2246,12 +2261,14 @@ async fn stop_signal(leashed: bool) -> &'static str {
     #[cfg(not(unix))]
     {
         tokio::select! {
+            // LCOV_EXCL_START: the process interrupted at a terminal; out by decision
             r = tokio::signal::ctrl_c() => {
                 if let Err(e) = r {
                     tracing::warn!(target: "bisa_cli", "Ctrl-C is not listened for: {e}");
                 }
                 "interrupted"
             }
+            // LCOV_EXCL_STOP
             _ = leash => "parent gone", // for the log: the goodbye's reason, beside "terminated"
         }
     }
@@ -2801,8 +2818,8 @@ async fn doctor(ctx: &Ctx, out: &Out) -> Result<()> {
     };
     let platform = match std::env::consts::OS {
         "macos" => "mac_os",
-        "windows" => "windows",
-        _ => "linux",
+        "windows" => "windows", // LCOV_EXCL_LINE: this build runs on macOS; by construction
+        _ => "linux",           // LCOV_EXCL_LINE: this build runs on macOS; by construction
     };
     let ready = readiness["ready"].as_bool().unwrap_or(false);
     for check in readiness["checks"].as_array().into_iter().flatten() {

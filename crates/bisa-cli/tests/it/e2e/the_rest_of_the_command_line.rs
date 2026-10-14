@@ -68,6 +68,8 @@ fn design_of(ws: &Sealed, goal: &str) -> String {
 fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library() {
     let mut ws = Sealed::with_script(&a_designer_that_stalls_once());
     ws.start();
+    // The feed, through the node, before the goal exists.
+    assert!(ws.json(&["pulse"])["rows"].is_array());
 
     // The harness the journey's agents run on, as the machine finds it.
     let probed = ws.json(&["harness", "probe", AGENT_HARNESS]);
@@ -176,7 +178,146 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     );
     // What is the library's already is not promoted again.
     ws.refused(&["workflow", "promote", &copy]);
+
+    // An answer aimed at a goal is taken through the node; one aimed at an
+    // id that is neither a goal nor a pending gate is refused in words.
+    let taken = ws.json(&["answer", &goal, "yes"]);
+    assert_eq!(taken["answered"], true, "{taken}");
+    ws.refused(&["answer", "nonsense", "yes"]);
     ws.stop();
+
+    // --- without a node: the same verbs on the workspace itself ---------------------
+    ws.refused(&["design", &goal]);
+    ws.ok(&["archive", "workflow", &copy]);
+    ws.ok(&["archive", "workflow", &copy, "--undo"]);
+    ws.ok(&["archive", "goal", &goal]);
+    ws.ok(&["archive", "goal", &goal, "--undo"]);
+    assert!(ws.json(&["status", &goal])["status"].is_string());
+    ws.refused(&["archive", "workflow", "not-an-id"]);
+    ws.refused(&["archive", "thing", &goal]);
+    ws.refused(&["rm", &goal, "--projects", "nope"]);
+    // A goal that is done has nothing left to amend; the draft is read all the same.
+    let late = ws.bisa(&["amend", &goal, "--from", &amended.to_string_lossy()]);
+    assert!(!late.status.success(), "{}", said_by(&late));
+    let set = ws.json(&["governance", "set", "approval", "admins"]);
+    assert_eq!(set["governance"]["approval"]["policy"], "admins", "{set}");
+    let listed = ws.json(&["governance", "set", "publish", "ada, bob"]);
+    assert!(listed["governance"]["publish"].is_object(), "{listed}");
+    ws.json(&["governance", "show"]);
+    let note = ws.file("note.txt", "hello\n");
+    ws.ok(&[
+        "msg",
+        "general",
+        "a file for you",
+        "--attach",
+        &note.to_string_lossy(),
+    ]);
+    ws.refused(&["msg", "general", "a file", "--attach", "/nowhere/none.txt"]);
+    let made = ws.json(&[
+        "project",
+        "new",
+        "shelf",
+        "--committer",
+        "A Journey <journey@example.test>",
+    ]);
+    let project = made["project"]["id"]
+        .as_str()
+        .expect("the project")
+        .to_string();
+    ws.ok(&["archive", "project", &project]);
+    ws.ok(&["archive", "project", &project, "--undo"]);
+
+    // The smaller verbs, with no node: a server asked for with no socket, a
+    // scope that is two scopes, a guided goal before its proposal, a scope
+    // that is none, a tag count with nothing tagged, the workspace checked,
+    // the catalog filtered to nothing and an entry shown, a quiet channel
+    // read and unread, the feed's goals, a language flag with no language,
+    // and a restart of a goal that is done.
+    ws.refused(&["mcp"]);
+    ws.refused(&[
+        "mcp",
+        "--socket",
+        "nowhere",
+        "--work-item",
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "--goal",
+        &goal,
+    ]);
+    let guided = ws.json(&["new", "think about it", "--mode", "guided"])["goal"]
+        .as_str()
+        .expect("the guided goal")
+        .to_string();
+    ws.json(&["status", &guided]);
+    ws.refused(&["settings", "set", "bogus", "k", "v"]);
+    ws.json(&["tags", "--entity", "goal"]);
+    ws.ok(&["workspace", "check"]);
+    assert_eq!(
+        ws.json(&["catalog", "list", "--tag", "nothing-wears-this"])["entries"],
+        json!([])
+    );
+    let entries = ws.json(&["catalog", "list"]);
+    for e in entries["entries"]
+        .as_array()
+        .expect("the catalog")
+        .iter()
+        .take(3)
+    {
+        ws.json(&[
+            "catalog",
+            "show",
+            e["kind"].as_str().expect("a kind"),
+            e["slug"].as_str().expect("a slug"),
+        ]);
+    }
+    ws.json(&["channels", "create", "quiet"]);
+    assert_eq!(ws.json(&["msgs", "quiet"])["messages"], json!([]));
+    ws.ok(&["unread", "quiet"]);
+    ws.ok(&["read", "quiet"]);
+    assert_eq!(
+        ws.json(&["channels", "list", "--tag", "nothing-wears-this"])["channels"],
+        json!([])
+    );
+    ws.json(&["channels", "list"]);
+    assert_eq!(ws.json(&["dm", "list"])["dms"], json!([]));
+    ws.json(&["pulse"]);
+    ws.json(&["pulse", "--concept", "runs"]);
+    let _ = ws.bisa(&["status", &goal, "--lang"]);
+    let restarted = ws.bisa(&["restart", &goal]);
+    assert!(!restarted.status.success(), "{}", said_by(&restarted));
+
+    // A goal run with no node and watched to the gate it waits at: the gate
+    // is said, with no terminal to answer it at, and the wait is handed off.
+    let approve = ws.file(
+        "approve.json",
+        &json!({"name": "Approve it", "steps": [
+            {"id": "ok", "name": "Ok?", "kind": "approval", "prompt": "Go?"},
+        ]})
+        .to_string(),
+    );
+    let wf = ws.json(&["workflow", "new", "--from", &approve.to_string_lossy()])["workflow"]["id"]
+        .as_str()
+        .expect("the workflow")
+        .to_string();
+    let gated = ws.json(&["new", "approve this", "--workflow", &wf, "--mode", "manual"])["goal"]
+        .as_str()
+        .expect("the gated goal")
+        .to_string();
+    let watched = ws.bisa(&["run", &gated, "--watch"]);
+    assert!(watched.status.success(), "{}", said_by(&watched));
+    let again = ws.bisa(&["run", &gated]);
+    assert!(again.status.success(), "{}", said_by(&again));
+    // The inbox with no node: the goal that waits is a row.
+    let inbox = ws.json(&["inbox"]);
+    assert!(
+        inbox["rows"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|r| r["key"] == gated.as_str())),
+        "{inbox}"
+    );
+    // Approved by its goal's id: the run moves on and is followed to its end.
+    let decided = ws.bisa(&["approve", &gated]);
+    assert!(decided.status.success(), "{}", said_by(&decided));
+    ws.ok(&["rm", &goal, "--projects", "keep"]);
 }
 
 /// An agent that holds a turn open, remembers a thing when asked to, and

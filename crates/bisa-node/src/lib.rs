@@ -1309,6 +1309,14 @@ mod panics {
     use axum::routing::get;
     use tower::ServiceExt;
 
+    /// A body the node itself could not write is the node's fault: a 500.
+    #[test]
+    fn a_json_the_node_cannot_write_is_its_own_fault() {
+        let e = serde_json::from_str::<u8>("x").unwrap_err();
+        let err = ApiError::from(e);
+        assert_eq!(err.status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     /// A route that panics answers a 500 with the node's own error body, and
     /// the next request on the same router is served — the shipped node
     /// unwinds and never aborts.

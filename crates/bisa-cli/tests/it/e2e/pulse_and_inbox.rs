@@ -87,7 +87,11 @@ fn what_concerns_a_person_is_a_row_until_it_is_answered_read_or_opened() {
 
     // Answered: nothing is owed, and what the run came to is a notice —
     // the row is no longer among what needs the person, and is unread.
-    let answered = ws.json(&["step", "answer", &goal, "ask", "-o", "yes"]);
+    let gate = asking["needs_action"][0]["gate_id"]
+        .as_str()
+        .expect("the gate's id")
+        .to_string();
+    let answered = ws.json(&["answer", &gate, "-o", "yes"]);
     assert_eq!(
         answered["status"], "failed",
         "the workflow ends as failed: {answered}"
@@ -112,6 +116,7 @@ fn what_concerns_a_person_is_a_row_until_it_is_answered_read_or_opened() {
 
     // Read: the notice stays, and no longer counts.
     ws.ok(&["read", &goal]);
+    ws.json(&["inbox"]);
     let read = row(&ws, &goal, "all").expect("the row");
     assert_eq!(read["read"], true, "{read}");
     assert_eq!(read["unread_notices"], 0);
@@ -140,6 +145,10 @@ fn what_concerns_a_person_is_a_row_until_it_is_answered_read_or_opened() {
     let (status, refused) = ws.call("GET", "/inbox?filter=everything", &[], None);
     assert_eq!(status, 400, "{refused}");
     ws.stop();
+    // Without a node the inbox is read from the workspace: the goal that
+    // still concerns the person, and the conversation left unread.
+    let offline = ws.json(&["inbox"]);
+    assert!(offline["rows"].is_array(), "{offline}");
 }
 
 #[test]

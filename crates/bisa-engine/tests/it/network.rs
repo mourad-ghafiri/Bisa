@@ -193,3 +193,68 @@ async fn a_check_refuses_this_machine_and_a_scheme_that_is_not_http() {
         );
     }
 }
+
+/// A layer written behind the engine's back — by hand, by another process —
+/// is not in force until a network setting is written through the engine
+/// again, and the status says so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_layer_written_behind_the_engine_is_said_to_be_not_in_force_until_a_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let ws = engine.workspace();
+    ws.set_setting(
+        bisa_core::settings::Scope::Machine,
+        None,
+        keys::PROXY_MODE,
+        json!("manual"),
+    )
+    .unwrap();
+    ws.set_setting(
+        bisa_core::settings::Scope::Machine,
+        None,
+        keys::PROXY_HTTPS,
+        json!("http://proxy.example:3128"),
+    )
+    .unwrap();
+    let status = engine.network_status();
+    assert!(
+        status
+            .problems
+            .iter()
+            .any(|p| p.contains("built before them")),
+        "{:?}",
+        status.problems
+    );
+    engine
+        .set_setting(SettingScope::Machine, None, keys::HTTP1_ONLY, json!(false))
+        .unwrap();
+    assert!(engine.network_status().problems.is_empty());
+    engine.shutdown().await;
+}
+
+/// In `environment` mode what is in force is what the process environment
+/// names: nothing named is direct.
+#[tokio::test(flavor = "multi_thread")]
+async fn environment_mode_is_in_force_as_the_environment_names_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    engine
+        .set_setting(
+            SettingScope::Machine,
+            None,
+            keys::PROXY_MODE,
+            json!("environment"),
+        )
+        .unwrap();
+    let status = engine.network_status();
+    assert_eq!(status.mode, bisa_core::ProxyMode::Environment);
+    let named = status.environment.http.is_some() || status.environment.https.is_some();
+    assert_eq!(
+        matches!(status.in_force, InForce::Direct),
+        !named,
+        "{:?} against {:?}",
+        status.in_force,
+        status.environment
+    );
+    engine.shutdown().await;
+}

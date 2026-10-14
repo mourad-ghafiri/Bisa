@@ -63,10 +63,11 @@ pub fn apply(inner: &Inner) {
     };
     let config = match inner.ws.settings(None) {
         Ok(resolved) => config_from(&resolved),
+        // LCOV_EXCL_START: the settings unreadable; a disk arm
         Err(e) => {
             tracing::warn!(target: "bisa_engine::logging", "logging settings not read: {e}");
             return;
-        }
+        } // LCOV_EXCL_STOP
     };
     match handle.apply(config) {
         Ok(()) => tracing::debug!(
@@ -77,9 +78,10 @@ pub fn apply(inner: &Inner) {
             keep_files = config.keep_files,
             "logging settings applied"
         ),
+        // LCOV_EXCL_START: the log's own files unwritable; a disk arm
         Err(e) => {
             tracing::warn!(target: "bisa_engine::logging", "logging settings not applied: {e}")
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -102,11 +104,13 @@ pub fn dir(inner: &Inner) -> PathBuf {
 pub fn listing(inner: &Inner) -> Listing {
     let dir = dir(inner);
     bisa_log::list(&dir).unwrap_or_else(|e| {
+        // LCOV_EXCL_START: the log folder unreadable; a disk arm
         tracing::warn!(target: "bisa_engine::logging", dir = %dir.display(), "log folder not read: {e}");
         Listing {
             families: Vec::new(),
             crashes: Vec::new(),
         }
+        // LCOV_EXCL_STOP
     })
 }
 

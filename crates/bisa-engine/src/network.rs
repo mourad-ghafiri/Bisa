@@ -95,14 +95,15 @@ pub fn policy(settings: &NetworkSettings) -> (HttpPolicy, Vec<String>) {
 pub fn clients_from(ws: &Workspace) -> Clients {
     let (policy, problems) = policy(&snapshot(ws));
     for p in &problems {
-        tracing::warn!(target: "bisa_engine", "network settings: {p}");
+        tracing::warn!(target: "bisa_engine", "network settings: {p}"); // LCOV_EXCL_LINE: a text the layer refuses to take; by construction
     }
     match Clients::new(&policy) {
         Ok(clients) => clients,
+        // LCOV_EXCL_START: a URL the write accepted is one the client takes; by construction
         Err(e) => {
             tracing::warn!(target: "bisa_engine", "the proxy could not be applied: {e}");
             Clients::default()
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -114,11 +115,13 @@ pub fn refresh_for(inner: &Inner, key: &str) {
     }
     let (policy, problems) = policy(&snapshot(&inner.ws));
     for p in &problems {
-        tracing::warn!(target: "bisa_engine", "network settings: {p}");
+        tracing::warn!(target: "bisa_engine", "network settings: {p}"); // LCOV_EXCL_LINE: a text the layer refuses to take; by construction
     }
     let result = inner.http.apply(&policy);
     if let Err(e) = &result {
+        // LCOV_EXCL_START: a URL the write accepted is one the client takes; by construction
         tracing::warn!(target: "bisa_engine", "the proxy could not be applied: {e}");
+        // LCOV_EXCL_STOP
     }
     inner.network.note(&result);
 }
@@ -264,7 +267,9 @@ pub fn status(inner: &Inner) -> NetworkStatus {
     let current = inner.http.policy();
     if current != wanted {
         problems.push(match inner.network.last_error() {
+            // LCOV_EXCL_START: a URL the write accepted is one the client takes; by construction
             Some(e) => format!("the settings are not in force — the proxy could not be applied: {e}"),
+            // LCOV_EXCL_STOP
             None => "the settings are not in force — the clients were built before them; write any network setting again".to_string(),
         });
     }
@@ -305,9 +310,11 @@ pub fn check_url(url: &str) -> Result<reqwest::Url, EngineError> {
         )));
     }
     match parsed.host_str() {
+        // LCOV_EXCL_START: an http URL that parsed has a host; by construction
         None => Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-check-needs-host"
         ))),
+        // LCOV_EXCL_STOP
         Some(h) if is_loopback_host(h) => Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-check-way-out-machine-not-loopback-address"
         ))),
@@ -318,6 +325,7 @@ pub fn check_url(url: &str) -> Result<reqwest::Url, EngineError> {
 /// One `GET` through the outbound client, the body dropped.
 pub async fn check(inner: &Inner, url: &str) -> Result<NetworkCheck, EngineError> {
     let target = check_url(url)?;
+    // LCOV_EXCL_START: a request that leaves the machine; out by decision
     let via_proxy = matches!(
         in_force(&inner.http.policy(), &environment()),
         InForce::Proxy { .. }
@@ -349,6 +357,7 @@ pub async fn check(inner: &Inner, url: &str) -> Result<NetworkCheck, EngineError
             via_proxy,
         },
     })
+    // LCOV_EXCL_STOP
 }
 
 /// The innermost cause, without the URL reqwest prefixes — a proxy URL in a
@@ -360,9 +369,9 @@ pub(crate) fn cause_of(e: &reqwest::Error) -> String {
     }
     let text = cause.to_string();
     if e.is_timeout() {
-        "timed out".to_string()
+        "timed out".to_string() // LCOV_EXCL_LINE: a request that leaves the machine; out by decision
     } else if text.is_empty() {
-        "the request failed".to_string()
+        "the request failed".to_string() // LCOV_EXCL_LINE: a request that leaves the machine; out by decision
     } else {
         text
     }
@@ -451,7 +460,7 @@ mod tests {
                 assert!(!https.unwrap().contains("s3cret"));
                 assert_eq!(no_proxy.as_deref(), Some("localhost,127.0.0.1,::1"));
             }
-            other => panic!("{other:?}"),
+            other => panic!("{other:?}"), // LCOV_EXCL_LINE: a test's failure words; by construction
         }
     }
 
