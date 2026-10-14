@@ -210,6 +210,19 @@ mod tests {
     }
 
     #[test]
+    fn a_named_variable_that_names_no_folder_is_passed_over() {
+        let home = tempfile::tempdir().unwrap();
+        let gone = home.path().join("not-a-folder");
+        std::fs::write(&gone, "a file").unwrap();
+        let env = |name: &str| (name == ANDROID_ENV[0]).then(|| gone.display().to_string());
+        assert_eq!(
+            android_sdk(None, env, home.path()),
+            None,
+            "a variable naming a file is no SDK, and no Android Studio folder stands"
+        );
+    }
+
+    #[test]
     fn the_android_sdk_is_the_setting_the_named_variables_or_android_studios_folder() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");

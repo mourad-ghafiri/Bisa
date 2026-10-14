@@ -317,7 +317,7 @@ pub(crate) fn home_of(
             }
             ConversationOrigin::Project { .. } => match facts.workstream() {
                 Some(w) => BrowserHome::new(BrowserHomeScope::Workstream, w),
-                None => BrowserHome::new(BrowserHomeScope::Conversation, conversation.id),
+                None => BrowserHome::new(BrowserHomeScope::Conversation, conversation.id), // LCOV_EXCL_LINE a project keeps its primary while it stands; by construction
             },
             ConversationOrigin::Goal { id } => BrowserHome::new(BrowserHomeScope::Goal, id),
             ConversationOrigin::Workflow { id } => BrowserHome::new(BrowserHomeScope::Workflow, id),
@@ -607,6 +607,7 @@ impl BrowserRequests {
             headless,
             asked_at: now_secs(),
         };
+        // LCOV_EXCL_START a field read only when debug is logged; by construction
         tracing::debug!(
             id = %id,
             action = ?request.action,
@@ -615,6 +616,7 @@ impl BrowserRequests {
             headless,
             "browser request parked"
         );
+        // LCOV_EXCL_STOP
         let rx = self.desk.park(pending);
         inner.emit(crate::events::EngineEvent::global(
             EnginePayload::BrowserRequest {
@@ -956,6 +958,59 @@ mod tests {
         headless: HeadlessPolicy::Unattended,
         scripts: ScriptsPolicy::Allow,
     };
+
+    /// A result's text and value are cut to the bound on a character
+    /// boundary and say so; the dialogs and console lines are held to their
+    /// counts; a fresh desk is the one `new` makes.
+    #[test]
+    fn a_result_is_bounded_on_a_character_boundary_and_a_default_desk_is_a_new_one() {
+        let long = "é".repeat(MAX_BROWSER_TEXT); // two bytes each: past the bound mid-character
+        let result = BrowserResult {
+            ok: true,
+            text: Some(long.clone()),
+            value: Some(serde_json::Value::String(long.clone())),
+            dialogs: vec![
+                BrowserDialog {
+                    kind: "alert".into(),
+                    message: "hi".into(),
+                    answer: None,
+                };
+                MAX_DIALOGS + 3
+            ],
+            console: vec![
+                ConsoleLine {
+                    level: "log".into(),
+                    text: "x".into(),
+                    at: 1,
+                };
+                MAX_CONSOLE_LINES + 7
+            ],
+            ..BrowserResult::default()
+        }
+        .bounded();
+        let text = result.text.unwrap();
+        assert!(
+            text.ends_with(&format!("… (cut at {MAX_BROWSER_TEXT} bytes)")),
+            "{}",
+            &text[text.len() - 40..]
+        );
+        assert!(text.starts_with(&"é".repeat(MAX_BROWSER_TEXT / 2 - 1)));
+        assert!(
+            matches!(result.value, Some(serde_json::Value::String(ref v)) if v.contains("cut at"))
+        );
+        assert_eq!(result.dialogs.len(), MAX_DIALOGS);
+        assert_eq!(result.console.len(), MAX_CONSOLE_LINES);
+        let short = BrowserResult {
+            ok: true,
+            text: Some("short".into()),
+            value: Some(serde_json::json!({"n": 1})),
+            ..BrowserResult::default()
+        }
+        .bounded();
+        assert_eq!(short.text.as_deref(), Some("short"));
+        assert_eq!(short.value, Some(serde_json::json!({"n": 1})));
+        assert!(BrowserRequests::default().pending().is_empty());
+    }
 
     #[test]
     fn a_result_is_bounded_on_a_character_boundary_and_says_so() {

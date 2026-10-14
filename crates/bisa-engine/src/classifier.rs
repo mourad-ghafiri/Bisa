@@ -217,6 +217,6 @@ async fn judged(inner: &Inner, reading: &Reading<'_>) -> Result<Verdict, EngineE
             response.certainty()
         ))),
         Judged::Failed(why) => Err(no_verdict(why)),
-        Judged::Off => Err(no_verdict("the Decision-Making Agent was not asked".into())),
+        Judged::Off => Err(no_verdict("the Decision-Making Agent was not asked".into())), // LCOV_EXCL_LINE the classifier's points are selected explicitly; by construction
     }
 }

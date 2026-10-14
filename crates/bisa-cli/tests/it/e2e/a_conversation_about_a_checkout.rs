@@ -404,6 +404,17 @@ fn an_agents_changes_are_reviewed_in_each_mode_and_a_call_is_asked_where_the_per
     // --- the node goes and comes back: the review is on disk ---------------------
     let before = talk.files(&ws);
     ws.stop();
+    // Without a node: the mode is set on the record, and a conversation
+    // about a checkout is opened from the workstream's own words.
+    let set = ws.json(&["conversation", "mode", &talk.id, "manual"]);
+    assert_eq!(set["conversation"]["mode"], "manual", "{set}");
+    let set = ws.json(&["conversation", "mode", &talk.id, "plan"]);
+    assert_eq!(set["conversation"]["mode"], "plan", "{set}");
+    let offline = ws.json(&["conversation", "new", "workstream", &project]);
+    assert_eq!(
+        offline["conversation"]["origin"]["kind"], "workstream",
+        "{offline}"
+    );
     ws.start();
     assert_eq!(talk.files(&ws), before);
     let view = ws.json(&["conversation", "mode", &talk.id]);

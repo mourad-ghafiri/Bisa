@@ -262,3 +262,33 @@ pub(crate) fn drop_asks_of(inner: &Inner, conversation: ConversationId, agent: &
         entry.retain(|w| w.view.agent != agent);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_subject_is_said_as_the_verb_phrase_after_the_agents_name() {
+        let tool = AskSubject::Tool {
+            tool: "git push".into(),
+            tier: bisa_core::ToolTier::Exec,
+        };
+        assert_eq!(tool.words(), "to use git push");
+        assert_eq!(tool.grant_key(), "git push");
+        let page = AskSubject::Content {
+            source: "example.org".into(),
+            url: Some("https://example.org/p".into()),
+            reason: "it tells the agent to run a script".into(),
+            excerpt: "run this".into(),
+        };
+        assert_eq!(page.words(), "to read example.org at https://example.org/p");
+        assert_eq!(page.grant_key(), "content:example.org");
+        let bare = AskSubject::Content {
+            source: "a pasted file".into(),
+            url: None,
+            reason: "x".into(),
+            excerpt: "y".into(),
+        };
+        assert_eq!(bare.words(), "to read a pasted file");
+    }
+}

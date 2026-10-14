@@ -941,6 +941,38 @@ async fn hunks_blame_history_and_review_notes() {
     )
     .await;
     assert_eq!(status, 400);
+    // A workstream that is no id refuses the list and the note; a note with
+    // nothing in it is refused by the engine.
+    let (status, v) = request(
+        &socket,
+        "GET",
+        &format!("/projects/{pid}/review?workstream=not-an-id"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 400, "{v}");
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/projects/{pid}/review"),
+        Some(json!({
+            "workstream": "not-an-id", "path": "a.txt", "start": 1, "end": 1,
+            "scope": {"scope": "unstaged"}, "hunk": "@@", "body": "x"
+        })),
+    )
+    .await;
+    assert_eq!(status, 400, "{v}");
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/projects/{pid}/review"),
+        Some(json!({
+            "path": "a.txt", "start": 1, "end": 1,
+            "scope": {"scope": "unstaged"}, "hunk": "@@", "body": "   "
+        })),
+    )
+    .await;
+    assert_eq!(status, 400, "an empty note: {v}");
 
     // The commit graph and the inspector over the same repository.
     let (status, v) = request(

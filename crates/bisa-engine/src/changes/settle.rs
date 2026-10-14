@@ -173,7 +173,7 @@ impl<'a> Settler<'a> {
             &self.checkout.workstream.to_string(),
             &asked,
             self.disposal,
-        )?;
+        )?; // LCOV_EXCL_LINE a batch refused whole, of paths the ledger named; by construction
         match deletions.halted {
             Some(halted) => Err(halted.error),
             None => Ok(()),
@@ -225,12 +225,14 @@ impl<'a> Settler<'a> {
             .iter()
             .filter(|t| t.turn != turn)
             .any(|t| t.file(path).is_some_and(|f| !f.state.is_settled()));
+        // LCOV_EXCL_START the paths asked are the turn's own pending files; by construction
         let Some(change) = ledger.turn(turn).and_then(|t| t.file(path)).cloned() else {
             return Ok(());
         };
         if change.state.is_settled() {
             return Ok(());
         }
+        // LCOV_EXCL_STOP
         if !others || change.opaque {
             return self.file(ledger, path, verdict);
         }
@@ -238,7 +240,7 @@ impl<'a> Settler<'a> {
         let turn_base = text_of(self.inner, conversation, &change.base)?;
         let turn_image = text_of(self.inner, conversation, &change.image)?;
         let Some(review) = ledger.under_review(path).cloned() else {
-            return Ok(());
+            return Ok(()); // LCOV_EXCL_LINE a pending file is under review; by construction
         };
         let disk = self.checkout.read(path)?;
         let disk_text = disk

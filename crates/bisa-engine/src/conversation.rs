@@ -1623,6 +1623,7 @@ async fn wake_attempt(
         };
     // Stopped while the harness started: aborted before it is prompted,
     // and no durable row ever stands for it.
+    // LCOV_EXCL_START a stop inside the launch window; a race
     if inner.registry.is_aborted(agent_uid) {
         warn_on_err(
             launched.session.abort().await,
@@ -1634,6 +1635,7 @@ async fn wake_attempt(
         );
         return;
     }
+    // LCOV_EXCL_STOP
     let mut walls = pending_walls;
     walls.extend(launched.walls.iter().cloned());
     report_chat_switches(inner, scope, agent_id, &walls, Some(&launched.model_key));

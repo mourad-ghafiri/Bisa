@@ -895,3 +895,114 @@ async fn browser_serve_serves_the_sessions_checkout_through_the_nodes_server_or_
     assert_eq!(errors_of(&reply), vec![NOBODY_MAY.to_string()]);
     engine.shutdown().await;
 }
+
+/// The rest of where a tab is at home: a conversation about a workflow is
+/// beside the workflow; a scope that names nothing the workspace has is
+/// nowhere; a work item placed in a checkout is in that checkout, and one
+/// placed nowhere is beside the item.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tab_is_at_home_beside_a_workflow_nowhere_for_a_stranger_and_with_a_work_item() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![crate::common::yielding("mock", json!({"summary": "ok"}))],
+    );
+    engine.inner().browser.pending();
+    let ws = engine.workspace();
+    let open = |scope: bisa_mcp::Scope| {
+        let mut op = json!({"op": "browser", "request": {"action": "open", "url": "http://localhost:5173/"}});
+        scope.apply_for_test(&mut op);
+        op
+    };
+    let about = |scope: &str| {
+        open(bisa_mcp::Scope::Conversation {
+            scope: scope.to_string(),
+            agent: "general-agent".to_string(),
+            goal: None,
+        })
+    };
+
+    let workflow = engine
+        .create_workflow(crate::common::new_workflow(
+            "nightly",
+            vec![crate::common::step(
+                "hold",
+                bisa_core::StepKind::Wait {
+                    until: bisa_core::WaitFor::Release,
+                },
+            )],
+        ))
+        .unwrap();
+    let about_workflow = ws
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Workflow { id: workflow.id },
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    assert_eq!(
+        home_for(&engine, about(&about_workflow.id.to_string())).await,
+        Some(BrowserHome::new(BrowserHomeScope::Workflow, workflow.id))
+    );
+
+    assert_eq!(
+        home_for(&engine, about("nothing-the-workspace-has")).await,
+        None
+    );
+
+    // A work item placed nowhere, and one placed in a checkout.
+    let goal = engine
+        .submit_goal(SubmitRequest::captured("Place me"))
+        .unwrap();
+    let item = |project: Option<bisa_core::ProjectId>| bisa_core::workitem::WorkItemSpec {
+        id: bisa_core::WorkItemId::from_ulid(ulid::Ulid::from_datetime(
+            std::time::SystemTime::now(),
+        )),
+        home: bisa_core::Home::Goal { goal: goal.id },
+        run: None,
+        step: None,
+        instructions: "look around".into(),
+        state: bisa_core::workitem::WorkItemState::Open,
+        project,
+        harness_candidates: vec!["mock".into()],
+        model: None,
+        effort: None,
+        output_schema: None,
+        budget: bisa_core::Budget::default(),
+        assignees: vec![],
+        tier_ceiling: bisa_core::ToolTier::Write,
+        agent: None,
+        spawn_allowlist: vec![],
+        depth_budget: 0,
+        result_attempts: 0,
+        interruptions: 0,
+    };
+    let nowhere = crate::common::run_spec(&engine, goal.id, item(None)).await;
+    assert_eq!(
+        home_for(
+            &engine,
+            open(bisa_mcp::Scope::WorkItem(nowhere.to_string()))
+        )
+        .await,
+        Some(BrowserHome::new(BrowserHomeScope::WorkItem, nowhere))
+    );
+    // The same item, once a checkout was opened for it: in that checkout.
+    let shop = ws
+        .create_project(NewProject::managed("shop").unwrap())
+        .unwrap();
+    let mut checkout = ws.primary_workstream(shop.id).unwrap();
+    checkout.id =
+        bisa_core::WorkstreamId::from_ulid(ulid::Ulid::from_datetime(std::time::SystemTime::now()));
+    checkout.kind = bisa_core::WorkstreamKind::Copy;
+    checkout.work_item = Some(nowhere);
+    ws.put_workstream(&checkout).unwrap();
+    assert_eq!(
+        home_for(
+            &engine,
+            open(bisa_mcp::Scope::WorkItem(nowhere.to_string()))
+        )
+        .await,
+        Some(BrowserHome::new(BrowserHomeScope::Workstream, checkout.id))
+    );
+    engine.shutdown().await;
+}

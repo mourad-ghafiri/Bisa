@@ -256,4 +256,37 @@ mod tests {
         );
         assert_eq!(crate::png_size(&png_fixture(3, 4)), Some((3, 4)));
     }
+
+    #[test]
+    fn an_emulator_boots_to_running_a_phone_is_not_booted_from_here_and_a_shutdown_lands() {
+        let fake = FakeMobileDevelopment::new().with_devices(vec![
+            emulator("Pixel_8", "Pixel 8", DeviceState::Shutdown),
+            Device {
+                id: "serial-1".into(),
+                name: "Phone".into(),
+                platform: Platform::Android,
+                kind: DeviceKind::Physical,
+                state: DeviceState::Running,
+                os: Some("Android 14".into()),
+            },
+        ]);
+        let hints = Hints::default();
+        let listed = fake.devices(&hints).unwrap();
+        fake.boot(&hints, &listed[0]).unwrap();
+        assert_eq!(fake.devices(&hints).unwrap()[0].state, DeviceState::Running);
+        assert!(matches!(
+            fake.boot(&hints, &listed[1]),
+            Err(MobileDevelopmentError::Unsupported(ref why)) if why.contains("Phone")
+        ));
+        fake.shutdown(&hints, &listed[0]).unwrap();
+        assert_eq!(
+            fake.devices(&hints).unwrap()[0].state,
+            DeviceState::Shutdown
+        );
+        fake.show(&hints, &listed[0]).unwrap();
+        assert_eq!(
+            fake.calls().last().map(String::as_str),
+            Some("show Pixel_8")
+        );
+    }
 }

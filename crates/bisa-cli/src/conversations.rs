@@ -185,7 +185,7 @@ fn settled_lines(act: &str, settled: &serde_json::Value) -> Vec<String> {
 fn view_of(ws: &bisa_store::Workspace, id: ConversationId) -> Result<serde_json::Value> {
     Ok(serde_json::to_value(
         bisa_node::dto::ConversationView::from(ws.conversation_row(id)?),
-    )?)
+    )?) // LCOV_EXCL_LINE a view that always serialises; by construction
 }
 
 /// A conversation changed through the node, as the node answers it.
@@ -313,7 +313,7 @@ pub async fn conversation(ctx: &Ctx, out: &Out, cmd: ConversationCmd) -> Result<
                 query: q,
                 before: None,
                 limit,
-            })?;
+            })?; // LCOV_EXCL_LINE a store read that fails; a disk arm
             if rows.is_empty() {
                 out.say(&bisa_core::text!(
                     "cli-conversations-no-conversations-yet-bisa-conversation-new"

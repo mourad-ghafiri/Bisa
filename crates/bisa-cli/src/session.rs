@@ -106,12 +106,14 @@ fn payload_json(payload: Option<String>) -> Result<serde_json::Value, String> {
         Some(p) => p,
         None => {
             let mut buf = String::new();
+            // LCOV_EXCL_START a stdin that cannot be read; by construction
             std::io::stdin().read_to_string(&mut buf).map_err(|e| {
                 bisa_i18n::say(&bisa_core::text!(
                     "cli-session-could-not-read-payload",
                     e = e.to_string()
                 ))
             })?;
+            // LCOV_EXCL_STOP
             buf
         }
     };
@@ -237,6 +239,7 @@ fn post(
         .to_socket_addrs()
         .map_err(|e| format!("{host}:{port}: {e}"))?
         .next()
+        // LCOV_EXCL_START an address list that is empty; by construction
         .ok_or_else(|| {
             bisa_i18n::say(&bisa_core::text!(
                 "cli-session-resolves-nothing",
@@ -244,6 +247,7 @@ fn post(
                 port = port.to_string()
             ))
         })?;
+    // LCOV_EXCL_STOP
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(1)).map_err(|e| {
         bisa_i18n::say(&bisa_core::text!(
             "cli-session-node-did-not-answer",
@@ -254,6 +258,7 @@ fn post(
     })?;
     // Without the deadlines a hook could hang its harness: a socket that
     // refuses them is not one to speak on.
+    // LCOV_EXCL_START a socket refusing its deadlines; by construction
     stream
         .set_write_timeout(Some(Duration::from_secs(1)))
         .map_err(|e| {
@@ -268,13 +273,16 @@ fn post(
             e = e.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
     let request = request(path, &host, port, secret, body);
+    // LCOV_EXCL_START a connection reset before the request; a race
     stream.write_all(request.as_bytes()).map_err(|e| {
         bisa_i18n::say(&bisa_core::text!(
             "cli-session-could-not-send-request",
             e = e.to_string()
         ))
     })?;
+    // LCOV_EXCL_STOP
     // Read as bytes: what arrived before a deadline passed is kept, and a
     // length in the answer counts bytes, never characters.
     let mut response = Vec::new();

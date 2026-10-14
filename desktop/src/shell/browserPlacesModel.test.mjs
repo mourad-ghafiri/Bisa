@@ -98,3 +98,10 @@ test("the footer's button reads how many tabs, how many out of sight, how many a
   assert.equal(footerBrowserWords({ count: 1, headless: 0, busy: 0, agents: 1, shown: "Pricing" }), "1 browser tab — 1 opened by agents; showing Pricing");
   assert.equal(footerBrowserWords({ count: 2, headless: 0, busy: 0, agents: 0, shown: null }), "2 browser tabs", "none of them an agent's: nothing said");
 });
+
+test("a home of a scope the rows do not know names no place", () => {
+  const places = browserPlaces({}, []);
+  assert.equal(placeName({ scope: "oddity", id: "x" }, places), null);
+  assert.equal(placeName({ scope: "work_item", id: "wi1" }, places), null);
+  assert.equal(placeName(null, places), null);
+});

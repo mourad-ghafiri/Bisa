@@ -401,6 +401,18 @@ ABC123                 offline
     }
 
     #[test]
+    fn a_doctor_mark_nobody_knows_a_listing_that_is_no_json_and_a_daemon_line_are_left() {
+        assert!(doctor_lines("[?] Something odd (never seen)\n").is_empty());
+        assert!(simctl_runtimes("not json").is_empty());
+        assert!(simctl_devicetypes("not json").is_empty());
+        let listed = adb_devices(
+            "List of devices attached\n* daemon not running; starting now at tcp:5037\nemulator-5554 device model:Pixel_8\n",
+        );
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0].id, "emulator-5554");
+    }
+
+    #[test]
     fn the_small_programs_answers_are_read() {
         assert_eq!(
             avd_list(

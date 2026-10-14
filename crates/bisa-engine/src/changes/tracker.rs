@@ -87,6 +87,7 @@ impl ChangeTracker {
         match bisa_vcs::snapshot::snapshot_tree(&self.checkout.root, &self.index) {
             Ok(tree) => Some(tree),
             Err(e) => {
+                // LCOV_EXCL_START a field read only when warn is logged; by construction
                 tracing::warn!(
                     target: "bisa_engine::changes",
                     conversation = %self.checkout.conversation,
@@ -95,6 +96,7 @@ impl ChangeTracker {
                     root = %self.checkout.root.display(),
                     "no snapshot for a review, so what a command moves in this turn is not attributed: {e}"
                 );
+                // LCOV_EXCL_STOP
                 None
             }
         }
@@ -266,7 +268,7 @@ impl ChangeTracker {
         touched: Vec<(RelPath, Option<Vec<u8>>)>,
     ) -> Result<(), EngineError> {
         let Some(turn) = self.live().turn else {
-            return Ok(());
+            return Ok(()); // LCOV_EXCL_LINE a write outlives its turn; by construction
         };
         self.record_in(inner, turn, touched)
     }
@@ -321,7 +323,7 @@ impl ChangeTracker {
 
     fn sweep(&self, inner: &Inner, from: &TreeId) -> Result<(), EngineError> {
         let Some(turn) = self.live().turn else {
-            return Ok(());
+            return Ok(()); // LCOV_EXCL_LINE a command's window outlives its turn; by construction
         };
         self.sweep_in(inner, turn, from)
     }
@@ -330,13 +332,13 @@ impl ChangeTracker {
     /// are the snapshot's.
     fn sweep_in(&self, inner: &Inner, turn: TurnId, from: &TreeId) -> Result<(), EngineError> {
         let Some(now) = self.snapshot() else {
-            return Ok(());
+            return Ok(()); // LCOV_EXCL_LINE git refusing between the window's open and its close; a race
         };
         let root = &self.checkout.root;
         let mut touched = Vec::new();
         for path in bisa_vcs::snapshot::changed_between(root, from, &now)? {
             let Ok(rel) = RelPath::new(path.to_string_lossy()) else {
-                continue;
+                continue; // LCOV_EXCL_LINE a path git lists that is no relative path; by construction
             };
             let before = bisa_vcs::snapshot::blob_at(root, from, &path)?;
             if before

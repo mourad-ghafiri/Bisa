@@ -20,6 +20,7 @@ use super::sealed::Sealed;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
+use std::time::Duration;
 
 const HARNESS: &str = "claude-code";
 const SECRET: &str = "BISA_SESSION_SECRET";
@@ -254,6 +255,128 @@ impl Tab {
         assert_eq!(state, word, "{row}");
         row
     }
+}
+
+/// A node of the journey's own that answers hooks as scripted: one
+/// behaviour per connection, in order, then nothing more.
+fn a_node_that_answers(behaviours: Vec<&'static str>) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+    let port = listener.local_addr().expect("its address").port();
+    std::thread::spawn(move || {
+        use std::io::{Read as _, Write as _};
+        for behaviour in behaviours {
+            let (mut socket, _) = listener.accept().expect("a hook connects");
+            let mut head = [0u8; 4096];
+            // What the hook sent is read and let be: the answer is scripted.
+            let _request_read = socket.read(&mut head);
+            let answer: &[u8] = match behaviour {
+                "not-json" => b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc",
+                "cut-short" => b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n{\"de",
+                "no-status" => b"",
+                "silent" => {
+                    std::thread::sleep(Duration::from_secs(4));
+                    b""
+                }
+                _ => b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n",
+            };
+            // A hook that already gave up has closed its end: nothing to say.
+            let _hook_may_be_gone = socket.write_all(answer);
+        }
+    });
+    format!("http://127.0.0.1:{port}")
+}
+
+/// A hook never fails its harness, whatever went wrong: it says why on
+/// stderr and exits 0 — the terminal it was opened in is not told, and the
+/// guard prints nothing where it has no opinion, so the harness's own
+/// prompt stands.
+#[test]
+fn a_hook_says_why_it_could_not_speak_to_its_node_and_never_fails_its_harness() {
+    let ws = Sealed::bare();
+    let bisa = env!("CARGO_BIN_EXE_bisa");
+    let report = format!("{bisa} session report --harness {HARNESS}");
+    let guard = format!("{bisa} session guard --harness {HARNESS}");
+    let pre = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_use_id": "t1"}).to_string();
+    let said_by = |line: &str, given: &[(String, String)], input: &str| -> (String, String) {
+        let out = ws.hook(line, given, input);
+        assert!(
+            out.status.success(),
+            "a hook never fails its harness: {line}"
+        );
+        (
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+            String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        )
+    };
+    let env = |node: &str| -> Vec<(String, String)> {
+        vec![
+            (
+                "BISA_SESSION".to_string(),
+                "01JSESSION0000000000000000".to_string(),
+            ),
+            (SECRET.to_string(), "a".repeat(64)),
+            ("BISA_NODE_URL".to_string(), node.to_string()),
+        ]
+    };
+
+    // Outside a terminal the platform opened: nothing is set, and it says which.
+    let (out, err) = said_by(&report, &[], &pre);
+    assert!(out.is_empty() && err.contains("BISA_SESSION"), "{err}");
+    // A payload that is no JSON, on stdin and as the argument.
+    let (_, err) = said_by(&report, &env("http://127.0.0.1:1"), "not json");
+    assert!(err.contains("JSON") || err.contains("json"), "{err}");
+    let (_, err) = said_by(
+        &format!("{report} 'not json either'"),
+        &env("http://127.0.0.1:1"),
+        "",
+    );
+    assert!(err.contains("JSON") || err.contains("json"), "{err}");
+    // The guard has an opinion on PreToolUse alone.
+    let (out, err) = said_by(
+        &guard,
+        &env("http://127.0.0.1:1"),
+        &json!({"hook_event_name": "Stop"}).to_string(),
+    );
+    assert!(out.is_empty() && err.is_empty(), "{out} {err}");
+    // A node URL that is no address of a node.
+    for bad in [
+        "http://127.0.0.1:notaport",
+        "https://127.0.0.1:1",
+        "http://127.0.0.1",
+    ] {
+        let (out, err) = said_by(&report, &env(bad), &pre);
+        assert!(out.is_empty() && !err.is_empty(), "{bad}: {err}");
+    }
+    let (_, err) = said_by(&report, &env("http://nowhere.invalid:1"), &pre);
+    assert!(!err.is_empty(), "a host that resolves nothing is said");
+    // Nobody listening.
+    let (out, err) = said_by(&guard, &env("http://127.0.0.1:1"), &pre);
+    assert!(out.is_empty() && err.contains("127.0.0.1:1"), "{err}");
+
+    // A node that answers badly: no JSON, cut short, no status line, nothing
+    // at all in time, and a refusal by status.
+    let node = a_node_that_answers(vec![
+        "not-json",
+        "cut-short",
+        "no-status",
+        "silent",
+        "refuse",
+    ]);
+    let (out, err) = said_by(&guard, &env(&node), &pre);
+    assert!(out.is_empty() && err.contains("JSON"), "{err}");
+    let (out, err) = said_by(&guard, &env(&node), &pre);
+    assert!(out.is_empty() && err.contains("before its body"), "{err}");
+    let (out, err) = said_by(&guard, &env(&node), &pre);
+    assert!(out.is_empty() && err.contains("status line"), "{err}");
+    let began = std::time::Instant::now();
+    let (out, err) = said_by(&report, &env(&node), &pre);
+    assert!(out.is_empty() && err.contains("did not arrive"), "{err}");
+    assert!(
+        began.elapsed() < Duration::from_secs(4),
+        "two seconds and no more"
+    );
+    let (out, err) = said_by(&report, &env(&node), &pre);
+    assert!(out.is_empty() && err.contains("500"), "{err}");
 }
 
 /// The rows of the Inbox that are a harness waiting in a terminal.

@@ -392,6 +392,58 @@ mod tests {
     }
 
     #[test]
+    fn every_word_of_the_vocabulary_is_said() {
+        assert_eq!(
+            (Platform::Ios.as_str(), Platform::Android.as_str()),
+            ("ios", "android")
+        );
+        assert_eq!(
+            (Platform::Ios.words(), Platform::Android.words()),
+            ("iOS", "Android")
+        );
+        assert_eq!(
+            [
+                DeviceKind::Simulator,
+                DeviceKind::Emulator,
+                DeviceKind::Physical
+            ]
+            .map(DeviceKind::words),
+            ["simulator", "emulator", "device"]
+        );
+        assert_eq!(
+            [
+                DeviceState::Booted,
+                DeviceState::Shutdown,
+                DeviceState::Running,
+                DeviceState::Offline
+            ]
+            .map(DeviceState::words),
+            ["booted", "shut down", "running", "offline"]
+        );
+        assert_eq!(
+            (ImageFormat::Png.as_str(), ImageFormat::Jpeg.as_str()),
+            ("png", "jpeg")
+        );
+        assert_eq!(
+            (ImageFormat::Png.mime(), ImageFormat::Jpeg.mime()),
+            ("image/png", "image/jpeg")
+        );
+        let plain = Device {
+            id: "P".into(),
+            name: "Pixel".into(),
+            platform: Platform::Android,
+            kind: DeviceKind::Physical,
+            state: DeviceState::Offline,
+            os: None,
+        };
+        assert_eq!(
+            plain.words(),
+            "Pixel · device · offline",
+            "no OS, no OS words"
+        );
+    }
+
+    #[test]
     fn a_device_says_itself_in_one_line() {
         let d = Device {
             id: "X".into(),

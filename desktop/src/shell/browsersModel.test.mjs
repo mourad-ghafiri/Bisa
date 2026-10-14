@@ -175,3 +175,9 @@ test("the door to the Project IDE is offered only from a home the IDE can be roo
   assert.equal(workbenchHomeOf({ home: { scope: "goal", id: "" } }), null);
   assert.equal(workbenchHomeOf(null), null);
 });
+
+test("the bar's word for an address that is no URL is the address as given", () => {
+  assert.equal(urlWords("not a url"), "not a url");
+  assert.equal(urlWords(undefined), "");
+  assert.equal(urlWords("http://127.0.0.1:4173/"), "127.0.0.1:4173");
+});

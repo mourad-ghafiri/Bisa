@@ -55,7 +55,7 @@ crate: the platforms' filter, the policy, the toolchain's TTL, the stored captur
 
 ## Tests
 
-Unit tests beside each module, on fixtures — `flutter --version --machine` output, doctor lines,
+Unit tests beside each module, on fixtures and, for the runner, against the machine's own `/bin/sh` by absolute path (what it wrote read whole, its exit status an answer, a child past its budget ended, one started detached answering its pid) — `flutter --version --machine` output, doctor lines,
 `simctl` and `adb` listings, a PNG header built in the test. `resolve.rs`'s tests read a `tempfile`
 home through `Places::under`, so nothing of the machine is read; `exec.rs`'s ask for a program at a
 path that does not exist, so nothing is spawned. What the engine composes over this crate is tested

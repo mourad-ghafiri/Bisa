@@ -99,10 +99,12 @@ impl Exec {
             std::io::ErrorKind::NotFound => {
                 MobileDevelopmentError::NotInstalled(program.display().to_string())
             }
+            // LCOV_EXCL_START a spawn refused for another reason; an OS arm
             _ => MobileDevelopmentError::Failed {
                 what: what.clone(),
                 detail: format!("spawn: {e}"),
             },
+            // LCOV_EXCL_STOP
         })?;
         let out_reader = drain(child.stdout.take().expect("stdout was piped"));
         let err_reader = drain(child.stderr.take().expect("stderr was piped"));
@@ -116,12 +118,14 @@ impl Exec {
                     if remaining.is_zero() {
                         // The budget is spent: the child is terminated and
                         // reaped, and the caller reads a timeout.
+                        // LCOV_EXCL_START a child already gone or reaped; by construction
                         if let Err(e) = child.kill() {
                             tracing::debug!("terminating a timed-out child: {e}");
                         }
                         if let Err(e) = child.wait() {
                             tracing::debug!("reaping a timed-out child: {e}");
                         }
+                        // LCOV_EXCL_STOP
                         return Err(MobileDevelopmentError::Timeout {
                             what,
                             secs: timeout.as_secs(),
@@ -130,16 +134,18 @@ impl Exec {
                     std::thread::sleep(nap.min(remaining));
                     nap = (nap * 2).min(Duration::from_millis(25));
                 }
+                // LCOV_EXCL_START waiting on a child this process spawned; by construction
                 Err(e) => {
                     return Err(MobileDevelopmentError::Failed {
                         what,
                         detail: format!("waiting: {e}"),
                     })
-                }
+                } // LCOV_EXCL_STOP
             }
         };
         // A pipe that could not be read to its end is a failure whatever the
         // exit status: a truncated frame or listing would be read as the whole.
+        // LCOV_EXCL_START a reader thread that failed; by construction
         let stdout = joined(out_reader).map_err(|detail| MobileDevelopmentError::Failed {
             what: what.clone(),
             detail: format!("reading stdout: {detail}"),
@@ -148,6 +154,7 @@ impl Exec {
             what: what.clone(),
             detail: format!("reading stderr: {detail}"),
         })?;
+        // LCOV_EXCL_STOP
         Ok(Output {
             code: status.code().unwrap_or(-1),
             stdout,
@@ -175,10 +182,12 @@ impl Exec {
             std::io::ErrorKind::NotFound => {
                 MobileDevelopmentError::NotInstalled(program.display().to_string())
             }
+            // LCOV_EXCL_START a spawn refused for another reason; an OS arm
             _ => MobileDevelopmentError::Failed {
                 what: format!("{} {}", program.display(), args.join(" ")),
                 detail: format!("spawn: {e}"),
             },
+            // LCOV_EXCL_STOP
         })?;
         Ok(child.id())
     }
@@ -200,7 +209,7 @@ fn drain<R: std::io::Read + Send + 'static>(
 fn joined(reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>) -> Result<Vec<u8>, String> {
     reader
         .join()
-        .map_err(|_| "the reader thread panicked".to_string())?
+        .map_err(|_| "the reader thread panicked".to_string())? // LCOV_EXCL_LINE a reader thread that panicked; by construction
         .map_err(|e| e.to_string())
 }
 
@@ -224,6 +233,63 @@ mod tests {
                 missing.display().to_string()
             ))
         );
+    }
+
+    /// The runner against programs every machine has, by absolute path: what a
+    /// program wrote is read whole, its exit status is an answer, a child
+    /// past its budget is ended and said to have timed out, and one started
+    /// detached answers its pid.
+    #[cfg(unix)]
+    #[test]
+    fn a_program_is_run_under_its_budget_and_read_whole_or_ended_past_it() {
+        let exec = Exec::default();
+        let sh = Path::new("/bin/sh");
+        let args = |line: &str| vec!["-c".to_string(), line.to_string()];
+        let out = exec
+            .run(
+                sh,
+                &args("printf hello; printf oops >&2; exit 3"),
+                &[],
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        assert_eq!(
+            (out.code, out.text().as_str(), out.stderr.as_str()),
+            (3, "hello", "oops")
+        );
+        assert!(!out.success());
+        let env = vec![("BISA_MOBILE_TEST_WORD".to_string(), "spoken".to_string())];
+        let out = exec
+            .run(
+                sh,
+                &args("printf \"$BISA_MOBILE_TEST_WORD $NO_COLOR\""),
+                &env,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        assert_eq!(
+            out.text(),
+            "spoken 1",
+            "the caller's environment and the hardened one"
+        );
+        let began = Instant::now();
+        let late = exec.run(sh, &args("sleep 5"), &[], Duration::from_millis(300));
+        assert!(
+            matches!(late, Err(MobileDevelopmentError::Timeout { ref what, secs: 0 }) if what.contains("sleep 5")),
+            "{late:?}"
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(4),
+            "ended, not waited out"
+        );
+        let pid = exec.spawn_detached(sh, &args("exit 0"), &[]).unwrap();
+        assert!(pid > 0);
+        let text_only = Output {
+            code: 0,
+            stdout: b"a line\n".to_vec(),
+            stderr: String::new(),
+        };
+        assert_eq!(text_only.text(), "a line\n");
     }
 
     #[test]

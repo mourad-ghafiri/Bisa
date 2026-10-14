@@ -151,6 +151,14 @@ async fn the_status_the_devices_a_boot_and_a_capture_read_the_machine() {
         .post("/mobile-development/devices/AAAA-1/boot", json!({}))
         .await;
     assert_eq!(booted["state"], json!("booted"), "{booted}");
+    let down = node
+        .post("/mobile-development/devices/AAAA-1/shutdown", json!({}))
+        .await;
+    assert_eq!(down["state"], json!("shutdown"), "{down}");
+    let booted = node
+        .post("/mobile-development/devices/AAAA-1/boot", json!({}))
+        .await;
+    assert_eq!(booted["state"], json!("booted"), "{booted}");
     let (code, v) = node
         .req(
             "POST",

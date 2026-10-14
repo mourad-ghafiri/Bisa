@@ -10213,6 +10213,30 @@ async fn a_sessions_browser_serve_puts_its_checkout_on_the_nodes_servers() {
         .intake_op(json!({"op": "browser_serve", "scope": scope, "folder": "dist"}))
         .await;
     assert_eq!(missing["ok"], json!(false), "{missing}");
+
+    // Every place taken: the session's ask is refused in the node's words too.
+    let root = std::path::PathBuf::from(made["path"].as_str().expect("the tree"));
+    let cap = bisa_node::ide::serve::MAX_SERVERS;
+    for n in 1..cap {
+        std::fs::create_dir_all(root.join(format!("site{n}"))).unwrap();
+        let (code, v) = node
+            .req(
+                "POST",
+                &format!("/workstreams/{pid}/servers"),
+                Some(json!({"folder": format!("site{n}")})),
+            )
+            .await;
+        assert_eq!(code, 200, "server {n}: {v}");
+    }
+    std::fs::create_dir_all(root.join("one-more")).unwrap();
+    let full = node
+        .intake_op(json!({"op": "browser_serve", "scope": scope, "folder": "one-more"}))
+        .await;
+    assert_eq!(full["ok"], json!(false), "{full}");
+    assert!(
+        full.to_string().contains(&cap.to_string()),
+        "the cap is named: {full}"
+    );
     node.shutdown().await;
 }
 

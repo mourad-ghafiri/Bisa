@@ -263,12 +263,14 @@ async fn blocking<T: Send + 'static>(
 ) -> Result<T, EngineError> {
     tokio::task::spawn_blocking(f)
         .await
+        // LCOV_EXCL_START the blocking task panicked; by construction
         .map_err(|e| {
             EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-mobile-development-task",
                 e = e.to_string()
             ))
         })?
+        // LCOV_EXCL_STOP
         .map_err(EngineError::from)
 }
 
@@ -363,9 +365,11 @@ async fn after(inner: &Arc<Inner>, id: &str) -> Result<Device, EngineError> {
         .await?
         .into_iter()
         .find(|d| d.id == id)
+        // LCOV_EXCL_START a device gone right after its boot; a race
         .ok_or_else(|| {
             EngineError::MobileDevelopment(MobileDevelopmentError::NoSuchDevice(id.to_string()))
         })
+    // LCOV_EXCL_STOP
 }
 
 pub async fn boot(

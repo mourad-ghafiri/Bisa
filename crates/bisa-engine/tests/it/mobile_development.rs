@@ -504,3 +504,147 @@ async fn a_frame_over_the_bound_is_refused_and_never_kept() {
     );
     engine.shutdown().await;
 }
+
+/// The doors the machine's tools answer through, at their edges: a
+/// shutdown lands and is read back; a simulator is refused when iOS is off
+/// or the name is blank; an Android frame is PNG whatever was asked; the
+/// run line reads Flutter off a standing examination and says when none is
+/// installed; the Workflow Agent's line names the examination's Flutter;
+/// the state says whether it was examined.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_doors_at_their_edges_a_shutdown_a_refused_simulator_an_android_frame_and_the_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = fake();
+    let engine = engine_with_mobile(&dir, Arc::clone(&tools));
+    let ws = engine.workspace();
+    let inner = engine.inner();
+    use bisa_engine::mobile_development as md;
+    assert!(
+        format!("{:?}", inner.mobile_development).contains("examined: false"),
+        "{:?}",
+        inner.mobile_development
+    );
+    assert_eq!(
+        md::brief_line(inner).as_deref(),
+        Some("Mobile: on (iOS and Android) — mobile_development_status probes the toolchain; mobile_development_devices lists the devices."),
+    );
+
+    md::boot(inner, None, "AAAA-1").await.unwrap();
+    let down = md::shutdown(inner, None, "AAAA-1").await.unwrap();
+    assert_eq!(down.state, DeviceState::Shutdown);
+    assert!(tools.calls().iter().any(|c| c == "shutdown AAAA-1"));
+
+    // An Android screen is PNG whatever was asked.
+    let (bytes, format) = md::frame(
+        inner,
+        None,
+        "Pixel_8",
+        bisa_mobile_development::ImageFormat::Jpeg,
+    )
+    .await
+    .unwrap();
+    assert_eq!(format, bisa_mobile_development::ImageFormat::Png);
+    assert_eq!(bytes, png_fixture(1170, 2532));
+    assert!(tools.calls().iter().any(|c| c == "screenshot Pixel_8 png"));
+
+    // A simulator needs a name, and iOS on.
+    let blank = md::create_simulator(inner, "  ", "iPhone-16", "iOS-18-2").await;
+    assert!(
+        matches!(blank, Err(bisa_engine::EngineError::Invalid(_))),
+        "{blank:?}"
+    );
+    ws.set_setting(
+        SettingScope::Machine,
+        None,
+        "mobile_development.platforms",
+        json!("android"),
+    )
+    .unwrap();
+    let off = md::create_simulator(inner, "Test", "iPhone-16", "iOS-18-2").await;
+    assert!(
+        matches!(off, Err(bisa_engine::EngineError::Conflict(ref why)) if why.to_string() == PLATFORM_OFF),
+        "{off:?}"
+    );
+    assert_eq!(
+        md::brief_line(inner).as_deref(),
+        Some("Mobile: on (Android only) — mobile_development_status probes the toolchain; mobile_development_devices lists the devices."),
+    );
+    assert!(
+        !tools
+            .calls()
+            .iter()
+            .any(|c| c.starts_with("create_simulator")),
+        "nothing was made: {:?}",
+        tools.calls()
+    );
+
+    // The examination standing: the run line and the brief read Flutter off it.
+    let project = ws
+        .create_project(bisa_store::NewProject::managed("shop").unwrap())
+        .unwrap();
+    let root = ws.project_root_path(&project);
+    std::fs::create_dir_all(&root).unwrap();
+    let wid = ws.primary_workstream(project.id).unwrap().id;
+    md::status(inner, true).await.unwrap();
+    assert!(format!("{:?}", inner.mobile_development).contains("examined: true"));
+    let run = md::run_command(inner, wid, "Pixel_8").unwrap();
+    assert_eq!(run.command, "/opt/flutter/bin/flutter run -d Pixel_8");
+    assert_eq!(
+        md::brief_line(inner).as_deref(),
+        Some("Mobile: Android only · Flutter 3.24.3 — mobile_development_devices lists the simulators, emulators and phones here."),
+    );
+    engine.shutdown().await;
+}
+
+/// Without Flutter on this machine the run line says so, and the brief
+/// says Flutter is not installed — or names it bare when it is there with
+/// no version.
+#[tokio::test(flavor = "multi_thread")]
+async fn without_flutter_the_run_line_is_refused_and_the_brief_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = Arc::new(FakeMobileDevelopment::new().with_toolchain(Toolchain {
+        flutter: FlutterInfo {
+            installed: false,
+            ..FlutterInfo::default()
+        },
+        ..Toolchain::default()
+    }));
+    let engine = engine_with_mobile(&dir, Arc::clone(&tools));
+    let ws = engine.workspace();
+    let inner = engine.inner();
+    use bisa_engine::mobile_development as md;
+    let project = ws
+        .create_project(bisa_store::NewProject::managed("shop").unwrap())
+        .unwrap();
+    std::fs::create_dir_all(ws.project_root_path(&project)).unwrap();
+    let wid = ws.primary_workstream(project.id).unwrap().id;
+    let refused = md::run_command(inner, wid, "AAAA-1");
+    assert!(
+        matches!(refused, Err(bisa_engine::EngineError::MobileDevelopment(bisa_mobile_development::MobileDevelopmentError::NotInstalled(ref what))) if what == "flutter"),
+        "{refused:?}"
+    );
+    md::status(inner, true).await.unwrap();
+    assert_eq!(
+        md::brief_line(inner).as_deref(),
+        Some("Mobile: iOS and Android · Flutter not installed — mobile_development_devices lists the simulators, emulators and phones here."),
+    );
+
+    // Installed with no version word: named bare.
+    let bare = Arc::new(FakeMobileDevelopment::new().with_toolchain(Toolchain {
+        flutter: FlutterInfo {
+            installed: true,
+            path: Some("/opt/flutter/bin/flutter".into()),
+            ..FlutterInfo::default()
+        },
+        ..Toolchain::default()
+    }));
+    let dir2 = tempfile::tempdir().unwrap();
+    let engine2 = engine_with_mobile(&dir2, bare);
+    md::status(engine2.inner(), true).await.unwrap();
+    assert_eq!(
+        md::brief_line(engine2.inner()).as_deref(),
+        Some("Mobile: iOS and Android · Flutter — mobile_development_devices lists the simulators, emulators and phones here."),
+    );
+    engine2.shutdown().await;
+    engine.shutdown().await;
+}

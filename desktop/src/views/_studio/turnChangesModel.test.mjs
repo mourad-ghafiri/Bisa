@@ -119,3 +119,10 @@ test("skippedWords reads a settle's skipped list, or nothing", () => {
     "a.ts — changed since; b.ts — gone",
   );
 });
+
+test("a file in a state the pane does not name wears the state's own word, quietly; a gone file warns", () => {
+  assert.equal(fileChipWords({ state: "odd" }), "odd");
+  assert.equal(fileChipWords({ state: null }), "");
+  assert.equal(fileChipTone({ state: "gone" }), "warn");
+  assert.equal(fileChipTone({ state: "odd" }), "quiet");
+});

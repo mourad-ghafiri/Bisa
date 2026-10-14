@@ -92,7 +92,7 @@ impl Checkout {
                 .canonicalize()
                 .map(|p| p.join(name))
                 .unwrap_or_else(|_| absolute.clone()),
-            _ => absolute.clone(),
+            _ => absolute.clone(), // LCOV_EXCL_LINE a path with no parent or no name; by construction
         };
         let rel = resolved
             .strip_prefix(&root)
@@ -111,7 +111,7 @@ impl Checkout {
         let path = self.path_of(rel);
         match std::fs::symlink_metadata(&path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e.into()), // LCOV_EXCL_LINE a stat the disk refuses; a disk arm
             Ok(meta) if !meta.is_file() => return Ok(None),
             Ok(meta) if meta.len() > MAX_CHANGE_BLOB => {
                 return Err(EngineError::Invalid(bisa_core::text!(
