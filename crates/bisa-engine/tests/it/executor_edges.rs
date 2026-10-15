@@ -265,3 +265,35 @@ async fn a_cost_past_the_goal_s_budget_ends_the_session() {
     assert!(reason.contains("budget exhausted"), "{reason}");
     engine.shutdown().await;
 }
+
+/// A turn that ends failed while the session stays up — a streaming harness
+/// keeps its process between turns — settles the item with the failure at
+/// once, never waiting on a result that will not come.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_that_ends_failed_before_the_session_does_blocks_the_item() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(
+        &dir,
+        vec![MockAdapter {
+            id: "streaming".into(),
+            script: Some(vec![
+                SessionEvent::Lifecycle(LifecycleEvent::Started),
+                SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                    outcome: Outcome::Failed {
+                        error: "the tool crashed".into(),
+                    },
+                    is_terminal: false,
+                }),
+            ]),
+            ..Default::default()
+        }],
+        design_off_config(),
+    );
+    let (_, reason) = failed_with(
+        &engine,
+        new_workflow("streamed", vec![agent_step("work", "streaming")]),
+    )
+    .await;
+    assert!(reason.contains("the tool crashed"), "{reason}");
+    engine.shutdown().await;
+}

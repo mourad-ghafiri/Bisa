@@ -136,7 +136,7 @@ const CONVERSATIONS_DIR: &str = "conversations";
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), GuestError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
-    }
+    } // LCOV_EXCL_LINE a path with no parent; by construction
     let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)?;
@@ -147,7 +147,7 @@ fn append_line(path: &Path, line: &str) -> Result<(), GuestError> {
     use std::io::Write;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
-    }
+    } // LCOV_EXCL_LINE a path with no parent; by construction
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -404,7 +404,7 @@ impl GuestStore {
         let mut retracted: HashSet<String> = HashSet::new();
         for ev in &events {
             let Ok(author) = PrincipalId::new(ev.pubkey.to_hex()) else {
-                continue;
+                continue; // LCOV_EXCL_LINE a relayed key is always a principal; by construction
             };
             match ev.kind.as_u16() {
                 k if k == KIND_MESSAGE => {
@@ -693,5 +693,126 @@ mod tests {
         assert!(store.append(&bare).is_err());
         assert!(scope_of(&bare).is_none());
         assert!(store.events("../etc").is_err());
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind, Tag};
+    use nostr::key::Keys;
+
+    fn fact(keys: &Keys, kind: u16, content: &str, tags: Vec<Tag>) -> Event {
+        EventBuilder::new(Kind::Custom(kind), content)
+            .tags(tags)
+            .finalize(keys)
+            .unwrap()
+    }
+
+    fn coord(host: &PublicKey, scope: &str) -> Tag {
+        Tag::parse([
+            "a".to_string(),
+            format!(
+                "{}:{}:{scope}",
+                bisa_core::kind::KIND_CHANNEL,
+                host.to_hex()
+            ),
+        ])
+        .unwrap()
+    }
+
+    fn sealed(path: &Path) -> std::fs::Permissions {
+        let open = std::fs::metadata(path).unwrap().permissions();
+        let mut shut = open.clone();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut shut, 0o000);
+        std::fs::set_permissions(path, shut).unwrap();
+        open
+    }
+
+    #[test]
+    fn a_replica_reads_odd_facts_and_tags_as_what_they_are_and_says_what_it_cannot_read() {
+        let keys = Keys::generate();
+        let host = keys.public_key();
+        let dir = tempfile::tempdir().unwrap();
+        let store = GuestStore::open(&dir.path().join("hosts"), &host).unwrap();
+        assert!(store.dir().starts_with(dir.path()));
+        assert_eq!(store.host_hex(), host.to_hex());
+        store.set_channels(&[Channel::general(0)]).unwrap();
+
+        // A coordinate short of its scope, and one of another kind, name no
+        // channel; a fact with no channel cannot be kept.
+        let short = fact(
+            &keys,
+            KIND_MESSAGE,
+            "{}",
+            vec![Tag::parse(["a", "33405:abc"]).unwrap()],
+        );
+        assert_eq!(scope_of(&short), None);
+        let other_kind = fact(
+            &keys,
+            KIND_MESSAGE,
+            "{}",
+            vec![Tag::parse(["a".to_string(), format!("1:{}:general", host.to_hex())]).unwrap()],
+        );
+        assert_eq!(scope_of(&other_kind), None);
+        assert!(matches!(store.append(&short), Err(GuestError::Store(_))));
+
+        // A message whose content is no message body is skipped; one with
+        // imeta tags carries its attachments, the malformed ones dropped; a
+        // kind nobody reads is kept and shown as nothing.
+        let odd = fact(
+            &keys,
+            KIND_MESSAGE,
+            "not json",
+            vec![coord(&host, "general")],
+        );
+        assert!(store.append(&odd).unwrap());
+        assert!(!store.append(&odd).unwrap(), "seen once");
+        let sha = "ab".repeat(32);
+        let with = fact(
+            &keys,
+            KIND_MESSAGE,
+            &serde_json::to_string(&MessageBody::post("see attached")).unwrap(),
+            vec![
+                coord(&host, "general"),
+                Tag::parse(vec![
+                    "imeta".to_string(),
+                    format!("x {sha}"),
+                    "m image/png".to_string(),
+                    "size 12".to_string(),
+                    "name a.png".to_string(),
+                    "odd".to_string(),
+                    "zz 1".to_string(),
+                ])
+                .unwrap(),
+                Tag::parse(["imeta", "x nothex", "m image/png", "size 1", "name b.png"]).unwrap(),
+                Tag::parse(["imeta", "m image/png"]).unwrap(),
+            ],
+        );
+        assert!(store.append(&with).unwrap());
+        let unread_kind = fact(&keys, 1, "hello", vec![coord(&host, "general")]);
+        assert!(store.append(&unread_kind).unwrap());
+        let messages = store.messages("general", None, 10).unwrap();
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert_eq!(messages[0].attachments.len(), 1);
+        assert_eq!(messages[0].attachments[0].name, "a.png");
+        assert_eq!(messages[0].attachments[0].size, 12);
+
+        // A fact never seen is none; one seen in a scope no channel names
+        // is none too.
+        assert!(store.event(&"0".repeat(64)).unwrap().is_none());
+        let elsewhere = fact(&keys, KIND_MESSAGE, "{}", vec![coord(&host, "kitchen")]);
+        assert!(store.append(&elsewhere).unwrap());
+        assert!(store.event(&elsewhere.id.to_hex()).unwrap().is_none());
+
+        // A file that cannot be read is an error, never an empty answer.
+        let conversation = store.dir().join(CONVERSATIONS_DIR).join("general.jsonl");
+        let open = sealed(&conversation);
+        assert!(store.events("general").is_err());
+        std::fs::set_permissions(&conversation, open).unwrap();
+        let channels = store.dir().join(CHANNELS_FILE);
+        let open = sealed(&channels);
+        assert!(store.channels().is_err());
+        std::fs::set_permissions(&channels, open).unwrap();
     }
 }

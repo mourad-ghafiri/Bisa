@@ -41,7 +41,7 @@ const GOODBYE: Duration = Duration::from_secs(30);
 
 /// What a journey keeps of the environment it was started in: where the
 /// coverage tool writes, and nothing else.
-const KEPT: [&str; 3] = [
+pub(super) const KEPT: [&str; 3] = [
     "LLVM_PROFILE_FILE",
     "CARGO_LLVM_COV",
     "CARGO_LLVM_COV_TARGET_DIR",

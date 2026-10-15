@@ -498,10 +498,12 @@ fn resume_agent(
     }
     spec.interruptions = spec.interruptions.saturating_add(1);
     inner.ws.put_work_item(&spec)?;
+    // LCOV_EXCL_START a resume the scheduler refuses, its goal closed under the restart; out by decision
     if let Err(rejection) =
         executor::launch_step_item(inner, spec.clone(), crate::scheduler::Launch::Resume)
     {
         item_settled(inner, &spec, Err(rejection.to_string()));
+        // LCOV_EXCL_STOP
     }
     Ok(())
 }
@@ -861,9 +863,11 @@ fn call_connector(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<()
                     .await
                 {
                     Ok(result) => result,
+                    // LCOV_EXCL_START the client's own deadline is the shorter; the wrapper keeps the call total
                     Err(_) => Err(EngineError::Connector(
                         crate::connectors::ConnectorError::Timeout(deadline),
                     )),
+                    // LCOV_EXCL_STOP
                 };
             inner.connector_calls.remove(&(run_id, step.clone()));
             match result {
@@ -1609,7 +1613,9 @@ fn release_workstreams(
                     )
                     .await
                     {
+                        // LCOV_EXCL_START closing a copy fails only unwritable (disk-only)
                         tracing::warn!(workstream = %w.id, "closing a copy when its run ended: {e}");
+                        // LCOV_EXCL_STOP
                     }
                 },
             ));
@@ -1626,7 +1632,7 @@ fn release_workstreams(
                     state: closed.state,
                 },
             )),
-            Err(e) => warn_on_err::<(), _>(Err(e), "closing a workstream when a run finished"),
+            Err(e) => warn_on_err::<(), _>(Err(e), "closing a workstream when a run finished"), // LCOV_EXCL_LINE closing a copy fails only unwritable (disk-only)
         }
     }
 }

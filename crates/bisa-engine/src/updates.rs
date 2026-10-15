@@ -305,7 +305,7 @@ pub async fn check(inner: &crate::Inner, refresh: bool) -> UpdateCheck {
     }
     tracing::info!(
         target: "bisa_engine::updates",
-        outcome = check.word(),
+        outcome = check.word(), // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
         refresh,
         "the latest release was asked for"
     );
@@ -406,5 +406,41 @@ mod tests {
             checked_at: 1
         }
         .cacheable());
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn every_outcome_has_one_word_for_the_log() {
+        let gh: GhRelease = serde_json::from_value(json!({
+            "tag_name": "v0.3.0",
+            "name": "Bisa 0.3.0",
+            "html_url": "https://github.com/o/r/releases/tag/v0.3.0",
+            "body": "notes",
+            "published_at": "2026-10-10T09:00:00Z",
+            "prerelease": false,
+            "draft": false,
+            "assets": []
+        }))
+        .unwrap();
+        let latest = UpdateCheck::Latest {
+            release: release_of(gh),
+            checked_at: 1,
+        };
+        assert_eq!(latest.word(), "latest");
+        assert_eq!(
+            UpdateCheck::NoRelease { checked_at: 1 }.word(),
+            "no_release"
+        );
+        assert_eq!(UpdateCheck::Off.word(), "off");
+        let failed = UpdateCheck::Failed {
+            failure: UpdateFailure::Unexpected { status: 500 },
+            checked_at: 1,
+        };
+        assert_eq!(failed.word(), "failed");
     }
 }

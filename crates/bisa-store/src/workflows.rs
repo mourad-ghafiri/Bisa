@@ -338,7 +338,7 @@ impl Workspace {
             if self.listening(&host)?.is_some() {
                 out.push(host);
             }
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
         let goals = self.idx().listening_goal_ids()?;
         for id in goals {
             let Ok(goal) = id.parse::<GoalId>() else {

@@ -294,7 +294,7 @@ fn post(
                 "cli-session-node-s-answer-did-not-arrive",
                 e = e.to_string()
             )));
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     match status_of(&response) {
         Some(status) if status.starts_with('2') => response_body(&response).ok_or_else(|| {

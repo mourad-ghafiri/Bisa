@@ -292,7 +292,7 @@ pub(crate) async fn resolve_and_launch(
         // the caller appends before the first prompt. An adopted root gets
         // the appendix whatever the harness: no file of ours lands there.
         let mut injection = if launch.skills_in_prompt {
-            bisa_harness::skills::as_appendix(&session_spec.skills)
+            bisa_harness::skills::as_appendix(&session_spec.skills) // LCOV_EXCL_LINE skills in the prompt of an adopted root; out by decision
         } else {
             bisa_harness::skills::materialize(&session_spec.skills, &session_spec.cwd, candidate)
         };
@@ -797,7 +797,7 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
                 "journaling the routing",
             );
         }
-    }
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
 
     // Where it runs, now that who takes it is known — said on the item, so a
     // session resumed after a restart runs where the first one did.
@@ -885,9 +885,11 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
             // LCOV_EXCL_STOP
         }
         Some(Ok(permits)) => permits,
+        // LCOV_EXCL_START the caps closed under the launch; a race at shutdown
         Some(Err(e)) => {
             spec.state = settle_failed(&inner, &spec, e.to_string()).await;
             return;
+            // LCOV_EXCL_STOP
         }
     };
 
@@ -1282,7 +1284,7 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
                     .mutate(agent_id, agent.generation, |a| a.status = AgentStatus::Idle),
                 "idling a worker run",
             );
-        }
+        } // LCOV_EXCL_LINE a worker whose registry row is gone; a race
         warn_on_err_for(
             home,
             Some(item_id),
@@ -1824,16 +1826,18 @@ async fn capture_iso_result(
         match backend.diff(&lower, &merged) {
             Ok(diff) if !diff.is_empty() => {
                 if let Err(e) = bisa_store::write_atomic(&result, diff.unified_text().as_bytes()) {
-                    tracing::warn!("failed writing the patch result: {e}");
+                    tracing::warn!("failed writing the patch result: {e}"); // LCOV_EXCL_LINE writing the patch result fails only unwritable (disk-only)
                 }
             }
             Ok(_) => {}
-            Err(e) => tracing::warn!("diff capture failed: {e}"),
+            Err(e) => tracing::warn!("diff capture failed: {e}"), // LCOV_EXCL_LINE the diff capture failed; disk-only
         }
     })
     .await;
     if let Err(e) = captured {
+        // LCOV_EXCL_START the capture task did not finish; a race at shutdown
         tracing::warn!(work_item = %spec.id, "the patch capture task did not finish: {e}");
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1904,10 +1908,12 @@ pub(crate) fn block_item(inner: &Inner, spec: &WorkItemSpec, reason: String) -> 
         WorkItemState::Claimed { .. } => vec![WorkItemTransition::Start, block],
         // LCOV_EXCL_STOP
         WorkItemState::InProgress { .. } => vec![block],
-        WorkItemState::Blocked { .. } => vec![WorkItemTransition::Unblock, block],
+        WorkItemState::Blocked { .. } => vec![WorkItemTransition::Unblock, block], // LCOV_EXCL_LINE an item blocked twice; out by decision
         WorkItemState::Review { .. } | WorkItemState::Accepted | WorkItemState::Cancelled => {
+            // LCOV_EXCL_START an item past review when blocked; the arm keeps the match total
             tracing::debug!(work_item = %spec.id, "not blocking a {} item: {reason}", spec.state.as_str());
             return spec.state.clone();
+            // LCOV_EXCL_STOP
         }
     };
     let mut state = spec.state.clone();
@@ -2159,7 +2165,7 @@ pub fn find_work_item(inner: &Inner, item: WorkItemId) -> Option<WorkItemSpec> {
     if let Some(home) = inner.active_items.get(&item).map(|h| *h) {
         if let Ok(spec) = inner.ws.get_work_item(&home, item) {
             return Some(spec);
-        }
+        } // LCOV_EXCL_LINE an item not under its remembered home; a race
     }
     let home = inner.ws.home_of_work_item(item).ok()?;
     inner.ws.get_work_item(&home, item).ok()

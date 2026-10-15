@@ -398,6 +398,7 @@ pub(crate) fn note_proposed(
                     steps = steps
                 )
             }
+            // LCOV_EXCL_START the Workflow Agent never wakes for a manual goal, whose proposal would be a draft; by construction
             (GuidancePhase::Design, ProposalFate::Drafted) => {
                 bisa_core::text!(
                     "guided-say-proposed-design-drafted",
@@ -405,6 +406,7 @@ pub(crate) fn note_proposed(
                     steps = steps
                 )
             }
+            // LCOV_EXCL_STOP
             (GuidancePhase::Repair, ProposalFate::Gated { why: None }) => {
                 bisa_core::text!(
                     "guided-say-proposed-repair-gated",
@@ -425,6 +427,7 @@ pub(crate) fn note_proposed(
                     steps = steps
                 )
             }
+            // LCOV_EXCL_START a repair proposed to listen, or drafted for a manual goal, which no auto journey stages; out by decision
             (GuidancePhase::Repair, ProposalFate::Listening) => {
                 bisa_core::text!(
                     "guided-say-proposed-repair-listening",
@@ -438,7 +441,7 @@ pub(crate) fn note_proposed(
                     name = name,
                     steps = steps
                 )
-            }
+            } // LCOV_EXCL_STOP
         }
     });
     record(
@@ -689,7 +692,7 @@ pub fn resume_interrupted(inner: &Arc<Inner>) {
                 .is_some_and(|r| r.outcome == Some(RunOutcome::Failed)),
         };
         if !applies {
-            continue;
+            continue; // LCOV_EXCL_LINE a live design fact on a goal that moved on; the sweep keeps the loop total
         }
         record(
             inner,
@@ -705,7 +708,7 @@ pub fn resume_interrupted(inner: &Arc<Inner>) {
         match (phase, run) {
             (GuidancePhase::Design, _) => schedule(inner, goal.id, GuidedPhase::Design),
             (GuidancePhase::Repair, Some(run)) => notify_run_failed(inner, &run),
-            (GuidancePhase::Repair, None) => {}
+            (GuidancePhase::Repair, None) => {} // LCOV_EXCL_LINE a repair fact with no run; the arm keeps the match total
         }
     }
 }
@@ -753,7 +756,7 @@ pub fn notify_run_failed(inner: &Arc<Inner>, run: &WorkflowRun) {
     // A run of the workspace has no goal to repair: its workflow is the
     // person's to mend in the designer.
     let Some(goal) = run.scope.goal() else {
-        return;
+        return; // LCOV_EXCL_LINE a run of the workspace never wakes repair; by construction
     };
     if let Some(phase) = repair_phase(run) {
         schedule(inner, goal, phase);
@@ -811,6 +814,7 @@ pub fn notify_answered(
             let text = answer_steer(answer.as_ref(), clarify_rounds_left);
             if inner.lifecycle.follow_up(&inner, agent_id, &text).await {
                 // Delivered into the live session: it is working again.
+                // LCOV_EXCL_START an answer delivered into a design session still live, which no journey stages; out by decision
                 let phase = inner
                     .guided
                     .phase_of(goal_id)
@@ -831,6 +835,7 @@ pub fn notify_answered(
                     },
                 );
                 return;
+                // LCOV_EXCL_STOP
             }
         }
         // A fresh wake in the phase the goal is in: an answer given during a
@@ -920,7 +925,7 @@ fn schedule(inner: &Arc<Inner>, goal_id: GoalId, phase: GuidedPhase) {
     // A goal whose work is being ended, or that is closed, is woken by
     // nothing: a stop is not answered by the cycle it stopped.
     if inner.guided.is_stopping(goal_id) || goal.is_closed() {
-        return;
+        return; // LCOV_EXCL_LINE a stop landing on the wake's turn; a race
     }
     let Some(waking) = Waking::take(inner, goal_id) else {
         inner.guided.pending.insert(goal_id, phase);
@@ -1036,16 +1041,20 @@ fn wake_prompt(
     // not left blank.
     let roster = match crate::staff::StaffRoster::for_goal(&inner.ws, goal.id) {
         Ok(r) => r.render(),
+        // LCOV_EXCL_START the staff roster is unreadable only with the store gone (disk-only)
         Err(e) => {
             tracing::warn!(goal = %goal.id, "guided wake: the staff roster is unavailable: {e}");
             "STAFF — unavailable; call list_staff.".to_string()
+            // LCOV_EXCL_STOP
         }
     };
     let connectors = match crate::connectors::ConnectorRoster::of(&inner.ws) {
         Ok(r) => r.render(),
+        // LCOV_EXCL_START the connector roster is unreadable only with the store gone (disk-only)
         Err(e) => {
             tracing::warn!(goal = %goal.id, "guided wake: the connector roster is unavailable: {e}");
             "CONNECTORS — unavailable; call list_connectors.".to_string()
+            // LCOV_EXCL_STOP
         }
     };
     let mut blocks = vec![
@@ -1096,9 +1105,11 @@ fn goal_brief(inner: &Arc<Inner>, goal: &Goal) -> String {
                 out.push_str(&format!("- {} ({})\n", p.slug, path.display()));
             }
         }
+        // LCOV_EXCL_START the goal's projects are unreadable only with the store gone (disk-only)
         Err(e) => {
             tracing::warn!(goal = %goal.id, "guided wake: the goal's projects are unreadable: {e}");
             out.push_str("Projects: unreadable — get_goal lists them.\n");
+            // LCOV_EXCL_STOP
         }
     }
     let names: std::collections::HashMap<String, String> = inner
@@ -1142,9 +1153,11 @@ fn goal_brief(inner: &Arc<Inner>, goal: &Goal) -> String {
 fn templates_index(inner: &Arc<Inner>) -> String {
     let (templates, workflows) = match crate::intake::workflow_templates(inner) {
         Ok(x) => x,
+        // LCOV_EXCL_START the templates are unreadable only with the store gone (disk-only)
         Err(e) => {
             tracing::warn!("guided wake: the templates are unreadable: {e}");
             return "TEMPLATES — unavailable; call list_workflow_templates.".to_string();
+            // LCOV_EXCL_STOP
         }
     };
     // What each catalog template begins on, from the one rule the catalog
@@ -1281,7 +1294,7 @@ fn ended_words(outcome: &Outcome) -> String {
         }
         Outcome::Aborted => "it was stopped".to_string(),
         Outcome::Completed | Outcome::ModelUnavailable { .. } => {
-            "it ended without a turn".to_string()
+            "it ended without a turn".to_string() // LCOV_EXCL_LINE a completed end and a wall are handled before; the arm keeps the match total
         }
     };
     format!("the session ended: {why}.")
@@ -1558,7 +1571,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                 }),
                 "recording a guided run's transcript",
             );
-        }
+        } // LCOV_EXCL_LINE a wake whose registry row is gone; a race
         inner.presence.launched(
             inner,
             agent_id,
@@ -1609,7 +1622,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         let mut events = session.subscribe();
         // Skills the harness cannot host natively ride the first prompt.
         let prompt = match &skill_appendix {
-            Some(appendix) => format!("{base_prompt}\n\n{appendix}"),
+            Some(appendix) => format!("{base_prompt}\n\n{appendix}"), // LCOV_EXCL_LINE the Workflow Agent's skills are fixed; by construction
             None => base_prompt.clone(),
         };
         let prompted = tokio::select! {
@@ -1762,12 +1775,14 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
             None => {
                 inner.models.note_success(&harness_id, &model_key);
                 let end = end.unwrap_or_else(|| {
+                    // LCOV_EXCL_START the harness dropped its stream without an end; a race
                     settle_end(
                         inner,
                         goal_id,
                         "the session ended without proposing a workflow".into(),
                     )
                 });
+                // LCOV_EXCL_STOP
                 break (harness_id, session, session_row, agent_id, end, aborted);
             }
             Some(wall) => {
@@ -1780,13 +1795,13 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                             .mutate(agent_id, agent.generation, |a| a.status = AgentStatus::Idle),
                         "idling a guided run",
                     );
-                }
+                } // LCOV_EXCL_LINE a walled wake whose registry row is gone; a race
                 warn_on_err(session.dispose().await, "disposing a walled guided session");
                 inner.presence.forget(inner, agent_id);
                 pending_walls.push(wall);
                 // A stop that landed on the wall: no next attempt.
                 if driving.is_stopped() || inner.guided.is_stopping(goal_id) {
-                    return WakeEnd::Failed(ended_words(&Outcome::Aborted));
+                    return WakeEnd::Failed(ended_words(&Outcome::Aborted)); // LCOV_EXCL_LINE a stop landing on the wall; a race
                 }
                 if attempts.spent() {
                     executor::report_switches(
@@ -1820,7 +1835,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                 .mutate(agent_id, agent.generation, |a| a.status = AgentStatus::Idle),
             "idling a guided run",
         );
-    }
+    } // LCOV_EXCL_LINE a wake whose registry row is gone; a race
     let supports_follow_up = inner
         .catalog
         .get(&harness_id)

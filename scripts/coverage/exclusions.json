@@ -8,6 +8,10 @@
     "reason": "asks this machine's xcrun, adb, emulator and flutter for real; fake.rs stands in for every test — provisional, until its argv-building is carved out and measured"
   },
   {
+    "path": "crates/bisa-net/src/iroh_sync.rs",
+    "reason": "the direct peer-to-peer transport's internals; out by decision — its two end-to-end journeys in tests/it/iroh_e2e.rs stay"
+  },
+  {
     "path": "desktop/src-tauri/src/main.rs",
     "reason": "the Tauri entry point: the builder, the window, the menus and the commands bound to a running app"
   },

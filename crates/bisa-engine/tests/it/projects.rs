@@ -1911,6 +1911,23 @@ async fn an_agents_reply_on_a_thread_is_signed_and_may_resolve_it_in_the_same_ac
     .await;
     assert_eq!(reopened["ok"], true, "{reopened}");
     assert!(!fake.state.threads.lock().unwrap()[2].is_resolved);
+    // A review of the agent's own is submitted from the same session,
+    // signed as the agent.
+    let before = fake.state.reviews.lock().unwrap().len();
+    let submitted = common::intake_roundtrip(
+        engine.socket_path(),
+        serde_json::json!({"op": "pr_review_submit", "scope": scope, "agent": "fixer",
+                           "event": "comment", "body": "One rounding is the tax line's."}),
+    )
+    .await;
+    assert_eq!(submitted["ok"], true, "{submitted}");
+    assert_eq!(fake.state.reviews.lock().unwrap().len(), before + 1);
+    let off_list = common::intake_roundtrip(
+        engine.socket_path(),
+        serde_json::json!({"op": "pr_review_submit", "scope": goal.to_string(), "event": "comment"}),
+    )
+    .await;
+    assert_eq!(off_list["ok"], false, "{off_list}");
     // Off a workstream chat — a goal's scope — the tool refuses by name.
     let off = common::intake_roundtrip(
         engine.socket_path(),
@@ -4314,6 +4331,16 @@ async fn workstream_scripts_run_in_their_place_with_their_facts() {
         "test -d \"$BISA_WORKSTREAM_PATH\" && printf '%s' \"$BISA_SCRIPT_PHASE\" > \"$BISA_PROJECT_PATH/.clean-$BISA_WORKSTREAM_ID\"",
     );
     approve_scripts(&engine, &project);
+    // Under a policy that names no proxy, the scripts run without the
+    // proxy names a child would inherit.
+    engine
+        .set_setting(
+            bisa_core::SettingScope::Machine,
+            None,
+            "network.proxy.mode",
+            serde_json::json!("none"),
+        )
+        .unwrap();
 
     let place = projects::open_workstream_for(
         engine.inner(),
@@ -4453,6 +4480,24 @@ async fn a_failing_script_refuses_what_it_guards_and_reports_the_rest() {
         1,
         "only the primary is on record"
     );
+    // An agent's item placed on the project meets the same refusal at its
+    // launch: blocked with the script's reason, and no checkout was cut.
+    let item_id = run_spec(&engine, goal, item(goal, Some(&project), "Add dark mode")).await;
+    let blocked = common::until("the item blocked by the script", || {
+        common::items_of(&engine, goal)
+            .into_iter()
+            .find(|i| i.id == item_id)
+            .and_then(|i| match i.state {
+                WorkItemState::Blocked { reason, .. } => Some(reason),
+                _ => None,
+            })
+    })
+    .await;
+    assert!(
+        blocked.contains("pre-create script exited with status 3"),
+        "{blocked}"
+    );
+    assert_eq!(bisa_vcs::git::worktree_list(&root).unwrap().len(), 1);
 
     // Post-create: the workstream is real by then; its failure is a note.
     set_script(&engine, &project, "workstreams.script.pre_create", "");

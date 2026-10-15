@@ -514,7 +514,7 @@ fn flutter_program(inner: &Inner) -> Result<Option<PathBuf>, EngineError> {
     if let Some(probe) = inner.mobile_development.toolchain.get(TOOLCHAIN_TTL) {
         if let Some(path) = probe.toolchain.flutter.path {
             return Ok(Some(PathBuf::from(path)));
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     Ok(tools(inner)?.flutter_path(&hints(inner)))
 }

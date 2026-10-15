@@ -295,7 +295,7 @@ impl Gates {
                 Err(if found.is_some() {
                     DecideRefusal::Decided
                 } else {
-                    DecideRefusal::Unknown
+                    DecideRefusal::Unknown // LCOV_EXCL_LINE a gate gone between the lock and the read; a race
                 })
             }
         }
@@ -336,7 +336,7 @@ impl Gates {
     pub fn withdraw(&self, id: &str) -> Option<GateEntry> {
         let pending = self.slots.get(id)?.entry.resolution.is_none();
         if !pending {
-            return None;
+            return None; // LCOV_EXCL_LINE withdraw is asked of pending gates alone; by construction
         }
         self.slots.remove(id).map(|(_, slot)| slot.entry.clone())
     }

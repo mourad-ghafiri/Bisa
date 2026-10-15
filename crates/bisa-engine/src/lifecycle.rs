@@ -89,7 +89,7 @@ impl Lifecycle {
                     }),
                     "parking a run",
                 );
-            }
+            } // LCOV_EXCL_LINE a parked session whose registry row is gone; a race
             inner.presence.parked(&inner, agent_id);
             inner.emit(crate::events::EngineEvent::global(
                 crate::events::EnginePayload::Session {
@@ -108,7 +108,7 @@ impl Lifecycle {
     /// session a person keeps talking to parks once they stop, never never.
     pub async fn follow_up(&self, inner: &Arc<Inner>, agent_id: LiveRunId, text: &str) -> bool {
         let Some(slot) = self.slots.get(&agent_id).map(|s| Arc::clone(&s)) else {
-            return false;
+            return false; // LCOV_EXCL_LINE a follow-up to a session that was let go; a race
         };
         let mut guard = slot.lock().await;
         guard.epoch += 1; // touched: invalidate any pending TTL

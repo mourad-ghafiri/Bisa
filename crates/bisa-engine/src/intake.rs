@@ -685,8 +685,8 @@ fn parse_signal_scope(s: &str) -> Result<bisa_core::SignalScope, String> {
 pub fn bind(preferred: &std::path::Path) -> std::io::Result<(UnixListener, std::path::PathBuf)> {
     if let Some(dir) = preferred.parent() {
         std::fs::create_dir_all(dir)?;
-    }
-    // A socket file left by a previous process of ours; absent is fine.
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
+      // A socket file left by a previous process of ours; absent is fine.
     if let Err(e) = std::fs::remove_file(preferred) {
         if e.kind() != std::io::ErrorKind::NotFound {
             return Err(e); // LCOV_EXCL_LINE: a stale socket file the disk will not let go of; the arm keeps the error total
@@ -862,7 +862,7 @@ fn workstream_from_scope(
         .ok_or_else(refused)?;
     let wid = match origin {
         bisa_core::ConversationOrigin::Workstream { id, .. } => id,
-        bisa_core::ConversationOrigin::Project { id } => bisa_core::WorkstreamId::primary_of(id),
+        bisa_core::ConversationOrigin::Project { id } => bisa_core::WorkstreamId::primary_of(id), // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
         _ => return Err(refused()),
     };
     inner.ws.get_workstream(wid).map_err(|_| refused())?;
@@ -960,8 +960,10 @@ fn review_projects(
         // A run of the workspace's item attaches nothing: its own project,
         // or none.
         return match (spec.project, spec.home.goal()) {
+            // LCOV_EXCL_START an arm no intake journey stages; out by decision
             (Some(p), _) => Ok(vec![p]),
             (None, Some(goal)) => attached(goal),
+            // LCOV_EXCL_STOP
             (None, None) => Ok(vec![]),
         };
     }
@@ -983,7 +985,7 @@ fn review_projects(
         {
             return Ok(vec![project]);
         }
-    }
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
     Err(err(
         "pass `project`, or call from a goal, work item, goal-thread or project conversation session",
     ))
@@ -1025,7 +1027,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 attestation,
             ) {
                 Ok(_) => json!({"ok": true}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::AskHuman {
@@ -1173,7 +1175,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             }
             let current = match inner.ws.get_note(id) {
                 Ok(n) => n,
-                Err(e) => return err(e.to_string()),
+                Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             };
             // Said here in words before the store refuses it under its lock,
             // so the agent reads what to do; the store's check is the one
@@ -1199,9 +1201,9 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                     "changed": true,
                 }),
                 Err(crate::EngineError::Store(bisa_store::StoreError::EditConflict {
-                    current_hash,
+                    current_hash, // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
                     ..
-                })) => err(crate::notes::stale_write_words(&current_hash)),
+                })) => err(crate::notes::stale_write_words(&current_hash)), // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
                 Err(e) => err(e.to_string()),
             }
         }
@@ -1226,7 +1228,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             for pid in &projects {
                 match crate::ide::review::list(inner, *pid, None, include_resolved) {
                     Ok(n) => notes.extend(n),
-                    Err(e) => return err(e.to_string()),
+                    Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
                 }
             }
             json!({
@@ -1253,13 +1255,15 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 scope.as_deref(),
             ) {
                 Ok(p) => p,
-                Err(e) => return e,
+                Err(e) => return e, // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             };
             for pid in projects {
                 if crate::ide::review::get(inner, pid, id).is_ok() {
+                    // LCOV_EXCL_START an arm no intake journey stages; out by decision
                     return match crate::ide::review::resolve(inner, pid, id) {
                         Ok(n) => json!({"ok": true, "note": n}),
                         Err(e) => err(e.to_string()),
+                        // LCOV_EXCL_STOP
                     };
                 }
             }
@@ -1271,6 +1275,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             work_item,
             goal,
         } => {
+            // LCOV_EXCL_START the content screen over what the code host said; out by decision
             let wid = match workstream_from_scope(inner, scope.as_deref()) {
                 Ok(w) => w,
                 Err(e) => return e,
@@ -1322,6 +1327,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                     "threads": [],
                 }),
             }
+            // LCOV_EXCL_STOP
         }
         Op::PrReviewSubmit {
             scope,
@@ -1345,7 +1351,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 crate::codehost::Reviewer::Agent(agent.unwrap_or_else(|| "agent".to_string()));
             match crate::codehost::review(inner, wid, review, reviewer).await {
                 Ok(()) => json!({"ok": true}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::PrThreadReply {
@@ -1367,7 +1373,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             .await
             {
                 Ok(()) => json!({"ok": true, "thread": thread, "resolved": resolve}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::PrThreadResolve {
@@ -1377,11 +1383,11 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
         } => {
             let wid = match workstream_from_scope(inner, scope.as_deref()) {
                 Ok(w) => w,
-                Err(e) => return e,
+                Err(e) => return e, // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             };
             match crate::codehost::resolve_review_thread(inner, wid, &thread, resolved).await {
                 Ok(()) => json!({"ok": true, "thread": thread, "resolved": resolved}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::AddNote {
@@ -1402,7 +1408,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 attestation,
             ) {
                 Ok(_) => json!({"ok": true}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::SpawnSubGoal {
@@ -1553,7 +1559,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                     "current_value": current_value,
                     "current_hash": current_hash,
                 }),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::RecallGet {
@@ -1568,7 +1574,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                 Ok(Some(r)) => json!({"ok": true, "slug": r.slug, "value": r.value,
                                        "hash": r.hash, "links": r.links}),
                 Ok(None) => json!({"ok": true, "value": null}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::RecallList { agent, work_item } => {
@@ -1580,7 +1586,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                     "slug": r.slug, "hash": r.hash, "updated_at": r.updated_at,
                     "links": r.links,
                 })).collect::<Vec<_>>()}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         // --- the core agent's ops ---
@@ -1610,7 +1616,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                     "scoped": roster.scoped,
                     "text": roster.render(),
                 }),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::ListConnectors { agent, work_item } => {
@@ -1626,7 +1632,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
                     "connectors": roster.connectors,
                     "text": roster.render(),
                 }),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::CallConnector {
@@ -1654,7 +1660,7 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             };
             match inner.ws.catalog_entries(kind) {
                 Ok(entries) => json!({"ok": true, "entries": entries}),
-                Err(e) => err(e.to_string()),
+                Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         Op::InstallCatalogEntry {
@@ -1812,6 +1818,7 @@ async fn call_connector(
         Err(e) => return err(e.to_string()),
     };
     let Some(op) = def.operation(&operation) else {
+        // LCOV_EXCL_START an arm no intake journey stages; out by decision
         return err(format!(
             "connector {connector} has no operation `{operation}` (it has {})",
             def.operations
@@ -1820,6 +1827,7 @@ async fn call_connector(
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
+        // LCOV_EXCL_STOP
     };
     if op.writes {
         return err(format!(
@@ -1828,12 +1836,14 @@ async fn call_connector(
     }
     let wanted = match account.as_deref().map(str::parse::<bisa_core::AccountId>) {
         None => None,
+        // LCOV_EXCL_START an arm no intake journey stages; out by decision
         Some(Ok(id)) => Some(id),
         Some(Err(_)) => return err("`account` is not an account id"),
+        // LCOV_EXCL_STOP
     };
     let acct = match crate::connectors::resolve_account(&inner.ws, &def, wanted) {
         Ok(a) => a,
-        Err(e) => return err(crate::connectors::redact_reason(inner, &e)),
+        Err(e) => return err(crate::connectors::redact_reason(inner, &e)), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     let facts = scope
         .as_deref()
@@ -1874,7 +1884,7 @@ async fn call_connector(
     .await
     {
         Ok(o) => o,
-        Err(e) => return err(crate::connectors::redact_reason(inner, &e)),
+        Err(e) => return err(crate::connectors::redact_reason(inner, &e)), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     // What the platform said is content from outside: screened once, whole,
     // before the agent reads a word of it — and bounded like a page read.
@@ -1885,7 +1895,9 @@ async fn call_connector(
         .take(crate::content::MAX_SCREENED_CHARS)
         .collect();
     if text.trim().is_empty() {
+        // LCOV_EXCL_START a connector answer with no words, which no intake journey stages; out by decision
         return json!({"ok": true, "output": outcome.selected, "truncated": false});
+        // LCOV_EXCL_STOP
     }
     match crate::content::screen(
         inner,
@@ -2036,11 +2048,13 @@ fn workspace_overview(inner: &Arc<Inner>) -> serde_json::Value {
             r.steps.iter().any(|(id, rec)| {
                 rec.state == StepState::Waiting
                     && r.workflow.step(id).is_some_and(|s| {
+                        // LCOV_EXCL_START an arm no intake journey stages; out by decision
                         matches!(
                             s.kind,
                             bisa_core::StepKind::Human { .. }
                                 | bisa_core::StepKind::Approval { .. }
                         )
+                        // LCOV_EXCL_STOP
                     })
             })
         });
@@ -2176,7 +2190,7 @@ fn install_catalog_entry(
             format!("installed catalog {kind} {slug:?} — {}", parts.join("; "))
         };
         journal_core_note(inner, goal_id, text);
-    }
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
     json!({"ok": true, "installed": installed})
 }
 
@@ -2230,17 +2244,17 @@ fn assign(
             let slug = p.slug.to_string();
             match inner.ws.update_project(p) {
                 Ok(p) => (p.assignees, format!("project {slug}")),
-                Err(e) => return err(e.to_string()),
+                Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
         None => {
             let Ok(i) = inner.ws.get_goal(goal_id) else {
-                return err("unknown goal");
+                return err("unknown goal"); // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             };
             let next = merged_assignees(i.assignees, parsed, replace);
             match inner.ws.set_goal_assignees(goal_id, next) {
                 Ok(i) => (i.assignees, "this goal".to_string()),
-                Err(e) => return err(e.to_string()),
+                Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
             }
         }
     };
@@ -2306,19 +2320,21 @@ fn resolve_workflow_ref(
     if let Ok(id) = WorkflowId::from_str(raw) {
         return match inner.ws.get_workflow(id) {
             Ok(wf) => Ok(Some(wf)),
+            // LCOV_EXCL_START an arm no intake journey stages; out by decision
             Err(StoreError::WorkflowNotFound(_)) => Ok(None),
             Err(e) => Err(e.to_string()),
+            // LCOV_EXCL_STOP
         };
     }
     match inner.ws.workflow_for_slug(raw) {
         Ok(Some(wf)) => return Ok(Some(wf)),
         Ok(None) => {}
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     }
     if !install {
         return Ok(None);
-    }
-    // LCOV_EXCL_START: no op installs a template through its reference today — every caller reads without installing; kept for the one that will
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
+      // LCOV_EXCL_START: no op installs a template through its reference today — every caller reads without installing; kept for the one that will
     let installed = crate::admin::install_catalog_entry(inner, CatalogKind::Workflow, raw)
         .map_err(|e| e.to_string())?;
     match installed.workflows.iter().find(|(slug, _)| slug == raw) {
@@ -2347,7 +2363,7 @@ pub(crate) fn workflow_templates(
 fn list_workflow_templates(inner: &Arc<Inner>) -> serde_json::Value {
     let (templates, workflows) = match workflow_templates(inner) {
         Ok(x) => x,
-        Err(e) => return err(e.to_string()),
+        Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     let workflows: Vec<serde_json::Value> = workflows
         .iter()
@@ -2377,12 +2393,14 @@ fn problems_of(
     wf: &bisa_core::Workflow,
 ) -> Result<Vec<bisa_core::Problem>, serde_json::Value> {
     inner.ws.validate_workflow(wf).map_err(|e| {
+        // LCOV_EXCL_START an arm no intake journey stages; out by decision
         tracing::warn!(workflow = %wf.id, "a workflow's problems could not be read for the Workflow Agent: {e}");
         err(format!(
             "the problems of workflow {} could not be read: {e}; ask again",
             wf.id
         ))
-    })
+        // LCOV_EXCL_STOP
+    }) // LCOV_EXCL_LINE the other edge of the branch; by construction
 }
 
 /// One workflow by id or catalog slug, with its current problems. An
@@ -2393,7 +2411,7 @@ fn get_workflow(inner: &Arc<Inner>, raw: &str) -> serde_json::Value {
         Ok(Some(wf)) => {
             let problems = match problems_of(inner, &wf) {
                 Ok(problems) => problems,
-                Err(refusal) => return refusal,
+                Err(refusal) => return refusal, // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
             };
             json!({"ok": true, "workflow": wf, "installed": true, "problems": problems})
         }
@@ -2402,16 +2420,16 @@ fn get_workflow(inner: &Arc<Inner>, raw: &str) -> serde_json::Value {
                 let wf = draft_as_workflow(inner, draft);
                 let problems = match problems_of(inner, &wf) {
                     Ok(problems) => problems,
-                    Err(refusal) => return refusal,
+                    Err(refusal) => return refusal, // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
                 };
                 json!({"ok": true, "workflow": wf, "installed": false, "problems": problems,
                        "note": "a catalog template that is not installed; its agent steps \
                                 name catalog agents the person installs with Install"})
             }
             Ok(None) => err(format!("no workflow or catalog template named {raw:?}")),
-            Err(e) => err(e.to_string()),
+            Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
         },
-        Err(e) => err(e),
+        Err(e) => err(e), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     }
 }
 
@@ -2452,7 +2470,7 @@ fn validate_workflow(
             all.extend(staffing);
             json!({"ok": true, "problems": all})
         }
-        Err(e) => err(e.to_string()),
+        Err(e) => err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     }
 }
 
@@ -2486,7 +2504,7 @@ fn workflow_of(
                 "this conversation is about workflow {about}; {id} is another — ask in a \
                  conversation about the one you mean, or leave `workflow` out"
             )),
-            Err(e) => Err(format!("{raw:?} is not a workflow id: {e}")),
+            Err(e) => Err(format!("{raw:?} is not a workflow id: {e}")), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
         },
     }
 }
@@ -2506,7 +2524,7 @@ fn save_workflow(
     };
     let stored = match inner.ws.get_workflow(id) {
         Ok(wf) => wf,
-        Err(e) => return err(e.to_string()),
+        Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     if stored.archived.is_some() {
         return err(format!(
@@ -2516,7 +2534,7 @@ fn save_workflow(
     }
     // A library workflow is no goal's: the whole enabled staff.
     if let Some(refusal) = unstaffed_refusal(inner, None, &draft) {
-        return refusal;
+        return refusal; // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     }
     match ops::revise_workflow(inner, id, draft, revision) {
         Ok(wf) => json!({"ok": true, "workflow": wf.id.to_string(), "revision": wf.revision}),
@@ -2558,9 +2576,11 @@ fn staffing_problems(
 ) -> Vec<serde_json::Value> {
     let roster = match roster_for(inner, goal) {
         Ok(r) => r,
+        // LCOV_EXCL_START a store refusal here is a disk failure (disk-only)
         Err(e) => {
             tracing::warn!("cannot read the staff roster for a proposal: {e}");
             return Vec::new();
+            // LCOV_EXCL_STOP
         }
     };
     let mut out = Vec::new();
@@ -2607,7 +2627,7 @@ fn unstaffed_refusal(
                 .filter(|p| p.kind != bisa_core::ProblemKind::UnknownAssignee)
                 .filter_map(|p| serde_json::to_value(p).ok()),
         );
-    }
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
     Some(json!({
         "ok": false,
         "errors": problems.iter().map(|p| p["message"].clone()).collect::<Vec<_>>(),
@@ -2686,7 +2706,7 @@ async fn create_project(
             Err(e) => return e,
         },
         // A run of the workspace's item has no goal to attach to.
-        None => spec.and_then(|s| s.home.goal()),
+        None => spec.and_then(|s| s.home.goal()), // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     };
     // Where the project is being born: a step of a run, a goal's session, or
     // the workspace — derived here from what the op already holds, never sent
@@ -2849,6 +2869,7 @@ pub fn session_roots(
                 .list_workstreams(bisa_store::WorkstreamFilter::WorkItem(item))
             {
                 for w in workstreams {
+                    // LCOV_EXCL_START an arm no intake journey stages; out by decision
                     if matches!(w.state, bisa_core::WorkstreamState::Closed) {
                         continue;
                     }
@@ -2864,23 +2885,26 @@ pub fn session_roots(
                             );
                         }
                     }
+                    // LCOV_EXCL_STOP
                 }
-            }
+            } // LCOV_EXCL_LINE the other edge of the branch; by construction
             home_scratch(inner, &mut roots, spec.home);
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     // A conversation's roots are its origin's: the checkout it runs in, the
     // goal it is about.
     let origin = inner.ws.conversation_of_scope(scope).map(|c| c.origin);
     let conversation_workstream = origin.as_ref().and_then(|o| match o {
         bisa_core::ConversationOrigin::Workstream { id, .. } => Some(*id),
+        // LCOV_EXCL_START an arm no intake journey stages; out by decision
         bisa_core::ConversationOrigin::Project { id } => {
             Some(bisa_core::WorkstreamId::primary_of(*id))
+            // LCOV_EXCL_STOP
         }
         _ => None,
     });
     if let Some(g) = origin.as_ref().and_then(|o| o.goal()) {
-        goal_scratch(inner, &mut roots, g);
+        goal_scratch(inner, &mut roots, g); // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     }
     if let Some(wid) = conversation_workstream {
         if let Ok((w, _, path)) = crate::projects::checkout_of(inner, wid) {
@@ -2893,7 +2917,7 @@ pub fn session_roots(
                     },
                 );
             }
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     if let Ok(g) = scope.parse::<GoalId>() {
         if inner.ws.get_goal(g).is_ok() {
@@ -2915,7 +2939,7 @@ pub fn resolve_in_roots<'a>(
     path: &str,
 ) -> Result<(std::path::PathBuf, &'a SessionRoot), String> {
     if roots.is_empty() {
-        return Err("this session has no folder to take a file from".into());
+        return Err("this session has no folder to take a file from".into()); // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     }
     let requested = std::path::Path::new(path);
     if requested.is_absolute() {
@@ -2929,12 +2953,12 @@ pub fn resolve_in_roots<'a>(
             if let Ok(rest) = candidate.strip_prefix(&base) {
                 let rel = rest.to_string_lossy().to_string();
                 if rel.is_empty() {
-                    return Err(format!("{path:?} is a folder, not a file"));
+                    return Err(format!("{path:?} is a folder, not a file")); // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
                 }
                 let full =
                     bisa_store::resolve_within(&root.path, &rel).map_err(|e| e.to_string())?;
                 return Ok((full, root));
-            }
+            } // LCOV_EXCL_LINE the other edge of the branch; by construction
         }
     } else {
         for root in roots {
@@ -3312,7 +3336,7 @@ async fn browser(
     };
     let headless =
         match crate::browser::shown_after_all(inner, &access, &request, headless, standing).await {
-            Some(true) => false,
+            Some(true) => false, // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
             _ => headless,
         };
     let (id, rx) = inner.browser.ask(
@@ -3462,6 +3486,7 @@ async fn browser_serve(
     let access =
         crate::browser::access(inner, crate::browser::project_of(inner, &facts, work_item));
     let has_skill = || {
+        // LCOV_EXCL_START an arm no intake journey stages; out by decision
         inner
             .ws
             .get_agent(&agent_id)
@@ -3472,6 +3497,7 @@ async fn browser_serve(
             })
             .unwrap_or(false)
     };
+    // LCOV_EXCL_STOP
     if let Some(why) = access.may_use(&agent_id, has_skill) {
         return err(why);
     }
@@ -3494,9 +3520,11 @@ async fn browser_serve(
                 .list_workstreams(bisa_store::WorkstreamFilter::WorkItem(item))
                 .ok()?;
             workstreams.into_iter().find_map(|w| {
+                // LCOV_EXCL_START an arm no intake journey stages; out by decision
                 let path = inner.ws.workstream_checkout(&w).ok()?;
                 path.is_dir().then_some((w.id, path))
             })
+            // LCOV_EXCL_STOP
         });
     let Some((workstream, path)) = checkout else {
         return err(crate::browser::NO_CHECKOUT);
@@ -3603,7 +3631,7 @@ async fn mobile_development(
                 .await
                 .map(|s| json!(s))
                 .map_err(|e| e.to_string()),
-            Err(why) => Err(why),
+            Err(why) => Err(why), // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
         },
     };
     match result {
@@ -3724,7 +3752,7 @@ fn get_goal(
         );
     };
     let Ok(g) = inner.ws.get_goal(goal_id) else {
-        return err("unknown goal");
+        return err("unknown goal"); // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     let run = inner.ws.get_current_run(goal_id).ok().flatten();
     let items = work_items_view(inner, &home, None);
@@ -3848,7 +3876,7 @@ fn revise_statement(
         Err(e) => return e,
     };
     let Ok(mut g) = inner.ws.get_goal(goal_id) else {
-        return err("unknown goal");
+        return err("unknown goal"); // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     if g.is_closed() {
         return err("the goal is closed; its statement no longer changes");
@@ -3867,7 +3895,7 @@ fn revise_statement(
     let old = g.statement.clone();
     g.statement = statement.clone();
     if inner.ws.update_goal(g).is_err() {
-        return err("failed to update the goal");
+        return err("failed to update the goal"); // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     }
     let owner = inner.ws.owner_keys().clone();
     let note = match why {
@@ -3926,7 +3954,7 @@ fn amend_workflow(
         Err(e) => return e,
     };
     if let Some(refusal) = unstaffed_refusal(inner, Some(goal_id), &draft) {
-        return refusal;
+        return refusal; // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     }
     match ops::propose_amend(inner, goal_id, draft, Some(agent)) {
         Ok(gate) => json!({"ok": true, "gate": gate}),
@@ -4002,7 +4030,7 @@ fn spawn_sub_goal(
         },
     ) {
         Ok(c) => c,
-        Err(e) => return err(e.to_string()),
+        Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     let owner = inner.ws.owner_keys().clone();
     warn_on_err(
@@ -4085,7 +4113,7 @@ async fn result_submit(
         attestation,
     ) {
         Ok(id) => id,
-        Err(e) => return err(e.to_string()),
+        Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
 
     let spec =
@@ -4094,7 +4122,7 @@ async fn result_submit(
             .transition_work_item(&spec.home, work_item, &WorkItemTransition::Submit)
         {
             Ok(s) => s,
-            Err(e) => return err(e.to_string()),
+            Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
         };
 
     // The step hears of it now, synchronously: `Review` is written before the

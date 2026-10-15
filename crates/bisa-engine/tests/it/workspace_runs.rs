@@ -502,13 +502,16 @@ async fn a_test_run_begins_at_an_event_start_on_a_sample() {
     if let StepKind::Start { inputs, .. } = &mut draft.steps[1].kind {
         inputs.insert("subject".into(), "{event.payload.subject}".into());
     }
-    draft.inputs = vec![bisa_core::InputDef {
-        name: bisa_core::InputName::new("subject").unwrap(),
-        label: "Subject".into(),
-        kind: bisa_core::InputKind::Text,
-        default: None,
-        required: true,
-    }];
+    fn draft_inputs() -> Vec<bisa_core::InputDef> {
+        vec![bisa_core::InputDef {
+            name: bisa_core::InputName::new("subject").unwrap(),
+            label: "Subject".into(),
+            kind: bisa_core::InputKind::Text,
+            default: None,
+            required: true,
+        }]
+    }
+    draft.inputs = draft_inputs();
     let wf = engine.create_workflow(draft).unwrap();
 
     // Off, and never turned on: a test needs no listening.
@@ -533,11 +536,43 @@ async fn a_test_run_begins_at_an_event_start_on_a_sample() {
         .unwrap()
         .is_empty());
 
-    // A sample the mapping cannot read, and a step that is no start.
+    // A sample the mapping cannot read, and a step that is no start. A
+    // sample that is no object is carried as a value, nothing as an empty one.
     let unmapped = engine
         .test_run_workflow(wf.id, &sid("ticket"), json!({}), BTreeMap::new())
         .unwrap_err();
     assert!(unmapped.to_string().contains("subject"), "{unmapped}");
+    for sample in [json!(null), json!("printer on fire")] {
+        let unmapped = engine
+            .test_run_workflow(wf.id, &sid("ticket"), sample, BTreeMap::new())
+            .unwrap_err();
+        assert!(unmapped.to_string().contains("subject"), "{unmapped}");
+    }
+    // A signal start's sample names the signal.
+    let mut signalled = held_on_call("tickets-by-signal", true);
+    if let StepKind::Start { on, inputs, .. } = &mut signalled.steps[1].kind {
+        *on = bisa_core::StartOn::Signal {
+            filter: bisa_core::SignalFilter {
+                name: "tickets".into(),
+                fields: BTreeMap::new(),
+            },
+        };
+        inputs.insert("subject".into(), "{event.payload.subject}".into());
+    }
+    signalled.inputs = draft_inputs();
+    let by_signal = engine.create_workflow(signalled).unwrap();
+    let run = engine
+        .test_run_workflow(
+            by_signal.id,
+            &sid("ticket"),
+            json!({"subject": "printer on fire"}),
+            BTreeMap::new(),
+        )
+        .unwrap();
+    assert_eq!(
+        run.event.as_ref().and_then(|e| e.name.clone()),
+        Some("tickets".to_string())
+    );
     let no_start = engine
         .test_run_workflow(wf.id, &sid("hold"), json!({}), BTreeMap::new())
         .unwrap_err();
@@ -914,5 +949,32 @@ async fn a_goals_first_prompt_names_its_goal_and_a_workspace_runs_names_none() {
         !in_the_workspace.contains("Ship the new checkout"),
         "{in_the_workspace}"
     );
+    engine.shutdown().await;
+}
+
+/// A run of the workspace holding at a release is let go through its home
+/// with no gate in memory: the durable door reads the run's waiting step.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_run_of_the_workspace_is_released_through_its_home() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let hold = step(
+        "hold",
+        StepKind::Wait {
+            until: bisa_core::WaitFor::Release,
+        },
+    );
+    let (_, run) = workspace_run(&engine, new_workflow("held", vec![hold]));
+    run_step_in_state(&engine, run.id, "hold", "waiting").await;
+    assert!(
+        engine.inbox().iter().all(|g| g.home != run.home()),
+        "a release opens no gate"
+    );
+    let outcome = engine
+        .decide_durable(&run.home(), true, None, None, None, None, None)
+        .unwrap();
+    assert_eq!(outcome.home, run.home());
+    let done = run_finished(&engine, run.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
     engine.shutdown().await;
 }

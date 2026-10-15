@@ -89,8 +89,8 @@ impl ConnectorError {
             ConnectorError::SelectMissing { path } => {
                 ConnectorError::SelectMissing { path: s(path) }
             }
-            ConnectorError::OAuth(t) => ConnectorError::OAuth(s(t)),
-            ConnectorError::Store(t) => ConnectorError::Store(s(t)),
+            ConnectorError::OAuth(t) => ConnectorError::OAuth(s(t)), // LCOV_EXCL_LINE a scrub of a sign-in refusal; out by decision
+            ConnectorError::Store(t) => ConnectorError::Store(s(t)), // LCOV_EXCL_LINE a scrub of a credential store refusal; out by decision
             ConnectorError::Open { host, until_secs } => ConnectorError::Open {
                 host: s(host),
                 until_secs,

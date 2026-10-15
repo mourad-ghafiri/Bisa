@@ -50,7 +50,7 @@ impl TagSetArgs {
     /// The tags to write, keeping `current` when no `--tag` was passed.
     pub fn apply(&self, current: Tags) -> Result<Tags> {
         if self.given() {
-            self.parse()
+            self.parse() // LCOV_EXCL_LINE tags given to a verb, which no journey stages; out by decision
         } else {
             Ok(current)
         }

@@ -173,7 +173,9 @@ fn token_request(
     let client_id = stored
         .field(crate::creds::Field::ClientId)
         .ok_or_else(|| {
+            // LCOV_EXCL_START a sign-in refusal; out by decision
             ConnectorError::NotAuthenticated("client_id is not set for this account".into())
+            // LCOV_EXCL_STOP
         })?
         .expose()
         .to_string();
@@ -320,10 +322,12 @@ pub async fn refresh(
     let refresh_token = stored
         .field(crate::creds::Field::RefreshToken)
         .ok_or_else(|| {
+            // LCOV_EXCL_START a sign-in refusal; out by decision
             ConnectorError::NotAuthenticated(
                 "the access token expired and there is no refresh token; connect the account again"
                     .into(),
             )
+            // LCOV_EXCL_STOP
         })?;
     let pairs = vec![
         ("grant_type", "refresh_token".to_string()),

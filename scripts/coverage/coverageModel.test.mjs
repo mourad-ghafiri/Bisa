@@ -482,12 +482,20 @@ test("a line that is only the closing of a `?` is the error edge and leaves the 
     "    Ok(p(",               // 15
     "        q,",              // 16
     "    )?)",                 // 17 the edge, inside a tail
-    "}",                       // 18
+    "    if let Some(r) = s(", // 18
+    "        t,",              // 19
+    "    )? {",                // 20 the edge, opening an `if let`
+    "        u",               // 21
+    "    }",                   // 22
+    "    v(w(",                // 23
+    "        x,",              // 24
+    "    )?)?;",               // 25 the edge, closing two calls at once
+    "}",                       // 26
   ].join("\n");
-  assert.deepEqual([...questionEdgeLines(source)], [4, 7, 10, 14, 17]);
-  const lines = new Map([[2, 1], [3, 1], [4, 0], [7, 0], [10, 0], [11, 1], [14, 0], [17, 0]]);
+  assert.deepEqual([...questionEdgeLines(source)], [4, 7, 10, 14, 17, 20, 25]);
+  const lines = new Map([[2, 1], [3, 1], [4, 0], [7, 0], [10, 0], [11, 1], [14, 0], [17, 0], [20, 0], [25, 0]]);
   const taken = withoutExcused(lines, source);
-  assert.equal(taken.edgeLines, 5);
+  assert.equal(taken.edgeLines, 7);
   assert.deepEqual([...taken.lines.keys()], [2, 3, 11]);
 });
 

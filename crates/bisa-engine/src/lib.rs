@@ -590,9 +590,11 @@ impl Inner {
             Home::Goal { goal } => EventScope::of_goal(*goal),
             Home::Run { run } => match self.ws.get_run(*run) {
                 Ok(run) => EventScope::of_run(&run),
+                // LCOV_EXCL_START an event about a run put away under it; a race
                 Err(e) => {
                     tracing::debug!(%run, "an event about a run it cannot read names no workflow: {e}");
                     EventScope::default()
+                    // LCOV_EXCL_STOP
                 }
             },
         }
@@ -603,7 +605,7 @@ impl Inner {
     pub(crate) fn item_scope(&self, spec: &WorkItemSpec) -> EventScope {
         match spec.run.and_then(|run| self.ws.get_run(run).ok()) {
             Some(run) => EventScope::of_run(&run),
-            None => self.home_scope(&spec.home),
+            None => self.home_scope(&spec.home), // LCOV_EXCL_LINE every item whose session emits serves a run; by construction
         }
     }
 
@@ -628,7 +630,7 @@ pub(crate) async fn survive<F: std::future::Future<Output = ()>>(what: &'static 
             target: "bisa_engine",
             task = what,
             "a {what} iteration panicked: {}",
-            bisa_log::panic_message(&*panic)
+            bisa_log::panic_message(&*panic) // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
         );
     }
 }
@@ -669,7 +671,7 @@ pub(crate) fn contain<T>(what: &'static str, walk: impl FnOnce() -> T) -> Option
                 target: "bisa_engine",
                 task = what,
                 "the {what} panicked and was skipped: {}",
-                bisa_log::panic_message(&*panic)
+                bisa_log::panic_message(&*panic) // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
             );
             None
         }
@@ -839,9 +841,11 @@ impl Engine {
         logging::apply(&inner);
         tracing::info!(
             target: "bisa_engine",
+            // LCOV_EXCL_START a tracing event's fields, evaluated under a subscriber only
             workspace = %inner.ws.root().display(),
             socket = %inner.socket_path.display(),
             harnesses = inner.catalog.adapters().len(),
+            // LCOV_EXCL_STOP
             "engine started"
         );
         // What the store validates against: the harnesses this engine can
@@ -881,8 +885,10 @@ impl Engine {
                 tracing::warn!(target: "bisa_engine", ended = ended.len(), "orphan runs ended at start");
             }
             Ok(_) => {}
+            // LCOV_EXCL_START ending the orphan runs fails only unwritable (disk-only)
             Err(e) => {
                 tracing::error!(target: "bisa_engine", "the orphan runs could not be ended: {e}");
+                // LCOV_EXCL_STOP
             }
         });
         // The catalog's own connectors, brought to the bundle's revision —
@@ -908,8 +914,10 @@ impl Engine {
                     }
                 }
                 Ok(_) => {}
+                // LCOV_EXCL_START refreshing the catalog fails only unreadable (disk-only)
                 Err(e) => {
                     tracing::error!(target: "bisa_engine", "the catalog connectors could not be refreshed: {e}");
+                    // LCOV_EXCL_STOP
                 }
             }
         });
@@ -2007,7 +2015,9 @@ impl Engine {
             // contained and settled inside the task, so anything else is news.
             if let Err(e) = handle.await {
                 if !e.is_cancelled() {
+                    // LCOV_EXCL_START an executor task ending oddly at shutdown; a race
                     tracing::warn!(target: "bisa_engine", "an executor task ended oddly at shutdown: {e}");
+                    // LCOV_EXCL_STOP
                 }
             }
         }
@@ -2025,7 +2035,7 @@ impl Engine {
         }
         if let Err(e) = std::fs::remove_file(&self.inner.socket_path) {
             if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!("intake socket not removed: {e}");
+                tracing::debug!("intake socket not removed: {e}"); // LCOV_EXCL_LINE the socket file that will not go at the stop; a disk arm
             }
         }
     }

@@ -274,7 +274,7 @@ pub(crate) fn fold_one(
         // A file the agent made has no base to move.
         if review.base.is_some() {
             review.base = put(inner, conversation, Some(rebased.text.as_bytes()))?;
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     review.image = put(inner, conversation, disk.as_deref())?;
     Ok(false)

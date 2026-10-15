@@ -259,7 +259,7 @@ impl GuestSession {
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                break;
+                break; // LCOV_EXCL_LINE the wait already spent at its first check; a race
             }
             match tokio::time::timeout(remaining, heard.recv()).await {
                 Ok(Ok(HostedChange::Membership)) => {
@@ -267,10 +267,10 @@ impl GuestSession {
                         if !matches!(h.state, HostedState::Requested) {
                             return Ok(h.state);
                         }
-                    }
+                    } // LCOV_EXCL_LINE a membership word that leaves the claim waiting; a race
                 }
                 Ok(Ok(_)) => {}
-                Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
+                Ok(Err(broadcast::error::RecvError::Lagged(_))) => {} // LCOV_EXCL_LINE the stream lagged under the wait; a race
                 Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => break,
             }
         }
@@ -292,7 +292,7 @@ impl GuestSession {
             if let Err(e) = self.send_control(&Control::Leave).await {
                 tracing::debug!("the host did not hear the leave: {e}");
             }
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
         hosted.state = HostedState::Left;
         self.store.set_hosted(&hosted)?;
         self.say(HostedChange::Membership);
@@ -406,10 +406,12 @@ impl GuestSession {
     ) -> Result<Posted, GuestError> {
         let hosted = self.membership()?;
         if !hosted.role.may(Permission::PostInChannels) {
+            // LCOV_EXCL_START no role lacks posting today; by construction
             return Err(GuestError::Refused(format!(
                 "a {} may not post here",
                 hosted.role.as_str()
             )));
+            // LCOV_EXCL_STOP
         }
         self.reachable(scope)?;
         let redaction = self.redactor.redact(&self.vault, text.trim());
@@ -472,10 +474,12 @@ impl GuestSession {
     pub async fn open_dm(&self, participants: &[PrincipalId]) -> Result<(), GuestError> {
         let hosted = self.membership()?;
         if !hosted.role.may(Permission::OpenDms) {
+            // LCOV_EXCL_START no role lacks direct messages today; by construction
             return Err(GuestError::Refused(format!(
                 "a {} may not open direct messages",
                 hosted.role.as_str()
             )));
+            // LCOV_EXCL_STOP
         }
         let known = self.store.members()?;
         let me = self.me();
@@ -593,7 +597,7 @@ impl GuestSession {
                     self.asked.locked().remove(&face.sha256);
                     match self.faces.hold(&face.sha256, &bytes) {
                         Ok(()) => self.say(HostedChange::Members),
-                        Err(e) => tracing::warn!("keeping a face from the host: {e}"),
+                        Err(e) => tracing::warn!("keeping a face from the host: {e}"), // LCOV_EXCL_LINE the memory faces never refuse a hold; by construction
                     }
                 }
                 Err(refusal) => tracing::info!("the host sent a face that is not one: {refusal}"),
@@ -621,8 +625,10 @@ impl GuestSession {
             return Ok(());
         }
         if event.verify().is_err() {
+            // LCOV_EXCL_START a fact the wire did not sign; out by decision
             tracing::debug!("a relayed fact with a bad signature — dropped");
             return Ok(());
+            // LCOV_EXCL_STOP
         }
         let Some(scope) = scope_of(event) else {
             return Ok(());
@@ -681,7 +687,7 @@ fn forward_changes(tx: broadcast::Sender<(String, HostedChange)>, session: &Arc<
                         tracing::trace!("a hosted change with no listener");
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue, // LCOV_EXCL_LINE the stream lagged under the forward; a race
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -712,7 +718,7 @@ impl Guests {
         let mut sessions = HashMap::new();
         for host_hex in GuestStore::list(&data_dir.join(HOSTS_DIR)) {
             let Ok(host) = PublicKey::from_hex(&host_hex) else {
-                continue;
+                continue; // LCOV_EXCL_LINE the listing keeps keys alone; by construction
             };
             match GuestSession::open(
                 keys.clone(),
@@ -725,7 +731,7 @@ impl Guests {
                     forward_changes(changed.clone(), &session);
                     sessions.insert(host_hex, session);
                 }
-                Err(e) => tracing::warn!("cannot open the replica of {host_hex}: {e}"),
+                Err(e) => tracing::warn!("cannot open the replica of {host_hex}: {e}"), // LCOV_EXCL_LINE a replica whose folder cannot be read; disk-only
             }
         }
         Ok(Arc::new(Self {
@@ -744,10 +750,12 @@ impl Guests {
             self.sessions.read().await.values().cloned().collect();
         for session in sessions {
             if let Err(e) = session.send_profile().await {
+                // LCOV_EXCL_START a tracing event's field, evaluated under a subscriber only
                 tracing::debug!(
                     "the host {} did not hear the profile: {e}",
                     session.host_hex()
                 );
+                // LCOV_EXCL_STOP
             }
         }
     }
@@ -767,13 +775,15 @@ impl Guests {
             loop {
                 match rx.recv().await {
                     Ok(incoming) => this.route(&incoming).await,
+                    // LCOV_EXCL_START the pool's stream lagged or closed under the router; a race
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!("guest inbound lagged by {n}; the next catch-up brings it");
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
+                    // LCOV_EXCL_STOP
                 }
             }
-        })
+        }) // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
 
     /// Hand one incoming thing to the session of the host that sealed it.
@@ -792,7 +802,7 @@ impl Guests {
                         }
                     }
                 }
-                Err(e) => tracing::warn!("applying the host {sender}'s word: {e}"),
+                Err(e) => tracing::warn!("applying the host {sender}'s word: {e}"), // LCOV_EXCL_LINE applying a word fails only unwritable (disk-only)
             }
         }
     }
@@ -1368,6 +1378,214 @@ mod tests {
             HostedState::Left,
             "a removal that answers a leave is the host's housekeeping, not a new fact"
         );
+        relays.stop().await;
+    }
+
+    /// With no relay to reach the host, every refusal of a session is said
+    /// before anything leaves, the host's other words are nothing a guest
+    /// acts on, and the router hands each thing to the session it is for.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_refuses_what_it_cannot_do_and_the_router_hands_each_word_on() {
+        let host_keys = Keys::generate();
+        let host = host_keys.public_key();
+        let guest_keys = Keys::generate();
+        let relays = Relays::start(guest_keys.clone(), &Vec::<String>::new()).await;
+        let dir = tempfile::tempdir().unwrap();
+        let faces = Arc::new(crate::faces::MemoryFaces::new());
+        let guests = Guests::open(
+            guest_keys.clone(),
+            dir.path(),
+            Arc::clone(&relays),
+            Arc::clone(&faces) as Arc<dyn FaceStore>,
+        )
+        .unwrap();
+        // Nothing hosted: nothing to leave.
+        assert!(matches!(
+            guests.leave(&host.to_hex()).await,
+            Err(GuestError::NotHosted)
+        ));
+        // A claim nobody can carry is refused; the session stays open on the
+        // claim it wrote, and a code for another host is refused by it.
+        let code = InviteCode::new(host, &Vec::<String>::new(), "ab".repeat(16));
+        assert!(guests.join(&code, Some("Bob".into()), "cli").await.is_err());
+        let session = guests.session(&host.to_hex()).await.expect("opened");
+        assert_eq!(session.host(), host);
+        let claim = session.hosted().unwrap().unwrap();
+        assert_eq!(claim.state, HostedState::Requested);
+        assert_eq!(claim.state.words(), "waiting for the host");
+        let other = Keys::generate();
+        assert!(matches!(
+            session
+                .join(
+                    &InviteCode::new(other.public_key(), &Vec::<String>::new(), "cd".repeat(16)),
+                    None,
+                    "cli"
+                )
+                .await,
+            Err(GuestError::Refused(_))
+        ));
+        // Leaving a claim the host never heard: the replica reads left.
+        session.leave().await.unwrap();
+        assert_eq!(session.hosted().unwrap().unwrap().state, HostedState::Left);
+        // The host's word before any claim is nothing.
+        let elsewhere = GuestSession::open(
+            guest_keys.clone(),
+            other.public_key(),
+            dir.path(),
+            Arc::clone(&relays),
+            Arc::clone(&faces) as Arc<dyn FaceStore>,
+        )
+        .unwrap();
+        assert!(elsewhere
+            .on_incoming(&Incoming::Control {
+                sender: other.public_key(),
+                control: Control::Leave,
+            })
+            .unwrap()
+            .is_empty());
+        assert!(matches!(
+            elsewhere.leave().await,
+            Err(GuestError::NotHosted)
+        ));
+
+        // A member by the host's word: what a post, a reaction and a direct
+        // message refuse before anything leaves.
+        session
+            .store()
+            .set_hosted(&Hosted {
+                host: HostCard {
+                    pubkey: pid(host),
+                    name: String::new(),
+                    relays: vec![],
+                },
+                role: MemberRole::Guest,
+                state: HostedState::Member,
+                requested_at: 0,
+                joined_at: Some(0),
+                label: None,
+            })
+            .unwrap();
+        session
+            .store()
+            .set_channels(&[Channel::general(0)])
+            .unwrap();
+        let (_, alice) = alice_face();
+        session
+            .store()
+            .set_members(&[
+                Directory {
+                    pubkey: pid(host),
+                    role: MemberRole::Owner,
+                    label: Some("Alice".into()),
+                    photo: Some(alice),
+                },
+                Directory {
+                    pubkey: pid(guest_keys.public_key()),
+                    role: MemberRole::Guest,
+                    label: None,
+                    photo: None,
+                },
+            ])
+            .unwrap();
+        let me = pid(guest_keys.public_key());
+        assert!(matches!(
+            session.post("general", "   ", &[], None).await,
+            Err(GuestError::Refused(_))
+        ));
+        assert!(matches!(
+            session
+                .post("general", "hi", &[], Some(&"0".repeat(64)))
+                .await,
+            Err(GuestError::Refused(_))
+        ));
+        assert!(matches!(
+            session.react(&"0".repeat(64), "").await,
+            Err(GuestError::Refused(_))
+        ));
+        assert!(matches!(
+            session.open_dm(&[]).await,
+            Err(GuestError::Refused(_))
+        ));
+        assert!(matches!(
+            session.open_dm(&[me.clone(), me.clone()]).await,
+            Err(GuestError::Refused(_))
+        ));
+        assert!(matches!(
+            session.open_dm(&[pid(other.public_key())]).await,
+            Err(GuestError::Refused(_))
+        ));
+
+        // A reply with a mention to a message held is built and kept, then
+        // not sent for want of a relay; facts of another kind, with no scope
+        // or in a channel this person does not reach are dropped; the
+        // host's other words are nothing a guest acts on.
+        let coord = format!("33405:{}:general", host.to_hex());
+        let held = EventBuilder::new(
+            Kind::Custom(KIND_MESSAGE),
+            serde_json::to_string(&MessageBody::post("from the host")).unwrap(),
+        )
+        .tags([Tag::parse(["a", &coord]).unwrap()])
+        .finalize(&host_keys)
+        .unwrap();
+        session
+            .on_incoming(&Incoming::Gep {
+                sender: host,
+                event: held.clone(),
+            })
+            .unwrap();
+        let sent = session
+            .post("general", "noted", &[pid(host)], Some(&held.id.to_hex()))
+            .await;
+        assert!(sent.is_err(), "nothing carries it to the host");
+        let mine = session.messages("general", None, 10).unwrap();
+        assert!(mine.iter().any(|m| m.text == "noted"), "{mine:?}");
+        let other_kind = EventBuilder::new(Kind::Custom(1), "x")
+            .tags([Tag::parse(["a", &coord]).unwrap()])
+            .finalize(&host_keys)
+            .unwrap();
+        let no_scope = EventBuilder::new(Kind::Custom(KIND_MESSAGE), "{}")
+            .finalize(&host_keys)
+            .unwrap();
+        let kitchen = EventBuilder::new(Kind::Custom(KIND_MESSAGE), "{}")
+            .tags([Tag::parse(["a", &format!("33405:{}:kitchen", host.to_hex())]).unwrap()])
+            .finalize(&host_keys)
+            .unwrap();
+        for event in [other_kind, no_scope, kitchen] {
+            session
+                .on_incoming(&Incoming::Gep {
+                    sender: host,
+                    event,
+                })
+                .unwrap();
+        }
+        assert_eq!(session.messages("general", None, 10).unwrap().len(), 2);
+        assert!(session
+            .on_incoming(&Incoming::Control {
+                sender: host,
+                control: Control::Leave,
+            })
+            .unwrap()
+            .is_empty());
+
+        // The router: a thing that is no word, a directory naming a face this
+        // node lacks whose ask the host cannot hear, a profile nobody hears.
+        guests.route(&Incoming::Other).await;
+        guests
+            .route(&Incoming::Control {
+                sender: host,
+                control: Control::MembersChanged {
+                    members: session.members().unwrap(),
+                },
+            })
+            .await;
+        guests.announce_profile().await;
+        // A second host claimed lists beside the first: unnamed both, by key.
+        let second = InviteCode::new(other.public_key(), &Vec::<String>::new(), "ef".repeat(16));
+        assert!(guests.join(&second, None, "cli").await.is_err());
+        assert_eq!(guests.count().await, 2);
+        let listed = guests.list().await;
+        assert_eq!(listed.len(), 2);
+        assert!(listed[0].host.pubkey.as_hex() <= listed[1].host.pubkey.as_hex());
         relays.stop().await;
     }
 

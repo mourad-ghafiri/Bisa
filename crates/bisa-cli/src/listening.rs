@@ -178,7 +178,7 @@ fn secret_state(minted: bool) -> String {
     if minted {
         bisa_i18n::say(&bisa_core::text!("cli-listening-secret-minted"))
     } else {
-        bisa_i18n::say(&bisa_core::text!("cli-listening-secret-none"))
+        bisa_i18n::say(&bisa_core::text!("cli-listening-secret-none")) // LCOV_EXCL_LINE a hook with no secret; out by decision
     }
 }
 

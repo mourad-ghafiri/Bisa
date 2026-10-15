@@ -288,10 +288,11 @@ async fn converse(
     };
 
     // Goodbye: the transport's own end — the child dropped, the session deleted.
+    // LCOV_EXCL_START a goodbye the transport refuses after every answer came; nothing a stub says reaches it
     if let Err(e) = client.cancel().await {
         tracing::debug!(target: "bisa_mcp_probe", "the probe's connection did not close cleanly: {e}");
-        // LCOV_EXCL_LINE: a goodbye the transport refuses after every answer came; nothing a stub says reaches it
     }
+    // LCOV_EXCL_STOP
     set_stage(&stage, McpProbeStage::Done);
     Ok(McpProbeReport {
         ok: true,

@@ -142,6 +142,20 @@ async fn none_removes_the_proxy_names_a_session_would_inherit_and_environment_ha
     );
     assert_eq!(engine.network_status().in_force, InForce::Direct);
 
+    // Manual with no proxy named either way is direct too, and strips the
+    // names a child would inherit.
+    engine
+        .set_setting(
+            SettingScope::Machine,
+            None,
+            keys::PROXY_MODE,
+            json!("manual"),
+        )
+        .unwrap();
+    assert_eq!(engine.network_status().in_force, InForce::Direct);
+    let (_, remove) = network::session_env(inner, Default::default());
+    assert!(remove.contains(&"HTTPS_PROXY".to_string()));
+
     engine
         .set_setting(
             SettingScope::Machine,

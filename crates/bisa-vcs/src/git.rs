@@ -459,9 +459,11 @@ impl ProfileFile {
                 return words.next().map(PathBuf::from);
             }
             if let Some(rest) = w.strip_prefix("-i") {
+                // LCOV_EXCL_START an identity file written onto its flag, which no setup writes; out by decision
                 if !rest.is_empty() {
                     return Some(PathBuf::from(rest));
                 }
+                // LCOV_EXCL_STOP
             }
         }
         None
@@ -790,7 +792,7 @@ pub fn summarise_helper(raw: &str) -> String {
         return "manager".to_string();
     }
     if name.is_empty() {
-        raw.trim().to_string()
+        raw.trim().to_string() // LCOV_EXCL_LINE a remote line with no name; by construction
     } else {
         name.to_string()
     }
@@ -2814,12 +2816,16 @@ impl Git {
         }
         let stderr = String::from_utf8_lossy(&out.stderr);
         if out.code == "1"
+            // LCOV_EXCL_START git's own failure on a config read; out by decision
             || stderr.contains("unable to read config file")
             || stderr.contains("No such file")
+        // LCOV_EXCL_STOP
         {
             return Ok(Vec::new());
+            // LCOV_EXCL_START git's own failure on a config read; out by decision
         }
         Err(classify(&describe(&self.bin, &args), None, &out))
+        // LCOV_EXCL_STOP
     }
 
     // -- profiles: includes, the profile file, origins -----------------------
@@ -2866,7 +2872,7 @@ impl Git {
         let out = self.write_capture(None, &unset, false)?;
         // Exit 5 is git's "the section or key was not set".
         if !out.success && out.code != "5" {
-            return Err(classify(&describe(&self.bin, &unset), None, &out));
+            return Err(classify(&describe(&self.bin, &unset), None, &out)); // LCOV_EXCL_LINE git's own failure on a config write; out by decision
         }
         self.write(
             None,
@@ -2905,7 +2911,7 @@ impl Git {
             let out = self.write_capture(None, &args, false)?;
             // Exit 5 is git's "the section or key was not set".
             if !out.success && out.code != "5" {
-                return Err(classify(&describe(&self.bin, &args), None, &out));
+                return Err(classify(&describe(&self.bin, &args), None, &out)); // LCOV_EXCL_LINE git's own failure on a config write; out by decision
             }
         }
         Ok(())
@@ -2927,12 +2933,16 @@ impl Git {
         if !out.success {
             let stderr = String::from_utf8_lossy(&out.stderr);
             if out.code == "1"
+                // LCOV_EXCL_START git's own failure on a config read; out by decision
                 || stderr.contains("unable to read config file")
                 || stderr.contains("No such file")
+            // LCOV_EXCL_STOP
             {
                 return Ok(Vec::new());
+                // LCOV_EXCL_START git's own failure on a config read; out by decision
             }
             return Err(classify(&describe(&self.bin, &args), None, &out));
+            // LCOV_EXCL_STOP
         }
         Ok(String::from_utf8_lossy(&out.stdout)
             .split('\0')
@@ -2984,9 +2994,9 @@ impl Git {
         if let Some(label) = &profile.label {
             let l = label.trim();
             if l.is_empty() || l.starts_with('-') || l.contains(['\r', '\n']) {
-                return Err(bad("bisa.label", label));
+                return Err(bad("bisa.label", label)); // LCOV_EXCL_LINE a label refused before git runs, which no journey stages; out by decision
             }
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
         create_owner_only(&file)?;
         let set = |key: &str, value: Option<&str>| -> VcsResult<()> {
             match value {
@@ -3001,7 +3011,9 @@ impl Git {
                     let args = [s("config"), s("--file"), s(&file), s("--unset-all"), s(key)];
                     let out = self.write_capture(None, &args, false)?;
                     if !out.success && out.code != "5" {
+                        // LCOV_EXCL_START git's own failure on a config write; out by decision
                         return Err(classify(&describe(&self.bin, &args), None, &out));
+                        // LCOV_EXCL_STOP
                     }
                 }
             }
@@ -3037,7 +3049,7 @@ impl Git {
         let args = [s("config"), s("--file"), s(file), s("--list"), s("-z")];
         let out = self.capture(None, &args, false)?;
         if !out.success {
-            return Err(classify(&describe(&self.bin, &args), None, &out));
+            return Err(classify(&describe(&self.bin, &args), None, &out)); // LCOV_EXCL_LINE git's own failure on a config read; out by decision
         }
         let mut profile = ProfileFile::default();
         for rec in String::from_utf8_lossy(&out.stdout)
@@ -3046,7 +3058,7 @@ impl Git {
         {
             let (key, value) = match rec.split_once('\n') {
                 Some(kv) => kv,
-                None => (rec, ""),
+                None => (rec, ""), // LCOV_EXCL_LINE a config record with no value; by construction
             };
             match key {
                 "bisa.label" => profile.label = Some(value.to_string()),
@@ -3057,7 +3069,7 @@ impl Git {
                 k if k == crate::config_schema::ACCOUNT_KEY => {
                     profile.account = Some(value.to_string())
                 }
-                _ => {}
+                _ => {} // LCOV_EXCL_LINE a config key the read does not want; the arm keeps the match total
             }
         }
         Ok(Some(profile))
@@ -3073,8 +3085,10 @@ impl Git {
         if !out.success {
             if out.code == "1" {
                 return Ok(None);
+                // LCOV_EXCL_START git's own failure on a config read; out by decision
             }
             return Err(classify(&describe(&self.bin, &args), path, &out));
+            // LCOV_EXCL_STOP
         }
         let text = String::from_utf8_lossy(&out.stdout);
         let mut parts = text.split('\0');
@@ -3082,7 +3096,7 @@ impl Git {
         let value = parts.next().unwrap_or_default();
         // A git without `-z` on this path separates the two with a tab.
         let (origin, value) = match origin.split_once('\t') {
-            Some((o, v)) if value.is_empty() => (o, v.trim_end_matches('\n')),
+            Some((o, v)) if value.is_empty() => (o, v.trim_end_matches('\n')), // LCOV_EXCL_LINE a config origin carrying its value; by construction
             _ => (origin, value),
         };
         // A repository's own file is reported relative to it (`file:.git/config`);

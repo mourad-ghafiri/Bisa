@@ -935,6 +935,14 @@ async fn an_answer_that_does_not_fit_its_question_is_refused() {
         .unwrap_err();
     assert!(err.to_string().contains("carried nothing"), "{err}");
     assert!(engine.decide(&gate, true, None, None, None).is_err());
+    // A gate nobody opened is unknown, not a malfunction.
+    assert!(
+        matches!(
+            engine.decide("no-such-gate", true, None, None, None),
+            Err(bisa_engine::EngineError::UnknownGate(_))
+        ),
+        "a gate nobody opened"
+    );
 
     let offered = intake_roundtrip(
         engine.socket_path(),
@@ -1691,5 +1699,87 @@ async fn a_panic_in_a_work_item_releases_its_in_flight_mark() {
         Some(RunOutcome::Done),
         "the engine lives"
     );
+    engine.shutdown().await;
+}
+
+/// A goal deleted or closed while a question of its waits: the gate is
+/// withdrawn with it, nothing is decided, and a session still working for a
+/// deleted goal is stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_or_closing_a_goal_withdraws_its_pending_gate_and_stops_its_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            script: Some(vec![]),
+            ..Default::default()
+        }],
+    );
+    let deleted = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..guided("deleted while asked")
+        })
+        .unwrap();
+    let gate = ask(&engine, deleted.id, "Which currency?").await;
+    assert!(engine.inbox().iter().any(|g| g.id == gate));
+    // A session that never ends its turn is live when the goal goes.
+    let (live, _) = run_on(
+        &engine,
+        "runs while deleted",
+        new_workflow("endless", vec![agent_step("work", "mock")]),
+    );
+    until("the item in progress", || {
+        items_of(&engine, live.id)
+            .into_iter()
+            .find(|i| matches!(i.state, WorkItemState::InProgress { .. }))
+    })
+    .await;
+    for goal in [deleted.id, live.id] {
+        engine
+            .retire_goal(
+                goal,
+                bisa_engine::retire::GoalPlan {
+                    goal: bisa_engine::retire::Fate::Delete,
+                    projects: bisa_engine::retire::Fate::Keep,
+                    tree: false,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    assert!(engine.inbox().iter().all(|g| g.id != gate), "withdrawn");
+    assert!(
+        matches!(
+            engine.decide(&gate, true, None, None, None),
+            Err(bisa_engine::EngineError::UnknownGate(_))
+        ),
+        "nothing left to decide"
+    );
+    until("the live session stopped", || {
+        engine
+            .inner()
+            .registry
+            .list()
+            .iter()
+            .all(|a| a.status != bisa_engine::AgentStatus::Running)
+            .then_some(())
+    })
+    .await;
+
+    let closed = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..guided("closed while asked")
+        })
+        .unwrap();
+    let gate = ask(&engine, closed.id, "Which region?").await;
+    engine
+        .close_goal(
+            closed.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
+    assert!(engine.inbox().iter().all(|g| g.id != gate), "withdrawn");
     engine.shutdown().await;
 }

@@ -35,11 +35,12 @@ fn section(out: &mut String, title: &str, count: usize, intro: &str, header: &st
 fn main() {
     let entries = match CATALOG.describe() {
         Ok(entries) => entries,
+        // LCOV_EXCL_START the generator's arms the catalog's shape decides; by construction
         Err(e) => {
-            // LCOV_EXCL_LINE: the generator's arms the catalog's shape decides; by construction
             eprintln!("catalog-docs: {e}"); // LCOV_EXCL_LINE: the generator's arms the catalog's shape decides; by construction
             std::process::exit(1); // LCOV_EXCL_LINE: the generator's arms the catalog's shape decides; by construction
         } // LCOV_EXCL_LINE: the generator's arms the catalog's shape decides; by construction
+          // LCOV_EXCL_STOP
     };
     let of = |kind: CatalogKind| -> Vec<&CatalogDescription> {
         entries.iter().filter(|e| e.kind == kind).collect()

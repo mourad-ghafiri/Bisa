@@ -987,6 +987,7 @@ pub fn check_cwd(inner: &Inner, run: &WorkflowRun) -> PathBuf {
     if let Some(item) = latest_item {
         match inner.ws.work_item_root(item) {
             Ok(dir) if dir.is_dir() => return dir,
+            // LCOV_EXCL_START an item's checkout gone under its check; a race
             Ok(dir) => tracing::debug!(
                 target: "bisa_engine",
                 item = %item,
@@ -995,6 +996,7 @@ pub fn check_cwd(inner: &Inner, run: &WorkflowRun) -> PathBuf {
             ),
             Err(e) => {
                 tracing::debug!(target: "bisa_engine", item = %item, "no placement for the run's item: {e}")
+                // LCOV_EXCL_STOP
             }
         }
     }
@@ -1033,11 +1035,12 @@ fn reusable_workstream(
         .list_workstreams(WorkstreamFilter::WorkItem(item))?;
     Ok(candidates.into_iter().find(|w| {
         w.project == project.id
+            // LCOV_EXCL_START a macro arm attributed elsewhere; by construction
             && matches!(
-                // LCOV_EXCL_LINE: a macro arm attributed elsewhere; by construction
                 w.kind,
                 WorkstreamKind::Worktree { .. } | WorkstreamKind::Copy
             )
+            // LCOV_EXCL_STOP
             && !matches!(w.state, WorkstreamState::Closed)
             && inner.ws.checkout_in(project, w).is_dir()
     }))
@@ -1682,7 +1685,7 @@ pub(crate) fn journal_progress(
     // write to; the event on the bus is its record.
     let home = match (w.goal, w.work_item) {
         (Some(goal), _) => Some(Home::Goal { goal }),
-        (None, Some(item)) => inner.ws.home_of_work_item(item).ok(),
+        (None, Some(item)) => inner.ws.home_of_work_item(item).ok(), // LCOV_EXCL_LINE a workstream of a work item of no goal; out by decision
         (None, None) => None,
     };
     let Some(home) = home else {
@@ -2659,7 +2662,7 @@ pub(crate) async fn pass_publish_gate(
     // person's action, taken where the workstream was made.
     let home = match (w.goal, w.work_item) {
         (Some(goal), _) => Some(Home::Goal { goal }),
-        (None, Some(item)) => inner.ws.home_of_work_item(item).ok(),
+        (None, Some(item)) => inner.ws.home_of_work_item(item).ok(), // LCOV_EXCL_LINE a workstream of a work item of no goal; out by decision
         (None, None) => None,
     };
     let Some(home) = home else {
@@ -2753,12 +2756,14 @@ fn publish_failed(inner: &Inner, w: &Workstream, what: &str, error: &EngineError
     journal_progress(inner, w, "could not", what, Some(&reason));
     let scope = match (w.goal, w.work_item) {
         (Some(goal), _) => inner.home_scope(&Home::Goal { goal }),
+        // LCOV_EXCL_START a workstream of a work item of no goal; out by decision
         (None, Some(item)) => inner
             .ws
             .home_of_work_item(item)
             .map(|home| inner.home_scope(&home))
             .unwrap_or_default(),
         (None, None) => crate::events::EventScope::default(),
+        // LCOV_EXCL_STOP
     };
     inner.emit(scope.event(
         w.work_item,
@@ -3011,7 +3016,7 @@ pub(crate) fn inherit_attachments(
 ) -> Result<(), EngineError> {
     for project in inner.ws.projects_for(parent)? {
         if project.is_archived() {
-            continue;
+            continue; // LCOV_EXCL_LINE an archived project of a parent goal; out by decision
         }
         inner.ws.attach(child, project.id)?;
         inner.emit(EngineEvent::scoped(

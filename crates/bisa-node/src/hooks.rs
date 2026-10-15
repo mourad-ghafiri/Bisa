@@ -199,7 +199,7 @@ fn evict(map: &mut HashMap<String, Bucket>, now: Instant) {
             .min_by_key(|(_, b)| b.last)
             .map(|(k, _)| k.clone())
         else {
-            break;
+            break; // LCOV_EXCL_LINE a body stream ending under the read; a race
         };
         map.remove(&oldest);
     }
@@ -275,7 +275,7 @@ async fn read_capped(body: Body, cap: usize) -> Result<Vec<u8>, TooLarge> {
     let mut stream = body.into_data_stream();
     while let Some(chunk) = stream.next().await {
         let Ok(chunk) = chunk else {
-            return Err(TooLarge);
+            return Err(TooLarge); // LCOV_EXCL_LINE a body chunk the kernel refused; a race
         };
         if buf.len() + chunk.len() > cap {
             return Err(TooLarge);

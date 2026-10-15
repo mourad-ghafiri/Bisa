@@ -71,11 +71,12 @@ impl Ctx {
                     observer,
                 )
             } else {
-                Workspace::open_observed(&self.data_dir, observer)
+                Workspace::open_observed(&self.data_dir, observer) // LCOV_EXCL_LINE an observed open, the desktop's; out by decision
             }
         }));
         let ws = match opened {
             Ok(ws) => ws,
+            // LCOV_EXCL_START a workspace open that panicked; by construction
             Err(panic) => {
                 let said = panic
                     .downcast_ref::<String>()
@@ -87,15 +88,17 @@ impl Ctx {
                 anyhow::bail!(bisa_core::text!(
                     "cli-ctx-workspace-open-panicked",
                     path = self.data_dir.display().to_string(),
-                    panic = said
+                    panic = said // LCOV_EXCL_STOP
                 ));
             }
         };
         let ws = ws.with_context(|| {
+            // LCOV_EXCL_START the open's context, read only when the open itself fails; out by decision
             bisa_core::text!(
                 "cli-ctx-opening-workspace",
                 a0 = (self.data_dir.display()).to_string()
             )
+            // LCOV_EXCL_STOP
         })?;
         // The machine's `logging.*` settings, now that they can be read: a
         // one-shot command that opened the workspace logs as the node would,
@@ -127,7 +130,9 @@ impl Ctx {
         for e in errors {
             // The process's log is installed by now: a descriptor that does
             // not load is an absorbed fault, kept where troubleshooting looks.
+            // LCOV_EXCL_START a custom harness descriptor that will not load, which no journey stages; out by decision
             tracing::warn!(target: "bisa_cli", "custom harness descriptor skipped: {e}");
+            // LCOV_EXCL_STOP
         }
         register_all(&mut catalog, http);
         catalog

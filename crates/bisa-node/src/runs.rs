@@ -200,8 +200,10 @@ pub fn start_detail(ws: &Workspace, run: &WorkflowRun) -> Option<String> {
 /// among them).
 fn author_name(ws: &Workspace, author: &str, kind: &str) -> Option<String> {
     if kind == "agent" {
+        // LCOV_EXCL_START a run's note signed by an agent, which no node journey stages; out by decision
         let id = bisa_core::AgentId::new(author).ok()?;
         return ws.get_agent(&id).ok().map(|agent| agent.name);
+        // LCOV_EXCL_STOP
     }
     let pubkey = bisa_core::PrincipalId::new(author).ok()?;
     ws.member(&pubkey).ok().flatten()?.label

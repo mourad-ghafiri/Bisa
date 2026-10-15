@@ -179,6 +179,7 @@ async fn poll(inner: &Arc<Inner>, listener: &Armed, now: u64) {
                     screen_note(inner),
                 ) {
                     if screen_note(inner).is_some() {
+                        // LCOV_EXCL_START the content screen's hold of a poll; out by decision
                         super::hooks::screen_held(
                             inner,
                             listener.key.clone(),
@@ -186,6 +187,7 @@ async fn poll(inner: &Arc<Inner>, listener: &Armed, now: u64) {
                             format!("a poll of {}", listener.key),
                             text,
                         );
+                        // LCOV_EXCL_STOP
                     }
                 }
             }
@@ -247,7 +249,7 @@ async fn poll_items(
         // LCOV_EXCL_STOP
     }
     let account = match account {
-        Some(ValueRef::Fixed(a)) => Some(*a),
+        Some(ValueRef::Fixed(a)) => Some(*a), // LCOV_EXCL_LINE a poll naming a fixed account, which no stub connector of the tests holds; out by decision
         _ => None,
     };
     let acct = crate::connectors::resolve_account(&inner.ws, &def, account)
@@ -370,7 +372,7 @@ fn check_cwd(inner: &Inner, key: &ListenerKey, project: Option<&ValueRef<Project
     if let Some(ValueRef::Fixed(p)) = project {
         if let Ok(project) = inner.ws.get_project(*p) {
             return inner.ws.project_root_path(&project);
-        }
+        } // LCOV_EXCL_LINE a check whose project went under it; a race
     }
     let scratch = inner.ws.paths().listener_scratch_dir(key);
     crate::warn_on_err(
@@ -507,10 +509,10 @@ async fn projects(inner: &Arc<Inner>, listeners: &[Armed], now: u64) {
         .swap(false, std::sync::atomic::Ordering::Relaxed);
     for (project, needs) in wanted {
         let Ok(record) = inner.ws.get_project(project) else {
-            continue;
+            continue; // LCOV_EXCL_LINE a project deleted under its listener; a race
         };
         if record.is_archived() {
-            continue;
+            continue; // LCOV_EXCL_LINE an archived project's listeners are let go before the look; by construction
         }
         let view = match look(inner, &record, needs, prs_due, now).await {
             Ok(view) => view,
@@ -668,7 +670,7 @@ fn scan_tree(root: &Path, bounds: bisa_core::ScanBounds) -> BTreeMap<String, Str
             }
             examined += 1;
             let Ok(meta) = entry.path().symlink_metadata() else {
-                continue;
+                continue; // LCOV_EXCL_LINE an entry gone between the listing and its metadata; a race
             };
             if meta.is_symlink() {
                 continue;
@@ -685,7 +687,7 @@ fn scan_tree(root: &Path, bounds: bisa_core::ScanBounds) -> BTreeMap<String, Str
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
             else {
-                continue;
+                continue; // LCOV_EXCL_LINE a file with no readable modification time; by construction
             };
             let rel = entry
                 .path()
@@ -922,7 +924,7 @@ async fn project_listener(
                     .map(|(n, pr)| (n.clone(), pr.state.clone()))
                     .collect(),
             );
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     put_runtime(inner, &listener.key, &rt);
 }

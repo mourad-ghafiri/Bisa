@@ -379,6 +379,13 @@ async fn the_run_line_names_the_resolved_flutter_and_the_checkout() {
     let facts = bisa_engine::mobile_development::project_facts(engine.inner(), wid).unwrap();
     assert!(facts.flutter && facts.android && !facts.ios);
     assert_eq!(facts, facts_of_tree(&root));
+    // The session's framing names the platforms while the feature is on.
+    let note = bisa_engine::framing::mobile_development_note(engine.inner(), Some(project.id));
+    assert!(note.contains("Mobile"), "{note:?}");
+    // The last examination's answer names flutter for the run line.
+    bisa_engine::mobile_development::status(engine.inner(), false)
+        .await
+        .unwrap();
     let run = bisa_engine::mobile_development::run_command(engine.inner(), wid, "AAAA-1").unwrap();
     assert_eq!(run.command, "/opt/flutter/bin/flutter run -d AAAA-1");
     assert_eq!(run.cwd, root.display().to_string());

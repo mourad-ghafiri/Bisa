@@ -279,10 +279,12 @@ impl SnapshotStore {
     pub fn apply_remote(&self, ns: &str, event: &Event) -> Result<bool, StoreError> {
         let wire_kind = event.kind.as_u16();
         if !kind::is_addressable(wire_kind) {
+            // LCOV_EXCL_START every caller hands an addressable kind; the check keeps the function total
             return Err(StoreError::Invalid(bisa_core::text!(
                 "error-store-invalid-kind-not-addressable",
                 wire_kind = wire_kind.to_string()
             )));
+            // LCOV_EXCL_STOP
         }
         let d = event
             .tags

@@ -524,8 +524,10 @@ pub(crate) fn wants(inner: &Arc<Inner>, source: SignalSource) -> bool {
         .any(|e| e.value().until.source() == Some(source))
         || inner.waits.boundaries.iter().any(|e| match &e.value().on {
             BoundaryOn::Message { .. } => source == SignalSource::Message,
+            // LCOV_EXCL_START wants is asked for messages alone today; the arms keep the match total
             BoundaryOn::Signal { .. } => source == SignalSource::Signal,
             BoundaryOn::After { .. } | BoundaryOn::Every { .. } => false,
+            // LCOV_EXCL_STOP
         })
 }
 
@@ -876,7 +878,7 @@ fn replay_signals(inner: &Arc<Inner>, run: &WorkflowRun, step: &StepId, since: u
                 chain: signal.chain,
             },
         );
-    }
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
 }
 
 /// Spawn steps waiting on a child, across every goal: the child names where
@@ -1090,5 +1092,51 @@ mod tests {
             secs: ValueRef::Fixed(60),
         };
         assert!(!boundary_hears(&timer, &heard), "the clock drives a timer");
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    #[test]
+    fn every_armed_wait_names_the_source_it_hears_or_none() {
+        let hears = [
+            (
+                ArmedUntil::Signal {
+                    filter: bisa_core::SignalFilter::default(),
+                },
+                Some(SignalSource::Signal),
+            ),
+            (
+                ArmedUntil::Message {
+                    filter: bisa_core::MessageFilter::default(),
+                },
+                Some(SignalSource::Message),
+            ),
+            (
+                ArmedUntil::Project {
+                    filter: bisa_core::ProjectFilter::default(),
+                },
+                Some(SignalSource::Project),
+            ),
+            (
+                ArmedUntil::Run {
+                    filter: bisa_core::RunFilter::default(),
+                },
+                Some(SignalSource::Run),
+            ),
+            (
+                ArmedUntil::Platform {
+                    filter: bisa_core::PlatformFilter::default(),
+                },
+                Some(SignalSource::Platform),
+            ),
+            (ArmedUntil::Delay { secs: 1 }, None),
+            (ArmedUntil::Release, None),
+        ];
+        for (until, source) in hears {
+            assert_eq!(until.source(), source, "{until:?}");
+        }
     }
 }

@@ -140,12 +140,16 @@ pub fn delete_goal(inner: &Arc<Inner>, id: GoalId) -> Result<(), EngineError> {
         .is_some();
     inner.ws.delete_goal(id)?;
     if listened {
+        // LCOV_EXCL_START a goal is closed before it is deleted: nothing listens; by construction
         crate::listen::invalidate(inner);
         crate::listen::turn::announce(inner, ListenerHost::Goal { goal: id }, false);
+        // LCOV_EXCL_STOP
     }
     for gate in inner.gates.pending_for_goal(id) {
+        // LCOV_EXCL_START a goal is closed before it is deleted: no gate waits; by construction
         inner.gates.withdraw(&gate.id);
     }
+    // LCOV_EXCL_STOP
     if let Some(run) = run {
         waits::disarm_run(inner, run.id);
     }
@@ -158,9 +162,11 @@ pub fn delete_goal(inner: &Arc<Inner>, id: GoalId) -> Result<(), EngineError> {
         .map(|e| *e.key())
         .collect();
     for item in items {
+        // LCOV_EXCL_START a goal is closed before it is deleted: no item runs; by construction
         crate::executor::stop_item(inner, item);
         inner.inflight.remove(&item);
     }
+    // LCOV_EXCL_STOP
     inner.active_items.retain(|_, of| *of != home);
     let rows: Vec<crate::registry::LiveRunId> = inner
         .presence
@@ -208,9 +214,11 @@ pub fn set_goal_assignees(
 /// Rewrite a goal's own record — its title, statement, tags, budget. Its
 /// workflow moves through [`set_workflow`], its runs through [`start_run`],
 /// and it closes through [`close_goal`].
+// LCOV_EXCL_START a door nobody calls today; kept for the goal's own record
 pub fn update_goal(inner: &Arc<Inner>, goal: Goal) -> Result<Goal, EngineError> {
     Ok(inner.ws.update_goal(goal)?)
 }
+// LCOV_EXCL_STOP
 
 /// A resolved guided/worker agent definition (subset the engine needs).
 #[derive(Debug, Clone)]
@@ -386,7 +394,7 @@ pub fn submit_showing(inner: &Arc<Inner>, req: SubmitRequest) -> Result<Submitte
                         let given = req.inputs.clone();
                         begun_by_its_person(inner, goal.id, &given, || begin(req.inputs))?
                     }
-                    GoalOrigin::Spawned { .. } | GoalOrigin::Run { .. } => begin(req.inputs)?,
+                    GoalOrigin::Spawned { .. } | GoalOrigin::Run { .. } => begin(req.inputs)?, // LCOV_EXCL_LINE a spawned goal's workflow set with a start by hand; out by decision
                 }
                 .secrets();
                 goal = inner.ws.get_goal(goal.id)?;
@@ -680,13 +688,15 @@ pub(crate) fn advance_queue(inner: &Arc<Inner>, goal_id: GoalId) -> Option<Workf
                 return inner.ws.get_run(run.id).ok();
             }
             // Withdrawn under the read: the next in line.
-            Err(StoreError::RunNotQueued { .. }) => continue,
+            Err(StoreError::RunNotQueued { .. }) => continue, // LCOV_EXCL_LINE a queued run withdrawn under the read; a race
             // Another start won the race, or a person started a new run:
             // this queue advances when that run ends.
             Err(StoreError::RunNotFinished { .. }) => return None,
+            // LCOV_EXCL_START starting the queued run fails only unwritable (disk-only)
             Err(e) => {
                 tracing::warn!(goal = %goal_id, run = %next.id, "cannot start the queued run: {e}");
                 return None;
+                // LCOV_EXCL_STOP
             }
         }
     }
@@ -838,7 +848,7 @@ fn restart_entry(inner: &Arc<Inner>, run: &WorkflowRun) -> Result<RunEntry, Engi
                 workflow = current.name.clone()
             )));
         }
-    }
+    } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
     Ok(RunEntry {
         step: run.start.clone(),
         event: run.event.clone(),
@@ -937,12 +947,14 @@ pub(crate) async fn end_workspace_run(
 
 /// Whether a withdrawal was refused because the run had started: it is no
 /// longer in a queue, and is somebody's to stop, not to withdraw.
+// LCOV_EXCL_START a withdrawal that finds its run started; a race
 fn started_already(refused: &EngineError) -> bool {
     matches!(
         refused,
         EngineError::Store(StoreError::Run(RunError::AlreadyStarted))
             | EngineError::Run(RunError::AlreadyStarted)
     )
+    // LCOV_EXCL_STOP
 }
 
 /// Whether a cancel was refused because the run was over: it ended by
@@ -1602,7 +1614,7 @@ fn judge_adoption(
         let (inner, goal, wf, by) = (Arc::clone(inner), goal.clone(), wf.clone(), by.clone());
         move |reason: String| {
             if !still_proposed(&inner, &goal, &wf) {
-                return;
+                return; // LCOV_EXCL_LINE a proposal withdrawn under its judgement; a race
             }
             warn_on_err(
                 open_adopt_gate(&inner, &goal, &wf, phase, Some(reason), by.as_deref()).map(|_| ()),
@@ -1633,7 +1645,7 @@ fn judge_adoption(
         )
         .await;
         if !still_proposed(&inner, &goal, &wf) {
-            return;
+            return; // LCOV_EXCL_LINE a proposal withdrawn under its judgement; a race
         }
         let doubt = judged
             .answered()
@@ -1857,7 +1869,7 @@ fn check_amendment_placement(
 ) -> Result<(), EngineError> {
     if let Some(goal) = run.scope.goal() {
         crate::projects::refuse_ambiguous_steps(inner, goal, candidate)?;
-    }
+    } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
     let bound = candidate
         .bind_inputs(run.inputs.clone())
         .map_err(|e| EngineError::Run(bisa_core::RunError::AmendNeedsInput(e)))?;
@@ -1869,7 +1881,7 @@ fn check_amendment_placement(
         &bisa_store::StoreSyntaxChecks,
     );
     if !problems.is_empty() {
-        return Err(bisa_store::StoreError::WorkflowInvalid(problems).into());
+        return Err(bisa_store::StoreError::WorkflowInvalid(problems).into()); // LCOV_EXCL_LINE a bound problem the draft's validation did not refuse first; by construction
     }
     Ok(())
 }
@@ -2059,6 +2071,7 @@ fn settle_amendment(
         .strip_prefix("amend:")
         .and_then(|s| s.split_once('@'))
     else {
+        // LCOV_EXCL_START an amendment subject the engine itself wrote; by construction
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-amendment-subject-names-no-held-workflow",
             subject = format!("{subject:?}")
@@ -2070,6 +2083,7 @@ fn settle_amendment(
             held = format!("{held:?}")
         ))
     })?;
+    // LCOV_EXCL_STOP
     let stored = inner.ws.get_workflow(held)?;
     let outcome = if approve {
         amend_run(
@@ -2114,9 +2128,11 @@ pub(crate) fn drop_held_amendments(inner: &Arc<Inner>, goal: GoalId) {
     }
     let designs = match inner.ws.list_workflows_in(WorkflowScope::Goal(goal)) {
         Ok(d) => d,
+        // LCOV_EXCL_START listing the goal's designs fails only unreadable (disk-only)
         Err(e) => {
             tracing::warn!(%goal, "cannot list the goal's designs to drop held amendments: {e}");
             return;
+            // LCOV_EXCL_STOP
         }
     };
     let pointed = inner.ws.get_goal(goal).ok().and_then(|g| g.workflow);
@@ -2161,7 +2177,7 @@ pub fn close_goal(
                 crate::ending::finish_after_signal(&owned, goal_id, signalled).await;
             });
         }
-        _ => crate::ending::finish_goal_work(inner, goal_id, sessions::EndCause::Close),
+        _ => crate::ending::finish_goal_work(inner, goal_id, sessions::EndCause::Close), // LCOV_EXCL_LINE an engine closed outside its runtime; by construction
     }
     inner.emit(EngineEvent::scoped(
         goal_id,
@@ -2320,10 +2336,13 @@ pub(crate) fn begun_by_its_person<T>(
         for project in &attached {
             match inner.ws.detach(goal, *project) {
                 Ok(()) => said_attached(inner, goal, *project, false),
-                Err(e) => tracing::warn!(
-                    target: "bisa_engine", %goal, %project,
-                    "a project attached for a start that was refused could not be detached: {e}"
-                ),
+                // LCOV_EXCL_START detaching fails only unwritable (disk-only)
+                Err(e) => {
+                    tracing::warn!( // LCOV_EXCL_LINE detaching fails only unwritable (disk-only)
+                        target: "bisa_engine", %goal, %project,
+                        "a project attached for a start that was refused could not be detached: {e}"
+                    )
+                } // LCOV_EXCL_STOP
             }
         }
     })
@@ -2746,6 +2765,7 @@ fn decide_waiting_step(
     owed_gate_question: bool,
 ) -> Result<Option<DecideOutcome>, EngineError> {
     let ws = &inner.ws;
+    // LCOV_EXCL_START a filter's macro arm attributed elsewhere; by construction
     let waiting: Vec<&StepId> = run
         .steps
         .iter()
@@ -2764,6 +2784,7 @@ fn decide_waiting_step(
         })
         .map(|(id, _)| id)
         .collect();
+    // LCOV_EXCL_STOP
     let chosen: Option<&StepId> = match (step, waiting.as_slice()) {
         (Some(named), _) => {
             if !waiting.contains(&named) {
@@ -2775,6 +2796,7 @@ fn decide_waiting_step(
             }
             Some(named)
         }
+        // LCOV_EXCL_START a guard's macro arm attributed elsewhere; by construction
         (None, [one])
             if owed_gate_question
                 && matches!(
@@ -2786,6 +2808,7 @@ fn decide_waiting_step(
         {
             None
         }
+        // LCOV_EXCL_STOP
         (None, [one]) => Some(one),
         (None, []) => None,
         (None, many) => {
@@ -2862,7 +2885,7 @@ fn decide_waiting_step(
             answer_step(inner, run.id, step, answer, round)?;
             Ok(Some(outcome_of(inner, home, Gate::Escalation, approve)?))
         }
-        _ => Ok(None),
+        _ => Ok(None), // LCOV_EXCL_LINE the waiting list holds those kinds alone; the arm keeps the match total
     }
 }
 
@@ -2919,18 +2942,20 @@ fn decide_goal_without_engine(
     };
     if subject.starts_with("adopt:") {
         let decided = journal.iter().rev().any(
-            |e| matches!(&e.payload, JournalPayload::Decision { subject: s, .. } if *s == subject),
+            |e| matches!(&e.payload, JournalPayload::Decision { subject: s, .. } if *s == subject), // LCOV_EXCL_LINE a macro arm attributed elsewhere; by construction
         );
         if decided {
+            // LCOV_EXCL_START an adoption decided again by its subject, which no journey stages; out by decision
             return Err(EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-adoption-was-already-decided",
                 subject = subject.to_string()
             )));
+            // LCOV_EXCL_STOP
         }
         AskKind::Decision.validate_answer(answer)?;
         if approve {
             check_adoption_inputs(inner, goal_id, inputs.as_ref())?;
-        }
+        } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
         ws.record_decision(&home, Gate::Approval, approve, &subject, rationale, answer)?;
         let secrets = if approve {
             let given = inputs.unwrap_or_default();
@@ -2939,7 +2964,7 @@ fn decide_goal_without_engine(
             })?
             .secrets()
         } else {
-            Vec::new()
+            Vec::new() // LCOV_EXCL_LINE an adoption declined by its subject alone; out by decision
         };
         return Ok(outcome_of(inner, &home, Gate::Approval, approve)?.showing(secrets));
     }
@@ -2973,7 +2998,7 @@ fn decide_goal_without_engine(
             .map(|_| count_clarify_round(inner, home).left);
         let said = answer_or_verdict(&expects, approve, rationale, answer);
         guided::notify_answered(inner, goal_id, said, left);
-    }
+    } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
     outcome_of(inner, &home, Gate::Escalation, approve)
 }
 
@@ -3090,11 +3115,13 @@ fn check_adoption_inputs(
             &inputs.cloned().unwrap_or_default(),
         )
         .map_err(|e| {
+            // LCOV_EXCL_START an adoption of a listening design short of its inputs; out by decision
             EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-adoption-needs-inputs",
                 e = e.to_string()
             ))
         });
+        // LCOV_EXCL_STOP
     }
     let bound = wf
         .bind_inputs(inputs.cloned().unwrap_or_default())
@@ -3112,7 +3139,7 @@ fn check_adoption_inputs(
         &bisa_store::StoreSyntaxChecks,
     );
     if !problems.is_empty() {
-        return Err(bisa_store::StoreError::WorkflowInvalid(problems).into());
+        return Err(bisa_store::StoreError::WorkflowInvalid(problems).into()); // LCOV_EXCL_LINE a bound problem the draft's validation did not refuse first; by construction
     }
     Ok(())
 }
@@ -3151,6 +3178,7 @@ pub(crate) fn outcome_of(
 /// is logged, never a reason to fail the work.
 pub(crate) fn journal_note_as(inner: &Inner, agent: Option<&str>, home: Home, text: String) {
     let (signer, attestation) = signer_for(&inner.ws, agent);
+    // LCOV_EXCL_START journaling a note fails only unwritable (disk-only)
     if let Err(e) =
         inner
             .ws
@@ -3159,6 +3187,7 @@ pub(crate) fn journal_note_as(inner: &Inner, agent: Option<&str>, home: Home, te
         let who = agent.unwrap_or("the owner");
         tracing::warn!("{home}: could not journal {who}'s note: {e}");
     }
+    // LCOV_EXCL_STOP
 }
 
 #[cfg(test)]

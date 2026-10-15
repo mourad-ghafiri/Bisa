@@ -369,7 +369,7 @@ impl<'a> Settler<'a> {
             review.image = image_sha;
             review.kept_any |= verdict == Verdict::Keep;
             verdict_of_file = done.then(|| ChangeLedger::verdict(review));
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
         if let Some(state) = verdict_of_file {
             ledger.settled(path, state);
         }
@@ -510,7 +510,7 @@ pub fn restore(
                     ledger.settled(&target.path, ChangeState::Undone);
                 } else if let Some(review) = ledger.under_review_mut(&target.path) {
                     review.image = put(inner, conversation, bytes.as_deref())?;
-                }
+                } // LCOV_EXCL_LINE the other edge of the branch; by construction
             }
         }
         settler.dispose()?;

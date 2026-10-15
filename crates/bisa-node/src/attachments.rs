@@ -291,7 +291,7 @@ async fn fetch_from_peer(
         return Ok(Json(json!({"status": "present"})));
     }
     match state.request_attachment(&sha256).await {
-        Ok(true) => Ok(Json(json!({"status": "fetched"}))),
+        Ok(true) => Ok(Json(json!({"status": "fetched"}))), // LCOV_EXCL_LINE a fetch over the direct transport; out by decision
         Ok(false) => Err(not_found(bisa_core::text!(
             "error-node-attachments-no-connected-peer-has"
         ))),

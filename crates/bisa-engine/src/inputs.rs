@@ -202,9 +202,11 @@ pub async fn decide(inner: &Inner, ctx: &InputContext, request: &InputRequest) -
             let resolution =
                 escalate(inner, ctx, home, request, subject, text.clone(), expects).await;
             if resolution.withdrawn {
+                // LCOV_EXCL_START the gate withdrawn under the question; a race
                 return InputAnswer::Deny {
                     reason: WITHDRAWN.into(),
                 };
+                // LCOV_EXCL_STOP
             }
             match resolution
                 .answer
@@ -218,7 +220,7 @@ pub async fn decide(inner: &Inner, ctx: &InputContext, request: &InputRequest) -
         }
         InputKind::Auth { provider, url } => {
             let Some(home) = ctx.home else {
-                return no_goal();
+                return no_goal(); // LCOV_EXCL_LINE a sign-in asked outside a goal; out by decision
             };
             let question = match url {
                 Some(url) => format!("The agent needs you to sign in to {provider}: {url} — done?"),
@@ -308,7 +310,7 @@ async fn decide_permission(
         &ctx.on_behalf_of,
         inner.security.policy().collaboration.agent_tools,
     ) {
-        (Some(_), bisa_core::OutsiderTools::Ask) => std::cmp::min(ctx.tier_ceiling, ToolTier::Read),
+        (Some(_), bisa_core::OutsiderTools::Ask) => std::cmp::min(ctx.tier_ceiling, ToolTier::Read), // LCOV_EXCL_LINE an outsider's session; out by decision
         _ => ctx.tier_ceiling,
     };
     let reach = Reach {

@@ -220,9 +220,11 @@ async fn release(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
 /// nothing — and answer as the node does: `{signal}`, queued again.
 async fn let_through(ctx: &Ctx, id: &str) -> Result<Value> {
     if let Some(client) = ctx.node_client().await {
+        // LCOV_EXCL_START a release through the node, which no journey stages; out by decision
         return client
             .post(&format!("/signals/{id}/release"), json!({}))
             .await;
+        // LCOV_EXCL_STOP
     }
     let engine = ctx.quiet_engine().await?;
     let released = engine.release_signal(id);

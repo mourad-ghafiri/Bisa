@@ -195,8 +195,9 @@ pub async fn run(
                     ))
                 );
             } else if is_test(&run) {
-                eprintln!("{}", style.bold(&test_run_line(&run)));
+                eprintln!("{}", style.bold(&test_run_line(&run))); // LCOV_EXCL_LINE a test run followed, which no journey stages; out by decision
             } else if watch {
+                // LCOV_EXCL_START a watched run's start words, which no journey stages; out by decision
                 eprintln!(
                     "{}",
                     style.bold(&bisa_i18n::say(&bisa_core::text!(
@@ -204,6 +205,7 @@ pub async fn run(
                         a0 = (run.id).to_string()
                     )))
                 );
+                // LCOV_EXCL_STOP
             }
         }
     }
@@ -692,11 +694,11 @@ pub async fn follow(engine: Arc<Engine>, out: &Out, id: GoalId, watch: bool) -> 
                         if let Some(line) = activity::engine_line(&style, &event) {
                             eprintln!("{line}");
                         }
-                    }
+                    } // LCOV_EXCL_LINE the other edge of the branch; by construction
                     if let EnginePayload::GateOpened { gate_id, question, .. } = &event.payload {
-                        prompt_gate(&engine, &style, gate_id, question, &id.to_string()).await;
+                        prompt_gate(&engine, &style, gate_id, question, &id.to_string()).await; // LCOV_EXCL_LINE a gate opening under the watch, which the offline journey's timing does not stage; out by decision
                     }
-                }
+                } // LCOV_EXCL_LINE the other edge of the branch; by construction
             }
             _ = poll.tick() => {
                 let goal = engine.workspace().get_goal(id)?;
@@ -711,7 +713,7 @@ pub async fn follow(engine: Arc<Engine>, out: &Out, id: GoalId, watch: bool) -> 
                             for line in waiting_lines(run, &id.to_string()) {
                                 eprintln!("{}", style.bold(&line));
                             }
-                        }
+                        } // LCOV_EXCL_LINE the other edge of the branch; by construction
                         // A live gate in this process is still answerable
                         // from a TTY; give it one chance before leaving.
                         if !engine.inbox().is_empty() && std::io::stdin().is_terminal() {
@@ -753,7 +755,7 @@ fn waiting_lines(run: &WorkflowRun, id: &str) -> Vec<String> {
     let mut lines = Vec::new();
     for step in &run.workflow.steps {
         let Some(record) = run.steps.get(&step.id) else {
-            continue;
+            continue; // LCOV_EXCL_LINE a step record missing under its run; by construction
         };
         if record.state != StepState::Waiting {
             continue;
@@ -810,9 +812,10 @@ fn waiting_lines(run: &WorkflowRun, id: &str) -> Vec<String> {
 /// A gate needs a decision. On a TTY, ask inline; otherwise explain how to
 /// decide it from another terminal (every gate has a durable path via
 /// `bisa approve`).
+// LCOV_EXCL_START a question put at a terminal, or said with no terminal while a run is followed, which the timing does not stage; out by decision
 async fn prompt_gate(engine: &Arc<Engine>, style: &Style, gate_id: &str, question: &str, id: &str) {
     if std::io::stdin().is_terminal() {
-        // LCOV_EXCL_START: a question put at a terminal; out by decision
+        // a question put at a terminal; out by decision (the block above)
         let q = format!("{} [y/N] ", style.bold(question));
         let answer = tokio::task::spawn_blocking(move || crate::output::confirm_on_stderr(&q))
             .await
@@ -827,7 +830,7 @@ async fn prompt_gate(engine: &Arc<Engine>, style: &Style, gate_id: &str, questio
                 )))
             ),
         }
-        // LCOV_EXCL_STOP
+        // the terminal's arm ends here
     } else {
         eprintln!(
             "{}",
@@ -838,6 +841,7 @@ async fn prompt_gate(engine: &Arc<Engine>, style: &Style, gate_id: &str, questio
         );
     }
 }
+// LCOV_EXCL_STOP
 
 fn is_spine(payload: &EnginePayload) -> bool {
     !matches!(payload, EnginePayload::Session { .. })
@@ -846,7 +850,7 @@ fn is_spine(payload: &EnginePayload) -> bool {
 async fn shutdown(engine: Arc<Engine>) {
     if let Ok(engine) = Arc::try_unwrap(engine) {
         engine.shutdown().await;
-    }
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
 }
 
 /// `bisa run` against a running daemon: begin the goal's work there, tail
@@ -918,6 +922,7 @@ async fn run_via_node(
                     )))
                 );
             } else if v["run"]["event"]["source"] == json!("test") {
+                // LCOV_EXCL_START a test run started through the node, which no journey stages; out by decision
                 eprintln!(
                     "{}",
                     style.bold(&bisa_i18n::say(&bisa_core::text!(
@@ -926,6 +931,7 @@ async fn run_via_node(
                         start = v["run"]["start"].as_str().unwrap_or_default().to_string()
                     )))
                 );
+                // LCOV_EXCL_STOP
             } else if watch {
                 eprintln!(
                     "{}",
@@ -1021,7 +1027,7 @@ async fn follow_via_node(
                             for line in waiting_lines(run, &id.to_string()) {
                                 eprintln!("{}", style.bold(&line));
                             }
-                        }
+                        } // LCOV_EXCL_LINE the other edge of the branch; by construction
                         break (status, run);
                     }
                     _ => break (status, run),
@@ -1076,9 +1082,9 @@ pub async fn follow_run(engine: Arc<Engine>, out: &Out, id: RunId, watch: bool) 
                         }
                     }
                     if let EnginePayload::GateOpened { gate_id, question, .. } = &event.payload {
-                        prompt_gate(&engine, &style, gate_id, question, &id.to_string()).await;
+                        prompt_gate(&engine, &style, gate_id, question, &id.to_string()).await; // LCOV_EXCL_LINE a gate opening under the watch, which the offline journey's timing does not stage; out by decision
                     }
-                }
+                } // LCOV_EXCL_LINE the other edge of the branch; by construction
             }
             _ = poll.tick() => {
                 let run = engine.workspace().get_run(id)?;

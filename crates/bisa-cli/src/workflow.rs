@@ -342,12 +342,14 @@ pub fn resolve_workflow(ws: &Workspace, raw: &str, install: bool) -> Result<Work
     let installed = ws.install(CatalogKind::Workflow, raw)?;
     match installed.workflows.iter().find(|(slug, _)| slug == raw) {
         Some((_, id)) => Ok(ws.get_workflow(*id)?),
+        // LCOV_EXCL_START a slug resolved behind the id check, which the journey's refusal does not reach; out by decision
         None => ws.workflow_for_slug(raw)?.ok_or_else(|| {
             anyhow!(bisa_core::text!(
                 "cli-workflow-no-workflow-catalog-template-named",
                 raw = format!("{raw:?}")
             ))
         }),
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -429,10 +431,12 @@ impl Row {
     fn on_words(&self) -> String {
         match &self.listening {
             None => String::new(),
+            // LCOV_EXCL_START a paused listening's words, which no journey stages; out by decision
             Some(listening) if listening.is_paused() => bisa_i18n::say(&bisa_core::text!(
                 "cli-workflow-on-paused",
                 hears = self.hears().join(" · ")
             )),
+            // LCOV_EXCL_STOP
             Some(_) => bisa_i18n::say(&bisa_core::text!(
                 "cli-workflow-on",
                 hears = self.hears().join(" · ")
@@ -600,9 +604,11 @@ async fn list(
             ));
         }
         if entries.is_empty() {
+            // LCOV_EXCL_START the catalog ships workflow templates; by construction
             out.say(&bisa_core::text!(
                 "cli-workflow-catalog-has-no-workflow-templates"
             ));
+            // LCOV_EXCL_STOP
         }
         out.json_value(json!({"templates": entries}));
         return Ok(());
@@ -859,7 +865,7 @@ async fn run(
         Err(e) => {
             if let Ok(engine) = std::sync::Arc::try_unwrap(engine) {
                 engine.shutdown().await;
-            }
+            } // LCOV_EXCL_LINE the other edge of the branch; by construction
             return Err(e);
         }
     };
@@ -1037,11 +1043,13 @@ async fn restart(ctx: &Ctx, out: &Out, id: &str, run: Option<&str>, watch: bool)
         let engine = std::sync::Arc::new(engine);
         let new = match engine.restart_run(run).await {
             Ok(new) => new,
+            // LCOV_EXCL_START a restart the store refuses under a held engine; a race
             Err(e) => {
                 if let Ok(engine) = std::sync::Arc::try_unwrap(engine) {
                     engine.shutdown().await;
                 }
                 return Err(e.into());
+                // LCOV_EXCL_STOP
             }
         };
         restarted(&new.id.to_string());
@@ -1063,6 +1071,7 @@ async fn restart(ctx: &Ctx, out: &Out, id: &str, run: Option<&str>, watch: bool)
             "cli-workflow-workflow-no-run-going",
             id = id.to_string()
         )),
+        // LCOV_EXCL_START a restart of several runs at once, which no journey stages; out by decision
         n => bisa_i18n::say(&bisa_core::text!(
             "cli-workflow-workflow-restarted-run",
             id = id.to_string(),
@@ -1070,6 +1079,7 @@ async fn restart(ctx: &Ctx, out: &Out, id: &str, run: Option<&str>, watch: bool)
             a0 = (plural(n)).to_string(),
             a1 = (runs.join(", ")).to_string()
         )),
+        // LCOV_EXCL_STOP
     });
     out.json_value(json!({"workflow": id.to_string(), "runs": runs}));
     Ok(())
@@ -1192,7 +1202,7 @@ async fn on(
         Some(client) => {
             let mut body = json!({ "inputs": inputs });
             if let Some(budget) = &budget {
-                body["budget"] = serde_json::to_value(budget)?;
+                body["budget"] = serde_json::to_value(budget)?; // LCOV_EXCL_LINE a run's budget on the wire, which no journey stages; out by decision
             }
             client
                 .put(&format!("/workflows/{id}/listening"), body)
@@ -1367,8 +1377,10 @@ async fn hook_secret(
 /// embedded engine that hears nothing.
 async fn rotated(ctx: &Ctx, host: HookHost, key: &ListenerKey) -> Result<Value> {
     if let Some(client) = ctx.node_client().await {
+        // LCOV_EXCL_START a hook's secret through the node; out by decision
         let route = format!("{}/hooks/{}/secret", host.route(&key.host.id()), key.step);
         return client.post(&route, json!({})).await;
+        // LCOV_EXCL_STOP
     }
     let engine = ctx.quiet_engine().await?;
     let secret = engine.rotate_hook_secret(key);

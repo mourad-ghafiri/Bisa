@@ -752,7 +752,7 @@ impl Workspace {
                 if let Some(goal) = run.scope.goal().and_then(|g| self.get_goal(g).ok()) {
                     if goal.run == Some(run.id) {
                         self.index_goal(&goal, Some(&run))?;
-                    }
+                    } // LCOV_EXCL_LINE the other edge of the branch; by construction
                 }
                 // A run of the workspace is its own home: the facts its
                 // journal took before its row existed are indexed once, now
@@ -776,7 +776,7 @@ impl Workspace {
                     self.index_work_item(&spec, event.created_at.as_secs())?;
                 }
             }
-            Parsed::Other => {}
+            Parsed::Other => {} // LCOV_EXCL_LINE a record of a kind the ingest does not file; the arm keeps the match total
         }
         self.mark_seen(event)?;
         Ok(IngestOutcome::AppliedSnapshot {

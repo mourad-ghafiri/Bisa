@@ -631,7 +631,7 @@ export function withoutMarked(lines, source) {
 }
 
 /** A line that is nothing but the closing of a `?` expression: `)?;`, `})?,`, `)?`, `})?);`. */
-const QUESTION_EDGE = /^[\s)\]}]*[)}]\?[)\]}]*[;,]?\s*$/;
+const QUESTION_EDGE = /^[\s)\]}]*(?:[)}]\?[)\]}]*)+[;,]?\s*\{?\s*$/;
 
 /**
  * The lines that hold only the `?` of a call written over several lines.
@@ -639,7 +639,9 @@ const QUESTION_EDGE = /^[\s)\]}]*[)}]\?[)\]}]*[;,]?\s*$/;
  * the `?` closes a call on a line by itself that line reads bare unless the
  * callee fails — a fault a test cannot inject without a mock of the disk or
  * the index. Such a line is the error edge, not a statement a person can
- * reach, and is left out of the meter as a test item is.
+ * reach, and is left out of the meter as a test item is. The `?` may close
+ * two calls at once (`)?)?;`), and may open the block of an `if let`
+ * (`)? {`): still a line that holds only the edge.
  *
  * @param {string} source
  * @returns {Set<number>} the 1-based lines

@@ -1636,6 +1636,13 @@ async fn a_design_wake_carries_the_goal_the_staff_the_connectors_and_the_templat
     });
     let mut catalog = HarnessCatalog::new();
     catalog.register(Arc::clone(&adapter) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let brief = ws
+        .put_attachment(
+            b"%PDF-1.7 brief",
+            "brief.pdf",
+            bisa_core::mime_of_name("brief.pdf"),
+        )
+        .unwrap();
     let engine = Engine::start(
         ws,
         catalog,
@@ -1649,6 +1656,7 @@ async fn a_design_wake_carries_the_goal_the_staff_the_connectors_and_the_templat
     let goal = engine
         .submit_goal(SubmitRequest {
             title: Some("Quarterly sales report".into()),
+            documents: vec![brief],
             ..guided("write a sales report for the quarter")
         })
         .unwrap();
@@ -1666,6 +1674,7 @@ async fn a_design_wake_carries_the_goal_the_staff_the_connectors_and_the_templat
         "TEMPLATES",
         "catalog software-feature",
         "scratch folder",
+        "brief.pdf",
     ] {
         assert!(prompt.contains(word), "{word} missing from:\n{prompt}");
     }
@@ -2651,6 +2660,24 @@ async fn pointing_a_goal_elsewhere_withdraws_its_adoption_gate() {
             .find(|g| g.home.goal() == Some(goal.id) && g.subject.starts_with("adopt:"))
     })
     .await;
+    // Pointed at nothing first: a durable decision on the adoption finds a
+    // goal with no workflow to adopt, and refuses.
+    engine.set_workflow(goal.id, None).unwrap();
+    assert!(
+        matches!(
+            engine.decide_durable(
+                &bisa_core::Home::Goal { goal: goal.id },
+                true,
+                None,
+                None,
+                None,
+                None,
+                None
+            ),
+            Err(bisa_engine::EngineError::Invalid(_))
+        ),
+        "nothing to adopt"
+    );
     let chosen = engine.create_workflow(plain("chosen")).unwrap();
     let pointed = engine.set_workflow(goal.id, Some(chosen.id)).unwrap();
     assert_eq!(pointed.workflow, Some(chosen.id));
@@ -2754,5 +2781,150 @@ async fn a_permission_asked_during_a_wake_is_answered_by_the_guard() {
     })
     .await;
     assert!(engine.inbox().is_empty(), "the guard asked nobody");
+    engine.shutdown().await;
+}
+
+/// Every model of the Workflow Agent's plan walled: the wake records failed
+/// saying so, after one attempt per model, and the switches are journaled.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guided_wake_walled_on_every_model_records_failed_naming_the_plan() {
+    use bisa_harness::mock::{DeadModel, ModelFailure};
+    use bisa_harness::{ModelChoice, ModelPlan, ModelStrategy};
+
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "guided-harness");
+    let mut core = ws.get_agent(&AgentId::workflow()).unwrap();
+    core.models = ModelPlan {
+        strategy: ModelStrategy::Fallback,
+        effort: None,
+        models: vec![ModelChoice::new("fable-5"), ModelChoice::new("opus-5")],
+    };
+    ws.update_agent(core).unwrap();
+    let adapter = Arc::new(MockAdapter {
+        id: "guided-harness".into(),
+        dead_models: vec![
+            ModelFailure::new("fable-5", DeadModel::NoProgress).reason("rate limited"),
+            ModelFailure::new("opus-5", DeadModel::NoProgress).reason("quota exhausted"),
+        ],
+        ..Default::default()
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&adapter) as Arc<dyn bisa_harness::HarnessAdapter>);
+    let engine = Engine::start(
+        ws,
+        catalog,
+        EngineConfig {
+            max_model_attempts: 1,
+            ..guided_config()
+        },
+    )
+    .unwrap();
+
+    let goal = engine.submit_goal(guided("write a sales report")).unwrap();
+    let detail = failed_detail(&engine, goal.id).await;
+    assert!(
+        detail.contains("every model in the Workflow Agent's plan is unavailable"),
+        "{detail}"
+    );
+    assert_eq!(adapter.launched_models(), vec![Some("fable-5".to_string())]);
+    engine.shutdown().await;
+}
+
+/// Auto, the adoption judged by the Decision-Making Agent: a design it rates
+/// fit is adopted and started with nobody asked; one it doubts is put to the
+/// person with the rating.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_judged_adoption_starts_a_fit_design_and_puts_a_doubted_one_to_the_person() {
+    use bisa_decision::scripted::ScriptedProvider;
+    fn rated(score: f64) -> Arc<ScriptedProvider> {
+        let legend = BTreeMap::from([
+            ("1".to_string(), "misses the goal".to_string()),
+            ("2".to_string(), "reaches part of it".to_string()),
+            ("3".to_string(), "reaches the goal".to_string()),
+        ]);
+        let probabilities = BTreeMap::from([
+            ("1".to_string(), 0.1),
+            ("2".to_string(), 0.2),
+            ("3".to_string(), 0.7),
+        ]);
+        Arc::new(ScriptedProvider::new(vec![ScriptedProvider::answers(
+            "fit",
+            bisa_core::DecisionAnswer::Score {
+                score,
+                legend,
+                probabilities,
+                confidence: 0.9,
+            },
+        )]))
+    }
+    fn judged_engine(dir: &tempfile::TempDir, provider: Arc<ScriptedProvider>) -> Engine {
+        let ws = workspace(dir);
+        drive_on(&ws, &AgentId::workflow(), "guided-harness");
+        let script = IntakeScript::new(vec![
+            json!({"op": "propose_workflow", "agent": DRIVER, "goal": "{{goal}}",
+                   "workflow": proposal("Judged")}),
+        ]);
+        let engine = Engine::start(
+            ws,
+            catalog(Some(script), Some(worker_yields())),
+            guided_config(),
+        )
+        .unwrap();
+        engine
+            .set_setting(
+                bisa_core::SettingScope::Workspace,
+                None,
+                "decisions.enabled",
+                json!(true),
+            )
+            .unwrap();
+        engine.stand_in_decision_provider(Some(provider));
+        engine
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let fit = rated(3.0);
+    let engine = judged_engine(&dir, Arc::clone(&fit));
+    let goal = engine
+        .submit_goal(SubmitRequest::captured("write a sales report"))
+        .unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
+    assert_eq!(fit.asked().len(), 1, "judged once");
+    assert!(
+        engine
+            .inbox()
+            .iter()
+            .all(|g| g.home.goal() != Some(goal.id)),
+        "nothing waits on a person"
+    );
+    engine.shutdown().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = judged_engine(&dir, rated(1.0));
+    let goal = engine
+        .submit_goal(SubmitRequest::captured("write a sales report"))
+        .unwrap();
+    let asked = until("the doubted adoption to be put to the person", || {
+        engine
+            .inbox()
+            .into_iter()
+            .find(|g| g.home.goal() == Some(goal.id) && g.subject.starts_with("adopt:"))
+    })
+    .await;
+    assert!(
+        asked
+            .question
+            .contains("rates how far it reaches the goal 1.0 of 3"),
+        "{}",
+        asked.question
+    );
+    assert!(engine
+        .workspace()
+        .get_goal(goal.id)
+        .unwrap()
+        .runs
+        .is_empty());
     engine.shutdown().await;
 }

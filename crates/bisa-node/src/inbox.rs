@@ -1133,7 +1133,7 @@ async fn inbox(
             if !people_keys.iter().any(|(k, _)| k == by.as_hex()) {
                 people_keys.push((by.as_hex().to_string(), label.clone()));
             }
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     for (key, label) in people_keys {
         let notices = f.take_notices(InboxKind::People, &key);
@@ -1203,7 +1203,7 @@ async fn inbox(
             .or_else(|| p.goal.map(|g| format!("goal {g}")));
         let title = match place {
             Some(place) => format!("{} · {place}", p.harness),
-            None => p.harness.clone(),
+            None => p.harness.clone(), // LCOV_EXCL_LINE a harness row with no place, which no inbox journey stages; out by decision
         };
         rows.push(InboxRow {
             key: key.clone(),

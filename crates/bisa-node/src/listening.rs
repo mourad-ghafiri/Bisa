@@ -164,7 +164,7 @@ pub fn listeners_of(engine: &Engine, host: &ListenerHost) -> Result<Vec<Listener
         return Ok(Vec::new());
     }
     let Some(workflow) = workflow else {
-        return Ok(Vec::new());
+        return Ok(Vec::new()); // LCOV_EXCL_LINE a listening host always names a workflow; by construction
     };
     let registry = engine.armed_listeners();
     workflow

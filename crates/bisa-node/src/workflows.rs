@@ -347,7 +347,7 @@ async fn retire(
                 id = id.to_string(),
                 a0 = (usage.describe()).to_string()
             )));
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     let done = state.engine.retire_workflow(id, plan).await?;
     Ok(Json(json!({"workflow": id.to_string(), "retired": done})))

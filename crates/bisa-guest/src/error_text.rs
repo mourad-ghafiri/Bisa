@@ -22,3 +22,28 @@ impl Localize for crate::GuestError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::GuestError;
+    use bisa_core::text::plain;
+    use bisa_core::Localize;
+
+    #[test]
+    fn every_refusal_of_a_guest_is_said_from_the_catalog_as_its_display_says() {
+        let errors = [
+            GuestError::Store("s".into()),
+            GuestError::NotHosted,
+            GuestError::Refused("r".into()),
+            GuestError::Collab(bisa_collab::CollabError::Relay("x".into())),
+            GuestError::Io(std::io::Error::other("no")),
+            GuestError::Json(serde_json::from_str::<u8>("x").unwrap_err()),
+        ];
+        for e in &errors {
+            let said = e.text();
+            let id = said.id.to_string();
+            assert!(plain::has(&id), "{id} is a message of the English catalog");
+            assert_eq!(said.to_string(), e.to_string(), "{id}");
+        }
+    }
+}

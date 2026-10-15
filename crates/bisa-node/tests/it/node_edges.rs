@@ -82,6 +82,29 @@ async fn the_small_doors_refuse_in_words_and_take_what_is_well_formed() {
         .await;
     assert_eq!(code, 200, "{v}");
 
+    // A workflow installed from the catalog is named by its slug when a
+    // goal is captured on it.
+    let (code, v) = node
+        .req(
+            "POST",
+            "/catalog/install",
+            Some(json!({"kind": "workflow", "slug": "software-feature"})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let (code, v) = node
+        .req(
+            "POST",
+            "/goals",
+            Some(json!({"statement": "add a dark mode", "workflow": "software-feature"})),
+        )
+        .await;
+    assert!(code == 200 || code == 201, "{code}: {v}");
+    assert!(
+        v["goal"]["workflow"].is_string() || v["workflow"].is_string(),
+        "{v}"
+    );
+
     // An attachment asked of a peer when this node runs no pump.
     let (code, v) = node
         .req(

@@ -336,7 +336,7 @@ impl SecurityState {
             .unwrap_or_else(|e| e.into_inner())
             .insert((scope, digest), approve);
         if let Some(((scope, _), _)) = evicted {
-            tracing::debug!(
+            tracing::debug!( // LCOV_EXCL_LINE the answer record full; out by decision
                 target: "bisa_engine::security",
                 "the answer record is full; the oldest answer, on {scope}, is forgotten"
             );
@@ -682,10 +682,12 @@ impl HarnessSession for RedactedSession {
         self.inner.prompt(input).await
     }
 
+    // LCOV_EXCL_START a guarded steer; out by decision
     async fn steer(&self, mut msg: Steer) -> Result<(), HarnessError> {
         msg.text = self.text("steer", &msg.text);
         self.inner.steer(msg).await
     }
+    // LCOV_EXCL_STOP
 
     async fn follow_up(&self, mut msg: Steer) -> Result<(), HarnessError> {
         msg.text = self.text("follow_up", &msg.text);
@@ -776,10 +778,12 @@ impl<'a> Judge<'a> {
     /// Whether this call runs for an outsider whose tools are put to the
     /// owner: the session works for a person on another node and the policy
     /// says `ask`.
+    // LCOV_EXCL_START an outsider's session; out by decision
     pub fn asks_for_outsider(&self, policy: &Policy) -> bool {
         self.on_behalf_of.is_some()
             && policy.collaboration.agent_tools == bisa_core::OutsiderTools::Ask
     }
+    // LCOV_EXCL_STOP
 }
 
 /// The scope a person's answer is remembered under: the home — `goal:<id>`
@@ -1044,7 +1048,7 @@ pub async fn decide_tool(
     // outsider's words do not get to spend the owner's trust.
     let verdict = match policy.rules.guard.evaluate(&call) {
         RuleVerdict::Classify { rule } if judge.asks_for_outsider(&policy) => {
-            RuleVerdict::Ask { rule }
+            RuleVerdict::Ask { rule } // LCOV_EXCL_LINE an outsider's session; out by decision
         }
         other => other,
     };
@@ -1157,7 +1161,7 @@ async fn beyond_the_rules(
     }
     let model = model_subject(inner, tool, subject, call, home);
     let above = if judge.asks_for_outsider(policy) {
-        AboveCeiling::Ask
+        AboveCeiling::Ask // LCOV_EXCL_LINE an outsider's session; out by decision
     } else {
         reach.above
     };

@@ -501,3 +501,373 @@ pub fn vcs(e: &bisa_vcs::VcsError) -> Text {
         bisa_vcs::VcsError::Other(v0) => bisa_core::text!("error-vcs-other", v0 = v0.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::guided::DesignRefusal;
+    use crate::interactive::InteractiveError;
+    use crate::registry::RegistryError;
+    use crate::scheduler::ScheduleRejection;
+    use crate::EngineError;
+    use bisa_core::text::plain;
+    use bisa_core::{GoalId, StepId};
+
+    /// Ids whose English catalog sentence says more than `Display`, on
+    /// purpose: it begins with the same words and goes on.
+    const SAYS_MORE: &[&str] = &["error-vcs-nothing-to-discard"];
+
+    /// The catalog's sentence is the one `Display` shows, word for word.
+    fn judge(said: Text, shown: String) {
+        let id = said.id.to_string();
+        assert!(plain::has(&id), "{id} is a message of the English catalog");
+        let said = said.to_string();
+        if SAYS_MORE.contains(&id.as_str()) {
+            assert!(said.starts_with(&shown), "{id}: {said:?} begins {shown:?}");
+            return;
+        }
+        assert_eq!(said, shown, "{id}");
+    }
+
+    fn goal() -> GoalId {
+        GoalId::from_ulid(ulid::Ulid::from_parts(1, 1))
+    }
+
+    fn words() -> Text {
+        bisa_core::text!("error-engine-unknown-gate", v0 = "g")
+    }
+
+    #[test]
+    fn the_crates_beneath_the_engine_are_said_from_the_catalog_as_their_display_says() {
+        use bisa_codehost::CodeHostError as C;
+        for e in [
+            C::NotAuthenticated("a".into()),
+            C::NotFound("b".into()),
+            C::Refused("c".into()),
+            C::Unsupported("d".into()),
+            C::Transport("e".into()),
+        ] {
+            judge(codehost_code_host_error(&e), e.to_string());
+        }
+        use bisa_connectors::ConnectorError as K;
+        for e in [
+            K::BadDefinition("a".into()),
+            K::BadParam {
+                name: "n".into(),
+                why: "w".into(),
+            },
+            K::Unresolved("u".into()),
+            K::HostRefused {
+                host: "h".into(),
+                allowed: "a, b".into(),
+            },
+            K::NotAuthenticated("n".into()),
+            K::NotFound("f".into()),
+            K::Refused {
+                status: 403,
+                reason: "no".into(),
+            },
+            K::RateLimited { retry_after: 7 },
+            K::Upstream {
+                status: 502,
+                reason: "down".into(),
+            },
+            K::Unreachable("u".into()),
+            K::Transport("t".into()),
+            K::Timeout(std::time::Duration::from_secs(3)),
+            K::Open {
+                host: "h".into(),
+                until_secs: 9,
+            },
+            K::SelectMissing { path: "p".into() },
+            K::TooLarge(2_000_000),
+            K::OAuth("o".into()),
+            K::Store("s".into()),
+        ] {
+            judge(connector(&e), e.to_string());
+        }
+        use bisa_iso::IsoError as I;
+        for e in [I::Unavailable("u".into()), I::Other("o".into())] {
+            judge(iso(&e), e.to_string());
+        }
+        use bisa_lsp::LspError as L;
+        for e in [
+            L::Spawn("s".into()),
+            L::Protocol("p".into()),
+            L::Closed,
+            L::Timeout("t".into()),
+            L::ServerError {
+                code: -32600,
+                message: "m".into(),
+            },
+            L::NoServer("rs".into()),
+        ] {
+            judge(lsp(&e), e.to_string());
+        }
+        use bisa_mobile_development::MobileDevelopmentError as M;
+        for e in [
+            M::NotInstalled("adb".into()),
+            M::Timeout {
+                what: "boot".into(),
+                secs: 4,
+            },
+            M::Failed {
+                what: "install".into(),
+                detail: "d".into(),
+            },
+            M::NoSuchDevice("dev".into()),
+            M::Unsupported("u".into()),
+        ] {
+            judge(mobile_development(&e), e.to_string());
+        }
+        use bisa_ssh::SshError as S;
+        for e in [
+            S::Unavailable("u".into()),
+            S::Refused("r".into()),
+            S::Timeout {
+                what: "add".into(),
+                secs: 2,
+            },
+            S::Failed {
+                what: "keygen".into(),
+                detail: "d".into(),
+            },
+        ] {
+            judge(ssh(&e), e.to_string());
+        }
+        use bisa_vcs::VcsError as V;
+        for e in [
+            V::NotAvailable("n".into()),
+            V::NotARepository("/r".into()),
+            V::Dirty {
+                path: "/r".into(),
+                details: "d".into(),
+            },
+            V::Conflict {
+                message: "m".into(),
+                paths: vec![],
+                in_progress: None,
+            },
+            V::NotFastForward {
+                ahead: 1,
+                behind: 2,
+            },
+            V::InProgress(bisa_vcs::interactive::InProgress::Merge),
+            V::NothingToStash,
+            V::NothingToDiscard,
+            V::StashMoved {
+                index: 1,
+                commit: "abc".into(),
+                now: None,
+            },
+            V::NoRemote("origin".into()),
+            V::NotAuthenticated("n".into()),
+            V::IdentityUnset("i".into()),
+            V::RepositoryBusy { path: "/r".into() },
+            V::InvalidArg {
+                what: "ref".into(),
+                value: "-x".into(),
+            },
+            V::Timeout {
+                what: "fetch".into(),
+                secs: 5,
+            },
+            V::Command {
+                what: "push".into(),
+                code: "1".into(),
+                stderr: "e".into(),
+            },
+            V::Other("o".into()),
+        ] {
+            judge(vcs(&e), e.to_string());
+        }
+    }
+
+    #[test]
+    fn the_engines_own_refusals_are_said_from_the_catalog_as_their_display_says() {
+        for e in [
+            DesignRefusal::ManualGoal(goal()),
+            DesignRefusal::Closed(goal()),
+            DesignRefusal::HasWorkflow(goal()),
+            DesignRefusal::HasRun(goal()),
+            DesignRefusal::Busy(goal()),
+            DesignRefusal::DesignOff,
+        ] {
+            judge(e.text(), e.to_string());
+        }
+        for e in [
+            InteractiveError::UnknownHarness("h".into()),
+            InteractiveError::NotInteractive("n".into()),
+            InteractiveError::UnknownSession(crate::registry::LiveRunId::mint()),
+            InteractiveError::BadSecret,
+            InteractiveError::Io("io".into()),
+            InteractiveError::Store(bisa_store::StoreError::KeyStore("k".into())),
+        ] {
+            judge(e.text(), e.to_string());
+        }
+        for e in [
+            RegistryError::CasFailed,
+            RegistryError::Stale {
+                expected: 1,
+                current: 2,
+            },
+            RegistryError::Aborted("a".into()),
+            RegistryError::NotFound("n".into()),
+        ] {
+            judge(e.text(), e.to_string());
+        }
+        for e in [
+            ScheduleRejection::NotOpen("done".into()),
+            ScheduleRejection::BudgetExhausted("goal:g".into()),
+            ScheduleRejection::GoalMissing("g".into()),
+            ScheduleRejection::RunMissing("r".into()),
+            ScheduleRejection::HarnessDisabled("h".into()),
+            ScheduleRejection::DepthExhausted,
+            ScheduleRejection::SpawnNotAllowed {
+                agent: "a".into(),
+                allowlist: vec!["b".into()],
+            },
+            ScheduleRejection::GoalClosed("g".into()),
+            ScheduleRejection::RunFinished("r".into()),
+            ScheduleRejection::NoStep,
+            ScheduleRejection::StepNotRunning {
+                step: "s".into(),
+                state: "done".into(),
+            },
+            ScheduleRejection::CapsClosed,
+        ] {
+            judge(e.text(), e.to_string());
+        }
+    }
+
+    #[test]
+    fn every_engine_error_is_said_from_the_catalog_as_its_display_says() {
+        let holder = crate::lock::LockHolder {
+            pid: 7,
+            started_at: 1,
+        };
+        for e in [
+            EngineError::Store(bisa_store::StoreError::KeyStore("k".into())),
+            EngineError::UnknownGate("g".into()),
+            EngineError::GateAlreadyDecided("g".into()),
+            EngineError::Io(std::io::Error::other("no")),
+            EngineError::Vcs(bisa_vcs::VcsError::Other("v".into())),
+            EngineError::CodeHost(bisa_codehost::CodeHostError::NotFound("c".into())),
+            EngineError::Connector(bisa_connectors::ConnectorError::Store("s".into())),
+            EngineError::Ssh(bisa_ssh::SshError::Refused("r".into())),
+            EngineError::SshUnavailable("u".into()),
+            EngineError::MobileDevelopment(
+                bisa_mobile_development::MobileDevelopmentError::NotInstalled("adb".into()),
+            ),
+            EngineError::MobileDevelopmentUnavailable(words()),
+            EngineError::Iso("i".into()),
+            EngineError::IsoFailed("f".into()),
+            EngineError::Security("s".into()),
+            EngineError::Provider(bisa_decision::ProviderError::Unreachable("p".into())),
+            EngineError::OwnPullRequest {
+                author: "ada".into(),
+            },
+            EngineError::NothingToCommit("p".into()),
+            EngineError::ProjectAmbiguous {
+                step: StepId::new("s").unwrap(),
+                count: 2,
+            },
+            EngineError::IdentityUnset {
+                project: "p".into(),
+            },
+            EngineError::RepoIdentityUnset { what: "the notes" },
+            EngineError::PullNotOffered { what: "drawings" },
+            EngineError::PublishManual {
+                project: "p".into(),
+                what: "push".into(),
+            },
+            EngineError::PublishNoGoal {
+                project: "p".into(),
+                workstream: "w".into(),
+                what: "push".into(),
+            },
+            EngineError::PublishDeclined {
+                what: "push".into(),
+            },
+            EngineError::NothingToPublish {
+                workstream: "w".into(),
+                branch: "b".into(),
+                base: "main".into(),
+            },
+            EngineError::Conflict(words()),
+            EngineError::PullRequestNotOpen {
+                number: 4,
+                state: "merged".into(),
+            },
+            EngineError::WorkstreamScript {
+                phase: crate::scripts::Phase::Clean,
+                reason: "refused".into(),
+                output: "o".into(),
+            },
+            EngineError::FileConflict {
+                path: "a.rs".into(),
+                current_hash: "h".into(),
+                current_text: "t".into(),
+            },
+            EngineError::Locked {
+                path: "/w".into(),
+                holder: None,
+            },
+            EngineError::Locked {
+                path: "/w".into(),
+                holder: Some(holder),
+            },
+            EngineError::Answer(bisa_core::AnswerError::Empty),
+            EngineError::Core(bisa_core::CoreError::InvalidPrincipal("x".into())),
+            EngineError::Run(bisa_core::RunError::NotStarted),
+            EngineError::Template(bisa_core::TemplateError::Unbalanced { at: 1 }),
+            EngineError::DesignRefused(DesignRefusal::DesignOff),
+        ] {
+            judge(e.text(), e.to_string());
+        }
+        // An invalid request carries its own sentence; `Display` prefixes it.
+        let invalid = EngineError::Invalid(words());
+        assert_eq!(invalid.text().to_string(), words().to_string());
+        assert_eq!(invalid.to_string(), format!("invalid: {}", words()));
+    }
+
+    /// What the crates beneath say is a refusal when the person can act on
+    /// it, a malfunction when the machine's moment is the reason.
+    #[test]
+    fn the_crates_beneath_decide_whether_their_failure_is_a_refusal() {
+        use bisa_mobile_development::MobileDevelopmentError as M;
+        let refusals = [
+            EngineError::CodeHost(bisa_codehost::CodeHostError::NotFound("c".into())),
+            EngineError::Provider(bisa_decision::ProviderError::Misconfigured("p".into())),
+            EngineError::Ssh(bisa_ssh::SshError::Refused("r".into())),
+            EngineError::MobileDevelopment(M::NoSuchDevice("d".into())),
+            EngineError::MobileDevelopment(M::Unsupported("u".into())),
+        ];
+        for e in &refusals {
+            assert!(e.is_refusal(), "{e}");
+        }
+        let malfunctions = [
+            EngineError::CodeHost(bisa_codehost::CodeHostError::Transport("t".into())),
+            EngineError::Provider(bisa_decision::ProviderError::Unreachable("u".into())),
+            EngineError::Ssh(bisa_ssh::SshError::Unavailable("u".into())),
+            EngineError::MobileDevelopment(M::NotInstalled("adb".into())),
+            EngineError::MobileDevelopmentUnavailable(words()),
+            EngineError::IsoFailed("f".into()),
+            EngineError::Io(std::io::Error::other("no")),
+        ];
+        for e in &malfunctions {
+            assert!(!e.is_refusal(), "{e}");
+        }
+    }
+
+    /// A failed write is logged for its home, with its item when one is
+    /// named, and never fails the work.
+    #[test]
+    fn a_failure_is_warned_for_its_home_with_or_without_its_item() {
+        let home = bisa_core::Home::Goal { goal: goal() };
+        let item = bisa_core::WorkItemId::from_ulid(ulid::Ulid::from_parts(2, 2));
+        crate::warn_on_err_for::<(), String>(home, Some(item), Err("x".into()), "a write");
+        crate::warn_on_err_for::<(), String>(home, None, Err("x".into()), "a write");
+        crate::warn_on_err_for::<(), String>(home, None, Ok(()), "a write");
+    }
+}

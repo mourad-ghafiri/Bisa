@@ -303,6 +303,37 @@ async fn amend_workflow_is_gated_and_refused_without_a_run() {
         .unwrap()
         .iter()
         .all(|w| !w.name.ends_with("amendment")));
+    // An amendment that does not hold together is refused with its problems.
+    let broken = json!({"name": "Held", "steps": [
+        {"id": "hold", "name": "Hold", "kind": "wait", "until": {"until": "release"}, "then": ["nowhere"]},
+        {"id": "new", "name": "New", "kind": "agent", "instructions": "new way", "harness": ["mock"]}
+    ]});
+    let refused = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "amend_workflow", "agent": DRIVER, "goal": goal.to_string(), "workflow": broken}),
+    )
+    .await;
+    assert_eq!(refused["ok"], json!(false), "{refused}");
+    // A second amendment declined: nothing moves, and the held copy goes.
+    let newer = json!({"name": "Held", "steps": [
+        {"id": "hold", "name": "Hold", "kind": "wait", "until": {"until": "release"}, "then": ["newer"]},
+        {"id": "newer", "name": "Newer", "kind": "agent", "instructions": "newer way", "harness": ["mock"]}
+    ]});
+    let reply = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "amend_workflow", "agent": DRIVER, "goal": goal.to_string(), "workflow": newer}),
+    )
+    .await;
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let declined = reply["gate"].as_str().unwrap().to_string();
+    engine.decide(&declined, false, None, None, None).unwrap();
+    assert!(current_run(&engine, goal).steps.contains_key(&sid("new")));
+    assert!(engine
+        .workspace()
+        .list_workflows()
+        .unwrap()
+        .iter()
+        .all(|w| !w.name.ends_with("amendment")));
     engine
         .release_step(current_run(&engine, goal).id, &sid("hold"), None)
         .unwrap();

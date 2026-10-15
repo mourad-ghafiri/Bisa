@@ -52,7 +52,6 @@ async fn asking_once_returns_the_text_of_the_turn() {
             ..Default::default()
         },
     );
-
     let answer = ask_agent_once(
         engine.inner(),
         AgentId::GENERAL,
@@ -191,7 +190,7 @@ async fn an_unavailable_harness_refuses_by_name() {
     .expect_err("nothing to launch");
     assert!(err.to_string().contains("no session for agent"), "{err}");
 
-    // And an agent that does not exist at all.
+    // And an agent that does not exist at all, or is switched off.
     let err = ask_agent_once(
         engine.inner(),
         "no-such-agent",
@@ -201,6 +200,35 @@ async fn an_unavailable_harness_refuses_by_name() {
     )
     .await
     .expect_err("nobody to ask");
+    assert!(err.to_string().contains("missing or disabled"), "{err}");
+    let ws = engine.workspace();
+    let quiet = ws
+        .add_agent(bisa_store::NewAgent {
+            name: "Quiet".into(),
+            photo: None,
+            description: None,
+            system_prompt: "You are Quiet.".into(),
+            harness: "absent-harness".into(),
+            models: Default::default(),
+            skills: vec![],
+            mcps: vec![],
+            tags: Default::default(),
+            respond: bisa_core::RespondPolicy::OwnerOnly,
+            decision_making: false,
+        })
+        .unwrap();
+    let mut off = ws.get_agent(&quiet.id).unwrap();
+    off.enabled = false;
+    ws.update_agent(off).unwrap();
+    let err = ask_agent_once(
+        engine.inner(),
+        quiet.id.as_str(),
+        asking(),
+        "hello?",
+        Duration::from_secs(20),
+    )
+    .await
+    .expect_err("switched off");
     assert!(err.to_string().contains("missing or disabled"), "{err}");
 
     engine.shutdown().await;
@@ -382,5 +410,137 @@ async fn an_ask_past_its_deadline_ends_its_row_failed() {
         "{:?}",
         row.state
     );
+    engine.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// The walls and the refusals on the way to an answer
+// ---------------------------------------------------------------------------
+
+/// A model that hits a wall on the first attempt costs a relaunch on the
+/// same clock; one that is walled every time leaves no model to ask.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_wall_is_walked_once_and_a_wall_every_time_leaves_no_model() {
+    use bisa_harness::mock::{DeadModel, ModelFailure};
+    fn on_models(engine: &Engine, models: &[&str]) {
+        let ws = engine.workspace();
+        let mut general = ws.get_agent(&AgentId::general()).unwrap();
+        general.models = bisa_harness::ModelPlan {
+            strategy: bisa_harness::ModelStrategy::Fallback,
+            effort: None,
+            models: models
+                .iter()
+                .map(|m| bisa_harness::ModelChoice::new(*m))
+                .collect(),
+        };
+        ws.update_agent(general).unwrap();
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, adapter) = engine_on(
+        &dir,
+        MockAdapter {
+            id: "walled-once".into(),
+            dead_models: vec![ModelFailure::new("fable-5", DeadModel::NoProgress).only_first(1)],
+            ..Default::default()
+        },
+    );
+    on_models(&engine, &["fable-5", "opus-5"]);
+    let answer = ask_agent_once(
+        engine.inner(),
+        AgentId::GENERAL,
+        asking(),
+        "after the wall",
+        Duration::from_secs(30),
+    )
+    .await
+    .expect("the second attempt answers");
+    assert!(answer.contains("after the wall"), "{answer:?}");
+    assert_eq!(adapter.launches().len(), 2, "one wall, one answer");
+    engine.shutdown().await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let ws =
+        Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+    let mut def = ws.get_agent(&AgentId::general()).unwrap();
+    def.harness = "walled".into();
+    ws.update_agent(def).unwrap();
+    let adapter = Arc::new(MockAdapter {
+        id: "walled".into(),
+        dead_models: vec![ModelFailure::new("fable-5", DeadModel::NoProgress)],
+        ..Default::default()
+    });
+    let mut catalog = HarnessCatalog::new();
+    catalog.register(Arc::clone(&adapter) as Arc<_>);
+    let engine = Engine::start(
+        ws,
+        catalog,
+        EngineConfig {
+            max_model_attempts: 1,
+            ..config()
+        },
+    )
+    .unwrap();
+    on_models(&engine, &["fable-5"]);
+    let err = ask_agent_once(
+        engine.inner(),
+        AgentId::GENERAL,
+        asking(),
+        "never answered",
+        Duration::from_secs(30),
+    )
+    .await
+    .expect_err("every attempt is walled");
+    assert!(err.to_string().contains("unavailable"), "{err}");
+    engine.shutdown().await;
+}
+
+/// A harness that refuses the first prompt is a failed ask with its words;
+/// a harness named by nobody is nobody to ask.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_prompt_and_a_nameless_harness_are_refusals_with_their_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, _adapter) = engine_on(
+        &dir,
+        MockAdapter {
+            id: "refusing".into(),
+            refuse_prompt: true,
+            ..Default::default()
+        },
+    );
+    let err = ask_agent_once(
+        engine.inner(),
+        AgentId::GENERAL,
+        asking(),
+        "say something",
+        Duration::from_secs(20),
+    )
+    .await
+    .expect_err("the prompt was refused");
+    assert!(err.to_string().contains("failed"), "{err}");
+    assert!(
+        engine
+            .inner()
+            .registry
+            .list()
+            .iter()
+            .all(|a| a.status != bisa_engine::AgentStatus::Running),
+        "an attempt that never ran leaves no row running"
+    );
+
+    let err = bisa_engine::ask::ask_once(
+        engine.inner(),
+        &bisa_engine::ask::Whom::Harness {
+            harness: "  ".into(),
+            model: None,
+            effort: None,
+        },
+        asking(),
+        "anybody?",
+        None,
+        Duration::from_secs(20),
+    )
+    .await
+    .expect_err("no harness named");
+    assert!(err.to_string().contains("harness"), "{err}");
     engine.shutdown().await;
 }

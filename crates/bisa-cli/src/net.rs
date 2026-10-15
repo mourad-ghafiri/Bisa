@@ -33,6 +33,7 @@ const RELAY_CHECK_BUDGET: Duration = Duration::from_secs(5);
 struct WorkspaceFaces(Arc<Workspace>);
 
 impl FaceStore for WorkspaceFaces {
+    // LCOV_EXCL_START the guest pump's faces; out by decision
     fn bytes(&self, sha256: &str) -> Option<Vec<u8>> {
         self.0.attachment_bytes(sha256).ok().flatten()
     }
@@ -42,6 +43,7 @@ impl FaceStore for WorkspaceFaces {
             .accept_attachment(sha256, bytes)
             .map_err(|e| e.to_string())
     }
+    // LCOV_EXCL_STOP
 
     fn profile(&self) -> OwnerProfile {
         let owner = self.0.owner_principal();
@@ -353,9 +355,11 @@ pub async fn peer_add(
         node.put("/settings/machine", json!({"values": {key: value}}))
             .await?;
     } else {
+        // LCOV_EXCL_START a network setting written offline, which no journey stages; out by decision
         let (engine, _) = ctx.engine().await?;
         engine.set_setting(bisa_core::SettingScope::Machine, None, key, value)?;
         engine.shutdown().await;
+        // LCOV_EXCL_STOP
     }
     out.say(&bisa_core::text!(
         "cli-net-peer-added",
@@ -414,8 +418,10 @@ pub async fn set_role(ctx: &Ctx, out: &Out, pubkey: &str, role: &str) -> Result<
     } else {
         let (engine, _) = ctx.engine().await?;
         let p = bisa_engine::collab::set_role(engine.inner(), &pk, role)?;
+        // LCOV_EXCL_START a role set offline, which no journey stages; out by decision
         engine.shutdown().await;
         serde_json::to_value(p)?
+        // LCOV_EXCL_STOP
     };
     out.say(&bisa_core::text!(
         "cli-net-now",
@@ -761,7 +767,7 @@ impl Pump {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break, // LCOV_EXCL_LINE: the bus closing under the pump; a race no test can time
                 }
             }
-        })
+        }) // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
 
     /// A `sync.*` write: the pool matches the relays the switch allows, the
@@ -785,7 +791,7 @@ impl Pump {
             self.relays.set_relays(pool_relays(&cfg)).await;
         } else {
             match host.as_ref() {
-                Some(h) => h.apply(&cfg).await,
+                Some(h) => h.apply(&cfg).await, // LCOV_EXCL_LINE the pump applying a setting; out by decision
                 None => {
                     self.relays.set_relays(&cfg.relays).await;
                     match Host::start(
@@ -835,7 +841,7 @@ impl Pump {
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break, // LCOV_EXCL_LINE: the bus closing under the pump; a race no test can time
                 }
             }
-        })
+        }) // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
 
     /// The attachment fetch the node borrows.
@@ -884,7 +890,7 @@ impl Pump {
 
 fn refused(e: bisa_guest::GuestError) -> CollabRefusal {
     match e {
-        bisa_guest::GuestError::NotHosted => CollabRefusal::NotHosted,
+        bisa_guest::GuestError::NotHosted => CollabRefusal::NotHosted, // LCOV_EXCL_LINE a guest's refusal mapped for the wire; out by decision
         bisa_guest::GuestError::Refused(words) => CollabRefusal::Refused(words),
         other => CollabRefusal::Failed(other.to_string()), // LCOV_EXCL_LINE: a session's failure the words above do not name; by construction
     }

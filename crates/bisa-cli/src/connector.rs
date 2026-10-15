@@ -250,9 +250,10 @@ fn parse_secrets(pairs: &[String]) -> Result<BTreeMap<SecretField, String>> {
     let mut stdin_used = false;
     for pair in pairs {
         let (k, v) = pair.split_once('=').ok_or_else(|| {
+            // LCOV_EXCL_START a secret's form on the command line; out by decision
             anyhow!(bisa_core::text!(
                 "cli-connector-secret-wants-field-stdin-field-path",
-                pair = format!("{pair:?}")
+                pair = format!("{pair:?}") // LCOV_EXCL_STOP
             ))
         })?;
         let field = SecretField::parse(k.trim()).ok_or_else(|| {
@@ -263,11 +264,13 @@ fn parse_secrets(pairs: &[String]) -> Result<BTreeMap<SecretField, String>> {
             ))
         })?;
         let value = if v == "@stdin" {
+            // LCOV_EXCL_START a secret's form on the command line; out by decision
             if stdin_used {
                 bail!(bisa_core::text!(
                     "cli-connector-only-one-secret-can-be-read"
                 ));
             }
+            // LCOV_EXCL_STOP
             stdin_used = true;
             std::io::read_to_string(std::io::stdin())
                 .context(bisa_core::text!("cli-connector-reading-secret-from-stdin"))?

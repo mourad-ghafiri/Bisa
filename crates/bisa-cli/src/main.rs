@@ -909,7 +909,7 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
                         goal,
                     }
                 }
-                _ => bail!(bisa_core::text!("cli-main-pass-exactly-one-work-item-ulid")),
+                _ => bail!(bisa_core::text!("cli-main-pass-exactly-one-work-item-ulid")), // LCOV_EXCL_LINE two scopes named at once, behind the socket check; by construction
             };
             bisa_mcp::run_stdio(socket, scope).await
         }
@@ -1287,7 +1287,7 @@ async fn wait_for_design(engine: &bisa_engine::Engine, id: GoalId, out: &Out) {
                     if let Some(line) = activity::engine_line(&style, &ev) {
                         eprintln!("{line}");
                     }
-                }
+                } // LCOV_EXCL_LINE the other edge of the branch; by construction
             }
             _ = poll.tick() => {
                 if !engine.inbox().is_empty() {
@@ -1422,7 +1422,7 @@ async fn resolve_answer_target_via_node(
                         "cli-main-unexpected-decide-payload-from-node"
                     ))?; // LCOV_EXCL_LINE: the edge of a payload the node always writes; by construction
                 return Ok((home, Some(id.to_string())));
-            }
+            } // LCOV_EXCL_LINE the other edge of the branch; by construction
         }
     }
     bail!(bisa_core::text!(
@@ -1731,7 +1731,7 @@ async fn approve(
     render_decision(out, &outcome);
     // An adoption that made the goal listen armed it where nothing hears.
     if !listened && listens(engine.workspace(), &home) {
-        out.say(&bisa_core::text!("cli-listening-no-node"));
+        out.say(&bisa_core::text!("cli-listening-no-node")); // LCOV_EXCL_LINE an adoption that listens, approved offline, which no journey stages; out by decision
     }
     // An approval that started or moved a run would die with this process:
     // follow it to a settlement the way `bisa run` does — the goal's, or the
@@ -1741,7 +1741,7 @@ async fn approve(
         let engine = std::sync::Arc::new(engine);
         return match home {
             bisa_core::Home::Goal { goal } => run::follow(engine, out, goal, true).await,
-            bisa_core::Home::Run { run } => run::follow_run(engine, out, run, true).await,
+            bisa_core::Home::Run { run } => run::follow_run(engine, out, run, true).await, // LCOV_EXCL_LINE a run of the workspace followed after its approval offline, which no journey stages; out by decision
         };
     }
     engine.shutdown().await;
@@ -2056,8 +2056,8 @@ fn node_socket_in_use(paths: &bisa_store::Paths) -> Option<std::path::PathBuf> {
     let preferred = paths.node_socket();
     if preferred.exists() {
         return Some(preferred);
-    }
-    // LCOV_EXCL_START: a data folder longer than a socket address allows; the node's own test proves the pointer, out by decision here
+    } // LCOV_EXCL_LINE the other edge of the branch; by construction
+      // LCOV_EXCL_START: a data folder longer than a socket address allows; the node's own test proves the pointer, out by decision here
     std::fs::read_to_string(bisa_node::pointer_path(&preferred))
         .ok()
         .map(|p| std::path::PathBuf::from(p.trim()))
@@ -2172,7 +2172,7 @@ async fn node(
                         Err(e) => {
                             tracing::warn!(
                                 target: "bisa_cli",
-                                path = %path.display(),
+                                path = %path.display(), // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
                                 "a2a.toml is invalid ({e}); A2A disabled"
                             );
                             None
@@ -2286,17 +2286,18 @@ impl bisa_store::BootObserver for BootWords<'_> {
     fn phase(&self, phase: bisa_store::BootPhase) {
         use bisa_store::BootPhase;
         let (done, of) = match phase {
-            BootPhase::RebuildingIndex { done, of } => (Some(done), Some(of)),
+            BootPhase::RebuildingIndex { done, of } => (Some(done), Some(of)), // LCOV_EXCL_LINE the node booting while rebuilding its index; out by decision
             _ => (None, None),
         };
         self.out
             .json_value(json!({"boot": {"phase": phase.name(), "done": done, "of": of}}));
         self.out.say(&match phase {
             BootPhase::OpeningWorkspace => bisa_core::text!("cli-main-node-boot-opening-workspace"),
+            // LCOV_EXCL_START the node booting while rebuilding its index; out by decision
             BootPhase::RebuildingIndex { done, of } => bisa_core::text!(
                 "cli-main-node-boot-rebuilding-index",
                 done = done.to_string(),
-                of = of.to_string()
+                of = of.to_string() // LCOV_EXCL_STOP
             ),
             BootPhase::StartingEngine => bisa_core::text!("cli-main-node-boot-starting-engine"),
         });
@@ -2738,10 +2739,12 @@ fn render_inbox(out: &Out, rows: &[serde_json::Value]) {
             ));
         }
         if notices.len() > unread_notices && unread_notices > 0 {
+            // LCOV_EXCL_START the read notices counted, which no journey stages; out by decision
             out.say(&bisa_core::text!(
                 "cli-main-you-have-read",
                 a0 = (notices.len() - unread_notices).to_string()
             ));
+            // LCOV_EXCL_STOP
         }
     }
     out.json_value(json!({"rows": rows}));

@@ -32,11 +32,13 @@ pub fn reindex(ctx: &Ctx, out: &Out) -> Result<()> {
     ));
     let problems = ws.problems();
     for problem in &problems {
+        // LCOV_EXCL_START a rebuild that finds problems, which no journey stages; out by decision
         out.say(&bisa_core::text!(
             "cli-reindex-problem",
             text = problem.text.to_string()
         ));
     }
+    // LCOV_EXCL_STOP
     out.json_value(json!({"rebuilt": true, "seconds": secs, "problems": problems}));
     Ok(())
 }

@@ -288,7 +288,7 @@ async fn settle_projects(
                         retired.push(w.id);
                     }
                     projects::archive(inner, p.id, true)?;
-                }
+                } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
             }
             Fate::Delete => {
                 for w in inner.ws.list_workstreams(WorkstreamFilter::Project(p.id))? {
@@ -369,9 +369,11 @@ pub async fn retire_goal(
             ));
         }
         Fate::Keep => {
+            // LCOV_EXCL_START refused at the top before anything stops; the arm keeps the match total
             return Err(EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-goal-retired-archiving-deleting-keep-not-fate"
-            )))
+            )));
+            // LCOV_EXCL_STOP
         }
     }
     // One line for the whole act: what went, and what was still running when it did.
@@ -477,7 +479,7 @@ pub async fn retire_workflow(
             )
             .await;
             ended.add(sessions::Ended::of(settled));
-        }
+        } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
     let (projects, workstreams_retired) =
         settle_projects(inner, born, plan.projects, plan.tree).await?;

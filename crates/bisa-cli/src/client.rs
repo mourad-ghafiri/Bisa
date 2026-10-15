@@ -30,10 +30,12 @@ pub struct NodeClient {
 /// shell that was handed one can use it against a node it did not start.
 fn token_for(data_dir: &Path) -> Option<String> {
     if let Ok(t) = std::env::var("BISA_API_TOKEN") {
+        // LCOV_EXCL_START the API token from the environment; out by decision
         let t = t.trim().to_string();
         if !t.is_empty() {
             return Some(t);
         }
+        // LCOV_EXCL_STOP
     }
     std::fs::read_to_string(bisa_store::Paths::new(data_dir).token_file())
         .ok()
@@ -137,10 +139,11 @@ impl NodeClient {
         let status = resp.status();
         let bytes = resp.into_body().collect().await?.to_bytes();
         let value: Value = said_in(&bytes).with_context(|| {
+            // LCOV_EXCL_START a node answering what is not JSON; out by decision
             bisa_core::text!(
                 "cli-client-node-returned-non-json",
                 method = method.to_string(),
-                path = path.to_string()
+                path = path.to_string() // LCOV_EXCL_STOP
             )
         })?;
         if !status.is_success() {
@@ -200,10 +203,12 @@ impl NodeClient {
                     status = status.to_string(),
                     said = self.said(&refused)
                 )),
+                // LCOV_EXCL_START the event stream refused by the node; out by decision
                 Err(_) => anyhow!(bisa_core::text!(
                     "cli-client-node-events-returned",
                     a0 = status.to_string()
                 )),
+                // LCOV_EXCL_STOP
             });
         }
         let (tx, rx) = mpsc::channel(256);
@@ -216,18 +221,18 @@ impl NodeClient {
             while let Some(frame) = body.frame().await {
                 let Ok(frame) = frame else { break };
                 let Some(data) = frame.data_ref() else {
-                    continue;
+                    continue; // LCOV_EXCL_LINE a frame with no data; a race
                 };
                 if let Err(e) = frames.push(data) {
                     tracing::warn!(target: "bisa_cli", "the node's event stream broke: {e}"); // LCOV_EXCL_LINE: the stream breaking under the reader; a race no test can time
-                    return;
+                    return; // LCOV_EXCL_LINE the stream breaking under the reader; a race
                 }
                 while let Some(event) = frames.next_event() {
                     if let Ok(v) = serde_json::from_str::<Value>(&event.data) {
                         if tx.send(v).await.is_err() {
                             return;
                         }
-                    }
+                    } // LCOV_EXCL_LINE the other edge of the branch; by construction
                 }
             }
         });

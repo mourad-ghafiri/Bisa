@@ -718,8 +718,31 @@ async fn a_project_its_person_gives_a_run_is_attached_to_the_goal() {
     assert!(!ws.is_attached(later.id, api.id).unwrap());
     let given =
         std::collections::BTreeMap::from([("project".to_string(), serde_json::json!(api.id))]);
-    engine.start_run(later.id, given).unwrap();
+    engine.start_run(later.id, given.clone()).unwrap();
     assert!(ws.is_attached(later.id, api.id).unwrap());
+
+    // Attached beforehand: the start finds it there and says nothing anew.
+    let already = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            workflow: Some(wf.id),
+            ..guided("fix the import")
+        })
+        .unwrap();
+    ws.attach(already.id, api.id).unwrap();
+    let mut said_again = engine.events();
+    engine.start_run(already.id, given).unwrap();
+    assert!(ws.is_attached(already.id, api.id).unwrap());
+    while let Ok(event) = said_again.try_recv() {
+        assert!(
+            !matches!(
+                event.payload,
+                bisa_engine::EnginePayload::AttachmentChanged { project, .. }
+                    if project == api.id && event.goal == Some(already.id)
+            ),
+            "an attachment that stood is not said again"
+        );
+    }
 
     // A start that is refused attaches nothing.
     let never = engine

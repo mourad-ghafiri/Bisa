@@ -104,13 +104,15 @@ impl<P: Parked> Desk<P> {
         tracing::debug!(
             id,
             what = self.what,
-            action = %slot.pending.label(),
-            elapsed_ms = slot.asked.elapsed().as_millis() as u64,
+            action = %slot.pending.label(), // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
+            elapsed_ms = slot.asked.elapsed().as_millis() as u64, // LCOV_EXCL_LINE a tracing event's field, evaluated under a subscriber only
             "request answered"
         );
         // No receiver means the op gave up waiting, which is not a fault.
         if slot.tx.send(Some(answer)).is_err() {
+            // LCOV_EXCL_START an answer with no waiter left; a race
             tracing::debug!(id, what = self.what, "request answered with no waiter");
+            // LCOV_EXCL_STOP
         }
         true
     }

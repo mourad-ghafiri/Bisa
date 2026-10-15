@@ -3444,11 +3444,22 @@ async fn files_that_change_start_a_project_start_that_names_them() {
     }
     let (_, host) = library(&engine, draft);
     turn_on(&engine, host);
+    // A folder that cannot be read is skipped at every look.
+    std::fs::create_dir_all(root.join("sealed")).unwrap();
+    std::fs::write(root.join("sealed/c.csv"), "3\n").unwrap();
+    let open = std::fs::metadata(root.join("sealed"))
+        .unwrap()
+        .permissions();
+    let mut shut = open.clone();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut shut, 0o000);
+    std::fs::set_permissions(root.join("sealed"), shut).unwrap();
 
     let t0 = now();
     engine.tick_listeners_at(t0).await;
     assert!(signals(&engine, &host).is_empty(), "the first look learns");
     std::fs::write(root.join("data/notes.txt"), "not an export\n").unwrap();
+    // A link is never followed.
+    std::os::unix::fs::symlink(root.join("data/a.csv"), root.join("data/link.csv")).unwrap();
     engine.tick_listeners_at(t0 + 5).await;
     assert!(
         signals(&engine, &host).is_empty(),
@@ -3462,6 +3473,111 @@ async fn files_that_change_start_a_project_start_that_names_them() {
     assert_eq!(queued[0].signal.payload["paths"], json!(["data/b.csv"]));
     engine.tick_listeners_at(t0 + 15).await;
     assert_eq!(signals(&engine, &host).len(), 1);
+    std::fs::set_permissions(root.join("sealed"), open).unwrap();
+    engine.shutdown().await;
+}
+
+/// A push moves a remote-tracking ref: one `push` occurrence naming the
+/// remote, the branch and both tips — the first the remote ever held has no
+/// *before* — and the commits between. Files that change in a git project
+/// are read from git's status, never from a scan; two starts on one project
+/// share one look.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_and_the_files_of_a_git_project_start_a_project_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (project, root) = repository(&engine, "storefront").await;
+    let branch = raw_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    raw_git(dir.path(), &["init", "--quiet", "--bare", "origin.git"]);
+    let origin = dir.path().join("origin.git");
+    raw_git(
+        &root,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
+    let (_, pushes) = library(
+        &engine,
+        on_project("on a push", &project, ProjectChange::Push),
+    );
+    turn_on(&engine, pushes);
+    let (_, files) = library(
+        &engine,
+        on_project("on a file", &project, ProjectChange::Files),
+    );
+    turn_on(&engine, files);
+
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    assert!(
+        signals(&engine, &pushes).is_empty(),
+        "the first look learns"
+    );
+    assert!(signals(&engine, &files).is_empty(), "the first look learns");
+
+    let head = raw_git(&root, &["rev-parse", "HEAD"]);
+    raw_git(&root, &["push", "--quiet", "origin", &branch]);
+    std::fs::write(root.join("notes.txt"), "untracked\n").unwrap();
+    engine.tick_listeners_at(t0 + 5).await;
+    let queued = signals(&engine, &pushes);
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    let pushed = &queued[0].signal;
+    assert_eq!(pushed.payload["change"], json!("push"));
+    assert_eq!(pushed.payload["remote"], json!("origin"));
+    assert_eq!(pushed.payload["branch"], json!(branch));
+    assert_eq!(pushed.payload["before"], json!(null));
+    assert_eq!(pushed.payload["after"], json!(head));
+    assert_eq!(pushed.payload["forced"], json!(false));
+    assert_eq!(
+        pushed.dedupe_key,
+        Some(format!("push:origin/{branch}@{head}"))
+    );
+    let queued = signals(&engine, &files);
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert_eq!(queued[0].signal.payload["change"], json!("files"));
+    assert_eq!(queued[0].signal.payload["paths"], json!(["notes.txt"]));
+
+    // A second push carries the commits between the tips. Listeners of other
+    // kinds and of another project share the tick and hear nothing of it.
+    let (_, other) = library(
+        &engine,
+        new_workflow(
+            "on a word",
+            vec![start("sig", on_signal("word"), "hold"), hold()],
+        ),
+    );
+    turn_on(&engine, other);
+    let elsewhere = engine
+        .workspace()
+        .create_project(bisa_store::NewProject::managed("elsewhere").unwrap())
+        .unwrap();
+    let (_, elsewhere_files) = library(
+        &engine,
+        on_project("on a file elsewhere", &elsewhere, ProjectChange::Files),
+    );
+    turn_on(&engine, elsewhere_files);
+    let next = commit(&root, "cart.rs", "fn cart() {}\n", "add cart");
+    raw_git(&root, &["push", "--quiet", "origin", &branch]);
+    engine.tick_listeners_at(t0 + 10).await;
+    let queued = signals(&engine, &pushes);
+    assert_eq!(queued.len(), 2, "{queued:?}");
+    assert_eq!(queued[1].signal.payload["before"], json!(head));
+    assert_eq!(queued[1].signal.payload["after"], json!(next));
+    assert_eq!(
+        queued[1].signal.payload["commits"][0]["subject"],
+        json!("add cart")
+    );
+    assert!(signals(&engine, &other).is_empty());
+    assert!(signals(&engine, &elsewhere_files).is_empty());
+
+    // A project put away is not looked at; one whose folder went cannot be.
+    engine.archive_project(project.id, true).unwrap();
+    commit(&root, "pay.rs", "fn pay() {}\n", "add pay");
+    raw_git(&root, &["push", "--quiet", "origin", &branch]);
+    engine.tick_listeners_at(t0 + 15).await;
+    assert_eq!(signals(&engine, &pushes).len(), 2, "put away: quiet");
+    engine.archive_project(project.id, false).unwrap();
+    std::fs::rename(&root, root.with_extension("aside")).unwrap();
+    engine.tick_listeners_at(t0 + 20).await;
+    assert_eq!(signals(&engine, &pushes).len(), 2, "gone: quiet");
     engine.shutdown().await;
 }
 
@@ -4393,5 +4509,44 @@ async fn a_wait_on_a_managed_projects_files_hears_the_next_matching_change() {
     assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
     let payload = done.steps[&sid("note")].output.clone().unwrap_or_default();
     assert!(payload.to_string().contains("new.md"), "{payload}");
+    engine.shutdown().await;
+}
+
+/// A listening goal deleted, and a listening library workflow deleted: each
+/// stops listening with its record, and nothing stays armed for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_listening_goal_or_workflow_stops_its_listening() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let (goal, host) = goal_with(&engine, "deleted", tickets());
+    engine.begin_goal(goal.id, BTreeMap::new()).unwrap();
+    assert!(ws.listening(&host).unwrap().is_some());
+    engine
+        .retire_goal(
+            goal.id,
+            bisa_engine::retire::GoalPlan {
+                goal: bisa_engine::retire::Fate::Delete,
+                projects: bisa_engine::retire::Fate::Keep,
+                tree: false,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(ws.get_goal(goal.id).is_err(), "the goal is gone");
+    assert!(
+        engine.armed_listeners().armed.is_empty(),
+        "nothing armed for it"
+    );
+
+    let (wf, host) = library(&engine, tickets());
+    turn_on(&engine, host);
+    assert!(!engine.armed_listeners().armed.is_empty());
+    engine.delete_workflow(wf.id).unwrap();
+    assert!(ws.get_workflow(wf.id).is_err(), "the workflow is gone");
+    assert!(
+        engine.armed_listeners().armed.is_empty(),
+        "nothing armed for it"
+    );
     engine.shutdown().await;
 }

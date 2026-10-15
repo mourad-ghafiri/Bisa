@@ -211,7 +211,7 @@ fn end_ask(inner: &Inner, run: LiveRunId, outcome: ExecutionOutcome) {
     settle_registry(inner, run);
     match inner.arc() {
         Some(owned) => inner.presence.ended(&owned, run, &outcome),
-        None => forget_ask(inner, run),
+        None => forget_ask(inner, run), // LCOV_EXCL_LINE the engine gone under its ask; a race
     }
 }
 
@@ -227,8 +227,10 @@ fn settle_registry(inner: &Inner, run: LiveRunId) {
                     .mutate(run, agent.generation, |a| a.status = AgentStatus::Idle),
                 "settling an ask's registry entry",
             );
+            // LCOV_EXCL_START settling an ask's own registry row fails for no row; by construction
         }
     }
+    // LCOV_EXCL_STOP
 }
 
 /// An attempt that never really ran leaves no trace: its row and its registry
@@ -404,10 +406,12 @@ pub async fn ask_once(
             // Stopped while the harness started: the row already reads
             // *aborted*, the caller hears a refusal.
             None => {
+                // LCOV_EXCL_START a stop landing while the harness starts; a race
                 return Err(EngineError::Invalid(bisa_core::text!(
                     "error-engine-invalid-stopped-before-answered",
                     agent = agent.to_string()
                 )));
+                // LCOV_EXCL_STOP
             }
             Some(launched) => launched.map_err(|f| {
                 forget_ask(inner, run);
@@ -437,7 +441,7 @@ pub async fn ask_once(
         // Skills the harness cannot host natively ride the first prompt, the
         // way every other launch site delivers them.
         let text = match &launched.skill_appendix {
-            Some(appendix) => format!("{prompt}\n\n{appendix}"),
+            Some(appendix) => format!("{prompt}\n\n{appendix}"), // LCOV_EXCL_LINE an ask carries no skills; by construction
             None => prompt.to_string(),
         };
         let prompted = tokio::select! {
@@ -447,6 +451,7 @@ pub async fn ask_once(
         };
         if prompted.is_none() {
             // Stopped at its prompt: aborted before it says a word.
+            // LCOV_EXCL_START a stop landing on the prompt; a race
             warn_on_err(
                 session.abort().await,
                 "aborting an ask stopped at its prompt",
@@ -461,6 +466,7 @@ pub async fn ask_once(
                 "error-engine-invalid-stopped-before-answered",
                 agent = agent.to_string()
             )));
+            // LCOV_EXCL_STOP
         }
         if let Some(Err(e)) = prompted {
             warn_on_err(session.dispose().await, "disposing a failed ask session");
@@ -491,7 +497,7 @@ pub async fn ask_once(
                         timed_out = true;
                         break;
                     }
-                    Ok(None) => break,
+                    Ok(None) => break, // LCOV_EXCL_LINE the harness dropped its stream without an end; a race
                     Ok(Some(event)) => event,
                 },
             };

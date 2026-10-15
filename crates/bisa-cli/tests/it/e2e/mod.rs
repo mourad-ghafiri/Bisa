@@ -41,6 +41,7 @@ mod settings_security_and_the_log;
 mod signals_and_listeners_from_the_command_line;
 mod templates_installed_and_run;
 mod the_decision_making_agent;
+mod the_last_mile;
 mod the_nodes_wire;
 mod the_platforms_tools;
 mod the_rest_of_the_command_line;

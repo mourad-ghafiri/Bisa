@@ -286,3 +286,26 @@ async fn a_zero_ttl_asks_every_time() {
     let _ = engine.check_update(false).await;
     assert_eq!(stub.hits(), 2, "nothing is held when the TTL is zero");
 }
+
+/// A success whose body is no release — a page that moved, a proxy's own
+/// answer — is said as unexpected with its status, and asked again next time.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_success_that_is_no_release_is_said_as_unexpected_and_asked_again() {
+    let stub = Stub::start(Answer {
+        status: 200,
+        headers: vec![],
+        body: json!({ "message": "moved" }),
+    })
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, Some(stub.source()));
+    match engine.check_update(false).await {
+        UpdateCheck::Failed {
+            failure: UpdateFailure::Unexpected { status },
+            ..
+        } => assert_eq!(status, 200),
+        other => panic!("{other:?}"),
+    }
+    let _ = engine.check_update(false).await;
+    assert_eq!(stub.hits(), 2, "a failure is never held");
+}

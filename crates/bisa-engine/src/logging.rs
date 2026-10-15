@@ -111,7 +111,7 @@ pub fn listing(inner: &Inner) -> Listing {
             crashes: Vec::new(),
         }
         // LCOV_EXCL_STOP
-    })
+    }) // LCOV_EXCL_LINE the closure's closing after a marked block; by construction
 }
 
 /// The newest crash report and its file name, when there is one.

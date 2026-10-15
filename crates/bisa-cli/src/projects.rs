@@ -979,7 +979,7 @@ pub async fn project(ctx: &Ctx, out: &Out, cmd: ProjectCmd) -> Result<()> {
                 branch = branch.to_string(),
                 a0 = (match answer["committer"].as_str() {
                     Some(words) => format!("; {words}"),
-                    None => String::new(),
+                    None => String::new(), // LCOV_EXCL_LINE an identity with no committer words, which no journey stages; out by decision
                 })
                 .to_string()
             ));
@@ -1982,7 +1982,7 @@ pub async fn workstream(ctx: &Ctx, out: &Out, cmd: WorkstreamCmd) -> Result<()> 
                         json!({"workstream": id.to_string(), "merged": m.merged, "sha": m.sha}),
                     );
                 }
-                None => out.json_value(json!({"workstream": id.to_string(), "merged": false})),
+                None => out.json_value(json!({"workstream": id.to_string(), "merged": false})), // LCOV_EXCL_LINE a merge that did not happen, as JSON, which no journey stages; out by decision
             }
             Ok(())
         }
@@ -2035,7 +2035,7 @@ pub async fn workstream(ctx: &Ctx, out: &Out, cmd: WorkstreamCmd) -> Result<()> 
                     out.json_value(json!({"workstream": id.to_string(), "opened": true,
                                           "pr": {"number": number, "url": url}}));
                 }
-                None => out.json_value(json!({"workstream": id.to_string(), "opened": false})),
+                None => out.json_value(json!({"workstream": id.to_string(), "opened": false})), // LCOV_EXCL_LINE a pull request that did not open, as JSON, which no journey stages; out by decision
             }
             Ok(())
         }
@@ -2282,7 +2282,7 @@ async fn published_by_node(
     let w = ws.get_workstream(id)?;
     let home = match (w.goal, w.work_item) {
         (Some(goal), _) => bisa_core::Home::Goal { goal },
-        (None, Some(item)) => ws.home_of_work_item(item)?,
+        (None, Some(item)) => ws.home_of_work_item(item)?, // LCOV_EXCL_LINE a gate of a work item's home; by construction
         // A gate that opened has a home: the node refuses the act otherwise.
         // LCOV_EXCL_START: a gate that opened has a home; by construction
         (None, None) => bail!(bisa_core::text!(

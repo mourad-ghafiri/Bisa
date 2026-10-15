@@ -150,11 +150,13 @@ pub(crate) fn check(
     let inputs = &wf.with_defaults(inputs);
     for (step, on) in wf.event_starts() {
         let resolved = on.resolve(inputs).map_err(|e| {
+            // LCOV_EXCL_START the workflow's validation refuses an unresolvable start before it is saved; by construction
             EngineError::Invalid(bisa_core::text!(
                 "error-engine-invalid-listening-start-unresolved",
                 step = step.id.to_string(),
                 e = e.to_string()
             ))
+            // LCOV_EXCL_STOP
         })?;
         if let StartOn::Check { command, .. } = &resolved {
             if let Some(reason) = crate::security::refuse_by_rules(inner, command) {

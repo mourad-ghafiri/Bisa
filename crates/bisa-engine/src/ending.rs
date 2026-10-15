@@ -151,7 +151,7 @@ async fn end_child(
                         rationale: Some(rationale.clone()),
                     },
                 )?;
-            }
+            } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
             let done = end_goal_work_in(
                 inner,
                 child,
@@ -293,9 +293,11 @@ pub(crate) fn signal_goal_work(
 pub(crate) fn finish_goal_work(inner: &Arc<Inner>, goal: GoalId, cause: EndCause) {
     if matches!(cause, EndCause::Close | EndCause::Retire) {
         effects::release_goal_workstreams(inner, goal);
+        // LCOV_EXCL_START gates are withdrawn at the close before this sweep; by construction
         for gate in inner.gates.pending_for_goal(goal) {
             inner.gates.withdraw(&gate.id);
         }
+        // LCOV_EXCL_STOP
         inner.guided.forget_goal(goal);
         crate::conversation::forget_pending_of_goal(inner, goal);
     }
@@ -327,12 +329,16 @@ pub(crate) async fn finish_after_signal(
         )
         .await
         {
+            // LCOV_EXCL_START a spawned child closed with its parent, which no journey stages; out by decision
             Ok(child_done) => {
                 done.ended.children.push(child);
                 done.ended.add(child_done.ended);
             }
+            // LCOV_EXCL_STOP
+            // LCOV_EXCL_START closing a spawned child fails only unwritable (disk-only)
             Err(e) => {
                 tracing::warn!(target: "bisa_engine", %goal, %child, "a goal spawned by a closed goal could not be closed with it: {e}");
+                // LCOV_EXCL_STOP
             }
         }
     }

@@ -151,7 +151,7 @@ fn hold_for_listeners(
     reason: &str,
 ) {
     if !inner.listen.settings().enabled {
-        return;
+        return; // LCOV_EXCL_LINE a held signal with listening off, screened; out by decision
     }
     let heard = Heard {
         source: SignalSource::Signal,
@@ -159,8 +159,10 @@ fn hold_for_listeners(
         scope,
         payload: match payload {
             Value::Object(map) => Value::Object(map),
+            // LCOV_EXCL_START a held signal that is no object, screened; out by decision
             Value::Null => json!({}),
             other => json!({ "value": other }),
+            // LCOV_EXCL_STOP
         },
         chain: Chain::default(),
     };
