@@ -2,8 +2,9 @@
 
 An **addon** is a folder of HTML, CSS and JavaScript with an `addon.json` beside it, installed into a
 workspace and shown as a **window that floats over the desktop** — draggable, and resizable, closable
-and see-through as its developer decided. The platform ships thirteen in the catalog (a clock, the
-machine's load, the weather, a game, a few small tools); anyone may write one and import the folder.
+and see-through as its developer decided. The platform ships fourteen in the catalog (a clock, the
+machine's load, the weather, a game, a media player, a few small tools); anyone may write one and
+import the folder.
 An addon reaches the platform only through one door, with only what the person granted, and can leave
 the machine with nothing it was not given. This page is the model, the walls, the door, and what
 travels.
@@ -53,9 +54,33 @@ module says why on every line that keeps it small (`crates/bisa-node/src/addons.
 inside the bundle by `resolve_within`; the type decided from the extension allowlist
 (`bisa_core::addon::SERVED_EXTENSIONS`), else `application/octet-stream` as a download; `nosniff`;
 and a Content-Security-Policy header that lets the page load its own files and reach **nothing** —
-`connect-src 'none'`, no frame, no form, no base. The library is served from the binary at every
-addon's root, so a bundle cannot ship a tampered one; the store refuses a file of that name at
-install.
+`connect-src 'none'`, no frame, no form, no base — or, for an addon the person granted `media`, play
+sound and video from the `https://` hosts the grant names (`*` for any): `files_csp` widens
+`media-src` and nothing else of the policy. WebKit fetches those bytes itself, so the person's
+`security.net.*` lists do not stand between, which is why the grant names its hosts and the review
+says them. The library is served from the binary at every addon's root, so a bundle cannot ship a
+tampered one; the store refuses a file of that name at install.
+
+**YouTube's player.** A `media` grant declared with `youtube` lets the addon ask for YouTube's own
+player beside its window — the one way YouTube permits its videos to be shown, and one that needs
+no key, no account and no sign-in. The frame cannot hold it (its policy admits no frame, and a
+`tauri://` page sends no Referer, which the player refuses), so the node serves a fixed page from
+the binary, `GET /addons/{id}/player/youtube/{video}` (`auth::is_addon_player`: token-less like the
+files, an eleven-character id, an active addon granted the player, else the same bare 404), holding
+the official IFrame Player API under its own policy; the desktop reads that page as text and the
+shell loads it in a child view **above** the browser layer (`browser_open` with `page`, `layered:
+false` — the layer's holes would cut a view inside it) under the app's own base URL,
+`https://<identifier>/`, so YouTube sees this app named in the Referer as its rules ask. The addon
+names a box inside its window (`media.embed`, no side under 200 px), moves it (`media.box`) and lets
+it go (`media.remove`); the host (`addonMediaHost.ts`) places the view where the box falls on the
+page, hides it while the window is hidden, dragged or under a surface, and closes it when the addon
+lets go, the frame reloads or the window leaves; what the player says comes back through the shell's
+one door and reaches the addon as its `media` event. YouTube's rules are kept by construction: the
+player's own controls show, nothing is drawn over it, the page starts no playback of its own, one
+player per window, nothing cached, no audio-only, no background player; the built-in shows a notice
+once with YouTube's Terms of Service and Google's Privacy Policy before the first play. Accepted for
+now: the player stands above every overlay of the app (a panel dragged over it goes under it), and a
+window hidden under a dialog keeps the player's sound until it is put away.
 
 **The shell.** WebKit asks the navigation delegate about every frame's navigation and wry hands
 `on_navigation` the URL; the main window is built in `setup` (`"create": false` in
@@ -78,10 +103,10 @@ judged by `event.source`, as the page inspector's wire is ([ide/03](ide/03-files
 Every message is read by a pure model (`addonBridgeModel.mjs`) that owns:
 
 - **the shape** — version 1; a `bisa:hello`, or a `bisa:call {id ≤ 64, method, params ≤ 16 KiB}`; anything else is dropped unread, or answered `bad_params`/`unknown_method`/`too_large` when its id is sound;
-- **the registry** — seventeen methods, each with the permission it needs and the window flag it needs (`window.resize` needs `resizable`, `window.close` needs `closable`); a method not in it is refused before its params are read ([reference/addon-api.md](../reference/addon-api.md) is the table, and a test holds the two equal);
+- **the registry** — twenty methods, each with the permission it needs and the window flag it needs (`window.resize` needs `resizable`, `window.close` needs `closable`); a method not in it is refused before its params are read ([reference/addon-api.md](../reference/addon-api.md) is the table, and a test holds the two equal);
 - **the caps** — a notice's title 100 and body 200 characters, once every ten seconds per addon; a clipboard write 64 KiB; a storage bag 256 KiB per addon, strings only, kept by the host under `bisa.addons.storage.<id>`; a URL 2048 characters, `http(s)` only; a title 60 characters; a fetched body 1 MiB;
 - **the answers** — a reply to send now, or an **effect** the bridge performs: a notice through the desktop's own door (under the person's *Addons* notifications switch, Settings › Capabilities › System), the clipboard, a route from a closed list of screens, a window move, or one of the two that answer later — `network.fetch`, which goes to the node's broker, and `url.open`, which asks the person first;
-- **the events** — `theme`, `visibility`, `workspace.summary` and, while subscribed and granted, `system.load` at the footer's cadence — four topics, no `locale`: a language change reloads the window, and the page hears its locale in the next `ready`. The summary is `shell/workSummaryModel.mjs`'s, the rule the pet stands by.
+- **the events** — `theme`, `visibility`, `workspace.summary`, `media` (what YouTube's player said, for the addon that embedded it) and, while subscribed and granted, `system.load` at the footer's cadence — five topics, no `locale`: a language change reloads the window, and the page hears its locale in the next `ready`. The summary is `shell/workSummaryModel.mjs`'s, the rule the pet stands by.
 
 Every refusal the bridge makes is written to the desktop's diagnostic log with the addon, the
 method and the code (`refusedCode`), which is where a developer testing an addon reads them.
@@ -172,7 +197,7 @@ imported here under the same id; a built-in's files come from this machine's own
 | `bisa-cli/src/addons.rs` | `bisa addon …` — through the node when one runs; an import reads the folder's own manifest first, so a folder that holds none, or one that is no manifest, is refused by its file before anything is copied. Held from end to end by the journey `crates/bisa-cli/tests/it/e2e/addons_drawings_and_notes.rs`: the nine verbs, a folder refused whole, the files route open to the window of an addon that is on and answering 404 for one that is off, every change said on the bus |
 | `desktop/src/addons/` | the bridge and its model, the windows, the layer, the store (one `useAddonsSync` mount, in the layer), the words; `shell/AddonsStat.tsx` + `shell/AddonsOverlay.tsx` (the footer's popover), `views/_settings/AddonsPanel.tsx` |
 | `desktop/src-tauri/src/navigation.rs` | the shell's wall |
-| `addons/sdk/`, `addons/template/`, `library/addons/` | the library and its types, a starter, the thirteen built-ins — each `style.css` fences `[hidden]`; tic-tac-toe's and the sticky note's pure rules are a `logic.js` loaded before `main.js`, run alone by `desktop/src/scenarios/addonsLogic.test.mjs` |
+| `addons/sdk/`, `addons/template/`, `library/addons/` | the library and its types, a starter, the fourteen built-ins — each `style.css` fences `[hidden]`; tic-tac-toe's, the sticky note's and the media player's pure rules are a `logic.js` loaded before `main.js`, run alone by `desktop/src/scenarios/addonsLogic.test.mjs` |
 
 The guide for people and developers is [guide/addons.md](../guide/addons.md); the library's contract
 is [reference/addon-api.md](../reference/addon-api.md).

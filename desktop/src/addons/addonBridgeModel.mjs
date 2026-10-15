@@ -37,6 +37,8 @@ export const MAX_TITLE_CHARS = 60;
 export const MAX_FETCH_BODY_BYTES = 1024 * 1024;
 /** The localStorage key an addon's store lives under, followed by its id. */
 export const STORAGE_KEY_PREFIX = "bisa.addons.storage.";
+/** The least a YouTube player's box may be on either side — YouTube's own floor for an embedded player, in CSS pixels. */
+export const MIN_PLAYER_SIDE = 200;
 
 /** The permissions a manifest may declare and a person may grant — the words the node knows. */
 export const PERMISSIONS = Object.freeze([
@@ -50,6 +52,7 @@ export const PERMISSIONS = Object.freeze([
   "network",
   "open_url",
   "navigate",
+  "media",
 ]);
 
 /**
@@ -75,12 +78,15 @@ export const METHODS = Object.freeze({
   "window.resize": { permission: null, needs: "resizable" },
   "window.close": { permission: null, needs: "closable" },
   "window.setTitle": { permission: null },
+  "media.embed": { permission: "media" },
+  "media.box": { permission: "media" },
+  "media.remove": { permission: "media" },
 });
 
 export const METHOD_NAMES = Object.freeze(Object.keys(METHODS));
 
 /** The topics the app pushes to an addon that listens. */
-export const EVENTS = Object.freeze(["theme", "system.load", "workspace.summary", "visibility"]);
+export const EVENTS = Object.freeze(["theme", "system.load", "workspace.summary", "visibility", "media"]);
 
 /** The screens an addon may take the person to — never a record's page. */
 export const ADDON_ROUTES = Object.freeze(["inbox", "goals", "pulse", "workflows", "projects", "channels", "messages", "agents", "teams", "settings"]);
@@ -89,14 +95,15 @@ export const ADDON_ROUTES = Object.freeze(["inbox", "goals", "pulse", "workflows
 export const REFUSALS = Object.freeze(["not_ready", "unknown_method", "permission", "not_allowed", "bad_params", "too_large", "rate_limited", "quota", "unavailable", "refused"]);
 
 /**
- * A permission as the manifest spells it — a word, or `{network: {hosts}}`
- * — as its word.
+ * A permission as the manifest spells it — a word, `{network: {hosts}}` or
+ * `{media: {hosts, youtube?}}` — as its word.
  * @param {unknown} value
  * @returns {string | null}
  */
 export function permissionWord(value) {
   if (typeof value === "string") return PERMISSIONS.includes(value) ? value : null;
   if (value && typeof value === "object" && "network" in value) return "network";
+  if (value && typeof value === "object" && "media" in value) return "media";
   return null;
 }
 
@@ -113,6 +120,24 @@ export function networkHosts(permissions) {
     }
   }
   return [];
+}
+
+/**
+ * What a `media` permission lets the addon play, when the list holds one:
+ * the https hosts its own `<audio>` and `<video>` may load from (`*` for
+ * any), and whether YouTube's player may be shown beside its window.
+ * @param {unknown[]} permissions
+ * @returns {{hosts: string[], youtube: boolean} | null}
+ */
+export function mediaGrant(permissions) {
+  for (const p of permissions) {
+    if (p && typeof p === "object" && "media" in p) {
+      const m = /** @type {{media: {hosts?: unknown, youtube?: unknown} | null}} */ (p).media;
+      const hosts = m && Array.isArray(m.hosts) ? m.hosts.filter((h) => typeof h === "string") : [];
+      return { hosts, youtube: m?.youtube === true };
+    }
+  }
+  return null;
 }
 
 /** @param {unknown[]} permissions */
@@ -169,6 +194,27 @@ function finiteInt(n) {
   return typeof n === "number" && Number.isFinite(n) && Math.floor(n) === n;
 }
 
+/** Whether `s` is shaped like a YouTube video id — eleven URL-safe characters, the shape the node's player page takes. @param {unknown} s */
+export function isVideoId(s) {
+  return typeof s === "string" && /^[A-Za-z0-9_-]{11}$/.test(s);
+}
+
+/**
+ * A player's box inside the addon's window — four whole numbers from the
+ * window's top-left, no side under the policy's square — or null.
+ * @param {unknown} value
+ * @returns {{x: number, y: number, width: number, height: number} | null}
+ */
+export function playerBox(value) {
+  if (!value || typeof value !== "object") return null;
+  const b = /** @type {Record<string, unknown>} */ (value);
+  const { x, y, width, height } = b;
+  if (![x, y, width, height].every(finiteInt)) return null;
+  if (/** @type {number} */ (x) < 0 || /** @type {number} */ (y) < 0) return null;
+  if (/** @type {number} */ (width) < MIN_PLAYER_SIDE || /** @type {number} */ (height) < MIN_PLAYER_SIDE) return null;
+  return { x: /** @type {number} */ (x), y: /** @type {number} */ (y), width: /** @type {number} */ (width), height: /** @type {number} */ (height) };
+}
+
 /**
  * A method's params, bounded and typed, or the refusal.
  * @param {string} method
@@ -219,6 +265,17 @@ export function paramsOf(method, params) {
       if (typeof params.title !== "string") return bad;
       return { ok: true, value: { title: cut(params.title, MAX_TITLE_CHARS) } };
     }
+    case "media.embed": {
+      if (params.kind !== "youtube" || !isVideoId(params.video)) return bad;
+      const box = playerBox(params.box);
+      if (!box) return bad;
+      return { ok: true, value: { kind: "youtube", video: params.video, box } };
+    }
+    case "media.box": {
+      const box = playerBox(params.box);
+      if (!box) return bad;
+      return { ok: true, value: { box } };
+    }
     default:
       return { ok: true, value: {} };
   }
@@ -237,6 +294,7 @@ export function newSession(addon) {
     version: String(addon.manifest.version ?? ""),
     granted: permissionWords(addon.granted ?? []),
     hosts: networkHosts(addon.granted ?? []),
+    media: mediaGrant(addon.granted ?? []),
     window: {
       width: Number(w.width) || 0,
       height: Number(w.height) || 0,
@@ -434,6 +492,14 @@ export function handleCall(session, call, ctx) {
       return { ...same, reply: okReply(call.id, { closed: true }), effect: { type: "close" } };
     case "window.setTitle":
       return { ...same, session: { ...session, title: /** @type {string} */ (p.title) }, reply: okReply(call.id, { set: true }), effect: { type: "title", title: p.title } };
+    case "media.embed":
+      // YouTube's own player beside the window: only for a grant that names it.
+      if (!session.media?.youtube) return { ...same, reply: errorReply(call.id, "not_allowed") };
+      return { ...same, reply: okReply(call.id, { embedded: true }), effect: { type: "media_embed", video: p.video, box: p.box } };
+    case "media.box":
+      return { ...same, reply: okReply(call.id, { moved: true }), effect: { type: "media_box", box: p.box } };
+    case "media.remove":
+      return { ...same, reply: okReply(call.id, { removed: true }), effect: { type: "media_remove" } };
     default:
       return { ...same, reply: errorReply(call.id, "unknown_method") }; // LCOV_EXCL_LINE every method of the bridge's table is an arm above; by construction
   }

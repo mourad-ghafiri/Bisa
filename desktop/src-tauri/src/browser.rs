@@ -74,6 +74,9 @@ pub struct BrowserRegistry {
     views: Mutex<HashMap<String, Option<anchor::Anchor>>>,
     /// How many pieces the browser layer cut last (`browser_clear`).
     holes: Mutex<Option<usize>>,
+    /// The views opened **above** the browser layer rather than in it — an
+    /// addon's media player, which the layer's holes must never cut.
+    unlayered: Mutex<std::collections::HashSet<String>>,
 }
 
 impl BrowserRegistry {
@@ -83,6 +86,18 @@ impl BrowserRegistry {
 
     fn insert(&self, key: &str) {
         self.views.locked().insert(key.to_string(), None);
+    }
+
+    /// Note a view that stands above the layer; every other is in it.
+    fn insert_unlayered(&self, key: &str) {
+        self.insert(key);
+        self.unlayered.locked().insert(key.to_string());
+    }
+
+    /// Whether a view stands in the browser layer (the default) — false for
+    /// one opened above it, and for one that is not open at all.
+    fn is_layered(&self, key: &str) -> bool {
+        self.views.locked().contains_key(key) && !self.unlayered.locked().contains(key)
     }
 
     /// Note the anchor a tab was placed with; true when it differs from the
@@ -111,6 +126,7 @@ impl BrowserRegistry {
     // LCOV_EXCL_STOP
 
     fn remove(&self, key: &str) -> bool {
+        self.unlayered.locked().remove(key);
         self.views.locked().remove(key).is_some()
     }
 
@@ -267,6 +283,16 @@ pub(crate) fn admit(url: &str) -> Result<Url, String> {
     }
 }
 
+/// The base URL a page handed to `browser_open` as a string is loaded
+/// under: `https://<the app's identifier>/`. YouTube's embedded player wants
+/// the embedding app named in the Referer as an https URL whose host is the
+/// app's identifier (its Required Minimum Functionality, "API Client
+/// Identity"), and a page loaded as a string with a base URL sends that
+/// base as its Referer — the way YouTube documents for a WebKit app.
+pub(crate) fn page_base(identifier: &str) -> String {
+    format!("https://{}/", identifier.trim().trim_matches('/'))
+}
+
 /// What a page posted, as a message the main window may hear: one JSON
 /// object under the size cap; anything else is nothing.
 pub(crate) fn message_of(text: &str) -> Option<serde_json::Value> {
@@ -325,7 +351,12 @@ fn say_navigated<R: Runtime>(
 /// Open a tab: a child webview on `url`, the init script aboard, the
 /// page's door installed, hidden until its first placement. The key is the
 /// webview's — a tab already open under it is a refusal, not a second
-/// webview.
+/// webview. `layered` false (18 — Addons) keeps the view **above** the
+/// browser layer instead of in it: the layer's holes cut every view it
+/// holds, and an addon's media player stands over the addon's window,
+/// which is one of those holes. `page` is a document to load as a string
+/// under the app's own base URL (`page_base`) instead of navigating to
+/// `url` — the YouTube player page, which must name this app to YouTube.
 #[tauri::command]
 pub fn browser_open<R: Runtime>(
     app: AppHandle<R>,
@@ -333,7 +364,10 @@ pub fn browser_open<R: Runtime>(
     key: String,
     url: String,
     script: String,
+    layered: Option<bool>,
+    page: Option<String>,
 ) -> Result<(), String> {
+    let layered = layered.unwrap_or(true);
     let url = admit(&url)?;
     if app.get_webview(&label_of(&key)).is_some() {
         return Err(format!("browser tab {key} is already open"));
@@ -392,11 +426,13 @@ pub fn browser_open<R: Runtime>(
         .map_err(err)?;
     webview.hide().map_err(err)?;
     // Into the browser layer at once, still hidden, so an overlay of the main
-    // page is never under it (`layer`).
+    // page is never under it (`layer`) — unless it was asked to stand above.
     #[cfg(target_os = "macos")]
-    if let Some(main) = app.get_webview("main") {
-        if let Err(why) = place::adopt(&main, &webview) {
-            tracing::warn!(target: "bisa_desktop", key, %why, "a tab stayed out of the browser layer; its first placement adopts it");
+    if layered {
+        if let Some(main) = app.get_webview("main") {
+            if let Err(why) = place::adopt(&main, &webview) {
+                tracing::warn!(target: "bisa_desktop", key, %why, "a tab stayed out of the browser layer; its first placement adopts it");
+            }
         }
     }
     let saying = app.clone();
@@ -417,7 +453,15 @@ pub fn browser_open<R: Runtime>(
             }
         }),
     );
-    registry.insert(&key);
+    if let Some(html) = page {
+        let base = page_base(&app.config().identifier);
+        page::load_html(&webview, html, base)?;
+    }
+    if layered {
+        registry.insert(&key);
+    } else {
+        registry.insert_unlayered(&key);
+    }
     Ok(())
 }
 // LCOV_EXCL_STOP
@@ -1253,7 +1297,8 @@ pub fn browser_bounds<R: Runtime>(
     let main = app
         .get_webview("main")
         .ok_or_else(|| "no main webview to anchor the tab on".to_string())?;
-    let (placed, anchored) = place::put(&main, &view, bounds, viewport)?;
+    let layered = registry.is_layered(&key);
+    let (placed, anchored) = place::put(&main, &view, bounds, viewport, layered)?;
     if let Some((anchor, main_frame)) = anchored {
         if registry.note_anchor(&key, anchor) {
             tracing::debug!(
@@ -1810,7 +1855,7 @@ mod layer {
 mod place {
     use super::anchor::{Anchor, Frame};
     use super::{err, Bounds, Placed, Viewport, PLACEMENT_BUDGET};
-    use objc2_app_kit::NSView;
+    use objc2_app_kit::{NSView, NSWindowOrderingMode};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     use std::sync::mpsc;
     use tauri::{Runtime, Webview};
@@ -1905,11 +1950,15 @@ mod place {
             .map_err(|_| "the main webview did not answer in time".to_string())
     }
 
+    /// `layered` false keeps the view out of the browser layer and above it
+    /// (an addon's media player): it is anchored the same way, on the
+    /// layer's parent, and raised over the layer after every placement.
     pub fn put<R: Runtime>(
         main: &Webview<R>,
         tab: &Webview<R>,
         bounds: Bounds,
         viewport: Viewport,
+        layered: bool,
     ) -> Result<(Placed, Option<(Anchor, Frame)>), String> {
         let main_ptr = main_view(main)?;
         let (tx, rx) = mpsc::channel::<Result<(Placed, Anchor, Frame), String>>();
@@ -1928,7 +1977,18 @@ mod place {
                 // view's size and orientation: its frame there is the anchor's.
                 let layer = super::layer::over(main, mtm);
                 if let Some(layer) = &layer {
-                    layer.adopt(child);
+                    if layered {
+                        layer.adopt(child);
+                    } else {
+                        // SAFETY: the layer's superview is the content view, read on the main thread.
+                        if let Some(content) = unsafe { layer.superview() } {
+                            content.addSubview_positioned_relativeTo(
+                                child,
+                                NSWindowOrderingMode::Above,
+                                Some(layer),
+                            );
+                        }
+                    }
                 }
                 // SAFETY: the child stands in the layer (or, failing one, the content view) and stays there.
                 let parent = unsafe { child.superview() }
@@ -1939,7 +1999,7 @@ mod place {
                 let anchor = Anchor::of(parent_height, main_frame, viewport);
                 child.setFrame(ns_rect(anchor.frame_for(&bounds)));
                 child.setHidden(false);
-                if let Some(layer) = &layer {
+                if let Some(layer) = layer.filter(|_| layered) {
                     layer.anchor_on(anchor);
                 }
                 Ok((anchor.placed_from(&frame_of(child)), anchor, main_frame))
@@ -1970,6 +2030,7 @@ mod place {
         tab: &Webview<R>,
         bounds: Bounds,
         _viewport: Viewport,
+        _layered: bool,
     ) -> Result<(Placed, Option<(Anchor, Frame)>), String> {
         tab.set_bounds(bounds.rect()).map_err(err)?;
         tab.show().map_err(err)?;
@@ -1984,8 +2045,27 @@ mod place {
 #[cfg(target_os = "macos")]
 mod page {
     use super::err;
+    use objc2_foundation::{NSString, NSURL};
     use tauri::webview::PlatformWebview;
     use tauri::{Runtime, Webview};
+
+    /// Load a document given as a string under `base` — the page's origin
+    /// and the Referer it sends — the way WebKit offers (`loadHTMLString:
+    /// baseURL:`) and YouTube documents for an app that embeds its player.
+    pub fn load_html<R: Runtime>(
+        webview: &Webview<R>,
+        html: String,
+        base: String,
+    ) -> Result<(), String> {
+        webview
+            .with_webview(move |platform| unsafe {
+                let web = super::webkit::view(&platform);
+                let url = NSURL::URLWithString(&NSString::from_str(&base));
+                let _navigation =
+                    web.loadHTMLString_baseURL(&NSString::from_str(&html), url.as_deref());
+            })
+            .map_err(err)
+    }
 
     /// Whether the tab can go back, and forward. Off the main thread — never
     /// the case for a load hook or a `with_webview` closure — nothing is known.
@@ -2044,6 +2124,16 @@ mod page {
     /// No history is read on this platform yet.
     pub fn history(_platform: &PlatformWebview) -> (bool, bool) {
         (false, false)
+    }
+
+    /// A page handed as a string has no WebKit here to load it under a base
+    /// URL: the one caller (the YouTube player) is told so.
+    pub fn load_html<R: Runtime>(
+        _webview: &Webview<R>,
+        _html: String,
+        _base: String,
+    ) -> Result<(), String> {
+        Err("a page given as a string loads only on macOS".to_string())
     }
 
     pub fn back<R: Runtime>(view: &Webview<R>) -> Result<(), String> {
@@ -2269,6 +2359,40 @@ mod tests {
         assert!(r.remove("b1"));
         assert!(!r.remove("b1"), "gone once");
         assert!(r.keys().is_empty());
+    }
+
+    /// A page loaded as a string stands under `https://<identifier>/`, the
+    /// Referer YouTube wants from an embedding app — whatever the identifier's
+    /// stray slashes or spaces.
+    #[test]
+    fn a_page_given_as_a_string_is_based_on_the_apps_identifier() {
+        assert_eq!(page_base("dev.bisa.bisa"), "https://dev.bisa.bisa/");
+        assert_eq!(
+            page_base(" dev.bisa.rehearsal/ "),
+            "https://dev.bisa.rehearsal/"
+        );
+    }
+
+    /// A tab stands in the layer; a view opened above it is remembered as
+    /// such until it closes, and a key nobody opened is in neither.
+    #[test]
+    fn a_view_above_the_layer_is_remembered_until_it_closes() {
+        let r = BrowserRegistry::new();
+        r.insert("b1");
+        r.insert_unlayered("addon-media:media-player");
+        assert!(r.is_layered("b1"));
+        assert!(!r.is_layered("addon-media:media-player"));
+        assert!(!r.is_layered("b9"), "not open, so not in the layer either");
+        let mut keys = r.keys();
+        keys.sort_unstable();
+        assert_eq!(keys, ["addon-media:media-player", "b1"]);
+        assert!(r.remove("addon-media:media-player"));
+        assert!(!r.is_layered("addon-media:media-player"));
+        r.insert("addon-media:media-player");
+        assert!(
+            r.is_layered("addon-media:media-player"),
+            "opened again as a tab, the old flag is gone"
+        );
     }
 
     #[test]

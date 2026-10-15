@@ -16,8 +16,9 @@ export const MAX_URL_CHARS: number;
 export const MAX_TITLE_CHARS: number;
 export const MAX_FETCH_BODY_BYTES: number;
 export const STORAGE_KEY_PREFIX: string;
+export const MIN_PLAYER_SIDE: number;
 
-export type PermissionWord = "platform_info" | "theme" | "system_load" | "workspace_summary" | "notify" | "clipboard_write" | "storage" | "network" | "open_url" | "navigate";
+export type PermissionWord = "platform_info" | "theme" | "system_load" | "workspace_summary" | "notify" | "clipboard_write" | "storage" | "network" | "open_url" | "navigate" | "media";
 export const PERMISSIONS: readonly PermissionWord[];
 
 export interface MethodSpec {
@@ -26,7 +27,7 @@ export interface MethodSpec {
 }
 export const METHODS: Readonly<Record<string, MethodSpec>>;
 export const METHOD_NAMES: readonly string[];
-export type AddonEvent = "theme" | "system.load" | "workspace.summary" | "visibility";
+export type AddonEvent = "theme" | "system.load" | "workspace.summary" | "visibility" | "media";
 export const EVENTS: readonly AddonEvent[];
 export const ADDON_ROUTES: readonly string[];
 export type RefusalCode = "not_ready" | "unknown_method" | "permission" | "not_allowed" | "bad_params" | "too_large" | "rate_limited" | "quota" | "unavailable" | "refused";
@@ -34,6 +35,21 @@ export const REFUSALS: readonly RefusalCode[];
 
 export function permissionWord(value: unknown): PermissionWord | null;
 export function networkHosts(permissions: readonly unknown[]): string[];
+/** What a `media` permission lets the addon play: its hosts (`*` for any) and whether YouTube's player may show. */
+export interface MediaGrant {
+  hosts: string[];
+  youtube: boolean;
+}
+export function mediaGrant(permissions: readonly unknown[]): MediaGrant | null;
+/** A player's box inside the addon's window, from its top-left, in its own CSS pixels. */
+export interface PlayerBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export function isVideoId(s: unknown): s is string;
+export function playerBox(value: unknown): PlayerBox | null;
 export function permissionWords(permissions: readonly unknown[]): PermissionWord[];
 export function cut(s: unknown, max: number): string;
 
@@ -58,6 +74,7 @@ export interface AddonSession {
   version: string;
   granted: PermissionWord[];
   hosts: string[];
+  media: MediaGrant | null;
   window: SessionWindow;
   ready: boolean;
   subscribed: boolean;
@@ -106,7 +123,10 @@ export type Effect =
   | { type: "navigate"; route: string }
   | { type: "resize"; width: number; height: number }
   | { type: "close" }
-  | { type: "title"; title: string };
+  | { type: "title"; title: string }
+  | { type: "media_embed"; video: string; box: PlayerBox }
+  | { type: "media_box"; box: PlayerBox }
+  | { type: "media_remove" };
 
 export interface CallContext {
   now: number;

@@ -45,10 +45,13 @@
     "window.resize",
     "window.close",
     "window.setTitle",
+    "media.embed",
+    "media.box",
+    "media.remove",
   ];
 
   /** The topics the host pushes. */
-  var EVENTS = ["theme", "system.load", "workspace.summary", "visibility"];
+  var EVENTS = ["theme", "system.load", "workspace.summary", "visibility", "media"];
 
   var parent = global.parent;
   var hello = null;
@@ -252,6 +255,17 @@
       },
       setTitle: function (title) {
         return call("window.setTitle", { title: title });
+      },
+    },
+    media: {
+      embed: function (opts) {
+        return call("media.embed", opts);
+      },
+      box: function (opts) {
+        return call("media.box", opts && typeof opts === "object" && "box" in opts ? opts : { box: opts });
+      },
+      remove: function () {
+        return call("media.remove", {});
       },
     },
   };

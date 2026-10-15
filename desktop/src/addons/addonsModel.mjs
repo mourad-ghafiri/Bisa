@@ -8,7 +8,7 @@
  */
 
 import { t } from "../i18n/l10n.mjs";
-import { PERMISSIONS, networkHosts, permissionWord } from "./addonBridgeModel.mjs";
+import { PERMISSIONS, mediaGrant, networkHosts, permissionWord } from "./addonBridgeModel.mjs";
 
 /** The read-out's tooltip and the popover's title line: how many windows show, of every addon installed. */
 export function titleWords(showing, total) {
@@ -45,7 +45,8 @@ export function rowStateWords(row) {
 
 /**
  * One permission, in plain words a person can weigh before granting it —
- * `network` names its hosts.
+ * `network` names its hosts; `media` its sites (`*` said as any site) and
+ * whether YouTube's player comes beside the window.
  * @param {unknown} permission the manifest's spelling
  */
 export function permissionWords(permission) {
@@ -71,6 +72,13 @@ export function permissionWords(permission) {
       return t("addons-addons-model-permission-open-url");
     case "navigate":
       return t("addons-addons-model-permission-navigate");
+    case "media": {
+      const grant = mediaGrant([permission]);
+      const hosts = grant?.hosts ?? [];
+      const sites = hosts.includes("*") ? t("addons-addons-model-permission-media-any-site") : hosts.join(", ");
+      if (!grant?.youtube) return t("addons-addons-model-permission-media", { sites });
+      return hosts.length === 0 ? t("addons-addons-model-permission-media-youtube-only") : t("addons-addons-model-permission-media-youtube", { sites });
+    }
     default:
       return t("addons-addons-model-permission-unknown");
   }

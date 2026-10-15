@@ -3,7 +3,7 @@
 An addon is a folder of HTML, CSS and JavaScript with an `addon.json` beside it, installed into a
 workspace and shown as a window that floats over the desktop — a clock, the machine's load, the
 weather, a game. It reaches the platform only through one door, the bridge, with only what the person
-granted. In code: the manifest's rules are `bisa-core`'s, the install and the thirteen built-ins
+granted. In code: the manifest's rules are `bisa-core`'s, the install and the fourteen built-ins
 `bisa-store`'s, the token-less files route and its policy the node's, the network broker the
 engine's, the frame, the bridge and the windows the desktop's, the navigation wall the Tauri shell's,
 and the library an addon loads lives in `addons/sdk/`.
@@ -18,7 +18,7 @@ and the library an addon loads lives in `addons/sdk/`.
 - `desktop/src/addons/` — the bridge (`addonBridge.ts`) and its registry (`addonBridgeModel.mjs`), the windows, the layer, the store.
 - `desktop/src-tauri/src/navigation.rs` — the shell's wall: a frame navigates nowhere but its own files.
 - `addons/sdk/` (`bisa-addon.js`, `bisa-addon.d.ts`) · `addons/template/` — the library and its types; the starter a developer copies.
-- `library/addons/` — the thirteen built-ins.
+- `library/addons/` — the fourteen built-ins.
 
 ## Read first
 
@@ -40,7 +40,7 @@ and the library an addon loads lives in `addons/sdk/`.
 ## Testing a change
 
 - `scripts/test module store addons` · `scripts/test module engine addons` · `scripts/test module node addons` — an install and its refusals, the broker refusing before a socket opens, the routes and the token-less files route.
-- `scripts/test lib core addon` — the manifest's rules; `scripts/test lib store catalog` — `the_catalog_ships_thirteen_addons` and `every_addon_is_well_formed`.
+- `scripts/test lib core addon` — the manifest's rules; `scripts/test lib store catalog` — `the_catalog_ships_fourteen_addons` and `every_addon_is_well_formed`.
 - `scripts/test desktop addons`, then from `desktop/`: `node --test --import ./src/i18n/preload.mjs src/scenarios/addons.test.mjs src/scenarios/addonsLogic.test.mjs` — the bridge and the SDK held to the registry, the built-ins' logic.
 - `scripts/test tauri` — the navigation wall's tests in `desktop/src-tauri/src/navigation.rs`.
 - The journey `crates/bisa-cli/tests/it/e2e/addons_drawings_and_notes.rs` — a folder refused whole, imported, granted, switched, its files served to its window and to nobody once it is off — under `scripts/test module cli e2e`.

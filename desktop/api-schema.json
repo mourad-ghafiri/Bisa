@@ -22818,6 +22818,35 @@
           "type": "string",
           "const": "navigate",
           "description": "Taking the person to one of the app's screens."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "media": {
+              "type": "object",
+              "properties": {
+                "hosts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "youtube": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "hosts"
+              ]
+            }
+          },
+          "required": [
+            "media"
+          ],
+          "additionalProperties": false,
+          "description": "Playing media from the hosts named (`*` for any https host) in the\naddon's own window, and the YouTube player shown beside it when\n`youtube` is set. The node widens the bundle's `media-src` alone;\nnothing else of the walls moves."
         }
       ],
       "description": "One capability an addon may declare and a person may grant. A closed\nlist: the bridge answers a method only when the record grants the\npermission the registry names for it, and a word not here is refused\nat install."

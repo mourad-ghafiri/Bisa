@@ -3029,7 +3029,13 @@ export type AddonPermission =
       };
     }
   | "open_url"
-  | "navigate";
+  | "navigate"
+  | {
+      media: {
+        hosts: string[];
+        youtube?: boolean;
+      };
+    };
 /**
  * Which addon moved, and how — the bus frame Settings and the addon layer
  * re-read on. Never a value: only which part moved.

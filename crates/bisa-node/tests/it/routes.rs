@@ -142,6 +142,7 @@ async fn request_open(socket: &std::path::Path, method: &str, path: &str) -> (u1
 fn fill(path: &str) -> String {
     let ulid = "01J0000000000000000000000A";
     path.replace("{*path}", "index.html")
+        .replace("{video}", "dQw4w9WgXcQ")
         .replace("{id}", ulid)
         .replace("{item}", ulid)
         .replace("{pid}", ulid)
@@ -225,9 +226,12 @@ async fn every_route_but_the_named_exceptions_answers_401_without_the_token() {
         if r.path == "/events" {
             continue;
         }
-        let (status, challenge) = request_open(&socket, r.method, &fill(r.path)).await;
+        let filled = fill(r.path);
+        let (status, challenge) = request_open(&socket, r.method, &filled).await;
         let gate_refused = status == 401 && challenge.as_deref() == Some("Bearer");
-        if bisa_node::auth::is_exempt(r.path) {
+        // The exemption is a path's, judged on the filled one: the player
+        // page's template holds `{video}` where the gate wants an id.
+        if bisa_node::auth::is_exempt(&filled) {
             // A public hook answers for itself — 404 while the machine
             // allows none, 401 when no signature matches: the route's
             // verdict, not the token gate's.

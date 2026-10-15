@@ -19,12 +19,21 @@ test("the words say how many show, and what state each addon is in", () => {
 test("every permission has plain words, and network names its hosts", () => {
   const net = { network: { hosts: ["api.example.com", "*.example.org"] } };
   assert.match(permissionWords(net), /api\.example\.com, \*\.example\.org/);
-  for (const word of ["platform_info", "theme", "system_load", "workspace_summary", "notify", "clipboard_write", "storage", "open_url", "navigate"]) {
+  for (const word of ["platform_info", "theme", "system_load", "workspace_summary", "notify", "clipboard_write", "storage", "open_url", "navigate", "media"]) {
     const words = permissionWords(word);
     assert.ok(words.length > 8 && !words.includes("addons-"), `${word}: ${words}`);
   }
   assert.equal(permissionWords("bogus"), permissionWords(42));
   assert.deepEqual(sortedPermissions(["navigate", net, "theme"]), ["theme", net, "navigate"]);
+  // `media` says its sites — `*` as any site — and the player when it asks for one.
+  const media = { media: { hosts: ["*"], youtube: true } };
+  assert.match(permissionWords(media), /any site/);
+  assert.match(permissionWords(media), /YouTube/);
+  assert.match(permissionWords({ media: { hosts: ["cdn.example", "*.media.example"] } }), /cdn\.example, \*\.media\.example/);
+  assert.doesNotMatch(permissionWords({ media: { hosts: ["cdn.example"] } }), /YouTube/);
+  assert.match(permissionWords({ media: { hosts: [], youtube: true } }), /YouTube/);
+  assert.doesNotMatch(permissionWords({ media: { hosts: [], youtube: true } }), /sites/);
+  assert.deepEqual(sortedPermissions(["navigate", media, net, "theme"]), ["theme", net, "navigate", media], "the reaching ones last");
 });
 
 test("a grant toggles exactly the declared permission, never a widened one", () => {

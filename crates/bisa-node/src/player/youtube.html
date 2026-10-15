@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The same policy the node sends as a header: the shell loads this page as a string with the app's own base URL (YouTube wants the embedding app named in the Referer), and a string load carries no headers. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://www.youtube.com; style-src 'unsafe-inline'; img-src https://i.ytimg.com data:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>YouTube player</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #0b0b0c;
+    color: #d6d6d8;
+    font: 12px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    html, body { background: #f1f1f3; color: #3a3a3f; }
+  }
+  #player { position: absolute; inset: 0; }
+  #player iframe { display: block; width: 100%; height: 100%; border: 0; }
+  #words {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0;
+    padding: 16px;
+    text-align: center;
+  }
+  #words a { color: inherit; font-weight: 600; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body data-video="{{VIDEO}}">
+<div id="player"></div>
+<p id="words" hidden></p>
+<script>
+(function () {
+  "use strict";
+  var video = document.body.getAttribute("data-video") || "";
+  var words = document.getElementById("words");
+  var stage = document.getElementById("player");
+  var player = null;
+  // The IFrame Player API's states, by their numbers.
+  var STATES = { "-1": "unstarted", "0": "ended", "1": "playing", "2": "paused", "3": "buffering", "5": "cued" };
+  // Its error codes, in words.
+  var ERRORS = {
+    "2": "YouTube does not know a video by that id.",
+    "5": "The YouTube player could not start here.",
+    "100": "This video was removed, or is private.",
+    "101": "Its owner does not let this video play outside YouTube.",
+    "150": "Its owner does not let this video play outside YouTube.",
+    "153": "YouTube would not show the player without a page to credit."
+  };
+
+  // The one door out: the shell's message handler, a JSON string each time.
+  function say(message) {
+    try {
+      window.webkit.messageHandlers.bisa.postMessage(JSON.stringify(message));
+    } catch (e) {
+      // Opened outside the shell: nobody listens, and that is fine.
+    }
+  }
+
+  function title() {
+    try {
+      var data = player && player.getVideoData ? player.getVideoData() : null;
+      return data && data.title ? String(data.title) : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function fail(code, text) {
+    stage.hidden = true;
+    words.textContent = "";
+    var line = document.createElement("span");
+    line.textContent = text;
+    var link = document.createElement("a");
+    link.href = "https://www.youtube.com/watch?v=" + encodeURIComponent(video);
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Watch on YouTube";
+    words.appendChild(line);
+    words.appendChild(link);
+    words.hidden = false;
+    say({ type: "bisa:media", state: "error", code: String(code), title: title(), words: text });
+  }
+
+  function onReady() {
+    say({ type: "bisa:media", state: "ready", title: title() });
+  }
+  function onStateChange(event) {
+    var state = STATES[String(event.data)] || "unstarted";
+    say({ type: "bisa:media", state: state, title: title() });
+  }
+  function onError(event) {
+    var code = String(event.data);
+    fail(code, ERRORS[code] || ("YouTube could not play this video (" + code + ")."));
+  }
+
+  // The API calls this once its script is here.
+  window.onYouTubeIframeAPIReady = function () {
+    try {
+      player = new YT.Player("player", {
+        videoId: video,
+        // The page starts no playback of its own: YouTube's rules allow it only
+        // once the player is in sight, and the shell may still be placing this
+        // view. The player's own play button is one click.
+        playerVars: { playsinline: 1, rel: 0, origin: location.origin },
+        events: { onReady: onReady, onStateChange: onStateChange, onError: onError }
+      });
+    } catch (e) {
+      fail("api", "The YouTube player could not be made here.");
+    }
+  };
+
+  var tag = document.createElement("script");
+  tag.src = "https://www.youtube.com/iframe_api";
+  tag.onerror = function () {
+    fail("offline", "The YouTube player did not load. Is this machine online?");
+  };
+  document.head.appendChild(tag);
+})();
+</script>
+</body>
+</html>

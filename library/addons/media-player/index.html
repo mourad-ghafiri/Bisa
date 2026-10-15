@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Media player</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app" class="player" data-mode="idle" aria-label="Media player">
+    <section id="stage" class="stage" aria-label="Now playing">
+      <div id="empty" class="empty">
+        <svg class="mark" viewBox="0 0 64 24" aria-hidden="true"><use href="#i-wave"></use></svg>
+        <p class="lead">Drop an audio or video file here</p>
+        <p class="sub">or paste a link — a media file or a YouTube page</p>
+      </div>
+      <canvas id="spectro" class="spectro" hidden aria-hidden="true"></canvas>
+      <canvas id="bars" class="bars" hidden aria-hidden="true"></canvas>
+      <div id="yt" class="yt" hidden><p>YouTube's player is loading here…</p></div>
+      <div id="notice" class="notice" hidden role="region" aria-label="About YouTube's player">
+        <p class="lead">This plays in YouTube's own player</p>
+        <p>YouTube loads and runs it: YouTube's Terms of Service apply to you, and what the player sends YouTube is covered by Google's Privacy Policy. Bisa uses YouTube's player API and sends it nothing else — no account, no key.</p>
+        <div class="foot">
+          <p class="links"><button id="ytTerms" class="link" type="button">YouTube Terms of Service</button><button id="ytPrivacy" class="link" type="button">Google Privacy Policy</button></p>
+          <p class="row"><button id="ytAgree" class="go" type="button">Continue</button><button id="ytNotNow" class="quiet" type="button">Not now</button></p>
+        </div>
+      </div>
+      <div id="caption" class="caption" hidden><span id="name" class="name"></span><span id="state" class="state"></span></div>
+      <div id="drop" class="drop" hidden aria-hidden="true"><p>Drop to play</p></div>
+    </section>
+    <div class="transport" role="group" aria-label="Playback">
+      <button id="play" class="icon play" type="button" aria-label="Play" title="Play (space)" disabled>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><use id="playIcon" href="#i-play"></use></svg>
+      </button>
+      <output id="now" class="time" aria-label="Position">0:00</output>
+      <input id="seek" class="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek" disabled>
+      <output id="total" class="time total" aria-label="Length">0:00</output>
+      <button id="mute" class="icon" type="button" aria-label="Mute" aria-pressed="false" title="Mute (m)">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><use id="muteIcon" href="#i-sound"></use></svg>
+      </button>
+      <input id="volume" class="volume" type="range" min="0" max="100" step="1" value="100" aria-label="Volume">
+      <button id="speed" class="speed" type="button" aria-label="Speed" title="Speed">1×</button>
+      <button id="loop" class="icon" type="button" aria-label="Loop" aria-pressed="false" title="Loop (l)">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-loop"></use></svg>
+      </button>
+    </div>
+    <form id="source" class="source" autocomplete="off">
+      <label class="field">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-link"></use></svg>
+        <input id="link" type="text" inputmode="url" spellcheck="false" placeholder="Paste a link or a YouTube URL" aria-label="Link">
+      </label>
+      <button id="go" class="go" type="submit">Play</button>
+      <button id="open" class="icon quiet" type="button" aria-label="Open a file" title="Open a file">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-folder"></use></svg>
+      </button>
+      <input id="file" type="file" accept="audio/*,video/*" hidden>
+      <span class="recent quiet" title="Recent">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-list"></use></svg>
+        <select id="recent" aria-label="Recent"><option value="" selected disabled>Recent</option></select>
+      </span>
+    </form>
+    <p id="status" class="status" aria-live="polite"></p>
+  </main>
+  <svg hidden aria-hidden="true">
+    <symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 3.2v9.6a.6.6 0 0 0 .9.5l7.6-4.8a.6.6 0 0 0 0-1L5.4 2.7a.6.6 0 0 0-.9.5z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 16 16"><path d="M4.5 3h2.2v10H4.5zM9.3 3h2.2v10H9.3z" fill="currentColor"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 16 16"><path d="M2.5 6.2h2.4L8.5 3.4v9.2L4.9 9.8H2.5z" fill="currentColor"/><path d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.6 3.6a6.2 6.2 0 0 1 0 8.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-muted" viewBox="0 0 16 16"><path d="M2.5 6.2h2.4L8.5 3.4v9.2L4.9 9.8H2.5z" fill="currentColor"/><path d="M10.6 6.2l3.3 3.6M13.9 6.2l-3.3 3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 16 16"><path d="M3 9.5V7.2A2.2 2.2 0 0 1 5.2 5h7.3M13 6.5V8.8a2.2 2.2 0 0 1-2.2 2.2H3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.8 3.2 12.8 5l-2 1.8M5.2 9.2 3.2 11l2 1.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2-2a2.6 2.6 0 0 0-3.7-3.7l-.9.9M9.2 6.8a2.6 2.6 0 0 0-3.7 0l-2 2a2.6 2.6 0 0 0 3.7 3.7l.9-.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2.2 4.2A1.2 1.2 0 0 1 3.4 3h2.8l1.4 1.5h5a1.2 1.2 0 0 1 1.2 1.2v6.1a1.2 1.2 0 0 1-1.2 1.2H3.4a1.2 1.2 0 0 1-1.2-1.2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-list" viewBox="0 0 16 16"><path d="M5.5 4.5h8M5.5 8h8M5.5 11.5h8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="2.8" cy="4.5" r=".9" fill="currentColor"/><circle cx="2.8" cy="8" r=".9" fill="currentColor"/><circle cx="2.8" cy="11.5" r=".9" fill="currentColor"/></symbol><!-- terminology-lint-ignore: circle - the SVG element, a third-party name -->
+    <symbol id="i-wave" viewBox="0 0 64 24"><path d="M2 12h4l3-7 4 14 4-11 4 8 3-4h5l3-9 4 16 4-12 4 6 3-3h5l2-5 3 10 2-5h4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+  <script src="bisa-addon.js"></script>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -188,7 +188,7 @@ async fn an_addon_is_imported_switched_granted_and_removed_over_the_wire() {
         String::from_utf8_lossy(&offers.body)
     );
     let offered = offers.json()["offers"].as_array().unwrap().clone();
-    assert_eq!(offered.len(), 13);
+    assert_eq!(offered.len(), 14);
     assert!(offered.iter().all(|o| o["installed"] == false));
     let weather = offered.iter().find(|o| o["slug"] == "weather").unwrap();
     assert_eq!(
@@ -471,7 +471,7 @@ async fn the_broker_refuses_and_a_built_in_installs_from_the_catalog() {
     let listed = get(&socket, "/catalog?kind=addon").await;
     assert_eq!(listed.status, 200);
     let entries = listed.json()["entries"].as_array().unwrap().clone();
-    assert_eq!(entries.len(), 13);
+    assert_eq!(entries.len(), 14);
     let weather = entries.iter().find(|e| e["slug"] == "weather").unwrap();
     assert_eq!(weather["installed"], true);
     assert_eq!(weather["kind"], "addon");
@@ -534,4 +534,266 @@ async fn the_broker_refuses_and_a_built_in_installs_from_the_catalog() {
         .as_str()
         .unwrap()
         .contains("ships with the platform"));
+}
+
+/// A bundle that declares `media` and whose person granted it wears a
+/// `media-src` widened to the hosts of the grant; declared but not
+/// granted, it wears the constant like every other bundle.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_media_addon_s_files_wear_a_wider_media_src_and_an_ordinary_one_the_constant() {
+    let (dir, socket, _stop) = boot().await;
+    let src = tempfile::tempdir().unwrap();
+    let from = src.path().join("player");
+    std::fs::create_dir_all(&from).unwrap();
+    std::fs::write(
+        from.join("addon.json"),
+        r#"{"id":"acme.player","name":"Player","description":"plays","version":"1.0.0","license":"MIT",
+            "permissions":["storage",{"media":{"hosts":["*"],"youtube":true}}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        from.join("index.html"),
+        "<!doctype html><script src=\"bisa-addon.js\"></script><script src=\"main.js\"></script>",
+    )
+    .unwrap();
+    std::fs::write(from.join("main.js"), "// x").unwrap();
+
+    // Declared, not granted: the constant.
+    let imported = call(
+        &socket,
+        "POST",
+        "/addons",
+        json!({ "path": from.to_string_lossy(), "granted": ["storage"], "enabled": true }),
+    )
+    .await;
+    assert_eq!(
+        imported.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&imported.body)
+    );
+    let page = get_open(&socket, "/addons/acme.player/files/index.html").await;
+    assert_eq!(page.status, 200);
+    assert_eq!(
+        page.header("content-security-policy").as_deref(),
+        Some(bisa_node::addons::ADDON_FILES_CSP)
+    );
+
+    // Granted: `media-src` reaches every https host; the other walls stand.
+    let granted = call(
+        &socket,
+        "PATCH",
+        "/addons/acme.player",
+        json!({ "granted": ["storage", { "media": { "hosts": ["*"], "youtube": true } }] }),
+    )
+    .await;
+    assert_eq!(
+        granted.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&granted.body)
+    );
+    let page = get_open(&socket, "/addons/acme.player/files/index.html").await;
+    assert_eq!(page.status, 200);
+    let csp = page
+        .header("content-security-policy")
+        .expect("a policy on every file");
+    assert!(
+        csp.contains("media-src 'self' data: blob: https:;"),
+        "{csp}"
+    );
+    for wall in [
+        "connect-src 'none'",
+        "frame-src 'none'",
+        "sandbox allow-scripts",
+    ] {
+        assert!(csp.contains(wall), "{wall}: {csp}");
+    }
+    drop(dir);
+}
+
+/// A folder declaring the `media` permission given, and nothing else of note.
+fn media_folder(root: &std::path::Path, id: &str, media: &str) -> PathBuf {
+    let dir = root.join(id);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("addon.json"),
+        format!(
+            r#"{{"id":"{id}","name":"Player","description":"plays","version":"1.0.0","license":"MIT",
+                "permissions":["storage",{{"media":{media}}}]}}"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("index.html"),
+        "<!doctype html><script src=\"bisa-addon.js\"></script><script src=\"main.js\"></script>",
+    )
+    .unwrap();
+    std::fs::write(dir.join("main.js"), "// x").unwrap();
+    dir
+}
+
+/// The player page opens, token-less, for an active addon granted `media`
+/// with `youtube`; a declaration alone, a grant without the player, a
+/// disabled addon, an unknown one, the machine's switch off, and an id of
+/// any other shape each meet the files' bare 404 — or, for a shape the
+/// exemption does not know, the gate's 401.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_youtube_player_page_opens_for_a_granted_addon_alone() {
+    let (dir, socket, _stop) = boot().await;
+    let src = tempfile::tempdir().unwrap();
+    let with_player = media_folder(
+        src.path(),
+        "acme.player",
+        r#"{"hosts":["*"],"youtube":true}"#,
+    );
+    let hosts_only = media_folder(src.path(), "acme.links", r#"{"hosts":["cdn.example"]}"#);
+    for (from, granted) in [(&with_player, json!(["storage"])), (&hosts_only, json!([]))] {
+        let imported = call(
+            &socket,
+            "POST",
+            "/addons",
+            json!({ "path": from.to_string_lossy(), "granted": granted, "enabled": true }),
+        )
+        .await;
+        assert_eq!(
+            imported.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&imported.body)
+        );
+    }
+    let page_path = "/addons/acme.player/player/youtube/dQw4w9WgXcQ";
+
+    // Declared, not granted: closed.
+    let page = get_open(&socket, page_path).await;
+    assert_eq!(page.status, 404, "{}", String::from_utf8_lossy(&page.body));
+    assert!(
+        !String::from_utf8_lossy(&page.body).contains("youtube"),
+        "a bare answer"
+    );
+
+    // Granted: the page, under its own headers, the id in its one hole.
+    let granted = call(
+        &socket,
+        "PATCH",
+        "/addons/acme.player",
+        json!({ "granted": ["storage", { "media": { "hosts": ["*"], "youtube": true } }] }),
+    )
+    .await;
+    assert_eq!(
+        granted.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&granted.body)
+    );
+    let page = get_open(&socket, page_path).await;
+    assert_eq!(page.status, 200, "{}", String::from_utf8_lossy(&page.body));
+    let body = String::from_utf8_lossy(&page.body);
+    assert!(body.contains("data-video=\"dQw4w9WgXcQ\""), "{body}");
+    assert!(
+        body.contains("https://www.youtube.com/iframe_api"),
+        "{body}"
+    );
+    assert!(!body.contains("{{VIDEO}}"), "the hole is filled");
+    assert_eq!(
+        page.header("content-type").as_deref(),
+        Some("text/html; charset=utf-8")
+    );
+    assert_eq!(
+        page.header("x-content-type-options").as_deref(),
+        Some("nosniff")
+    );
+    assert_eq!(page.header("cache-control").as_deref(), Some("no-store"));
+    assert_eq!(
+        page.header("referrer-policy").as_deref(),
+        Some("strict-origin-when-cross-origin")
+    );
+    assert_eq!(
+        page.header("content-security-policy").as_deref(),
+        Some(bisa_node::addons::PLAYER_PAGE_CSP)
+    );
+
+    // An id of another shape: the files' 404 with the token, the gate's 401
+    // without — the exemption is the route's exact shape.
+    let short = "/addons/acme.player/player/youtube/dQw4w9WgXc";
+    assert_eq!(get(&socket, short).await.status, 404);
+    assert_eq!(get_open(&socket, short).await.status, 401);
+    let odd = "/addons/acme.player/player/youtube/dQw4w9WgXc!";
+    assert_eq!(get(&socket, odd).await.status, 404);
+
+    // A grant of hosts alone has no player.
+    let links = call(
+        &socket,
+        "PATCH",
+        "/addons/acme.links",
+        json!({ "granted": ["storage", { "media": { "hosts": ["cdn.example"] } }] }),
+    )
+    .await;
+    assert_eq!(
+        links.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&links.body)
+    );
+    assert_eq!(
+        get_open(&socket, "/addons/acme.links/player/youtube/dQw4w9WgXcQ")
+            .await
+            .status,
+        404
+    );
+    // Its files wear `media-src` for its host alone.
+    let csp = get_open(&socket, "/addons/acme.links/files/index.html")
+        .await
+        .header("content-security-policy")
+        .expect("a policy");
+    assert!(
+        csp.contains("media-src 'self' data: blob: https://cdn.example;"),
+        "{csp}"
+    );
+
+    // An addon nobody installed.
+    assert_eq!(
+        get_open(&socket, "/addons/acme.nope/player/youtube/dQw4w9WgXcQ")
+            .await
+            .status,
+        404
+    );
+
+    // Switched off: closed; on again: open.
+    let off = call(
+        &socket,
+        "PATCH",
+        "/addons/acme.player",
+        json!({ "enabled": false }),
+    )
+    .await;
+    assert_eq!(off.status, 200, "{}", String::from_utf8_lossy(&off.body));
+    assert_eq!(get_open(&socket, page_path).await.status, 404);
+    let on = call(
+        &socket,
+        "PATCH",
+        "/addons/acme.player",
+        json!({ "enabled": true }),
+    )
+    .await;
+    assert_eq!(on.status, 200, "{}", String::from_utf8_lossy(&on.body));
+    assert_eq!(get_open(&socket, page_path).await.status, 200);
+
+    // The machine's switch closes the page as it closes the files.
+    let machine_off = call(
+        &socket,
+        "PUT",
+        "/settings/machine",
+        json!({ "values": { "addons.enabled": false } }),
+    )
+    .await;
+    assert!(
+        machine_off.status == 200 || machine_off.status == 204,
+        "{}: {}",
+        machine_off.status,
+        String::from_utf8_lossy(&machine_off.body)
+    );
+    assert_eq!(get_open(&socket, page_path).await.status, 404);
+    drop(dir);
 }

@@ -251,6 +251,15 @@ pub enum AddonPermission {
     OpenUrl,
     /// Taking the person to one of the app's screens.
     Navigate,
+    /// Playing media from the hosts named (`*` for any https host) in the
+    /// addon's own window, and the YouTube player shown beside it when
+    /// `youtube` is set. The node widens the bundle's `media-src` alone;
+    /// nothing else of the walls moves.
+    Media {
+        hosts: Vec<String>,
+        #[serde(default)]
+        youtube: bool,
+    },
 }
 
 impl AddonPermission {
@@ -267,11 +276,12 @@ impl AddonPermission {
             AddonPermission::Network { .. } => "network",
             AddonPermission::OpenUrl => "open_url",
             AddonPermission::Navigate => "navigate",
+            AddonPermission::Media { .. } => "media",
         }
     }
 
     /// Every word, in the order a review lists them.
-    pub const WORDS: [&'static str; 10] = [
+    pub const WORDS: [&'static str; 11] = [
         "platform_info",
         "theme",
         "system_load",
@@ -282,6 +292,7 @@ impl AddonPermission {
         "network",
         "open_url",
         "navigate",
+        "media",
     ];
 
     /// The declared permission a word names — a grant copies the
@@ -562,9 +573,65 @@ impl AddonManifest {
                     }
                 }
             }
+            if let AddonPermission::Media { hosts, youtube } = permission {
+                if hosts.is_empty() && !youtube {
+                    push(&field, crate::text!("problem-addon-media-asks-nothing"));
+                }
+                for host in hosts {
+                    if host == MEDIA_ANY_HOST {
+                        continue;
+                    }
+                    if !crate::connector::is_host_pattern(host) {
+                        push(
+                            &field,
+                            crate::text!(
+                                "problem-addon-media-host-not-pattern",
+                                host = format!("{host:?}")
+                            ),
+                        );
+                    } else if crate::connector::is_loopback(host.trim_start_matches("*.")) {
+                        push(
+                            &field,
+                            crate::text!(
+                                "problem-addon-media-loopback-refused",
+                                host = format!("{host:?}")
+                            ),
+                        );
+                    }
+                }
+            }
         }
         out
     }
+}
+
+/// The one host word of a `media` permission that means any https host.
+pub const MEDIA_ANY_HOST: &str = "*";
+
+/// What a granted `media` permission lets an addon play: the hosts, and
+/// whether the YouTube player may be shown beside its window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MediaGrant<'a> {
+    pub hosts: &'a [String],
+    pub youtube: bool,
+}
+
+impl MediaGrant<'_> {
+    /// Whether any https host may be played from.
+    pub fn any_host(&self) -> bool {
+        self.hosts.iter().any(|h| h == MEDIA_ANY_HOST)
+    }
+}
+
+/// Whether `id` is shaped like a YouTube video id — eleven characters of
+/// letters, digits, `-` and `_` — the one shape the node's player page and
+/// the bridge's `media.embed` take. A shape, not a lookup: whether a video
+/// exists is YouTube's word, said by its player.
+pub fn is_youtube_video_id(id: &str) -> bool {
+    id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// The workspace's word: the manifest as installed, where it came from,
@@ -610,6 +677,17 @@ impl AddonRecord {
     pub fn network_hosts(&self) -> Option<&[String]> {
         match self.grant("network") {
             Some(AddonPermission::Network { hosts }) => Some(hosts),
+            _ => None,
+        }
+    }
+
+    /// The `media` grant as it stands, or none.
+    pub fn media_grant(&self) -> Option<MediaGrant<'_>> {
+        match self.grant("media") {
+            Some(AddonPermission::Media { hosts, youtube }) => Some(MediaGrant {
+                hosts,
+                youtube: *youtube,
+            }),
             _ => None,
         }
     }
@@ -758,16 +836,114 @@ mod tests {
             json,
             r#"["storage","theme",{"network":{"hosts":["api.example.com","*.example.org:8443"]}}]"#
         );
-        assert_eq!(AddonPermission::WORDS.len(), 10);
+        assert_eq!(AddonPermission::WORDS.len(), 11);
         for word in AddonPermission::WORDS {
-            let value = if word == "network" {
-                r#"{"network":{"hosts":["a.example"]}}"#.to_string()
-            } else {
-                format!("{word:?}")
+            let value = match word {
+                "network" => r#"{"network":{"hosts":["a.example"]}}"#.to_string(),
+                "media" => r#"{"media":{"hosts":["*"],"youtube":true}}"#.to_string(),
+                _ => format!("{word:?}"),
             };
             let p: AddonPermission = serde_json::from_str(&value).unwrap();
             assert_eq!(p.word(), word);
         }
+    }
+
+    /// A media permission names hosts (`*` for any https host) or asks for
+    /// the YouTube player, never this machine; `youtube` may be left out.
+    #[test]
+    fn a_media_permission_is_hosts_or_youtube_and_never_this_machine() {
+        let any: AddonPermission = serde_json::from_str(r#"{"media":{"hosts":["*"]}}"#).unwrap();
+        assert_eq!(
+            any,
+            AddonPermission::Media {
+                hosts: vec!["*".into()],
+                youtube: false
+            }
+        );
+        let mut m = manifest();
+        m.permissions = vec![AddonPermission::Media {
+            hosts: vec![],
+            youtube: false,
+        }];
+        assert!(has(
+            &m.validate(),
+            "permissions.0",
+            "problem-addon-media-asks-nothing"
+        ));
+        m.permissions = vec![AddonPermission::Media {
+            hosts: vec![],
+            youtube: true,
+        }];
+        assert!(m.validate().is_empty(), "{:?}", ids(&m.validate()));
+        m.permissions = vec![AddonPermission::Media {
+            hosts: vec!["*".into(), "Bad Host".into(), "localhost:4477".into()],
+            youtube: false,
+        }];
+        let problems = m.validate();
+        assert!(has(
+            &problems,
+            "permissions.0",
+            "problem-addon-media-host-not-pattern"
+        ));
+        assert!(has(
+            &problems,
+            "permissions.0",
+            "problem-addon-media-loopback-refused"
+        ));
+        assert_eq!(problems.len(), 2, "{:?}", ids(&problems));
+    }
+
+    /// A media grant is read back as it was declared, `*` meaning any
+    /// host; a record without the grant has none.
+    #[test]
+    fn a_video_id_is_eleven_url_safe_characters() {
+        for ok in ["dQw4w9WgXcQ", "a-b_c-d_e-f", "00000000000"] {
+            assert!(is_youtube_video_id(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "dQw4w9WgXc",
+            "dQw4w9WgXcQQ",
+            "dQw4w9WgXc!",
+            "dQw4w9WgXc/",
+            "dQw4w9WgXc ",
+            "dQw4w9WgXcé",
+        ] {
+            assert!(!is_youtube_video_id(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_media_grant_copies_the_declaration() {
+        let mut m = manifest();
+        m.permissions = vec![
+            AddonPermission::Storage,
+            AddonPermission::Media {
+                hosts: vec!["cdn.example".into()],
+                youtube: true,
+            },
+        ];
+        let record = AddonRecord {
+            manifest: m.clone(),
+            origin: Origin::Local,
+            enabled: true,
+            granted: m.permissions.clone(),
+            installed_at: 1,
+        };
+        let grant = record.media_grant().expect("granted");
+        assert_eq!(grant.hosts, ["cdn.example".to_string()]);
+        assert!(grant.youtube);
+        assert!(!grant.any_host());
+        let any = MediaGrant {
+            hosts: &["*".to_string()],
+            youtube: false,
+        };
+        assert!(any.any_host());
+        let ungranted = AddonRecord {
+            granted: vec![AddonPermission::Storage],
+            ..record
+        };
+        assert!(ungranted.media_grant().is_none());
     }
 
     #[test]

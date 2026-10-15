@@ -9,7 +9,8 @@
 //! and `/goals/{id}/hooks/{step}`, takes the token like everything else);
 //! the OAuth callback a browser lands on (opened by the one-time `state` of
 //! the sign-in it ends); the A2A card and endpoint (their own protocol); an
-//! installed addon's files ([`is_addon_file`]); and a terminal session's
+//! installed addon's files ([`is_addon_file`]) and its YouTube player page
+//! ([`is_addon_player`]); and a terminal session's
 //! four doors — `report`, `guard`, `exit`, `close` — which take the
 //! session's own secret in the token's place ([`is_session_door`]).
 //!
@@ -117,6 +118,7 @@ pub fn is_exempt(path: &str) -> bool {
         || path.starts_with("/a2a/")
         || is_session_door(path)
         || is_addon_file(path)
+        || is_addon_player(path)
 }
 
 /// `GET /addons/{id}/files/<path>` — the static files of an installed bundle,
@@ -129,6 +131,23 @@ pub fn is_addon_file(path: &str) -> bool {
         return false;
     };
     matches!(rest.split_once("/files/"), Some((id, file)) if !id.is_empty() && !id.contains('/') && !file.is_empty())
+}
+
+/// `GET /addons/{id}/player/youtube/{video}` — the page that hosts YouTube's
+/// own player beside a `media` addon's window, for the shell's child view
+/// that runs it and holds no token either (18 — Addons). The node answers it
+/// only for an active addon granted the player, a bare 404 otherwise; the
+/// video id's shape is judged here too, so the exemption is exactly the
+/// route's shape and nothing wider.
+pub fn is_addon_player(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/addons/") else {
+        return false;
+    };
+    matches!(
+        rest.split_once("/player/youtube/"),
+        Some((id, video))
+            if !id.is_empty() && !id.contains('/') && bisa_core::addon::is_youtube_video_id(video)
+    )
 }
 
 /// The doors of a session a person opened in a terminal, each presenting the
@@ -233,6 +252,8 @@ mod tests {
             "/addons/clock/files/index.html",
             "/addons/acme.byte/files/img/a.png",
             "/addons/clock/files/bisa-addon.js",
+            "/addons/media-player/player/youtube/dQw4w9WgXcQ",
+            "/addons/acme.player/player/youtube/a-b_c-d_e-f",
         ] {
             assert!(is_exempt(open), "{open}");
         }
@@ -244,6 +265,16 @@ mod tests {
             "/addons//files/x",
             "/addons/validate",
             "/addons/a/b/files/x",
+            // The player page is open for one shape of id and no other.
+            "/addons/media-player/player",
+            "/addons/media-player/player/youtube/",
+            "/addons/media-player/player/youtube/dQw4w9WgXc",
+            "/addons/media-player/player/youtube/dQw4w9WgXcQQ",
+            "/addons/media-player/player/youtube/dQw4w9WgXc!",
+            "/addons/media-player/player/youtube/dQw4w9WgXcQ/x",
+            "/addons/media-player/player/vimeo/dQw4w9WgXcQ",
+            "/addons//player/youtube/dQw4w9WgXcQ",
+            "/addons/a/b/player/youtube/dQw4w9WgXcQ",
         ] {
             assert!(!is_exempt(closed), "{closed}");
         }

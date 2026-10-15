@@ -1,0 +1,94 @@
+/* A player's stage is dark under any light; the chrome around it wears the
+   built-ins' ink and dim over the app's surface, and one accent — the
+   playhead, the level, the focus ring. The spectrogram's ramp ends in the
+   accent's family (`logic.js`), so loud wears the same warm as the controls. */
+/* The stage keeps one accent in either scheme — the amber the ramp ends in — while the chrome's follows the scheme like every built-in's. */
+:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); --field: rgba(255, 255, 255, 0.7); --stage: #15141a; --stage-ink: #ece9f3; --stage-dim: #9a95ad; --stage-line: rgba(236, 233, 243, 0.14); --stage-accent: #fbbf24; --track: rgba(28, 25, 23, 0.16); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); --field: rgba(0, 0, 0, 0.24); --stage: #0e0d12; --track: rgba(245, 245, 244, 0.2); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+::selection { background: var(--accent); color: #fff; }
+html, body { margin: 0; height: 100%; font: 12px/1.4 system-ui, sans-serif; color: var(--ink); background: transparent; overflow: hidden; }
+button, input, select, output { font: inherit; color: inherit; }
+.player { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 6px; }
+
+/* --- the stage --------------------------------------------------------- */
+.stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 6px; overflow: hidden; background: var(--stage); color: var(--stage-ink); }
+.stage > .video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: var(--stage); display: block; }
+/* A canvas's own size is its minimum as a flex item: zeroed, or the meter would grow by its own last reading and starve the spectrogram. */
+.spectro { flex: 1 1 0; min-height: 0; min-width: 0; width: 100%; height: 0; display: block; }
+.bars { flex: 0 0 22px; min-height: 0; min-width: 0; width: 100%; height: 22px; box-sizing: border-box; display: block; border-top: 1px solid var(--stage-line); }
+.empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 8px 12px; text-align: center; color: var(--stage-dim); }
+.empty .mark { width: 72px; height: 27px; color: var(--stage-accent); margin-bottom: 6px; }
+.empty .lead { margin: 0; color: var(--stage-ink); font-weight: 600; }
+.empty .sub { margin: 0; font-size: 11px; }
+.yt { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--stage-dim); font-size: 11px; }
+.yt p { margin: 0; }
+/* Read from the top and scrollable: at the smallest window the whole notice does not fit, and the Continue must stay reachable. */
+.notice { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; padding: 10px 14px; color: var(--stage-dim); font-size: 11px; line-height: 1.45; }
+.notice p { margin: 0; }
+.notice .lead { color: var(--stage-ink); font-size: 12px; font-weight: 600; }
+.notice .links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.notice .link { padding: 0; border: 0; background: transparent; color: var(--stage-ink); font-size: 11px; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.notice .link:hover { color: var(--stage-accent); }
+/* The two links and the decision stay in reach at the smallest window: the foot sticks to the notice's bottom while the text scrolls above it, fading under it. */
+.notice .foot { position: sticky; bottom: 0; display: flex; flex-direction: column; gap: 6px; padding-top: 12px; background: linear-gradient(to bottom, transparent, var(--stage) 40%); }
+.notice .row { display: flex; align-items: center; gap: 6px; }
+.notice::-webkit-scrollbar { width: 6px; }
+.notice::-webkit-scrollbar-thumb { background: var(--stage-line); border-radius: 3px; }
+.notice::-webkit-scrollbar-track { background: transparent; }
+.notice .go { color: var(--stage-ink); border-color: var(--stage-line); }
+.notice .go:hover { background: rgba(236, 233, 243, 0.1); }
+.notice .quiet { height: 24px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--stage-dim); cursor: pointer; }
+.notice .quiet:hover { color: var(--stage-ink); }
+.caption { position: absolute; left: 6px; top: 6px; max-width: calc(100% - 12px); display: flex; align-items: baseline; gap: 6px; padding: 2px 7px; border-radius: 4px; background: rgba(14, 13, 18, 0.72); font-size: 11px; line-height: 1.5; pointer-events: none; }
+.caption .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.caption .state { flex: none; color: var(--stage-dim); }
+.drop { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--stage-accent); border-radius: 6px; background: rgba(14, 13, 18, 0.6); color: var(--stage-ink); font-weight: 600; pointer-events: none; }
+.drop p { margin: 0; }
+
+/* --- the transport ------------------------------------------------------ */
+.transport { display: flex; align-items: center; gap: 4px; min-height: 26px; }
+.icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--dim); cursor: pointer; transition: background 120ms, color 120ms; }
+.icon svg { width: 16px; height: 16px; }
+.icon:hover:not(:disabled), .icon[aria-pressed="true"] { background: var(--key); color: var(--ink); }
+.icon[aria-pressed="true"] { color: var(--accent); }
+.icon:disabled { opacity: 0.45; cursor: default; }
+.play { width: 28px; height: 28px; color: var(--ink); }
+.time { flex: none; min-width: 34px; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--dim); }
+input[type="range"] { -webkit-appearance: none; appearance: none; height: 16px; margin: 0; background: transparent; cursor: pointer; }
+input[type="range"]:disabled { cursor: default; opacity: 0.45; }
+input[type="range"]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: var(--track); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4px; border-radius: 50%; border: 0; background: var(--accent); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
+.seek { flex: 1; min-width: 40px; }
+.volume { flex: none; width: 54px; }
+.speed { flex: none; min-width: 30px; height: 22px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.speed:hover { background: var(--key); color: var(--ink); }
+
+/* --- the source row ----------------------------------------------------- */
+.source { display: flex; align-items: center; gap: 4px; min-height: 26px; }
+.field { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--dim); transition: border-color 120ms; }
+.field:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
+.field svg { flex: none; width: 14px; height: 14px; }
+.field input { flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--ink); outline: none; }
+.field input::placeholder { color: var(--dim); }
+.go { flex: none; height: 24px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--ink); font-weight: 600; cursor: pointer; transition: background 120ms; }
+.go:hover { background: var(--key); }
+.recent { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; color: var(--dim); }
+.recent:hover, .recent:focus-within { background: var(--key); color: var(--ink); }
+.recent svg { width: 16px; height: 16px; }
+.recent select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.recent:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* --- the status line ---------------------------------------------------- */
+.status { flex: none; min-height: 15px; margin: 0; padding: 0 2px; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status.bad { color: var(--accent); }
+
+/* --- modes --------------------------------------------------------------- */
+.player[data-mode="youtube"] .transport { display: none; }
+.player.mini .volume, .player.mini .speed, .player.mini .total { display: none; }
+.player.mini .go { padding: 0 7px; }
+.player.mini .notice { padding: 8px 10px; gap: 4px; }
+
+@media (prefers-reduced-motion: reduce) { .icon, .field, .go { transition: none; } }

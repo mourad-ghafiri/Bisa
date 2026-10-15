@@ -18,14 +18,14 @@ import { dockBox, placementOf } from "../ui/dockModel.mjs";
 const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
 const root = new URL("../../../", import.meta.url);
 
-const BUILT_INS = ["calculator", "clock", "cpu", "disk", "gpu", "memory", "needs-you", "pomodoro", "sticky-note", "stopwatch", "tic-tac-toe", "unit-converter", "weather"];
+const BUILT_INS = ["calculator", "clock", "cpu", "disk", "gpu", "media-player", "memory", "needs-you", "pomodoro", "sticky-note", "stopwatch", "tic-tac-toe", "unit-converter", "weather"];
 
-test("the thirteen built-ins are folders the store embeds, each a page that loads the library and nothing remote", () => {
+test("the fourteen built-ins are folders the store embeds, each a page that loads the library and nothing remote", () => {
   const dir = new URL("library/addons/", root);
   const folders = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
   assert.deepEqual(folders, BUILT_INS);
   const catalog = src("../../../crates/bisa-store/src/catalog.rs");
-  assert.match(catalog, /the_catalog_ships_thirteen_addons/, "the bundle test pins the folders");
+  assert.match(catalog, /the_catalog_ships_fourteen_addons/, "the bundle test pins the folders");
   for (const f of folders) {
     const manifest = JSON.parse(readFileSync(new URL(`${f}/addon.json`, dir), "utf8"));
     assert.equal(manifest.id, f, `${f}: a built-in's id is its folder`);

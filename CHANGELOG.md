@@ -10,6 +10,20 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- A **Media player** built-in addon: drop or open an audio or video file, paste an `https://`
+  link, or paste a YouTube URL — sound as a scrolling spectrogram with a level meter, video on the
+  stage, YouTube through YouTube's own player beside the window, the last twenty sources one pick
+  away, keyboard throughout (`library/addons/media-player/`). It rides on one addition to the addon
+  contract: a `media` permission (`{media: {hosts, youtube?}}`) that widens that addon's
+  `media-src` to the hosts it names and nothing else, three bridge methods (`media.embed`,
+  `media.box`, `media.remove`) and one event (`media`), a token-less node page that hosts the
+  official IFrame Player API (`GET /addons/{id}/player/youtube/{video}`), and a shell view that
+  stands above the browser layer, loaded under the app's own base URL so YouTube sees the app
+  named in the Referer. YouTube's rules are kept by construction — its own controls, nothing drawn
+  over it, no playback the page starts, no key or sign-in — and the addon shows a notice with
+  YouTube's Terms of Service and Google's Privacy Policy once before the first play
+  (`crates/bisa-core/src/addon.rs`, `crates/bisa-node/src/addons.rs`, `desktop/src/addons/`,
+  `desktop/src-tauri/src/browser.rs`, `addons/sdk/`).
 - The mock harness translates a pulled report's `events` as the session events they serialise to,
   so a test's own event server can say anything the roster's fold understands
   (`crates/bisa-harness/src/mock.rs`); the scripted language server takes more moods by the file

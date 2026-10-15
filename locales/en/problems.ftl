@@ -206,4 +206,7 @@ problem-addon-permission-declared-twice = the permission { $word } is declared t
 problem-addon-network-needs-host = a network permission names at least one host
 problem-addon-network-host-not-pattern = { $host } is not a host pattern: host[:port], or *.suffix
 problem-addon-network-loopback-refused = { $host } is this machine; an addon never reaches the node or anything else on it
+problem-addon-media-asks-nothing = a media permission names at least one host, or asks for the YouTube player
+problem-addon-media-host-not-pattern = { $host } is not a host pattern: *, host[:port], or *.suffix
+problem-addon-media-loopback-refused = { $host } is this machine; an addon never plays from the node or anything else on it
 problem-addon-grant-not-declared = { $word } was never declared by the addon, so it cannot be granted

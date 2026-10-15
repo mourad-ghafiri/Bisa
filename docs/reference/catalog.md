@@ -174,7 +174,7 @@ on the platform; a workflow puts an `approval` step before it. Guide: [Connector
 | **X** | `x` | `oauth2` | `api.x.com` | `me`, `post` *writes*, `search_recent` | `content` `marketing` |
 | **YouTube** | `youtube` | `oauth2` | `www.googleapis.com` | `my_channel`, `search`, `channel`, `video` | `content` `marketing` |
 
-## Addons (13)
+## Addons (14)
 
 An addon is a folder of HTML, CSS and JavaScript that floats over the desktop in a window its developer shaped, runs
 behind three walls and reaches the platform only through what the person granted ([18 — Addons](../architecture/18-addons.md)).
@@ -188,6 +188,7 @@ declare; a folder of your own imports there with nothing granted until you say s
 | **CPU** | `cpu` | The machine's processor load as a sparkline, at the footer's cadence. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
 | **Disk** | `disk` | The volume the platform's data lives on: used against total, and what the workspace itself weighs. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
 | **GPU** | `gpu` | The accelerator's load as a sparkline, where the machine reports one. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
+| **Media player** | `media-player` | Plays audio and video from a file, a link or YouTube — a live spectrogram for sound, YouTube's own player for its videos, and the last twenty sources one pick away. | 0.4.0 | 440×320 | `storage`, `open_url`, `media` | `media` `tool` |
 | **Memory** | `memory` | Memory in use against what the machine has, as a bar and a number. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
 | **Needs you** | `needs-you` | How many things wait on you, are under review, or are running — a click goes to them. | 0.4.0 | 200×88 | `workspace_summary`, `navigate` | `attention` `workspace` |
 | **Pomodoro** | `pomodoro` | Twenty-five minutes on, five off, a ring that empties and a notice at each turn; the lengths are yours to set. | 0.4.0 | 200×150 | `notify`, `storage` | `focus` `time` |

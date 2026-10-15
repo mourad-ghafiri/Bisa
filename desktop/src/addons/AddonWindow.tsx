@@ -8,7 +8,9 @@
  * URL that carries the token. The node's headers fence what the page may
  * load; the shell refuses any navigation off that origin; and the one
  * door out is the bridge (`useAddonBridge`). This component paints the
- * box and moves it; every fact is `addonWindowModel.mjs`'s.
+ * box and moves it; every fact is `addonWindowModel.mjs`'s. An addon
+ * granted the YouTube player gets it as the shell's own view over a box of
+ * this window (`useAddonMediaHost`), never as a frame of the page's.
  *
  * A pointer over an iframe is the iframe's — so while any drag or resize
  * runs, the layer lays a **shield** over every frame (`shielded`), and the
@@ -26,6 +28,8 @@ import { ICON, cn, dockBox, useDockDrag, useDockViewport } from "../ui";
 import type { Placement } from "../ui";
 import { useAddonBridge } from "./addonBridge";
 import type { AddonBridgeHandlers, AddonLoad, AddonSummary } from "./addonBridge";
+import { useAddonMediaHost } from "./addonMediaHost";
+import type { AddonEvent } from "./addonBridgeModel.mjs";
 import { barTitle, entryOf, manifestWindow } from "./addonsModel.mjs";
 import { BAR_HEIGHT, clampSize, hiddenByLayer, placementAfterResize, sizeBounds, sizeFrom } from "./addonWindowModel.mjs";
 import { useBrowserClear, useBrowserCutsAround } from "../shell/browserClear";
@@ -150,6 +154,14 @@ export function AddonWindow({
   const shell = useRef<HTMLDivElement>(null);
   useBrowserClear(`addon:${addon.id}`, shell, visible);
 
+  // The frame reloads when the record moves — grants are said in the hello.
+  const frameKey = `${addon.id}:${addon.installed_at}:${JSON.stringify(addon.granted)}`;
+
+  // The media player beside the window: its words reach the addon through
+  // the bridge's event door, read through a ref the bridge fills below.
+  const sendRef = useRef<(topic: AddonEvent, payload: unknown) => void>(() => {});
+  const media = useAddonMediaHost(frame, addon, { visible, shielded, epoch: frameKey, onState: (state) => sendRef.current("media", state), onOpenUrl });
+
   const handlers: AddonBridgeHandlers = useMemo(
     () => ({
       onResize: (asked) => {
@@ -162,14 +174,16 @@ export function AddonWindow({
       onClose: () => setAddonHidden(addon.id, true),
       onTitle: (name) => setTitle(name),
       onOpenUrl,
+      onMediaEmbed: media.embed,
+      onMediaBox: media.move,
+      onMediaRemove: media.remove,
     }),
-    [addon.id, bounds, dock, size, onOpenUrl],
+    [addon.id, bounds, dock, size, onOpenUrl, media],
   );
-  useAddonBridge(frame, addon, { visible, summary, load, handlers });
+  const { sendEvent } = useAddonBridge(frame, addon, { visible, summary, load, handlers });
+  sendRef.current = sendEvent;
 
   const still = prefersReducedMotion();
-  // The frame reloads when the record moves — grants are said in the hello.
-  const frameKey = `${addon.id}:${addon.installed_at}:${JSON.stringify(addon.granted)}`;
   // A title is the page's that named it: a page loaded afresh has named nothing yet.
   useEffect(() => setTitle(null), [frameKey]);
   const name = barTitle(addon, title);

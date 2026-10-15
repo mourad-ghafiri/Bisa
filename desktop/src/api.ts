@@ -1422,6 +1422,17 @@ export const api = {
   /// the route answers without one, by design — a token in this URL would be
   /// a token the addon could read.
   addonFileUrl: (id: string, path: string) => `${apiBaseSync()}/addons/${encodeURIComponent(id)}/files/${path}`,
+  /// The page that hosts YouTube's player beside an addon's window, as text,
+  /// for the shell to load under the app's own base URL (YouTube wants the
+  /// embedding app named in the Referer; `addonMediaHost.ts`). **Never
+  /// `withToken`**: the route answers without one, and a 404 is its one
+  /// refusal — an addon not active, not granted the player, or an id of
+  /// another shape.
+  addonPlayerPage: async (id: string, video: string, s?: AbortSignal): Promise<string> => {
+    const res = await fetch(`${apiBaseSync()}/addons/${encodeURIComponent(id)}/player/youtube/${encodeURIComponent(video)}`, { signal: s });
+    if (!res.ok) throw new Error(`the player page answered ${res.status}`);
+    return res.text();
+  },
 
   /// Notes: a markdown scratchpad on a goal, a project, or the workspace.
   /// Local to this machine by design — a note is somebody's own thinking, and

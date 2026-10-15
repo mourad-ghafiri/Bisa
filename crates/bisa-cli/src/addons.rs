@@ -101,6 +101,13 @@ fn words_of(permissions: &[AddonPermission]) -> String {
         .iter()
         .map(|p| match p {
             AddonPermission::Network { hosts } => format!("network ({})", hosts.join(", ")),
+            AddonPermission::Media { hosts, youtube } => {
+                let mut words: Vec<&str> = hosts.iter().map(String::as_str).collect();
+                if *youtube {
+                    words.push("youtube");
+                }
+                format!("media ({})", words.join(", "))
+            }
             other => other.word().to_string(),
         })
         .collect::<Vec<_>>()

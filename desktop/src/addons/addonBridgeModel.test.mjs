@@ -11,6 +11,7 @@ import {
   MAX_STORAGE_KEY_CHARS,
   METHODS,
   METHOD_NAMES,
+  MIN_PLAYER_SIDE,
   NOTIFY_MIN_MS,
   PERMISSIONS,
   PROTOCOL_VERSION,
@@ -21,11 +22,14 @@ import {
   fetchResult,
   handleCall,
   helloMessage,
+  isVideoId,
+  mediaGrant,
   networkHosts,
   newSession,
   paramsOf,
   parseAddonMessage,
   permissionWords,
+  playerBox,
   refusal,
   refusalWords,
   storageBag,
@@ -46,7 +50,7 @@ const ready = (a = addon()) => ({ ...newSession(a), ready: true });
 const call = (method, params = {}, id = "c1") => ({ id, method, params });
 
 test("the registry names every method's permission, and the routes are real screens", () => {
-  assert.equal(METHOD_NAMES.length, 17);
+  assert.equal(METHOD_NAMES.length, 20);
   for (const name of METHOD_NAMES) assert.ok(name in METHODS);
   for (const spec of Object.values(METHODS)) assert.ok(spec.permission === null || PERMISSIONS.includes(spec.permission), JSON.stringify(spec));
   assert.equal(METHODS["window.resize"].needs, "resizable");
@@ -54,7 +58,7 @@ test("the registry names every method's permission, and the routes are real scre
   for (const route of ADDON_ROUTES) assert.ok(ROUTE_NAMES.includes(route), route);
   assert.ok(!ADDON_ROUTES.includes("goal") && !ADDON_ROUTES.includes("workbench"), "never a record's page");
   assert.deepEqual([...ADDON_ROUTES], ["inbox", "goals", "pulse", "workflows", "projects", "channels", "messages", "agents", "teams", "settings"], "ten screens; the Triggers screen is gone");
-  assert.deepEqual([...EVENTS], ["theme", "system.load", "workspace.summary", "visibility"]);
+  assert.deepEqual([...EVENTS], ["theme", "system.load", "workspace.summary", "visibility", "media"]);
   assert.ok(Object.isFrozen(EVENTS) && Object.isFrozen(METHODS));
 });
 
@@ -218,4 +222,52 @@ test("params that cannot be written down are bad, an address that is no URL is r
   assert.deepEqual(written.reply, { v: 1, kind: "bisa:reply", id: "c1", ok: true, result: { written: true } });
   assert.deepEqual(written.effect, { type: "clipboard", text: "copied" });
   assert.equal(handleCall(ready(), call("nobody.handles"), ctx()).reply.error.code, "unknown_method");
+});
+
+test("a media grant is hosts and a youtube flag, and the embed needs the flag", () => {
+  const any = { media: { hosts: ["*"], youtube: true } };
+  const links = { media: { hosts: ["cdn.example"] } };
+  assert.deepEqual(mediaGrant([any]), { hosts: ["*"], youtube: true });
+  assert.deepEqual(mediaGrant(["storage", links]), { hosts: ["cdn.example"], youtube: false });
+  assert.deepEqual(mediaGrant([{ media: { hosts: [7, "a.example"], youtube: "yes" } }]), { hosts: ["a.example"], youtube: false }, "read only as far as its shape allows");
+  assert.deepEqual(mediaGrant([{ media: null }]), { hosts: [], youtube: false });
+  assert.equal(mediaGrant(["storage"]), null);
+  assert.deepEqual(permissionWords([any, "storage"]), ["media", "storage"]);
+  assert.ok(PERMISSIONS.includes("media") && METHODS["media.embed"].permission === "media");
+  const box = { x: 0, y: 0, width: 240, height: 200 };
+  const embed = { kind: "youtube", video: "dQw4w9WgXcQ", box };
+  // Not granted at all: `permission`, before the params are read.
+  assert.equal(handleCall(ready(addon(["storage"])), call("media.embed", embed), ctx()).reply.error.code, "permission");
+  // Hosts alone: the player is not allowed; a box and a removal still answer.
+  const hostsOnly = ready(addon([links]));
+  assert.equal(handleCall(hostsOnly, call("media.embed", embed), ctx()).reply.error.code, "not_allowed");
+  assert.deepEqual(handleCall(hostsOnly, call("media.box", { box }), ctx()).effect, { type: "media_box", box });
+  assert.deepEqual(handleCall(hostsOnly, call("media.remove"), ctx()).effect, { type: "media_remove" });
+  assert.deepEqual(handleCall(hostsOnly, call("media.remove"), ctx()).reply.result, { removed: true });
+  // Granted with the player: the embed is an effect for the host, answered at once.
+  const out = handleCall(ready(addon([any])), call("media.embed", embed), ctx());
+  assert.deepEqual(out.reply.result, { embedded: true });
+  assert.deepEqual(out.effect, { type: "media_embed", video: "dQw4w9WgXcQ", box });
+  assert.equal(handleCall(ready(addon([any])), call("media.box", { box }), ctx()).reply.result.moved, true);
+  assert.equal(newSession(addon([any])).media.youtube, true);
+  assert.equal(newSession(addon()).media, null);
+  assert.equal(eventMessage("media", { state: "playing", title: "x" }).topic, "media");
+});
+
+test("an embed names an eleven-character video and a box no smaller than the policy's square", () => {
+  assert.equal(MIN_PLAYER_SIDE, 200);
+  const box = { x: 8, y: 8, width: 320, height: 200 };
+  for (const video of ["dQw4w9WgXcQ", "a-b_c-d_e-f"]) assert.ok(isVideoId(video), video);
+  for (const video of ["", "dQw4w9WgXc", "dQw4w9WgXcQQ", "dQw4w9WgXc!", "dQw4w9WgXc/", 11, null]) assert.ok(!isVideoId(video), String(video));
+  assert.deepEqual(paramsOf("media.embed", { kind: "youtube", video: "dQw4w9WgXcQ", box }), { ok: true, value: { kind: "youtube", video: "dQw4w9WgXcQ", box } });
+  assert.deepEqual(paramsOf("media.embed", { kind: "vimeo", video: "dQw4w9WgXcQ", box }), { ok: false, code: "bad_params" });
+  assert.deepEqual(paramsOf("media.embed", { kind: "youtube", video: "dQw4w9WgXcQ/x", box }), { ok: false, code: "bad_params" });
+  assert.deepEqual(paramsOf("media.embed", { kind: "youtube", video: "dQw4w9WgXcQ" }), { ok: false, code: "bad_params" }, "no box");
+  for (const bad of [null, {}, { ...box, width: 199 }, { ...box, height: 199 }, { ...box, x: -1 }, { ...box, y: 1.5 }, { ...box, width: Infinity }, { ...box, height: "200" }]) {
+    assert.equal(playerBox(bad), null, JSON.stringify(bad));
+    assert.deepEqual(paramsOf("media.box", { box: bad }), { ok: false, code: "bad_params" });
+  }
+  assert.deepEqual(playerBox({ ...box, extra: 1 }), box, "only the four numbers are kept");
+  assert.deepEqual(paramsOf("media.box", { box }), { ok: true, value: { box } });
+  assert.deepEqual(paramsOf("media.remove", { anything: 1 }), { ok: true, value: {} });
 });

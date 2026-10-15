@@ -22,6 +22,19 @@
 //! The library (`bisa-addon.js`) is served at every addon's root from the
 //! binary, so a bundle cannot ship a tampered one — the store refuses a
 //! file of that name at install.
+//!
+//! # The player page
+//!
+//! An addon granted `media` with `youtube` may ask the desktop to show
+//! YouTube's own player beside its window. The addon's frame cannot hold
+//! it — its policy admits no frame, and a `tauri://` page sends no Referer,
+//! which YouTube's player refuses — so the shell opens a child view on
+//! `GET /addons/{id}/player/youtube/{video}`, a fixed page from the binary
+//! that loads the official IFrame Player API and reports the player's state
+//! through the shell's message door. Open like the files, and as narrow: the
+//! id's shape judged before anything, an active addon granted the player or
+//! the same bare 404, its own policy that admits YouTube's script and frame
+//! and nothing else.
 
 use crate::dto::*;
 use crate::i18n::Lang;
@@ -48,8 +61,49 @@ style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' da
 media-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; form-action 'none'; \
 base-uri 'none'; sandbox allow-scripts";
 
+/// The `media-src` the constant carries, the one source a `media` grant widens.
+const MEDIA_SRC: &str = "media-src 'self' data: blob:"; // for the machine
+
+/// The policy a bundle's files wear: the constant, or — for an addon whose
+/// person granted `media` — the same with `media-src` widened to the hosts
+/// the grant names (`https:` for any host). Nothing else of the walls moves:
+/// no frame, no fetch, no script from elsewhere.
+pub fn files_csp(
+    media: Option<bisa_core::addon::MediaGrant<'_>>,
+) -> std::borrow::Cow<'static, str> {
+    let Some(grant) = media else {
+        return std::borrow::Cow::Borrowed(ADDON_FILES_CSP);
+    };
+    let mut sources = String::from(MEDIA_SRC);
+    if grant.any_host() {
+        sources.push_str(" https:");
+    } else {
+        for host in grant.hosts {
+            sources.push_str(" https://");
+            sources.push_str(host);
+        }
+    }
+    if sources == MEDIA_SRC {
+        return std::borrow::Cow::Borrowed(ADDON_FILES_CSP);
+    }
+    std::borrow::Cow::Owned(ADDON_FILES_CSP.replacen(MEDIA_SRC, &sources, 1))
+}
+
 /// The library, compiled in — one copy, the platform's.
 pub const SDK_SOURCE: &str = include_str!("../../../addons/sdk/bisa-addon.js");
+
+/// The YouTube player page, compiled in; `{{VIDEO}}` is its one hole, filled
+/// with an id the shape test passed.
+const YOUTUBE_PLAYER_PAGE: &str = include_str!("player/youtube.html");
+
+/// The policy the player page wears: its own inline script and style,
+/// YouTube's player script and frame, its thumbnails — and nothing else: no
+/// fetch, no form, no base, no frame from elsewhere.
+pub const PLAYER_PAGE_CSP: &str = "default-src 'none'; \
+script-src 'unsafe-inline' https://www.youtube.com; style-src 'unsafe-inline'; \
+img-src https://i.ytimg.com data:; \
+frame-src https://www.youtube.com https://www.youtube-nocookie.com; \
+connect-src 'none'; form-action 'none'; base-uri 'none'";
 
 pub(crate) fn routes() -> Router<Shared> {
     Router::new()
@@ -59,6 +113,7 @@ pub(crate) fn routes() -> Router<Shared> {
         .route("/addons/{id}", get(one).patch(patch).delete(remove))
         .route("/addons/{id}/fetch", post(fetch))
         .route("/addons/{id}/files/{*path}", get(file))
+        .route("/addons/{id}/player/youtube/{video}", get(player))
 }
 
 /// An installed addon in the request's language: its name and description
@@ -270,15 +325,73 @@ async fn serve_file(state: &Shared, id: &str, path: &str) -> Result<Response, Ap
         header::CONTENT_DISPOSITION,
         HeaderValue::from_static(disposition),
     );
+    let policy = files_csp(addon.record.media_grant());
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(ADDON_FILES_CSP),
+        HeaderValue::from_str(&policy).map_err(|_| no_file())?,
     );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
         HeaderName::from_static("cross-origin-resource-policy"),
         HeaderValue::from_static("cross-origin"),
     );
+    Ok(response)
+}
+
+/// `GET /addons/{id}/player/youtube/{video}` — the page that hosts YouTube's
+/// player for an addon granted it. Answers without the token.
+async fn player(
+    State(state): State<Shared>,
+    AxPath((id, video)): AxPath<(String, String)>,
+) -> Response {
+    match serve_player(&state, &id, &video) {
+        Ok(response) => response,
+        Err(e) => e.into_response(),
+    }
+}
+
+fn serve_player(state: &Shared, id: &str, video: &str) -> Result<Response, ApiError> {
+    if !bisa_core::addon::is_youtube_video_id(video) {
+        return Err(no_file());
+    }
+    let id = AddonId::new(id).map_err(|_| no_file())?;
+    let addon = state
+        .engine
+        .workspace()
+        .get_addon(&id)
+        .map_err(|_| no_file())?;
+    if !addon.is_active() || !engine_addons::addons_enabled(state.engine.inner()) {
+        return Err(no_file());
+    }
+    if !addon
+        .record
+        .media_grant()
+        .is_some_and(|grant| grant.youtube)
+    {
+        return Err(no_file());
+    }
+    let body = YOUTUBE_PLAYER_PAGE.replacen("{{VIDEO}}", video, 1);
+    let mut response = (StatusCode::OK, body).into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(PLAYER_PAGE_CSP),
+    );
+    // The player wants a page to credit (its error 153 is the one it gives
+    // a page that sends none): the origin alone crosses to YouTube.
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(response)
 }
 
@@ -328,6 +441,89 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/addons/{id}/files/{*path}",
-        summary: "A file of an installed bundle, for the frame that runs it — **answers without the token**: GET only, an active addon or a bare 404, the path resolved inside the bundle, the type from an extension allowlist (else a download), `nosniff`, `Cache-Control: no-store`, and a Content-Security-Policy that lets the page load its own files and reach nothing. `bisa-addon.js` at the root is the platform's library, served from the binary.",
+        summary: "A file of an installed bundle, for the frame that runs it — **answers without the token**: GET only, an active addon or a bare 404, the path resolved inside the bundle, the type from an extension allowlist (else a download), `nosniff`, `Cache-Control: no-store`, and a Content-Security-Policy that lets the page load its own files and reach nothing — or, for an addon granted `media`, play from the hosts the grant names. `bisa-addon.js` at the root is the platform's library, served from the binary.",
+    },
+    RouteDoc {
+        method: "GET",
+        path: "/addons/{id}/player/youtube/{video}",
+        summary: "The page that hosts YouTube's own player beside the window of an addon granted `media` with `youtube`, for the shell's child view that shows it — **answers without the token**: GET only, an eleven-character video id or a bare 404, an active addon granted the player or the same 404, a fixed page from the binary that loads the official IFrame Player API and reports the player's state through the shell's message door, `nosniff`, `no-store`, and a policy that admits YouTube's script and frame and nothing else.",
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bisa_core::addon::MediaGrant;
+
+    /// The page is one fixed document with one hole, and its policy admits
+    /// YouTube's script and frame and no fetch, form or base.
+    #[test]
+    fn the_player_page_has_one_hole_and_a_policy_of_its_own() {
+        assert_eq!(YOUTUBE_PLAYER_PAGE.matches("{{VIDEO}}").count(), 1);
+        assert!(YOUTUBE_PLAYER_PAGE.contains("https://www.youtube.com/iframe_api"));
+        assert!(YOUTUBE_PLAYER_PAGE.contains("messageHandlers.bisa"));
+        assert!(YOUTUBE_PLAYER_PAGE.contains("playsinline: 1"));
+        // YouTube's rules: no playback before the player is in sight, and
+        // the embedding app named in the Referer — the page carries its own
+        // policy and referrer rule for the string load that names it.
+        assert!(!YOUTUBE_PLAYER_PAGE.contains("autoplay:"));
+        assert!(YOUTUBE_PLAYER_PAGE.contains(&format!(
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"{PLAYER_PAGE_CSP}\">"
+        )));
+        assert!(YOUTUBE_PLAYER_PAGE
+            .contains("<meta name=\"referrer\" content=\"strict-origin-when-cross-origin\">"));
+        for wall in [
+            "default-src 'none'",
+            "script-src 'unsafe-inline' https://www.youtube.com",
+            "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+            "connect-src 'none'",
+            "form-action 'none'",
+            "base-uri 'none'",
+        ] {
+            assert!(PLAYER_PAGE_CSP.contains(wall), "{wall}");
+        }
+        assert!(
+            !PLAYER_PAGE_CSP.contains("sandbox"),
+            "the page needs its origin"
+        );
+    }
+
+    /// No grant, or a grant that names nothing, wears the constant; `*`
+    /// widens `media-src` to every https host, named hosts to those alone,
+    /// and nothing else of the policy moves.
+    #[test]
+    fn a_media_grant_widens_media_src_alone() {
+        assert_eq!(files_csp(None), ADDON_FILES_CSP);
+        let youtube_only = MediaGrant {
+            hosts: &[],
+            youtube: true,
+        };
+        assert_eq!(files_csp(Some(youtube_only)), ADDON_FILES_CSP);
+        let any = files_csp(Some(MediaGrant {
+            hosts: &["*".to_string()],
+            youtube: false,
+        }));
+        assert!(
+            any.contains("media-src 'self' data: blob: https:;"),
+            "{any}"
+        );
+        let named = files_csp(Some(MediaGrant {
+            hosts: &["cdn.example".to_string(), "*.media.example".to_string()],
+            youtube: true,
+        }));
+        assert!(
+            named.contains(
+                "media-src 'self' data: blob: https://cdn.example https://*.media.example;"
+            ),
+            "{named}"
+        );
+        for wall in [
+            "connect-src 'none'",
+            "frame-src 'none'",
+            "script-src 'self' 'unsafe-inline'",
+            "sandbox allow-scripts",
+        ] {
+            assert!(any.contains(wall) && named.contains(wall), "{wall}");
+        }
+    }
+}

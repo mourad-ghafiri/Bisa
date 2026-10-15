@@ -21,7 +21,8 @@ export type PermissionWord =
   | "storage"
   | "network"
   | "open_url"
-  | "navigate";
+  | "navigate"
+  | "media";
 
 export type RefusalCode =
   | "not_ready"
@@ -81,6 +82,22 @@ export interface FetchResult {
   truncated: boolean;
 }
 
+/** A player's box inside the window, from its top-left, in its own CSS pixels; no side under 200 (`media`). */
+export interface PlayerBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What the embedded player said (`media`): its state, its video's title, and on an error YouTube's code and the words for it. */
+export interface MediaState {
+  state: "ready" | "unstarted" | "playing" | "paused" | "buffering" | "ended" | "cued" | "error";
+  title: string;
+  code?: string;
+  words?: string;
+}
+
 export type AddonRoute = "inbox" | "goals" | "pulse" | "workflows" | "projects" | "channels" | "messages" | "agents" | "teams" | "settings";
 
 export interface Events {
@@ -88,6 +105,7 @@ export interface Events {
   "system.load": SystemLoad;
   "workspace.summary": WorkspaceSummary;
   visibility: { visible: boolean };
+  media: MediaState;
 }
 
 export interface Bisa {
@@ -132,6 +150,16 @@ export interface Bisa {
     close(): Promise<{ closed: true }>;
     /** The bar's title, at most 60 characters. */
     setTitle(title: string): Promise<{ set: true }>;
+  };
+  /**
+   * YouTube's own player, shown by the platform over a box of this window
+   * (`media` with `youtube`); its state comes as the `media` event. One per
+   * window: a second embed replaces the first.
+   */
+  media: {
+    embed(opts: { kind: "youtube"; video: string; box: PlayerBox }): Promise<{ embedded: true }>;
+    box(opts: { box: PlayerBox } | PlayerBox): Promise<{ moved: true }>;
+    remove(): Promise<{ removed: true }>;
   };
 }
 

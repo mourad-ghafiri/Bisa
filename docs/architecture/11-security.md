@@ -536,7 +536,10 @@ HTML and JavaScript a person imported or installed from the catalog. It runs beh
 do not depend on each other — a sandboxed frame with an opaque origin and no token in its URL; the
 node's files route, which answers without the token but serves only an active addon's own files,
 inside its folder, typed from an allowlist, under one Content-Security-Policy that lets the page load
-its own files and reach nothing; and the window's navigation policy, which refuses every frame's
+its own files and reach nothing (a `media` grant widens `media-src` to the `https://` hosts it names
+and nothing else — WebKit fetches those bytes itself, outside the person's `security.net.*` lists,
+so the grant names its hosts and the review says them; YouTube's player is the shell's own view on
+a page the node serves, never a frame of the addon's); and the window's navigation policy, which refuses every frame's
 navigation off the app's origin and that bundle. Its one door is a `postMessage` bridge whose every
 call is judged against what the person granted from a closed list — and the network is not on that
 list as a door: a `network` grant lets the addon ask the node's broker, which reads the URL's shape

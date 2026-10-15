@@ -3,7 +3,8 @@
 //! a public hook with its listener's own secret, the OAuth callback a browser
 //! lands on, the A2A card and endpoint (their own protocol), a session's own
 //! doors under its own secret, an addon's files for a frame that holds no
-//! token — and nothing else. A route added without a word here needs the
+//! token and its YouTube player page for a child view that holds none either
+//! — and nothing else. A route added without a word here needs the
 //! token: a hook called on this machine among them.
 
 use bisa_node::auth::is_exempt;
@@ -25,6 +26,7 @@ fn the_token_less_routes_are_exactly_the_named_exceptions() {
         "/sessions/01J000000000000000000000SESS/close",
         "/addons/bisa-clock/files/index.html",
         "/addons/bisa-clock/files/js/app.js",
+        "/addons/media-player/player/youtube/dQw4w9WgXcQ",
     ] {
         assert!(is_exempt(path), "{path} is a named exception");
     }
@@ -46,6 +48,9 @@ fn the_token_less_routes_are_exactly_the_named_exceptions() {
         "/addons/bisa-clock/files/",
         "/addons//files/index.html",
         "/addons/a/b/files/x",
+        "/addons/media-player/player/youtube/dQw4w9WgXc",
+        "/addons/media-player/player/youtube/dQw4w9WgXcQ/more",
+        "/addons/media-player/player/vimeo/dQw4w9WgXcQ",
         "/goals",
         "/events",
     ] {
@@ -69,6 +74,7 @@ fn every_documented_route_takes_the_token_unless_it_is_a_named_exception() {
         "/sessions/{id}/close",
         "/sessions/{id}/answered",
         "/addons/{id}/files/{*path}",
+        "/addons/{id}/player/youtube/{video}",
     ];
     let mut surprises = Vec::new();
     for r in route_docs::all() {
@@ -78,7 +84,8 @@ fn every_documented_route_takes_the_token_unless_it_is_a_named_exception() {
             .replace("{host}", "workspace:01J0000000000000000000000A")
             .replace("{step}", "ticket")
             .replace("{id}", "01J000000000000000000000ROWS")
-            .replace("{*path}", "index.html");
+            .replace("{*path}", "index.html")
+            .replace("{video}", "dQw4w9WgXcQ");
         let exempt = is_exempt(&filled);
         let named = exempt_templates.contains(&r.path);
         if exempt != named {

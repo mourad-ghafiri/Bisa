@@ -36,9 +36,23 @@ export interface BrowserPlaced extends BrowserBounds {
   shown: boolean;
 }
 
-/** Open a tab's webview on a URL, the page's script aboard — hidden until its first placement. */
-export function openBrowserView(key: string, url: string, script: string): Promise<void> {
-  return invoke("browser_open", { key, url, script });
+/**
+ * Open a tab's webview on a URL, the page's script aboard — hidden until its
+ * first placement. `layered` false opens it **above** the browser layer
+ * rather than in it (an addon's media player, 18 — Addons): the layer's
+ * holes never cut it, and it stands over every overlay of the main page.
+ */
+export function openBrowserView(key: string, url: string, script: string, layered = true): Promise<void> {
+  return invoke("browser_open", { key, url, script, layered });
+}
+/**
+ * Open a view on a document given as a string, loaded under the app's own
+ * base URL (`https://<identifier>/`) rather than a URL of the node's: the
+ * YouTube player page, which must name this app to YouTube in its Referer
+ * (18 — Addons). Hidden until its first placement, like every view.
+ */
+export function openBrowserPage(key: string, html: string, script: string, layered = true): Promise<void> {
+  return invoke("browser_open", { key, url: "about:blank", script, layered, page: html });
 }
 export function navigateBrowserView(key: string, url: string): Promise<void> {
   return invoke("browser_navigate", { key, url });

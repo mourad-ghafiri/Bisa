@@ -1,7 +1,7 @@
 # Addons
 
 An **addon** is a small window that floats over the app — a clock, the machine's load, the weather,
-a game, a sticky note — written as a folder of HTML, CSS and JavaScript. Thirteen ship with the
+a game, a sticky note, a media player — written as a folder of HTML, CSS and JavaScript. Fourteen ship with the
 platform; anyone can write one. This page is for the person who installs them and for the developer
 who writes one. The model and the walls are [18 — Addons](../architecture/18-addons.md); every method
 the library offers is [the addon API](../reference/addon-api.md).
@@ -46,7 +46,7 @@ was granted is kept. The footer follows it the moment it moves.
 
 ### The built-ins
 
-Thirteen ship in the binary, each at the platform's own version. When the platform you run ships
+Fourteen ship in the binary, each at the platform's own version. When the platform you run ships
 one you installed at a different version, the workspace takes the new files at its next open and
 keeps your switch and your grants (a permission
 the new version no longer asks for is dropped; one it newly asks for is not granted until you tick it).
@@ -78,6 +78,16 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
   doors to the Inbox and the Goals.
 - **Calculator** — four functions applied left to right as typed, `←` takes the last digit back,
   `=` again repeats the last operation; the keyboard works.
+- **Media player** — drop an audio or video file on it, *Open a file*, or paste a link: an `https://`
+  media file plays in the window (sound as a scrolling spectrogram with a level meter, cold where it
+  is quiet and warm where it is loud; video on the stage), and a YouTube URL — a watch page, a short
+  link, a short, an embed — brings YouTube's own player over the stage, with YouTube's controls; the
+  first time, a notice says so and links YouTube's Terms of Service and Google's Privacy Policy
+  (YouTube loads and runs its player; Bisa uses its player API and sends it nothing else — no
+  account, no key, and nothing of it is kept). Play, seek, volume, speed and loop from the transport
+  or the keyboard (space, `←` `→` five seconds, `↑` `↓`, `m`, `l`, `/` for the link field); the last
+  twenty sources sit under *Recent* — a file is not kept, so its line says to drop it again. A link
+  whose host does not let the sound be read still plays, without the spectrum.
 - **Unit converter** — length, mass and temperature; the swap between the pair turns the conversion
   around.
 
@@ -140,7 +150,9 @@ my-addon/
 - **`permissions`** — from the closed list: `platform_info`, `theme`, `system_load`,
   `workspace_summary`, `notify`, `clipboard_write`, `storage`, `network` (with `hosts`: `host[:port]`
   or `*.suffix`, never this machine), `open_url`, `navigate` (to one of the app's screens, which
-  opens as the person left it — and opens nothing of its own: no browser tab). Declare what you need and no more: the
+  opens as the person left it — and opens nothing of its own: no browser tab), `media` (with
+  `hosts` your page's own `<audio>` and `<video>` may play from — `*` for any `https://` host —
+  and `youtube: true` to ask for YouTube's own player beside your window). Declare what you need and no more: the
   person sees the list before installing and grants each line on its own.
 
 The page loads the library and your script:
@@ -173,7 +185,11 @@ mp4 webm txt md`; no symlinks, no dotfiles, at most eight folders deep, 256 file
 8 MiB in all; the entry page exists; no file is named `bisa-addon.js`, and no `addon.json` sits
 among the files. Your page may load its own files and inline what it carries; it may not load a
 remote script, fetch, open a frame or post a form — the platform's policy on every file says so, and
-the frame's sandbox says it again.
+the frame's sandbox says it again. One declared permission widens one wall: `{media: {hosts,
+youtube?}}` lets your page's own `<audio>` and `<video>` play from the `https://` hosts it names
+(`*` for any) once the person granted it, and — with `youtube` — ask for YouTube's own player over a
+box of your window ([the addon API](../reference/addon-api.md), `media.embed`); the platform shows
+that player as a view of its own, so your page still opens no frame.
 
 **Testing locally.** `bisa addon import ./my-addon --grant storage --enable` (or Settings ›
 Library › Addons › *Import an addon*), then open the app: the window appears; the desktop's

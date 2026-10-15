@@ -36,10 +36,21 @@ the person granted a permission; ask before you ask.
 | `window.resize` | the manifest's `resizable` | `{width, height}` — clamped to the manifest's bounds | `{asked: true}` |
 | `window.close` | the manifest's `closable` | — | `{closed: true}`; the window is put away, the footer brings it back |
 | `window.setTitle` | — | `{title ≤ 60}` | `{set: true}` |
+| `media.embed` | `media`, declared with `youtube` | `{kind: "youtube", video, box: {x, y, width, height}}` — an eleven-character video id; the box from the window's top-left, in its pixels, no side under 200 | `{embedded: true}`; YouTube's own player appears over the box, beside the window, and says its state through the `media` event; one per window, a second replaces the first; `not_allowed` when the grant names no player |
+| `media.box` | `media` | `{box}` | `{moved: true}` |
+| `media.remove` | `media` | — | `{removed: true}`; the player goes |
 
 The sugar wears the same names: `bisa.storage.get(key)`, `bisa.notify.show({title, body})`,
 `bisa.network.fetch(url)`, `bisa.window.close()`; `bisa.call(method, params)` is every one of them
 by name, and `bisa.methods()` lists them.
+
+The `media` permission is declared as `{media: {hosts: [...], youtube?: true}}`: the `https://`
+hosts the page's own `<audio>` and `<video>` elements may load from (`*` for any — the node widens
+that addon's `media-src` and nothing else of its walls), and whether YouTube's player may be shown.
+The player is the platform's own view, not a frame of the page: it stands over the box the addon
+names, above every overlay of the app, hides with the window, and is gone when the addon removes
+it, when its page reloads, or when the window is put away. A file from the machine is the page's
+own `<input type="file">` or a drop, played as a `blob:` URL; nothing of it crosses the bridge.
 
 ## Events
 
@@ -51,6 +62,7 @@ by name, and `bisa.methods()` lists them.
 | `system.load` | `{cpu_percent, load, mem_used, mem_total, swap_used, swap_total, uptime_secs, gpu?, disk?}` — `disk` is `{used, total, mount, workspace_bytes}` or `null` | each sample, while subscribed |
 | `workspace.summary` | `{waiting, review, working}` | the counts moved, when `workspace_summary` is granted |
 | `visibility` | `{visible}` | the window came on screen or left it — put away, the layer off, or (off macOS) under a browser tab; on macOS a browser tab is cut around the window, which stays visible |
+| `media` | `{state, title, code?, words?}` — `state` one of `ready` · `unstarted` · `playing` · `paused` · `buffering` · `ended` · `cued` · `error` | the embedded player moved, or failed: `code` is YouTube's (or `unavailable` when no player can be shown here) and `words` say it |
 
 ## Refusals
 
@@ -59,8 +71,8 @@ by name, and `bisa.methods()` lists them.
 | `not_ready` | a call before the platform said it is ready — the library waits for you, so this is a wire-level fault |
 | `unknown_method` | not a method the platform offers |
 | `permission` | the person did not grant what the method needs |
-| `not_allowed` | the manifest does not allow this window that move (`resizable`, `closable`) |
-| `bad_params` | not the shape the method takes — a route not in the list, a URL that is not `http(s)`, a value that is not a string |
+| `not_allowed` | the manifest does not allow this window that move (`resizable`, `closable`), or the `media` grant names no player (`youtube`) |
+| `bad_params` | not the shape the method takes — a route not in the list, a URL that is not `http(s)`, a value that is not a string, a video id of another shape, a player box with a side under 200 |
 | `too_large` | past a cap: params over 16 KiB, a clipboard write over 64 KiB |
 | `rate_limited` | a notice too soon after the last |
 | `quota` | the addon's storage is full |

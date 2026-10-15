@@ -6,12 +6,13 @@
  * (`ui/artifact/usePageInspector.ts`). Every message is read by
  * `addonBridgeModel.mjs`, which answers with a reply and an effect; this
  * hook performs the effect — a notice, the clipboard, the node's broker,
- * a confirmed link, a route, a window move — and pushes the events the
- * addon listens to: the theme, whether it is visible, the
- * workspace's summary and, while subscribed, the machine's load.
+ * a confirmed link, a route, a window move, the media player's box — and
+ * pushes the events the addon listens to: the theme, whether it is visible,
+ * the workspace's summary, while subscribed the machine's load, and what
+ * its player said (`sendEvent`, for the media host).
  */
 
-import { useCallback, useEffect, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import { api } from "../api";
 import { locale } from "../i18n/l10n.mjs";
 import { errorFields, log } from "../log";
@@ -23,7 +24,7 @@ import type { Addon } from "../types";
 import { copyText, useThemeNonce } from "../ui";
 import { readInspectorTheme } from "../ui/artifact/inspectorTokens";
 import { STORAGE_KEY_PREFIX, errorReply, eventMessage, fetchResult, handleCall, helloMessage, newSession, okReply, parseAddonMessage, refusedCode, storageBag } from "./addonBridgeModel.mjs";
-import type { AddonSession, Effect, Reply, StorageBag } from "./addonBridgeModel.mjs";
+import type { AddonEvent, AddonSession, Effect, PlayerBox, Reply, StorageBag } from "./addonBridgeModel.mjs";
 
 /** What the workspace looks like to an addon that asked. */
 export interface AddonSummary {
@@ -46,6 +47,18 @@ export interface AddonBridgeHandlers {
   onTitle: (title: string) => void;
   /** The addon asked to open a link: the layer asks the person and answers. */
   onOpenUrl: (url: string) => Promise<boolean>;
+  /** The addon asked for YouTube's player over a box of its window (`addonMediaHost.ts`). */
+  onMediaEmbed: (video: string, box: PlayerBox) => void;
+  /** The player's box moved. */
+  onMediaBox: (box: PlayerBox) => void;
+  /** The addon let the player go. */
+  onMediaRemove: () => void;
+}
+
+/** What the bridge hands back: a door to push an event to the addon — the media host's `media`. */
+export interface AddonBridge {
+  /** Push an event, once the addon said hello; before that, nothing is sent. */
+  sendEvent: (topic: AddonEvent, payload: unknown) => void;
 }
 
 export function useAddonBridge(
@@ -63,7 +76,7 @@ export function useAddonBridge(
     load: AddonLoad | null;
     handlers: AddonBridgeHandlers;
   },
-): void {
+): AddonBridge {
   const session = useRef<AddonSession>(newSession(addon));
   const storage = useRef<StorageBag>(storageBag(readPref(webStorage(), STORAGE_KEY_PREFIX + addon.id, (s) => s, null)));
   const latest = useRef({ summary, handlers, load, visible });
@@ -143,6 +156,15 @@ export function useAddonBridge(
           return;
         case "unsubscribe":
           return;
+        case "media_embed":
+          h.onMediaEmbed(effect.video, effect.box);
+          return;
+        case "media_box":
+          h.onMediaBox(effect.box);
+          return;
+        case "media_remove":
+          h.onMediaRemove();
+          return;
         default:
           if (id) answer(errorReply(id, "unavailable"), null);
       }
@@ -207,4 +229,13 @@ export function useAddonBridge(
     if (!load || !session.current.ready || !session.current.subscribed) return;
     post(eventMessage("system.load", load));
   }, [load, post]);
+
+  const sendEvent = useCallback(
+    (topic: AddonEvent, payload: unknown) => {
+      if (!session.current.ready) return;
+      post(eventMessage(topic, payload));
+    },
+    [post],
+  );
+  return useMemo(() => ({ sendEvent }), [sendEvent]);
 }
