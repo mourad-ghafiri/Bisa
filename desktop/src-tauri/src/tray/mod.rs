@@ -48,6 +48,7 @@ const TRAY_ID: &str = "bisa";
 /// The main window's label — the one every door here opens.
 pub const MAIN_WINDOW: &str = "main";
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// The main window, by its label. A `tauri::Window`, not a `WebviewWindow`:
 /// the latter is a window whose only webview is its own, and `main` carries
 /// the IDE's browser tabs as child webviews (`browser::label_of`), so
@@ -57,6 +58,7 @@ pub const MAIN_WINDOW: &str = "main";
 pub fn main_window(app: &AppHandle) -> Option<Window> {
     app.get_window(MAIN_WINDOW)
 }
+// LCOV_EXCL_STOP
 
 /// The webview hears where the menu sends it: `{to: "inbox"}`.
 pub const GO_EVENT: &str = "tray:go";
@@ -147,6 +149,7 @@ pub struct Tray {
     seen: Mutex<Seen>,
 }
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// The menu bar's ink right now: the OS's word where it has one
 /// (`platform::menu_bar_ink`), else the main window's theme, else light.
 fn ink_now(app: &AppHandle) -> Ink {
@@ -158,11 +161,15 @@ fn ink_now(app: &AppHandle) -> Ink {
         )
     })
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 fn warn(what: &str, e: impl std::fmt::Display) {
     tracing::warn!(target: "bisa_desktop", "the menu bar icon {what}: {e}");
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// Build the icon and its menu; the caller `manage`s the result.
 pub fn install(app: &AppHandle) -> tauri::Result<Tray> {
     let report = TrayReport::default();
@@ -230,7 +237,9 @@ pub fn install(app: &AppHandle) -> tauri::Result<Tray> {
         }),
     })
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// A menu line chosen.
 fn fire(app: &AppHandle, item: TrayItem) {
     match item {
@@ -254,7 +263,9 @@ fn fire(app: &AppHandle, item: TrayItem) {
         TrayItem::Quit => request_quit(app),
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// Bring the window back: the app first (a ⌘H'd app stays hidden otherwise),
 /// then the window shown, un-minimised and focused — and the mark's ink
 /// re-read, since the appearance may have changed while nothing was shown.
@@ -277,7 +288,9 @@ pub fn show_window(app: &AppHandle) {
         }
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// Put the app away while it runs on — the webview's answer to a held close
 /// while *Closing the window keeps Bisa running* is on. How is the
 /// platform's (`Platform::conceal`): on macOS the app hides, as ⌘H does, so
@@ -290,7 +303,9 @@ pub fn hide_window(app: &AppHandle) {
     };
     platform::current().conceal(app, &window);
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// The needs line: the window, on the Inbox.
 fn open_inbox(app: &AppHandle) {
     show_window(app);
@@ -298,7 +313,9 @@ fn open_inbox(app: &AppHandle) {
         warn("did not send the webview to the Inbox", e);
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 /// *Quit Bisa*: the window shown — the question is asked in it — and the
 /// request handed to the webview's one close flow, as a held ⌘Q's is
 /// (`quit.rs`). With no window to ask in, the exit stands: through the
@@ -318,7 +335,9 @@ fn request_quit(app: &AppHandle) {
         }
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the menu bar icon and the running app; out by decision
 impl Tray {
     /// Paint the webview's report: the two lines, the title, the tooltip,
     /// the icon. The same report again is nothing — unless the menu bar's
@@ -425,6 +444,7 @@ impl Tray {
         }
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {

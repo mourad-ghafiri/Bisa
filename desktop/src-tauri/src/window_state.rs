@@ -111,7 +111,7 @@ impl Space {
         if cfg!(target_os = "macos") {
             Self::Logical
         } else {
-            Self::Physical
+            Self::Physical // LCOV_EXCL_LINE this build is macOS's; by construction
         }
     }
 
@@ -474,6 +474,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    // LCOV_EXCL_START the window and screens of the running app; out by decision
     /// What the file under the app's config folder holds. Never fails the
     /// launch: a missing file, an unreadable one or a refused one is the
     /// default, and the reason is a line in the log.
@@ -487,6 +488,7 @@ impl WindowState {
         };
         Self::at(path)
     }
+    // LCOV_EXCL_STOP
 
     /// The state over a file at `path`, read now.
     fn at(path: Option<PathBuf>) -> Self {
@@ -501,6 +503,7 @@ impl WindowState {
         }
     }
 
+    // LCOV_EXCL_START the window and screens of the running app; out by decision
     /// How the window is opened: what was saved, fitted to the screens this
     /// machine has now, with the minimum and the default the window's config
     /// names.
@@ -522,7 +525,9 @@ impl WindowState {
         held.placed = Some((placement.width, placement.height));
         placement
     }
+    // LCOV_EXCL_STOP
 
+    // LCOV_EXCL_START the window and screens of the running app; out by decision
     /// Remember where the window stands now — after a move, a resize or a
     /// change of scale. A window that does not answer leaves what is held as
     /// it was.
@@ -542,6 +547,7 @@ impl WindowState {
             None => first_seen(seen, placed).map(Track::of),
         };
     }
+    // LCOV_EXCL_STOP
 
     /// Put what is held in the file — only when it differs from what the
     /// file says. A failure is a line in the log: the window's place is a
@@ -566,6 +572,7 @@ impl WindowState {
     }
 }
 
+// LCOV_EXCL_START the window and screens of the running app; out by decision
 /// Write what the app holds of its window, if it holds any: the one call
 /// behind every moment the place is kept (`main.rs`). Before `setup` has
 /// managed the state there is nothing to write.
@@ -574,7 +581,9 @@ pub fn keep(app: &AppHandle) {
         state.write();
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the window and screens of the running app; out by decision
 /// What the window says of itself, now.
 fn sight(window: &Window) -> tauri::Result<Seen> {
     let position = window.outer_position()?;
@@ -590,7 +599,9 @@ fn sight(window: &Window) -> tauri::Result<Seen> {
         },
     })
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the window and screens of the running app; out by decision
 /// The screens this machine has now, the primary first: a centred window
 /// opens on the primary, so that is the screen its size is held in.
 fn screens(app: &AppHandle) -> Vec<Screen> {
@@ -617,7 +628,9 @@ fn screens(app: &AppHandle) -> Vec<Screen> {
     }
     screens
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the window and screens of the running app; out by decision
 fn screen_of(monitor: &Monitor) -> Screen {
     let area = monitor.work_area();
     Screen {
@@ -628,6 +641,7 @@ fn screen_of(monitor: &Monitor) -> Screen {
         scale: monitor.scale_factor(),
     }
 }
+// LCOV_EXCL_STOP
 
 /// What the file at `path` holds. No file is the first launch and says
 /// nothing; a file that is refused says why.
@@ -654,9 +668,9 @@ fn place(path: &Path, bounds: &Bounds) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
-    }
-    // Write beside, then rename: a crash mid-write leaves the old place,
-    // never half of a new one.
+    } // LCOV_EXCL_LINE a place file has a folder; by construction
+      // Write beside, then rename: a crash mid-write leaves the old place,
+      // never half of a new one.
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("could not place {}: {e}", path.display()))
@@ -1314,5 +1328,30 @@ mod tests {
         nowhere.inner.locked().track = Some(Track::of(held));
         nowhere.write();
         assert_eq!(nowhere.inner.locked().written, None);
+    }
+
+    /// This build's space is the OS's; a place file that cannot be read —
+    /// a folder where the file should be — is a line in the log and the
+    /// default.
+    #[test]
+    fn the_space_is_the_os_s_and_an_unreadable_place_is_the_default() {
+        assert_eq!(
+            Space::here(),
+            if cfg!(target_os = "macos") {
+                Space::Logical
+            } else {
+                Space::Physical
+            }
+        );
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(read(dir.path()), None);
+        let state = WindowState::at(Some(dir.path().to_path_buf()));
+        assert!(held_by(&state).is_none());
+        state.inner.locked().track = Some(Track::of(bounds(0, 0, 800.0, 600.0)));
+        state.write();
+        assert!(
+            dir.path().is_dir(),
+            "the folder stands: a place that cannot be put over it is a line in the log"
+        );
     }
 }

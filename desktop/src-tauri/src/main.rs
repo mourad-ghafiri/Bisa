@@ -34,6 +34,8 @@ mod stats;
 mod sync;
 #[allow(clippy::let_underscore_must_use)]
 mod terminal;
+#[cfg(test)]
+mod testing;
 mod tray;
 mod window_state;
 mod words;

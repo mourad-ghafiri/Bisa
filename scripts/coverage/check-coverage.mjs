@@ -27,6 +27,7 @@ import {
   relativize,
   treeTotals,
   withoutExcused,
+  withoutMarked,
 } from "./coverageModel.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -77,17 +78,20 @@ if (parsed.length === 0) {
 const byPath = mergeLcov(parsed);
 
 // What a Rust source excuses on its own — its `#[cfg(test)]` items and the
-// lines it marks with a reason — leaves the meter here; a marker without a
-// reason refuses the run.
+// lines it marks with a reason — leaves the meter here, and so do the lines
+// a desktop model marks with a reason; a marker without a reason refuses
+// the run.
 const excused = [];
 let testLines = 0;
 let edgeLines = 0;
 const faults = [];
 for (const [rel, lines] of byPath) {
-  if (!rel.endsWith(".rs")) continue;
+  const rust = rel.endsWith(".rs");
+  if (!rust && !rel.endsWith(".mjs")) continue;
   const file = join(root, rel);
   if (!existsSync(file)) continue;
-  const taken = withoutExcused(lines, readFileSync(file, "utf8"));
+  const source = readFileSync(file, "utf8");
+  const taken = rust ? withoutExcused(lines, source) : withoutMarked(lines, source);
   byPath.set(rel, taken.lines);
   testLines += taken.testLines;
   edgeLines += taken.edgeLines;

@@ -3,6 +3,7 @@
 //! (`pasteboard.rs`) alike: whatever AppKit can decode (a TIFF, a JPEG…)
 //! comes out as the PNG the node's attachment store and a checkout keep.
 
+// LCOV_EXCL_START an AppKit bitmap of the pasteboard's picture; out by decision
 #[cfg(target_os = "macos")]
 pub fn from_data(data: &objc2_foundation::NSData) -> Option<Vec<u8>> {
     use objc2::rc::Retained;
@@ -16,6 +17,7 @@ pub fn from_data(data: &objc2_foundation::NSData) -> Option<Vec<u8>> {
         unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &props) }?;
     Some(png.to_vec())
 }
+// LCOV_EXCL_STOP
 
 /// The eight bytes every PNG starts with.
 pub const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];

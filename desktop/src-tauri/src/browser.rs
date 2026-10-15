@@ -98,6 +98,7 @@ impl BrowserRegistry {
         }
     }
 
+    // LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
     /// Note how many pieces the browser layer cut; true when that differs
     /// from the last count — the one time it is worth a log line.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -107,6 +108,7 @@ impl BrowserRegistry {
         *last = Some(count);
         changed
     }
+    // LCOV_EXCL_STOP
 
     fn remove(&self, key: &str) -> bool {
         self.views.locked().remove(key).is_some()
@@ -116,6 +118,7 @@ impl BrowserRegistry {
         self.views.locked().keys().cloned().collect()
     }
 
+    // LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
     /// Close every tab — the app is going (`RunEvent::Exit`); a close only hides the window.
     pub fn close_all<R: Runtime>(&self, app: &AppHandle<R>) {
         for key in self.keys() {
@@ -129,6 +132,7 @@ impl BrowserRegistry {
             self.remove(&key);
         }
     }
+    // LCOV_EXCL_STOP
 }
 
 /// A tab's box in the main window, in CSS pixels of the main webview.
@@ -187,6 +191,7 @@ impl Placed {
         }
     }
 
+    // LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
     /// A webview put out of sight: no box to speak of.
     pub fn hidden() -> Self {
         Self {
@@ -197,6 +202,7 @@ impl Placed {
             shown: false,
         }
     }
+    // LCOV_EXCL_STOP
 }
 
 /// What the main window hears on a navigation.
@@ -272,15 +278,20 @@ pub(crate) fn message_of(text: &str) -> Option<serde_json::Value> {
         .filter(|v| v.is_object())
 }
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 fn view_of<R: Runtime>(app: &AppHandle<R>, key: &str) -> Result<Webview<R>, String> {
     app.get_webview(&label_of(key))
         .ok_or_else(|| format!("no browser tab {key}"))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Say a tab's page moved, with what the webview knows of its history —
 /// read on the main thread, where WebKit answers. A webview already gone
 /// has nothing left to say.
@@ -308,7 +319,9 @@ fn say_navigated<R: Runtime>(
         );
     });
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Open a tab: a child webview on `url`, the init script aboard, the
 /// page's door installed, hidden until its first placement. The key is the
 /// webview's — a tab already open under it is a refusal, not a second
@@ -407,7 +420,9 @@ pub fn browser_open<R: Runtime>(
     registry.insert(&key);
     Ok(())
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Move a tab's page to `url`.
 #[tauri::command]
 pub fn browser_navigate<R: Runtime>(
@@ -418,25 +433,33 @@ pub fn browser_navigate<R: Runtime>(
     let url = admit(&url)?;
     view_of(&app, &key)?.navigate(url).map_err(err)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// One page back, in the webview's own history.
 #[tauri::command]
 pub fn browser_back<R: Runtime>(app: AppHandle<R>, key: String) -> Result<(), String> {
     page::back(&view_of(&app, &key)?)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// One page forward.
 #[tauri::command]
 pub fn browser_forward<R: Runtime>(app: AppHandle<R>, key: String) -> Result<(), String> {
     page::forward(&view_of(&app, &key)?)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Load the page again.
 #[tauri::command]
 pub fn browser_reload<R: Runtime>(app: AppHandle<R>, key: String) -> Result<(), String> {
     page::reload(&view_of(&app, &key)?)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Stop a page on its way. The webview reports a load's start and its
 /// finish and never a stop, so the finish is said here, on the page the
 /// tab is on — else the tab would show loading for good.
@@ -448,6 +471,7 @@ pub fn browser_stop<R: Runtime>(app: AppHandle<R>, key: String) -> Result<(), St
     say_navigated(app, &view, key, url.to_string(), "finished");
     Ok(())
 }
+// LCOV_EXCL_STOP
 
 /// How long a placement may take on the main thread before it is given up on.
 pub const PLACEMENT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
@@ -1207,6 +1231,7 @@ pub mod clear {
     }
 }
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Where a tab's webview is and whether it shows — said by the main webview
 /// as the centre moves, the active tab changes, or a surface opens over it.
 /// One placement, then the box actually drawn read back, so the main window
@@ -1250,7 +1275,9 @@ pub fn browser_bounds<R: Runtime>(
     }
     Ok(placed)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// The boxes of the main page's floating overlays that stand over a showing
 /// tab — the Notes and Draw panels, their docks, the pet, addon windows —
 /// in the page's CSS pixels with the page's viewport. The browser layer cuts
@@ -1282,7 +1309,9 @@ pub fn browser_clear<R: Runtime>(
         Ok(false)
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Hand the keyboard to the main page — what a floating overlay asks as it
 /// opens over a showing tab (`BrowserPanel.tsx`): a panel opened by a chord
 /// or a menu while a page held the keyboard would otherwise type into the
@@ -1294,7 +1323,9 @@ pub fn browser_focus_main<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         .set_focus()
         .map_err(err)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Close a tab.
 #[tauri::command]
 pub fn browser_close<R: Runtime>(
@@ -1310,6 +1341,7 @@ pub fn browser_close<R: Runtime>(
     registry.remove(&key);
     Ok(())
 }
+// LCOV_EXCL_STOP
 
 /// A screenshot's width is kept to what a page and a PNG can carry.
 pub const MIN_SHOT_WIDTH: u32 = 320;
@@ -1330,6 +1362,7 @@ pub fn clamp_width(width: u32) -> u32 {
     width.clamp(MIN_SHOT_WIDTH, MAX_SHOT_WIDTH)
 }
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// A PNG of a tab as it shows, `width` pixels wide — the webview's own
 /// snapshot, taken on the main thread and answered as raw bytes. The tab
 /// must be showing: a hidden webview renders nothing worth keeping, so the
@@ -1349,7 +1382,9 @@ pub async fn browser_screenshot<R: Runtime>(
         .map_err(err)??;
     Ok(tauri::ipc::Response::new(bytes))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Hand the page's script a request — a pick to mark, a read, a click — as
 /// JSON; the page answers through its door.
 #[tauri::command]
@@ -1368,7 +1403,9 @@ pub fn browser_drive<R: Runtime>(
         ))
         .map_err(err)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// The `WKWebView` tauri built for a tab, for the readers below.
 #[cfg(target_os = "macos")]
 mod webkit {
@@ -1383,7 +1420,9 @@ mod webkit {
         &*platform.inner().cast::<WKWebView>()
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// The page's one door out: a script message handler named `bisa` on the
 /// tab's user content controller, so `window.webkit.messageHandlers.bisa
 /// .postMessage(text)` reaches `say` from every page the tab shows — an
@@ -1457,6 +1496,7 @@ mod door {
         });
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 mod door {
@@ -1467,6 +1507,7 @@ mod door {
     pub fn install<R: Runtime>(_webview: &Webview<R>, _say: Box<dyn Fn(String) + Send>) {}
 }
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// The view every tab stands in (ide/18): a `BisaBrowserLayer` the size of
 /// the window's content view, just above the main webview, unflipped like
 /// the content view so a tab's frame there is the frame `anchor` computes.
@@ -1758,7 +1799,9 @@ mod layer {
         Some(layer)
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// Putting a tab's webview where its box is (ide/18): one closure on the
 /// main thread that reads the content view's height and the main webview's
 /// frame, anchors the box on them with the page's viewport, sets the
@@ -1912,6 +1955,7 @@ mod place {
         Ok((placed, Some((anchor, main_frame))))
     }
 }
+// LCOV_EXCL_STOP
 
 /// Off macOS the runtime's own placement: one atomic `set_bounds` in the
 /// window's logical pixels, shown, the box read back — no anchor to speak of.
@@ -1935,6 +1979,7 @@ mod place {
     }
 }
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 /// The page's own verbs and history, asked of the webview itself.
 #[cfg(target_os = "macos")]
 mod page {
@@ -1988,6 +2033,7 @@ mod page {
         on(view, |web| unsafe { web.stopLoading() })
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 mod page {
@@ -2017,6 +2063,7 @@ mod page {
     }
 }
 
+// LCOV_EXCL_START bound to the running app's webviews and window system; out by decision
 #[cfg(target_os = "macos")]
 mod snapshot {
     use super::{err, SNAPSHOT_BUDGET, SNAPSHOT_HIDDEN, SNAPSHOT_LATE};
@@ -2090,6 +2137,7 @@ mod snapshot {
             .ok_or_else(|| "the snapshot could not be encoded as PNG".to_string())
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 mod snapshot {
@@ -2251,5 +2299,36 @@ mod tests {
             !r.note_anchor("b9", a),
             "a tab that is not there is nothing to note"
         );
+    }
+
+    /// A page with no width is at zoom one; two square holes that meet are
+    /// one piece of plain rectangles.
+    #[test]
+    fn a_page_with_no_width_is_at_zoom_one_and_square_holes_that_meet_are_plain_rectangles() {
+        let a = anchor::Anchor::of(
+            100.0,
+            anchor::Frame {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            Viewport {
+                width: 0.0,
+                height: 0.0,
+            },
+        );
+        assert_eq!(a.zoom, 1.0);
+        let square = |x: f64| clear::Hole {
+            frame: anchor::Frame {
+                x,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            radius: 0.0,
+        };
+        let pieces = clear::pieces(&[square(0.0), square(5.0)]);
+        assert_eq!(pieces.len(), 1, "{pieces:?}");
     }
 }

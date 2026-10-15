@@ -89,7 +89,7 @@ function failureKey(payload) {
   if (payload.type === "listener_failed") return `listener:${payload.listener}:${payload.signal ?? ""}`;
   if (payload.type === "workstream_script_ran") return `script:${payload.workstream}:${payload.phase ?? ""}`;
   if (payload.type === "workstream_publish_failed") return `publish:${payload.workstream}:${payload.what ?? ""}`;
-  return null;
+  return null; // LCOV_EXCL_LINE a frame of another type never asks; by construction
 }
 
 /** A notice's body: who, and what they say — or who alone, when there is no more to say. */

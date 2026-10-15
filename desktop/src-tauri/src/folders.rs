@@ -22,6 +22,7 @@ fn folder_to_open(writing: Option<PathBuf>, named: Option<PathBuf>) -> Result<Pa
         .ok_or_else(|| "no folder is known yet: no bisa binary named the workspace".to_string())
 }
 
+// LCOV_EXCL_START opens the file manager from the running app; out by decision
 /// Open the diagnostic log's folder in the file manager.
 #[tauri::command]
 pub fn reveal_logs_dir(
@@ -34,7 +35,9 @@ pub fn reveal_logs_dir(
         .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
         .map_err(|e| e.to_string())
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START opens the file manager from the running app; out by decision
 /// Open the workspace's data folder in the file manager.
 #[tauri::command]
 pub fn reveal_data_dir(app: tauri::AppHandle, node: State<'_, NodeState>) -> Result<(), String> {
@@ -43,6 +46,7 @@ pub fn reveal_data_dir(app: tauri::AppHandle, node: State<'_, NodeState>) -> Res
         .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
         .map_err(|e| e.to_string())
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {

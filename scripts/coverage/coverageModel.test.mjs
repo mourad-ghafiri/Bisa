@@ -31,6 +31,7 @@ import {
   treeTotals,
   questionEdgeLines,
   withoutExcused,
+  withoutMarked,
 } from "./coverageModel.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -488,4 +489,17 @@ test("a line that is only the closing of a `?` is the error edge and leaves the 
   const taken = withoutExcused(lines, source);
   assert.equal(taken.edgeLines, 5);
   assert.deepEqual([...taken.lines.keys()], [2, 3, 11]);
+});
+
+
+test("a desktop model's markers excuse its lines, with their reasons, and nothing else is taken from it", () => {
+  const src = "export function f(x) {\n  if (x) return 1; // LCOV_EXCL_LINE a frame of another type; by construction\n  return 2;\n}\n";
+  const lines = new Map([[1, 1], [2, 0], [3, 1], [4, 1]]);
+  const taken = withoutMarked(lines, src);
+  assert.deepEqual([...taken.lines.keys()], [1, 3, 4]);
+  assert.deepEqual(taken.excused, [{ line: 2, reason: "a frame of another type; by construction" }]);
+  assert.deepEqual(taken.faults, []);
+  assert.equal(taken.testLines, 0);
+  assert.equal(taken.edgeLines, 0);
+  assert.deepEqual(withoutMarked(lines, "a\nb // LCOV_EXCL_LINE\n").faults, ["line 2: LCOV_EXCL_LINE says no reason"]);
 });

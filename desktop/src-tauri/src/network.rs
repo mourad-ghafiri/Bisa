@@ -765,6 +765,7 @@ fn tcp_probe(addr: SocketAddr, budget: Duration) -> Option<u64> {
     Some(started.elapsed().as_millis() as u64)
 }
 
+// LCOV_EXCL_START reaches the public internet and the machine's network tools; out by decision
 /// The echo request through curl, which ships with macOS: the body capped,
 /// a failure an exit code (`-f`), the proxy pair System Settings names
 /// followed — curl reads the environment's, not the system's — and never
@@ -803,7 +804,9 @@ fn read_echo(url: &str, proxy: &MacProxy) -> Echo {
         None => Echo::NotAnAddress,
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START reaches the public internet and the machine's network tools; out by decision
 /// The internet, asked three ways at once: the two connects on their own
 /// threads, the echo request on this one.
 #[cfg(target_os = "macos")]
@@ -825,6 +828,7 @@ fn read_internet(url: Option<&str>, proxy: &MacProxy) -> InternetFacts {
         internet(tcp, echo)
     })
 }
+// LCOV_EXCL_STOP
 
 /// One read of the machine, before it is joined: what each reader said,
 /// and how long the reading took.
@@ -932,6 +936,7 @@ pub fn join(readings: Readings) -> NetworkFacts {
 // The readers.
 // ---------------------------------------------------------------------------
 
+// LCOV_EXCL_START reaches the public internet and the machine's network tools; out by decision
 /// This Mac's network now; `None` where there are no readers. The proxy
 /// first — the echo request needs it — then every other reader at once,
 /// so the whole read takes about one budget, not six.
@@ -974,12 +979,14 @@ pub fn read(process_names: &[String], public_ip_url: Option<&str>) -> Option<Net
         read_ms: started.elapsed().as_millis() as u64,
     }))
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 pub fn read(_process_names: &[String], _public_ip_url: Option<&str>) -> Option<NetworkFacts> {
     None
 }
 
+// LCOV_EXCL_START reaches the public internet and the machine's network tools; out by decision
 /// This Mac's network facts, or `null` where the shell has no readers.
 /// `public_ip_url` is the echo service the person named
 /// (`network.public_ip_url`), handed over by the desktop — the shell reads no
@@ -996,6 +1003,7 @@ pub async fn network_facts(
     .await
     .map_err(|e| format!("the network read did not finish: {e}"))
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {
@@ -1494,5 +1502,47 @@ resolver #2\n\
             Some("OpenVPN")
         );
         assert_eq!(provider_of(&["Finder".to_string()]), None);
+    }
+
+    /// Lines the parsers read past: a header with no colon, an `inet6`
+    /// with no address, a proxy with no port; the tunnel families by
+    /// interface name; curl's exit codes in words.
+    #[test]
+    fn odd_lines_are_read_past_and_the_small_words_are_said() {
+        let ifs = parse_interfaces(
+            "garbage line\nen0: flags=8863<UP,BROADCAST,RUNNING> mtu 1500\n\tinet6\n\tinet 10.0.0.2 netmask 0xffffff00\n",
+        );
+        assert_eq!(ifs.len(), 1);
+        assert_eq!(ifs[0].addresses, vec!["10.0.0.2".to_string()]);
+        let proxy =
+            parse_mac_proxy("<dictionary> {\n  HTTPEnable : 1\n  HTTPProxy : proxy.local\n}\n");
+        assert_eq!(proxy.http.as_deref(), Some("proxy.local"));
+        assert_eq!(family_word("ipsec0"), "IPsec");
+        assert_eq!(family_word("ppp0"), "PPP");
+        assert_eq!(family_word("utun4"), "tunnel");
+        for (code, word) in [
+            (7, "could not be connected to"),
+            (22, "HTTP error"),
+            (35, "TLS handshake"),
+            (9, "curl exited 9"),
+        ] {
+            let facts = internet(None, Echo::Failed(Some(code)));
+            assert!(
+                facts.error.as_deref().is_some_and(|e| e.contains(word)),
+                "{code}: {:?}",
+                facts.error
+            );
+        }
+    }
+
+    /// A connect to a port that listens is answered in milliseconds; one
+    /// to a port nobody holds is not.
+    #[test]
+    fn a_tcp_probe_answers_in_milliseconds_or_not_at_all() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        assert!(tcp_probe(addr, Duration::from_secs(2)).is_some());
+        let dead: SocketAddr = "127.0.0.1:1".parse().unwrap();
+        assert_eq!(tcp_probe(dead, Duration::from_secs(2)), None);
     }
 }

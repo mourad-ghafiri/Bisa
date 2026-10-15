@@ -48,6 +48,7 @@ pub trait Platform: Send + Sync {
 #[cfg(target_os = "macos")]
 struct MacOs;
 
+// LCOV_EXCL_START the dock and the running app's window; out by decision
 #[cfg(target_os = "macos")]
 impl Platform for MacOs {
     fn has_dock(&self) -> bool {
@@ -91,6 +92,7 @@ impl Platform for MacOs {
         })
     }
 }
+// LCOV_EXCL_STOP
 
 /// Every other platform, for now: no Dock, the window hides and shows itself.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
@@ -101,19 +103,25 @@ impl Platform for Elsewhere {
         false
     }
 
+    // LCOV_EXCL_START the dock and the running app's window; out by decision
     fn set_dock_visible(&self, _app: &AppHandle, _visible: bool) -> Result<(), Unsupported> {
         Err(Unsupported(
             "not this platform: the Dock is macOS's".to_string(),
         ))
     }
+    // LCOV_EXCL_STOP
 
+    // LCOV_EXCL_START the dock and the running app's window; out by decision
     fn conceal(&self, _app: &AppHandle, window: &Window) {
         if let Err(e) = window.hide() {
             tracing::warn!(target: "bisa_desktop", "the window did not hide: {e}");
         }
     }
+    // LCOV_EXCL_STOP
 
+    // LCOV_EXCL_START the dock and the running app's window; out by decision
     fn reveal(&self, _app: &AppHandle) {}
+    // LCOV_EXCL_STOP
 
     fn menu_bar_ink(&self) -> Option<Ink> {
         None

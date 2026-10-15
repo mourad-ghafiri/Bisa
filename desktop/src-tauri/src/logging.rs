@@ -60,10 +60,17 @@ pub struct Holder {
 /// forwards the settings. The first candidate binary that answers wins;
 /// answers what it said. No binary that answers is the error, with what
 /// each said.
+// LCOV_EXCL_START the machine's own binaries; out by decision
 pub fn attach_from_binary(log: &Handle) -> Result<PathsAnswer, String> {
+    attach_from_candidates(log, &crate::sidecar::candidate_binaries())
+}
+// LCOV_EXCL_STOP
+
+/// [`attach_from_binary`] over a named list of binaries, in order.
+fn attach_from_candidates(log: &Handle, candidates: &[PathBuf]) -> Result<PathsAnswer, String> {
     let mut errors = Vec::new();
-    for bin in crate::sidecar::candidate_binaries() {
-        let answer = match ask_paths(&bin) {
+    for bin in candidates {
+        let answer = match ask_paths(bin) {
             Ok(answer) => answer,
             Err(e) => {
                 errors.push(format!("{}: {e}", bin.display()));
@@ -151,6 +158,7 @@ pub fn attach_from_node(log: &Handle, api_base: &str, token: &str) -> Result<(),
     log.attach(dir, log.config()).map_err(|e| e.to_string())
 }
 
+// LCOV_EXCL_START the running app's handle and its state; out by decision
 /// The last resort, once the app is built: with no binary to name the
 /// workspace and no node to ask, the shell's own words — chiefly that there
 /// is no node — go under the app's log folder, so a bundled app that cannot
@@ -182,12 +190,15 @@ pub fn attach_fallback<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         Err(e) => tracing::warn!(target: "bisa_desktop", "no log file: {e}"),
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the running app's handle and its state; out by decision
 /// The machine's `logging.*` settings, as the webview read them.
 #[tauri::command]
 pub fn log_configure(log: State<'_, Handle>, config: LogConfig) -> Result<(), String> {
     log.apply(config).map_err(|e| e.to_string())
 }
+// LCOV_EXCL_STOP
 
 /// One line from the webview: a level word, the surface it came from, the
 /// message and its fields — already bounded by the webview's shaper, and
@@ -321,5 +332,120 @@ mod tests {
         )
         .unwrap_err()
         .contains("not a holder"));
+    }
+
+    fn script(dir: &std::path::Path, name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    /// The binaries are asked in order where the workspace is; the first
+    /// that answers names the folder the log attaches under, and none
+    /// answering is said with what each said.
+    #[test]
+    fn a_binary_is_asked_where_the_workspace_is_and_the_log_attaches_there() {
+        crate::login_env::preset_for_tests();
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        let answers = script(
+            dir.path(),
+            "answers.sh",
+            &format!(
+                "printf '%s\\n' '{{\"data_dir\":\"{}\",\"logs_dir\":\"{}\"}}'",
+                dir.path().display(),
+                logs.display()
+            ),
+        );
+        let fails = script(dir.path(), "fails.sh", "exit 3");
+        assert_eq!(ask_paths(&answers).unwrap().logs_dir, logs);
+        assert!(ask_paths(&fails).unwrap_err().contains("paths answered"));
+        assert!(ask_paths(&dir.path().join("missing")).is_err());
+
+        let (log, _layers) = bisa_log::build(Process::Desktop, "0");
+        let refused =
+            attach_from_candidates(&log, &[fails.clone(), dir.path().join("missing")]).unwrap_err();
+        assert!(
+            refused.contains("no bisa binary named the workspace") && refused.contains("fails.sh"),
+            "{refused}"
+        );
+        assert!(!log.writing());
+        let answer = attach_from_candidates(&log, &[fails, answers]).unwrap();
+        assert_eq!(answer.logs_dir, logs);
+        assert!(log.writing());
+        assert_eq!(log.root(), Some(logs));
+    }
+
+    /// The node names the log folder: a refusal, an answer that is not
+    /// JSON and one naming no folder are said; the folder named is attached
+    /// once, and the same folder again is nothing to do.
+    #[test]
+    fn the_node_names_the_log_folder_and_the_log_attaches_there_once() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        let named = logs.display().to_string();
+        let calls = std::sync::Arc::new(AtomicU64::new(0));
+        let server = crate::testing::canned::serve(move |req| {
+            assert_eq!(req.path, "/workspace");
+            match calls.fetch_add(1, Ordering::SeqCst) {
+                0 => (500, "{}".to_string()),
+                1 => (200, "nope".to_string()),
+                2 => (200, r#"{"logs_dir":""}"#.to_string()),
+                _ => (200, format!(r#"{{"logs_dir":"{named}"}}"#)),
+            }
+        });
+        let (log, _layers) = bisa_log::build(Process::Desktop, "0");
+        let base = server.base();
+        assert!(attach_from_node(&log, &base, "w")
+            .unwrap_err()
+            .contains("answered 500"));
+        assert!(attach_from_node(&log, &base, "w")
+            .unwrap_err()
+            .contains("not JSON"));
+        assert!(attach_from_node(&log, &base, "w")
+            .unwrap_err()
+            .contains("names no logs_dir"));
+        attach_from_node(&log, &base, "w").unwrap();
+        assert_eq!(log.root(), Some(logs));
+        attach_from_node(&log, &base, "w").unwrap();
+        assert_eq!(
+            server.requests().len(),
+            5,
+            "the same folder again is nothing to do"
+        );
+        assert!(attach_from_node(&log, "ftp://x", "w").is_err());
+        assert!(attach_from_node(&log, "http://127.0.0.1:1", "w").is_err());
+    }
+
+    /// A webview line lands at its level, with or without fields; a level
+    /// nobody knows is refused.
+    #[test]
+    fn a_webview_line_lands_at_its_level_and_a_level_nobody_knows_is_refused() {
+        for level in ["error", "warn", "info", "debug", "trace"] {
+            log_event(WebviewEvent {
+                level: level.into(),
+                target: "view".into(),
+                message: "m".into(),
+                fields: serde_json::json!({"k": 1}),
+            })
+            .unwrap();
+        }
+        log_event(WebviewEvent {
+            level: "info".into(),
+            target: "view".into(),
+            message: "m".into(),
+            fields: serde_json::Value::Null,
+        })
+        .unwrap();
+        assert!(log_event(WebviewEvent {
+            level: "loud".into(),
+            target: "view".into(),
+            message: "m".into(),
+            fields: serde_json::Value::Null,
+        })
+        .is_err());
     }
 }

@@ -327,6 +327,7 @@ const RECLAIM_KILL_GRACE: Duration = Duration::from_secs(2);
 /// and still be one process.
 pub(crate) const RECLAIM_START_SLACK: u64 = 120;
 
+// LCOV_EXCL_START the running app's handle and its events; out by decision
 /// The boot, from `setup` and never from `main` (one Bisa at a time,
 /// `second_launch.rs`): the log file first, under the workspace the `bisa`
 /// binary names, so a node that fails to start is a line in the file and
@@ -371,6 +372,7 @@ pub fn boot<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> NodeState {
     }
     node
 }
+// LCOV_EXCL_STOP
 
 /// What one tick of the watchdog found.
 enum Watch {
@@ -431,7 +433,8 @@ impl NodeState {
                     relayed: 0,
                 }),
             };
-        }
+        } // LCOV_EXCL_LINE the arm returned above; by construction
+          // LCOV_EXCL_START starts the machine's own node from the app; out by decision
         let (token, failed) = match mint_token() {
             Ok(token) => (token, None),
             Err(e) => (
@@ -466,6 +469,7 @@ impl NodeState {
             state.launch(false, false);
         }
         state
+        // LCOV_EXCL_STOP
     }
 
     /// Spawn the node with the next candidate binary, after taking the
@@ -487,11 +491,12 @@ impl NodeState {
             if inner.token.is_empty() {
                 match mint_token() {
                     Ok(minted) => inner.token = minted,
+                    // LCOV_EXCL_START no randomness on the machine; by construction
                     Err(e) => {
                         return Some(inner.fail(Failure::NoBinary {
                             tried: vec![format!("no token: {e}")],
                         }));
-                    }
+                    } // LCOV_EXCL_STOP
                 }
             }
             let next = inner.next;
@@ -576,7 +581,7 @@ impl NodeState {
             let exit = match child.try_wait() {
                 Ok(Some(status)) => Some(Exit::of(&status)),
                 Ok(None) => None,
-                Err(_) => Some(Exit::unknown()),
+                Err(_) => Some(Exit::unknown()), // LCOV_EXCL_LINE a child that cannot be waited on; by construction
             };
             match (inner.booting, exit) {
                 (Some(_), None) => (pid, inner.port),
@@ -586,7 +591,7 @@ impl NodeState {
                         if since.elapsed() >= HEALTHY_AFTER {
                             inner.crashes = 0;
                         }
-                    }
+                    } // LCOV_EXCL_LINE a child past its boot was seen healthy; by construction
                     return Watch::Nothing;
                 }
                 (None, Some(exit)) => {
@@ -601,12 +606,14 @@ impl NodeState {
         let mut guard = self.lock();
         let inner = &mut *guard;
         // A restart or the quit may have taken the child meanwhile.
+        // LCOV_EXCL_START a restart between the probe and the lock; a race
         let Some(booting) = inner.booting else {
             return Watch::Nothing;
         };
         if inner.child.as_ref().map(|c| c.id()) != Some(pid) {
             return Watch::Nothing;
         }
+        // LCOV_EXCL_STOP
         if healthy {
             inner.booting = None;
             inner.healthy_since = Some(Instant::now());
@@ -668,6 +675,7 @@ impl NodeState {
         }
     }
 
+    // LCOV_EXCL_START the running app's handle and its events; out by decision
     /// The watchdog: one thread for the life of the app, reading the child
     /// once a second. A booting child is probed until it answers — then the
     /// shell's log is attached from the node's own word when nothing was
@@ -734,7 +742,9 @@ impl NodeState {
             })
             .expect("the watchdog thread spawns");
     }
+    // LCOV_EXCL_STOP
 
+    // LCOV_EXCL_START the running app's handle and its events; out by decision
     /// A failure said to the webview, the delay waited, and the node
     /// started again — a start that fails in turn is the next tick's to say.
     fn say_failed<R: tauri::Runtime>(&self, app: &tauri::AppHandle<R>, failed: NodeFailed) {
@@ -745,6 +755,7 @@ impl NodeState {
         std::thread::sleep(delay);
         self.launch(true, false);
     }
+    // LCOV_EXCL_STOP
 
     /// Where the node answers — or why there is no node to answer yet. A
     /// node still booting is a node: its base is answered, and the first
@@ -851,6 +862,7 @@ impl Drop for NodeState {
     }
 }
 
+// LCOV_EXCL_START the running app's handle and its events; out by decision
 /// After a restart the node names the workspace again: the shell's log is
 /// attached there when nothing was writing yet — the first launch, before
 /// the workspace existed — or when the folder moved.
@@ -863,6 +875,7 @@ pub(crate) fn reattach_log<R: tauri::Runtime>(app: &tauri::AppHandle<R>, state: 
         tracing::warn!(target: "bisa_desktop", "no log file after the restart: {e}");
     }
 }
+// LCOV_EXCL_STOP
 
 /// Whether a booting node has gone silent past its budget: nothing heard —
 /// no boot word, no answer — for [`BOOT_BUDGET`] since its last word or its
@@ -924,7 +937,7 @@ impl OwnRecord {
         let path = Self::path(data_dir);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
+        } // LCOV_EXCL_LINE the record's path has a parent; by construction
         std::fs::write(
             &path,
             serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?,
@@ -1036,9 +1049,11 @@ fn stop_stray(pid: u32) {
         tracing::warn!(target: "bisa_desktop", pid, "the stray node did not stop when asked; killing it");
         crate::ports::signal(pid, sysinfo::Signal::Kill);
         let deadline = Instant::now() + RECLAIM_KILL_GRACE;
+        // LCOV_EXCL_START a kill lands before the next look; a race
         while alive(pid) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(100));
         }
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1180,9 +1195,11 @@ impl StderrTail {
                     self.push(line);
                 }
             });
+        // LCOV_EXCL_START a thread that cannot be spawned; by construction
         if let Err(e) = spawned {
             tracing::warn!(target: "bisa_desktop", "the node's stderr is not followed: {e}");
         }
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1238,9 +1255,11 @@ impl BootTail {
                     }
                 }
             });
+        // LCOV_EXCL_START a thread that cannot be spawned; by construction
         if let Err(e) = spawned {
             tracing::warn!(target: "bisa_desktop", "the node's stdout is not followed: {e}");
         }
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -1422,15 +1441,15 @@ fn stop(child: &mut Child, leash: Option<ChildStdin>, grace: Duration) {
         match child.try_wait() {
             Ok(Some(_)) => return,
             Ok(None) => std::thread::sleep(Duration::from_millis(100)),
-            Err(_) => break,
+            Err(_) => break, // LCOV_EXCL_LINE a child reaped elsewhere; by construction
         }
     }
     tracing::warn!(target: "bisa_desktop::node", pid, grace_secs = grace.as_secs(), "the node did not stop when asked; killing it");
     if let Err(e) = child.kill() {
-        tracing::debug!(target: "bisa_desktop::node", "ending the node: {e}");
+        tracing::debug!(target: "bisa_desktop::node", "ending the node: {e}"); // LCOV_EXCL_LINE a kill of a child already gone; by construction
     }
     if let Err(e) = child.wait() {
-        tracing::debug!(target: "bisa_desktop::node", "reaping the node: {e}");
+        tracing::debug!(target: "bisa_desktop::node", "reaping the node: {e}"); // LCOV_EXCL_LINE a wait of a child already reaped; by construction
     }
 }
 
@@ -1446,7 +1465,7 @@ fn probe_health(port: u16) -> bool {
     if s.set_read_timeout(Some(Duration::from_secs(2))).is_err()
         || s.write_all(req.as_bytes()).is_err()
     {
-        return false;
+        return false; // LCOV_EXCL_LINE a connected socket takes a timeout and a request; by construction
     }
     let mut buf = String::new();
     if let Err(e) = s.read_to_string(&mut buf) {
@@ -1846,6 +1865,20 @@ Connection: close
         assert!(probe_health(answer("200 OK")));
         assert!(!probe_health(answer("503 Service Unavailable")));
         assert!(!probe_health(free_port().unwrap()), "nobody listening");
+        let raw = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = raw.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut s, _)) = raw.accept() {
+                let mut buf = [0u8; 1024];
+                if s.read(&mut buf).is_ok() {
+                    s.write_all(b"\xff\xfe").ok();
+                }
+            }
+        });
+        assert!(
+            !probe_health(port),
+            "an answer that is not text is not a 200"
+        );
     }
 
     #[test]
@@ -1862,5 +1895,594 @@ Connection: close
             Duration::from_secs(1),
             "the first respawn is prompt"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // The supervisor over a scripted node
+    // -----------------------------------------------------------------------
+
+    /// A node stand-in: a shell script that runs `paths` for `paths --json`
+    /// and `body` for `--json node --listen <addr>`.
+    fn scripted_node(dir: &Path, name: &str, paths: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = dir.join(name);
+        std::fs::write(
+            &path,
+            format!("#!/bin/sh\nif [ \"$1\" = paths ]; then\n{paths}\nfi\n{body}\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    fn dirs_in(root: &Path) -> WorkspaceDirs {
+        WorkspaceDirs {
+            data_dir: root.join("data"),
+            logs_dir: root.join("logs"),
+        }
+    }
+
+    /// The `paths --json` line a stand-in prints: the folders and the holder.
+    fn paths_line(dirs: &WorkspaceDirs, holder: &str) -> String {
+        format!(
+            "printf '%s\\n' '{{\"data_dir\":\"{}\",\"logs_dir\":\"{}\",\"engine_holder\":{holder}}}'; exit 0",
+            dirs.data_dir.display(),
+            dirs.logs_dir.display()
+        )
+    }
+
+    fn state_with(candidates: Vec<PathBuf>, dirs: Option<WorkspaceDirs>) -> NodeState {
+        crate::login_env::preset_for_tests();
+        let mut inner = inner_without_a_node(None);
+        inner.candidates = candidates;
+        inner.dirs = dirs;
+        NodeState {
+            inner: Mutex::new(inner),
+        }
+    }
+
+    fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(Instant::now() < deadline, "{what} never came");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    fn failed_of(watch: Watch) -> NodeFailed {
+        match watch {
+            Watch::Failed(failed) => failed,
+            Watch::Nothing => panic!("nothing, not a failure"),
+            Watch::Healthy { .. } => panic!("healthy, not a failure"),
+            Watch::Abandon { .. } => panic!("abandoned, not a failure"),
+            Watch::NeedsStart { .. } => panic!("a start owed, not a failure"),
+        }
+    }
+
+    fn health_stand_in(port: u16) -> crate::testing::canned::Server {
+        crate::testing::canned::serve_at(port, |_| (200, "{}".to_string()))
+    }
+
+    /// The whole life of a node that answers: spawned and booting, healthy
+    /// once its port answers, its boot word relayed once, its record
+    /// written, its crash count reset after a healthy minute; restarted on
+    /// request onto a fresh port and heard again as restarted; abandoned
+    /// when it falls silent past the budget; and its record gone at the
+    /// shutdown.
+    #[test]
+    fn a_node_that_answers_is_supervised_through_its_boot_restart_silence_and_shutdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let dirs = dirs_in(dir.path());
+        let node = scripted_node(
+            dir.path(),
+            "node.sh",
+            &paths_line(&dirs, "null"),
+            "printf '%s\\n' '{\"boot\":{\"phase\":\"opening\",\"done\":1,\"of\":3}}' 'the socket line'\nexec sleep 300",
+        );
+        let state = state_with(vec![node], Some(dirs.clone()));
+        assert!(state.launch(false, false).is_none());
+        assert!(
+            state.launch(false, false).is_none(),
+            "a child already runs: nothing to do"
+        );
+        let port = state.lock().port;
+        assert_ne!(port, 0);
+        let status = state.status();
+        assert!(status.booting && !status.running && status.pid.is_some());
+        assert_eq!(
+            state.api_base().unwrap(),
+            format!("http://127.0.0.1:{port}")
+        );
+        assert_eq!(state.dirs(), Some(dirs.clone()));
+        assert!(
+            matches!(state.watch(), Watch::Nothing),
+            "booting, nobody answers yet"
+        );
+
+        let health = health_stand_in(port);
+        assert!(matches!(state.watch(), Watch::Healthy { restarted: None }));
+        assert_eq!(health.requests()[0].path, "/health");
+        let status = state.status();
+        assert!(status.running && !status.booting && status.healthy_secs.is_some());
+        let pid = status.pid.unwrap();
+        assert!(
+            matches!(state.watch(), Watch::Nothing),
+            "healthy, under a minute: nothing to do"
+        );
+
+        wait_until("the boot word", || {
+            state
+                .lock()
+                .boot
+                .as_ref()
+                .and_then(|b| b.latest())
+                .is_some()
+        });
+        assert_eq!(
+            state.boot_word_to_relay(),
+            Some(BootWord {
+                phase: "opening".into(),
+                done: Some(1),
+                of: Some(3)
+            })
+        );
+        assert!(state.boot_word_to_relay().is_none(), "relayed once");
+
+        let a_file = dir.path().join("a-file");
+        std::fs::write(&a_file, "x").unwrap();
+        state.lock().dirs = Some(WorkspaceDirs {
+            data_dir: a_file.join("under"),
+            logs_dir: a_file.clone(),
+        });
+        state.write_own_record();
+        assert!(
+            !a_file.is_dir(),
+            "a record under a file is a line in the log"
+        );
+        state.lock().dirs = Some(dirs.clone());
+        state.write_own_record();
+        let record = OwnRecord::read(&dirs.data_dir).unwrap();
+        assert_eq!((record.pid, record.port), (pid, port));
+
+        {
+            let mut inner = state.lock();
+            inner.crashes = 2;
+            inner.healthy_since =
+                Instant::now().checked_sub(HEALTHY_AFTER + Duration::from_secs(1));
+        }
+        assert!(matches!(state.watch(), Watch::Nothing));
+        assert_eq!(state.lock().crashes, 0, "a healthy minute resets the count");
+
+        let restarted = state.restart().unwrap();
+        assert!(restarted.booting && restarted.pid != Some(pid));
+        let port2 = state.lock().port;
+        assert_ne!(port2, port, "the old port is held by the stand-in");
+        assert!(matches!(state.watch(), Watch::Nothing), "booting again");
+        let _health2 = health_stand_in(port2);
+        assert!(matches!(
+            state.watch(),
+            Watch::Healthy {
+                restarted: Some(NodeRestarted {
+                    port,
+                    attempt: 0,
+                    requested: true
+                })
+            } if port == port2
+        ));
+
+        state.restart().unwrap();
+        {
+            let mut inner = state.lock();
+            let booting = inner.booting.as_mut().unwrap();
+            booting.spawned = Instant::now()
+                .checked_sub(BOOT_BUDGET + Duration::from_secs(1))
+                .unwrap();
+        }
+        let (mut child, leash, said, secs) = match state.watch() {
+            Watch::Abandon {
+                child,
+                leash,
+                said,
+                secs,
+            } => (child, leash, said, secs),
+            _ => panic!("a silent node past its budget is abandoned"),
+        };
+        assert!(secs > BOOT_BUDGET.as_secs() && said.is_empty());
+        stop(&mut child, leash, Duration::from_secs(5));
+        assert!(child.try_wait().unwrap().is_some());
+        let failed = state.lock().fail(Failure::TimedOut { secs, said });
+        assert!(failed
+            .failure
+            .words()
+            .starts_with("the node did not answer within"));
+        assert!(matches!(state.watch(), Watch::NeedsStart { .. }));
+        assert!(state.status().pid.is_none());
+
+        state.write_own_record();
+        state.shutdown();
+        assert!(
+            OwnRecord::read(&dirs.data_dir).is_none(),
+            "the record goes with the shutdown"
+        );
+    }
+
+    /// A node that ends while booting is a failure with what it said, the
+    /// next binary is tried, a binary that cannot be spawned is said by
+    /// its path, no binary at all is said so, and a token is minted when
+    /// there is none.
+    #[test]
+    fn a_node_that_ends_while_booting_fails_with_what_it_said_and_the_binaries_take_turns() {
+        let dir = tempfile::tempdir().unwrap();
+        let exits = scripted_node(
+            dir.path(),
+            "exits.sh",
+            "exit 2",
+            "echo 'refused the workspace' >&2\nexit 3",
+        );
+        let missing = dir.path().join("missing");
+        let state = state_with(vec![exits.clone(), missing.clone()], None);
+        assert!(state.launch(false, false).is_none());
+        wait_until("the exit and its last words", || {
+            let mut inner = state.lock();
+            let ended = inner
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .ok()
+                .flatten()
+                .is_some();
+            ended && inner.tail.as_ref().is_some_and(|t| !t.lines().is_empty())
+        });
+        let status = state.status();
+        assert!(!status.running && !status.booting && status.pid.is_none());
+        let failed = failed_of(state.watch());
+        assert_eq!(
+            failed.failure,
+            Failure::Exited {
+                how: "exited with code 3".into(),
+                said: vec!["refused the workspace".into()]
+            }
+        );
+        assert_eq!(failed.attempt, 1);
+        assert_eq!(state.lock().next, 1, "the next binary is next");
+        assert!(matches!(state.watch(), Watch::NeedsStart { .. }));
+
+        let failed = state.launch(true, false).unwrap();
+        match &failed.failure {
+            Failure::NoBinary { tried } => {
+                assert!(
+                    tried[0].starts_with(&missing.display().to_string()),
+                    "{tried:?}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(state.lock().next, 0, "the list wraps");
+
+        state.lock().candidates.clear();
+        let failed = state.launch(true, false).unwrap();
+        assert_eq!(
+            failed.failure,
+            Failure::NoBinary {
+                tried: vec!["no bisa binary on this machine".into()]
+            }
+        );
+
+        {
+            let mut inner = state.lock();
+            inner.token.clear();
+            inner.candidates = vec![exits];
+        }
+        assert!(state.launch(true, false).is_none());
+        assert!(!state.api_token().is_empty(), "minted for the spawn");
+        wait_until("the second exit", || {
+            state
+                .lock()
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .ok()
+                .flatten()
+                .is_some()
+        });
+        state.shutdown();
+        assert!(state.lock().child.is_none());
+    }
+
+    /// A node that answered and then died is a crash: the failure says how
+    /// and what it said, and the status says it is not running.
+    #[test]
+    fn a_node_that_dies_after_answering_is_a_crash_with_its_last_words() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = scripted_node(
+            dir.path(),
+            "dies.sh",
+            "exit 2",
+            "echo 'going down' >&2\nsleep 1\nexit 7",
+        );
+        let state = state_with(vec![node], None);
+        assert!(state.launch(false, false).is_none());
+        let port = state.lock().port;
+        let _health = health_stand_in(port);
+        assert!(matches!(state.watch(), Watch::Healthy { restarted: None }));
+        wait_until("the death", || {
+            state
+                .lock()
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .ok()
+                .flatten()
+                .is_some()
+        });
+        let failed = failed_of(state.watch());
+        assert_eq!(
+            failed.failure,
+            Failure::Exited {
+                how: "exited with code 7".into(),
+                said: vec!["going down".into()]
+            }
+        );
+        assert!(!state.status().running);
+        assert!(state.lock().child.is_none());
+    }
+
+    /// A node somebody started (`BISA_API_BASE`) is used as it is: never
+    /// spawned, watched, restarted or stopped.
+    #[test]
+    fn an_external_node_is_used_as_it_is_and_left_alone() {
+        std::env::set_var("BISA_API_BASE", "http://127.0.0.1:4242/");
+        let state = NodeState::start(None);
+        std::env::remove_var("BISA_API_BASE");
+        let status = state.status();
+        assert!(status.external && status.running && status.port == 4242);
+        assert_eq!(state.api_base().unwrap(), "http://127.0.0.1:4242");
+        assert!(state.launch(false, false).is_none());
+        assert!(matches!(state.watch(), Watch::Nothing));
+        assert!(state
+            .restart()
+            .err()
+            .is_some_and(|e| e.contains("external")));
+        assert!(state.dirs().is_none());
+        assert!(state.boot_word_to_relay().is_none());
+        state.write_own_record();
+    }
+
+    /// Who holds the workspace decides the launch: a binary that cannot
+    /// say, or no folders, is a spawn; nobody holding it is a spawn and a
+    /// stale record of ours goes; somebody else's process is no spawn and
+    /// the reason; a node this desktop started earlier — a `bisa` by name,
+    /// started when the record says — is stopped first.
+    #[test]
+    fn the_workspace_s_holder_decides_the_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let dirs = dirs_in(dir.path());
+        let mute = scripted_node(dir.path(), "mute.sh", "exit 2", "exec sleep 300");
+        assert_eq!(reclaim(&mute, Some(&dirs)), Reclaim::Spawn);
+        assert_eq!(reclaim(&mute, None), Reclaim::Spawn);
+
+        OwnRecord {
+            pid: 1,
+            spawned_at: 1,
+            desktop_pid: 1,
+            port: 1,
+        }
+        .write(&dirs.data_dir)
+        .unwrap();
+        let free = scripted_node(
+            dir.path(),
+            "free.sh",
+            &paths_line(&dirs, "null"),
+            "exec sleep 300",
+        );
+        assert_eq!(reclaim(&free, Some(&dirs)), Reclaim::Spawn);
+        assert!(
+            OwnRecord::read(&dirs.data_dir).is_none(),
+            "the stale record went"
+        );
+        remove_own_record(&dirs.data_dir);
+        let a_file = dir.path().join("a-file");
+        std::fs::write(&a_file, "x").unwrap();
+        remove_own_record(&a_file.join("under"));
+
+        let me = std::process::id();
+        let held = scripted_node(
+            dir.path(),
+            "held.sh",
+            &paths_line(&dirs, &format!("{{\"pid\":{me},\"started_at\":1}}")),
+            "exec sleep 300",
+        );
+        let state = state_with(vec![held], Some(dirs.clone()));
+        let failed = state.launch(false, false).unwrap();
+        assert_eq!(failed.failure, Failure::HeldByOther { pid: me });
+        assert_eq!(failed.next_in_secs, HELD_POLL.as_secs());
+        assert!(state.api_base().unwrap_err().contains("another node holds"));
+
+        // The stray: this test binary itself, whose name carries `bisa`,
+        // running the waiting stand-in below.
+        let mut stray = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "sidecar::tests::a_stray_that_waits_to_be_stopped",
+                "--ignored",
+            ])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let stray_pid = stray.id();
+        wait_until("the stray in the table", || {
+            process_facts(stray_pid).is_some()
+        });
+        let facts = process_facts(stray_pid).unwrap();
+        assert!(facts.name.contains("bisa"), "{facts:?}");
+        let reaper = std::thread::spawn(move || stray.wait());
+        OwnRecord {
+            pid: stray_pid,
+            spawned_at: facts.started_at,
+            desktop_pid: me,
+            port: 1,
+        }
+        .write(&dirs.data_dir)
+        .unwrap();
+        let ours = scripted_node(
+            dir.path(),
+            "ours.sh",
+            &paths_line(
+                &dirs,
+                &format!(
+                    "{{\"pid\":{stray_pid},\"started_at\":{}}}",
+                    facts.started_at
+                ),
+            ),
+            "exec sleep 300",
+        );
+        assert_eq!(
+            crate::logging::ask_paths(&ours)
+                .unwrap()
+                .engine_holder
+                .map(|h| h.pid),
+            Some(stray_pid)
+        );
+        assert_eq!(
+            reclaim_decision(
+                crate::logging::ask_paths(&ours).unwrap().engine_holder,
+                OwnRecord::read(&dirs.data_dir).as_ref(),
+                process_facts
+            ),
+            Reclaim::StopOurs(stray_pid),
+            "record {:?}, facts {:?}",
+            OwnRecord::read(&dirs.data_dir),
+            process_facts(stray_pid)
+        );
+        let state = state_with(vec![ours], Some(dirs.clone()));
+        let launched = state.launch(false, false);
+        assert!(launched.is_none(), "{:?}", launched.map(|f| f.failure));
+        let ended = reaper.join().unwrap().unwrap();
+        assert!(!ended.success(), "the stray was stopped: {ended:?}");
+        assert!(OwnRecord::read(&dirs.data_dir).is_none());
+        assert!(state.status().pid.is_some(), "and the spawn went on");
+        state.shutdown();
+        assert!(process_facts(u32::MAX - 1).is_none());
+    }
+
+    /// The stand-in for a node this desktop started earlier: this binary,
+    /// waiting to be stopped (`the_workspace_s_holder_decides_the_launch`).
+    #[test]
+    #[ignore = "a stand-in process another test starts and stops"]
+    fn a_stray_that_waits_to_be_stopped() {
+        std::thread::sleep(Duration::from_secs(300));
+    }
+
+    /// A stray that ignores the ask is killed past the grace; so is a child
+    /// of the supervisor's, with its leash let go first; a signal nobody
+    /// is there to take is refused.
+    #[test]
+    fn what_ignores_the_ask_is_killed_past_its_grace() {
+        use std::os::unix::process::ExitStatusExt as _;
+        let mut stubborn = Command::new("/bin/sh")
+            .args(["-c", "trap '' TERM; exec sleep 300"])
+            .spawn()
+            .unwrap();
+        let pid = stubborn.id();
+        let reaper = std::thread::spawn(move || stubborn.wait());
+        std::thread::sleep(Duration::from_millis(300));
+        let started = Instant::now();
+        stop_stray(pid);
+        assert!(started.elapsed() >= RECLAIM_TERM_GRACE);
+        assert_eq!(reaper.join().unwrap().unwrap().signal(), Some(9));
+
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "trap '' TERM; exec sleep 300"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let leash = child.stdin.take();
+        stop(&mut child, leash, Duration::from_millis(300));
+        let exit = Exit::of(&child.try_wait().unwrap().unwrap());
+        assert_eq!(
+            exit,
+            Exit {
+                code: None,
+                signal: Some(9)
+            }
+        );
+        assert_eq!(exit.words(), "was ended by signal 9");
+        assert_eq!(Exit::unknown().words(), "ended, how is unknown");
+        stop_stray(u32::MAX - 1);
+    }
+
+    /// The readers of the child's two pipes end at bytes that are not
+    /// text, keeping what came before; a shutdown ends the child.
+    #[test]
+    fn the_readers_end_at_bytes_that_are_not_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = scripted_node(
+            dir.path(),
+            "noisy.sh",
+            "exit 2",
+            "printf 'first\\n\\377\\nafter\\n' >&2\nprintf '\\377\\n'\necho '{\"boot\":{\"phase\":\"late\"}}'\nexec sleep 300",
+        );
+        let state = state_with(vec![node], None);
+        assert!(state.launch(false, false).is_none());
+        wait_until("the first line", || {
+            state
+                .lock()
+                .tail
+                .as_ref()
+                .is_some_and(|t| !t.lines().is_empty())
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            state.lock().tail.as_ref().unwrap().lines(),
+            vec!["first".to_string()]
+        );
+        assert!(
+            state.lock().boot.as_ref().unwrap().latest().is_none(),
+            "the boot reader ended before the late word"
+        );
+        state.shutdown();
+        assert!(state.status().pid.is_none());
+    }
+
+    /// A crash is said in the log; its report is written once a log is
+    /// installed and attached, and said as missing before that.
+    #[test]
+    fn a_crash_is_reported_once_a_log_is_installed_and_attached() {
+        let died = NodeExit {
+            pid: 7,
+            exit: Exit {
+                code: Some(1),
+                signal: None,
+            },
+            stderr: vec!["last words".into()],
+        };
+        assert_eq!(died.words(), "exited with code 1");
+        died.log(1);
+        let log = crate::logging::install();
+        died.log(2);
+        let dir = tempfile::tempdir().unwrap();
+        log.attach(dir.path(), bisa_log::LogConfig::default())
+            .unwrap();
+        died.log(3);
+        let crashes = bisa_log::crashes_dir(dir.path());
+        assert!(
+            std::fs::read_dir(&crashes).unwrap().flatten().count() >= 1,
+            "a report under {}",
+            crashes.display()
+        );
+        // The log stays installed for the process: its folder stays too.
+        std::mem::forget(dir);
+    }
+
+    #[test]
+    fn the_machine_s_candidates_are_listed_and_the_clock_reads_now() {
+        let listed = candidate_binaries();
+        assert!(listed.iter().any(|p| p == Path::new("bisa")), "{listed:?}");
+        assert!(now_secs() > 1_700_000_000);
+        assert_eq!(BootWord::ready().phase, "ready");
     }
 }

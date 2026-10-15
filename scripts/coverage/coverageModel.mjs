@@ -613,6 +613,23 @@ export function withoutExcused(lines, source) {
   return { lines: out, excused: marked.excused, faults: marked.faults, testLines, edgeLines };
 }
 
+/**
+ * A measured file's lines without what its markers excuse — for a source
+ * that is not Rust (a desktop model), which has no test items and no `?`
+ * edges: only `LCOV_EXCL_LINE` and `LCOV_EXCL_START` … `LCOV_EXCL_STOP`,
+ * each with its reason, count.
+ *
+ * @param {Map<number, number>} lines the file's `DA` counts
+ * @param {string} source the file as it is on disk
+ * @returns {{ lines: Map<number, number>, excused: { line: number, reason: string }[], faults: string[], testLines: number, edgeLines: number }}
+ */
+export function withoutMarked(lines, source) {
+  const out = new Map(lines);
+  const marked = excludedLines(source);
+  for (const k of marked.lines) out.delete(k);
+  return { lines: out, excused: marked.excused, faults: marked.faults, testLines: 0, edgeLines: 0 };
+}
+
 /** A line that is nothing but the closing of a `?` expression: `)?;`, `})?,`, `)?`, `})?);`. */
 const QUESTION_EDGE = /^[\s)\]}]*[)}]\?[)\]}]*[;,]?\s*$/;
 

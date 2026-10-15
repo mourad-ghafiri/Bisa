@@ -233,6 +233,7 @@ impl Table {
     }
 }
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// What the machine is.
 #[tauri::command]
 pub fn host_info(table: State<'_, Arc<Table>>) -> HostInfo {
@@ -244,6 +245,7 @@ pub fn host_info(table: State<'_, Arc<Table>>) -> HostInfo {
         cpu: brand_of(guard.system.cpus().first().map(|c| c.brand())),
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {
@@ -331,6 +333,7 @@ mod tests {
     }
 }
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// The machine's load and every named process's share of it.
 ///
 /// `roots` are the harness session pids the webview gathers from the roster;
@@ -354,3 +357,4 @@ pub async fn resource_usage(
         .await
         .map_err(|e| format!("the resource read did not finish: {e}"))
 }
+// LCOV_EXCL_STOP

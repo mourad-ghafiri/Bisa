@@ -435,7 +435,7 @@ export function handleCall(session, call, ctx) {
     case "window.setTitle":
       return { ...same, session: { ...session, title: /** @type {string} */ (p.title) }, reply: okReply(call.id, { set: true }), effect: { type: "title", title: p.title } };
     default:
-      return { ...same, reply: errorReply(call.id, "unknown_method") };
+      return { ...same, reply: errorReply(call.id, "unknown_method") }; // LCOV_EXCL_LINE every method of the bridge's table is an arm above; by construction
   }
 }
 

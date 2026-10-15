@@ -223,11 +223,13 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if result.is_err() {
         // The temp file the failed save left: removed, and said when it
         // could not be — never silently left behind.
+        // LCOV_EXCL_START a temp file that cannot be removed; disk
         if let Err(e) = std::fs::remove_file(&tmp) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::debug!("a temp file was left behind at {}: {e}", tmp.display());
             }
         }
+        // LCOV_EXCL_STOP
     }
     result
 }
@@ -312,6 +314,7 @@ pub fn write_loose_file(
     write_loose(&path, &text, base_hash.as_deref())
 }
 
+// LCOV_EXCL_START the system's drag pasteboard; out by decision
 /// The files the drag that just ended carried, by absolute path.
 ///
 /// The window keeps HTML5 drops (`dragDropEnabled: false` — the composer's
@@ -324,7 +327,9 @@ pub fn write_loose_file(
 pub fn dropped_paths() -> Vec<String> {
     drag_pasteboard_paths()
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the system's drag pasteboard; out by decision
 #[cfg(target_os = "macos")]
 fn drag_pasteboard_paths() -> Vec<String> {
     use objc2::msg_send;
@@ -362,6 +367,7 @@ fn drag_pasteboard_paths() -> Vec<String> {
     }
     out
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 fn drag_pasteboard_paths() -> Vec<String> {
@@ -528,6 +534,56 @@ mod tests {
         assert_eq!(
             content_hash(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    /// Text that ends mid-character is text cut short, with no hash and
+    /// not editable; bytes that are no text are binary; a path through a
+    /// file, a path naming no file, and a file that cannot be read are
+    /// each refused in words; the commands are the functions.
+    #[test]
+    fn text_cut_short_bytes_that_are_no_text_and_three_refusals() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let d = dir();
+        let cut = d.path().join("cut.txt");
+        std::fs::write(&cut, b"caf\xC3").unwrap();
+        let f = read_loose(cut.to_str().unwrap()).unwrap();
+        assert!(f.truncated && !f.binary && f.hash.is_none() && !f.editable);
+        assert_eq!(f.text.as_deref(), Some("caf"));
+        let odd = d.path().join("odd.txt");
+        std::fs::write(&odd, b"ab\xFFcd").unwrap();
+        assert!(read_loose(odd.to_str().unwrap()).unwrap().binary);
+        let through = format!("{}/child", odd.display());
+        let refused = read_loose(&through).unwrap_err();
+        assert!(
+            matches!(&refused, LooseError::Refused { message } if message.contains("cannot read")),
+            "{refused:?}"
+        );
+        assert!(
+            read_loose_file(cut.display().to_string())
+                .unwrap()
+                .truncated
+        );
+        let written = write_loose_file(
+            d.path().join("new.txt").display().to_string(),
+            "x".into(),
+            None,
+        )
+        .unwrap();
+        assert!(written.created);
+        let no_file = write_loose("/", "x", None).unwrap_err();
+        assert!(
+            matches!(&no_file, LooseError::Refused { message } if message.contains("names no file")),
+            "{no_file:?}"
+        );
+        let locked = d.path().join("locked.txt");
+        std::fs::write(&locked, "one").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let unreadable = write_loose(locked.to_str().unwrap(), "two", Some("h")).unwrap_err();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            matches!(&unreadable, LooseError::Refused { message } if message.contains("cannot save")),
+            "{unreadable:?}"
         );
     }
 }

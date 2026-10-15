@@ -68,7 +68,7 @@ fn entries_of(rel: &Path) -> Vec<String> {
     let dirs = parts.len() - 1;
     for depth in 1..=DEPTH.min(dirs.max(1)) {
         if depth > dirs && depth > 1 {
-            break;
+            break; // LCOV_EXCL_LINE a file is an entry at depth one only; by construction
         }
         out.push(parts[..depth].join("/"));
     }
@@ -90,7 +90,7 @@ fn walk(root: &Path) -> (u64, BTreeMap<String, u64>) {
                 .metadata()
                 .or_else(|_| std::fs::symlink_metadata(entry.path()))
             else {
-                continue;
+                continue; // LCOV_EXCL_LINE an entry gone between the listing and its metadata; a race
             };
             let ft = meta.file_type();
             if ft.is_symlink() {
@@ -105,7 +105,7 @@ fn walk(root: &Path) -> (u64, BTreeMap<String, u64>) {
                 for key in entries_of(rel) {
                     *dirs.entry(key).or_default() += meta.len();
                 }
-            }
+            } // LCOV_EXCL_LINE every entry is under the root; by construction
         }
     }
     (total, dirs)
@@ -142,7 +142,9 @@ fn measure(root: &Path) -> DiskUsage {
 
 /// How much disk the platform's data directory uses, by area, and the volume
 /// it lives on. `path` is the node's own data dir, learned from `GET /workspace`.
+// LCOV_EXCL_START the command's generated wrapper; by construction
 #[tauri::command]
+// LCOV_EXCL_STOP
 pub async fn data_dir_usage(path: String) -> Result<DiskUsage, String> {
     if path.trim().is_empty() {
         return Err("no data directory to measure".to_string());
@@ -250,5 +252,30 @@ mod tests {
         assert_eq!(entries_of(Path::new("members.json")), vec!["members.json"]);
         assert_eq!(entries_of(Path::new("index.sqlite-wal")), vec!["index"]);
         assert!(entries_of(Path::new("")).is_empty());
+    }
+
+    /// The command measures a folder off the main thread, refuses a blank
+    /// and a path that is no folder, and passes over a folder it cannot
+    /// read.
+    #[test]
+    fn the_command_measures_a_folder_and_refuses_what_is_not_one() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let d = tempfile::tempdir().unwrap();
+        put(d.path(), "goals/a/x", 10);
+        let shut = d.path().join("shut");
+        std::fs::create_dir(&shut).unwrap();
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let usage = tauri::async_runtime::block_on(data_dir_usage(d.path().display().to_string()));
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let usage = usage.unwrap();
+        assert_eq!(size(&usage, "goals"), Some(10));
+        assert!(tauri::async_runtime::block_on(data_dir_usage(" ".into()))
+            .unwrap_err()
+            .contains("no data directory"));
+        assert!(tauri::async_runtime::block_on(data_dir_usage(
+            d.path().join("goals/a/x").display().to_string()
+        ))
+        .unwrap_err()
+        .contains("not a directory"));
     }
 }

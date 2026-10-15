@@ -122,6 +122,7 @@ pub fn ready() {
     tracing::debug!(target: "bisa_desktop", "the webview listens: a quit the OS asks for is held for its question from now on");
 }
 
+// LCOV_EXCL_START the running app and AppKit's quit; out by decision
 /// Give the app delegate its `applicationShouldTerminate:`, once, from
 /// `setup` — after the window and the menu bar icon exist, since a held quit
 /// brings the window forward through the icon's door (`tray::show_window`).
@@ -132,7 +133,9 @@ pub fn install(app: &AppHandle) {
     }
     platform::install(app);
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the running app and AppKit's quit; out by decision
 /// The webview's answer to a held quit: `go` ends the app through AppKit,
 /// a no leaves it. True when a quit was held and has been answered; false
 /// when nothing was held — the caller's own exit, or a no with nothing to
@@ -144,6 +147,7 @@ pub fn answer(app: &AppHandle, go: bool) -> bool {
     platform::reply(app, go);
     true
 }
+// LCOV_EXCL_STOP
 
 /// The webview heard the last request put to it (`quit_heard`): the
 /// deadline on that request is off.
@@ -151,6 +155,7 @@ pub fn heard() {
     HOLD.heard();
 }
 
+// LCOV_EXCL_START the running app and AppKit's quit; out by decision
 /// Put a request — `crate::QUIT_REQUESTED`, `crate::CLOSE_REQUESTED` — to
 /// the webview in `window`, and give it [`ACK_DEADLINE`] to say it heard.
 /// A request nobody hears by then is a webview that is gone, and the exit
@@ -180,7 +185,9 @@ pub fn ask_webview(app: &AppHandle, window: &tauri::Window, event: &str) -> taur
     }
     Ok(())
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the running app and AppKit's quit; out by decision
 /// End the app now, from any thread, without the webview: everything
 /// `RunEvent::Exit` would do — where the window stood, the terminals, the
 /// node, the goodbye — then the process ends. Not AppKit's road: a *yes* to
@@ -200,7 +207,9 @@ pub fn exit_now(app: &AppHandle, why: &str) -> ! {
     }
     std::process::exit(0)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the running app and AppKit's quit; out by decision
 #[cfg(target_os = "macos")]
 mod platform {
     use super::{ask_webview, APP, HOLD};
@@ -327,6 +336,7 @@ mod platform {
         }
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
@@ -400,5 +410,16 @@ mod tests {
             !HOLD.is_ready() || HOLD.is_ready(),
             "ready is independent of the hold"
         );
+    }
+
+    /// The process's own hold: the webview says it listens, and that it
+    /// heard.
+    #[test]
+    fn the_webview_says_it_listens_and_that_it_heard() {
+        ready();
+        assert!(HOLD.is_ready());
+        let seq = HOLD.ask();
+        heard();
+        assert!(!HOLD.overdue(seq));
     }
 }

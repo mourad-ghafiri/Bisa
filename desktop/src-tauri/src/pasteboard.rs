@@ -50,12 +50,15 @@ pub struct Holdings {
     pub image: bool,
 }
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 /// One read of the pasteboard, for the desktop's clipboard store.
 #[tauri::command]
 pub fn pasteboard_holds() -> Holdings {
     general_pasteboard_holdings()
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 /// The picture the general pasteboard holds, as PNG bytes — its own PNG
 /// as it is, else its TIFF encoded — answered raw, as the browser's
 /// snapshot is. Empty bytes when there is no picture: a PNG is never
@@ -66,7 +69,9 @@ pub fn pasteboard_image() -> Result<tauri::ipc::Response, String> {
         general_pasteboard_png().unwrap_or_default(),
     ))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 /// Write the pasteboard's picture into the folder `dest` under `name` —
 /// read when the name is confirmed, so the bytes cross no IPC twice — and
 /// say what landed. The name is the person's: a taken one is refused, not
@@ -79,11 +84,13 @@ pub async fn paste_image_into(dest: String, name: String) -> Result<Pasted, Stri
         .await
         .map_err(|e| e.to_string())?
 }
+// LCOV_EXCL_STOP
 
 /// The folder of the machine's temporary directory a terminal's pasted
 /// pictures are written to.
 const PASTED_PICTURES: &str = "bisa-pasted-pictures";
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 /// The pasteboard's picture written to a file of its own in the machine's
 /// temporary folder, for a terminal to type the path of (ide/06): a
 /// screenshot is then a file a shell or a harness opens, as a copied one
@@ -100,6 +107,7 @@ pub async fn paste_image_to_temp(name: String) -> Result<String, String> {
         .await
         .map_err(|e| e.to_string())?
 }
+// LCOV_EXCL_STOP
 
 /// Write `png` into the folder `dir` — made when missing — under `name`, or
 /// Finder's next free name beside what is there, and answer the file's
@@ -155,6 +163,7 @@ fn plain_name(name: &str) -> Result<&str, String> {
     Ok(name)
 }
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 /// Copy `sources` into the folder `dest`, each under a free name, and say
 /// what landed and what was left out. Runs off the main thread: a folder
 /// can be large.
@@ -164,6 +173,7 @@ pub async fn paste_into(sources: Vec<String>, dest: String) -> Result<PasteRepor
         .await
         .map_err(|e| e.to_string())?
 }
+// LCOV_EXCL_STOP
 
 /// The name an entry lands under beside `existing`: its own, else Finder's
 /// `name 2`, `name 3`, … — the number before the extension of a file.
@@ -179,7 +189,7 @@ pub fn free_name(name: &str, existing: &[String]) -> String {
             return candidate;
         }
     }
-    unreachable!("the numbers do not run out")
+    unreachable!("the numbers do not run out") // LCOV_EXCL_LINE the numbers do not run out; by construction
 }
 
 /// A file's stem and its extension (with the dot), the way Finder counts
@@ -296,6 +306,7 @@ fn skipped(path: &str, why: &str) -> Skipped {
     }
 }
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 #[cfg(target_os = "macos")]
 mod general {
     //! The general pasteboard — `NSPasteboardNameGeneral`, the one a copy
@@ -362,7 +373,9 @@ mod general {
         unsafe { msg_send![board, dataForType: &*uti] }
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 #[cfg(target_os = "macos")]
 fn general_pasteboard_holdings() -> Holdings {
     let Some(board) = general::board() else {
@@ -373,11 +386,14 @@ fn general_pasteboard_holdings() -> Holdings {
         image: general::has_image(&board),
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the system pasteboard and the running app; out by decision
 #[cfg(target_os = "macos")]
 fn general_pasteboard_png() -> Option<Vec<u8>> {
     general::png(&*general::board()?)
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 fn general_pasteboard_holdings() -> Holdings {
@@ -643,5 +659,30 @@ mod tests {
             Vec::<String>::new(),
             "no picture was written"
         );
+    }
+
+    /// A source with no name and one that cannot be read are each left out
+    /// by name, and the rest of the paste goes on.
+    #[test]
+    fn a_source_with_no_name_and_one_that_cannot_be_read_are_left_out_by_name() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let d = tempfile::tempdir().unwrap();
+        let dest = d.path().join("dest");
+        std::fs::create_dir(&dest).unwrap();
+        let locked = d.path().join("locked.txt");
+        std::fs::write(&locked, "x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let report = copy_all(&["/".to_string(), locked.display().to_string()], &dest);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let report = report.unwrap();
+        assert!(report.pasted.is_empty());
+        assert_eq!(report.skipped.len(), 2, "{:?}", report.skipped);
+        assert_eq!(report.skipped[0].why, "no name");
+        assert!(
+            report.skipped[1].why.contains("denied"),
+            "{}",
+            report.skipped[1].why
+        );
+        assert!(names(&dest).is_empty());
     }
 }

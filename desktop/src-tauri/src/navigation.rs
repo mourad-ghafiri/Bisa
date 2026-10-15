@@ -119,4 +119,18 @@ mod tests {
         assert_eq!(allowed(&dev, None), cfg!(debug_assertions));
         assert!(!allowed(&url("http://localhost:1421/"), None));
     }
+
+    /// A bundle file on another port, or with a base that is no address,
+    /// is not the node's.
+    #[test]
+    fn a_bundle_file_elsewhere_than_the_node_is_refused() {
+        assert!(!allowed(
+            &url("http://127.0.0.1:2/addons/x/files/y"),
+            Some("http://127.0.0.1:1")
+        ));
+        assert!(!allowed(
+            &url("http://127.0.0.1:1/addons/x/files/y"),
+            Some("not an address")
+        ));
+    }
 }

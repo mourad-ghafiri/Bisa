@@ -99,6 +99,17 @@ static MEMO_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// The one answer per process.
 static ANSWER: OnceLock<Option<String>> = OnceLock::new();
 
+/// A test's answer, set before anything asks: the shell's tests never run
+/// the developer's own login profile to find the `PATH`, and every one of
+/// them that spawns a program reads the same plain `PATH`. The first
+/// setter wins, as the first ask would.
+#[cfg(test)]
+pub(crate) fn preset_for_tests() {
+    if ANSWER.set(Some("/usr/bin:/bin".to_string())).is_err() {
+        // Set already — by an earlier test, or by the first ask.
+    }
+}
+
 /// Where to keep the `PATH` the login shell built, for the launch after this
 /// one — the app's own config folder. Called once, before the first
 /// [`login_path`]; `None` keeps nothing and asks the shell alone.
@@ -116,6 +127,7 @@ pub fn remember_in(dir: Option<PathBuf>) {
 /// registry environment a GUI process inherits is already the user's.
 pub fn login_path() -> Option<String> {
     ANSWER
+        // LCOV_EXCL_START the developer's own login profile; its test is ignored
         .get_or_init(|| {
             if cfg!(not(unix)) {
                 return None;
@@ -134,6 +146,7 @@ pub fn login_path() -> Option<String> {
                 &known_tool_dirs(),
             )
         })
+        // LCOV_EXCL_STOP
         .clone()
 }
 
@@ -146,7 +159,7 @@ fn known_tool_dirs() -> Vec<PathBuf> {
         for under_home in [".opencode/bin", ".local/bin", ".cargo/bin", ".bun/bin"] {
             dirs.push(home.join(under_home));
         }
-    }
+    } // LCOV_EXCL_LINE a machine with no home folder; by construction
     dirs.push(PathBuf::from("/opt/homebrew/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
     dirs
@@ -280,7 +293,7 @@ fn write_memo(file: &Path, path: &str) {
     let attempt = (|| -> std::io::Result<()> {
         if let Some(dir) = file.parent() {
             std::fs::create_dir_all(dir)?;
-        }
+        } // LCOV_EXCL_LINE the memo file has a folder; by construction
         let tmp = file.with_extension("tmp");
         std::fs::write(&tmp, path)?;
         std::fs::rename(&tmp, file)
@@ -414,7 +427,11 @@ mod tests {
             r#"[ "$shape" = interactive ] || exit 3; printf 'Welcome back!'; eval "$4"; printf 'me@host %% '"#,
         );
         let path = login_path_within(&shell, PATIENT, PATIENT, None, &[]).unwrap();
-        assert_eq!(path, std::env::var("PATH").unwrap(), "the shell's own PATH, by the marker");
+        assert_eq!(
+            path,
+            std::env::var("PATH").unwrap(),
+            "the shell's own PATH, by the marker"
+        );
     }
 
     /// A shell whose interactive form says nothing usable is asked once more
@@ -499,9 +516,15 @@ mod tests {
     fn a_shell_that_fails_or_is_missing_is_a_none() {
         let dir = tempfile::tempdir().unwrap();
         let failing = stub_shell(dir.path(), "exit 2");
-        assert_eq!(login_path_within(&failing, PATIENT, PATIENT, None, &[]), None);
+        assert_eq!(
+            login_path_within(&failing, PATIENT, PATIENT, None, &[]),
+            None
+        );
         let missing = dir.path().join("no-such-shell").display().to_string();
-        assert_eq!(login_path_within(&missing, PATIENT, PATIENT, None, &[]), None);
+        assert_eq!(
+            login_path_within(&missing, PATIENT, PATIENT, None, &[]),
+            None
+        );
         assert_eq!(login_path_within("   ", PATIENT, PATIENT, None, &[]), None);
     }
 
@@ -551,7 +574,8 @@ mod tests {
         let late = stub_shell(dir.path(), r#"sleep 0.4; printf %s "/second/bin:/usr/bin""#);
         let started = Instant::now();
         assert_eq!(
-            login_path_within(&late, Duration::from_millis(50), PATIENT, Some(&memo), &[]).as_deref(),
+            login_path_within(&late, Duration::from_millis(50), PATIENT, Some(&memo), &[])
+                .as_deref(),
             Some("/first/bin:/usr/bin"),
             "a late shell is answered from the memo"
         );
@@ -607,6 +631,39 @@ mod tests {
     /// Asserts only what must hold everywhere — that a shell answered and the
     /// answer parses — because the actual value is whatever this machine's
     /// profile builds, and pinning that would fail on the next one.
+    /// The folder is named once; a second naming is a debug line and the
+    /// first stands. The known folders are the home's tool folders and the
+    /// machine's two, in that order.
+    #[test]
+    fn the_memo_folder_is_named_once_and_the_known_folders_are_the_usual_ones() {
+        remember_in(None);
+        remember_in(Some(std::path::PathBuf::from("/nowhere/else")));
+        assert_eq!(MEMO_DIR.get(), Some(&None));
+        let known = known_tool_dirs();
+        assert!(known.len() >= 2, "{known:?}");
+        assert_eq!(
+            known[known.len() - 2..],
+            [
+                std::path::PathBuf::from("/opt/homebrew/bin"),
+                std::path::PathBuf::from("/usr/local/bin")
+            ]
+        );
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(known[0], home.join(".opencode/bin"));
+        }
+        preset_for_tests();
+        assert_eq!(
+            login_path().as_deref(),
+            Some("/usr/bin:/bin"),
+            "a test's answer is the process's"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let a_file = dir.path().join("a-file");
+        std::fs::write(&a_file, "x").unwrap();
+        write_memo(&a_file.join("memo"), "/p/bin");
+        assert!(!a_file.is_dir(), "a memo under a file is a debug line");
+    }
+
     #[cfg(unix)]
     #[test]
     #[ignore = "runs the developer's own login shell and profile"]

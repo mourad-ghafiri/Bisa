@@ -52,11 +52,13 @@ impl Running {
             .stderr(Stdio::null())
             .spawn()
             .ok()?;
+        // LCOV_EXCL_START no stdout pipe on a piped child; by construction
         let Some(mut stdout) = child.stdout.take() else {
             // No pipe to read: ours to end, since nothing else can be waiting on it.
             end(&mut child);
             return None;
         };
+        // LCOV_EXCL_STOP
         let reader = std::thread::spawn(move || {
             let mut text = String::new();
             stdout.read_to_string(&mut text).map(|_| text)
@@ -77,10 +79,11 @@ impl Running {
                 Ok(None) if Instant::now() < deadline => std::thread::sleep(POLL),
                 Ok(None) => return Err(self),
                 // The child cannot be waited on: ended, and nothing answered.
+                // LCOV_EXCL_START a child that cannot be waited on; by construction
                 Err(_) => {
                     end(&mut self.child);
                     return Ok(None);
-                }
+                } // LCOV_EXCL_STOP
             }
         }
     }
@@ -93,10 +96,10 @@ impl Running {
 
 fn end(child: &mut Child) {
     if let Err(e) = child.kill() {
-        tracing::debug!("ending a probe past its budget: {e}");
+        tracing::debug!("ending a probe past its budget: {e}"); // LCOV_EXCL_LINE a kill of a child already reaped; by construction
     }
     if let Err(e) = child.wait() {
-        tracing::debug!("reaping a probe: {e}");
+        tracing::debug!("reaping a probe: {e}"); // LCOV_EXCL_LINE a wait of a child already reaped; by construction
     }
 }
 
@@ -141,7 +144,7 @@ pub fn run_or_defer(
     };
     match running.wait_until(Instant::now() + budget) {
         Ok(Some(output)) => Deferred::Answered(output),
-        Ok(None) => Deferred::Unstarted,
+        Ok(None) => Deferred::Unstarted, // LCOV_EXCL_LINE a child that cannot be waited on; by construction
         Err(running) => {
             let finish = move || {
                 let answer = match running.wait_until(Instant::now() + cap) {
@@ -157,14 +160,15 @@ pub fn run_or_defer(
                 .name("probe-late".into())
                 .spawn(finish)
             {
-                tracing::debug!("a late probe could not be followed: {e}");
+                tracing::debug!("a late probe could not be followed: {e}"); // LCOV_EXCL_LINE a thread that cannot be spawned; by construction
             }
             Deferred::Late
         }
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use std::sync::mpsc;
@@ -254,5 +258,17 @@ mod tests {
             !rx.recv_timeout(Duration::from_secs(10)).unwrap(),
             "past the cap nothing is handed over"
         );
+    }
+
+    /// A program already reaped is ended again as nothing: the end is
+    /// taken, and nothing is said.
+    #[test]
+    fn a_program_already_reaped_is_not_ended_twice() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        child.wait().unwrap();
+        end(&mut child);
     }
 }

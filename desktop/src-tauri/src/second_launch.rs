@@ -24,6 +24,7 @@ use tauri::AppHandle;
 /// The scheme an invitation link wears (`tauri.conf.json`, 14-collaboration).
 const LINK_SCHEME: &str = "bisa://";
 
+// LCOV_EXCL_START the running app's window; out by decision
 /// A second launch handed off: say so once, and bring the window back — on
 /// the main thread, whichever thread the plugin calls from (a tokio task on
 /// macOS, the hidden window's procedure on Windows, the bus's thread on
@@ -45,6 +46,7 @@ pub fn hand_off(app: &AppHandle, argv: Vec<String>, _cwd: String) {
         );
     }
 }
+// LCOV_EXCL_STOP
 
 /// The first `bisa://` argument, when a launch carried one. The first
 /// element of `std::env::args` is the executable and is never a link.

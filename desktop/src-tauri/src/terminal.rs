@@ -996,6 +996,7 @@ impl TerminalRegistry {
             return;
         }
         let registry = Arc::clone(self);
+        // LCOV_EXCL_START a thread that cannot be spawned; by construction
         if std::thread::Builder::new()
             .name("pty-watch".into())
             .spawn(move || watch_processes(registry, &api_base, &token))
@@ -1003,6 +1004,7 @@ impl TerminalRegistry {
         {
             self.watching.store(false, Ordering::SeqCst);
         }
+        // LCOV_EXCL_STOP
     }
 
     /// The pid behind every live terminal, for the port scanner.
@@ -1041,10 +1043,12 @@ impl TerminalRegistry {
                     // read nothing but `Closing` once the process ends.
                     session.phase = Phase::Closing;
                     if let Some(killer) = session.killer.as_mut() {
+                        // LCOV_EXCL_START a shell gone between the lock and the kill; a race
                         if let Err(e) = killer.kill() {
                             tracing::debug!("the shell had already ended: {e}");
                         }
-                    }
+                        // LCOV_EXCL_STOP
+                    } // LCOV_EXCL_LINE a live session holds its killer; by construction
                     if let Some(pid) = session.pid {
                         self.escalate(id.to_string(), pid);
                     }
@@ -1146,10 +1150,12 @@ impl TerminalRegistry {
     fn abandon(&self, id: &str) {
         if let Some(mut session) = self.sessions.locked().remove(id) {
             if let Some(killer) = session.killer.as_mut() {
+                // LCOV_EXCL_START a shell gone between the lock and the kill; a race
                 if let Err(e) = killer.kill() {
                     tracing::debug!("the shell had already ended: {e}");
                 }
-            }
+                // LCOV_EXCL_STOP
+            } // LCOV_EXCL_LINE a live session holds its killer; by construction
         }
     }
 
@@ -1371,11 +1377,13 @@ fn spawn_session(
     // adds its own on top. The production path only — a test's named
     // program keeps the test's environment, and never runs anybody's
     // profile to find out.
+    // LCOV_EXCL_START the person's login shell and profile; out by decision
     if program.is_none() {
         if let Some(path) = crate::login_env::login_path() {
             cmd.env("PATH", path);
         }
     }
+    // LCOV_EXCL_STOP
     // xterm.js is an xterm-256color emulator with truecolor support. Without
     // these two, programs downgrade to a colourless 8-colour terminal and the
     // panel renders monochrome output nobody can explain.
@@ -1456,9 +1464,11 @@ fn spawn_session(
     if !accepted {
         // The window went while this shell was being spawned: end it now,
         // before anything reads it. The caller tells the roster.
+        // LCOV_EXCL_START a shell gone between the lock and the kill; a race
         if let Err(e) = killer_for_late.kill() {
             tracing::debug!("the shell had already ended: {e}");
         }
+        // LCOV_EXCL_STOP
         return Err("the app is shutting down".to_string());
     }
 
@@ -1472,8 +1482,10 @@ fn spawn_session(
         // Nothing is reading the shell, so nothing ever will. Take it back down
         // rather than leaving an orphan nobody can see; the caller tells the
         // roster.
+        // LCOV_EXCL_START a thread that cannot be spawned; by construction
         registry.abandon(&id);
         return Err(format!("could not start the reader for {id}: {e}"));
+        // LCOV_EXCL_STOP
     }
     Ok(id)
 }
@@ -1499,7 +1511,7 @@ fn pump(
             // `Read` does not retry `EINTR` for us, and treating it as EOF
             // would tear down a perfectly live session whenever the process
             // happened to catch a signal.
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue, // LCOV_EXCL_LINE a signal landing mid-read; a race
             // Zero is EOF; every other error is how a pty reports that its
             // child is gone — EIO on Linux once the last slave fd closes,
             // plain EOF on macOS — so both mean the same thing here.
@@ -1545,6 +1557,7 @@ fn pump(
 // Commands
 // ---------------------------------------------------------------------------
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// Open a shell — or a harness — in whatever directory the node says this
 /// scope and id live in.
 ///
@@ -1669,6 +1682,7 @@ pub async fn terminal_open(
     .await
     .map_err(|e| format!("the terminal thread failed to start: {e}"))?
 }
+// LCOV_EXCL_STOP
 
 /// A code host sign-in a terminal is opened for (Settings › Git & code hosts
 /// › *Authenticate*): which kind, at which host. The program and its argv are
@@ -1816,6 +1830,7 @@ pub struct TerminalOpened {
     pub session: Option<String>,
 }
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 #[tauri::command]
 pub async fn terminal_write(
     registry: State<'_, Arc<TerminalRegistry>>,
@@ -1829,7 +1844,9 @@ pub async fn terminal_write(
         .await
         .map_err(|e| format!("the terminal write did not finish: {e}"))?
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// The person answered the harness's dialog in this tab — the webview saw
 /// the roster say *waiting* and the keys that answer a dialog typed. The
 /// node is told through the session's own door; a post is a TCP call, so
@@ -1844,7 +1861,9 @@ pub async fn terminal_answered(
         .await
         .map_err(|e| format!("the answer did not reach the node: {e}"))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 #[tauri::command]
 pub fn terminal_resize(
     registry: State<'_, Arc<TerminalRegistry>>,
@@ -1854,7 +1873,9 @@ pub fn terminal_resize(
 ) -> Result<(), String> {
     registry.resize(&id, rows.max(1), cols.max(1))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// The tab is gone. Off the main thread: ending a process and telling the
 /// roster are both things that wait on somebody else.
 #[tauri::command]
@@ -1867,7 +1888,9 @@ pub async fn terminal_close(
         .await
         .map_err(|e| format!("the close did not finish: {e}"))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// Where a shell stands now — read at a click on a relative path it printed
 /// (ide/17), so the path is read from where the tool that printed it ran. The
 /// process table is a syscall away: off the main thread, like a write.
@@ -1881,6 +1904,7 @@ pub async fn terminal_cwd(
         .await
         .map_err(|e| format!("the directory read did not finish: {e}"))?
 }
+// LCOV_EXCL_STOP
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -2991,6 +3015,7 @@ fn scrollback_path(api_base: &str, token: &str, key: &str) -> Result<PathBuf, St
     Ok(scrollback_dir(api_base, token)?.join(format!("{key}.scrollback")))
 }
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 #[tauri::command]
 pub fn terminal_scrollback_read(
     node: State<'_, NodeState>,
@@ -3003,7 +3028,9 @@ pub fn terminal_scrollback_read(
         Err(e) => Err(format!("could not read {}: {e}", path.display())),
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 #[tauri::command]
 pub fn terminal_scrollback_write(
     node: State<'_, NodeState>,
@@ -3028,7 +3055,9 @@ pub fn terminal_scrollback_write(
     std::fs::write(&tmp, kept).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("could not place {}: {e}", path.display()))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 #[tauri::command]
 pub fn terminal_scrollback_forget(node: State<'_, NodeState>, key: String) -> Result<(), String> {
     let path = scrollback_path(&node.api_base()?, &node.api_token(), &key)?;
@@ -3038,6 +3067,7 @@ pub fn terminal_scrollback_forget(node: State<'_, NodeState>, key: String) -> Re
         Err(e) => Err(format!("could not forget {}: {e}", path.display())),
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod mobile_development_tests {
@@ -3076,5 +3106,643 @@ mod mobile_development_tests {
         let err = mobile_development_launch("http://127.0.0.1:1", "t", Scope::Goal, "g1", "AAAA")
             .unwrap_err();
         assert!(err.contains("checkout"), "{err}");
+    }
+}
+
+/// The terminal's side of the wire to the node — the raw socket, the
+/// catalog, the placement, the roster row and its reporter, the process
+/// watcher, the scrollback folder — against a canned node on loopback, and
+/// the registry's arms a shell's life takes.
+#[cfg(test)]
+mod node_wire_tests {
+    use super::*;
+    use crate::testing::canned;
+
+    fn wait_gone(registry: &Arc<TerminalRegistry>) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while registry.len() > 0 {
+            assert!(
+                Instant::now() < deadline,
+                "the registry still holds {} shells",
+                registry.len()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn shell(
+        registry: &Arc<TerminalRegistry>,
+        dir: &Path,
+        plan: Option<(&Interactive, &str)>,
+        sink: Sink,
+    ) -> String {
+        spawn_session(
+            Arc::clone(registry),
+            dir,
+            Some("/bin/sh"),
+            None,
+            None,
+            false,
+            plan,
+            24,
+            80,
+            sink,
+        )
+        .unwrap()
+    }
+
+    fn harnesses_body() -> String {
+        serde_json::json!({"harnesses": [
+            {"id": "claude-code", "label": "Claude Code", "installed": true,
+             "launch": {"program": "/opt/x/bin/claude", "args": ["--x"], "resume_args": ["--continue"]}},
+            {"id": "acp:zed", "label": "Zed", "installed": true},
+            {"id": "gone", "label": "Gone", "installed": false, "launch": {"program": "gone"}}
+        ]})
+        .to_string()
+    }
+
+    fn plan_for(session: &str) -> Interactive {
+        Interactive {
+            session: Some(session.to_string()),
+            env: HashMap::from([
+                (ENV_SECRET.to_string(), "w".to_string()),
+                ("X_A".to_string(), "1".to_string()),
+            ]),
+            env_remove: vec!["X_B".to_string()],
+            args: Vec::new(),
+            intercept_approval_notifications: true,
+        }
+    }
+
+    #[test]
+    fn a_get_and_a_post_reach_the_node_whole_and_a_node_that_is_not_there_is_said() {
+        let server = canned::serve(|req| match (req.method.as_str(), req.path.as_str()) {
+            ("GET", "/ping") => (200, r#"{"ok":true}"#.to_string()),
+            ("POST", "/echo") => (200, req.body.clone()),
+            _ => (404, r#"{"error":"no such door"}"#.to_string()),
+        });
+        let raw = get("127.0.0.1", server.port, "w", "/ping").unwrap();
+        let (status, body) = parse_http_response(&raw).unwrap();
+        assert_eq!((status, body.as_str()), (200, r#"{"ok":true}"#));
+        let raw = post("127.0.0.1", server.port, "w", "/echo", r#"{"a":1}"#).unwrap();
+        assert_eq!(parse_http_response(&raw).unwrap().1, r#"{"a":1}"#);
+        let asked = server.requests();
+        assert_eq!(asked.len(), 2);
+        assert_eq!(asked[1].header("content-length").as_deref(), Some("7"));
+        assert!(get("127.0.0.1", 1, "w", "/ping")
+            .unwrap_err()
+            .contains("not reachable"));
+        assert!(post("127.0.0.1", 1, "w", "/x", "{}")
+            .unwrap_err()
+            .contains("not reachable"));
+        assert!(authority("http://u:p@127.0.0.1:1")
+            .unwrap_err()
+            .contains("userinfo"));
+    }
+
+    #[test]
+    fn a_harness_s_launch_is_resolved_from_the_catalog_or_refused_by_reason() {
+        let server = canned::serve(|req| match req.path.as_str() {
+            "/harnesses" => (200, harnesses_body()),
+            _ => (500, String::new()),
+        });
+        let base = server.base();
+        let launch = resolve_launch(&base, "w", "claude-code").unwrap();
+        assert_eq!(launch.program, "/opt/x/bin/claude");
+        assert_eq!(launch.resume_args, vec!["--continue".to_string()]);
+        assert!(resolve_launch(&base, "w", "nobody")
+            .unwrap_err()
+            .contains("no harness \"nobody\""));
+        assert!(resolve_launch(&base, "w", "acp:zed")
+            .unwrap_err()
+            .contains("no interactive form"));
+        assert!(resolve_launch(&base, "w", "gone")
+            .unwrap_err()
+            .contains("not installed"));
+        let programs = harness_programs(&base, "w").unwrap();
+        assert_eq!(
+            programs.get("claude").map(String::as_str),
+            Some("claude-code")
+        );
+        assert_eq!(programs.get("gone").map(String::as_str), Some("gone"));
+        assert_eq!(programs.len(), 2);
+
+        let refusing = canned::serve(|_| (500, r#"{"error":"the catalog is off"}"#.to_string()));
+        assert_eq!(
+            resolve_launch(&refusing.base(), "w", "x").unwrap_err(),
+            "the catalog is off"
+        );
+        assert_eq!(
+            harness_programs(&refusing.base(), "w").unwrap_err(),
+            "the catalog is off"
+        );
+        let garbled = canned::serve(|_| (200, "not json".to_string()));
+        assert!(resolve_launch(&garbled.base(), "w", "x")
+            .unwrap_err()
+            .contains("did not parse"));
+        assert!(harness_programs(&garbled.base(), "w")
+            .unwrap_err()
+            .contains("did not parse"));
+        assert!(
+            harness_of(
+                &ProcessFacts {
+                    exe: Some("/usr/bin/node".into()),
+                    argv: Vec::new()
+                },
+                &programs
+            )
+            .is_none(),
+            "an interpreter with no script is no harness"
+        );
+    }
+
+    #[test]
+    fn a_run_command_is_the_checkout_s_approved_one_and_a_mobile_run_names_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("app");
+        std::fs::create_dir(&app).unwrap();
+        let app_str = app.display().to_string();
+        let named = app_str.clone();
+        let server = canned::serve(move |req| match req.path.as_str() {
+            "/workstreams/w1/run-command" => (
+                200,
+                r#"{"command":"npm run dev","trusted":true}"#.to_string(),
+            ),
+            "/workstreams/w2/run-command" => {
+                (200, r#"{"command":"make","trusted":false}"#.to_string())
+            }
+            "/workstreams/w3/run-command" => (404, String::new()),
+            "/workstreams/w4/run-command" => (200, "nope".to_string()),
+            "/workstreams/w1/mobile-development/run-command?device=d1" => (
+                200,
+                format!(r#"{{"command":"flutter run -d d1","cwd":"{named}"}}"#),
+            ),
+            "/workstreams/w3/mobile-development/run-command?device=d1" => (404, String::new()),
+            "/workstreams/w4/mobile-development/run-command?device=d1" => (200, "nope".to_string()),
+            _ => (500, r#"{"error":"broken"}"#.to_string()),
+        });
+        let base = server.base();
+        let launch = run_launch(&base, "w", Scope::Workstream, "w1").unwrap();
+        assert_eq!(launch.program, "sh");
+        assert_eq!(
+            launch.args,
+            vec!["-c".to_string(), "npm run dev".to_string()]
+        );
+        assert!(run_launch(&base, "w", Scope::Goal, "g1")
+            .unwrap_err()
+            .contains("belongs to a checkout"));
+        assert!(run_launch(&base, "w", Scope::Workstream, "w2")
+            .unwrap_err()
+            .contains("not approved"));
+        assert!(run_launch(&base, "w", Scope::Workstream, "w3")
+            .unwrap_err()
+            .contains("sets no run command"));
+        assert!(run_launch(&base, "w", Scope::Workstream, "w4")
+            .unwrap_err()
+            .contains("did not parse"));
+        assert_eq!(
+            run_launch(&base, "w", Scope::Workstream, "w5").unwrap_err(),
+            "broken"
+        );
+        assert!(
+            run_launch("http://127.0.0.1:1", "w", Scope::Workstream, "w1")
+                .unwrap_err()
+                .contains("not reachable")
+        );
+        assert!(mobile_development_launch(
+            "http://127.0.0.1:1",
+            "w",
+            Scope::Workstream,
+            "w1",
+            "d1"
+        )
+        .unwrap_err()
+        .contains("not reachable"));
+
+        let (launch, cwd) =
+            mobile_development_launch(&base, "w", Scope::Workstream, "w1", "d1").unwrap();
+        assert_eq!(launch.args[1], "flutter run -d d1");
+        assert_eq!(cwd.as_deref(), Some(app_str.as_str()));
+        assert!(
+            mobile_development_launch(&base, "w", Scope::Goal, "g", "d1")
+                .unwrap_err()
+                .contains("runs from a checkout")
+        );
+        assert!(
+            mobile_development_launch(&base, "w", Scope::Workstream, "w3", "d1")
+                .unwrap_err()
+                .contains("mobile development is off")
+        );
+        assert!(
+            mobile_development_launch(&base, "w", Scope::Workstream, "w4", "d1")
+                .unwrap_err()
+                .contains("did not parse")
+        );
+        assert_eq!(
+            mobile_development_launch(&base, "w", Scope::Workstream, "w5", "d1").unwrap_err(),
+            "broken"
+        );
+    }
+
+    #[test]
+    fn a_shell_s_folder_is_the_placement_s_or_the_home_and_refused_when_not_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let here = dir.path().display().to_string();
+        let server = canned::serve(move |req| match req.path.as_str() {
+            "/placement/workstream/w1" => (200, format!(r#"{{"path":"{here}","exists":true}}"#)),
+            "/placement/goal/g1" => (200, r#"{"path":"/nowhere/yet","exists":false}"#.to_string()),
+            "/placement/work_item/i1" => (200, "nope".to_string()),
+            _ => (404, r#"{"error":"no such scope"}"#.to_string()),
+        });
+        let base = server.base();
+        assert_eq!(
+            resolve_dir(&base, "w", Scope::Workstream, "w1").unwrap(),
+            dir.path()
+        );
+        assert!(resolve_dir(&base, "w", Scope::Goal, "g1")
+            .unwrap_err()
+            .contains("has no directory yet"));
+        assert!(resolve_dir(&base, "w", Scope::WorkItem, "i1")
+            .unwrap_err()
+            .contains("did not parse"));
+        assert_eq!(
+            resolve_dir(&base, "w", Scope::Goal, "g2").unwrap_err(),
+            "no such scope"
+        );
+        assert!(resolve_dir(&base, "w", Scope::Machine, "-")
+            .unwrap()
+            .is_dir());
+    }
+
+    #[test]
+    fn a_harness_is_registered_as_a_roster_row_and_its_reporter_tells_the_node_each_turn() {
+        let server = canned::serve(|req| match (req.method.as_str(), req.path.as_str()) {
+            ("POST", "/sessions/terminal") => (
+                200,
+                format!(
+                    r#"{{"session":"s1","env":{{"{ENV_SECRET}":"w","X_A":"1"}},"env_remove":["X_B"],"args":["--report"],"intercept_approval_notifications":true}}"#
+                ),
+            ),
+            ("POST", p) if p.starts_with("/sessions/s1/") => (200, "{}".to_string()),
+            _ => (500, r#"{"error":"no roster today"}"#.to_string()),
+        });
+        let base = server.base();
+        let plan = open_interactive(&base, "w", Scope::Goal, "g1", "claude-code").unwrap();
+        assert_eq!(plan.session.as_deref(), Some("s1"));
+        assert!(plan.intercept_approval_notifications);
+        let asked = server.requests();
+        assert!(
+            asked[0].body.contains(r#""harness":"claude-code""#),
+            "{}",
+            asked[0].body
+        );
+        let refusing = canned::serve(|_| (500, r#"{"error":"no roster today"}"#.to_string()));
+        assert_eq!(
+            open_interactive(&refusing.base(), "w", Scope::Goal, "g1", "x").unwrap_err(),
+            "no roster today"
+        );
+
+        let reporter = Reporter::from_plan(&plan, &base).unwrap();
+        reporter.process_started(42);
+        reporter.approval_requested();
+        reporter.answered();
+        reporter.exited(Some(3), Some("SIGTERM"));
+        reporter.closed();
+        let asked = server.wait_for(6);
+        let paths: Vec<&str> = asked[1..].iter().map(|r| r.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/sessions/s1/report",
+                "/sessions/s1/report",
+                "/sessions/s1/answered",
+                "/sessions/s1/exit",
+                "/sessions/s1/close"
+            ]
+        );
+        assert!(asked[1].body.contains("process_started") && asked[1].body.contains("42"));
+        assert!(asked[2].body.contains("input_requested"));
+        assert!(asked[4].body.contains(r#""code":3"#) && asked[4].body.contains("SIGTERM"));
+
+        assert!(Reporter::from_plan(&Interactive::default(), &base).is_none());
+        let bare = Interactive {
+            session: Some("s2".into()),
+            ..Default::default()
+        };
+        assert!(Reporter::from_plan(&bare, &base).is_none());
+        let gone = Reporter {
+            api_base: "http://127.0.0.1:1".into(),
+            session: "s9".into(),
+            secret: "w".into(),
+            intercept_approvals: false,
+        };
+        gone.closed();
+        let nowhere = Reporter {
+            api_base: "ftp://x".into(),
+            ..gone.clone()
+        };
+        nowhere.closed();
+    }
+
+    /// A live session is resized; an approval prompt the harness announces
+    /// through the terminal (OSC 9) is told to the node, the person's answer
+    /// too; and a tab that closes says *close* through its reporter.
+    #[test]
+    fn a_reporting_session_hears_an_approval_resizes_and_says_close_when_its_tab_closes() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = canned::serve(|_| (200, "{}".to_string()));
+        let base = server.base();
+        let plan = plan_for("s1");
+        let registry = Arc::new(TerminalRegistry::new());
+        let id = shell(
+            &registry,
+            dir.path(),
+            Some((&plan, &base)),
+            Arc::new(|_| true),
+        );
+        registry.resize(&id, 40, 120).unwrap();
+        registry
+            .write(&id, "printf '\\033]9;Approval needed\\007'\n")
+            .unwrap();
+        let asked = server.wait_for(2);
+        assert!(asked.iter().any(|r| r.body.contains("process_started")));
+        assert!(asked.iter().any(|r| r.body.contains("input_requested")));
+        registry.answered(&id);
+        let asked = server.wait_for(3);
+        assert!(asked.iter().any(|r| r.path == "/sessions/s1/answered"));
+        registry.terminate(&id);
+        wait_gone(&registry);
+        let asked = server.wait_for(4);
+        assert!(asked.iter().any(|r| r.path == "/sessions/s1/close"));
+        registry.answered("term-nope");
+        registry.approval_requested("term-nope");
+        assert!(registry.resize("term-nope", 1, 1).is_err());
+    }
+
+    /// A reporting session that ends by itself says *exit* with its code,
+    /// stays a tab until the tab goes, and then says *close*.
+    #[test]
+    fn a_reporting_session_that_exits_by_itself_says_exit_then_close_when_its_tab_goes() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = canned::serve(|_| (200, "{}".to_string()));
+        let base = server.base();
+        let plan = plan_for("s3");
+        let registry = Arc::new(TerminalRegistry::new());
+        let id = shell(
+            &registry,
+            dir.path(),
+            Some((&plan, &base)),
+            Arc::new(|_| true),
+        );
+        registry.write(&id, "exit 4\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !server
+            .requests()
+            .iter()
+            .any(|r| r.path == "/sessions/s3/exit")
+        {
+            assert!(Instant::now() < deadline, "no exit was reported");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let exit = server
+            .requests()
+            .into_iter()
+            .find(|r| r.path == "/sessions/s3/exit")
+            .unwrap();
+        assert!(exit.body.contains(r#""code":4"#), "{}", exit.body);
+        assert_eq!(registry.len(), 1, "the tab still owns its entry");
+        registry.terminate(&id);
+        assert_eq!(registry.len(), 0);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !server
+            .requests()
+            .iter()
+            .any(|r| r.path == "/sessions/s3/close")
+        {
+            assert!(Instant::now() < deadline, "no close was reported");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// A shell that ignores the hang-up is pressed harder on the clock and
+    /// goes; a second close while the first is under way waits on it.
+    #[test]
+    fn a_shell_that_ignores_the_hang_up_is_pressed_harder_and_a_second_close_waits() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(TerminalRegistry::new());
+        let seen = Arc::new(Mutex::new(String::new()));
+        let sink_seen = Arc::clone(&seen);
+        let id = shell(
+            &registry,
+            dir.path(),
+            None,
+            Arc::new(move |event| {
+                if let TerminalEvent::Output { data } = event {
+                    sink_seen.lock().unwrap().push_str(&data);
+                }
+                true
+            }),
+        );
+        registry
+            .write(&id, "trap '' HUP TERM; echo armed\n")
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !seen.lock().unwrap().contains("armed") {
+            assert!(Instant::now() < deadline, "the trap was never set");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let started = Instant::now();
+        registry.terminate(&id);
+        assert!(registry.is_closing(&id));
+        registry.terminate(&id);
+        wait_gone(&registry);
+        assert!(started.elapsed() >= TERMINATE_GRACE);
+    }
+
+    /// A shell abandoned before its pump is ended and dropped; the pump's
+    /// last word then finds no tab.
+    #[test]
+    fn a_shell_abandoned_before_its_pump_is_ended_and_its_end_finds_no_tab() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(TerminalRegistry::new());
+        let id = shell(&registry, dir.path(), None, Arc::new(|_| true));
+        registry.abandon(&id);
+        assert_eq!(registry.len(), 0);
+        std::thread::sleep(Duration::from_millis(500));
+        registry.abandon(&id);
+        registry.terminate(&id);
+    }
+
+    /// A tab whose webview went is closed by its own pump: the first bytes
+    /// nobody takes end the session.
+    #[test]
+    fn a_tab_whose_webview_went_is_closed_by_its_own_pump() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(TerminalRegistry::new());
+        let id = shell(&registry, dir.path(), None, Arc::new(|_| false));
+        let _ = registry.write(&id, "echo hello\n");
+        wait_gone(&registry);
+    }
+
+    /// A shell spawned as the app shuts down is ended at once and refused.
+    #[test]
+    fn a_shell_spawned_as_the_app_shuts_down_is_ended_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(TerminalRegistry::new());
+        registry.closed.store(true, Ordering::SeqCst);
+        let refused = spawn_session(
+            Arc::clone(&registry),
+            dir.path(),
+            Some("/bin/sh"),
+            None,
+            None,
+            false,
+            None,
+            24,
+            80,
+            Arc::new(|_| true),
+        )
+        .unwrap_err();
+        assert_eq!(refused, "the app is shutting down");
+        assert_eq!(registry.len(), 0);
+    }
+
+    /// The process watcher asks the catalog — again after a refusal — reads
+    /// the table, tells the tab what runs under its shell and that it
+    /// ended, and stops itself once nothing is live.
+    #[test]
+    fn the_process_watcher_tells_a_tab_what_runs_under_it_and_stops_when_nothing_is_live() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let n = Arc::clone(&calls);
+        let server = canned::serve(move |req| {
+            if req.path != "/harnesses" {
+                return (404, "{}".to_string());
+            }
+            if n.fetch_add(1, Ordering::SeqCst) == 0 {
+                return (500, r#"{"error":"not yet"}"#.to_string());
+            }
+            (
+                200,
+                serde_json::json!({"harnesses": [{"id": "sleeper", "label": "Sleeper", "installed": true, "launch": {"program": "/bin/sleep"}}]}).to_string(),
+            )
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let seen: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_seen = Arc::clone(&seen);
+        let registry = Arc::new(TerminalRegistry::new());
+        let id = shell(
+            &registry,
+            dir.path(),
+            None,
+            Arc::new(move |event| {
+                if let TerminalEvent::Process { harness } = event {
+                    sink_seen.lock().unwrap().push(harness);
+                }
+                true
+            }),
+        );
+        registry.write(&id, "sleep 30\n").unwrap();
+        registry.ensure_watching(server.base(), "w".to_string());
+        registry.ensure_watching(server.base(), "w".to_string());
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !seen.lock().unwrap().contains(&Some("sleeper".to_string())) {
+            assert!(
+                Instant::now() < deadline,
+                "the sleeper was never seen: {:?}",
+                seen.lock().unwrap()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            calls.load(Ordering::SeqCst) >= 2,
+            "asked again after the refusal"
+        );
+        registry.write(&id, "\u{3}").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while seen.lock().unwrap().last() != Some(&None) {
+            assert!(
+                Instant::now() < deadline,
+                "the end of the sleeper was never seen"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        registry.terminate(&id);
+        wait_gone(&registry);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while registry.watching.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the watcher never stopped");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// A notification ends at whichever terminator comes first, the bell
+    /// or the string terminator.
+    #[test]
+    fn a_notification_ends_at_whichever_terminator_comes_first() {
+        let mut scanner = Osc9Scanner::default();
+        assert_eq!(
+            scanner.feed("\x1b]9;one\x07tail\x1b\\"),
+            vec!["one".to_string()]
+        );
+        let mut scanner = Osc9Scanner::default();
+        assert_eq!(
+            scanner.feed("\x1b]9;two\x1b\\tail\x07"),
+            vec!["two".to_string()]
+        );
+    }
+
+    /// The scrollback folder is the workspace's `run/terminals`, asked of
+    /// the node once per process — a refusal, an answer that is not JSON,
+    /// one naming no folder and a folder that cannot be made are each said
+    /// before that — and a key is a tab's only.
+    #[test]
+    fn the_scrollback_folder_is_the_workspace_s_and_a_key_is_a_tab_s_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().display().to_string();
+        let file = dir.path().join("a-file");
+        std::fs::write(&file, "x").unwrap();
+        let under_file = file.display().to_string();
+        let calls = Arc::new(AtomicU64::new(0));
+        let n = Arc::clone(&calls);
+        let server = canned::serve(move |req| {
+            assert_eq!(req.path, "/workspace");
+            match n.fetch_add(1, Ordering::SeqCst) {
+                0 => (500, r#"{"error":"not up"}"#.to_string()),
+                1 => (200, "nope".to_string()),
+                2 => (200, "{}".to_string()),
+                3 => (200, format!(r#"{{"data_dir":"{under_file}"}}"#)),
+                _ => (200, format!(r#"{{"data_dir":"{data}"}}"#)),
+            }
+        });
+        let base = server.base();
+        assert!(scrollback_path(&base, "w", "x1")
+            .unwrap_err()
+            .contains("not a terminal key"));
+        assert_eq!(scrollback_dir(&base, "w").unwrap_err(), "not up");
+        assert!(scrollback_dir(&base, "w")
+            .unwrap_err()
+            .contains("did not parse"));
+        assert!(scrollback_dir(&base, "w")
+            .unwrap_err()
+            .contains("has no data_dir"));
+        assert!(scrollback_dir(&base, "w")
+            .unwrap_err()
+            .contains("could not create"));
+        let path = scrollback_path(&base, "w", "t7").unwrap();
+        assert_eq!(
+            path,
+            dir.path()
+                .join("run")
+                .join("terminals")
+                .join("t7.scrollback")
+        );
+        assert!(path.parent().unwrap().is_dir());
+        assert_eq!(
+            scrollback_dir(&base, "w").unwrap(),
+            path.parent().unwrap(),
+            "asked once per process"
+        );
+        assert_eq!(server.requests().len(), 5);
+        std::mem::forget(dir);
     }
 }

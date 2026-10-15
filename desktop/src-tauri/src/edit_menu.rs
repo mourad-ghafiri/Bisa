@@ -86,6 +86,7 @@ impl EditVerb {
         }
     }
 
+    // LCOV_EXCL_START the app's menu bar and its window; out by decision
     /// The standard editing action a responder performs for the verb.
     #[cfg(target_os = "macos")]
     pub fn selector(self) -> objc2::runtime::Sel {
@@ -96,12 +97,14 @@ impl EditVerb {
             EditVerb::SelectAll => objc2::sel!(selectAll:),
         }
     }
+    // LCOV_EXCL_STOP
 }
 
 /// The four items, kept as app state so the webview's words can reach them
 /// (`words.rs`, the `shell_words` command).
 pub struct Verbs<R: Runtime>(Vec<(EditVerb, MenuItem<R>)>);
 
+// LCOV_EXCL_START the app's menu bar and its window; out by decision
 impl<R: Runtime> Verbs<R> {
     /// The items in the menu's order.
     pub fn items(&self) -> impl Iterator<Item = &MenuItem<R>> {
@@ -125,7 +128,9 @@ impl<R: Runtime> Verbs<R> {
         }
     }
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the app's menu bar and its window; out by decision
 /// The four custom items, in the menu's order, each with its key equivalent.
 pub fn items<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<Verbs<R>> {
     EditVerb::ALL
@@ -139,7 +144,9 @@ pub fn items<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<Verbs<R>> 
         .collect::<tauri::Result<Vec<_>>>()
         .map(Verbs)
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the app's menu bar and its window; out by decision
 /// A verb's item fired: perform it natively where the focus can — the first
 /// responder and its chain, a field or an editor's textarea; a tree does
 /// nothing — then tell the webview, whose keymap replays the chord where the
@@ -171,6 +178,7 @@ pub fn perform<R: Runtime>(app: &AppHandle<R>, verb: EditVerb) {
         tracing::warn!(target: "bisa_desktop", "the edit verb did not reach the webview: {e}");
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {

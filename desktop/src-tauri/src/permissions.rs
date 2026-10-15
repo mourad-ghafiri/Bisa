@@ -96,6 +96,7 @@ fn probe_status(result: Result<(), std::io::ErrorKind>) -> (PermissionStatus, Op
     }
 }
 
+// LCOV_EXCL_START the OS's permission prompts and panes; out by decision
 /// Read a grant's status. Never prompts.
 #[tauri::command]
 pub async fn system_permission_status(kind: PermissionKind) -> Result<PermissionReport, String> {
@@ -103,7 +104,9 @@ pub async fn system_permission_status(kind: PermissionKind) -> Result<Permission
         .await
         .map_err(|e| format!("permission status: {e}"))
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the OS's permission prompts and panes; out by decision
 /// Ask for a grant: the microphone through macOS's own prompt (once; a denial
 /// afterwards opens System Settings), Full Disk Access by opening the pane a
 /// person adds the app in — macOS has no prompt for it. Answers the status
@@ -114,7 +117,9 @@ pub async fn system_permission_request(kind: PermissionKind) -> Result<Permissio
         .await
         .map_err(|e| format!("permission request: {e}"))?
 }
+// LCOV_EXCL_STOP
 
+// LCOV_EXCL_START the OS's permission prompts and panes; out by decision
 #[cfg(target_os = "macos")]
 mod platform {
     use super::{probe_status, PermissionKind, PermissionReport, PermissionStatus};
@@ -260,6 +265,7 @@ mod platform {
         PermissionReport::new(PermissionKind::Microphone, status)
     }
 }
+// LCOV_EXCL_STOP
 
 #[cfg(not(target_os = "macos"))]
 mod platform {

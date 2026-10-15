@@ -135,6 +135,7 @@ fn scan(roots: Roots) -> Result<Vec<ListeningPort>, String> {
     Ok(attribute(&sockets, parent_of, &roots))
 }
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// The listening ports that trace back to a rail's shell or to one of `roots`
 /// — the pids of the harness sessions the node reports.
 #[tauri::command]
@@ -153,6 +154,7 @@ pub async fn listening_ports(
         .await
         .map_err(|e| format!("the port scan did not finish: {e}"))?
 }
+// LCOV_EXCL_STOP
 
 /// Send `signal` to `pid`, if it still runs. The terminal registry's
 /// escalation and the port rail's *Stop* use the same door.
@@ -162,6 +164,7 @@ pub(crate) fn signal(pid: u32, signal: Signal) -> bool {
         .is_some_and(|p| p.kill_with(signal).unwrap_or_else(|| p.kill()))
 }
 
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 /// `SIGTERM` the process listening on `port`, if it is still `pid`.
 ///
 /// The app's own pid and the node's are refused whatever the rail asks: the
@@ -204,6 +207,7 @@ pub async fn stop_port(pid: u32, port: u16, node: State<'_, NodeState>) -> Resul
     .await
     .map_err(|e| format!("the stop did not finish: {e}"))?
 }
+// LCOV_EXCL_STOP
 
 #[cfg(test)]
 mod tests {
@@ -310,5 +314,43 @@ mod tests {
         );
         assert_eq!(got.iter().map(|p| p.port).collect::<Vec<_>>(), vec![3000]);
         assert_eq!(got[0].root, PortRoot::Pid { pid: 30 });
+    }
+
+    /// The scan traces a listening port to the process named as a root,
+    /// the app's own ports are nobody's, and a signal reaches a process
+    /// that is there and not one that is not.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_scan_finds_a_port_under_a_named_process_and_a_signal_reaches_it() {
+        use std::time::{Duration, Instant};
+        let port = {
+            let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            free.local_addr().unwrap().port()
+        };
+        let mut child = std::process::Command::new("/usr/bin/nc")
+            .args(["-l", "127.0.0.1", &port.to_string()])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let reaper = std::thread::spawn(move || child.wait());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let rows = scan(Roots::new(None, None, Vec::<(String, u32)>::new(), [pid])).unwrap();
+            if let Some(row) = rows.iter().find(|r| r.pid == pid && r.port == port) {
+                assert_eq!(row.root, PortRoot::Pid { pid });
+                break;
+            }
+            assert!(Instant::now() < deadline, "the port never showed: {rows:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let own = scan(Roots::new(Some(pid), None, Vec::<(String, u32)>::new(), [])).unwrap();
+        assert!(
+            own.iter().all(|r| r.pid != pid),
+            "the app's own ports are nobody's"
+        );
+        assert!(!processes().processes().is_empty());
+        assert!(!signal(u32::MAX - 1, Signal::Term));
+        assert!(signal(pid, Signal::Term));
+        assert!(!reaper.join().unwrap().unwrap().success());
     }
 }

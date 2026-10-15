@@ -44,12 +44,14 @@ fn named_copy(path: &str) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
+// LCOV_EXCL_START opens the file with the system's default app; out by decision
 /// Open the named copy with the default application for its kind.
 #[tauri::command]
 pub fn open_artifact(path: String) -> Result<(), String> {
     let file = named_copy(&path)?;
     tauri_plugin_opener::open_path(file, None::<&str>).map_err(|e| e.to_string())
 }
+// LCOV_EXCL_STOP
 
 /// Copy the named copy to where the save dialog pointed.
 #[tauri::command]
@@ -115,6 +117,37 @@ mod tests {
         assert!(
             named_copy(good.parent().unwrap().to_str().unwrap()).is_err(),
             "a folder is not a file"
+        );
+    }
+
+    /// A named copy is copied where asked; a place that cannot be written
+    /// and a file that is no named copy are each said.
+    #[test]
+    fn a_named_copy_is_copied_where_asked_or_the_refusal_is_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let named = dir
+            .path()
+            .join("attachments")
+            .join("named")
+            .join("b".repeat(64));
+        std::fs::create_dir_all(&named).unwrap();
+        let file = named.join("plan.md");
+        std::fs::write(&file, "hello").unwrap();
+        let to = dir.path().join("out.md");
+        copy_artifact(file.display().to_string(), to.display().to_string()).unwrap();
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "hello");
+        let nowhere = dir.path().join("no/such/dir/out.md");
+        assert!(
+            copy_artifact(file.display().to_string(), nowhere.display().to_string())
+                .unwrap_err()
+                .contains("could not write")
+        );
+        let loose = dir.path().join("plan.md");
+        std::fs::write(&loose, "x").unwrap();
+        assert!(
+            copy_artifact(loose.display().to_string(), to.display().to_string())
+                .unwrap_err()
+                .contains("not an artifact's named copy")
         );
     }
 }
