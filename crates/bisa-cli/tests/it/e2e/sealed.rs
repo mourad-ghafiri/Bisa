@@ -156,7 +156,8 @@ impl Sealed {
         self.root.path().join("data")
     }
 
-    fn home(&self) -> PathBuf {
+    /// The sealed home: what a harness would write its own files under.
+    pub fn home(&self) -> PathBuf {
         self.root.path().join("home")
     }
 

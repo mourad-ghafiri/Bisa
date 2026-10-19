@@ -645,7 +645,7 @@ like a person and how to test a feature with the tools — every catalog agent c
 `browser.agents` at *assigned* carrying it is the assignment (§Who may ask).
 
 **Every harness the engine drives receives the server.** Claude Code by `--mcp-config`, ACP — a
-generic target, GitHub Copilot CLI, Grok Build, Gemini CLI — by the `mcpServers` field of `session/new`, Codex by `-c mcp_servers.<name>.command|args|env=…` overrides on `codex exec`,
+generic target, GitHub Copilot CLI, Grok Build, Gemini CLI — by the `mcpServers` field of `session/new`, Muse Code by `config.mcpServers` of `session/start` (an object by name, `env` as an object; no `cwd`), Codex by `-c mcp_servers.<name>.command|args|env=…` overrides on `codex exec`,
 OpenCode by the JSON its `OPENCODE_CONFIG_CONTENT` variable carries (`crates/bisa-adapters/src/mcp_inject.rs`:
 `codex_overrides`, `opencode_config`); pi and a custom harness take the servers their descriptors
 say. An agent browses whatever it runs on.

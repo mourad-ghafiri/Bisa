@@ -212,6 +212,21 @@ Tests: the adapter's own facts beside it (the command, the levels, the models, t
 form); a stub agent driven through it in `tests/it/adapters.rs`; and the scripted agent placed
 under its program's name in a journey (`Sealed::install_agent_as`, `e2e/copilot_grok_and_gemini.rs`).
 
+### A harness with a protocol of its own
+
+Muse Code speaks the Muse Session Protocol and nothing else does, so it is the one second protocol
+module: `crates/bisa-adapters/src/msp.rs` is the wire (`open`, `revival`, `ask`), read from the
+SDK's wire guide, reference, schema and recorded transcripts; `crates/bisa-adapters/src/muse_code.rs`
+its facts, as `grok.rs` is Grok Build's. The ACP rules hold unchanged: no frame outside the protocol
+module; nothing on the command line but the host and the trust it needs in the checkout
+(`serve --trust-workspace` — a host asked a question alone gets `serve`, and no trust); never a
+word that allows a tool unasked (`--yolo`, `--disable-approval`, `--disable-sandbox`); the model
+and the effort the protocol's way — the model on `session/start` once the host's own `model/list`
+has been read, the effort on every `turn/start` held to the model's `variants`. A permission is
+answered with the host's *approved* choice, never one that stands for the session. The scripted
+agent plays the host under the word `serve` (`crates/bisa-cli/tests/scripted_agent/msp.rs`), and the
+journey is `e2e/muse_code_through_its_host.rs`.
+
 ## 9. Add a GEP kind
 
 1. The constant in `crates/bisa-core/src/kind.rs` and its membership in `GEP_KINDS` and the

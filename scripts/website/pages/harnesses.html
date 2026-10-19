@@ -1,4 +1,4 @@
-<!--{"path": "/harnesses/", "title": "Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa", "description": "Bisa drives the coding agents you already have — Claude Code, Codex, OpenCode, Copilot CLI, Grok Build, Gemini CLI, pi, any ACP agent — and says what it does with each."}-->
+<!--{"path": "/harnesses/", "title": "Claude Code, Codex CLI, OpenCode and more in one IDE · Bisa", "description": "Bisa drives the coding agents you already have — Claude Code, Codex, OpenCode, Copilot, Grok, Gemini, Muse Code, pi, any ACP agent — and says what it does with each."}-->
 <section class="page-head">
   <div class="wrap">
     <h1>Your harnesses, in one IDE</h1>
@@ -19,6 +19,7 @@
         <tr><th scope="row">{{harness:opencode}}</th><td>driven, with the platform's tools — OpenCode 2 over ACP, OpenCode 1 in run mode</td><td>OpenCode 1: read from its own event stream; OpenCode 2: a plain terminal; both resumed with <code>--continue</code></td><td>observed</td><td>with a Claude sign-in</td></tr>
         <tr><th scope="row">{{harness:copilot}}</th><td>driven over ACP, with the platform's tools</td><td>reports its state, resumed with <code>--continue</code></td><td>judged before it runs</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">{{harness:grok}}</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--continue</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
+        <tr><th scope="row">{{harness:muse_code}}</th><td>driven over the Muse Session Protocol, with the platform's tools</td><td>a plain terminal, resumed with <code>resume --last</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>the window and the week its host reports</td></tr>
         <tr><th scope="row">{{harness:gemini}}</th><td>driven over ACP, with the platform's tools</td><td>a plain terminal, resumed with <code>--resume latest</code></td><td>judged when Bisa drives it; not seen in a terminal</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">{{harness:pi_rpc}}</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>not offered by the harness</td></tr>
         <tr><th scope="row">{{harness:omp}}</th><td>driven, in conversation</td><td>reports its state, resumed with <code>--continue</code></td><td>observed</td><td>yes</td></tr>
@@ -56,6 +57,10 @@
   <section id="gemini" aria-labelledby="h-gemini">
     <h2 id="h-gemini">{{harness:gemini}}</h2>
     <p>Driven over the Agent Client Protocol with the platform's tools: the model is set as the session offers it — Gemini CLI still speaks the protocol's earlier draft for models, and Bisa speaks it back — and every tool is asked before it runs. It has no effort control, so none is sent. Its terminal takes no hook for one launch and Bisa writes nothing into your configuration, so a Gemini tab is a plain terminal: unreported and unguarded. Its account usage is not offered by the harness.</p>
+  </section>
+  <section id="muse-code" aria-labelledby="h-muse-code">
+    <h2 id="h-muse-code">{{harness:muse_code}}</h2>
+    <p>Driven over the Muse Session Protocol — its own host, started trusted in the checkout and handed the platform's tools. The session is started on its model once the host's own list has been read, so a model your plan lacks is passed over for the plan's next; the effort rides every turn, held to the levels the model's row lists; every tool the host asks about is judged, and answered with its once choice, never a standing grant; the sandbox and the approvals stay on. The footer reads the window and the week its host reports. Its terminal takes no hook for one launch and Bisa writes nothing into your configuration, so a Muse tab is a plain terminal: unreported and unguarded.</p>
   </section>
   <section id="pi" aria-labelledby="h-pi">
     <h2 id="h-pi">{{harness:pi_rpc}} and {{harness:omp}}</h2>

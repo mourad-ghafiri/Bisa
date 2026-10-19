@@ -991,6 +991,7 @@ fn harness_list_reports_probes() {
         "copilot",
         "grok",
         "gemini",
+        "muse-code",
         "preset:goose",
     ] {
         assert!(
@@ -1031,9 +1032,10 @@ fn harness_list_reports_probes() {
     if let Some(acp) = launch_of("acp:goose") {
         assert!(acp.is_null(), "an ACP target has no interactive form");
     }
-    // The three harnesses that speak ACP under an id of their own are rows of
-    // their own — never also a generic target — and a person opens each by
-    // its bare command, resumed with its own word.
+    // The three harnesses that speak ACP under an id of their own, and Muse
+    // Code over its own protocol, are rows of their own — never also a
+    // generic target — and a person opens each by its bare command, resumed
+    // with its own word.
     for (id, program, resume) in [
         ("copilot", "copilot", serde_json::json!(["--continue"])),
         ("grok", "grok", serde_json::json!(["--continue"])),
@@ -1042,6 +1044,7 @@ fn harness_list_reports_probes() {
             "gemini",
             serde_json::json!(["--resume", "latest"]),
         ),
+        ("muse-code", "muse", serde_json::json!(["resume", "--last"])),
     ] {
         let launch = launch_of(id).unwrap_or_else(|| panic!("no row for {id}"));
         assert_eq!(launch["program"], program, "{id}");

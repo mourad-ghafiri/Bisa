@@ -1247,6 +1247,7 @@ async fn register_all_populates_catalog() {
         "copilot",
         "grok",
         "gemini",
+        "muse-code",
         "acp:goose",
         "acp:cursor-agent",
         "acp:omp",
@@ -1264,8 +1265,12 @@ async fn register_all_populates_catalog() {
     );
     assert_eq!(catalog.get("grok").unwrap().display_name(), "Grok Build");
     assert_eq!(catalog.get("gemini").unwrap().display_name(), "Gemini CLI");
+    assert_eq!(
+        catalog.get("muse-code").unwrap().display_name(),
+        "Muse Code"
+    );
     // One row each: an id of its own is not also a generic target.
-    for generic in ["acp:copilot", "acp:grok", "acp:gemini"] {
+    for generic in ["acp:copilot", "acp:grok", "acp:gemini", "acp:muse-code"] {
         assert!(catalog.get(generic).is_none(), "{generic}");
     }
     // Every id the catalog reserves for a compiled-in adapter has one —
@@ -1610,8 +1615,8 @@ while read -r _l; do :; done
 fn every_interactive_adapter_offers_the_program_it_probes() {
     use bisa_adapters::{
         claude_code::ClaudeCodeAdapter, codex::CodexAdapter, copilot::CopilotAdapter,
-        gemini::GeminiAdapter, grok::GrokAdapter, omp::OmpAdapter, opencode::OpencodeAdapter,
-        pi_rpc::PiRpcAdapter,
+        gemini::GeminiAdapter, grok::GrokAdapter, muse_code::MuseCodeAdapter, omp::OmpAdapter,
+        opencode::OpencodeAdapter, pi_rpc::PiRpcAdapter,
     };
 
     let cases: Vec<(&str, Box<dyn HarnessAdapter>, &str)> = vec![
@@ -1675,6 +1680,11 @@ fn every_interactive_adapter_offers_the_program_it_probes() {
             }),
             "gemini-somewhere-else",
         ),
+        (
+            "muse-code",
+            Box::new(MuseCodeAdapter::with_program("muse-somewhere-else")),
+            "muse-somewhere-else",
+        ),
     ];
 
     for (id, adapter, program) in cases {
@@ -1737,6 +1747,29 @@ fn a_harness_that_speaks_acp_under_its_own_id_is_opened_bare_in_a_terminal() {
                 adapter.id()
             );
         }
+    }
+}
+
+/// **Muse Code is opened bare too — and its binary is not its id.** The
+/// harness is `muse-code`, the CLI `muse`: the terminal form is the bare
+/// `muse`, resumed with `resume --last`, and none of the words that make
+/// the CLI a session host (`serve`, the trust it is given) reaches a PTY.
+#[test]
+fn a_harness_with_a_protocol_of_its_own_is_opened_bare_in_a_terminal() {
+    use bisa_adapters::muse_code::MuseCodeAdapter;
+
+    let adapter = MuseCodeAdapter::default();
+    let launch = adapter
+        .interactive()
+        .expect("Muse Code has a terminal form");
+    assert_eq!(launch.program, "muse");
+    assert!(launch.args.is_empty());
+    assert_eq!(launch.resume_args, ["resume", "--last"]);
+    for word in adapter.command().args {
+        assert!(
+            !launch.args.contains(&word) && !launch.resume_args.contains(&word),
+            "`{word}` is a protocol word"
+        );
     }
 }
 
@@ -2592,4 +2625,598 @@ done
     assert!(ended_completed(&events), "{events:?}");
     assert_eq!(session.resume_token().unwrap().native_id, "omp-v1");
     session.dispose().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Muse Code, over the Muse Session Protocol
+// ---------------------------------------------------------------------------
+
+/// The frames every stub host answers the handshake with: the `initialize`
+/// result naming the schema this adapter was written against, and a model
+/// list of two — `small`, the default, taking two levels; `large` three.
+fn msp_handshake_lines() -> String {
+    format!(
+        r#"    *'"method":"initialize"'*)
+      echo '{{"jsonrpc":"2.0","id":1,"result":{{"serverInfo":{{"name":"muse-session-server","version":"1.4.10"}},"museHome":"/home/me/.local/share/muse","schema":{{"version":1,"fingerprint":"{fp}"}},"grantedCapabilities":[],"experimentalApi":true,"sessionDurability":"durable"}}}}'
+      ;;
+    *'"method":"model/list"'*)
+      echo "models" >> "$seen"
+      echo '{{"jsonrpc":"2.0","id":2,"result":{{"models":[{{"modelId":"small","providerId":"muse","displayLabel":"Small","isDefault":true,"variants":["low","high"]}},{{"modelId":"large","providerId":"muse","displayLabel":"Large","isDefault":false,"variants":["low","high","max"]}}]}}}}'
+      ;;
+"#,
+        fp = bisa_adapters::msp::SCHEMA_FINGERPRINT
+    )
+}
+
+/// A host that starts a session on the model asked and answers every
+/// `turn/start` with one turn: a word, its usage, and its end. It keeps what
+/// it was started with and what it was told, in order, in `<stub>.seen`.
+fn msp_stub_host(dir: &Path, name: &str, turn: &str) -> PathBuf {
+    write_stub(
+        dir,
+        name,
+        &format!(
+            r#"
+seen="$0.seen"
+echo "args: $*" > "$seen"
+while read -r line; do
+  case "$line" in
+{handshake}
+    *'"method":"session/start"'*)
+      echo "start: $line" >> "$seen"
+      echo '{{"jsonrpc":"2.0","method":"session/started","params":{{"session":{{"sessionId":"s-1","status":"idle","modelId":"large"}}}},"emittedAtMs":1}}'
+      echo '{{"jsonrpc":"2.0","id":3,"result":{{"session":{{"sessionId":"s-1","status":"idle","turnCount":0,"workspaceRoot":"/work","providerId":"muse","modelId":"large","approvalMode":{{"mode":"promptUnmatched"}}}},"viewCursor":"v4:s-1:3"}}}}'
+      ;;
+    *'"method":"turn/start"'*)
+      echo "turn: $line" >> "$seen"
+      id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+      echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"commandId\":\"c\",\"status\":\"accepted\",\"turnId\":\"t-$id\",\"disposition\":\"started\",\"startedNewTurn\":true}}}}"
+      echo '{{"jsonrpc":"2.0","method":"turn/started","params":{{"sessionId":"s-1","turnId":"t-1"}}}}'
+{turn}
+      ;;
+    *'"method":"turn/cancel"'*)
+      echo "cancel: $line" >> "$seen"
+      echo '{{"jsonrpc":"2.0","method":"turn/completed","params":{{"sessionId":"s-1","turnId":"t-1","terminal":"cancelled"}}}}'
+      ;;
+    *'"method":"approval/decide"'*)
+      echo "decide: $line" >> "$seen"
+      echo '{{"jsonrpc":"2.0","method":"approval/resolved","params":{{"sessionId":"s-1","approvalId":"a-1","decision":"approved","policyResult":"allow"}}}}'
+      echo '{{"jsonrpc":"2.0","method":"item/completed","params":{{"sessionId":"s-1","item":{{"itemId":"i-t","kind":"toolCall","status":"completed","tool":"bash","callId":"call_1","visibleOutput":"done"}}}}}}'
+      echo '{{"jsonrpc":"2.0","method":"turn/completed","params":{{"sessionId":"s-1","turnId":"t-1","terminal":"completed"}}}}'
+      ;;
+    *'"method":"usage/read"'*)
+      echo "usage/read" >> "$seen"
+      echo '{{"jsonrpc":"2.0","id":2,"result":{{"usage":{{"tier":"everyday","window":{{"usedPercent":12,"windowDurationMins":300,"resetsAtMs":1788782400000}},"weekly":{{"usedPercent":3,"resetsAtMs":1789128000000}}}}}}}}'
+      ;;
+  esac
+done
+"#,
+            handshake = msp_handshake_lines(),
+        ),
+    )
+}
+
+/// A turn of one word, its usage, and a clean end.
+const MSP_WORD_TURN: &str = r#"      echo 'a line of the host that is no frame, passed over'
+      echo '{"jsonrpc":"2.0","method":"item/started","params":{"sessionId":"s-1","item":{"itemId":"i-1","kind":"agentMessage","status":"inProgress","text":""}}}'
+      echo '{"jsonrpc":"2.0","method":"item/delta","params":{"sessionId":"s-1","itemId":"i-1","field":"text","delta":"hello from the host"}}'
+      echo '{"jsonrpc":"2.0","method":"item/completed","params":{"sessionId":"s-1","item":{"itemId":"i-1","kind":"agentMessage","status":"completed","text":"hello from the host"}}}'
+      echo '{"jsonrpc":"2.0","method":"session/tokenUsage","params":{"sessionId":"s-1","turnId":"t-1","modelId":"large","usage":{"promptTokens":120,"outputTokens":8,"cost":0.012},"cumulative":{"promptTokens":120,"outputTokens":8,"cost":0.012}}}'
+      echo '{"jsonrpc":"2.0","method":"usage/changed","params":{"usage":{"tier":"power","window":{"usedPercent":41,"windowDurationMins":300,"resetsAtMs":1788782400000},"weekly":{"usedPercent":9,"resetsAtMs":1789128000000}}}}'
+      echo '{"jsonrpc":"2.0","method":"turn/completed","params":{"sessionId":"s-1","turnId":"t-1","terminal":"completed","durationMs":40,"usage":{"inputTokens":120,"outputTokens":8}}}'"#;
+
+/// A turn that asks before a tool: the call starts, the host asks twice —
+/// the notification and the request — and waits on `approval/decide`.
+const MSP_ASKING_TURN: &str = r#"      echo '{"jsonrpc":"2.0","method":"item/started","params":{"sessionId":"s-1","item":{"itemId":"i-t","kind":"toolCall","status":"inProgress","tool":"bash","callId":"call_1","args":"{\"command\":\"cargo test\"}"}}}'
+      echo '{"jsonrpc":"2.0","method":"approval/requested","params":{"sessionId":"s-1","turnId":"t-1","itemId":"i-t","toolCallId":"call_1","approvalId":"a-1","toolName":"bash","rawArgs":"{\"command\":\"cargo test\"}","subject":{"kind":"shell"},"currentRequirementId":{"approvalId":"a-1","sourceIndex":0},"availableChoices":[{"choiceId":"allow_session","decision":"approvedForSession","scope":"session","label":"Allow for this session"},{"choiceId":"allow_once","decision":"approved","scope":"once","label":"Allow once"},{"choiceId":"abort","decision":"abort","scope":"once","label":"Abort","acceptsFeedback":true}]}}'
+      echo '{"jsonrpc":"2.0","id":"ap-1","method":"approval/request","params":{"sessionId":"s-1","turnId":"t-1","itemId":"i-t","toolCallId":"call_1","approvalId":"a-1","toolName":"bash","rawArgs":"{\"command\":\"cargo test\"}","subject":{"kind":"shell"},"currentRequirementId":{"approvalId":"a-1","sourceIndex":0},"availableChoices":[{"choiceId":"allow_session","decision":"approvedForSession","scope":"session","label":"Allow for this session"},{"choiceId":"allow_once","decision":"approved","scope":"once","label":"Allow once"},{"choiceId":"abort","decision":"abort","scope":"once","label":"Abort","acceptsFeedback":true}]}}'"#;
+
+/// A turn that holds: a word, then nothing until a cancel.
+const MSP_HOLDING_TURN: &str = r#"      echo '{"jsonrpc":"2.0","method":"item/started","params":{"sessionId":"s-1","item":{"itemId":"i-1","kind":"agentMessage","status":"inProgress","text":""}}}'
+      echo '{"jsonrpc":"2.0","method":"item/delta","params":{"sessionId":"s-1","itemId":"i-1","field":"text","delta":"muse hello"}}'"#;
+
+fn muse_on(stub: &Path) -> bisa_adapters::muse_code::MuseCodeAdapter {
+    bisa_adapters::muse_code::MuseCodeAdapter::with_program(stub.display().to_string())
+}
+
+#[tokio::test]
+async fn muse_code_is_started_as_a_trusted_host_on_its_model_and_turned_at_a_fitted_level() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = msp_stub_host(dir.path(), "muse", MSP_WORD_TURN);
+    let adapter = muse_on(&stub);
+    let mut asked = spec_with_env(dir.path(), "hello");
+    asked.model = Some("large".into());
+    asked.effort = Some(bisa_harness::Effort::Xhigh);
+    let session = adapter.launch(asked).await.unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(has_text_delta(&events, "hello from the host"), "{events:?}");
+    assert!(
+        events.iter().any(|e| matches!(e, SessionEvent::Progress(ProgressEvent::ModelChanged { model }) if model == "large")),
+        "{events:?}"
+    );
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Progress(ProgressEvent::CostDelta {
+                input_tokens: 120,
+                output_tokens: 8,
+                usd_cents: 1
+            })
+        )),
+        "{events:?}"
+    );
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Completed,
+                is_terminal: false
+            })
+        )),
+        "{events:?}"
+    );
+    let token = session.resume_token().unwrap();
+    assert_eq!(token.adapter_id, "muse-code");
+    assert_eq!(token.native_id, "s-1");
+    assert_eq!(token.model.as_deref(), Some("large"));
+    assert_eq!(token.effort, Some(bisa_harness::Effort::Xhigh));
+    assert_eq!(
+        session.snapshot().cost.input_tokens,
+        120,
+        "counted once: the turn's end does not add the turn again"
+    );
+    // A steer and a follow-up ride the same frame under their words.
+    session
+        .steer(bisa_harness::Steer {
+            text: "also".into(),
+            attachments: vec![],
+        })
+        .await
+        .unwrap();
+    seen_until(&stub, r#""ifBusy":"steer""#).await;
+    session
+        .follow_up(bisa_harness::Steer {
+            text: "then".into(),
+            attachments: vec![],
+        })
+        .await
+        .unwrap();
+    seen_until(&stub, r#"then"#).await;
+    // The usage the session heard answers the footer without a host.
+    match adapter.usage().await {
+        bisa_harness::UsageState::Report { report } => {
+            assert_eq!(report.account.unwrap().plan.as_deref(), Some("power"));
+            assert_eq!(report.windows[0].used_percent, 41.0);
+        }
+        other => panic!("{other:?}"),
+    }
+    session.dispose().await.unwrap();
+
+    let seen = seen_by(&stub);
+    assert_eq!(
+        seen[0], "args: serve --trust-workspace",
+        "the host, trusted in the checkout, and nothing else on the command line"
+    );
+    assert_eq!(
+        seen[1], "models",
+        "the host's list is read before the session is started"
+    );
+    let start = &seen[2];
+    assert!(start.starts_with("start: "), "{seen:?}");
+    assert!(
+        start.contains(&format!(r#""workspaceRoot":"{}""#, dir.path().display())),
+        "{start}"
+    );
+    assert!(start.contains(r#""modelId":"large""#), "{start}");
+    assert!(
+        start.contains(r#""approvalMode":"promptUnmatched""#),
+        "{start}"
+    );
+    assert!(start.contains(r#""mcpServers":{"bisa":{"transport":"stdio","command":"/bin/bisa","args":["mcp"],"env":{}}}"#), "the session's own servers, without the cwd the protocol has no word for: {start}");
+    assert!(!start.contains("excludeItems"), "{start}");
+    let turn = &seen[3];
+    assert!(turn.starts_with("turn: "), "{seen:?}");
+    assert!(
+        turn.contains(r#""reasoningEffort":"high""#),
+        "xhigh is held to the levels `large` lists: {turn}"
+    );
+    assert!(turn.contains(r#""ifBusy":"queue""#), "{turn}");
+    assert!(turn.contains(r#"{"type":"text","text":"hello"}"#), "{turn}");
+    assert!(
+        !seen.iter().any(|l| l == "usage/read"),
+        "a usage heard asks no host: {seen:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_model_the_host_does_not_list_ends_the_launch_as_model_unavailable_before_any_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = msp_stub_host(dir.path(), "muse", MSP_WORD_TURN);
+    let adapter = muse_on(&stub);
+    let mut asked = spec(dir.path(), "hello");
+    asked.model = Some("huge".into());
+    let session = adapter.launch(asked).await.unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    match events.last() {
+        Some(SessionEvent::Lifecycle(LifecycleEvent::Ended {
+            outcome: Outcome::ModelUnavailable { model, reason, .. },
+            is_terminal: true,
+        })) => {
+            assert_eq!(model, "huge");
+            assert!(reason.contains("does not list this model"), "{reason}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Progress(_))),
+        "no progress before the wall: {events:?}"
+    );
+    let seen = seen_until(&stub, "models").await;
+    assert!(
+        !seen.iter().any(|l| l.starts_with("start:")),
+        "no session was started: {seen:?}"
+    );
+}
+
+#[tokio::test]
+async fn muse_code_asks_before_a_tool_and_an_answer_picks_the_once_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = msp_stub_host(dir.path(), "muse", MSP_ASKING_TURN);
+    let adapter = muse_on(&stub);
+    for (answer, choice) in [
+        (
+            bisa_harness::InputAnswer::ALLOW,
+            r#""choiceId":"allow_once""#,
+        ),
+        (
+            bisa_harness::InputAnswer::Deny {
+                reason: "not here".into(),
+            },
+            r#""choiceId":"abort""#,
+        ),
+    ] {
+        let session = adapter
+            .launch(spec(dir.path(), "run the tests"))
+            .await
+            .unwrap();
+        let mut stream = session.subscribe();
+        let mut before = Vec::new();
+        let request = loop {
+            let ev = tokio::time::timeout(STUB_DEADLINE, stream.next())
+                .await
+                .expect("an ask before the deadline")
+                .expect("stream open");
+            if let SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) = &ev {
+                let request = request.clone();
+                before.push(ev);
+                break request;
+            }
+            before.push(ev);
+        };
+        assert_eq!(request.id, "a-1");
+        match &request.kind {
+            bisa_harness::InputKind::Permission {
+                tool_name,
+                tier,
+                input,
+                ..
+            } => {
+                assert_eq!(tool_name, "bash");
+                assert_eq!(*tier, ToolTier::Exec);
+                assert_eq!(input, &serde_json::json!({ "command": "cargo test" }));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            before.iter().any(|e| matches!(e, SessionEvent::Progress(ProgressEvent::ToolStarted { name, tier: ToolTier::Exec, .. }) if name == "bash")),
+            "{before:?}"
+        );
+        assert_eq!(session.phase(), bisa_harness::Phase::AwaitingInput);
+        session.answer("a-1", answer).await.unwrap();
+        let mut events = before;
+        events.extend(collect_until_end(&mut stream, STUB_DEADLINE).await);
+        assert!(events.iter().any(|e| matches!(e, SessionEvent::Lifecycle(LifecycleEvent::InputResolved { id }) if id == "a-1")), "{events:?}");
+        assert!(events.iter().any(|e| matches!(e, SessionEvent::Progress(ProgressEvent::ToolEnded { name, ok: true, .. }) if name == "bash")), "{events:?}");
+        assert!(
+            ended_completed(&events),
+            "a refused call is a completed turn, never a failed one: {events:?}"
+        );
+        session.dispose().await.unwrap();
+        let seen = seen_until(&stub, "decide:").await;
+        let decide = seen.iter().find(|l| l.starts_with("decide:")).unwrap();
+        assert!(decide.contains(choice), "{decide}");
+        assert!(
+            decide.contains(r#""requirementId":{"approvalId":"a-1","sourceIndex":0}"#),
+            "{decide}"
+        );
+        if choice.contains("abort") {
+            assert!(decide.contains(r#""feedback":"not here""#), "{decide}");
+        } else {
+            assert!(!decide.contains("feedback"), "{decide}");
+        }
+        assert_eq!(
+            seen.iter().filter(|l| l.starts_with("decide:")).count(),
+            1,
+            "answered once: {seen:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn muse_code_resumes_by_its_session_sets_the_model_back_and_a_held_lease_is_said() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = write_stub(
+        dir.path(),
+        "muse",
+        &format!(
+            r#"
+seen="$0.seen"
+echo "args: $*" > "$seen"
+while read -r line; do
+  case "$line" in
+{handshake}
+    *'"method":"session/resume"'*)
+      echo "resume: $line" >> "$seen"
+      echo '{{"jsonrpc":"2.0","id":3,"result":{{"session":{{"sessionId":"s-9","status":"idle","turnCount":2,"workspaceRoot":"/work","providerId":"muse","modelId":"small"}},"viewCursor":"v4:s-9:40","history":{{"mode":"none"}},"pendingRequests":[],"lastTurn":{{"terminal":"completed","turnId":"t-2"}}}}}}'
+      ;;
+    *'"method":"session/setModel"'*)
+      echo "setModel: $line" >> "$seen"
+      echo '{{"jsonrpc":"2.0","id":4,"result":{{"commandId":"c","status":"accepted"}}}}'
+      ;;
+    *'"method":"turn/start"'*)
+      echo "turn: $line" >> "$seen"
+      id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+      echo "{{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{{\"status\":\"accepted\",\"turnId\":\"t-3\",\"disposition\":\"started\",\"startedNewTurn\":true}}}}"
+      echo '{{"jsonrpc":"2.0","method":"turn/completed","params":{{"sessionId":"s-9","turnId":"t-3","terminal":"completed"}}}}'
+      ;;
+  esac
+done
+"#,
+            handshake = msp_handshake_lines(),
+        ),
+    );
+    let adapter = muse_on(&stub);
+    let mut token = token_for("muse-code", "s-9", dir.path(), None);
+    token.model = Some("large".into());
+    token.effort = Some(bisa_harness::Effort::Low);
+    let session = adapter.attach(&token).await.unwrap();
+    let mut stream = session.subscribe();
+    // Revived, idle: a prompt runs a turn on the session as it was.
+    seen_until(&stub, "setModel:").await;
+    let idle = tokio::time::Instant::now() + STUB_DEADLINE;
+    while session.phase() != bisa_harness::Phase::Idle {
+        assert!(
+            tokio::time::Instant::now() < idle,
+            "never idle: {:?}",
+            session.phase()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    session.prompt("go on".into()).await.unwrap();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    assert!(ended_completed(&events), "{events:?}");
+    let minted = session.resume_token().unwrap();
+    assert_eq!(minted.native_id, "s-9");
+    assert_eq!(minted.model.as_deref(), Some("large"));
+    assert_eq!(minted.effort, Some(bisa_harness::Effort::Low));
+    session.dispose().await.unwrap();
+    let seen = seen_by(&stub);
+    let resume = seen.iter().find(|l| l.starts_with("resume:")).unwrap();
+    assert!(
+        resume.contains(r#""sessionId":"s-9""#) && resume.contains(r#""excludeItems":true"#),
+        "{resume}"
+    );
+    assert!(
+        !resume.contains("workspaceRoot") && !resume.contains("approvalMode"),
+        "a resume names the session, not a start: {resume}"
+    );
+    let set = seen.iter().find(|l| l.starts_with("setModel:")).unwrap();
+    assert!(
+        set.contains(r#""model":{"modelId":"large"}"#),
+        "loaded on `small`, set back to the model the token names: {set}"
+    );
+    let turn = seen.iter().find(|l| l.starts_with("turn:")).unwrap();
+    assert!(turn.contains(r#""reasoningEffort":"low""#), "{turn}");
+
+    // A session another host holds is said as held.
+    let held = write_stub(
+        dir.path(),
+        "muse-held",
+        &format!(
+            r#"
+seen="$0.seen"
+echo "args: $*" > "$seen"
+while read -r line; do
+  case "$line" in
+{handshake}
+    *'"method":"session/resume"'*)
+      echo '{{"jsonrpc":"2.0","id":3,"error":{{"code":-32021,"message":"sessionInUse"}}}}'
+      ;;
+  esac
+done
+"#,
+            handshake = msp_handshake_lines(),
+        ),
+    );
+    let session = muse_on(&held).attach(&token).await.unwrap();
+    let mut stream = session.subscribe();
+    let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+    match events.last() {
+        Some(SessionEvent::Lifecycle(LifecycleEvent::Ended {
+            outcome: Outcome::Failed { error },
+            is_terminal: true,
+        })) => {
+            assert!(error.contains("held by another muse host"), "{error}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn muse_code_abort_cancels_the_turn_and_ends_the_host_and_its_group() {
+    let dir = tempfile::tempdir().unwrap();
+    let pids = dir.path().join("pids");
+    let stub = msp_stub_host(
+        dir.path(),
+        "muse",
+        &format!(
+            "      echo \"$$\" > '{}'\n{MSP_HOLDING_TURN}",
+            pids.display()
+        ),
+    );
+    let adapter = muse_on(&stub);
+    let session = adapter.launch(spec(dir.path(), "hold on")).await.unwrap();
+    let mut stream = session.subscribe();
+    let mut before = Vec::new();
+    loop {
+        let ev = tokio::time::timeout(STUB_DEADLINE, stream.next())
+            .await
+            .expect("words before the deadline")
+            .expect("stream open");
+        let said = has_text_delta(std::slice::from_ref(&ev), "muse hello");
+        before.push(ev);
+        if said {
+            break;
+        }
+    }
+    let child = pids_written(&pids).await[0];
+    assert!(process_exists(child));
+    session.abort().await.unwrap();
+    let mut events = before;
+    events.extend(collect_until_end(&mut stream, STUB_DEADLINE).await);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Aborted,
+                is_terminal: true
+            })
+        )),
+        "a cancelled turn on a stop ends the session for good: {events:?}"
+    );
+    assert!(
+        process_gone_within(child, Duration::from_secs(2)).await,
+        "the host's process is gone — a cancel alone left it running"
+    );
+    let seen = seen_until(&stub, "cancel:").await;
+    assert!(
+        seen.iter()
+            .any(|l| l.starts_with("cancel:") && l.contains(r#""sessionId":"s-1""#)),
+        "told the way it understands first: {seen:?}"
+    );
+}
+
+#[tokio::test]
+async fn muse_codes_exit_codes_are_read_in_words() {
+    let dir = tempfile::tempdir().unwrap();
+    for (code, word) in [
+        (0, "ended before its session began"),
+        (2, "exit 2"),
+        (3, "sign in"),
+        (4, "another muse host"),
+        (5, "MUSE_EXPERIMENTAL_SDK_ENABLED"),
+    ] {
+        let stub = write_stub(
+            dir.path(),
+            &format!("muse-{code}"),
+            &format!("read -r _line\necho 'leaving with {code}' >&2\nexit {code}\n"),
+        );
+        let session = muse_on(&stub)
+            .launch(spec(dir.path(), "hello"))
+            .await
+            .unwrap();
+        let mut stream = session.subscribe();
+        let events = collect_until_end(&mut stream, STUB_DEADLINE).await;
+        match events.last() {
+            Some(SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                outcome: Outcome::Failed { error },
+                is_terminal: true,
+            })) => {
+                assert!(error.contains(word), "exit {code}: {error}");
+                if code == 0 {
+                    assert!(
+                        error.contains("leaving with 0"),
+                        "the stderr tail rides a silent exit: {error}"
+                    );
+                }
+            }
+            other => panic!("exit {code}: {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn muse_code_lists_the_hosts_models_with_their_variants_and_the_levels_follow_and_a_fresh_adapter_asks_a_host_for_its_usage(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = msp_stub_host(dir.path(), "muse", MSP_WORD_TURN);
+    let adapter = muse_on(&stub);
+    assert_eq!(
+        adapter.efforts(Some("large")),
+        bisa_harness::Effort::ALL,
+        "every level until the host has listed"
+    );
+    let models = adapter.models().await;
+    assert_eq!(
+        models
+            .iter()
+            .map(|m| (m.id.as_str(), m.label.as_deref()))
+            .collect::<Vec<_>>(),
+        [("small", Some("Small")), ("large", Some("Large"))],
+        "the default first"
+    );
+    assert_eq!(
+        models[1].efforts,
+        [
+            bisa_harness::Effort::Low,
+            bisa_harness::Effort::High,
+            bisa_harness::Effort::Max
+        ]
+    );
+    assert_eq!(
+        adapter.efforts(Some("large")),
+        [
+            bisa_harness::Effort::Low,
+            bisa_harness::Effort::High,
+            bisa_harness::Effort::Max
+        ]
+    );
+    assert_eq!(
+        adapter.efforts(None),
+        [bisa_harness::Effort::Low, bisa_harness::Effort::High],
+        "the default row's"
+    );
+    let seen = seen_by(&stub);
+    assert_eq!(
+        seen[0], "args: serve",
+        "a host asked a question opens no session: no trust"
+    );
+    match adapter.usage().await {
+        bisa_harness::UsageState::Report { report } => {
+            assert_eq!(report.account.unwrap().plan.as_deref(), Some("everyday"));
+            assert_eq!(
+                report
+                    .windows
+                    .iter()
+                    .map(|w| w.label.as_str())
+                    .collect::<Vec<_>>(),
+                ["5h", "Weekly"]
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        seen_by(&stub).iter().any(|l| l == "usage/read"),
+        "nothing heard: the host is asked"
+    );
+    let probe = adapter.probe().await;
+    assert!(
+        !probe.available,
+        "a stub that answers --version with no version is not the CLI: {probe:?}"
+    );
 }

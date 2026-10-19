@@ -651,7 +651,7 @@ mod tests {
                 "{harness}"
             );
         }
-        for bare in ["grok", "gemini"] {
+        for bare in ["grok", "gemini", "muse-code"] {
             assert!(
                 printed(bare, deny.clone()).is_none(),
                 "{bare}: a harness with no hook that reads a verdict is printed nothing"

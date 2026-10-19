@@ -67,7 +67,7 @@ project's own root is its **primary workstream**, under the project's id) is thr
   that pops once when it is done, a cross that shakes once when it failed, a moon when parked; the
   motion stops under your system's reduced-motion setting. On a workstream row the mark reads first, on
   the left, and the row then shows each harness's own mark — Claude's, Codex's, pi's, Oh My Pi's,
-  OpenCode's, GitHub Copilot's, Grok's, Gemini's, Goose's, Cursor's — for each harness working in it, and a terminal glyph for each open shell. Each
+  OpenCode's, GitHub Copilot's, Grok's, Gemini's, Muse Code's (Meta's loop), Goose's, Cursor's — for each harness working in it, and a terminal glyph for each open shell. Each
   tab carries one badge, the number of projects it holds; attention is the mark and the row's wash,
   not a count. A listening port a shell or harness opens shows as a chip on the workstream's row:
   hover for its number and process, click to open `http://localhost:<port>`, right-click to copy the
@@ -1082,7 +1082,7 @@ kept above it. **Thinking: Auto ▾**, at the right of the status line under the
 control over every block: **Auto** opens the thinking while it is all the agent has said and folds
 it the moment the words begin; **Shown** keeps every thinking open; **Hidden** keeps every thinking
 folded to one line. The choice is remembered; one block can still be opened or closed on its own. A
-harness that reasons in the open — Claude Code, Codex, OpenCode, GitHub Copilot CLI, Grok Build,
+harness that reasons in the open — Claude Code, Codex, OpenCode, GitHub Copilot CLI, Grok Build, Muse Code,
 Gemini CLI, anything speaking ACP — shows its
 thinking; one that does not shows its words alone. Conversations grow long: the harness keeps and compacts
 its own context, so nothing here asks you to.
@@ -1347,7 +1347,7 @@ them, opened in a terminal you watch (the tab reads *run · npm run dev*); a com
 has not approved opens that card instead, and a project that sets none shows no item — then every
 harness the node found, with *resume* when that harness has run in that place before
 and *fresh session* beside it — every harness continues its latest session in that directory with
-its own form (Claude Code, Codex, OpenCode, pi, OMP, GitHub Copilot CLI, Grok Build, Gemini CLI,
+its own form (Claude Code, Codex, OpenCode, pi, OMP, GitHub Copilot CLI, Grok Build, Gemini CLI, Muse Code,
 Goose and Cursor alike), and a resumed
 harness **starts**: once it has drawn its prompt the tab types *Continue where you left off.* for
 you, unless you type first; **Start a resumed harness** under Settings › Project IDE › Terminal
@@ -1359,7 +1359,7 @@ they are doing — Copilot through a plugin the platform mounts for that one lau
 Copilot's own words* when it asks you something — and Claude Code and Copilot CLI ask the guard
 before a tool runs — the refusals that protect your machine; the rules that steer an agent to the
 platform's own tools, the embedded browser's among them, leave your terminal harness be, since nothing
-of the platform's is injected into it, and it keeps your browser and its own prompt; **Grok Build and Gemini CLI open as plain terminals**: neither takes a hook for
+of the platform's is injected into it, and it keeps your browser and its own prompt; **Grok Build, Gemini CLI and Muse Code open as plain terminals**: none takes a hook for
 one launch, so nothing is reported and each one's own prompt is the only one. A project's `terminal.default_harness`
 setting makes the plain control open that harness instead. From the palette, `Terminal: Claude Code here` and friends open the same
 things without a pointer.

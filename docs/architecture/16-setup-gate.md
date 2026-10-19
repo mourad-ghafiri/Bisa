@@ -25,11 +25,14 @@ developers.openai.com/codex, opencode.ai/docs — OpenCode's lines re-read on 20
 (GitHub Copilot CLI: its install script, Homebrew, WinGet and npm lines, `copilot login`) and
 docs.x.ai/build (Grok Build: its two install scripts, `grok login` or `XAI_API_KEY`) — and on
 2026-10-05: geminicli.com/docs (Gemini CLI: `brew install gemini-cli` on a Mac, `npm install -g
-@google/gemini-cli` everywhere, signed in by running `gemini` or with `GEMINI_API_KEY`). `pi`, `omp`
-and the generic ACP targets carry no hint — no official page is known to the platform. The missing
-check's sentence names the six harnesses with a page; its one hint stays Claude Code's.
+@google/gemini-cli` everywhere, signed in by running `gemini` or with `GEMINI_API_KEY`) — and on
+2026-10-19: dev.meta.ai/docs/muse-code, its authentication page and its installer (Muse Code: its
+install script on a Mac and on Linux, `irm … install.ps1` on Windows, signed in by running `muse`
+or with `muse auth set`; `META_API_KEY` in CI). `pi`, `omp` and the generic ACP targets carry no
+hint — no official page is known to the platform. The missing check's sentence names the seven
+harnesses with a page; its one hint stays Claude Code's.
 
-A harness is *installed* when its adapter's probe says so. For Copilot CLI, Grok Build and Gemini CLI that is
+A harness is *installed* when its adapter's probe says so. For Copilot CLI, Grok Build, Gemini CLI and Muse Code that is
 more than a name on `PATH`: the binary has to answer `--version` with a version
 (`util::probe_versioned`), because an editor installs a launcher called `copilot` that answers
 every word with *Install GitHub Copilot CLI?* — a harness that is not there.

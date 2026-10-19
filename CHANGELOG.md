@@ -8,6 +8,22 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Added
+
+- **Muse Code** is a harness. Meta's terminal coding agent (`muse`) is found by its own version,
+  installed and signed in as its page says (`curl -fsSL https://dev.meta.ai/install.sh | sh`; run
+  `muse` to sign in, or `muse auth set`), and driven over the Muse Session Protocol — its host
+  `muse serve`, started trusted in the workstream's checkout and handed the platform's tools: the
+  session is started on its model, checked against the host's own list first so a model your plan
+  lacks is passed over for the plan's next; the effort rides every turn, held to the levels the
+  model's row lists; every tool the host asks about is judged by the guard and answered with its
+  *once* choice, never a standing grant; a steer reaches the running turn and a follow-up waits for
+  its end; token usage and the account's windows — the one the host names and the week, with the
+  plan's tier — reach the footer from what a session hears or from the host asked. It wears Meta's
+  mark, and opens in a terminal as the bare `muse`, resumed with `resume --last` — a plain terminal,
+  like Grok Build's. A custom harness descriptor named `muse-code` is refused from now on, as every
+  built-in id is.
+
 ### Changed
 
 - The workflow panel — the designer's Properties pane and the goal's Workflow tab column — is one

@@ -32,6 +32,7 @@ pub const BUILTIN_IDS: &[&str] = &[
     "copilot",
     "grok",
     "gemini",
+    "muse-code",
     "acp",
     "custom",
 ];
@@ -598,6 +599,7 @@ mod tests {
             "copilot",
             "Grok",
             "gemini",
+            "muse-code",
         ] {
             let spec = CustomHarnessSpec {
                 id: bad.into(),

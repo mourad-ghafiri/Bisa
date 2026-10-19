@@ -59,8 +59,15 @@
 //! session is on — and no config option at all, and take `session/set_model`
 //! with a `modelId`, answered empty.
 //!
+//! Started with the word `serve`, it is a Muse Session Protocol host
+//! instead — what `muse serve` is to the Muse Code adapter — reading the
+//! same script (`msp.rs` beside this file).
+//!
 //! A binary of this package, never shipped: the distribution builds
 //! `--bin bisa` alone.
+
+#[path = "scripted_agent/msp.rs"]
+mod msp;
 
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -102,8 +109,12 @@ fn main() {
     agent.record(
         json!({ "event": "started", "args": std::env::args().skip(1).collect::<Vec<_>>() }),
     );
-    while let Some(message) = agent.next_message() {
-        agent.handle(message);
+    if words.first().map(String::as_str) == Some("serve") {
+        msp::serve(&mut agent);
+    } else {
+        while let Some(message) = agent.next_message() {
+            agent.handle(message);
+        }
     }
     agent.close();
 }

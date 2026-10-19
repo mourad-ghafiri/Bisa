@@ -1,6 +1,6 @@
 [package]
 name = "bisa-adapters"
-description = "Concrete harness adapters: claude-code, codex, acp, pi-rpc, omp, opencode, copilot, grok, gemini, custom-json"
+description = "Concrete harness adapters: claude-code, codex, acp, pi-rpc, omp, opencode, copilot, grok, gemini, muse-code, custom-json"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -19,6 +19,7 @@ default = [
     "copilot",
     "grok",
     "gemini",
+    "muse-code",
     "custom-json",
 ]
 claude-code = []
@@ -33,6 +34,10 @@ opencode = []
 copilot = ["acp"]
 grok = ["acp"]
 gemini = ["acp"]
+# Muse Code speaks the Muse Session Protocol: the adapter is its facts over
+# the one protocol module, as the ACP harnesses are over theirs.
+msp = ["dep:getrandom"]
+muse-code = ["msp"]
 custom-json = []
 # A2A consume side (remote Agent2Agent workers); off by default.
 a2a = ["dep:ulid"]
@@ -49,6 +54,7 @@ which = { workspace = true }
 base64 = { workspace = true }
 bisa-http = { workspace = true }
 ulid = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
 bisa-deps = { version = "0.5", path = "../bisa-deps" }
 
 [dev-dependencies]

@@ -92,7 +92,7 @@ goal's adoption may arm on its own ([Events and gateways](events.md#listening)).
 | Part | Meaning |
 |---|---|
 | system prompt | the **role**: how it works, what it produces, what it refuses to do |
-| harness | which coding agent runs it — `claude-code`, `codex`, `opencode`, `copilot`, `grok`, `gemini`, `acp:goose`, … (`bisa harness list` says which are installed) |
+| harness | which coding agent runs it — `claude-code`, `codex`, `opencode`, `copilot`, `grok`, `gemini`, `muse-code`, `acp:goose`, … (`bisa harness list` says which are installed) |
 | model plan | an *ordered list* of models plus a strategy |
 | skills | ids into the shared skill library, resolved at launch |
 | MCP servers | ids into the local MCP registry, resolved at launch |
@@ -232,14 +232,17 @@ context window ([models overview](https://platform.claude.com/docs/en/about-clau
 2026-09-29). Quote an id in a shell: `[1m]` unquoted is a pattern to zsh. An agent on another
 harness names that harness's own ids.
 
-**An agent on GitHub Copilot CLI or Grok Build** names that CLI's ids — `bisa agent models
+**An agent on GitHub Copilot CLI, Grok Build or Muse Code** names that CLI's ids — `bisa agent models
 copilot` lists the ones Copilot's reference documents (`claude-sonnet-4.6` its default,
 `gpt-5.4`, `claude-opus-5.5`, …), `bisa agent models grok` the ones your sign-in's own
-`grok models` prints, its default first:
+`grok models` prints, its default first, and `bisa agent models muse-code` the ones Muse Code's
+own host lists for your sign-in (`muse-spark-1.2` by default, the manual says), each with the
+levels its row takes:
 
 ```sh
 bisa agent edit <id> --harness copilot --model claude-sonnet-4.6 --model gpt-5.4
 bisa agent edit <id> --harness grok --model <an id `bisa agent models grok` lists>
+bisa agent edit <id> --harness muse-code --model <an id `bisa agent models muse-code` lists>
 ```
 
 **An agent on Gemini CLI** names the ids its own page gives — `bisa agent models gemini` lists
@@ -309,6 +312,7 @@ before stays visible and is fitted at launch.
 | GitHub Copilot CLI | `low` `medium` `high` `xhigh`, and `max` on a Claude model; held to what the session offers for the model it is on |
 | Grok Build | `minimal` to `xhigh`; a model that takes no effort is sent none |
 | Gemini CLI | none — the harness has no effort control, and is sent nothing |
+| Muse Code | `minimal` to `max`, held to the levels the model's own row lists (`bisa agent models muse-code`); Muse's `none` and `ultra` are never sent |
 | an ACP agent | what the agent offers when the session opens |
 | Goose, Cursor Agent, an A2A agent, a custom harness | none — the harness's own default runs, and nothing is sent |
 

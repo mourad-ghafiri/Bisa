@@ -420,6 +420,13 @@ async fn set_checks_answers_one_pull_requests_runs_and_a_merge_carries_when_and_
     host.set_pr_state(two.number, PrState::Open);
     let reopened = host.get_pr(&repo, two.number).await.unwrap();
     assert_eq!((reopened.merged_at, reopened.merge_commit), (None, None));
+    host.set_pr_state(9_999, PrState::Merged);
+    let untouched = host.get_pr(&repo, two.number).await.unwrap();
+    assert_eq!(
+        untouched.state,
+        PrState::Open,
+        "a number the host does not hold moves nothing"
+    );
     assert_eq!(
         serde_json::to_value(MergeState::Clean).unwrap(),
         serde_json::json!("clean"),

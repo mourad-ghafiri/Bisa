@@ -229,7 +229,7 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| matches!(e, SessionEvent::Progress(ProgressEvent::TurnEnded))));
-        for bare in ["grok", "gemini"] {
+        for bare in ["grok", "gemini", "muse-code"] {
             assert!(
                 translate(bare, &serde_json::json!({"hook_event_name": "Stop"})).is_empty(),
                 "{bare}'s terminal has no hook of ours: nothing is reported, nothing read"
@@ -297,6 +297,7 @@ mod tests {
             "omp",
             "grok",
             "gemini",
+            "muse-code",
             "custom:mine",
         ] {
             assert!(guard_output(harness, &deny).is_none(), "{harness}");

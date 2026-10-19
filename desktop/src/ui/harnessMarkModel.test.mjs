@@ -50,6 +50,11 @@ test("the three harnesses that speak ACP under an id of their own wear their own
     assert.match(marks, new RegExp(`^  ${id}: ${component},$`, "m"), `${id} is drawn by ${component}`);
     assert.match(marks, new RegExp(`<Svg \\{\\.\\.\\.p\\} id="${id}">`), `${component} names the id it stands for`);
   }
+  // And the one that speaks a protocol of its own, Muse Code, wears Meta's mark under its own id.
+  assert.ok(builtinIds().includes("muse-code"), "the catalog compiles muse-code in");
+  assert.equal(markIdOf("muse-code"), "muse-code");
+  assert.match(marks, /^  "muse-code": MuseCodeMark,$/m, "muse-code is drawn by MuseCodeMark");
+  assert.match(marks, /<Svg \{\.\.\.p\} id="muse-code">/, "MuseCodeMark names the id it stands for");
 });
 
 test("the prefixed families fold to one mark and the unknown to none", () => {

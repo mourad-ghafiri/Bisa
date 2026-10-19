@@ -1169,4 +1169,22 @@ mod tests {
         assert_eq!(body["event"], "APPROVE");
         assert!(body.get("body").is_none(), "no words, no key");
     }
+
+    #[test]
+    fn githubs_merge_words_fold_to_the_crates_states_whatever_their_case() {
+        let table = [
+            ("clean", MergeState::Clean),
+            ("HAS_HOOKS", MergeState::Clean),
+            ("blocked", MergeState::Blocked),
+            ("UNSTABLE", MergeState::Unstable),
+            ("behind", MergeState::Behind),
+            ("dirty", MergeState::Dirty),
+            ("DRAFT", MergeState::Draft),
+            ("unknown", MergeState::Unknown),
+            ("a_word_of_next_year", MergeState::Unknown),
+        ];
+        for (word, state) in table {
+            assert_eq!(merge_state(word), state, "{word}");
+        }
+    }
 }

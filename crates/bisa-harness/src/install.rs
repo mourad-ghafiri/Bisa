@@ -8,7 +8,9 @@
 //! docs.github.com/en/copilot/reference/copilot-cli-reference (GitHub Copilot
 //! CLI), docs.x.ai/build and the xai-org/grok-build user guide (Grok Build) —
 //! and on 2026-10-05: geminicli.com/docs/get-started/installation and
-//! get-started/authentication (Gemini CLI).
+//! get-started/authentication (Gemini CLI) — and on 2026-10-19:
+//! dev.meta.ai/docs/muse-code, its authentication page and its installer
+//! (Muse Code).
 
 use serde::{Deserialize, Serialize};
 
@@ -185,6 +187,26 @@ pub const GEMINI: InstallHint = InstallHint {
     sign_in: Some("run `gemini` and choose Login with Google, or set GEMINI_API_KEY"),
 };
 
+/// Muse Code — https://dev.meta.ai/docs/muse-code
+pub const MUSE_CODE: InstallHint = InstallHint {
+    url: "https://dev.meta.ai/docs/muse-code",
+    commands: &[
+        on(
+            Platform::MacOs,
+            "curl -fsSL https://dev.meta.ai/install.sh | sh",
+        ),
+        on(
+            Platform::Linux,
+            "curl -fsSL https://dev.meta.ai/install.sh | sh",
+        ),
+        on(Platform::Windows, "irm https://dev.meta.ai/install.ps1 | iex"),
+    ],
+    verify: Some("muse --version"),
+    sign_in: Some(
+        "run `muse` and follow its sign-in prompt, or `muse auth set` with an API key; CI sets META_API_KEY",
+    ),
+};
+
 /// The hint for a compiled-in harness, by its id; `None` for one whose
 /// official install page is not known to the platform.
 pub fn install_hint(harness_id: &str) -> Option<InstallHint> {
@@ -195,6 +217,7 @@ pub fn install_hint(harness_id: &str) -> Option<InstallHint> {
         "copilot" => Some(COPILOT),
         "grok" => Some(GROK),
         "gemini" => Some(GEMINI),
+        "muse-code" => Some(MUSE_CODE),
         _ => None,
     }
 }
@@ -238,6 +261,7 @@ mod tests {
             ("copilot", COPILOT),
             ("grok", GROK),
             ("gemini", GEMINI),
+            ("muse-code", MUSE_CODE),
         ] {
             assert!(hint.url.starts_with("https://"), "{name}");
             for platform in Platform::ALL {
@@ -251,16 +275,18 @@ mod tests {
         assert!(GIT.sign_in.is_none(), "git has nobody to sign in to");
         assert!(CLAUDE_CODE.sign_in.is_some() && CODEX.sign_in.is_some());
         assert!(COPILOT.sign_in.is_some() && GROK.sign_in.is_some() && GEMINI.sign_in.is_some());
+        assert!(MUSE_CODE.sign_in.is_some());
     }
 
     #[test]
-    fn the_hinted_harnesses_are_the_six_with_a_known_page_and_the_rest_have_none() {
+    fn the_hinted_harnesses_are_the_seven_with_a_known_page_and_the_rest_have_none() {
         assert_eq!(install_hint("claude-code"), Some(CLAUDE_CODE));
         assert_eq!(install_hint("codex"), Some(CODEX));
         assert_eq!(install_hint("opencode"), Some(OPENCODE));
         assert_eq!(install_hint("copilot"), Some(COPILOT));
         assert_eq!(install_hint("grok"), Some(GROK));
         assert_eq!(install_hint("gemini"), Some(GEMINI));
+        assert_eq!(install_hint("muse-code"), Some(MUSE_CODE));
         for other in ["pi", "omp", "acp", "custom", "preset:goose", "nope"] {
             assert_eq!(install_hint(other), None, "{other}");
         }

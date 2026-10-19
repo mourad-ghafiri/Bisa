@@ -31,6 +31,7 @@ mod git_in_a_checkout;
 mod goals;
 mod goals_at_their_edges;
 mod models_and_effort;
+mod muse_code_through_its_host;
 mod one_node_per_workspace;
 mod opencode_two_through_the_acp_door;
 mod projects_and_workstreams;

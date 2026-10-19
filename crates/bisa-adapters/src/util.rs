@@ -319,16 +319,6 @@ impl Shared {
         self.cwd.as_ref().clone()
     }
 
-    /// End the session the way a dead process deserves: a model wall in
-    /// `text` becomes [`Outcome::ModelUnavailable`], anything else stays
-    /// [`Outcome::Failed`] with `fallback` as the error.
-    pub fn end_classified(&self, text: &str, fallback: impl FnOnce() -> String) {
-        match self.model_ctx.outcome(text) {
-            Some(outcome) => self.end(outcome),
-            None => self.end(Outcome::Failed { error: fallback() }),
-        }
-    }
-
     pub fn snapshot(&self) -> SessionSnapshot {
         let s = self.state.locked();
         SessionSnapshot {
@@ -592,18 +582,49 @@ pub async fn drive<M>(
 /// [`drive`], for a harness whose clean exit is not always a finished run:
 /// `on_clean_exit` says what an exit with status 0 means, given the stderr
 /// tail — an agent that speaks a protocol and leaves before its session
-/// exists has not completed anything.
+/// exists has not completed anything. Any other exit is classified by its
+/// stderr tail, as [`drive`] does.
 pub async fn drive_until<M, E>(
-    mut proc: bisa_harness::proc::ProcHandle,
-    mut out_rx: mpsc::Receiver<OutMsg>,
+    proc: bisa_harness::proc::ProcHandle,
+    out_rx: mpsc::Receiver<OutMsg>,
     shared: Shared,
-    mut on_line: M,
+    on_line: M,
     on_clean_exit: E,
 ) where
     M: FnMut(&Shared, bisa_harness::proc::Line) -> Drive + Send + 'static,
     E: FnOnce(&[String]) -> Outcome + Send + 'static,
 {
-    let mut on_clean_exit = Some(on_clean_exit);
+    let ctx = Arc::clone(&shared.model_ctx);
+    drive_exit(proc, out_rx, shared, on_line, move |status, tail| {
+        if status.success() {
+            return on_clean_exit(tail);
+        }
+        // The key site: an unknown or exhausted `--model` usually dies
+        // right here, and used to arrive as a plain `Failed`
+        // indistinguishable from a defect.
+        let joined = tail.join(" | ");
+        ctx.outcome(&joined).unwrap_or_else(|| Outcome::Failed {
+            error: format!("process exited with {status}; stderr tail: {joined}"),
+        })
+    })
+    .await;
+}
+
+/// [`drive_until`], for a harness whose exit code says something of its
+/// own: `on_exit` reads the status and the stderr tail of a child that left
+/// before the wire ended the session — Muse Code's host names a missing
+/// sign-in, a held session and a switched-off protocol by code.
+pub async fn drive_exit<M, E>(
+    mut proc: bisa_harness::proc::ProcHandle,
+    mut out_rx: mpsc::Receiver<OutMsg>,
+    shared: Shared,
+    mut on_line: M,
+    on_exit: E,
+) where
+    M: FnMut(&Shared, bisa_harness::proc::Line) -> Drive + Send + 'static,
+    E: FnOnce(std::process::ExitStatus, &[String]) -> Outcome + Send + 'static,
+{
+    let mut on_exit = Some(on_exit);
     // This loop owns the running child: announce its pid so the desktop can
     // trace a port the harness (or a server it starts) opens back to this
     // session. One place, rather than each adapter's `Started`,
@@ -634,21 +655,12 @@ pub async fn drive_until<M, E>(
                     let status = proc.wait().await;
                     if !shared.is_ended() {
                         match status {
-                            Ok(s) if s.success() => {
-                                let outcome = match on_clean_exit.take() {
-                                    Some(means) => means(&proc.stderr_tail()),
+                            Ok(s) => {
+                                let outcome = match on_exit.take() {
+                                    Some(means) => means(s, &proc.stderr_tail()),
                                     None => Outcome::Completed, // LCOV_EXCL_LINE: the exit is read once per driver; the arm keeps the match total
                                 };
                                 shared.end(outcome);
-                            }
-                            // The key site: an unknown or exhausted `--model`
-                            // usually dies right here, and used to arrive as a
-                            // plain `Failed` indistinguishable from a defect.
-                            Ok(s) => {
-                                let tail = proc.stderr_tail().join(" | ");
-                                shared.end_classified(&tail, || {
-                                    format!("process exited with {s}; stderr tail: {tail}")
-                                });
                             }
                             Err(e) => shared.end(Outcome::Failed { error: e.to_string() }), // LCOV_EXCL_LINE: a wait the kernel refuses on a child of ours; nothing says why
                         }
@@ -988,8 +1000,10 @@ const ACP: &[Pattern] = &[p(&["model not found:"], "model not found")];
 /// command is the user's, so only provider wording is safe to key on. Nor
 /// have `copilot` and `grok`: neither CLI's own wording has been captured,
 /// and a fragment is never invented — the provider's wording is what both
-/// pass through. (`ACP` is not theirs either: its one fragment is OpenCode's
-/// bridge.)
+/// pass through. Nor has `muse-code`: its failures arrive typed, on
+/// `turn/completed` and by its host's exit code (`msp.rs`), and its prose
+/// is the provider's. (`ACP` is not theirs either: its one fragment is
+/// OpenCode's bridge.)
 fn table(harness: &str) -> &'static [Pattern] {
     // `acp:goose`, `custom:mine` — the family is the part before the colon.
     let family = harness.split(':').next().unwrap_or(harness);
@@ -1336,8 +1350,8 @@ mod classify_tests {
     }
 
     #[test]
-    fn copilot_and_grok_lean_on_provider_wording_alone() {
-        for harness in ["copilot", "grok"] {
+    fn copilot_grok_and_muse_code_lean_on_provider_wording_alone() {
+        for harness in ["copilot", "grok", "muse-code"] {
             assert!(table(harness).is_empty(), "{harness}");
             assert!(reason(harness, "insufficient_quota").starts_with("quota exhausted"));
             // OpenCode's bridge wording is OpenCode's.

@@ -27,7 +27,7 @@ say `SAFE`, a command that is matched and never run, a `printenv` that finds not
 **Nothing of a harness's own is touched.** Every recipe the platform writes for a harness is a
 per-session file under `run/interactive/<session>/`, mode 0600, deleted when the session closes;
 no user-level settings file, hook list or profile of Claude Code, Codex, pi, OMP, OpenCode,
-Copilot CLI, Grok Build or Gemini CLI is read or written. What a harness inherits from the platform is its session's secret and the node's
+Copilot CLI, Grok Build, Gemini CLI or Muse Code (`~/.config/muse`, `~/.local/share/muse`) is read or written. What a harness inherits from the platform is its session's secret and the node's
 address — never the node's own bearer token, which is removed from every child's environment
 ([the environment](#the-environment)).
 
@@ -300,6 +300,8 @@ have a placeholder restored — `HarnessCaps::INPUT_REWRITE`. The honest table:
 | Claude Code (in a terminal) | judged before it runs, through its `PreToolUse` hook | the per-session settings file the recipe writes; Claude Code's own prompt stands when the node is silent |
 | ACP — a generic target, GitHub Copilot CLI, Grok Build, Gemini CLI (engine-driven) | judged before it runs | `session/request_permission`: the agent asks and the engine answers — with the *once* option, never a standing *always*, whatever order the agent lists them. None of the CLIs is ever started with a word that allows a tool unasked (`--allow-all*`, `--always-approve`, `--yolo`, `--approval-mode`), and `COPILOT_ALLOW_ALL` is taken out of a Copilot session's environment. What a person's own configuration of the harness already approves — Copilot's saved *Always*, Grok's `permission_mode`, Gemini's policies and its read-only tools — is answered before the agent asks: the guard judges what is asked |
 | GitHub Copilot CLI (in a terminal) | judged before it runs, through its `PreToolUse` hook | the per-session plugin the recipe writes (`--plugin-dir`); the verdict is printed in Copilot's own flat shape, and Copilot's own prompt stands when the node is silent or late — its hook timeouts fail open, and the platform's hooks never exit non-zero, which Copilot would read as a refusal |
+| Muse Code (engine-driven) | judged before it runs | `approval/request`: the host asks under `promptUnmatched` — the strictest of its approval modes that still asks — before a shell stage or a tool its own policy does not already answer, and the engine decides with `approval/decide`, choosing the host's *approved* choice for an allow and never *approvedForSession* nor a policy amendment, *denied* or *abort* for a deny. The host is never started with `--yolo`, `--disable-approval` or `--disable-sandbox`; its sandbox stays on. It is started with `--trust-workspace`, the one way a session can work in a workstream's fresh checkout: trust loads the checkout's `AGENTS.md`, skills, `.mcp.json` and `.muse/hooks.json` — a repository's own hooks run under the session, the exposure a repository's `.claude/settings.json` has under Claude Code. An in-workspace `write_file` or `edit_file` the sandbox allows is not asked about: the guard judges commands and what the host asks, never every write |
+| Muse Code (in a terminal) | **not seen** | its hooks live in its own `settings.json` or the project's `.muse/hooks.json`, neither written by the platform, and it takes none for one launch: a plain terminal, unreported and unguarded — Muse's own prompt is the only one |
 | Grok Build (in a terminal) | **not seen** | its TUI takes no hook and no plugin for one launch, and the platform writes nothing under `~/.grok` or into a project: a plain terminal, unreported and unguarded — Grok's own prompt is the only one |
 | Gemini CLI (in a terminal) | **not seen** | its hooks live in its own `settings.json`, which the platform never writes, and it takes none for one launch: a plain terminal, unreported and unguarded — Gemini's own prompt is the only one |
 | Codex, pi, OMP, OpenCode, a custom JSON harness, an A2A remote | **observed only** | they ask nobody before a tool runs, or ask in their own prompt; their hooks report what happened and cannot veto it |
@@ -373,9 +375,10 @@ the adapters' to say (`hooks::guard_output`), never the CLI's. Copilot reads a `
 hook that exits non-zero as a refusal and one that times out as no opinion, so the contract above
 — exit 0 whatever happens, silence when there is nothing to say — is what keeps a node that is
 down from refusing a person's own tool. Held by `e2e/copilot_grok_and_gemini.rs`
-(`a_copilot_tab_reports_through_its_plugin_and_is_judged_in_copilots_own_shape`). **Grok Build and
-Gemini CLI in a terminal are not guarded**: neither takes a hook for one launch, so there is
-nothing to mount.
+(`a_copilot_tab_reports_through_its_plugin_and_is_judged_in_copilots_own_shape`). **Grok Build,
+Gemini CLI and Muse Code in a terminal are not guarded**: none takes a hook for one launch, so there
+is nothing to mount (`e2e/muse_code_through_its_host.rs`,
+`a_muse_code_tab_is_a_plain_terminal_and_no_session`).
 
 ---
 

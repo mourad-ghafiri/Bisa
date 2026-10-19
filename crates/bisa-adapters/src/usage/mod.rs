@@ -7,6 +7,7 @@
 //! | OpenCode | the same endpoint, with the Claude Pro/Max sign-in in OpenCode's own `auth.json` | the same windows, scoped *anthropic*; other sign-ins named as reporting none |
 //! | Codex | `codex app-server` over stdio, `account/read` + `account/rateLimits/read` | `primary` / `secondary` windows named by their length, the plan |
 //! | OMP | `omp usage --json` | one report per provider signed in, each with its limits |
+//! | Muse Code | `muse serve` over its session protocol, `usage/read` — or what a live session heard as `usage/changed` | the window the host names by its length and the week, the plan's tier |
 //!
 //! Every reader is a **pure parser** over the payload (tested against the
 //! fixtures under `tests/fixtures/usage/`, no binary, no network, no
@@ -19,6 +20,8 @@
 pub mod anthropic;
 pub mod claude;
 pub mod codex;
+#[cfg(feature = "muse-code")]
+pub mod muse_code;
 pub mod omp;
 pub mod opencode;
 
