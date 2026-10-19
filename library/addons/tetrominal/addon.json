@@ -1,0 +1,27 @@
+{
+  "id": "tetrominal",
+  "name": "Tetrominal",
+  "description": "Falling blocks in a terminal well: pieces in syntax colours, a gutter of line numbers, a compile log for every line you clear, a seed to replay a build — and the workspace's line, so you know when an agent needs you.",
+  "version": "0.4.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "game",
+    "break",
+    "terminal"
+  ],
+  "window": {
+    "width": 384,
+    "height": 408,
+    "min_width": 320,
+    "min_height": 348,
+    "max_width": 752,
+    "max_height": 800
+  },
+  "permissions": [
+    "storage",
+    "workspace_summary"
+  ]
+}

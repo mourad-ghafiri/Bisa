@@ -603,7 +603,7 @@ A built-in addon is a folder under `library/addons/<slug>/` ([18](../architectur
 `addon.json` whose `id` **is the slug**, `index.html` loading `<script src="bisa-addon.js">` and its
 own `main.js`, a `style.css`, and any other file of an allowed kind — nothing remote, no `fetch`,
 `localStorage` or `eval` (the library is the door). `crates/bisa-store/build.rs` embeds every folder
-at compile time, so nothing is listed by hand; the store's `the_catalog_ships_fifteen_addons` pins
+at compile time, so nothing is listed by hand; the store's `the_catalog_ships_eighteen_addons` pins
 the folders — add the slug there — and `every_addon_is_well_formed` holds each to the manifest's
 rules, the listing's rules and an install; `desktop/src/scenarios/addons.test.mjs` reads the same
 folders. Then `just gen-catalog-docs` (the *Addons* section of `reference/catalog.md`). A display

@@ -18,14 +18,14 @@ import { dockBox, placementOf } from "../ui/dockModel.mjs";
 const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
 const root = new URL("../../../", import.meta.url);
 
-const BUILT_INS = ["bug-hunt", "calculator", "clock", "cpu", "disk", "gpu", "media-player", "memory", "needs-you", "pomodoro", "sticky-note", "stopwatch", "tic-tac-toe", "unit-converter", "weather"];
+const BUILT_INS = ["bug-hunt", "calculator", "clock", "cpu", "disk", "gpu", "linefeed", "linerun", "media-player", "memory", "needs-you", "pomodoro", "sticky-note", "stopwatch", "tetrominal", "tic-tac-toe", "unit-converter", "weather"];
 
-test("the fifteen built-ins are folders the store embeds, each a page that loads the library and nothing remote", () => {
+test("the eighteen built-ins are folders the store embeds, each a page that loads the library and nothing remote", () => {
   const dir = new URL("library/addons/", root);
   const folders = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
   assert.deepEqual(folders, BUILT_INS);
   const catalog = src("../../../crates/bisa-store/src/catalog.rs");
-  assert.match(catalog, /the_catalog_ships_fifteen_addons/, "the bundle test pins the folders");
+  assert.match(catalog, /the_catalog_ships_eighteen_addons/, "the bundle test pins the folders");
   for (const f of folders) {
     const manifest = JSON.parse(readFileSync(new URL(`${f}/addon.json`, dir), "utf8"));
     assert.equal(manifest.id, f, `${f}: a built-in's id is its folder`);
@@ -53,6 +53,24 @@ test("the fifteen built-ins are folders the store embeds, each a page that loads
       for (const script of scripts) assert.ok(!new RegExp(`\\b${id}\\.hidden\\s*=`).test(script), `${f}: #${id} is an <svg>: it has no hidden`);
     }
   }
+});
+
+test("the three terminal games share one kit, word for word, so a fix lands in all three", () => {
+  const dir = new URL("library/addons/", root);
+  const slice = (text, open, close) => {
+    const a = text.indexOf(open), b = text.indexOf(close);
+    assert.ok(a >= 0 && b > a, `${open} … ${close}`);
+    return text.slice(a, b + close.length);
+  };
+  const games = ["tetrominal", "linefeed", "linerun"];
+  const scripts = games.map((g) => slice(readFileSync(new URL(`${g}/main.js`, dir), "utf8"), "// --- kit ---", "// --- end kit ---"));
+  const styles = games.map((g) => slice(readFileSync(new URL(`${g}/style.css`, dir), "utf8"), "/* --- kit --- */", "/* --- end kit --- */"));
+  for (let i = 1; i < games.length; i++) {
+    assert.equal(scripts[i], scripts[0], `${games[i]}: the script's kit is tetrominal's`);
+    assert.equal(styles[i], styles[0], `${games[i]}: the stylesheet's kit is tetrominal's`);
+  }
+  for (const name of ["Screen", "Keys", "Clock", "Bell", "Prompt", "Fit", "WaitRow", "Store", "Help"]) assert.ok(scripts[0].includes(`function ${name}(`), name);
+  assert.ok(styles[0].includes("--mono:") && styles[0].includes("prefers-reduced-motion"));
 });
 
 test("the window is a sandboxed frame with an opaque origin and a token-less source, on the pet's tier", () => {

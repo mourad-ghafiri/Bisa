@@ -1,7 +1,7 @@
 # Addons
 
 An **addon** is a small window that floats over the app — a clock, the machine's load, the weather,
-a game, a sticky note, a media player, a bug hunt over the whole app — written as a folder of HTML, CSS and JavaScript. Fifteen ship with the
+a game, a sticky note, a media player, a bug hunt over the whole app — written as a folder of HTML, CSS and JavaScript. Eighteen ship with the
 platform; anyone can write one. This page is for the person who installs them and for the developer
 who writes one. The model and the walls are [18 — Addons](../architecture/18-addons.md); every method
 the library offers is [the addon API](../reference/addon-api.md).
@@ -46,7 +46,7 @@ was granted is kept. The footer follows it the moment it moves.
 
 ### The built-ins
 
-Fifteen ship in the binary, each at the platform's own version. When the platform you run ships
+Eighteen ship in the binary, each at the platform's own version. When the platform you run ships
 one you installed at a different version, the workspace takes the new files at its next open and
 keeps your switch and your grants (a permission
 the new version no longer asks for is dropped; one it newly asks for is not granted until you tick it).
@@ -58,6 +58,26 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
 - **Tic-tac-toe** — you against the machine (it plays O; *Easy* picks a free cell, *Unbeatable* never
   loses), who starts alternating game by game, or *Two players* at one board; the tally is kept per
   mode; *New game* starts over.
+- **Tetrominal**, **Linefeed** and **Linerun** — three terminal games, each a session: the prompt
+  types `bisa play …`, a click on the screen and then the keys (arrows or `hjkl`; `p` pauses, `r`
+  starts over, `m` mutes, `?` lists them), a status row that speaks like a shell, and the
+  workspace's line — how many sessions run and, in the accent, how many need you — so you know when
+  to leave. The best is kept in each addon's own store; the window resizes and the screen's type
+  grows with it.
+  - *Tetrominal* — falling blocks in a well drawn like an editor: the seven pieces in syntax
+    colours, a gutter of line numbers that turns amber when the stack is high, hold and the next
+    three, and a compile log beside the well for every line you clear (a quad, a back-to-back, a
+    combo, a level). The seed is on the prompt: the same seed builds the same game.
+  - *Linefeed* — a worm that is the code it eats: every token becomes its neck, so the body reads
+    as a line of code. The same class in a row multiplies the points up to four, a comment ends the
+    streak, a closing bracket that matches your latest opener pays ten, a semicolon banks two for
+    every token since the last; the wall and your own body end it.
+  - *Linerun* — a λ running along three lines of a file that scrolls ever faster: change line or
+    hop four cells to dodge bugs, `NaN`s, `TODO:`s and comment walls (a hop clears a bug or a
+    `NaN`, never a `TODO:` or a wall); `$` and `◆` pay by your streak, a token left behind ends it,
+    passing a bug on the line beside — or landing right after one — is a near miss worth points,
+    `!` doubles the points and the speed for forty cells. Every run is seeded (`r` a new seed, `R`
+    the same again) and `┊` marks where your best run ended.
 - **Sticky note** — as many notes as you like on one pad: a dot per note in the strip at the top,
   `+` for another, the count beside them; six papers (yellow, rose, mint, sky, lilac, stone) from the
   swatches; bold, italic, underline, bulleted and numbered lists and *clear formatting* from the
@@ -226,4 +246,4 @@ The built-ins carry both rules and a test holds them.
 **The testable half.** Rules with no DOM — a game's winner, a sanitiser, a conversion — belong in a
 `logic.js` your page loads before `main.js`, written as `(function (root) { … root.MyAddon = api;
 })(this)`: the page reads the global, and a Node test runs the file alone in a `vm`
-(`desktop/src/scenarios/addonsLogic.test.mjs` does this for tic-tac-toe and the sticky note).
+(`desktop/src/scenarios/addonsLogic.test.mjs` does this for tic-tac-toe, the sticky note, the media player, Bug hunt and the three terminal games).

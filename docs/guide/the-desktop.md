@@ -768,7 +768,7 @@ save delay, and the workspace's word on who may draw and how wide an agent's sna
 ## Addons
 
 Small windows that float over the app — a clock, the machine's load, the weather, a game, a sticky
-note — each a folder of HTML its developer shaped and you installed. Fifteen ship in the catalog;
+note — each a folder of HTML its developer shaped and you installed. Eighteen ship in the catalog;
 **Settings › Library › Addons** installs one, imports an addon of your own, switches each on or off
 and grants each exactly what it asks for, line by line; the footer's **Addons** popover lists every
 installed addon with its switch, shows or puts away each window and every window (`⌘⇧X`). An addon runs behind three walls and reaches the platform

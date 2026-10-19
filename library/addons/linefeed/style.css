@@ -1,0 +1,53 @@
+/* A terminal session in the built-ins' chrome: the prompt, a monospace screen
+   of character cells, a status row that speaks like a shell, the workspace's
+   line. The only colour is syntax; the only motion is the game's. Between the
+   kit markers lies what the three terminal games share, word for word. */
+/* --- kit --- */
+:root { color-scheme: light dark; --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); --card: rgba(255, 255, 255, 0.92); --screen: #faf8f4; --cursor: #1c1917; --kw: #1d4ed8; --str: #15803d; --num: #be123c; --fn: #0e7490; --type: #0f766e; --cmt: #8a8580; --op: #4d7c0f; --err: #dc2626; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); --card: rgba(28, 25, 23, 0.94); --screen: #0c0a09; --cursor: #f5f5f4; --kw: #93c5fd; --str: #86efac; --num: #fda4af; --fn: #67e8f9; --type: #5eead4; --cmt: #a8a29e; --op: #bef264; --err: #f87171; }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: var(--ink); font: 12px system-ui, sans-serif; }
+.term { position: relative; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; padding: 8px; font-family: var(--mono); font-size: 13px; line-height: 1.25; }
+.prompt, .status, .wait { flex: none; height: 1.25em; margin: 0; overflow: hidden; white-space: pre; }
+.prompt .chev { color: var(--fn); }
+.cursor { display: inline-block; width: 1ch; height: 1.1em; vertical-align: -0.15em; background: var(--cursor); animation: blink 1s steps(2, start) infinite; }
+.screen { flex: none; margin: 0; padding: 0; overflow: hidden; font: inherit; white-space: pre; color: var(--ink); background: var(--screen); border: 1px solid var(--line); border-radius: 4px; cursor: default; }
+.screen .row { height: 1.25em; }
+.screen .c { display: inline-block; width: 1ch; }
+.kw { color: var(--kw); } .str { color: var(--str); } .num { color: var(--num); } .fn { color: var(--fn); } .type { color: var(--type); } .cmt { color: var(--cmt); } .op { color: var(--op); } .err { color: var(--err); }
+.ghost { color: var(--dim); opacity: 0.45; }
+.frame, .gutter, .label, .log { color: var(--dim); }
+.gutter.warn, .accent { color: var(--accent); }
+.value, .head { color: var(--ink); }
+.status, .wait { color: var(--dim); }
+.status b, .wait b { font-weight: 600; color: var(--ink); }
+.status .toast, .wait .needs { font-weight: 600; color: var(--accent); }
+.help { position: absolute; inset: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font: 12px/1.4 system-ui, sans-serif; color: var(--ink); }
+.help h2 { margin: 0; font-size: 12px; font-weight: 600; }
+.help dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+.help dt { font-family: var(--mono); white-space: nowrap; }
+.help dd { margin: 0; color: var(--dim); }
+.help-note { margin: 0; color: var(--dim); }
+.help button { align-self: flex-start; margin-top: auto; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--key); color: var(--ink); font: inherit; cursor: pointer; }
+.help { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.help::-webkit-scrollbar { width: 6px; }
+.help::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+/* A strip of a window: the keys run on in one line, the note folds, Close stays in reach. */
+@media (max-height: 220px) {
+  .help { gap: 4px; padding: 6px 10px; }
+  .help dl { display: block; }
+  .help dt, .help dd { display: inline; }
+  .help dt { margin-right: 4px; }
+  .help dd::after { content: " \00b7 "; color: var(--dim); }
+  .help dd:last-of-type::after { content: ""; }
+  .help-note { display: none; }
+  .help button { margin-top: 0; }
+}
+/* Words for a screen reader only. */
+.live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+/* --- end kit --- */
+.head.dead { color: var(--err); }

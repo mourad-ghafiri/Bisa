@@ -25,6 +25,22 @@ notes (`docs/contributing/release.md`).
   whole from the browser layer — with three bridge methods (`scene.mode`, `scene.solid`,
   `scene.release`) and one event (`scene`) (`crates/bisa-core/src/addon.rs`,
   `desktop/src/addons/AddonScene.tsx`, `addonSceneModel.mjs`, `addons/sdk/`).
+- Three **terminal games** as built-in addons, each a terminal session in the built-ins' chrome —
+  the prompt types `bisa play …`, a monospace screen of character cells, a status row that speaks
+  like a shell and the workspace's line (how many sessions run, how many need you, in the accent)
+  so the player knows when to leave; keyboard first (arrows or `hjkl`, `p`, `r`, `m`, `?`), the
+  best kept in each addon's store, the type growing with the window, sound behind a mute:
+  **Tetrominal** (`library/addons/tetrominal/`) — falling blocks in a well drawn like an editor,
+  the seven pieces in syntax colours, a gutter of line numbers that warns when the stack is high,
+  hold and three next, a compile log for every clear, the seed on the prompt so a build replays;
+  **Linefeed** (`library/addons/linefeed/`) — a worm that is the code it eats, every token its
+  neck, streaks by class, a balanced bracket and a banked statement that pay; **Linerun**
+  (`library/addons/linerun/`) — a λ running three lines of a file that scrolls ever faster, bugs
+  and `NaN`s to hop, `TODO:`s and comment walls to dodge, tokens and near misses that pay, a bang
+  that doubles, every run seeded and the best marked in the file. Each game's rules are a pure
+  `logic.js` run alone by `desktop/src/scenarios/addonsLogic.test.mjs` (the same seed and keys
+  replay the same game; every runner chunk is proved runnable by the game's own rules); the three
+  share one terminal kit, copied word for word and held equal by `desktop/src/scenarios/addons.test.mjs`.
 - A **Media player** built-in addon: drop or open an audio or video file, paste an `https://`
   link, or paste a YouTube URL — sound as a scrolling spectrogram with a level meter, video on the
   stage, YouTube through YouTube's own player beside the window, the last twenty sources one pick

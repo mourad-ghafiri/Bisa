@@ -174,7 +174,7 @@ on the platform; a workflow puts an `approval` step before it. Guide: [Connector
 | **X** | `x` | `oauth2` | `api.x.com` | `me`, `post` *writes*, `search_recent` | `content` `marketing` |
 | **YouTube** | `youtube` | `oauth2` | `www.googleapis.com` | `my_channel`, `search`, `channel`, `video` | `content` `marketing` |
 
-## Addons (15)
+## Addons (18)
 
 An addon is a folder of HTML, CSS and JavaScript that floats over the desktop in a window its developer shaped, runs
 behind three walls and reaches the platform only through what the person granted ([18 — Addons](../architecture/18-addons.md)).
@@ -189,12 +189,15 @@ declare; a folder of your own imports there with nothing granted until you say s
 | **CPU** | `cpu` | The machine's processor load as a sparkline, at the footer's cadence. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
 | **Disk** | `disk` | The volume the platform's data lives on: used against total, and what the workspace itself weighs. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
 | **GPU** | `gpu` | The accelerator's load as a sparkline, where the machine reports one. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
+| **Linefeed** | `linefeed` | A terminal worm that is the code it eats: every token becomes its neck, so your body reads as a line of code; a closing bracket that balances pays, a semicolon banks the statement — and the workspace's line tells you when an agent needs you. | 0.4.0 | 432×328 | `storage`, `workspace_summary` | `break` `game` `terminal` |
+| **Linerun** | `linerun` | A λ runs along three lines of a file that scrolls ever faster: change line or hop to dodge bugs and comment walls, take tokens for a streak, chase the mark where your best run ended — every run seeded, so the same seed runs the same file — and the workspace's line tells you when an agent needs you. | 0.4.0 | 536×136 | `storage`, `workspace_summary` | `break` `game` `terminal` |
 | **Media player** | `media-player` | Plays audio and video from a file, a link or YouTube — a live spectrogram for sound, YouTube's own player for its videos, and the last twenty sources one pick away. | 0.4.0 | 440×320 | `storage`, `open_url`, `media` | `media` `tool` |
 | **Memory** | `memory` | Memory in use against what the machine has, as a bar and a number. | 0.4.0 | 160×64 | `system_load` | `load` `system` |
 | **Needs you** | `needs-you` | How many things wait on you, are under review, or are running — a click goes to them. | 0.4.0 | 200×88 | `workspace_summary`, `navigate` | `attention` `workspace` |
 | **Pomodoro** | `pomodoro` | Twenty-five minutes on, five off, a ring that empties and a notice at each turn; the lengths are yours to set. | 0.4.0 | 200×150 | `notify`, `storage` | `focus` `time` |
 | **Sticky note** | `sticky-note` | As many notes as you like on one pad — a dot per note, six papers, bold, italic, underline and lists — each remembered as you type. | 0.4.0 | 220×180 | `storage`, `clipboard_write` | `notes` `tool` |
 | **Stopwatch** | `stopwatch` | Start, lap, reset — time as it passes, with every lap numbered. | 0.4.0 | 200×110 | — | `time` `tool` |
+| **Tetrominal** | `tetrominal` | Falling blocks in a terminal well: pieces in syntax colours, a gutter of line numbers, a compile log for every line you clear, a seed to replay a build — and the workspace's line, so you know when an agent needs you. | 0.4.0 | 384×408 | `storage`, `workspace_summary` | `break` `game` `terminal` |
 | **Tic-tac-toe** | `tic-tac-toe` | You against the machine — easy or unbeatable — or two players at one board, with a tally per mode; a break that fits in a corner. | 0.4.0 | 220×270 | `storage` | `break` `game` |
 | **Unit converter** | `unit-converter` | Length, mass and temperature, either way — swap the pair in one click; the last pair remembered. | 0.4.0 | 240×210 | `storage` | `tool` |
 | **Weather** | `weather` | Current conditions for a city you type, from Open-Meteo, refreshed every fifteen minutes. | 0.4.0 | 240×150 | `network`, `storage` | `outside` `weather` |

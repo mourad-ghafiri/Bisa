@@ -1,0 +1,27 @@
+{
+  "id": "linerun",
+  "name": "Linerun",
+  "description": "A λ runs along three lines of a file that scrolls ever faster: change line or hop to dodge bugs and comment walls, take tokens for a streak, chase the mark where your best run ended — every run seeded, so the same seed runs the same file — and the workspace's line tells you when an agent needs you.",
+  "version": "0.4.0",
+  "author": "Bisa",
+  "homepage": "https://bisa.dev",
+  "repo": "https://github.com/mourad-ghafiri/Bisa",
+  "license": "MIT",
+  "tags": [
+    "game",
+    "break",
+    "terminal"
+  ],
+  "window": {
+    "width": 536,
+    "height": 136,
+    "min_width": 376,
+    "min_height": 112,
+    "max_width": 1072,
+    "max_height": 272
+  },
+  "permissions": [
+    "storage",
+    "workspace_summary"
+  ]
+}

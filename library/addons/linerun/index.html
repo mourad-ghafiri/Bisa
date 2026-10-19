@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Linerun</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="term" class="term" aria-label="Linerun">
+    <p id="prompt" class="prompt" aria-hidden="true"></p>
+    <pre id="screen" class="screen" tabindex="0" role="img" aria-label="The file: click, then run with the keys"></pre>
+    <p id="status" class="status"></p>
+    <p id="wait" class="wait"></p>
+    <p id="live" class="live" aria-live="polite"></p>
+  </main>
+  <div id="help" class="help" hidden role="dialog" aria-label="Keys">
+    <h2>Keys</h2>
+    <dl>
+      <dt>↑ ↓ · k j · w s</dt><dd>change line</dd>
+      <dt>space · → · l · d</dt><dd>hop (four cells: a bug or NaN, never a TODO or a wall)</dd>
+      <dt>p · esc</dt><dd>pause</dd>
+      <dt>r</dt><dd>new run, new seed</dd>
+      <dt>R</dt><dd>run the same seed again</dd>
+      <dt>m</dt><dd>mute</dd>
+      <dt>?</dt><dd>these keys</dd>
+    </dl>
+    <p class="help-note">$ and ◆ pay by your streak, up to ×5; a token you let pass ends it. Passing a bug on the line beside, or landing right after one, is a near miss worth points. ! doubles the points and the speed for forty cells. ┊ marks where your best run ended.</p>
+    <button id="helpClose" type="button">Close</button>
+  </div>
+  <script src="bisa-addon.js"></script>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

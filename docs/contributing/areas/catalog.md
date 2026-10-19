@@ -37,7 +37,7 @@ generated from the same parse that installs an entry.
 ## Testing a change
 
 - `scripts/test module store catalog` — the sources held: references, tags, models, templates validated, prompts naming real tools.
-- `scripts/test lib store catalog` — the bundle tests: the counts (`the_catalog_ships_fifteen_connectors`, `the_catalog_ships_fifteen_addons`, `the_catalog_ships_nine_pets`), and each entry well formed.
+- `scripts/test lib store catalog` — the bundle tests: the counts (`the_catalog_ships_fifteen_connectors`, `the_catalog_ships_eighteen_addons`, `the_catalog_ships_nine_pets`), and each entry well formed.
 - `just check-catalog-docs` — the reference is current.
 - The journey `crates/bisa-cli/tests/it/e2e/templates_installed_and_run.rs` — every template installed and run to its end; a template added fails `every_template_of_the_catalog_has_its_journey` until it has one. `crates/bisa-cli/tests/it/e2e/the_roster_and_its_library.rs` installs a team with everything it brings. Both run under `scripts/test module cli e2e`.
 - An addon or a pet is also held by the desktop: `scripts/test desktop addons`, and from `desktop/`, `node --test --import ./src/i18n/preload.mjs src/scenarios/addons.test.mjs src/scenarios/pet.test.mjs`.

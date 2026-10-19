@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Linefeed</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="term" class="term" aria-label="Linefeed">
+    <p id="prompt" class="prompt" aria-hidden="true"></p>
+    <pre id="screen" class="screen" tabindex="0" role="img" aria-label="The grid: click, then steer with the keys"></pre>
+    <p id="status" class="status"></p>
+    <p id="wait" class="wait"></p>
+    <p id="live" class="live" aria-live="polite"></p>
+  </main>
+  <div id="help" class="help" hidden role="dialog" aria-label="Keys">
+    <h2>Keys</h2>
+    <dl>
+      <dt>↑ ↓ ← → · h j k l · w a s d</dt><dd>turn</dd>
+      <dt>p · esc · space</dt><dd>pause</dd>
+      <dt>r</dt><dd>new line</dd>
+      <dt>m</dt><dd>mute</dd>
+      <dt>?</dt><dd>these keys</dd>
+    </dl>
+    <p class="help-note">Eat tokens and they become you, newest at the neck. The same class in a row multiplies up to four; a comment ends the streak. A closing bracket that matches your latest opener pays ten; a semicolon banks two for every token since the last.</p>
+    <button id="helpClose" type="button">Close</button>
+  </div>
+  <script src="bisa-addon.js"></script>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

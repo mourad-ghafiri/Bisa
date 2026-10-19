@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tetrominal</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="term" class="term" aria-label="Tetrominal">
+    <p id="prompt" class="prompt" aria-hidden="true"></p>
+    <pre id="screen" class="screen" tabindex="0" role="img" aria-label="The well: click, then play with the keys"></pre>
+    <p id="status" class="status"></p>
+    <p id="wait" class="wait"></p>
+    <p id="live" class="live" aria-live="polite"></p>
+  </main>
+  <div id="help" class="help" hidden role="dialog" aria-label="Keys">
+    <h2>Keys</h2>
+    <dl>
+      <dt>← → · h l · a d</dt><dd>move</dd>
+      <dt>↑ · k · w · x</dt><dd>turn clockwise</dd>
+      <dt>z</dt><dd>turn the other way</dd>
+      <dt>↓ · j · s</dt><dd>soft drop</dd>
+      <dt>space</dt><dd>hard drop</dd>
+      <dt>c · shift</dt><dd>hold</dd>
+      <dt>p · esc</dt><dd>pause</dd>
+      <dt>r</dt><dd>new build</dd>
+      <dt>m</dt><dd>mute</dd>
+      <dt>?</dt><dd>these keys</dd>
+    </dl>
+    <p class="help-note">Four lines at once is a quad; two quads in a row pay half again; clears in a row combo. The gutter turns amber when the stack is high.</p>
+    <button id="helpClose" type="button">Close</button>
+  </div>
+  <script src="bisa-addon.js"></script>
+  <script src="logic.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

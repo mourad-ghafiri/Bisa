@@ -3,8 +3,8 @@
 An **addon** is a folder of HTML, CSS and JavaScript with an `addon.json` beside it, installed into a
 workspace and shown as a **window that floats over the desktop** — draggable, and resizable, closable
 and see-through as its developer decided — or, with `frame: "scene"`, no window at all but the
-whole desktop under the chrome. The platform ships fifteen in the catalog (a clock, the machine's
-load, the weather, two games, a media player, a few small tools); anyone may write one and import
+whole desktop under the chrome. The platform ships eighteen in the catalog (a clock, the machine's
+load, the weather, five games, a media player, a few small tools); anyone may write one and import
 the folder.
 An addon reaches the platform only through one door, with only what the person granted, and can leave
 the machine with nothing it was not given. This page is the model, the walls, the door, and what
@@ -215,7 +215,7 @@ imported here under the same id; a built-in's files come from this machine's own
 | `bisa-cli/src/addons.rs` | `bisa addon …` — through the node when one runs; an import reads the folder's own manifest first, so a folder that holds none, or one that is no manifest, is refused by its file before anything is copied. Held from end to end by the journey `crates/bisa-cli/tests/it/e2e/addons_drawings_and_notes.rs`: the nine verbs, a folder refused whole, the files route open to the window of an addon that is on and answering 404 for one that is off, every change said on the bus |
 | `desktop/src/addons/` | the bridge and its model, the windows, the scene (`AddonScene.tsx` over `addonSceneModel.mjs`: the two modes, the solid regions, the tabs as obstacles), the layer, the store (one `useAddonsSync` mount, in the layer), the words; `shell/AddonsStat.tsx` + `shell/AddonsOverlay.tsx` (the footer's popover), `views/_settings/AddonsPanel.tsx` |
 | `desktop/src-tauri/src/navigation.rs` | the shell's wall |
-| `addons/sdk/`, `addons/template/`, `library/addons/` | the library and its types, a starter, the fifteen built-ins — each `style.css` fences `[hidden]`; tic-tac-toe's, the sticky note's, the media player's and Bug hunt's pure rules are a `logic.js` loaded before `main.js`, run alone by `desktop/src/scenarios/addonsLogic.test.mjs` |
+| `addons/sdk/`, `addons/template/`, `library/addons/` | the library and its types, a starter, the eighteen built-ins — each `style.css` fences `[hidden]`; tic-tac-toe's, the sticky note's, the media player's, Bug hunt's and the three terminal games' (Tetrominal, Linefeed, Linerun) pure rules are a `logic.js` loaded before `main.js`, run alone by `desktop/src/scenarios/addonsLogic.test.mjs`; the terminal games share one kit between `// --- kit ---` markers in `main.js` and `style.css`, held word-for-word equal by `desktop/src/scenarios/addons.test.mjs` |
 
 The guide for people and developers is [guide/addons.md](../guide/addons.md); the library's contract
 is [reference/addon-api.md](../reference/addon-api.md).

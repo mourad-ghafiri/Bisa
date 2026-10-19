@@ -177,7 +177,7 @@ test("the files a bump touches are the ones platformIdentity.test.mjs holds to t
   for (const { path, table } of VERSION_FILES.toml) assert.doesNotThrow(() => bumpTomlVersion(read(path), table, version, "9.9.9"), path);
   for (const path of VERSION_FILES.json) assert.doesNotThrow(() => bumpJsonVersion(read(path), version, "9.9.9"), path);
   const addons = readdirSync(join(root, VERSION_FILES.addons), { withFileTypes: true }).filter((e) => e.isDirectory());
-  assert.equal(addons.length, 13);
+  assert.equal(addons.length, 18);
   for (const a of addons) assert.doesNotThrow(() => bumpJsonVersion(read(`${VERSION_FILES.addons}/${a.name}/addon.json`), version, "9.9.9"), a.name);
   assert.ok(AFTER_BUMP.includes("cargo update --workspace") && AFTER_BUMP.includes("just gen-catalog-docs") && AFTER_BUMP.at(-1) === "just verify", "the lockfiles and the generated page are left to their tools, the gate last");
 });
