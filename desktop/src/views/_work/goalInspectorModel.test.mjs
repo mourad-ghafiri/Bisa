@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { PANELS, PROJECTS_NAMED, designLine, originChips, panelOf, projectsWords, runCardWords, spendWords, workstreamWord } from "./goalInspectorModel.mjs";
+import { PANELS, PANEL_FOLD, PANEL_ICON, PROJECTS_NAMED, PROPERTIES, designLine, originChips, panelOf, panelTabs, panelsFor, projectsWords, propertiesReveal, propertiesScrollName, runCardWords, spendWords, workstreamWord } from "./goalInspectorModel.mjs";
+import { foldGroups } from "../../ui/tabsFitModel.mjs";
 
 const run = (over = {}) => ({ id: "01J0000000000000000000RUN2", workflow: { name: "Bug fix", revision: 4 }, outcome: null, cancelled: null, ...over });
 const summaries = [
@@ -17,10 +18,55 @@ const summaries = [
   { id: "01J0000000000000000000RUN3", queued_at: 30 },
 ];
 
-test("the address names a panel, and anything else is Details", () => {
+test("the address names a panel, and anything else is Details; Properties is offered on the Workflow tab alone", () => {
   assert.deepEqual([...PANELS], ["details", "work", "projects", "files"]);
   for (const p of PANELS) assert.equal(panelOf(p), p);
-  for (const raw of [undefined, null, "", "Details", "inspector", 3]) assert.equal(panelOf(raw), "details", `${JSON.stringify(raw)}`);
+  for (const raw of [undefined, null, "", "Details", "inspector", 3, "properties"]) assert.equal(panelOf(raw), "details", `${JSON.stringify(raw)}`);
+  assert.equal(panelsFor({ properties: false }), PANELS, "the four, by reference");
+  assert.equal(panelsFor(), PANELS);
+  const five = panelsFor({ properties: true });
+  assert.deepEqual([...five], ["details", "work", "projects", "files", "properties"], "Properties last: the four never shift");
+  assert.equal(panelOf("properties", five), "properties");
+  assert.equal(panelOf("properties", PANELS), "details", "a stale ?insp=properties on another tab reads as Details");
+  assert.equal(panelOf("work", five), "work");
+  assert.equal(PROPERTIES, "properties");
+});
+
+test("every tab wears a glyph that exists and yields its word in its own turn, from the edge in; Work's badge count rides along", () => {
+  const icons = readFileSync(new URL("../../ui/icons.ts", import.meta.url), "utf8");
+  const five = panelsFor({ properties: true });
+  for (const p of five) assert.match(icons, new RegExp(`^  ${PANEL_ICON[p]}: `, "m"), `${p} wears a glyph that exists`);
+  assert.equal(new Set(Object.values(PANEL_ICON)).size, five.length, "each tab its own glyph");
+  assert.equal(PANEL_ICON.details, "info", "the ⓘ toggle's");
+  assert.equal(PANEL_ICON.properties, "settings", "the designer rail's");
+  assert.equal(new Set(Object.values(PANEL_FOLD)).size, five.length, "one tab at a time, never two together");
+  const tabs = panelTabs(five, { work: 3 });
+  assert.deepEqual(tabs.map((r) => [r.id, r.label, r.icon, r.fold, r.count]), [
+    ["details", "Details", "info", 5, null],
+    ["work", "Work", "workItem", 3, 3],
+    ["projects", "Projects", "project", 2, null],
+    ["files", "Files", "file", 1, null],
+    ["properties", "Properties", "settings", 4, null],
+  ]);
+  assert.deepEqual(foldGroups(tabs), [["files"], ["projects"], ["work"], ["properties"], ["details"]], "Files folds first, Details keeps its word longest");
+  assert.deepEqual(panelTabs(PANELS).map((r) => r.id), [...PANELS]);
+  assert.equal(panelTabs(PANELS)[1].count, null, "no count given, none shown");
+});
+
+test("a pick on the canvas shows Properties — opening the pane or switching it — and nothing picked, or Properties already showing, changes nothing", () => {
+  const step = { kind: "step", id: "build" };
+  const flow = { kind: "flow", from: "a", to: "b", branch: null, route: "then" };
+  const patch = { aux: "inspector", auxId: null, insp: "properties" };
+  assert.deepEqual(propertiesReveal({ kind: null, panel: null }, step), patch, "the pane closed: opened on Properties");
+  assert.deepEqual(propertiesReveal({ kind: "inspector", panel: null }, step), patch, "on Details: switched");
+  assert.deepEqual(propertiesReveal({ kind: "inspector", panel: "work" }, flow), patch, "on Work, a flow picked: switched");
+  assert.deepEqual(propertiesReveal({ kind: "session", panel: null }, { kind: "many", steps: ["a", "b"], flows: [] }), patch, "a work item's panel gives way to the pick");
+  assert.equal(propertiesReveal({ kind: "inspector", panel: "properties" }, step), null, "already there");
+  assert.equal(propertiesReveal({ kind: "inspector", panel: "details" }, null), null, "nothing picked changes nothing");
+  assert.equal(propertiesReveal({ kind: null, panel: null }, null), null);
+  assert.equal(propertiesScrollName(step), "workflow:inspector:build");
+  assert.equal(propertiesScrollName(flow), "workflow:inspector:", "a flow's page shares the workflow's place");
+  assert.equal(propertiesScrollName(null), "workflow:inspector:");
 });
 
 test("the run's card says which run of how many, the revision it froze, and how it ended once it has", () => {
@@ -87,7 +133,7 @@ test("a checkout's word is the name it was given, else its branch, else that it 
 
 test("the pane draws what the model says and spells no sentence of its own", () => {
   const pane = readFileSync(new URL("./GoalInspector.tsx", import.meta.url), "utf8");
-  for (const call of ["panelOf(param)", "runCardWords(run, runs)", "spendWords(spent)", "projectsWords(data?.projects)", "designLine(mode, guidance)", "originChips(goal, run, mode)", "workstreamWord(w)"]) assert.ok(pane.includes(call), call);
+  for (const call of ["panelOf(param, offered)", "panelTabs(offered, { work: work_items.length })", "runCardWords(run, runs)", "spendWords(spent)", "projectsWords(data?.projects)", "designLine(mode, guidance)", "originChips(goal, run, mode)", "workstreamWord(w)"]) assert.ok(pane.includes(call), call);
   for (const spelt of ["None yet", "} tokens", "workstreams\n", "The Workflow Agent names", "run {", "copy ·", '"1 project"']) assert.ok(!pane.includes(spelt), `the pane spells ${JSON.stringify(spelt)}`);
   assert.ok(!pane.includes("work-goal-inspector-add-folder-work"), "nothing is created or attached here: no door says otherwise");
   assert.ok(/log\.warn\("goal", "a project's workstreams could not be read/.test(pane), "a read that failed is said in the log, never swallowed");

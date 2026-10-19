@@ -19,9 +19,14 @@ notes (`docs/contributing/release.md`).
   branch to rename, *Remove flow*) and a word on several picked; a ghost *Workflow* door back
   instead of a close glyph; every read-only state says why — a closed goal, a run going, running in
   *n* goals, a finished run, a proposal not adopted, a design saved for the goal, a library workflow
-  — with the door that answers it (*Edit the steps*, *Open in the designer*); the goal tab's column
-  is a named landmark, resizable and remembered (`bisa.goal.workflow.inspector.width`), each step's
-  scroll its own; the kit gained `Note`, `Labelled`'s `error` and `useCommitOnUnmount`; a group of
+  — with the door that answers it (*Edit the steps*, *Open in the designer*); **the goal screen has
+  one right pane**: the Workflow tab's inspector is the Details pane's *Properties* tab — Details ·
+  Work · Projects · Files · Properties, every tab with a glyph it folds to from the edge in — filled
+  by the tab through a slot the panel publishes, a pick on the canvas showing it and opening the
+  pane if it was closed, Escape on the canvas clearing the pick first and closing the pane second,
+  a picked step kept in view when the canvas's room changes (the pane opening on the pick), the
+  empty Properties page offering *Draw the steps* on a manual goal, each step's page keeping its
+  own scroll; the kit gained `Note`, `Labelled`'s `error` and `useCommitOnUnmount`; a group of
   controls is `Labelled`, never a `<label>`; *Id* reads *Step id*, *on fail* reads *on failure*, a
   condition group's member is *Condition n*, the JSON field says once when it applies, the human
   step's two icon buttons are named; field pairs go two columns from `@sm` everywhere.
@@ -40,7 +45,9 @@ notes (`docs/contributing/release.md`).
   without a word; the goal tab drew Problems twice, a run's actions and raw output above the
   step's own heading, and *This step is yours* on an agent step whose only act is a door to its
   work item; the tab's banners pointed at the wrong place and the docs described an *Agent mode*
-  the tab does not have.
+  the tab does not have; and the goal screen stacked two right columns — the tab's own beside the
+  Details pane — which never budgeted together, so at a 1024px window with the pane open the canvas
+  kept about 176px, half a card.
 
 ## [0.5.0] - 2026-10-19
 

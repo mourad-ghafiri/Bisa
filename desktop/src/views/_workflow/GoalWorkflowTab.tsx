@@ -19,14 +19,22 @@
  * - a finished run: restart it, start a new run, or pick another workflow.
  *   A run made while one is live queues behind it.
  *
- * The canvas and one titled, resizable column (`Inspector`, the designer's
- * own pane) are the tab; the column says why it is read-only in every state
- * that is, with the door that answers it. What the tab was left on is the
- * goal's memory (`shell/viewMemoryStore`, under the goal's place): the step
- * picked, the run being viewed, where the canvas looked and where its side
- * columns were scrolled — read from the memory on every render, so a switch
- * of tab, a way out and back, and a restart all land on the same picture. A
- * flow or a box of steps picked is a moment's pick, held by the tab alone
+ * The tab is the canvas; its inspector (`Inspector`, the designer's own
+ * pane) is the goal's Details pane's **Properties** panel, which the tab
+ * fills through the slot the pane publishes (`_goal/propertiesSlot.ts`,
+ * `PropertiesPortal`) — so the goal screen has one right pane, sized by the
+ * shell's rule (`auxPaneModel`), never a second column of the tab's own
+ * squeezing the canvas beside it. A step, a flow or a box picked shows
+ * Properties, opening the pane if it was closed, by the designer's rule
+ * (`goalInspectorModel.propertiesReveal`); the remembered pick at mount is
+ * no new pick. The tab keeps ownership of the editing session and says why
+ * it is read-only in every state that is, with the door that answers it.
+ * What the tab was left on is the goal's memory (`shell/viewMemoryStore`,
+ * under the goal's place): the step picked, the run being viewed, where the
+ * canvas looked and where the palette and each step's properties were
+ * scrolled — read from the memory on every render, so a switch of tab, a
+ * way out and back, and a restart all land on the same picture. A flow or a
+ * box of steps picked is a moment's pick, held by the tab alone
  * (`selectionModel.storedSelection`). The drawing in progress is kept beside
  * them (`designDraftStore`). `?step=` and `?run=` are a link's to hand over
  * once: each is taken into the memory and off the address.
@@ -37,22 +45,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import { navigate, setSearch, useSearchValue } from "../../router";
+import { useAux } from "../../shell/AuxPane";
+import { useViewScroll } from "../../shell/useViewScroll";
 import { placeOf, useViewState } from "../../shell/viewMemoryStore";
 import { idValue } from "../../shell/viewValuesModel.mjs";
 import type { GoalView, ListenerView, NewWorkflowBody, Problem, Workflow, WorkflowRun } from "../../types";
-import { Button, Chip, ConfirmDialog, ErrorNote, ICON, ResizeHandle, SkeletonRows, failureText, cn, useStoredSize, useToast } from "../../ui";
+import { Button, Chip, ConfirmDialog, ErrorNote, ICON, Note, SkeletonRows, failureText, cn, useToast } from "../../ui";
 import { readKey } from "../_work/keptReadsModel.mjs";
 import { attempt, useAsync } from "../_work/useAsync";
 import { Designer } from "./Designer";
-import { canvasViewportAt, rememberViewportAt } from "./designerMemoryStore";
+import { canvasViewportAt, moveKeptScroll, rememberViewportAt } from "./designerMemoryStore";
 import { bodyOf, definitionBody, goalTabRemote, problemsFromErrorBody } from "./designerSession.mjs";
 import { Inspector } from "./Inspector";
 import { Palette } from "./Palette";
 import { RunOverlay } from "./RunOverlay";
-import { keptSelection, readSelection, stepOf, stepSelection, storedSelection, type Selection } from "./selectionModel.mjs";
+import { keptSelection, readSelection, sameSelection, stepSelection, storedSelection, type Selection } from "./selectionModel.mjs";
 import { StartRunDialog } from "./StartRunDialog";
 import { WorkflowPicker } from "./WorkflowPicker";
 import { DesigningCard } from "../_goal/DesigningCard";
+import { PropertiesPortal } from "../_goal/PropertiesPortal";
+import { usePropertiesSlot } from "../_goal/propertiesSlot";
+import { propertiesReveal, propertiesScrollName } from "../_work/goalInspectorModel.mjs";
 import { designs, modeOf } from "../_goal/goalMode.mjs";
 import { listeningFacts, pageFacts } from "../_goal/goalPageModel.mjs";
 import { liveSessionsOf, runVerbs } from "../_goal/runControl.mjs";
@@ -73,14 +86,8 @@ import { t } from "../../i18n/l10n.mjs";
 // frame while the Workflow Agent designs, so a literal here was a loop.
 const NO_PROBLEMS: readonly Problem[] = Object.freeze([]);
 const NO_LISTENERS: readonly ListenerView[] = Object.freeze([]);
-/** The palette's column with its words (`w-40`); the inspector's width as stored, its least and its most. */
+/** The palette's column with its words (`w-40`). */
 const PALETTE_WIDTH = 160;
-const INSPECTOR_KEY = "bisa.goal.workflow.inspector.width";
-const INSPECTOR_WIDTH = 320;
-const INSPECTOR_MIN = 240;
-const INSPECTOR_MAX = 560;
-/** One resize handle, counted in the row's budget as the IDE counts its own (`ideColumnsModel`). */
-const HANDLE_WIDTH = 4;
 
 export function GoalWorkflowTab({
   view,
@@ -134,7 +141,6 @@ export function GoalWorkflowTab({
     // step picked by hand afterwards is not undone by the address.
     setSearch({ step: null }, { replace: true });
   }, [stepParam, setSelected]);
-  const [inspectorWidth, setInspectorWidth] = useStoredSize(INSPECTOR_KEY, INSPECTOR_WIDTH, { min: INSPECTOR_MIN, max: INSPECTOR_MAX });
   const [starting, setStarting] = useState(false);
   const [choosing, setChoosing] = useState(false);
   // The draft outlives this tab, and the window: it is kept per goal in
@@ -266,6 +272,27 @@ export function GoalWorkflowTab({
   // step the picture no longer has — an agent's save took it, another run
   // is shown — is no pick.
   const selected = keptSelection(transient ?? readSelection(picked), draft ? draft.present : stored_body);
+  // A pick shows the pane's Properties panel — opening the pane if it was
+  // closed, switching it if it was elsewhere — as a pick shows Properties on
+  // the designer; the pick remembered at mount is no new pick. Replaced,
+  // never pushed: Back leaves the goal rather than walking through picks.
+  const aux = useAux();
+  const [insp] = useSearchValue("insp");
+  const revealed = useRef(selected);
+  useEffect(() => {
+    if (sameSelection(revealed.current, selected)) return;
+    revealed.current = selected;
+    const patch = propertiesReveal({ kind: aux.kind, panel: insp }, selected);
+    if (patch) setSearch(patch, { replace: true });
+    // The pane's standing is read when the pick changes, never re-run by the pane changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+  // The tab owns the Properties scroll: the pane's own hook restores once per
+  // panel and never on a step change, and the slot is a target that appears
+  // later, so what is on screen names both — each step's page its own place.
+  const slot = usePropertiesSlot();
+  const propsRoot = useRef<HTMLDivElement>(null);
+  useViewScroll(propsRoot, `${place}#workflow:inspector:${slot ? "shown" : "closed"}:${propertiesScrollName(selected)}`, place);
   const draftEdit = (next: NewWorkflowBody, token: string | null = null) => {
     // Same reference when already empty: a state that does not change is not a commit.
     setServerProblems((p) => (p.length ? [] : p));
@@ -301,19 +328,41 @@ export function GoalWorkflowTab({
   // No workflow and nothing being drawn: the designing card — the agent's
   // standing on an auto or guided goal, the door to the designer on a manual
   // one. A design being drawn on a blank canvas falls through to the editor.
+  // The pane's Properties panel is filled in every state, so it is never empty.
   if (!goal.workflow && !run && !draft) {
     return (
-      <div className="flex h-full flex-col">
-        <div data-scroll-keep="workflow:designing" className="min-h-0 flex-1 overflow-y-auto">
-          <DesigningCard view={view} onChanged={onChanged} />
+      <>
+        <div className="flex h-full flex-col">
+          <div data-scroll-keep="workflow:designing" className="min-h-0 flex-1 overflow-y-auto">
+            <DesigningCard view={view} onChanged={onChanged} />
+          </div>
         </div>
-      </div>
+        <PropertiesPortal>
+          <div className="px-4 py-3">
+            {designs(mode) ? (
+              <Note>{t("workflow-goal-workflow-tab-properties-agent-designing")}</Note>
+            ) : (
+              // Doors, not prose: the sentence's own act, unless the goal is closed.
+              <Note door={closed ? null : { label: t("workflow-goal-workflow-tab-draw-steps"), onClick: () => setDraft(create(blankWorkflow(goal.title ?? t("workflow-goal-workflow-tab-untitled-workflow")))) }}>
+                {t("workflow-goal-workflow-tab-properties-nothing-yet")}
+              </Note>
+            )}
+          </div>
+        </PropertiesPortal>
+      </>
     );
   }
 
   if (!value || (!workflow && !draft)) {
     return (
-      <div className="p-6">{stored.error ? <ErrorNote error={stored.error} retry={stored.reload} /> : <SkeletonRows rows={4} />}</div>
+      <>
+        <div className="p-6">{stored.error ? <ErrorNote error={stored.error} retry={stored.reload} /> : <SkeletonRows rows={4} />}</div>
+        <PropertiesPortal>
+          <div className="px-4 py-3">
+            <SkeletonRows rows={3} />
+          </div>
+        </PropertiesPortal>
+      </>
     );
   }
 
@@ -328,7 +377,8 @@ export function GoalWorkflowTab({
   // Starting by listening asks only what its events do not supply.
   const startInputs = askedAtStart(workflow ?? value, listen);
 
-  const fit = fitColumns({ total: rowWidth, fixed: HANDLE_WIDTH, rail: PALETTE_WIDTH, railMin: PALETTE_WIDTH, railOpen: draft !== null, right: inspectorWidth, rightMin: INSPECTOR_MIN, rightOpen: true });
+  // The palette and the canvas share the row (`ideColumnsModel.fitColumns`): past the canvas's least the palette folds to its glyphs.
+  const fit = fitColumns({ total: rowWidth, fixed: 0, rail: PALETTE_WIDTH, railMin: PALETTE_WIDTH, railOpen: draft !== null, right: 0, rightMin: 0, rightOpen: false });
   const paletteCompact = fit.railFolded;
   // Why the column is read-only, when it is — the first that holds is what it says (`inspectorModel.readOnlyReason`).
   const runLive = !!activeRun && activeRun.id === run?.id && unfinished;
@@ -342,6 +392,7 @@ export function GoalWorkflowTab({
   };
 
   return (
+    <>
     <div className="flex h-full min-h-0 flex-col">
       {workflow && workflow.origin.origin === "goal" && (
         // The accent only while the strip asks something of the person — a
@@ -493,34 +544,6 @@ export function GoalWorkflowTab({
             onViewport={keepViewport}
           />
         </div>
-        {/* The column: the designer's own pane, resizable from its left edge, each step's page keeping its own scroll. */}
-        <ResizeHandle side="left" size={fit.right ?? inspectorWidth} min={INSPECTOR_MIN} max={INSPECTOR_MAX} defaultSize={INSPECTOR_WIDTH} onSize={setInspectorWidth} label={t("workflow-goal-workflow-tab-resize-inspector")} />
-        <aside
-          role="complementary"
-          aria-label={t("workflow-goal-workflow-tab-inspector-label")}
-          data-scroll-keep={`workflow:inspector:${stepOf(selected) ?? ""}`}
-          className="shrink-0 overflow-y-auto border-l border-border"
-          style={{ width: fit.right ?? inspectorWidth }}
-        >
-          <Inspector
-            value={value}
-            selected={selected}
-            problems={draftProblems}
-            unreadable={draft ? live.error : null}
-            onChange={draftEdit}
-            onSelect={select}
-            readOnly={!draft}
-            host={{ goal: goal.id }}
-            listeners={heard.data ?? NO_LISTENERS}
-            why={why}
-            run={activeRun}
-            onEdit={!closed && !activeRun && workflow && workflow.origin.origin === "goal" ? () => setDraft(create(bodyOf(workflow))) : undefined}
-            onOpenDesigner={workflow && workflow.origin.origin !== "goal" ? () => navigate({ name: "workflow", id: workflow.id }) : undefined}
-            onChanged={onChanged}
-            onOpenItem={onOpenItem}
-            onDecide={onGoToGate}
-          />
-        </aside>
       </div>
 
       <StartRunDialog
@@ -536,5 +559,33 @@ export function GoalWorkflowTab({
         onDone={onChanged}
       />
     </div>
+
+    {/* The inspector, drawn into the Details pane's Properties panel: the designer's own pane, each step's page keeping its own scroll. */}
+    <PropertiesPortal>
+      <div ref={propsRoot} className="flex min-h-0 flex-1 flex-col">
+        <div data-scroll-keep={propertiesScrollName(selected)} className="min-h-0 flex-1 overflow-y-auto">
+          <Inspector
+            value={value}
+            selected={selected}
+            problems={draftProblems}
+            unreadable={draft ? live.error : null}
+            onChange={draftEdit}
+            onSelect={select}
+            readOnly={!draft}
+            host={{ goal: goal.id }}
+            listeners={heard.data ?? NO_LISTENERS}
+            why={why}
+            run={activeRun}
+            onEdit={!closed && !activeRun && workflow && workflow.origin.origin === "goal" ? () => setDraft(create(bodyOf(workflow))) : undefined}
+            onOpenDesigner={workflow && workflow.origin.origin !== "goal" ? () => navigate({ name: "workflow", id: workflow.id }) : undefined}
+            onRenamed={(from, to) => moveKeptScroll(place, propertiesScrollName(stepSelection(from)), propertiesScrollName(stepSelection(to)))}
+            onChanged={onChanged}
+            onOpenItem={onOpenItem}
+            onDecide={onGoToGate}
+          />
+        </div>
+      </div>
+    </PropertiesPortal>
+    </>
   );
 }

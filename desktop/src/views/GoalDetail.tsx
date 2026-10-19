@@ -405,7 +405,7 @@ export default function GoalDetail({ id }: { id: string }) {
 
       <AuxPortal>
         {aux.kind === "inspector" && (
-          <GoalInspector view={data} frozen={panelFrozen(run, runs)} onOpenItem={openItem} onWorkChanged={refreshAll} />
+          <GoalInspector view={data} frozen={panelFrozen(run, runs)} properties={tab === "workflow"} onOpenItem={openItem} onWorkChanged={refreshAll} />
         )}
         {aux.kind === "session" && aux.id && <WorkItemPanel itemId={aux.id} />}
       </AuxPortal>

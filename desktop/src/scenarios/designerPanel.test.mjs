@@ -39,7 +39,8 @@ test("the canvas reports every pick through xyflow's own listener, marks selecte
   assert.ok(canvas.includes("if (!ready.current) return;") && canvas.includes("if (samePick(pick, pickRef.current)) return;"), "the mount's call and the echo of the props are no pick");
   assert.ok(canvas.includes("selected: e.selected,"), "an edge carries its selection to the mirror");
   assert.ok(canvas.includes('mod && !e.shiftKey && e.key.toLowerCase() === "d"'), "Mod+Shift+D is a keymap chord, not a duplicate");
-  assert.ok(canvas.includes('onSelect?.({ nodes: [], edges: [] })'), "Escape clears through the same door");
+  const escape = canvas.slice(canvas.indexOf('if (e.key === "Escape") {'), canvas.indexOf("if (readOnly) return;"));
+  assert.ok(escape.includes("e.stopPropagation();") && escape.includes("onSelect?.({ nodes: [], edges: [] })") && escape.includes("liveNodes.some((n) => n.selected) || liveEdges.some((x) => x.selected)"), "Escape belongs to the selection first — cleared through the same door and stopped there, so the shell never closes the pane on that press — and precedes the read-only gate, since a pick is not an edit");
   const designer = src("views/_workflow/Designer.tsx");
   assert.ok(designer.includes("onSelect(selectionOf(pick))") && designer.includes("selectionAfterDelete(selected, gone.nodes, gone.edges)") && designer.includes("removeFlow(next, flowRefOf(e))"), "the designer turns a pick into the shared value, and a delete leaves what remains picked");
   assert.ok(designer.includes("marked.nodes.includes(n.id)") && designer.includes("marked.edges.includes(e.id)"), "nodes and edges are marked from the one value");
@@ -56,9 +57,26 @@ test("the hosts share the selection, coalesce a typed burst, land undo where the
   assert.ok(screen.includes("<ResizeHandle side=\"left\" size={fit.right ?? panelWidth}"), "the handle drags from the width drawn now");
   assert.ok(screen.includes("why={{ runningIn: running }}"), "the designer hands its one reason in");
   const tab = src("views/_workflow/GoalWorkflowTab.tsx");
-  assert.ok(tab.includes('role="complementary"') && tab.includes('aria-label={t("workflow-goal-workflow-tab-inspector-label")}') && tab.includes("data-scroll-keep={`workflow:inspector:${stepOf(selected) ?? \"\"}`}"), "the goal's column is a named landmark that keeps each step's scroll");
-  assert.ok(tab.includes('const INSPECTOR_KEY = "bisa.goal.workflow.inspector.width";') && tab.includes("useStoredSize(INSPECTOR_KEY, INSPECTOR_WIDTH, { min: INSPECTOR_MIN, max: INSPECTOR_MAX })") && tab.includes("<ResizeHandle side=\"left\" size={fit.right ?? inspectorWidth}"), "and is resizable, its width kept");
+  // One right pane on the goal screen: the tab's inspector is the Details pane's Properties panel, filled through the slot the panel publishes.
+  assert.ok(!tab.includes('role="complementary"') && !tab.includes("bisa.goal.workflow.inspector.width") && !tab.includes("useStoredSize(") && !tab.includes("<ResizeHandle"), "the tab draws no column of its own and keeps no width");
+  assert.equal((tab.match(/<PropertiesPortal>/g) ?? []).length, 3, "the Properties panel is filled in every state the tab draws — never an empty fifth tab");
+  assert.ok(tab.includes("<div ref={propsRoot} className=\"flex min-h-0 flex-1 flex-col\">") && tab.includes("data-scroll-keep={propertiesScrollName(selected)}") && tab.includes("useViewScroll(propsRoot, `${place}#workflow:inspector:${slot ? \"shown\" : \"closed\"}:${propertiesScrollName(selected)}`, place)"), "the tab owns the Properties scroll, each step's page its own, restored when the slot appears");
+  assert.ok(tab.includes("propertiesReveal({ kind: aux.kind, panel: insp }, selected)") && tab.includes("setSearch(patch, { replace: true })") && tab.includes("if (sameSelection(revealed.current, selected)) return;"), "a pick shows Properties — replaced, never pushed — and the pick remembered at mount is no new pick");
+  assert.ok(tab.includes("onRenamed={(from, to) => moveKeptScroll(place, propertiesScrollName(stepSelection(from)), propertiesScrollName(stepSelection(to)))}"), "a rename carries the kept scroll");
   assert.ok(!tab.includes("<ProblemsList") && !tab.includes("JSON.stringify(record.output") && !tab.includes("<StepActions"), "no second Problems block, no raw output strip, no actions above the step's own page: the Inspector draws them");
+  const pane = src("views/_work/GoalInspector.tsx");
+  const propertiesBody = pane.slice(pane.indexOf('{panel === "properties" ? ('), pane.indexOf(") : (", pane.indexOf('{panel === "properties" ? (')));
+  assert.ok(propertiesBody.includes("<div ref={publishPropertiesSlot} className=\"flex min-h-0 flex-1 flex-col\" />") && !propertiesBody.includes("FROZEN_HINT") && !propertiesBody.includes("px-4"), "the Properties panel is the slot alone: no pane padding, no frozen hint over the Inspector's own note");
+  assert.equal((pane.match(/publishPropertiesSlot/g) ?? []).length, 2, "the ref is the module's function itself, once — an inline arrow would remount the inspector every render");
+  assert.ok(pane.includes("panelsFor({ properties })") && pane.includes("panelOf(param, offered)") && pane.includes("panelTabs(offered, { work: work_items.length })"), "the pane offers Properties when told, and its tabs are the model's");
+  assert.ok(src("views/GoalDetail.tsx").includes('properties={tab === "workflow"}'), "Properties is offered while the Workflow tab shows");
+  const slot = src("views/_goal/propertiesSlot.ts");
+  assert.ok(slot.includes("createSlot<HTMLElement>()") && slot.includes("useSyncExternalStore(slot.subscribe, slot.current, () => null)"), "the slot is a published fact, read as the Details pane's own is");
+  assert.ok(src("views/_goal/PropertiesPortal.tsx").includes("createPortal(children, slot)"), "and the tab fills it through a portal");
+  const canvas = src("ui/FlowCanvas.tsx");
+  assert.ok(canvas.includes("picked.current = liveNodes.find((n) => n.selected)?.id ?? null;") && canvas.includes("timer = setTimeout(() => centreOn(id), 60);") && canvas.includes("if (next === width) return;"), "a picked node stays in view when the canvas's room changes — the pane opening on a pick — at the person's zoom; nothing picked, nothing moves");
+  const nothingYet = tab.slice(tab.indexOf('{designs(mode) ? ('), tab.indexOf("</PropertiesPortal>", tab.indexOf('{designs(mode) ? (')));
+  assert.ok(nothingYet.includes('t("workflow-goal-workflow-tab-draw-steps")') && nothingYet.includes("closed ? null :"), "the empty Properties page offers the door its sentence names on a manual goal, none on a closed one");
   assert.ok(tab.includes("push(h, next, { selection: selected, at: Date.now(), token })") && tab.includes("select(next.landed as Selection)"), "the draft's history is stamped and undo lands");
   assert.ok(tab.includes("why={why}") && tab.includes("runFinished: !!activeRun && !runLive") && tab.includes("onOpenDesigner={workflow && workflow.origin.origin !== \"goal\" ? () => navigate({ name: \"workflow\", id: workflow.id }) : undefined}"), "every read-only state has its reason, a library workflow its door to the designer");
   assert.ok(tab.includes("const kept = storedSelection(sel);") && tab.includes("setTransient(kept === null ? sel : null);"), "a step is the memory's; a flow or a box is the tab's for the moment");

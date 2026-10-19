@@ -49,7 +49,8 @@ import { AssigneePicker, AssigneeTag, AssigneeTags, useAssigneeOptions } from ".
 import { DocumentsCard } from "./DocumentsCard";
 import { ProjectDot, projectIsGit } from "./ProjectDetail";
 import { madeByGoal, stepOf } from "./projectOriginModel.mjs";
-import { designLine, originChips, panelOf, projectsWords, runCardWords, spendWords, workstreamWord, type Panel } from "./goalInspectorModel.mjs";
+import { designLine, originChips, panelOf, panelTabs, panelsFor, projectsWords, runCardWords, spendWords, workstreamWord, type Panel } from "./goalInspectorModel.mjs";
+import { publishPropertiesSlot } from "../_goal/propertiesSlot";
 import { headline } from "./workItemRowModel.mjs";
 import { stateLabel as workstreamStateLabel } from "./workstreamCardModel.mjs";
 import { assigneeWire } from "./types";
@@ -308,12 +309,15 @@ const NO_FOLDERS: string[] = [];
 export function GoalInspector({
   view,
   frozen,
+  properties = false,
   onOpenItem,
   onWorkChanged,
 }: {
   view: GoalView;
   /** A run is going: every control is read-only until it finishes (`runControl.mjs`). */
   frozen: boolean;
+  /** The Workflow tab shows: its **Properties** panel is offered, and filled by the tab through `_goal/propertiesSlot.ts`. */
+  properties?: boolean;
   onOpenItem: (item: WorkItemSpec) => void;
   /** Kept for the screen that mounts us; the run's changes arrive on the bus. */
   onWorkChanged?: () => void;
@@ -329,7 +333,9 @@ export function GoalInspector({
     setSavingAssignees(false);
   };
   const [param, setParam] = useSearchValue("insp");
-  const panel: Panel = panelOf(param);
+  // Five panels while the Workflow tab shows, four otherwise; a stale `?insp=properties` elsewhere reads as Details.
+  const offered = panelsFor({ properties });
+  const panel: Panel = panelOf(param, offered);
   // `details` is the default, so it is written as the *absence* of the key:
   // a URL that says nothing and a URL that says "details" would otherwise be
   // two history entries for one place.
@@ -344,12 +350,15 @@ export function GoalInspector({
   // The folders the Files tree was left unfolded with, under the goal's place.
   const [openFolders, setOpenFolders] = useViewState(place, "files.open", NO_FOLDERS, wordsValue);
 
-  const tabs: TabDef[] = [
-    { id: "details", label: t("work-goal-inspector-details") },
-    { id: "work", label: t("work-goal-inspector-work"), badge: <CountBadge count={work_items.length} tone="neutral" /> },
-    { id: "projects", label: t("work-goal-inspector-projects") },
-    { id: "files", label: t("work-goal-inspector-files") },
-  ];
+  // Each tab wears a glyph and folds to it in its own turn when the strip is tight (the model's order); the Work badge stays.
+  const tabs: TabDef[] = panelTabs(offered, { work: work_items.length }).map((row) => ({
+    id: row.id,
+    label: row.label,
+    icon: ICON[row.icon as keyof typeof ICON] as typeof ICON.info,
+    fold: row.fold,
+    count: row.count ?? undefined,
+    badge: row.id === "work" ? <CountBadge count={work_items.length} tone="neutral" /> : undefined,
+  }));
 
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col">
@@ -357,6 +366,11 @@ export function GoalInspector({
         <Tabs tabs={tabs} active={panel} onChange={(id) => setPanel(id as Panel)} />
       </div>
 
+      {panel === "properties" ? (
+        // The Workflow tab fills this one (`PropertiesPortal`): its own gutter, its own scrollport and
+        // its own read-only note, so neither the pane's padding nor its frozen hint is laid over it.
+        <div ref={publishPropertiesSlot} className="flex min-h-0 flex-1 flex-col" />
+      ) : (
       <div data-scroll-keep={`insp:${panel}`} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {frozen && (
           <p className="mb-4 flex items-start gap-1.5 rounded-control border border-border bg-surface-2/70 px-3 py-2 text-2xs text-text">
@@ -443,6 +457,7 @@ export function GoalInspector({
 
         {panel === "work" && <WorkPanel items={work_items} onOpenItem={onOpenItem} />}
       </div>
+      )}
     </div>
   );
 }

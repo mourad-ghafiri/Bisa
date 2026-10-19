@@ -41,9 +41,13 @@
  *
  * Keyboard, on the focused canvas only: Delete/Backspace removes the
  * selection, `Mod+D` duplicates it (`Mod+Shift+D` is a keymap chord and is
- * left alone), `Mod+Z` / `Mod+Shift+Z` undo and redo, `Escape` clears the
- * selection. None of these are keymap commands — they are the editor's own,
- * the way a text field owns its arrows.
+ * left alone), `Mod+Z` / `Mod+Shift+Z` undo and redo. `Escape` belongs to
+ * the selection first — on a read-only canvas too, since a pick is not an
+ * edit: with anything picked it clears the pick and stops there, so the
+ * shell, which closes a side pane on the Escape it hears, never hears that
+ * one; with nothing picked it is left to the shell. None of these are
+ * keymap commands — they are the editor's own, the way a text field owns
+ * its arrows.
  *
  * **Where it looks.** A canvas opens on the viewport its caller hands in
  * (`startViewport` — where the person left it), and fitted to the picture
@@ -332,17 +336,25 @@ function Inner<D extends Record<string, unknown>>({
     return () => clearTimeout(t);
   }, [fitKey, flow, opening]);
 
-  // A step was just added: bring it into view without losing the zoom, so a
-  // click-to-add on a big graph never lands off screen.
-  useEffect(() => {
-    if (!reveal) return;
-    const t = setTimeout(() => {
-      const node = flow.getNode(reveal.id);
+  // Bring one node into view at the zoom the person has, once xyflow has
+  // measured it (the timeout): what a step just added asks, and what a
+  // picked step asks when the canvas's room changes.
+  const centreOn = useCallback(
+    (id: string) => {
+      const node = flow.getNode(id);
       if (!node) return;
       const w = node.measured?.width ?? 220;
       const h = node.measured?.height ?? 72;
       void flow.setCenter(node.position.x + w / 2, node.position.y + h / 2, { zoom: flow.getZoom(), duration: 200 });
-    }, 60);
+    },
+    [flow],
+  );
+
+  // A step was just added: bring it into view without losing the zoom, so a
+  // click-to-add on a big graph never lands off screen.
+  useEffect(() => {
+    if (!reveal) return;
+    const t = setTimeout(() => centreOn(reveal.id), 60);
     return () => clearTimeout(t);
     // Keyed on the step and the ask, not the `reveal` object: a caller may
     // hand a fresh one per render, and `flow` is the store's, stable.
@@ -387,6 +399,14 @@ function Inner<D extends Record<string, unknown>>({
   );
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") {
+      if (liveNodes.some((n) => n.selected) || liveEdges.some((x) => x.selected)) {
+        // The first Escape clears the pick and is the canvas's; the next, with nothing picked, is the shell's.
+        e.stopPropagation();
+        onSelect?.({ nodes: [], edges: [] });
+      }
+      return;
+    }
     if (readOnly) return;
     const mod = e.metaKey || e.ctrlKey;
     if (e.key === "Delete" || e.key === "Backspace") {
@@ -406,8 +426,6 @@ function Inner<D extends Record<string, unknown>>({
       e.preventDefault();
       if (e.shiftKey) onRedo?.();
       else onUndo?.();
-    } else if (e.key === "Escape") {
-      onSelect?.({ nodes: [], edges: [] });
     }
   };
 
@@ -432,6 +450,34 @@ function Inner<D extends Record<string, unknown>>({
   // nothing and holds no control is hidden from the tree once xyflow has
   // drawn it. The edges' own svg holds the focusable flows and stays.
   const box = useRef<HTMLDivElement>(null);
+
+  // The canvas's room changed — a side pane opened on a pick, the window
+  // resized — with a node picked: keep it in view at the person's zoom, the
+  // way a step just added is brought into view; a remembered viewport from a
+  // wider canvas would otherwise leave the picked card under the pane's edge.
+  // Nothing picked, nothing moves: the viewport is the person's own.
+  const picked = useRef<string | null>(null);
+  picked.current = liveNodes.find((n) => n.selected)?.id ?? null;
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver(() => {
+      const next = el.clientWidth;
+      if (next === width) return;
+      width = next;
+      const id = picked.current;
+      if (!id) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => centreOn(id), 60);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+    };
+  }, [centreOn]);
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       for (const svg of box.current?.querySelectorAll<SVGElement>("svg") ?? []) {

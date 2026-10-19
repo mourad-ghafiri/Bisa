@@ -19,7 +19,7 @@ destination — the IDE — has a tour of its own, [`the-ide.md`](the-ide.md).
 | **Sidebar** | seven destinations **in the order you put them** — drag a row to a new place, or an icon when the sidebar is collapsed (from the keyboard: Space lifts a focused row, ↑ ↓ move it, Space drops it); the order is remembered on this machine, the palette's *Go to* follows it, a machine that has not closed the app yet opens on the first row, and *Reset order* is under Settings › Appearance — then live sections for channels, direct messages and the workspaces you are a guest of; a *Node unreachable* card at the bottom only while the node is. The **Inbox** row wears a badge — everything not yet dealt with there, accented while any of it needs you. **Collapsed** (the top chrome's toggle), the sidebar is a rail of icons: the same seven doors, then Channels and Messages with their unread summed, each named on hover, the Inbox count in its icon's corner — never out of sight, *9+* past nine, the exact numbers (*12 need you · 3 unread*) on hover; the same toggle expands it again at the width you left it |
 | **Footer** | the window's read-outs — a harness account's usage on the left; the open terminals and live harnesses, the ports, the node, the machine's CPU, GPU, memory and disk, the network, and the two overlays' switches on the right — each a door to its overlay ([§The footer](#the-footer)) |
 | **Main** | a conversation, or a screen |
-| **Aux pane** | one slot on the right: a thread, an agent session's transcript, a profile, the goal inspector, or an artifact with the conversation's gallery under it ([Artifacts](artifacts.md)) |
+| **Aux pane** | one slot on the right: a thread, an agent session's transcript, a profile, the goal inspector (whose *Properties* tab is the Workflow tab's own pane), or an artifact with the conversation's gallery under it ([Artifacts](artifacts.md)) |
 | **Terminal layer** | every open shell and harness, drawn over the workbench's centre while a terminal tab is active there; mounted outside the routed screen, so a build survives navigation |
 | **Notes overlay**, **pet**, **addons** | float over the app; an addon's window ([Addons](addons.md)) is a sandboxed page in a box you drag, at the pet's height. The notes panel is a solid sheet on every theme — on Glass it is frosted and nearly opaque, so the screen behind it never reads through what you are writing |
 
@@ -284,9 +284,10 @@ opens the designer instead. **Conversation** is the goal's thread, where the Wor
 and proposes — one line per proposal, saying whether it started the run (auto), waits for your
 adoption (guided) or left a draft on the canvas (manual). **Workflow** is its run drawn on the
 designer's canvas — each step ringed and chipped with its state, taken flows solid and skipped ones
-dimmed — beside one column, the designer's own panel, resizable: the picked step's record and the
-verbs it admits under *This run*, or why the workflow is read-only and the door that answers it;
-the *Designed for this goal* banner
+dimmed — its inspector the Details pane's **Properties** tab, the designer's own pane: the picked
+step's record and the verbs it admits under *This run*, or why the workflow is read-only and the
+door that answers it; a pick on the canvas shows it, opening the pane if it was closed; the
+*Designed for this goal* banner
 (proposed, not yet adopted, or adopted); before a run, *Edit the steps* opens the design as a draft
 — while a run goes it is not offered: a running workflow is not edited from here. The goal's
 conversation, where `@Workflow Agent` asks for a draft, a step or a fix, is the Conversation tab. The
@@ -353,7 +354,7 @@ after the first unsaved edit), and a save with problems is kept and cannot start
 designer sends the last edits on the way out; quitting with unsaved edits asks first. `Delete` removes the selection — a step, a flow or a box of them, what remains staying picked —, `⌘D` duplicates, `⌘Z` · `⌘⇧Z` undo and redo (a typed word is one undo, and undo lands on the step you were on), `Esc` clears
 — on the focused canvas only. Snapping, the grid and the minimap are `workflow.designer.snap`,
 `workflow.designer.grid` and `workflow.designer.minimap` under **Settings → Automation → Workflows**.
-The inspector's width — the designer's and the goal tab's — and the library's tab are remembered per viewer; the step you picked, where
+The inspector's width and the library's tab are remembered per viewer; the step you picked, where
 the canvas looked and the Agent pane's conversation are remembered per workflow, so leaving for the
 Inbox and coming back by any door — or closing the app and opening it — finds the designer as you
 left it.

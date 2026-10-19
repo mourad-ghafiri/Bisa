@@ -56,7 +56,7 @@ test("side columns give way before the work: the Details pane leaves the screen 
   const designer = read("views/WorkflowDesigner.tsx");
   assert.ok(designer.includes("fitColumns({ total: rowWidth, fixed: 40, rail: PALETTE_WIDTH") && designer.includes("compact={paletteCompact}") && designer.includes("width: fit.right ?? panelWidth"), "the designer's row is fitted as the IDE's is");
   const tab = read("views/_workflow/GoalWorkflowTab.tsx");
-  assert.ok(tab.includes("fitColumns({ total: rowWidth, fixed: HANDLE_WIDTH, rail: PALETTE_WIDTH") && tab.includes("compact={paletteCompact}") && tab.includes("width: fit.right ?? inspectorWidth"), "a goal's Workflow tab is fitted the same way");
+  assert.ok(tab.includes("fitColumns({ total: rowWidth, fixed: 0, rail: PALETTE_WIDTH, railMin: PALETTE_WIDTH, railOpen: draft !== null, right: 0, rightMin: 0, rightOpen: false })") && tab.includes("compact={paletteCompact}") && !tab.includes("<ResizeHandle"), "a goal's Workflow tab fits its palette the same way, and draws no column of its own — its inspector is the Details pane's");
   const palette = read("views/_workflow/Palette.tsx");
   assert.ok(palette.includes('aria-label={compact ? k.label : undefined}') && palette.includes("workflow-palette-named-drag-onto-canvas"), "a folded kind keeps its name for the ear and the tooltip");
   const step = read("views/_goal/StepRow.tsx");

@@ -4,10 +4,24 @@ import type { BudgetSpent, Goal, GoalMode, GuidanceInfo, RunSummary, WorkflowRun
 import type { IconName } from "../../ui/icons";
 import type { Route } from "../../router";
 
-export type Panel = "details" | "work" | "projects" | "files";
+export type Panel = "details" | "work" | "projects" | "files" | "properties";
 
 export declare const PANELS: readonly Panel[];
-export declare function panelOf(raw: unknown): Panel;
+export declare const PROPERTIES: "properties";
+export declare function panelsFor(facts?: { properties?: boolean }): readonly Panel[];
+export declare function panelOf(raw: unknown, offered?: readonly Panel[]): Panel;
+export declare const PANEL_ICON: Readonly<Record<Panel, IconName>>;
+export declare const PANEL_FOLD: Readonly<Record<Panel, number>>;
+export interface PanelTab {
+  id: Panel;
+  label: string;
+  icon: IconName;
+  fold: number;
+  count: number | null;
+}
+export declare function panelTabs(offered: readonly Panel[], counts?: { work?: number }): PanelTab[];
+export declare function propertiesReveal(showing: { kind: string | null | undefined; panel: unknown }, selection: unknown): { aux: "inspector"; auxId: null; insp: "properties" } | null;
+export declare function propertiesScrollName(selection: unknown): string;
 export declare function spendWords(spent: Pick<BudgetSpent, "tokens" | "usd_cents" | "wall_clock_secs"> | null | undefined): string;
 export declare function runCardWords(run: Pick<WorkflowRun, "id" | "workflow" | "outcome" | "cancelled">, runs: readonly RunSummary[] | null | undefined): string;
 export declare const PROJECTS_NAMED: number;

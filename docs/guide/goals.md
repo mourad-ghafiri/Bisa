@@ -113,7 +113,10 @@ was made or started and when it ended, *View* into the Workflow tab wearing that
 of them, never fewer than the runs still to end, and *Show older* brings the next. **Conversation** is the goal's thread; **Workflow** is the canvas, with
 *Edit the steps* before a run and the *Designed for this goal* banner. The Details pane on the right
 keeps the run's card, work, projects, files, assignees and origin — a goal a run's `spawn` step
-captured has a door to that run there.
+captured has a door to that run there — and, while the Workflow tab shows, a fifth tab,
+**Properties**: the designer's own pane for whatever is picked on the canvas — the workflow itself,
+a step, a flow, several. Click a step and the pane shows it, opening if it was closed; `Esc` on the
+canvas clears the pick, and `Esc` again closes the pane.
 
 ## Stopping and restarting
 
@@ -220,9 +223,9 @@ the designer on a blank canvas: draw the steps, or pick a workflow from the libr
 with *Choose workflow…*, and start it. Help is the goal's **Conversation** tab, where `@Workflow
 Agent` asks for a draft of the whole thing, a step, a fix — and what it proposes on a manual goal
 lands as **your draft** on the canvas, never as a gate; `bisa design` is refused on a manual goal by
-name. The tab's column — the designer's own panel — says why the workflow is read-only whenever it
-is (a run going, a finished run, a proposal not adopted, a library workflow) with the door that
-answers it: *Edit the steps*, or *Open in the designer* for a library workflow. `--workflow` on
+name. The Details pane's **Properties** tab — the designer's own pane — says why the workflow is
+read-only whenever it is (a run going, a finished run, a proposal not adopted, a library workflow)
+with the door that answers it: *Edit the steps*, or *Open in the designer* for a library workflow. `--workflow` on
 any mode names the workflow yourself and starts it at once unless `--no-start`.
 
 ## What a run looks like
@@ -302,7 +305,7 @@ run is not amended — an Inbox row with the whole proposal, still there after a
 goal the corrected workflow is adopted and started again without asking — up to `goals.auto.repair_limit` failures, after which the
 next proposal waits for you. While a run is going, the goal's Details pane and its Workflow tab are
 read-only — assignees, documents, files and the workflow itself wait for the run to finish; the
-Workflow tab's column says so, and shows the picked step's record under *This run*.
+Details pane's Properties tab says so, and shows the picked step's record under *This run*.
 A queued run is not the current one: an amendment is the live run's alone, and choosing another
 workflow, proposing or designing waits until nothing is live and nothing is queued.
 

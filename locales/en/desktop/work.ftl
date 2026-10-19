@@ -758,6 +758,7 @@ work-goal-inspector-assignment-cleared = Assignment cleared.
 work-goal-inspector-assignment-saved = Assignment saved.
 work-goal-inspector-copy = copy · { $id }
 work-goal-inspector-details = Details
+work-goal-inspector-properties = Properties
 work-goal-inspector-each-agent-step-run-becomes-one = Each agent step of the run becomes one when it starts. Add a step on the Workflow tab.
 work-goal-inspector-files = Files
 work-goal-inspector-git = git

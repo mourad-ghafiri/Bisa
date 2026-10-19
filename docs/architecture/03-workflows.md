@@ -1229,9 +1229,23 @@ keeps seventeen promises the model relies on:
   replaces the head, and a structural edit never merges. The panel is stable while it is typed in:
   one keyed fragment per step, every edit through `commit` → `withPositions`, a blur-commit field
   landing its draft on the way out (`ui/useCommitOnUnmount`), a rename carrying the kept scroll to the
-  new id (`designerMemoryStore.moveKeptScroll`). The goal's column is a `complementary` landmark,
-  *Workflow inspector*, resizable from its edge (`bisa.goal.workflow.inspector.width`: 320, from 240
-  to 560), each step's scroll its own.
+  new id (`designerMemoryStore.moveKeptScroll`). **The goal screen has one right pane**: the tab's
+  inspector is the Details pane's **Properties** panel (`views/_work/goalInspectorModel.mjs`
+  `panelsFor` · `panelOf` · `panelTabs` · `propertiesReveal`), offered while the Workflow tab shows
+  and filled by the tab through the slot the panel publishes (`views/_goal/propertiesSlot.ts`, the
+  shape of `shell/auxSlot.ts`; `PropertiesPortal`) — the tab keeps ownership of its editing session
+  and only draws where the pane offers room; the pane's width is the shell's (`bisa.aux.width`,
+  `auxPaneModel`), so the canvas keeps `SCREEN_MIN_WIDTH` and never a second column of the tab's own
+  beside the pane. A pick shows Properties — opening the pane if it was closed, switching it if it
+  was elsewhere, by the designer's own `paneForSelection`; the pick remembered at mount is no new
+  pick; replaced in the address, never pushed. On the focused canvas Escape belongs to the
+  selection first (`FlowCanvas`: cleared and stopped there, on a run's read-only canvas too) and
+  closes the pane only when nothing is picked. A picked node stays in view when the canvas's room
+  changes — the pane opening on the pick narrows the canvas — centred at the person's zoom
+  (`FlowCanvas`'s resize rule, the same door a step just added uses); nothing picked, nothing
+  moves. Each step's page keeps its own scroll under the tab's own hook, restored when the slot
+  appears; the empty Properties page on a manual goal offers *Draw the steps*, on a designed one
+  says the Workflow Agent is at it.
 - **The designer comes back where it was left.** The screen is keyed by its route, and every door
   back to it — the library's card, the Inbox, the Pulse, a conversation's chip — opens a bare
   `#/workflows/<id>`; so it remembers, per workflow, across leaving it and across a restart
