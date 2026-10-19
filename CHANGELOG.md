@@ -10,6 +10,21 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- A **Bug hunt** built-in addon: a see-through scene over the whole desktop app on which
+  spiders, cockroaches, beetles, ants, flies, mosquitoes and crickets walk, dart, fly and hop
+  while the app keeps working underneath — the more things are running, the more that crawl. A
+  strip at the right holds the tools (whip, flyswatter, slipper, newspaper, spray, squeegee), the
+  score and streak, the Hunt/Work switch, the difficulty, a mute switch and the exit; while hunting
+  the tool is in your hand — it follows the pointer, swings and lands with a shock ring, the
+  insect's droplets flung along the swing, glass dust on a miss and the points earned rising; the
+  whip's lash trails the hand and cracks on release, the squeegee drags a wet band; a hit splats,
+  a miss cracks or scratches the glass, the squeegee wipes, `Esc` hands the app the pointer back
+  (`library/addons/bug-hunt/`). It rides on one addition to the addon contract: a third window
+  kind, `frame: "scene"` — the whole desktop under the chrome, click-through in work mode but for
+  the regions the page calls solid, the pointer's in hunt mode, never dragged, resized or cut as a
+  whole from the browser layer — with three bridge methods (`scene.mode`, `scene.solid`,
+  `scene.release`) and one event (`scene`) (`crates/bisa-core/src/addon.rs`,
+  `desktop/src/addons/AddonScene.tsx`, `addonSceneModel.mjs`, `addons/sdk/`).
 - A **Media player** built-in addon: drop or open an audio or video file, paste an `https://`
   link, or paste a YouTube URL — sound as a scrolling spectrogram with a level meter, video on the
   stage, YouTube through YouTube's own player beside the window, the last twenty sources one pick

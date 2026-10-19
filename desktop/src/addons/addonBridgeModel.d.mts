@@ -17,17 +17,21 @@ export const MAX_TITLE_CHARS: number;
 export const MAX_FETCH_BODY_BYTES: number;
 export const STORAGE_KEY_PREFIX: string;
 export const MIN_PLAYER_SIDE: number;
+export type SceneMode = "work" | "hunt";
+export const SCENE_MODES: readonly SceneMode[];
+export const MAX_SOLID_RECTS: number;
+export const MAX_SOLID_RADIUS: number;
 
 export type PermissionWord = "platform_info" | "theme" | "system_load" | "workspace_summary" | "notify" | "clipboard_write" | "storage" | "network" | "open_url" | "navigate" | "media";
 export const PERMISSIONS: readonly PermissionWord[];
 
 export interface MethodSpec {
   permission: PermissionWord | null;
-  needs?: "resizable" | "closable";
+  needs?: "resizable" | "closable" | "scene";
 }
 export const METHODS: Readonly<Record<string, MethodSpec>>;
 export const METHOD_NAMES: readonly string[];
-export type AddonEvent = "theme" | "system.load" | "workspace.summary" | "visibility" | "media";
+export type AddonEvent = "theme" | "system.load" | "workspace.summary" | "visibility" | "media" | "scene";
 export const EVENTS: readonly AddonEvent[];
 export const ADDON_ROUTES: readonly string[];
 export type RefusalCode = "not_ready" | "unknown_method" | "permission" | "not_allowed" | "bad_params" | "too_large" | "rate_limited" | "quota" | "unavailable" | "refused";
@@ -50,6 +54,18 @@ export interface PlayerBox {
 }
 export function isVideoId(s: unknown): s is string;
 export function playerBox(value: unknown): PlayerBox | null;
+/** A solid region of a scene, from its top-left, in its own CSS pixels, with the corner radius the host rounds it by. */
+export interface SceneRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  radius: number;
+}
+export function frameOf(w: unknown): "bar" | "none" | "scene";
+export function windowAllows(w: SessionWindow, need: string): boolean;
+export function sceneRect(value: unknown): SceneRect | null;
+export function sceneRects(value: unknown): SceneRect[] | null;
 export function permissionWords(permissions: readonly unknown[]): PermissionWord[];
 export function cut(s: unknown, max: number): string;
 
@@ -66,7 +82,7 @@ export interface SessionWindow {
   resizable: boolean;
   closable: boolean;
   transparent: boolean;
-  frame: "bar" | "none";
+  frame: "bar" | "none" | "scene";
 }
 export interface AddonSession {
   id: string;
@@ -126,7 +142,10 @@ export type Effect =
   | { type: "title"; title: string }
   | { type: "media_embed"; video: string; box: PlayerBox }
   | { type: "media_box"; box: PlayerBox }
-  | { type: "media_remove" };
+  | { type: "media_remove" }
+  | { type: "scene_mode"; mode: SceneMode }
+  | { type: "scene_solid"; rects: SceneRect[] }
+  | { type: "scene_release" };
 
 export interface CallContext {
   now: number;

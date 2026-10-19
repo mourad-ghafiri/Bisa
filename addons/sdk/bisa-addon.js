@@ -48,10 +48,13 @@
     "media.embed",
     "media.box",
     "media.remove",
+    "scene.mode",
+    "scene.solid",
+    "scene.release",
   ];
 
   /** The topics the host pushes. */
-  var EVENTS = ["theme", "system.load", "workspace.summary", "visibility", "media"];
+  var EVENTS = ["theme", "system.load", "workspace.summary", "visibility", "media", "scene"];
 
   var parent = global.parent;
   var hello = null;
@@ -266,6 +269,17 @@
       },
       remove: function () {
         return call("media.remove", {});
+      },
+    },
+    scene: {
+      mode: function (opts) {
+        return call("scene.mode", typeof opts === "string" ? { mode: opts } : opts);
+      },
+      solid: function (opts) {
+        return call("scene.solid", Array.isArray(opts) ? { rects: opts } : opts);
+      },
+      release: function () {
+        return call("scene.release", {});
       },
     },
   };

@@ -8,6 +8,8 @@ import {
   MAX_NOTIFY_BODY_CHARS,
   MAX_NOTIFY_TITLE_CHARS,
   MAX_PARAMS_BYTES,
+  MAX_SOLID_RADIUS,
+  MAX_SOLID_RECTS,
   MAX_STORAGE_KEY_CHARS,
   METHODS,
   METHOD_NAMES,
@@ -20,6 +22,7 @@ import {
   errorReply,
   eventMessage,
   fetchResult,
+  frameOf,
   handleCall,
   helloMessage,
   isVideoId,
@@ -32,9 +35,12 @@ import {
   playerBox,
   refusal,
   refusalWords,
+  sceneRect,
+  sceneRects,
   storageBag,
   storageBytes,
   storageSet,
+  windowAllows,
 } from "./addonBridgeModel.mjs";
 import { ROUTE_NAMES } from "../routeModel.mjs";
 
@@ -50,7 +56,7 @@ const ready = (a = addon()) => ({ ...newSession(a), ready: true });
 const call = (method, params = {}, id = "c1") => ({ id, method, params });
 
 test("the registry names every method's permission, and the routes are real screens", () => {
-  assert.equal(METHOD_NAMES.length, 20);
+  assert.equal(METHOD_NAMES.length, 23);
   for (const name of METHOD_NAMES) assert.ok(name in METHODS);
   for (const spec of Object.values(METHODS)) assert.ok(spec.permission === null || PERMISSIONS.includes(spec.permission), JSON.stringify(spec));
   assert.equal(METHODS["window.resize"].needs, "resizable");
@@ -58,7 +64,7 @@ test("the registry names every method's permission, and the routes are real scre
   for (const route of ADDON_ROUTES) assert.ok(ROUTE_NAMES.includes(route), route);
   assert.ok(!ADDON_ROUTES.includes("goal") && !ADDON_ROUTES.includes("workbench"), "never a record's page");
   assert.deepEqual([...ADDON_ROUTES], ["inbox", "goals", "pulse", "workflows", "projects", "channels", "messages", "agents", "teams", "settings"], "ten screens; the Triggers screen is gone");
-  assert.deepEqual([...EVENTS], ["theme", "system.load", "workspace.summary", "visibility", "media"]);
+  assert.deepEqual([...EVENTS], ["theme", "system.load", "workspace.summary", "visibility", "media", "scene"]);
   assert.ok(Object.isFrozen(EVENTS) && Object.isFrozen(METHODS));
 });
 
@@ -270,4 +276,45 @@ test("an embed names an eleven-character video and a box no smaller than the pol
   assert.deepEqual(playerBox({ ...box, extra: 1 }), box, "only the four numbers are kept");
   assert.deepEqual(paramsOf("media.box", { box }), { ok: true, value: { box } });
   assert.deepEqual(paramsOf("media.remove", { anything: 1 }), { ok: true, value: {} });
+});
+
+test("a scene's methods need a scene; its session is never resizable and always see-through; its regions are whole and few", () => {
+  for (const m of ["scene.mode", "scene.solid", "scene.release"]) assert.equal(METHODS[m].needs, "scene", m);
+  assert.equal(frameOf({ frame: "scene" }), "scene");
+  assert.equal(frameOf({ frame: "none" }), "none");
+  assert.equal(frameOf({}), "bar");
+  assert.equal(frameOf(null), "bar");
+  assert.equal(frameOf({ frame: "glass" }), "bar", "a word the manifest's rules refuse reads as a bar");
+  const bar = ready(addon());
+  assert.equal(handleCall(bar, call("scene.mode", { mode: "hunt" }), ctx()).reply.error.code, "not_allowed", "a window is no scene");
+  const scene = ready(addon([], { frame: "scene", resizable: true, transparent: false }));
+  assert.deepEqual(scene.window, { width: 200, height: 120, resizable: false, closable: true, transparent: true, frame: "scene" });
+  assert.equal(handleCall(scene, call("window.resize", { width: 1, height: 1 }), ctx()).reply.error.code, "not_allowed", "a scene is never resized");
+  const mode = handleCall(scene, call("scene.mode", { mode: "hunt" }), ctx());
+  assert.deepEqual(mode.reply.result, { mode: "hunt" });
+  assert.deepEqual(mode.effect, { type: "scene_mode", mode: "hunt" });
+  assert.deepEqual(paramsOf("scene.mode", { mode: "fly" }), { ok: false, code: "bad_params" });
+  assert.deepEqual(paramsOf("scene.mode", {}), { ok: false, code: "bad_params" });
+  const rect = { x: 960, y: 200, width: 56, height: 300 };
+  const solid = handleCall(scene, call("scene.solid", { rects: [rect] }), ctx());
+  assert.deepEqual(solid.effect, { type: "scene_solid", rects: [{ ...rect, radius: 0 }] });
+  assert.deepEqual(solid.reply.result, { set: true });
+  assert.deepEqual(handleCall(scene, call("scene.release"), ctx()).effect, { type: "scene_release" });
+  assert.deepEqual(handleCall(scene, call("scene.release"), ctx()).reply.result, { released: true });
+  assert.deepEqual(sceneRects([]), [], "no solid region is a fine answer");
+  assert.equal(MAX_SOLID_RECTS, 8);
+  assert.equal(sceneRects(Array(MAX_SOLID_RECTS + 1).fill(rect)), null, "nine is too many");
+  assert.equal(sceneRects(Array(MAX_SOLID_RECTS).fill(rect)).length, 8);
+  for (const bad of [{ ...rect, width: 0 }, { ...rect, height: 0 }, { ...rect, x: -1 }, { ...rect, y: 1.5 }, { ...rect, radius: -1 }, { ...rect, radius: "8" }, null, "x"]) {
+    assert.equal(sceneRect(bad), null, JSON.stringify(bad));
+  }
+  assert.equal(sceneRects("x"), null);
+  assert.equal(sceneRects([rect, { ...rect, width: 0 }]), null, "one bad region refuses the list");
+  assert.equal(sceneRect({ ...rect, radius: 999 }).radius, MAX_SOLID_RADIUS, "the corner is capped");
+  assert.deepEqual(paramsOf("scene.solid", { rects: "x" }), { ok: false, code: "bad_params" });
+  assert.equal(windowAllows(scene.window, "closable"), true);
+  assert.equal(windowAllows(scene.window, "resizable"), false);
+  assert.equal(windowAllows(bar.window, "scene"), false);
+  assert.equal(windowAllows(bar.window, "flying"), false, "a need the registry does not know allows nothing");
+  assert.equal(eventMessage("scene", { mode: "work" }).topic, "scene");
 });

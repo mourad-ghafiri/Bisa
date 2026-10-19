@@ -1,0 +1,215 @@
+/* The glass is the stage: nothing is painted but what lives on the pane —
+   the insects, the marks they earn or leave, and one solid strip in the
+   built-ins' chrome. The body is transparent and the page never scrolls.
+   Every insect wears a rim the scheme picks, so soot and umber read on a
+   dark field and slate reads on a light one. */
+:root { --ink: #1c1917; --dim: #78716c; --accent: #b45309; --key: rgba(28, 25, 23, 0.06); --line: rgba(28, 25, 23, 0.14); --surface: rgba(250, 250, 249, 0.86); --rim: rgba(0, 0, 0, 0.38); --crack: rgba(255, 255, 255, 0.86); --crack-under: rgba(0, 0, 0, 0.3); --core: rgba(255, 255, 255, 0.4); --smear: rgba(255, 255, 255, 0.16); }
+:root[data-scheme="dark"] { --ink: #f5f5f4; --dim: #a8a29e; --accent: #fbbf24; --key: rgba(245, 245, 244, 0.08); --line: rgba(245, 245, 244, 0.16); --surface: rgba(28, 25, 23, 0.86); --rim: rgba(245, 245, 244, 0.6); --crack: rgba(255, 255, 255, 0.8); --crack-under: rgba(0, 0, 0, 0.45); --core: rgba(255, 255, 255, 0.3); --smear: rgba(255, 255, 255, 0.1); }
+/* An author `display` beats the UA's `[hidden]`: the fence, so `hidden` always hides. */
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; font: 12px/1.4 system-ui, sans-serif; color: var(--ink); }
+button { font: inherit; color: inherit; }
+/* The symbol sheet: present, so its gradients resolve, and no size at all. */
+.sheet { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* --- the glass ----------------------------------------------------------- */
+.glass { position: absolute; inset: 0; overflow: hidden; }
+.bugs, .marks, .fx, .trail { position: absolute; inset: 0; width: 100%; height: 100%; }
+.marks, .fx, .trail { overflow: visible; pointer-events: none; }
+/* A blow shakes the glass for a blink, as hard as the tool is heavy. */
+body.shake .glass { animation: shake 120ms linear; }
+@keyframes shake { 0% { transform: translate(0, 0); } 25% { transform: translate(var(--shake, 3px), calc(var(--shake, 3px) * -0.7)); } 50% { transform: translate(calc(var(--shake, 3px) * -1), calc(var(--shake, 3px) * 0.7)); } 75% { transform: translate(calc(var(--shake, 3px) * 0.6), calc(var(--shake, 3px) * 0.3)); } 100% { transform: translate(0, 0); } }
+
+/* --- the insects --------------------------------------------------------- */
+.bug { position: absolute; left: 0; top: 0; width: var(--size); height: var(--size); margin: calc(var(--size) / -2) 0 0 calc(var(--size) / -2); will-change: transform; color: var(--color); }
+.bug svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transform: translateY(calc(var(--z, 0) * -0.6px)) scale(calc(1 + var(--z, 0) / 90)); filter: drop-shadow(0 0 0.6px var(--rim)); }
+.bug .shadow { position: absolute; left: 22%; top: 28%; width: 56%; height: 50%; border-radius: 50%; background: rgba(0, 0, 0, 0.26); filter: blur(2px); transform: translate(calc(var(--z, 0) * 0.45px), calc(var(--z, 0) * 0.85px)) scale(calc(1 + var(--z, 0) / 70)); opacity: 0; transition: opacity 120ms; }
+.bug[data-airborne="true"] .shadow { opacity: 1; }
+.leg, .hind, .wing, .ghost, .antenna, .body, .palp { transform-box: view-box; }
+.leg, .hind { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.hind { stroke-width: 2.1; }
+.thin .leg { stroke-width: 0.9; }
+.shell { stroke: var(--rim); stroke-width: 0.6; }
+.ghost { opacity: 0; }
+/* A walk: the legs stride in tripods at the pace the speed sets, the body sways with them. */
+.bug[data-state="walk"] .leg, .bug[data-state="dart"] .leg, .bug[data-state="hover"] .leg { animation: stride var(--stride, 220ms) ease-in-out infinite; }
+.leg-b { animation-delay: calc(var(--stride, 220ms) / -2); }
+.bug[data-state="hover"] .leg { animation-duration: 700ms; }
+@keyframes stride { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+.bug[data-state="walk"] .body, .bug[data-state="dart"] .body { animation: sway var(--stride, 220ms) ease-in-out infinite; }
+@keyframes sway { 0%, 100% { transform: rotate(-1.6deg) translateX(0.2px); } 50% { transform: rotate(1.6deg) translateX(-0.2px); } }
+/* The antennae feel the air whatever the insect does. */
+.antenna { animation: feel 1.5s ease-in-out infinite alternate; }
+.antenna-b { animation-delay: -0.75s; }
+@keyframes feel { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
+/* Flight: the wings beat too fast to see, so they blur — a ghost beats against them. */
+.bug[data-state="fly"] .wing, .bug[data-state="hover"] .wing { animation: flutter 48ms linear infinite alternate; }
+.bug[data-state="fly"] .ghost, .bug[data-state="hover"] .ghost { opacity: 1; animation: flutter 48ms linear infinite alternate-reverse; }
+@keyframes flutter { from { transform: scaleY(1); } to { transform: scaleY(0.25); } }
+/* A hop: the hind legs kick out and fold back. */
+.bug[data-state="jump"] .hind { animation: kick 550ms ease-out; }
+.bug[data-state="jump"] .hind + .hind { animation-name: kick-b; }
+@keyframes kick { 0% { transform: rotate(0deg); } 18% { transform: rotate(34deg); } 60% { transform: rotate(-12deg); } 100% { transform: rotate(0deg); } }
+@keyframes kick-b { 0% { transform: rotate(0deg); } 18% { transform: rotate(-34deg); } 60% { transform: rotate(12deg); } 100% { transform: rotate(0deg); } }
+/* Struck and alive: a stagger. Struck and dead: flattened, the legs curl, then gone. */
+.bug[data-state="hit"] .body { animation: stagger 200ms ease-out; }
+@keyframes stagger { 0% { transform: scale(1.18) rotate(10deg); } 100% { transform: scale(1) rotate(0deg); } }
+.bug[data-state="dead"] { animation: squash 520ms ease-out forwards; }
+.bug[data-state="dead"] .shadow { opacity: 0; }
+.bug[data-state="dead"] .leg, .bug[data-state="dead"] .hind { animation: curl 420ms ease-out forwards; }
+.bug[data-state="dead"] .antenna { animation: none; }
+@keyframes squash { 0% { transform: var(--pose) scale(1); opacity: 1; } 30% { transform: var(--pose) scale(1.35, 0.5); opacity: 1; } 70% { transform: var(--pose) scale(1.25, 0.42); opacity: 0.9; } 100% { transform: var(--pose) scale(1.2, 0.4); opacity: 0; } }
+@keyframes curl { to { transform: scale(0.5) rotate(18deg); } }
+/* The tool tells the death: a sole or a rolled paper flattens, a lash cuts and spins, a spray keels the insect onto its back. */
+.bug[data-state="dead"][data-by="slipper"], .bug[data-state="dead"][data-by="newspaper"] { animation-name: flatten; }
+@keyframes flatten { 0% { transform: var(--pose) scale(1); opacity: 1; } 22% { transform: var(--pose) scale(1.5, 0.3); opacity: 1; } 70% { transform: var(--pose) scale(1.42, 0.28); opacity: 0.9; } 100% { transform: var(--pose) scale(1.36, 0.26); opacity: 0; } }
+.bug[data-state="dead"][data-by="whip"] { animation-name: cut; }
+@keyframes cut { 0% { transform: var(--pose) scale(1); opacity: 1; } 30% { transform: var(--pose) scale(1.1, 0.75) rotate(28deg); opacity: 1; } 100% { transform: var(--pose) scale(1.05, 0.7) rotate(44deg); opacity: 0; } }
+.bug[data-state="dead"][data-by="spray"] { animation-name: keel; }
+@keyframes keel { 0% { transform: var(--pose) scale(1); opacity: 1; } 45% { transform: var(--pose) scaleY(-1) scale(0.96); opacity: 1; } 100% { transform: var(--pose) scaleY(-1) scale(0.92); opacity: 0; } }
+
+/* --- the marks ----------------------------------------------------------- */
+.mark { transition: opacity 400ms linear; }
+.mark-crack .under, .mark-scratch .under { fill: none; stroke: var(--crack-under); stroke-linecap: round; stroke-linejoin: round; }
+.mark-crack .over, .mark-scratch .over { fill: none; stroke: var(--crack); stroke-linecap: round; stroke-linejoin: round; }
+.mark-crack .ring-under { fill: none; stroke: var(--crack-under); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+.mark-crack .ring-over { fill: none; stroke: var(--crack); stroke-width: 0.55; stroke-linecap: round; stroke-linejoin: round; }
+.mark-crack .core { fill: var(--core); stroke: var(--crack-under); stroke-width: 0.8; }
+.mark-crack .core-glint { fill: rgba(255, 255, 255, 0.7); }
+.mark-scratch .chip { fill: var(--crack); stroke: var(--crack-under); stroke-width: 0.5; }
+.mark-splat { transform-box: fill-box; transform-origin: center; animation: pop 220ms cubic-bezier(0.2, 0.9, 0.3, 1); }
+.mark-splat .drop { opacity: 0.9; }
+.mark-splat .heart { opacity: 0.95; }
+.mark-splat .streak { fill: none; stroke-linecap: round; opacity: 0.8; }
+.mark-splat .limb { fill: none; stroke-linecap: round; stroke-width: 1.2; opacity: 0.85; }
+.mark-splat .shine { fill: rgba(255, 255, 255, 0.4); }
+@keyframes pop { from { transform: scale(0.4); } to { transform: scale(1); } }
+.mark-mist ellipse { fill: rgba(222, 232, 242, 0.42); stroke: rgba(255, 255, 255, 0.35); stroke-width: 0.4; transform-box: fill-box; transform-origin: center; animation: spread 360ms ease-out both; animation-delay: calc(var(--d, 0) * 140ms); }
+@keyframes spread { from { transform: scale(0.2); opacity: 0.95; } to { transform: scale(1); opacity: 1; } }
+.mark-smear .wet { fill: none; stroke: var(--smear); stroke-linecap: round; stroke-linejoin: round; }
+.mark-smear .edge { fill: none; stroke: rgba(255, 255, 255, 0.28); stroke-width: 0.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* --- the tool in hand ------------------------------------------------------------
+   In hunt mode the pointer is the tool itself: a 128-square whose business end
+   sits on the pointer, lit from above-left, its shadow on the glass beneath.
+   Each tool rests in its own pose and swings in its own way; the strike lands
+   where the keyframes touch the glass. */
+.hand { position: absolute; left: 0; top: 0; width: 128px; height: 128px; margin: -64px 0 0 -64px; pointer-events: none; will-change: transform; --lift-x: 0px; --lift-y: 0px; --lift-r: 0deg; --lift-s: 1; --shadow-rest: translate(6px, 8px) scale(1); }
+.hand svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transform-origin: 50% 50%; transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)) scale(var(--lift-s)); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4)); }
+.hand .shadow { position: absolute; left: 34px; top: 34px; width: 60px; height: 60px; border-radius: 50%; background: rgba(0, 0, 0, 0.3); filter: blur(5px); transform: var(--shadow-rest); }
+.hand[data-tool="swatter"] { --lift-x: 6px; --lift-y: -14px; --lift-r: -22deg; --lift-s: 1.08; --shadow-rest: translate(14px, 18px) scale(1.05); }
+.hand[data-tool="slipper"] { --lift-x: 4px; --lift-y: -16px; --lift-r: -16deg; --lift-s: 1.1; --shadow-rest: translate(14px, 20px) scale(1.1); }
+.hand[data-tool="newspaper"] { --lift-x: -14px; --lift-y: -8px; --lift-r: -24deg; --lift-s: 1; --shadow-rest: translate(8px, 14px) scaleX(1.6); }
+.hand[data-tool="newspaper"] .shadow { border-radius: 50%; width: 90px; left: 19px; height: 34px; top: 47px; }
+.hand[data-tool="whip"] .shadow, .hand[data-tool="squeegee"] .shadow { opacity: 0.45; filter: blur(3px); --shadow-rest: translate(3px, 4px) scale(0.6); }
+.hand[data-tool="spray"] { --shadow-rest: translate(-20px, 34px) scale(0.8, 0.5); }
+.hand.down svg { transform: translate(0, 1px) scale(1); }
+.hand.down .shadow { transform: translate(1px, 2px) scale(0.9); opacity: 0.5; }
+/* The swings. A slam or a stomp comes straight down and lands at the third beat; a whack swings in along the stroke; a flick jerks the grip; a puff jolts the can; a press puts the blade to the glass. */
+.hand.slam svg { animation: slam 250ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
+.hand.slam .shadow { animation: shadow-in 250ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
+.hand.stomp svg { animation: stomp 320ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
+.hand.stomp .shadow { animation: shadow-in 320ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
+.hand.whack svg { animation: whack 340ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
+.hand.whack .shadow { animation: shadow-in 340ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
+.hand.flick svg { animation: flick 160ms ease-out both; }
+.hand.puff svg { animation: puff 240ms ease-out both; }
+.hand.press svg { animation: press 160ms ease-out both; }
+@keyframes slam { 0% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)) scale(var(--lift-s)); } 10% { transform: translate(calc(var(--lift-x) * 1.2), calc(var(--lift-y) * 1.3)) rotate(calc(var(--lift-r) * 1.2)) scale(var(--lift-s)); } 28% { transform: translate(0, 2px) rotate(0deg) scale(0.97); } 42% { transform: translate(0, 0) rotate(0deg) scale(1.01); } 100% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)) scale(var(--lift-s)); } }
+@keyframes stomp { 0% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)) scale(var(--lift-s)); } 10% { transform: translate(calc(var(--lift-x) * 1.3), calc(var(--lift-y) * 1.5)) rotate(calc(var(--lift-r) * 1.3)) scale(calc(var(--lift-s) * 1.04)); } 28% { transform: translate(0, 3px) rotate(0deg) scale(0.95); } 40% { transform: translate(0, 0) rotate(0deg) scale(1.02); } 100% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)) scale(var(--lift-s)); } }
+@keyframes whack { 0% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)); } 10% { transform: translate(-30px, -12px) rotate(-40deg); } 30% { transform: translate(2px, 0) rotate(4deg) scale(0.98); } 45% { transform: translate(0, 0) rotate(0deg) scale(1); } 100% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)); } }
+@keyframes shadow-in { 0% { transform: var(--shadow-rest); } 28% { transform: translate(1px, 2px) scale(0.9); opacity: 0.55; } 45% { transform: translate(1px, 2px) scale(0.92); opacity: 0.55; } 100% { transform: var(--shadow-rest); } }
+@keyframes flick { 0% { transform: rotate(0deg); } 45% { transform: translate(-3px, -3px) rotate(-18deg); } 100% { transform: rotate(0deg); } }
+@keyframes puff { 0% { transform: translate(0, 0); } 20% { transform: translate(-1px, 2px) rotate(-3deg); } 100% { transform: translate(0, 0); } }
+@keyframes press { 0% { transform: translate(0, -6px); } 40% { transform: translate(0, 1px); } 100% { transform: translate(0, 1px); } }
+
+/* The whip's lash lies along the path the hand took, thick at the grip and a hair at the tip; on release it flies out straight and snaps. The squeegee drags a wet band while it is down. */
+.lash-under { fill: #1a0e06; stroke: #1a0e06; stroke-width: 0.6; stroke-linejoin: round; opacity: 0.6; }
+.lash-over { fill: #6a4322; stroke: #6a4322; stroke-width: 0.4; stroke-linejoin: round; }
+.lash-hi, .lash-crack, .wet-band, .wet-edge, .wet-streak, .wet-bead { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.lash-hi { stroke: rgba(255, 255, 255, 0.3); }
+.trail:not(.whip.on) .lash-under, .trail:not(.whip.on) .lash-over, .trail:not(.whip.on) .lash-hi { visibility: hidden; }
+/* The snap: a streak of light along the last stretch of the lash, over the leather, gone in a blink. */
+.lash-crack { stroke: rgba(255, 248, 236, 0.9); stroke-width: 2; stroke-dashoffset: var(--len); filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.85)); animation: lash-out 90ms linear forwards, lash-fade 200ms 90ms linear forwards; }
+@keyframes lash-out { to { stroke-dashoffset: 0; } }
+@keyframes lash-fade { to { opacity: 0; } }
+/* The squeegee's band while it drags: the same wet film the smear leaves, with an edge and a bead of water riding the blade. */
+.wet-band { stroke: var(--smear); opacity: 0.7; }
+.wet-edge { stroke: rgba(255, 255, 255, 0.3); stroke-width: 0.8; }
+.wet-streak { stroke: rgba(255, 255, 255, 0.1); stroke-width: 1; }
+.wet-bead { stroke: rgba(255, 255, 255, 0.75); stroke-width: 3; filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6)); }
+
+/* --- what a blow shows, for a blink -----------------------------------------------
+   A shock ring the tool's size, a flash where glass took the blow, a spray's cone,
+   the insect's droplets flung along the swing, glass dust from a miss, sparks at a
+   whip's tip, and the points a kill earned rising from it. */
+.fx > * { position: absolute; left: 0; top: 0; }
+.ring { width: var(--w); height: var(--h); margin: calc(var(--h) / -2) 0 0 calc(var(--w) / -2); border: 2px solid rgba(255, 255, 255, 0.7); border-radius: var(--r); box-shadow: 0 0 8px rgba(255, 255, 255, 0.35), inset 0 0 10px rgba(255, 255, 255, 0.25); animation: ring 320ms ease-out forwards; }
+@keyframes ring { from { opacity: 0.9; transform: var(--pose) scale(0.72); } to { opacity: 0; transform: var(--pose) scale(1.25); } }
+.flash { width: var(--size, 140px); height: var(--size, 140px); margin: calc(var(--size, 140px) / -2) 0 0 calc(var(--size, 140px) / -2); border-radius: 50%; background: radial-gradient(rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.2) 35%, rgba(255, 255, 255, 0) 70%); animation: flash 220ms ease-out forwards; }
+@keyframes flash { from { opacity: 1; transform: var(--pose) scale(0.5); } to { opacity: 0; transform: var(--pose) scale(1.1); } }
+.cone { width: 300px; height: 300px; margin: -150px 0 0 -150px; border-radius: 50%; background: conic-gradient(from calc(var(--a) - 34deg), rgba(222, 232, 242, 0) 0deg, rgba(222, 232, 242, 0.5) 14deg 54deg, rgba(222, 232, 242, 0) 68deg 360deg); -webkit-mask: radial-gradient(closest-side, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0) 74%); mask: radial-gradient(closest-side, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0) 74%); filter: blur(5px); animation: cone 520ms ease-out forwards; }
+@keyframes cone { 0% { opacity: 1; transform: var(--pose) scale(0.3); } 35% { opacity: 0.85; transform: var(--pose) scale(0.75); } 100% { opacity: 0; transform: var(--pose) scale(1); } }
+.fling { width: var(--s); height: var(--s); margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2); border-radius: 50%; background: var(--c); animation: fling var(--t, 360ms) cubic-bezier(0.1, 0.7, 0.4, 1) forwards; }
+@keyframes fling { 0% { opacity: 1; transform: var(--pose) translate(0, 0) scale(1); } 60% { opacity: 0.95; transform: var(--pose) translate(calc(var(--dx) * 0.8), calc(var(--dy) * 0.8)) scale(0.8); } 100% { opacity: 0; transform: var(--pose) translate(var(--dx), calc(var(--dy) + 10px)) scale(0.4); } }
+.shard { width: 5px; height: 8px; margin: -4px 0 0 -2.5px; background: linear-gradient(rgba(255, 255, 255, 0.95), rgba(220, 230, 240, 0.55)); clip-path: polygon(50% 0, 100% 70%, 60% 100%, 0 60%); animation: shard 420ms cubic-bezier(0.1, 0.6, 0.4, 1) forwards; }
+@keyframes shard { 0% { opacity: 1; transform: var(--pose) translate(0, 0) rotate(0deg); } 60% { opacity: 1; transform: var(--pose) translate(calc(var(--dx) * 0.8), calc(var(--dy) * 0.8 + 3px)) rotate(calc(var(--spin) * 0.6)); } 100% { opacity: 0; transform: var(--pose) translate(var(--dx), calc(var(--dy) + 14px)) rotate(var(--spin)); } }
+.spark { width: 14px; height: 2px; margin-top: -1px; transform-origin: left center; border-radius: 1px; background: linear-gradient(90deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0)); animation: spark 180ms ease-out forwards; }
+@keyframes spark { from { opacity: 1; transform: var(--pose) rotate(var(--a)) translateX(2px) scaleX(0.4); } to { opacity: 0; transform: var(--pose) rotate(var(--a)) translateX(16px) scaleX(1); } }
+.float { margin: -9px 0 0 -16px; white-space: nowrap; font: 700 16px/1 system-ui, sans-serif; color: var(--ink); text-shadow: 0 0 2px var(--surface), 0 0 6px var(--surface), 0 1px 2px var(--surface); animation: rise 800ms ease-out forwards; }
+.float i { margin-left: 3px; font-style: normal; font-size: 12px; color: var(--accent); }
+@keyframes rise { 0% { opacity: 1; transform: var(--pose) translateY(0); } 70% { opacity: 1; } 100% { opacity: 0; transform: var(--pose) translateY(-30px); } }
+
+/* --- the strip ----------------------------------------------------------- */
+.strip { position: absolute; left: 0; top: 0; box-sizing: border-box; width: 56px; max-height: calc(100% - 16px); overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); user-select: none; }
+.strip::-webkit-scrollbar { display: none; }
+/* A short pane: the strip closes its gaps and drops the best, so Leave stays in reach without a scroll. */
+.strip.tight { gap: 4px; padding: 6px 4px; }
+.strip.tight .hud { min-height: 0; gap: 0; }
+.strip.tight .best, .strip.tight .streak { display: none; }
+.strip.tight .tools { padding: 2px 0; gap: 0; }
+.strip.tight .tool { height: 30px; }
+.strip.tight .foot { gap: 3px; }
+.strip.tight .wait { min-height: 0; }
+.hud { display: flex; flex-direction: column; align-items: center; gap: 1px; min-height: 44px; }
+.score { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.streak { min-height: 14px; font-size: 11px; font-weight: 600; color: var(--accent); }
+.best { max-width: 48px; font-size: 11px; line-height: 1.2; text-align: center; color: var(--dim); }
+.tools { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.tool, .icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 34px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--dim); cursor: pointer; transition: background 120ms, color 120ms; }
+.tool svg, .icon svg { width: 22px; height: 22px; }
+.icon { width: 30px; height: 28px; }
+.icon svg { width: 18px; height: 18px; }
+.tool:hover, .icon:hover { background: var(--key); color: var(--ink); }
+.tool[aria-pressed="true"] { background: var(--key); border-color: var(--accent); color: var(--accent); }
+.switch { width: 46px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); font-weight: 600; cursor: pointer; transition: background 120ms, color 120ms; }
+.switch:hover { background: var(--key); }
+.switch[aria-pressed="true"] { background: var(--key); border-color: var(--ink); }
+.foot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.wait { margin: 0; min-height: 26px; font-size: 11px; line-height: 1.2; text-align: center; color: var(--dim); }
+.wait b { display: block; font-size: 12px; color: var(--ink); }
+.pace { display: flex; flex-direction: column; align-items: center; gap: 0; width: 48px; padding: 2px 0 3px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; transition: background 120ms; }
+.pace:hover { background: var(--key); }
+.pace-label { font-size: 11px; line-height: 1.1; color: var(--dim); }
+.pace-value { font-size: 11px; line-height: 1.2; font-weight: 600; }
+
+/* --- modes ------------------------------------------------------------------ */
+/* In hunt mode the tool in hand is the pointer; the strip keeps the arrow. */
+body[data-mode="hunt"] .glass { cursor: none; }
+body[data-mode="work"] .glass { cursor: default; }
+.strip { cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.shake .glass { animation: none; }
+  .bug .leg, .bug .hind { animation-duration: 700ms !important; }
+  .bug .body, .antenna { animation: none !important; }
+  .bug[data-state="fly"] .wing, .bug[data-state="hover"] .wing, .bug[data-state="fly"] .ghost, .bug[data-state="hover"] .ghost { animation: none; transform: scaleY(0.7); }
+  .mark, .mark-splat, .mark-mist ellipse { transition: none; animation: none; }
+  .hand svg, .hand .shadow { animation: none !important; }
+  .fling, .shard, .spark { display: none; }
+  .ring, .flash, .cone { animation-duration: 120ms; }
+  .float { animation-duration: 300ms; }
+  .lash-crack { animation-duration: 1ms, 120ms; }
+  .tool, .icon, .switch, .pace { transition: none; }
+}

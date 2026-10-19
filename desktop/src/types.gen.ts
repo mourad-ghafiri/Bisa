@@ -3002,9 +3002,13 @@ export type Target =
 export type AddonId = string;
 /**
  * How a window's chrome is drawn: a slim bar with the name, the grip and
- * the close button, or nothing but a grip that appears on hover.
+ * the close button; nothing but a grip that appears on hover; or no window
+ * at all — a **scene**, the whole desktop under the chrome, see-through,
+ * never dragged or resized, whose page says when it takes the pointer
+ * (18 — Addons). A scene ignores the window's size, bounds, `resizable` and
+ * `default_dock`.
  */
-export type AddonFrame = "bar" | "none";
+export type AddonFrame = "bar" | "none" | "scene";
 /**
  * The corner a window starts in before anyone drags it.
  */

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { barTitle, declaredOf, entryOf, grantToggle, manifestWindow, isGranted, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, reviewWords, rowStateWords, sameAddon, slotOf, sortAddons, sortedPermissions, stateWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
+import { barTitle, declaredOf, entryOf, grantToggle, isScene, manifestWindow, isGranted, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, reviewWords, rowStateWords, sameAddon, slotOf, sortAddons, sortedPermissions, stateWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
 
 const addon = (id, over = {}) => ({ id, manifest: { name: id, version: "1.0.0", license: "MIT", permissions: [], window: { width: 1, height: 1 } }, origin: "local", enabled: true, granted: [], installed_at: 0, files_present: true, active: true, ...over });
 
@@ -151,6 +151,11 @@ test("a manifest's window, permissions and entry are read with their defaults wh
   assert.deepEqual(manifestWindow({}), { width: 240, height: 160, min_width: null, min_height: null, max_width: null, max_height: null, resizable: true, closable: true, transparent: false, frame: "bar", default_dock: "bottom_right" });
   const w = manifestWindow({ window: { width: "300", height: 0, min_width: 100, max_height: 400, resizable: false, closable: false, transparent: true, frame: "none", default_dock: "top_left" } });
   assert.deepEqual(w, { width: 300, height: 160, min_width: 100, min_height: null, max_width: null, max_height: 400, resizable: false, closable: false, transparent: true, frame: "none", default_dock: "top_left" });
+  assert.equal(manifestWindow({ window: { width: 240, height: 160, frame: "scene" } }).frame, "scene");
+  assert.equal(manifestWindow({ window: { width: 240, height: 160, frame: "glass" } }).frame, "bar");
+  assert.equal(isScene({ manifest: { window: { frame: "scene" } } }), true);
+  assert.equal(isScene({ manifest: { window: { frame: "none" } } }), false);
+  assert.equal(isScene({ manifest: {} }), false);
   assert.deepEqual(declaredOf({}), []);
   assert.deepEqual(declaredOf({ permissions: ["storage"] }), ["storage"]);
   assert.equal(entryOf({}), "index.html");

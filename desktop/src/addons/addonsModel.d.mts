@@ -38,9 +38,10 @@ export interface ManifestWindow {
   resizable: boolean;
   closable: boolean;
   transparent: boolean;
-  frame: "bar" | "none";
+  frame: "bar" | "none" | "scene";
   default_dock: string;
 }
 export function manifestWindow(manifest: Pick<AddonManifest, "window">): ManifestWindow;
+export function isScene(addon: Pick<Addon, "manifest">): boolean;
 export function declaredOf(manifest: Pick<AddonManifest, "permissions">): AddonPermission[];
 export function entryOf(manifest: Pick<AddonManifest, "entry">): string;

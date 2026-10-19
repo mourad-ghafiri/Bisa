@@ -1,7 +1,7 @@
 # Addons
 
 An **addon** is a small window that floats over the app — a clock, the machine's load, the weather,
-a game, a sticky note, a media player — written as a folder of HTML, CSS and JavaScript. Fourteen ship with the
+a game, a sticky note, a media player, a bug hunt over the whole app — written as a folder of HTML, CSS and JavaScript. Fifteen ship with the
 platform; anyone can write one. This page is for the person who installs them and for the developer
 who writes one. The model and the walls are [18 — Addons](../architecture/18-addons.md); every method
 the library offers is [the addon API](../reference/addon-api.md).
@@ -46,7 +46,7 @@ was granted is kept. The footer follows it the moment it moves.
 
 ### The built-ins
 
-Fourteen ship in the binary, each at the platform's own version. When the platform you run ships
+Fifteen ship in the binary, each at the platform's own version. When the platform you run ships
 one you installed at a different version, the workspace takes the new files at its next open and
 keeps your switch and your grants (a permission
 the new version no longer asks for is dropped; one it newly asks for is not granted until you tick it).
@@ -78,6 +78,17 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
   doors to the Inbox and the Goals.
 - **Calculator** — four functions applied left to right as typed, `←` takes the last digit back,
   `=` again repeats the last operation; the keyboard works.
+- **Bug hunt** — not a window but a see-through scene over the whole app: spiders, cockroaches,
+  beetles, ants, flies, mosquitoes and crickets walk, dart, fly and hop over whatever you are doing
+  while it keeps working — the more things are running, the more that crawl. A strip at the right
+  holds the tools: pick a whip, a flyswatter, a slipper, a newspaper or a spray and the scene takes
+  the pointer (*Hunt*); the tool is in your hand — it follows the pointer and swings where you
+  click, the whip's lash trails behind you and cracks when you let go — a hit splats, a miss cracks
+  or scratches the glass, the spray slows and kills, the squeegee wipes; a streak within two
+  seconds multiplies the points, the best is kept. `Esc` or the *Work* switch hands the app the pointer back and the insects keep
+  walking; the ✕ puts the scene away (the footer's Addons popover brings it back). Sound is on with
+  a mute switch; *Calm*, *Busy* and *Swarm* set how many come; the insects keep off a browser tab,
+  which paints over them. While hunting, the footer and the pet sit under the scene — `Esc` first.
 - **Media player** — drop an audio or video file on it, *Open a file*, or paste a link: an `https://`
   media file plays in the window (sound as a scrolling spectrogram with a level meter, cold where it
   is quiet and warm where it is loud; video on the stage), and a YouTube URL — a watch page, a short
@@ -144,7 +155,10 @@ my-addon/
 - **`version`** — `MAJOR.MINOR.PATCH`, with an optional `-pre` and `+build`.
 - **`homepage`, `repo`** — `https://` only; shown, never fetched or cloned.
 - **`window`** — every field but `width` and `height` may be left out; edges are 40 to 1600 px;
-  `frame` is `bar` (a slim bar with the name, the grip and the ✕) or `none` (a grip on hover);
+  `frame` is `bar` (a slim bar with the name, the grip and the ✕), `none` (a grip on hover) or
+  `scene` (no window: the whole app under the chrome, see-through, never dragged or resized — its
+  size, bounds and dock are ignored; the page asks for the pointer with `scene.mode` and names its
+  solid regions with `scene.solid`, [the addon API](../reference/addon-api.md));
   `transparent` paints nothing behind your page, so your own `background: transparent` shows the
   app through it; `default_dock` is the corner it opens in.
 - **`permissions`** — from the closed list: `platform_info`, `theme`, `system_load`,

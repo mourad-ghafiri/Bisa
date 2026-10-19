@@ -2,9 +2,10 @@
 
 An **addon** is a folder of HTML, CSS and JavaScript with an `addon.json` beside it, installed into a
 workspace and shown as a **window that floats over the desktop** — draggable, and resizable, closable
-and see-through as its developer decided. The platform ships fourteen in the catalog (a clock, the
-machine's load, the weather, a game, a media player, a few small tools); anyone may write one and
-import the folder.
+and see-through as its developer decided — or, with `frame: "scene"`, no window at all but the
+whole desktop under the chrome. The platform ships fifteen in the catalog (a clock, the machine's
+load, the weather, two games, a media player, a few small tools); anyone may write one and import
+the folder.
 An addon reaches the platform only through one door, with only what the person granted, and can leave
 the machine with nothing it was not given. This page is the model, the walls, the door, and what
 travels.
@@ -82,6 +83,23 @@ once with YouTube's Terms of Service and Google's Privacy Policy before the firs
 now: the player stands above every overlay of the app (a panel dragged over it goes under it), and a
 window hidden under a dialog keeps the player's sound until it is put away.
 
+**A scene.** An addon whose manifest says `frame: "scene"` is not a window but a see-through pane
+over the whole desktop under the chrome (`AddonScene.tsx`, `addonSceneModel.mjs`), in the same
+sandboxed frame every window runs, mounted first so every window stands above it; its size,
+bounds, `resizable` and `default_dock` are ignored, and the session is never resizable and always
+transparent. The host owns its two modes: in **work** the frame is click-through — the app, its
+terminals, its footer and the pet keep the pointer while the page's creatures walk over them — and
+only the regions the page calls solid (`scene.solid`, at most eight) take it: the host watches the
+pointer on the main page and flips the frame's `pointer-events` while it hovers one, and back when
+the page says it left (`scene.release`), blurring the frame so a chord typed next reaches the app;
+in **hunt** (`scene.mode`) the frame has the pointer everywhere under the chrome, and `Esc` — heard
+by the page or by the host — leaves. The host says the mode it decided, the scene's size, the
+browser tabs' boxes and whether it cuts around the solid regions in the `scene` event. A scene
+never publishes its whole box as a browser clear — a viewport-sized hole would blank every native
+tab — only its solid regions; the page keeps its creatures off the tabs' boxes. Panels, dialogs and
+menus stand above it as above every window; a drag elsewhere in the layer shields it; put away or
+with the layer off it unmounts like any window, and keeps what it must in its store.
+
 **The shell.** WebKit asks the navigation delegate about every frame's navigation and wry hands
 `on_navigation` the URL; the main window is built in `setup` (`"create": false` in
 `tauri.conf.json`) so it carries `navigation::allowed`: the app's own origin, the empty page, and
@@ -103,10 +121,10 @@ judged by `event.source`, as the page inspector's wire is ([ide/03](ide/03-files
 Every message is read by a pure model (`addonBridgeModel.mjs`) that owns:
 
 - **the shape** — version 1; a `bisa:hello`, or a `bisa:call {id ≤ 64, method, params ≤ 16 KiB}`; anything else is dropped unread, or answered `bad_params`/`unknown_method`/`too_large` when its id is sound;
-- **the registry** — twenty methods, each with the permission it needs and the window flag it needs (`window.resize` needs `resizable`, `window.close` needs `closable`); a method not in it is refused before its params are read ([reference/addon-api.md](../reference/addon-api.md) is the table, and a test holds the two equal);
+- **the registry** — twenty-three methods, each with the permission it needs and the window flag it needs (`window.resize` needs `resizable`, `window.close` needs `closable`); a method not in it is refused before its params are read ([reference/addon-api.md](../reference/addon-api.md) is the table, and a test holds the two equal);
 - **the caps** — a notice's title 100 and body 200 characters, once every ten seconds per addon; a clipboard write 64 KiB; a storage bag 256 KiB per addon, strings only, kept by the host under `bisa.addons.storage.<id>`; a URL 2048 characters, `http(s)` only; a title 60 characters; a fetched body 1 MiB;
 - **the answers** — a reply to send now, or an **effect** the bridge performs: a notice through the desktop's own door (under the person's *Addons* notifications switch, Settings › Capabilities › System), the clipboard, a route from a closed list of screens, a window move, or one of the two that answer later — `network.fetch`, which goes to the node's broker, and `url.open`, which asks the person first;
-- **the events** — `theme`, `visibility`, `workspace.summary`, `media` (what YouTube's player said, for the addon that embedded it) and, while subscribed and granted, `system.load` at the footer's cadence — five topics, no `locale`: a language change reloads the window, and the page hears its locale in the next `ready`. The summary is `shell/workSummaryModel.mjs`'s, the rule the pet stands by.
+- **the events** — `theme`, `visibility`, `workspace.summary`, `media` (what YouTube's player said, for the addon that embedded it), `scene` (a scene's mode, size and the tabs to keep off) and, while subscribed and granted, `system.load` at the footer's cadence — six topics, no `locale`: a language change reloads the window, and the page hears its locale in the next `ready`. The summary is `shell/workSummaryModel.mjs`'s, the rule the pet stands by.
 
 Every refusal the bridge makes is written to the desktop's diagnostic log with the addon, the
 method and the code (`refusedCode`), which is where a developer testing an addon reads them.
@@ -195,9 +213,9 @@ imported here under the same id; a built-in's files come from this machine's own
 | `bisa-engine/src/addons.rs`, `admin.rs` | the doors that announce `AddonsChanged`; the network broker |
 | `bisa-node/src/addons.rs`, `auth.rs` | the routes, the token-less files route and its policy, the library served from the binary |
 | `bisa-cli/src/addons.rs` | `bisa addon …` — through the node when one runs; an import reads the folder's own manifest first, so a folder that holds none, or one that is no manifest, is refused by its file before anything is copied. Held from end to end by the journey `crates/bisa-cli/tests/it/e2e/addons_drawings_and_notes.rs`: the nine verbs, a folder refused whole, the files route open to the window of an addon that is on and answering 404 for one that is off, every change said on the bus |
-| `desktop/src/addons/` | the bridge and its model, the windows, the layer, the store (one `useAddonsSync` mount, in the layer), the words; `shell/AddonsStat.tsx` + `shell/AddonsOverlay.tsx` (the footer's popover), `views/_settings/AddonsPanel.tsx` |
+| `desktop/src/addons/` | the bridge and its model, the windows, the scene (`AddonScene.tsx` over `addonSceneModel.mjs`: the two modes, the solid regions, the tabs as obstacles), the layer, the store (one `useAddonsSync` mount, in the layer), the words; `shell/AddonsStat.tsx` + `shell/AddonsOverlay.tsx` (the footer's popover), `views/_settings/AddonsPanel.tsx` |
 | `desktop/src-tauri/src/navigation.rs` | the shell's wall |
-| `addons/sdk/`, `addons/template/`, `library/addons/` | the library and its types, a starter, the fourteen built-ins — each `style.css` fences `[hidden]`; tic-tac-toe's, the sticky note's and the media player's pure rules are a `logic.js` loaded before `main.js`, run alone by `desktop/src/scenarios/addonsLogic.test.mjs` |
+| `addons/sdk/`, `addons/template/`, `library/addons/` | the library and its types, a starter, the fifteen built-ins — each `style.css` fences `[hidden]`; tic-tac-toe's, the sticky note's, the media player's and Bug hunt's pure rules are a `logic.js` loaded before `main.js`, run alone by `desktop/src/scenarios/addonsLogic.test.mjs` |
 
 The guide for people and developers is [guide/addons.md](../guide/addons.md); the library's contract
 is [reference/addon-api.md](../reference/addon-api.md).

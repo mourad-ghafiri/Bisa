@@ -3,7 +3,9 @@
  *
  * Mounted in `App.tsx` beside the pet, outside `<Screen>` and its error
  * boundary, at `z-30` — under the notes panel and every dialog. It draws one
- * `AddonWindow` per addon that is active and not put away, while the layer
+ * `AddonWindow` per addon that is active and not put away — or an
+ * `AddonScene` for one whose manifest says `frame: "scene"`, mounted first
+ * so the windows stand above it — while the layer
  * is shown and the machine's `addons.enabled` switch is on (`visibleAddons`,
  * the one rule the footer counts by too); keeps the list current
  * (`useAddonsSync`, mounted here and nowhere else); hands every window the facts an addon may ask
@@ -20,10 +22,11 @@ import { useDiskUsage, useHostLoad } from "../shell/statsStore";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { ConfirmDialog } from "../ui";
 import { counts as sessionCounts } from "../ui/sessionState.mjs";
+import { AddonScene } from "./AddonScene";
 import { AddonWindow } from "./AddonWindow";
 import type { AddonLoad, AddonSummary } from "./addonBridge";
 import { workSummary } from "../shell/workSummaryModel.mjs";
-import { slotOf, visibleAddons } from "./addonsModel.mjs";
+import { isScene, slotOf, visibleAddons } from "./addonsModel.mjs";
 import { useAddons, useAddonsSync } from "./addonsStore";
 
 export function AddonLayer() {
@@ -81,9 +84,16 @@ export function AddonLayer() {
     resolve?.(opened);
   };
 
-  const windows = visibleAddons(addons, hidden, layerShown, switchedOn);
+  const shown = visibleAddons(addons, hidden, layerShown, switchedOn);
+  // A scene is the whole desktop under the chrome; it is mounted first, so
+  // every window keeps standing above it (portal order is paint order).
+  const scenes = shown.filter(isScene);
+  const windows = shown.filter((addon) => !isScene(addon));
   return (
     <>
+      {scenes.map((addon) => (
+        <AddonScene key={addon.id} addon={addon} slots={slots} shielded={shields > 0} summary={summary} load={load} onOpenUrl={openFor(addon.manifest.name)} />
+      ))}
       {windows.map((addon) => (
         <AddonWindow
           key={addon.id}

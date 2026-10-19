@@ -39,6 +39,11 @@ export const MAX_FETCH_BODY_BYTES = 1024 * 1024;
 export const STORAGE_KEY_PREFIX = "bisa.addons.storage.";
 /** The least a YouTube player's box may be on either side — YouTube's own floor for an embedded player, in CSS pixels. */
 export const MIN_PLAYER_SIDE = 200;
+/** A scene's two modes: the app has the pointer (`work`), or the scene has it everywhere under the chrome (`hunt`). */
+export const SCENE_MODES = Object.freeze(["work", "hunt"]);
+/** The most solid regions a scene may name, and the widest corner they may round. */
+export const MAX_SOLID_RECTS = 8;
+export const MAX_SOLID_RADIUS = 64;
 
 /** The permissions a manifest may declare and a person may grant — the words the node knows. */
 export const PERMISSIONS = Object.freeze([
@@ -81,18 +86,43 @@ export const METHODS = Object.freeze({
   "media.embed": { permission: "media" },
   "media.box": { permission: "media" },
   "media.remove": { permission: "media" },
+  "scene.mode": { permission: null, needs: "scene" },
+  "scene.solid": { permission: null, needs: "scene" },
+  "scene.release": { permission: null, needs: "scene" },
 });
 
 export const METHOD_NAMES = Object.freeze(Object.keys(METHODS));
 
 /** The topics the app pushes to an addon that listens. */
-export const EVENTS = Object.freeze(["theme", "system.load", "workspace.summary", "visibility", "media"]);
+export const EVENTS = Object.freeze(["theme", "system.load", "workspace.summary", "visibility", "media", "scene"]);
 
 /** The screens an addon may take the person to — never a record's page. */
 export const ADDON_ROUTES = Object.freeze(["inbox", "goals", "pulse", "workflows", "projects", "channels", "messages", "agents", "teams", "settings"]);
 
 /** Every code a refusal carries. */
 export const REFUSALS = Object.freeze(["not_ready", "unknown_method", "permission", "not_allowed", "bad_params", "too_large", "rate_limited", "quota", "unavailable", "refused"]);
+
+/**
+ * A manifest window's frame word: `scene` (the whole desktop under the
+ * chrome, no window at all), `none` (a grip on hover), else `bar`.
+ * @param {unknown} w the manifest's `window`, or nothing
+ * @returns {"bar" | "none" | "scene"}
+ */
+export function frameOf(w) {
+  const f = w && typeof w === "object" ? /** @type {{frame?: unknown}} */ (w).frame : undefined;
+  return f === "scene" ? "scene" : f === "none" ? "none" : "bar";
+}
+
+/**
+ * Whether a window allows what a method needs: a corner to drag, a close
+ * button — or being a scene at all, which is the frame's word, not a flag.
+ * @param {{frame: string, resizable: boolean, closable: boolean}} w
+ * @param {string} need
+ */
+export function windowAllows(w, need) {
+  if (need === "scene") return w.frame === "scene";
+  return need === "resizable" ? w.resizable : need === "closable" ? w.closable : false;
+}
 
 /**
  * A permission as the manifest spells it — a word, `{network: {hosts}}` or
@@ -200,6 +230,40 @@ export function isVideoId(s) {
 }
 
 /**
+ * A solid region of a scene — four whole numbers from the scene's top-left,
+ * each side at least a pixel, an optional corner radius (capped) — or null.
+ * @param {unknown} value
+ * @returns {{x: number, y: number, width: number, height: number, radius: number} | null}
+ */
+export function sceneRect(value) {
+  if (!value || typeof value !== "object") return null;
+  const b = /** @type {Record<string, unknown>} */ (value);
+  const { x, y, width, height } = b;
+  if (![x, y, width, height].every(finiteInt)) return null;
+  if (/** @type {number} */ (x) < 0 || /** @type {number} */ (y) < 0 || /** @type {number} */ (width) < 1 || /** @type {number} */ (height) < 1) return null;
+  const radius = b.radius === undefined ? 0 : b.radius;
+  if (!finiteInt(radius) || /** @type {number} */ (radius) < 0) return null;
+  return { x: /** @type {number} */ (x), y: /** @type {number} */ (y), width: /** @type {number} */ (width), height: /** @type {number} */ (height), radius: Math.min(/** @type {number} */ (radius), MAX_SOLID_RADIUS) };
+}
+
+/**
+ * The solid regions a scene names — at most `MAX_SOLID_RECTS`, each a
+ * `sceneRect`; an empty list says none — or null when one is not.
+ * @param {unknown} value
+ */
+export function sceneRects(value) {
+  if (!Array.isArray(value) || value.length > MAX_SOLID_RECTS) return null;
+  /** @type {Array<{x: number, y: number, width: number, height: number, radius: number}>} */
+  const out = [];
+  for (const v of value) {
+    const r = sceneRect(v);
+    if (!r) return null;
+    out.push(r);
+  }
+  return out;
+}
+
+/**
  * A player's box inside the addon's window — four whole numbers from the
  * window's top-left, no side under the policy's square — or null.
  * @param {unknown} value
@@ -276,6 +340,15 @@ export function paramsOf(method, params) {
       if (!box) return bad;
       return { ok: true, value: { box } };
     }
+    case "scene.mode": {
+      if (typeof params.mode !== "string" || !SCENE_MODES.includes(params.mode)) return bad;
+      return { ok: true, value: { mode: params.mode } };
+    }
+    case "scene.solid": {
+      const rects = sceneRects(params.rects);
+      if (!rects) return bad;
+      return { ok: true, value: { rects } };
+    }
     default:
       return { ok: true, value: {} };
   }
@@ -288,6 +361,8 @@ export function paramsOf(method, params) {
  */
 export function newSession(addon) {
   const w = addon.manifest.window ?? {};
+  // A scene is never resized and always see-through, whatever the manifest says beside the word.
+  const frame = frameOf(w);
   return {
     id: addon.id,
     name: cut(addon.manifest.name, MAX_TITLE_CHARS),
@@ -298,10 +373,10 @@ export function newSession(addon) {
     window: {
       width: Number(w.width) || 0,
       height: Number(w.height) || 0,
-      resizable: w.resizable !== false,
+      resizable: frame !== "scene" && w.resizable !== false,
       closable: w.closable !== false,
-      transparent: w.transparent === true,
-      frame: w.frame === "none" ? "none" : "bar",
+      transparent: frame === "scene" || w.transparent === true,
+      frame,
     },
     ready: false,
     subscribed: false,
@@ -443,7 +518,7 @@ export function handleCall(session, call, ctx) {
   const spec = METHODS[call.method];
   if (!spec) return { ...same, reply: errorReply(call.id, "unknown_method") };
   if (spec.permission && !session.granted.includes(spec.permission)) return { ...same, reply: errorReply(call.id, "permission") };
-  if (spec.needs && !session.window[spec.needs]) return { ...same, reply: errorReply(call.id, "not_allowed") };
+  if (spec.needs && !windowAllows(session.window, spec.needs)) return { ...same, reply: errorReply(call.id, "not_allowed") };
   const parsed = paramsOf(call.method, call.params);
   if (!parsed.ok) return { ...same, reply: errorReply(call.id, parsed.code) };
   const p = parsed.value;
@@ -500,6 +575,13 @@ export function handleCall(session, call, ctx) {
       return { ...same, reply: okReply(call.id, { moved: true }), effect: { type: "media_box", box: p.box } };
     case "media.remove":
       return { ...same, reply: okReply(call.id, { removed: true }), effect: { type: "media_remove" } };
+    case "scene.mode":
+      // The host decides and says the mode in the `scene` event; the reply echoes the ask.
+      return { ...same, reply: okReply(call.id, { mode: p.mode }), effect: { type: "scene_mode", mode: p.mode } };
+    case "scene.solid":
+      return { ...same, reply: okReply(call.id, { set: true }), effect: { type: "scene_solid", rects: p.rects } };
+    case "scene.release":
+      return { ...same, reply: okReply(call.id, { released: true }), effect: { type: "scene_release" } };
     default:
       return { ...same, reply: errorReply(call.id, "unknown_method") }; // LCOV_EXCL_LINE every method of the bridge's table is an arm above; by construction
   }

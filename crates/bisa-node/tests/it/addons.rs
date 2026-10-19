@@ -188,7 +188,7 @@ async fn an_addon_is_imported_switched_granted_and_removed_over_the_wire() {
         String::from_utf8_lossy(&offers.body)
     );
     let offered = offers.json()["offers"].as_array().unwrap().clone();
-    assert_eq!(offered.len(), 14);
+    assert_eq!(offered.len(), 15);
     assert!(offered.iter().all(|o| o["installed"] == false));
     let weather = offered.iter().find(|o| o["slug"] == "weather").unwrap();
     assert_eq!(
@@ -471,7 +471,7 @@ async fn the_broker_refuses_and_a_built_in_installs_from_the_catalog() {
     let listed = get(&socket, "/catalog?kind=addon").await;
     assert_eq!(listed.status, 200);
     let entries = listed.json()["entries"].as_array().unwrap().clone();
-    assert_eq!(entries.len(), 14);
+    assert_eq!(entries.len(), 15);
     let weather = entries.iter().find(|e| e["slug"] == "weather").unwrap();
     assert_eq!(weather["installed"], true);
     assert_eq!(weather["kind"], "addon");

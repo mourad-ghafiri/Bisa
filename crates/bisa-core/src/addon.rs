@@ -150,7 +150,11 @@ fn yes() -> bool {
 }
 
 /// How a window's chrome is drawn: a slim bar with the name, the grip and
-/// the close button, or nothing but a grip that appears on hover.
+/// the close button; nothing but a grip that appears on hover; or no window
+/// at all — a **scene**, the whole desktop under the chrome, see-through,
+/// never dragged or resized, whose page says when it takes the pointer
+/// (18 — Addons). A scene ignores the window's size, bounds, `resizable` and
+/// `default_dock`.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
 )]
@@ -159,6 +163,7 @@ pub enum AddonFrame {
     #[default]
     Bar,
     None,
+    Scene,
 }
 
 /// The corner a window starts in before anyone drags it.
@@ -895,6 +900,24 @@ mod tests {
 
     /// A media grant is read back as it was declared, `*` meaning any
     /// host; a record without the grant has none.
+    /// A scene is a frame word like the others: it parses, round-trips and
+    /// has nothing the rules refuse — its size and bounds are the manifest's
+    /// to state and the desktop's to ignore.
+    #[test]
+    fn a_scene_window_round_trips_and_validates_clean() {
+        let mut m = manifest();
+        m.window = serde_json::from_str(
+            r#"{"width": 240, "height": 160, "frame": "scene", "transparent": true, "resizable": false}"#,
+        )
+        .unwrap();
+        assert_eq!(m.window.frame, AddonFrame::Scene);
+        assert!(m.validate().is_empty(), "{:?}", ids(&m.validate()));
+        let wire = serde_json::to_value(&m.window).unwrap();
+        assert_eq!(wire["frame"], "scene");
+        let back: AddonWindow = serde_json::from_value(wire).unwrap();
+        assert_eq!(back, m.window);
+    }
+
     #[test]
     fn a_video_id_is_eleven_url_safe_characters() {
         for ok in ["dQw4w9WgXcQ", "a-b_c-d_e-f", "00000000000"] {

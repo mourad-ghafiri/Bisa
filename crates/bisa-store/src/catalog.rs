@@ -2030,11 +2030,12 @@ mod bundle_tests {
     /// The built-in addons, by folder. Pinned so a folder added or dropped
     /// is noticed here, not on a user's machine.
     #[test]
-    fn the_catalog_ships_fourteen_addons() {
+    fn the_catalog_ships_fifteen_addons() {
         let slugs: Vec<&str> = CATALOG.addons.iter().map(|(s, _)| *s).collect();
         assert_eq!(
             slugs,
             [
+                "bug-hunt",
                 "calculator",
                 "clock",
                 "cpu",

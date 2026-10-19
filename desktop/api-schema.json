@@ -22733,9 +22733,10 @@
       "type": "string",
       "enum": [
         "bar",
-        "none"
+        "none",
+        "scene"
       ],
-      "description": "How a window's chrome is drawn: a slim bar with the name, the grip and\nthe close button, or nothing but a grip that appears on hover."
+      "description": "How a window's chrome is drawn: a slim bar with the name, the grip and\nthe close button; nothing but a grip that appears on hover; or no window\nat all — a **scene**, the whole desktop under the chrome, see-through,\nnever dragged or resized, whose page says when it takes the pointer\n(18 — Addons). A scene ignores the window's size, bounds, `resizable` and\n`default_dock`."
     },
     "AddonDock": {
       "type": "string",

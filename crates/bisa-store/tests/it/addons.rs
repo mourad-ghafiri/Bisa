@@ -323,7 +323,7 @@ fn validating_a_folder_names_every_problem_and_writes_nothing() {
     assert!(ws.validate_addon_dir(&good).unwrap().1.is_empty());
     assert!(ws.list_addons().unwrap().is_empty());
     let offers = ws.list_addon_offers().unwrap();
-    assert_eq!(offers.len(), 14);
+    assert_eq!(offers.len(), 15);
     assert!(offers
         .iter()
         .all(|o| !o.installed && o.slug == o.manifest.id.as_str()));
@@ -352,7 +352,7 @@ fn a_catalog_addon_installs_enabled_with_its_declared_grants_and_only_once() {
         .unwrap()
         .is_empty());
     let entries = ws.catalog_entries(Some(CatalogKind::Addon)).unwrap();
-    assert_eq!(entries.len(), 14);
+    assert_eq!(entries.len(), 15);
     let row = entries.iter().find(|e| e.slug == "weather").unwrap();
     assert!(row.installed && row.requires.is_empty());
     assert!(

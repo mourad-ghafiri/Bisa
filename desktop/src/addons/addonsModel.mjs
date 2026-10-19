@@ -8,7 +8,7 @@
  */
 
 import { t } from "../i18n/l10n.mjs";
-import { PERMISSIONS, mediaGrant, networkHosts, permissionWord } from "./addonBridgeModel.mjs";
+import { PERMISSIONS, frameOf, mediaGrant, networkHosts, permissionWord } from "./addonBridgeModel.mjs";
 
 /** The read-out's tooltip and the popover's title line: how many windows show, of every addon installed. */
 export function titleWords(showing, total) {
@@ -212,9 +212,14 @@ export function manifestWindow(manifest) {
     resizable: w.resizable !== false,
     closable: w.closable !== false,
     transparent: w.transparent === true,
-    frame: w.frame === "none" ? "none" : "bar",
+    frame: frameOf(w),
     default_dock: w.default_dock ?? "bottom_right",
   };
+}
+
+/** Whether an addon is a scene — the whole desktop under the chrome rather than a window (18 — Addons). @param {{manifest: {window?: unknown}}} addon */
+export function isScene(addon) {
+  return frameOf(addon.manifest?.window) === "scene";
 }
 
 /** The permissions a manifest declares — none when the wire left the list out. */

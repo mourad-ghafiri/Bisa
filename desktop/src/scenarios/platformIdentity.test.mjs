@@ -73,7 +73,7 @@ test("the desktop, the Tauri shell and the addon SDK repeat the same version and
 
 test("every built-in addon wears the platform's version, website and repository", () => {
   const folders = readdirSync(join(root, "library/addons"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-  assert.equal(folders.length, 14);
+  assert.equal(folders.length, 15);
   for (const f of folders) {
     const m = json(`library/addons/${f}/addon.json`);
     assert.equal(m.version, VERSION, `${f}: the platform's version`);

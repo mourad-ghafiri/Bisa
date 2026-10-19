@@ -49,7 +49,7 @@ export interface Hello {
   /** The person's language tag, `en`. A language change reloads the window, so a page hears a new one in its next `ready`. */
   locale: string;
   theme: { scheme: "light" | "dark" };
-  window: { width: number; height: number; resizable: boolean; closable: boolean; transparent: boolean; frame: "bar" | "none" };
+  window: { width: number; height: number; resizable: boolean; closable: boolean; transparent: boolean; frame: "bar" | "none" | "scene" };
 }
 
 /** The machine's load, at the footer's cadence (`system_load`). */
@@ -98,6 +98,27 @@ export interface MediaState {
   words?: string;
 }
 
+/** A scene's mode (`frame: "scene"`): the app has the pointer, or the scene has it everywhere under the chrome. */
+export type SceneMode = "work" | "hunt";
+
+/** A solid region of a scene, from its top-left, in its own CSS pixels — the pointer reaches it in `work` mode, and it shows over a browser tab. */
+export interface SceneRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** The corner radius the host rounds the region by, at most 64. */
+  radius?: number;
+}
+
+/** What a scene is told (`scene` event): the mode the host decided, its size, the browser tabs' boxes to keep off, and whether the host cuts around the solid regions. */
+export interface SceneEvent {
+  mode: SceneMode;
+  viewport: { width: number; height: number };
+  obstacles: Array<{ x: number; y: number; width: number; height: number }>;
+  cuts: boolean;
+}
+
 export type AddonRoute = "inbox" | "goals" | "pulse" | "workflows" | "projects" | "channels" | "messages" | "agents" | "teams" | "settings";
 
 export interface Events {
@@ -106,6 +127,7 @@ export interface Events {
   "workspace.summary": WorkspaceSummary;
   visibility: { visible: boolean };
   media: MediaState;
+  scene: SceneEvent;
 }
 
 export interface Bisa {
@@ -160,6 +182,16 @@ export interface Bisa {
     embed(opts: { kind: "youtube"; video: string; box: PlayerBox }): Promise<{ embedded: true }>;
     box(opts: { box: PlayerBox } | PlayerBox): Promise<{ moved: true }>;
     remove(): Promise<{ removed: true }>;
+  };
+  /**
+   * A scene (`frame: "scene"`): ask for a mode — the host decides and says it
+   * in the `scene` event — name the regions the pointer reaches in `work`
+   * mode, and say when the pointer left them.
+   */
+  scene: {
+    mode(opts: { mode: SceneMode } | SceneMode): Promise<{ mode: SceneMode }>;
+    solid(opts: { rects: SceneRect[] } | SceneRect[]): Promise<{ set: true }>;
+    release(): Promise<{ released: true }>;
   };
 }
 

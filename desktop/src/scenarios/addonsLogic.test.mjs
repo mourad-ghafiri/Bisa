@@ -1,6 +1,7 @@
 /**
- * The pure half of three built-ins — tic-tac-toe's rules and machine, the
- * sticky note's sanitiser, the media player's sources and pictures — each a
+ * The pure half of four built-ins — tic-tac-toe's rules and machine, the
+ * sticky note's sanitiser, the media player's sources and pictures, Bug
+ * hunt's insects, tools and marks — each a
  * `logic.js` the page loads before its `main.js`, run here alone in a `vm`
  * (the `addonSdk.test.mjs` recipe): the machine never loses, easy plays a
  * legal cell, a note keeps its formatting and nothing else, and a pasted
@@ -243,4 +244,189 @@ test("the YouTube box is the stage less an inset, or nothing under the player's 
     assert.ok(words.length > 12 && /[.]$/.test(words), `${code}: ${words}`);
   }
   assert.notEqual(M.errorWords(3), M.errorWords(4));
+});
+
+// --- bug hunt ------------------------------------------------------------------
+
+const H = logicOf("bug-hunt").BugHunt;
+const glass = { width: 800, height: 500 };
+const hunt = (r, over = {}) => ({ bounds: glass, obstacles: [], pointer: null, rng: r, now: 0, scale: 1, ...over });
+
+test("the same seed walks the same path, every species has its facts, and no insect leaves the glass or walks into a tab", () => {
+  const walk = (seed) => {
+    const r = H.rng(seed);
+    let i = H.spawn("beetle", glass, [], r, 0, 1);
+    const path = [];
+    for (let k = 0; k < 600; k++) {
+      i = H.step(i, 1 / 30, hunt(r, { now: k / 30 }));
+      path.push([Math.round(i.x), Math.round(i.y)]);
+    }
+    return path;
+  };
+  assert.deepEqual(walk(42), walk(42));
+  assert.notDeepEqual(walk(42), walk(43));
+  for (const name of H.SPECIES_NAMES) {
+    const sp = H.SPECIES[name];
+    assert.ok(sp.size > 0 && sp.speed[0] <= sp.speed[1] && sp.hp >= 1 && sp.points > 0 && ["walk", "fly", "hover", "jump"].includes(sp.gait), name);
+  }
+  const tab = { x: 300, y: 100, width: 200, height: 200 };
+  const r = H.rng(5);
+  for (const name of H.SPECIES_NAMES) {
+    let i = H.spawn(name, glass, [tab], r, 0, 1);
+    const half = H.SPECIES[name].size / 2;
+    let entered = false;
+    for (let k = 1; k <= 900; k++) {
+      i = H.step(i, 1 / 30, hunt(r, { obstacles: [tab], now: k / 30, pointer: k % 200 < 20 ? { x: 400, y: 400 } : null }));
+      if (i.state === "dead") break;
+      entered = entered || i.entered;
+      if (i.entered && !i.leaving) {
+        assert.ok(i.x >= half - 1 && i.x <= glass.width - half + 1 && i.y >= half - 1 && i.y <= glass.height - half + 1, `${name} left the glass at tick ${k}: ${i.x},${i.y} (${i.state})`);
+      }
+      assert.ok(!(i.x > tab.x + 2 && i.x < tab.x + tab.width - 2 && i.y > tab.y + 2 && i.y < tab.y + tab.height - 2), `${name} walked into the tab at tick ${k} (${i.state})`);
+    }
+    assert.ok(entered, `${name} never came onto the glass`);
+  }
+  // A cricket's hop rises and lands.
+  const cr = H.rng(11);
+  let c = { ...H.spawn("cricket", glass, [], cr, 0, 1), x: 400, y: 250, entered: true, state: "walk", until: -1 };
+  let rose = false, landed = false;
+  for (let k = 0; k < 400 && !landed; k++) {
+    c = H.step(c, 1 / 30, hunt(cr, { now: k / 30 }));
+    if (c.state === "jump" && c.z > 10) rose = true;
+    if (rose && c.state !== "jump" && c.z === 0) landed = true;
+  }
+  assert.ok(rose && landed, "a hop rose and came down");
+  // A cockroach near the pointer darts away from it.
+  const rr = H.rng(2);
+  let roach = { ...H.spawn("cockroach", glass, [], rr, 0, 1), x: 400, y: 250, entered: true, state: "walk", until: 99 };
+  const before = H.step(roach, 1 / 30, hunt(rr, { now: 0.1, pointer: { x: 430, y: 250 } }));
+  assert.equal(before.state, "dart");
+  const after = H.step(before, 1 / 30, hunt(rr, { now: 0.2, pointer: { x: 430, y: 250 } }));
+  assert.ok(after.x < before.x, "away from a pointer on its right");
+  // An ant follows its leader's heels.
+  const ar = H.rng(3);
+  const leader = { ...H.spawn("ant", glass, [], ar, 0, 1), x: 200, y: 200, heading: 0, entered: true, state: "walk", until: 99 };
+  let follower = { ...H.spawn("ant", glass, [], ar, 0, 2), x: 100, y: 260, heading: Math.PI, entered: true, state: "walk", until: 99, leader: 1 };
+  for (let k = 0; k < 60; k++) follower = H.step(follower, 1 / 30, hunt(ar, { now: k / 30, leaderOf: (id) => (id === 1 ? leader : null) }));
+  assert.ok(Math.abs(follower.y - 200) < 30 && follower.x > 120 && follower.x < 200, `fell in behind the leader: ${follower.x},${follower.y}`);
+  assert.equal(H.offstage({ ...leader, x: -100, entered: true }, glass), true);
+  assert.equal(H.offstage({ ...leader, x: -100, entered: false }, glass), false, "one still walking in is not gone");
+});
+
+test("each tool reaches what its shape covers and nothing beside; a whip needs a stroke; the spray slows before it kills; a beetle takes two", () => {
+  const at = (species, x, y, id) => ({ ...H.spawn(species, glass, [], H.rng(1), 0, id), x, y, state: "walk", entered: true });
+  const bugs = [at("ant", 100, 100, 1), at("ant", 160, 100, 2), at("ant", 100, 300, 3)];
+  assert.deepEqual(plain(H.strike("swatter", { x: 100, y: 100, bounds: glass }, bugs, 1).hits), [1]);
+  assert.deepEqual(plain(H.strike("swatter", { x: 130, y: 100, bounds: glass }, bugs, 1).hits), [1, 2], "a square of 56 plus an ant's 8 reaches both");
+  assert.deepEqual(plain(H.strike("slipper", { x: 100, y: 130, bounds: glass }, bugs, 1).hits), [1], "26 plus 8 reaches 34");
+  const miss = H.strike("slipper", { x: 100, y: 140, bounds: glass }, bugs, 1);
+  assert.deepEqual(plain(miss.hits), []);
+  assert.equal(miss.marks[0].kind, "crack");
+  assert.equal(miss.sound, "thud");
+  assert.equal(H.strike("whip", { from: { x: 0, y: 100 }, to: { x: 200, y: 100 }, x: 100, y: 100, length: 200, bounds: glass }, bugs, 1).hits.length, 2);
+  assert.equal(H.strike("whip", { from: { x: 0, y: 100 }, to: { x: 10, y: 100 }, x: 5, y: 100, length: 10, bounds: glass }, bugs, 1), null, "too short to crack");
+  assert.equal(H.strike("whip", { from: { x: 0, y: 400 }, to: { x: 200, y: 400 }, x: 100, y: 400, length: 200, bounds: glass }, bugs, 1).marks[0].kind, "scratch");
+  assert.deepEqual(plain(H.strike("newspaper", { x: 100, y: 150, angle: Math.PI / 2, bounds: glass }, bugs, 1).hits), [1], "held upright, the paper reaches 60 up and down: the ant 50 above, not the one 150 below");
+  assert.deepEqual(plain(H.strike("newspaper", { x: 100, y: 150, angle: 0, bounds: glass }, bugs, 1).hits), [], "held flat, only 20 up and down");
+  assert.deepEqual(plain(H.strike("newspaper", { x: 150, y: 100, angle: 0, bounds: glass }, bugs, 1).hits), [1, 2], "held flat, 60 to each side: both ants on the line");
+  const spray = H.strike("spray", { x: 100, y: 160, angle: -Math.PI / 2, bounds: glass }, bugs, 1);
+  assert.deepEqual(plain(spray.hits), [1], "the sector points up: the ant above, not the one below");
+  assert.equal(spray.slow, 1.2);
+  assert.equal(spray.marks[0].kind, "mist");
+  const r = H.rng(3);
+  const sprayed = { ...bugs[0], slow: 1.2, sprayed: true, until: 99 };
+  const slowed = H.step(sprayed, 0.5, hunt(r, { now: 0.5 }));
+  assert.ok(Math.abs(slowed.x - sprayed.x) < 15 && slowed.state !== "dead", "slowed, alive");
+  let dying = slowed;
+  for (let k = 0; k < 4; k++) dying = H.step(dying, 0.5, hunt(r, { now: 1 + k * 0.5 }));
+  assert.equal(dying.state, "dead");
+  assert.equal(dying.cause, "spray");
+  assert.deepEqual(plain(H.strike("swatter", { x: 100, y: 100, bounds: glass }, [{ ...bugs[0], state: "dead" }], 1).hits), [], "a dead one is never hit again");
+  const squeegee = H.strike("squeegee", { x: 100, y: 100, bounds: glass }, bugs, 1);
+  assert.deepEqual(plain(squeegee.hits), []);
+  assert.equal(squeegee.wipes, true);
+  assert.equal(H.strike("laser", { x: 0, y: 0 }, bugs, 1), null);
+  assert.equal(H.SPECIES.beetle.hp, 2);
+  assert.ok(H.isTool("whip") && !H.isTool("laser") && !H.isTool(7));
+  assert.deepEqual(plain(H.TOOL_NAMES), ["whip", "swatter", "slipper", "newspaper", "spray", "squeegee"]);
+});
+
+test("cracks stay on the glass and off a tab, scratches follow the stroke, a splat wears its species' colour, marks fade, and a squeegee wipes what it crosses", () => {
+  const c = H.crack(5, 5, 9, glass, 0);
+  assert.ok(c.rays.length >= 6 && c.rings.length >= 1 && c.core > 0, "rays, at least one ring, a crushed core");
+  assert.ok(c.polylines.length >= c.rays.length + c.rings.length, "every ray, fork and ring is a line to clip");
+  for (const ray of c.rays) {
+    assert.equal(ray.widths.length, ray.points.length - 1, "a width per segment");
+    for (let i = 1; i < ray.widths.length; i++) assert.ok(ray.widths[i] <= ray.widths[i - 1] + 0.01, "a ray thins toward its tip");
+  }
+  for (const line of c.polylines) for (const p of line) assert.ok(p.x >= 0 && p.x <= 800 && p.y >= 0 && p.y <= 500, `${p.x},${p.y}`);
+  assert.deepEqual(plain(H.crack(5, 5, 9, glass, 0).polylines), plain(c.polylines), "the same seed cracks the same way");
+  assert.deepEqual(plain(H.clipOutside([[{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 150, y: 0 }, { x: 250, y: 0 }]], [{ x: 100, y: -10, width: 100, height: 20 }])), [[{ x: 0, y: 0 }, { x: 50, y: 0 }]], "the run before the tab stays; the lone point after it goes");
+  assert.deepEqual(plain(H.clipOutside([[{ x: 0, y: 0 }, { x: 1, y: 1 }]], [])), [[{ x: 0, y: 0 }, { x: 1, y: 1 }]]);
+  const s = H.scratch({ x: 0, y: 200 }, { x: 100, y: 200 }, 4, 0);
+  assert.ok(s.polylines.length >= 2 && s.polylines.every((l) => l.every((p) => Math.abs(p.y - 200) < 14 && p.x >= -1 && p.x <= 101)));
+  assert.ok(s.widths.every((w) => w[0] < w[Math.floor(w.length / 2)] && w[w.length - 1] < w[Math.floor(w.length / 2)]), "a scratch is thin at both ends and widest in the middle");
+  assert.ok(s.chips.length >= 2 && s.chips.every((ch) => ch.x > 20 && ch.x < 80), "a few chips where the lash bit hardest");
+  const thrown = H.splat(50, 50, "cockroach", 2, 0, 0);
+  const forward = thrown.drops.filter((d) => d.dx > 0).length;
+  assert.ok(forward >= thrown.drops.length / 2, "most droplets fly the way the blow went");
+  const struck = H.step({ ...H.spawn("beetle", glass, [], H.rng(1), 0, 9), x: 300, y: 300, entered: true, state: "hit", until: 0.1, t: 0 }, 0.2, hunt(H.rng(1), { now: 0.2 }));
+  assert.equal(struck.state, "walk", "a struck beetle staggers, then walks on");
+  assert.ok(thrown.streaks.length >= 1 && thrown.legs.length >= 1);
+  const sm = H.smear([{ x: 0, y: 0 }, { x: 60, y: 10 }], 60, 1, 0);
+  assert.equal(sm.kind, "smear");
+  assert.equal(sm.ttl, 5);
+  assert.deepEqual(H.aliveMarks([sm], 6), []);
+  const sp = H.splat(50, 50, "cockroach", 2, 0);
+  assert.equal(sp.color, H.SPECIES.cockroach.splat);
+  assert.equal(sp.ttl, null);
+  assert.ok(sp.drops.length >= 6);
+  const marks = [c, s, sp, H.mist(0, 0, 0, H.TOOLS.spray.shape, 1, 0)];
+  assert.equal(H.aliveMarks(marks, 10).length, 3, "the mist is gone after eight seconds");
+  assert.equal(H.aliveMarks(marks, 25).length, 1, "only the splat stays until wiped");
+  assert.equal(H.markOpacity(c, 0), 1);
+  assert.equal(H.markOpacity(c, 18), 0.5);
+  assert.equal(H.markOpacity(c, 21), 0);
+  assert.equal(H.markOpacity(sp, 999), 1);
+  assert.deepEqual(plain(H.wipe(marks, [{ x: 40, y: 40 }, { x: 60, y: 60 }], 60).map((m) => m.kind)), ["crack", "scratch", "mist"], "the splat under the stroke went");
+  assert.equal(H.wipe(marks, [], 60).length, 4);
+});
+
+test("the streak multiplies within two seconds and a miss ends it; arrivals quicken with work and slow under reduced motion; the strip moves off a tab; the store is read as far as its shape allows", () => {
+  let sc = { score: 0, streak: 0, best: 0, lastHitAt: -100 };
+  sc = H.scoreHit(sc, { species: "ant" }, 10);
+  assert.deepEqual([sc.score, sc.streak, sc.lastPoints], [5, 1, 5]);
+  sc = H.scoreHit(sc, { species: "ant" }, 11);
+  assert.deepEqual([sc.score, sc.streak], [15, 2]);
+  sc = H.scoreHit(sc, { species: "beetle" }, 14);
+  assert.deepEqual([sc.score, sc.streak, sc.best], [45, 1, 45], "three seconds later the streak starts over");
+  for (let k = 0; k < 7; k++) sc = H.scoreHit(sc, { species: "ant" }, 14 + (k + 1) * 0.5);
+  assert.equal(sc.lastPoints, 25, "five times at most");
+  const missed = H.scoreMiss(sc);
+  assert.equal(missed.streak, 0);
+  assert.equal(missed.score, sc.score);
+  assert.equal(missed.best, sc.best);
+  assert.equal(H.maxInsects({ difficulty: "calm" }), 4);
+  assert.equal(H.maxInsects({ difficulty: "swarm", reduced: true }), 7);
+  assert.equal(H.maxInsects({ difficulty: "x" }), 8, "an unknown difficulty is busy");
+  assert.ok(H.spawnInterval({ difficulty: "busy", working: 0 }) > H.spawnInterval({ difficulty: "busy", working: 3 }));
+  assert.equal(H.spawnInterval({ difficulty: "swarm", working: 99 }), 0.8, "work past eight counts as eight, and the floor holds");
+  assert.ok(H.spawnInterval({ difficulty: "swarm", working: 8, reduced: true }) > H.spawnInterval({ difficulty: "swarm", working: 8 }));
+  assert.equal(H.speedScale({ reduced: true }), 0.5);
+  assert.equal(H.speedScale({}), 1);
+  const vp = { width: 1024, height: 660 }, size = { width: 56, height: 320 };
+  assert.deepEqual(plain(H.stripPlacement(vp, [], size)), { x: 960, y: 170, width: 56, height: 320 });
+  assert.equal(H.stripPlacement(vp, [{ x: 700, y: 0, width: 324, height: 660 }], size).x, 8, "a tab on the right sends it left");
+  const bottom = H.stripPlacement(vp, [{ x: 700, y: 0, width: 324, height: 660 }, { x: 0, y: 0, width: 300, height: 660 }], size);
+  assert.deepEqual([bottom.x, bottom.y], [484, 332], "tabs on both sides send it to the bottom");
+  assert.equal(H.stripPlacement({ width: 400, height: 200 }, [], size).height, 184, "a short glass shortens the strip");
+  assert.deepEqual(plain(H.solidRects({ x: 960.4, y: 170, width: 56, height: 320 })), [{ x: 960, y: 170, width: 56, height: 320, radius: 10 }]);
+  assert.deepEqual(plain(H.readSaved("junk")), { best: 0, muted: false, tool: "swatter", difficulty: "busy" });
+  assert.deepEqual(plain(H.readSaved(JSON.stringify({ best: 120.7, muted: true, tool: "whip", difficulty: "swarm" }))), { best: 120, muted: true, tool: "whip", difficulty: "swarm" });
+  assert.deepEqual(plain(H.readSaved(JSON.stringify({ best: -5, muted: "yes", tool: "laser", difficulty: "insane" }))), { best: 0, muted: false, tool: "swatter", difficulty: "busy" });
+  assert.deepEqual(plain(H.readSaved(JSON.stringify([1]))), { best: 0, muted: false, tool: "swatter", difficulty: "busy" });
+  assert.equal(H.waitWords(0), "Nothing is running — hunt anyway.");
+  assert.equal(H.waitWords(1), "One thing is running — hunt while you wait.");
+  assert.equal(H.waitWords(3), "3 things are running — hunt while you wait.");
+  assert.deepEqual(plain(H.DIFFICULTY_NAMES), ["calm", "busy", "swarm"]);
 });

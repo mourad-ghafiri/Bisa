@@ -75,7 +75,7 @@ shows the official line to copy.
   ([security architecture](docs/architecture/11-security.md)).
 - ⚖️ **Decision-making** — calibrated judgements from Jev or any RLCD model, or a harness; off until
   you choose who judges ([decisions](docs/guide/decisions.md)).
-- 🧩 **Addons** — small windows of HTML, CSS and JavaScript, fourteen built in and your own imported
+- 🧩 **Addons** — small windows of HTML, CSS and JavaScript, fifteen built in and your own imported
   ([addons](docs/guide/addons.md)).
 - 🐾 **Pets** that keep you company in the footer while agents work.
 - 🔔 **The menu bar icon and notifications**, by category.

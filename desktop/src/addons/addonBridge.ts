@@ -24,7 +24,7 @@ import type { Addon } from "../types";
 import { copyText, useThemeNonce } from "../ui";
 import { readInspectorTheme } from "../ui/artifact/inspectorTokens";
 import { STORAGE_KEY_PREFIX, errorReply, eventMessage, fetchResult, handleCall, helloMessage, newSession, okReply, parseAddonMessage, refusedCode, storageBag } from "./addonBridgeModel.mjs";
-import type { AddonEvent, AddonSession, Effect, PlayerBox, Reply, StorageBag } from "./addonBridgeModel.mjs";
+import type { AddonEvent, AddonSession, Effect, PlayerBox, Reply, SceneMode, SceneRect, StorageBag } from "./addonBridgeModel.mjs";
 
 /** What the workspace looks like to an addon that asked. */
 export interface AddonSummary {
@@ -53,6 +53,14 @@ export interface AddonBridgeHandlers {
   onMediaBox: (box: PlayerBox) => void;
   /** The addon let the player go. */
   onMediaRemove: () => void;
+  /** The addon said hello and heard ready — a scene sends its first `scene` event here (`AddonScene.tsx`). */
+  onReady?: () => void;
+  /** A scene asked for a mode; the host decides and says the mode in the `scene` event. */
+  onSceneMode?: (mode: SceneMode) => void;
+  /** A scene named the regions the pointer reaches in `work` mode. */
+  onSceneSolid?: (rects: SceneRect[]) => void;
+  /** The pointer left a scene's solid regions: the app has it again. */
+  onSceneRelease?: () => void;
 }
 
 /** What the bridge hands back: a door to push an event to the addon — the media host's `media`. */
@@ -165,6 +173,15 @@ export function useAddonBridge(
         case "media_remove":
           h.onMediaRemove();
           return;
+        case "scene_mode":
+          h.onSceneMode?.(effect.mode);
+          return;
+        case "scene_solid":
+          h.onSceneSolid?.(effect.rects);
+          return;
+        case "scene_release":
+          h.onSceneRelease?.();
+          return;
         default:
           if (id) answer(errorReply(id, "unavailable"), null);
       }
@@ -183,6 +200,7 @@ export function useAddonBridge(
         session.current = { ...session.current, ready: true };
         post(helloMessage(session.current, { locale: locale(), scheme: readInspectorTheme().scheme }));
         post(eventMessage("visibility", { visible: latest.current.visible }));
+        latest.current.handlers.onReady?.();
         return;
       }
       if (parsed.kind === "bad") {

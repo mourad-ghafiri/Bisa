@@ -11,7 +11,7 @@
  * different depths, and nothing here decides where an overlay goes.
  */
 
-import { useEffect, useLayoutEffect, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type RefObject } from "react";
 import { clearOf, type ClearBox } from "./browserClearModel.mjs";
 import { LAYOUT_CHANGED } from "./layerSlots";
 import { browserAvailable } from "../browser/session";
@@ -78,6 +78,29 @@ export function useBrowserClear(id: string, ref: RefObject<HTMLElement | null>, 
     };
   }, [id, ref, on, radius]);
   useEffect(() => () => publish(id, null), [id]);
+}
+
+/**
+ * Publish several boxes under one prefix — a scene's solid regions
+ * (`addons/AddonScene.tsx`), each as `<prefix>:<i>` — withdrawing the ones
+ * past the new count, and all of them at unmount. The boxes are measured by
+ * the caller (the page said them); nothing here reads the DOM. Never a
+ * scene's whole box: a viewport-sized hole would blank every tab.
+ */
+export function useBrowserClearBoxes(prefix: string, boxes: readonly ClearBox[]): void {
+  const count = useRef(0);
+  useEffect(() => {
+    boxes.forEach((box, i) => publish(`${prefix}:${i}`, box));
+    for (let i = boxes.length; i < count.current; i++) publish(`${prefix}:${i}`, null);
+    count.current = boxes.length;
+  }, [prefix, boxes]);
+  useEffect(
+    () => () => {
+      for (let i = 0; i < count.current; i++) publish(`${prefix}:${i}`, null);
+      count.current = 0;
+    },
+    [prefix],
+  );
 }
 
 /** The overlays as they stand, outside React, each under its id. */
