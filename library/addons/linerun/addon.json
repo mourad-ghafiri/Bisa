@@ -2,7 +2,7 @@
   "id": "linerun",
   "name": "Linerun",
   "description": "A λ runs along three lines of a file that scrolls ever faster: change line or hop to dodge bugs and comment walls, take tokens for a streak, chase the mark where your best run ended — every run seeded, so the same seed runs the same file — and the workspace's line tells you when an agent needs you.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

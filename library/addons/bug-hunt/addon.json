@@ -2,7 +2,7 @@
   "id": "bug-hunt",
   "name": "Bug hunt",
   "description": "Insects walk, dart and jump over the app while you wait — pick a whip, a flyswatter, a slipper, a newspaper or a spray and hunt them; a miss cracks the glass, a squeegee wipes it, and the app keeps working underneath.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

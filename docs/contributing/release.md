@@ -274,9 +274,9 @@ and every built-in addon's `addon.json` — by targeted replacement, the file's 
 cuts the changelog: Unreleased's body moves under the new dated heading, Unreleased is left empty,
 the links move on. It refuses, leaving every file as it was, when Unreleased is empty (nothing to
 release), when the version already has a section, or when a manifest has not exactly one version
-line. Before a **minor** release, also move the `bisa-deps` requirement in every member crate's
-`Cargo.toml` (`bisa-deps = { version = "0.1", path = "../bisa-deps" }`) to the new `0.y` — hakari writes
-it that way, and `set-version` does not touch it yet. Then it prints what it leaves to you, each
+line. It also moves the `bisa-deps` requirement in every member crate's `Cargo.toml`
+(`bisa-deps = { version = "0.4", path = "../bisa-deps" }`, the line cargo-hakari writes) to the new
+`0.y` with a minor release, so `hakari verify` still holds. Then it prints what it leaves to you, each
 rewritten by its own tool: `cargo update
 --workspace` at the root and in `desktop/src-tauri` (the lockfiles' entries for the workspace's own
 crates), `npm install --package-lock-only` in `desktop/`, `just gen-catalog-docs` (the addons'

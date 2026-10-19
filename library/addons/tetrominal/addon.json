@@ -2,7 +2,7 @@
   "id": "tetrominal",
   "name": "Tetrominal",
   "description": "Falling blocks in a terminal well: pieces in syntax colours, a gutter of line numbers, a compile log for every line you clear, a seed to replay a build — and the workspace's line, so you know when an agent needs you.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",
