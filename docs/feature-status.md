@@ -100,7 +100,6 @@ Three levels are used throughout:
 
 | Area | The limit | Where | What stands in |
 |---|---|---|---|
-| Isolation | the `apfs` and `overlayfs` backends are stubs: `probe` reports them unavailable and `start`/`stop` refuse | `crates/bisa-iso/src/stubs.rs` | the git-worktree and copy backends |
 | A2A | the adapter polls `tasks/get`; it does not consume v0.3 streaming. A task that stops at `input-required` or `auth-required` is raised as an input request (`HarnessCaps::INPUT_REQUESTS`) and answered like any harness's | `crates/bisa-adapters/src/a2a.rs` | polling; the input-request path |
 | A2A expose | the agent card and `POST /a2a` take no token — a remote agent holds no control-plane token, so they are the named exceptions to the bearer every other route requires (`auth::is_exempt`); on the unix socket the socket's `0600` is the door, on loopback TCP any local process or page can submit a task | `crates/bisa-node/src/auth.rs`, `crates/bisa-node/src/a2a.rs` | the operator's tunnel or reverse proxy, where an A2A credential would be checked |
 | omp | host tools and host URI schemes are absent on purpose; goal operations go through MCP | `crates/bisa-adapters/src/omp.rs` | the MCP tool set |

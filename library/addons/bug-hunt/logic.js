@@ -264,14 +264,15 @@
 
   // --- the tools ------------------------------------------------------------------
   /**
-   * Each tool: what shape its strike has around the pointer (or along the
-   * stroke), its cooldown (s), the mark a miss leaves and the mark a hit
-   * leaves, its sound; a whip needs a stroke at least this long; the spray
-   * slows what it reaches, which dies when the slow wears off; the squeegee
-   * wipes marks along its stroke and hits nothing.
+   * Each tool: what shape its strike has around the pointer, its cooldown
+   * (s), the mark a miss leaves and the mark a hit leaves, its sound. A whip
+   * bites at its tip, which is on the pointer, and along `reach` px of the
+   * lash lying behind it (the page says which way); the spray slows what it
+   * reaches, which dies when the slow wears off; the squeegee wipes marks
+   * along its stroke and hits nothing.
    */
   var TOOLS = {
-    whip: { label: "Whip", shape: { kind: "segment", width: 14 }, cooldown: 0.35, miss: "scratch", hit: "splat", sound: "whip", minStroke: 24 },
+    whip: { label: "Whip", shape: { kind: "lash", tip: 14, width: 10, reach: 56 }, cooldown: 0.35, miss: "scratch", hit: "splat", sound: "whip" },
     swatter: { label: "Flyswatter", shape: { kind: "square", side: 56 }, cooldown: 0.25, miss: "crack", hit: "splat", sound: "swat" },
     slipper: { label: "Slipper", shape: { kind: "disc", r: 26 }, cooldown: 0.3, miss: "crack", hit: "splat", sound: "thud" },
     newspaper: { label: "Newspaper", shape: { kind: "rect", w: 120, h: 40 }, cooldown: 0.45, miss: "crack", hit: "splat", sound: "thud" },
@@ -292,7 +293,8 @@
     var sp = SPECIES[insect.species] || SPECIES.ant;
     var rad = sp.size / 2, shape = tool.shape, p = { x: insect.x, y: insect.y };
     switch (shape.kind) {
-      case "segment": return distToSegment(p, g.from, g.to) <= shape.width / 2 + rad;
+      // The tip, a disc on the pointer, and the lash from it back to its tail: precise at the tip, generous along the leather.
+      case "lash": return dist(p, g) <= shape.tip + rad || distToSegment(p, g.from, g.to) <= shape.width / 2 + rad;
       case "square": return Math.abs(p.x - g.x) <= shape.side / 2 + rad && Math.abs(p.y - g.y) <= shape.side / 2 + rad;
       case "disc": return dist(p, g) <= shape.r + rad;
       case "rect": {
@@ -313,14 +315,16 @@
 
   /**
    * One strike: which insects it reaches (dead ones are never hit again), the
-   * marks it leaves (a splat per hit, else the miss's mark), its sound. Null
-   * for a stroke too short to count as a strike.
+   * marks it leaves (a splat per hit, else the miss's mark), its sound. The
+   * gesture `g` is `{x, y, angle, bounds}` — the pointer and the way the blow
+   * went — and for the whip also `from` (the tip, on the pointer) and `to`
+   * (the tail, `reach` px back along the lash's lie), its `angle` the way the
+   * lash flew: tail to tip. Null for a tool that is not one.
    */
   function strike(toolName, g, insects, now) {
     var tool = TOOLS[toolName];
     if (!tool) return null;
     if (tool.wipes) return { hits: [], marks: [], sound: tool.sound, wipes: true };
-    if (tool.minStroke && (g.length || 0) < tool.minStroke) return null;
     var hits = [], marks = [];
     for (var i = 0; i < insects.length; i++) {
       var it = insects[i];
@@ -404,9 +408,10 @@
     return { id: nextMarkId(), kind: "crack", x: x, y: y, seed: seed, rays: rays, rings: rings, core: r.range(2.5, 5.5), polylines: polylines, born: now, ttl: TTL.crack };
   }
   /**
-   * Scratches along a whip's stroke: two or three hairlines, each bowed a
-   * little, thin at both ends and widest in the middle, with a few chips
-   * where the lash bit hardest.
+   * Scratches where a whip's lash lay, from its tip (`from`) back to its
+   * tail: two or three hairlines, each bowed a little, thin at both ends and
+   * widest in the middle, with a few chips near the tip, where the lash bit
+   * hardest.
    */
   function scratch(from, to, seed, now) {
     var r = rng(seed), lines = r.int(2, 3), polylines = [], widths = [], chips = [];
@@ -425,7 +430,7 @@
     }
     var chipCount = r.int(2, 4);
     for (var c = 0; c < chipCount; c++) {
-      var ct = r.range(0.3, 0.7);
+      var ct = r.range(0.04, 0.36);
       chips.push({ x: from.x + dx * ct + nx * r.range(-3, 3), y: from.y + dy * ct + ny * r.range(-3, 3), r: r.range(0.6, 1.4) });
     }
     return { id: nextMarkId(), kind: "scratch", x: (from.x + to.x) / 2, y: (from.y + to.y) / 2, seed: seed, polylines: polylines, widths: widths, chips: chips, born: now, ttl: TTL.scratch };

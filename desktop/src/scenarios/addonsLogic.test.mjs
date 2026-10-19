@@ -314,7 +314,7 @@ test("the same seed walks the same path, every species has its facts, and no ins
   assert.equal(H.offstage({ ...leader, x: -100, entered: false }, glass), false, "one still walking in is not gone");
 });
 
-test("each tool reaches what its shape covers and nothing beside; a whip needs a stroke; the spray slows before it kills; a beetle takes two", () => {
+test("each tool reaches what its shape covers and nothing beside; a whip bites at its tip and along its lie; the spray slows before it kills; a beetle takes two", () => {
   const at = (species, x, y, id) => ({ ...H.spawn(species, glass, [], H.rng(1), 0, id), x, y, state: "walk", entered: true });
   const bugs = [at("ant", 100, 100, 1), at("ant", 160, 100, 2), at("ant", 100, 300, 3)];
   assert.deepEqual(plain(H.strike("swatter", { x: 100, y: 100, bounds: glass }, bugs, 1).hits), [1]);
@@ -324,9 +324,20 @@ test("each tool reaches what its shape covers and nothing beside; a whip needs a
   assert.deepEqual(plain(miss.hits), []);
   assert.equal(miss.marks[0].kind, "crack");
   assert.equal(miss.sound, "thud");
-  assert.equal(H.strike("whip", { from: { x: 0, y: 100 }, to: { x: 200, y: 100 }, x: 100, y: 100, length: 200, bounds: glass }, bugs, 1).hits.length, 2);
-  assert.equal(H.strike("whip", { from: { x: 0, y: 100 }, to: { x: 10, y: 100 }, x: 5, y: 100, length: 10, bounds: glass }, bugs, 1), null, "too short to crack");
-  assert.equal(H.strike("whip", { from: { x: 0, y: 400 }, to: { x: 200, y: 400 }, x: 100, y: 400, length: 200, bounds: glass }, bugs, 1).marks[0].kind, "scratch");
+  // The whip's gesture: the tip on the pointer, the tail 56 px back along the lash's lie, the angle the way the lash flew.
+  const lash = (x, y, lie) => ({ x, y, from: { x, y }, to: { x: x + Math.cos(lie) * 56, y: y + Math.sin(lie) * 56 }, angle: lie + Math.PI, bounds: glass });
+  assert.deepEqual(plain(H.TOOLS.whip.shape), { kind: "lash", tip: 14, width: 10, reach: 56 });
+  assert.equal(H.TOOLS.whip.minStroke, undefined, "a click is a crack: no stroke to measure");
+  const cracked = H.strike("whip", lash(100, 100, 0), bugs, 1);
+  assert.deepEqual(plain(cracked.hits), [1, 2], "the ant under the tip and the one 60 along the lie, 4 off its line");
+  assert.equal(cracked.sound, "whip");
+  assert.ok(cracked.marks.every((m) => m.kind === "splat" && m.streaks.every((st) => st.x2 < st.x1)), "a splat is thrown the way the lash flew: tail to tip, leftward here");
+  assert.deepEqual(plain(H.strike("whip", lash(100, 100, Math.PI), bugs, 1).hits), [1], "the lash lies behind the tip, never ahead of it");
+  assert.deepEqual(plain(H.strike("whip", lash(100, 121, Math.PI), bugs, 1).hits), [1], "the tip's 14 plus an ant's 8 reaches 22");
+  const scratched = H.strike("whip", lash(100, 123, 0), bugs, 1);
+  assert.deepEqual(plain(scratched.hits), [], "23 is past the tip, and the lash lies the other way");
+  assert.equal(scratched.marks[0].kind, "scratch");
+  assert.ok(scratched.marks[0].chips.every((ch) => ch.x > 100 && ch.x < 124 && Math.abs(ch.y - 123) <= 3), "the chips sit near the tip, in the first third of the lash");
   assert.deepEqual(plain(H.strike("newspaper", { x: 100, y: 150, angle: Math.PI / 2, bounds: glass }, bugs, 1).hits), [1], "held upright, the paper reaches 60 up and down: the ant 50 above, not the one 150 below");
   assert.deepEqual(plain(H.strike("newspaper", { x: 100, y: 150, angle: 0, bounds: glass }, bugs, 1).hits), [], "held flat, only 20 up and down");
   assert.deepEqual(plain(H.strike("newspaper", { x: 150, y: 100, angle: 0, bounds: glass }, bugs, 1).hits), [1, 2], "held flat, 60 to each side: both ants on the line");
@@ -352,7 +363,7 @@ test("each tool reaches what its shape covers and nothing beside; a whip needs a
   assert.deepEqual(plain(H.TOOL_NAMES), ["whip", "swatter", "slipper", "newspaper", "spray", "squeegee"]);
 });
 
-test("cracks stay on the glass and off a tab, scratches follow the stroke, a splat wears its species' colour, marks fade, and a squeegee wipes what it crosses", () => {
+test("cracks stay on the glass and off a tab, scratches run from the tip back along the lash, a splat wears its species' colour, marks fade, and a squeegee wipes what it crosses", () => {
   const c = H.crack(5, 5, 9, glass, 0);
   assert.ok(c.rays.length >= 6 && c.rings.length >= 1 && c.core > 0, "rays, at least one ring, a crushed core");
   assert.ok(c.polylines.length >= c.rays.length + c.rings.length, "every ray, fork and ring is a line to clip");
@@ -367,7 +378,7 @@ test("cracks stay on the glass and off a tab, scratches follow the stroke, a spl
   const s = H.scratch({ x: 0, y: 200 }, { x: 100, y: 200 }, 4, 0);
   assert.ok(s.polylines.length >= 2 && s.polylines.every((l) => l.every((p) => Math.abs(p.y - 200) < 14 && p.x >= -1 && p.x <= 101)));
   assert.ok(s.widths.every((w) => w[0] < w[Math.floor(w.length / 2)] && w[w.length - 1] < w[Math.floor(w.length / 2)]), "a scratch is thin at both ends and widest in the middle");
-  assert.ok(s.chips.length >= 2 && s.chips.every((ch) => ch.x > 20 && ch.x < 80), "a few chips where the lash bit hardest");
+  assert.ok(s.chips.length >= 2 && s.chips.every((ch) => ch.x > 2 && ch.x < 38), "a few chips near the tip, where the lash bit hardest");
   const thrown = H.splat(50, 50, "cockroach", 2, 0, 0);
   const forward = thrown.drops.filter((d) => d.dx > 0).length;
   assert.ok(forward >= thrown.drops.length / 2, "most droplets fly the way the blow went");

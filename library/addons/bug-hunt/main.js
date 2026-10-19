@@ -27,11 +27,11 @@
   var markNodes = {};    // mark id → its group
   var pointer = null;    // the pointer on the glass in hunt mode, or null
   var lastMove = null;   // the last two points, for a swing's direction
-  var stroke = null;     // a whip's or a squeegee's stroke in progress
+  var stroke = null;     // a squeegee's stroke in progress — the whip has none, it cracks on the press
   var history = [];      // where the pointer has been, newest last: the whip's lash lies along it
   var handAngle = 0, handTarget = 0;   // the tool in hand turns into the swing, a touch behind the hand
   var ribbon = null;     // the whip's lash on the trail layer, once drawn
-  var ribbonHeld = null; // the lash pulled straight by a crack: { pts, until }
+  var ribbonHeld = null; // the lash pulled straight by a crack, as offsets from the tip so it rides the grip: { pts, until }
   var band = null;       // the squeegee's wet band while it drags
   var canStore = false, saveTimer = null;
   var clock = 0, raf = null, now = 0;
@@ -403,6 +403,15 @@
     }
     return pts;
   }
+  /** Which way the lash lies from the grip: toward the first drawn point of the ribbon at least 20 px out — the way the hand came, or the rest curl. */
+  function lashLie() {
+    var pts = ribbonPoints();
+    for (var i = 1; i < pts.length; i++) {
+      var dx = pts[i].x - pointer.x, dy = pts[i].y - pointer.y;
+      if (dx * dx + dy * dy >= 400) return Math.atan2(dy, dx);
+    }
+    return handTarget + Math.PI;
+  }
   /** The curve through the points, sampled four times a span, for an outline to be built on. */
   function densify(pts) {
     var out = [];
@@ -446,10 +455,23 @@
   function makeRibbon() {
     ribbon = { under: el("path", { class: "lash-under" }, trail), over: el("path", { class: "lash-over" }, trail), hi: el("path", { class: "lash-hi", "stroke-width": 1 }, trail) };
   }
-  /** One filled shape from grip to tip, a darker one beneath it, a highlight along its thick half. */
+  /** The held rod laid from the grip: its offsets at the pointer. */
+  function heldPoints() {
+    var out = [];
+    for (var i = 0; i < ribbonHeld.pts.length; i++) out.push({ x: pointer.x + ribbonHeld.pts[i].x, y: pointer.y + ribbonHeld.pts[i].y });
+    return out;
+  }
+  /** The held rod becomes the history the ribbon curls from — the lash stays where it lay, so the picture never pops from straight to a fresh curl. */
+  function settleHeld() {
+    if (!ribbonHeld) return;
+    history = heldPoints().slice(1).reverse();
+    ribbonHeld = null;
+  }
+  /** One filled shape from grip to tip, a darker one beneath it, a highlight along its thick half; the rod a crack holds straight rides the grip until its beat is over. */
   function drawRibbon() {
     if (!ribbon) makeRibbon();
-    var pts = densify(ribbonHeld && now < ribbonHeld.until ? ribbonHeld.pts : smoothPts(ribbonPoints()));
+    if (ribbonHeld && now >= ribbonHeld.until) settleHeld();
+    var pts = densify(ribbonHeld ? heldPoints() : smoothPts(ribbonPoints()));
     ribbon.under.setAttribute("d", taperedOutline(pts, 6.4, 2.4));
     ribbon.over.setAttribute("d", taperedOutline(pts, 5, 1.2));
     ribbon.hi.setAttribute("d", smoothPath(pts.slice(0, Math.ceil(pts.length * 0.6))));
@@ -516,10 +538,11 @@
       node.appendChild(i);
     }
   }
-  /** What the glass shows of the blow itself: a shock ring the tool's size, or a spray's cone. */
+  /** What the glass shows of the blow itself: a shock ring the tool's size, a spray's cone, or the sparks and the flash where a whip's tip snapped. */
   function impactFx(tool, g) {
     var rot = ((g.angle || 0) * 57.2958).toFixed(1) + "deg";
-    if (tool === "swatter") fx("ring", g.x, g.y, { "--w": "58px", "--h": "58px", "--r": "10px" }, 360);
+    if (tool === "whip") { sparks(g.x, g.y, 6); fx("flash", g.x, g.y, { "--size": "70px" }, 240); }
+    else if (tool === "swatter") fx("ring", g.x, g.y, { "--w": "58px", "--h": "58px", "--r": "10px" }, 360);
     else if (tool === "slipper") fx("ring", g.x, g.y, { "--w": "54px", "--h": "54px", "--r": "50%" }, 360);
     else if (tool === "newspaper") fx("ring", g.x, g.y, { "--w": "124px", "--h": "44px", "--r": "22px", "--rot": rot }, 360);
     else if (tool === "spray") fx("cone", g.x, g.y, { "--a": (((g.angle || 0) * 57.2958) + 90).toFixed(1) + "deg" });
@@ -661,34 +684,39 @@
     if (travel) setTimeout(function () { resolve(g); }, travel);
     else resolve(g);
   }
-  /** The whip, on release: the lash flies out straight from the grip to where the stroke began, bowed a little, and snaps there; the blow lands at the snap. */
-  function crack(s, p) {
-    var tool = H.TOOLS.whip;
-    var dx = p.x - s.from.x, dy = p.y - s.from.y, len = Math.sqrt(dx * dx + dy * dy);
-    if (len < tool.minStroke || now < state.cooldownUntil) return;
+  /**
+   * The whip, on the press: the tip snaps on the pointer and the blow lands
+   * there at once — the lash straightens from the tip back along its lie and
+   * rides the grip for a beat, a streak of light runs the bite to the tip,
+   * the grip jerks back along the lash; the strike bites at the tip and along
+   * the lash's reach behind it (`TOOLS.whip.shape`).
+   */
+  function crack(p) {
+    var tool = H.TOOLS.whip, shape = tool.shape;
+    if (now < state.cooldownUntil) return;
     state.cooldownUntil = now + tool.cooldown;
-    var g = { from: s.from, to: p, x: (s.from.x + p.x) / 2, y: (s.from.y + p.y) / 2, angle: Math.atan2(dy, dx), length: len, bounds: state.bounds };
+    settleHeld();
+    var lie = lashLie(), ux = Math.cos(lie), uy = Math.sin(lie);
+    var g = { x: p.x, y: p.y, from: p, to: { x: p.x + ux * shape.reach, y: p.y + uy * shape.reach }, angle: wrap(lie + Math.PI), bounds: state.bounds };
+    // The recoil, in the hand's own turned frame: the grip jerks 10 px back along the lash.
+    var back = lie - handAngle;
+    hand.style.setProperty("--flick-x", f(Math.cos(back) * 10) + "px");
+    hand.style.setProperty("--flick-y", f(Math.sin(back) * 10) + "px");
     handPlay("flick");
-    history = [];
-    // The leather pulls straight along the stroke, bowed a little, and holds there a beat; a streak of light runs its last stretch to the tip.
-    var nx = -dy / len, ny = dx / len, bow = Math.min(24, len * 0.12), cx = g.x + nx * bow, cy = g.y + ny * bow;
-    var held = [], streak = "";
+    // The leather pulls straight along its lie — dead straight over the bite, where it snaps and the rule reaches, bowed a little past it — and holds there a beat: offsets from the tip, so it rides the grip.
+    var bite = shape.reach + 8, tb = bite / LASH, nx = -uy, ny = ux, held = [];
     for (var k = 0; k <= 16; k++) {
-      var t = k / 16, mt = 1 - t;
-      var q = { x: mt * mt * p.x + 2 * mt * t * cx + t * t * s.from.x, y: mt * mt * p.y + 2 * mt * t * cy + t * t * s.from.y };
-      held.push(q);
-      if (t >= 0.55) streak += (streak ? "L" : "M") + f(q.x) + " " + f(q.y);
+      var t = k / 16, b = Math.max(0, (t - tb) / (1 - tb));
+      b = b * b * (3 - 2 * b);   // eased in, so the bow leaves the straight run without a corner
+      var arc = 18 * 4 * b * (1 - b);
+      held.push({ x: ux * LASH * t + nx * arc, y: uy * LASH * t + ny * arc });
     }
     ribbonHeld = { pts: held, until: now + 0.3 };
-    var lash = el("path", { class: "lash-crack", d: streak, "stroke-dasharray": (len * 0.5).toFixed(0) }, trail);
-    lash.style.setProperty("--len", (len * 0.5).toFixed(0));
-    setTimeout(function () { lash.remove(); }, 400);
-    var snap = function () {
-      sparks(s.from.x, s.from.y, 6);
-      fx("flash", s.from.x, s.from.y, { "--size": "70px" }, 240);
-      resolve(g);
-    };
-    if (reduced) snap(); else setTimeout(snap, 90);
+    // A streak of light runs the bite, tail first, to the tip.
+    var streak = el("path", { class: "lash-crack", d: "M" + f(p.x + ux * bite) + " " + f(p.y + uy * bite) + "L" + f(p.x) + " " + f(p.y), "stroke-dasharray": String(bite) }, trail);
+    streak.style.setProperty("--len", String(bite));
+    setTimeout(function () { streak.remove(); }, 400);
+    resolve(g);
   }
   function onDown(e) {
     if (state.mode !== "hunt" || e.button !== 0) return;
@@ -697,8 +725,8 @@
     var p = { x: e.clientX, y: e.clientY };
     pointer = p;
     var tool = H.TOOLS[state.tool];
-    if (tool.minStroke) { stroke = { from: p, path: [p] }; return; }
     if (tool.wipes) { stroke = { from: p, path: [p] }; handPlay("press"); hand.classList.add("down"); play("squeegee"); drawBand(stroke.path); return; }
+    if (state.tool === "whip") { crack(p); return; }
     swing(p);
   }
   function onMove(e) {
@@ -709,31 +737,30 @@
     pointer = p;
     var dx = p.x - q.x, dy = p.y - q.y;
     if (dx * dx + dy * dy >= 9) handTarget = Math.atan2(dy, dx);
-    history.push(p);
-    if (history.length > 80) history.splice(0, history.length - 80);
-    if (stroke && H.TOOLS[state.tool].wipes) {
+    // While a crack holds the lash straight it is a rod riding the grip, and records no history of its own.
+    if (!ribbonHeld) {
+      history.push(p);
+      if (history.length > 80) history.splice(0, history.length - 80);
+    }
+    if (stroke) {
       var last = stroke.path[stroke.path.length - 1];
       stroke.path.push(p);
       state.marks = H.wipe(state.marks, [last, p], H.TOOLS.squeegee.shape.width);
       drawBand(stroke.path);
-    } else if (stroke) {
-      stroke.path.push(p);
     }
   }
+  /** The squeegee's stroke ends: its wet streak stays on the glass. (The whip has no stroke: a press has already cracked.) */
   function onUp(e) {
     if (state.mode !== "hunt" || !stroke) return;
-    var p = { x: e.clientX, y: e.clientY };
     var s = stroke;
     stroke = null;
+    hand.classList.remove("down");
+    clearBand();
     var tool = H.TOOLS[state.tool];
-    if (tool.wipes) {
-      s.path.push(p);
-      hand.classList.remove("down");
-      clearBand();
-      addMarks([H.smear(s.path, tool.shape.width, Math.floor(p.x * 7 + p.y * 3) >>> 0, now)]);
-      return;
-    }
-    crack(s, p);
+    if (!tool.wipes) return;
+    var p = { x: e.clientX, y: e.clientY };
+    s.path.push(p);
+    addMarks([H.smear(s.path, tool.shape.width, Math.floor(p.x * 7 + p.y * 3) >>> 0, now)]);
   }
   glass.addEventListener("pointerdown", onDown);
   glass.addEventListener("pointermove", onMove);
@@ -747,6 +774,8 @@
   function askMode(mode) { bisa.scene.mode(mode).catch(function () {}); }
   function setTool(name) {
     if (!H.isTool(name)) return;
+    // A rod a crack still holds settles when the whip is put down, so the history goes on being written for the next pick.
+    if (name !== "whip") { if (pointer) settleHeld(); else ribbonHeld = null; }
     state.tool = name;
     renderStrip();
     save();
@@ -780,7 +809,7 @@
   function setMode(mode) {
     if (mode === state.mode) return;
     state.mode = mode;
-    if (mode === "work") { stroke = null; pointer = null; history = []; whine(false, 0); clearBand(); hideHand(); }
+    if (mode === "work") { stroke = null; pointer = null; history = []; ribbonHeld = null; whine(false, 0); clearBand(); hideHand(); }
     renderStrip();
   }
   function onScene(ev) {

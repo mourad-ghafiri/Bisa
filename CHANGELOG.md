@@ -30,6 +30,14 @@ notes (`docs/contributing/release.md`).
   controls is `Labelled`, never a `<label>`; *Id* reads *Step id*, *on fail* reads *on failure*, a
   condition group's member is *Condition n*, the JSON field says once when it applies, the human
   step's two icon buttons are named; field pairs go two columns from `@sm` everywhere.
+- Bug hunt's whip cracks on the press, where you click: its tip snaps on the pointer and bites 14px
+  around it and along 56px of the lash lying behind the hand (`TOOLS.whip.shape`, a `lash` of tip,
+  width and reach — the segment rule and its 24px minimum stroke are gone), the lash straightens
+  from the tip back along its lie and rides the grip for a beat before it curls on from where it
+  lay, a streak of light runs the bite to the tip, sparks and a flash sit on the pointer, the grip
+  jerks back along the lash, a hit's splat and droplets are thrown the way the lash flew, a miss
+  scratches from the tip back with the chips at the tip; the squeegee is the one tool that drags,
+  and the strip's tooltip says *click to crack it*.
 
 ### Fixed
 
@@ -48,6 +56,10 @@ notes (`docs/contributing/release.md`).
   the tab does not have; and the goal screen stacked two right columns — the tab's own beside the
   Details pane — which never budgeted together, so at a 1024px window with the pane open the canvas
   kept about 176px, half a card.
+- Bug hunt's whip did nothing on a click: it struck only on a drag of 24px or more, along the drag
+  while the picture drew the snap at the press point 90ms later — behind the hand by then; a drag
+  that left the glass toward the strip cracked at the edge; and a hit's splat, its droplets and a
+  struck insect's knock went toward the hand instead of the way the lash flew.
 
 ## [0.5.0] - 2026-10-19
 

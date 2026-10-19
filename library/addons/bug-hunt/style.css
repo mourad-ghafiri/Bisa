@@ -106,7 +106,7 @@ body.shake .glass { animation: shake 120ms linear; }
 .hand[data-tool="spray"] { --shadow-rest: translate(-20px, 34px) scale(0.8, 0.5); }
 .hand.down svg { transform: translate(0, 1px) scale(1); }
 .hand.down .shadow { transform: translate(1px, 2px) scale(0.9); opacity: 0.5; }
-/* The swings. A slam or a stomp comes straight down and lands at the third beat; a whack swings in along the stroke; a flick jerks the grip; a puff jolts the can; a press puts the blade to the glass. */
+/* The swings. A slam or a stomp comes straight down and lands at the third beat; a whack swings in along the stroke; a flick jerks the grip back along the lash (`--flick-x/y`, set by the page in the hand's own turned frame) while the tip snaps on the pointer; a puff jolts the can; a press puts the blade to the glass. */
 .hand.slam svg { animation: slam 250ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
 .hand.slam .shadow { animation: shadow-in 250ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
 .hand.stomp svg { animation: stomp 320ms cubic-bezier(0.3, 0.5, 0.4, 1) both; }
@@ -120,17 +120,17 @@ body.shake .glass { animation: shake 120ms linear; }
 @keyframes stomp { 0% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)) scale(var(--lift-s)); } 10% { transform: translate(calc(var(--lift-x) * 1.3), calc(var(--lift-y) * 1.5)) rotate(calc(var(--lift-r) * 1.3)) scale(calc(var(--lift-s) * 1.04)); } 28% { transform: translate(0, 3px) rotate(0deg) scale(0.95); } 40% { transform: translate(0, 0) rotate(0deg) scale(1.02); } 100% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)) scale(var(--lift-s)); } }
 @keyframes whack { 0% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)); } 10% { transform: translate(-30px, -12px) rotate(-40deg); } 30% { transform: translate(2px, 0) rotate(4deg) scale(0.98); } 45% { transform: translate(0, 0) rotate(0deg) scale(1); } 100% { transform: translate(var(--lift-x), var(--lift-y)) rotate(var(--lift-r)); } }
 @keyframes shadow-in { 0% { transform: var(--shadow-rest); } 28% { transform: translate(1px, 2px) scale(0.9); opacity: 0.55; } 45% { transform: translate(1px, 2px) scale(0.92); opacity: 0.55; } 100% { transform: var(--shadow-rest); } }
-@keyframes flick { 0% { transform: rotate(0deg); } 45% { transform: translate(-3px, -3px) rotate(-18deg); } 100% { transform: rotate(0deg); } }
+@keyframes flick { 0% { transform: rotate(0deg); } 45% { transform: translate(var(--flick-x, -7px), var(--flick-y, 7px)) rotate(-18deg); } 100% { transform: rotate(0deg); } }
 @keyframes puff { 0% { transform: translate(0, 0); } 20% { transform: translate(-1px, 2px) rotate(-3deg); } 100% { transform: translate(0, 0); } }
 @keyframes press { 0% { transform: translate(0, -6px); } 40% { transform: translate(0, 1px); } 100% { transform: translate(0, 1px); } }
 
-/* The whip's lash lies along the path the hand took, thick at the grip and a hair at the tip; on release it flies out straight and snaps. The squeegee drags a wet band while it is down. */
+/* The whip's lash lies along the path the hand took, thick at the grip and a hair at the tip; on a press it straightens from the tip back along its lie and snaps on the pointer. The squeegee drags a wet band while it is down. */
 .lash-under { fill: #1a0e06; stroke: #1a0e06; stroke-width: 0.6; stroke-linejoin: round; opacity: 0.6; }
 .lash-over { fill: #6a4322; stroke: #6a4322; stroke-width: 0.4; stroke-linejoin: round; }
 .lash-hi, .lash-crack, .wet-band, .wet-edge, .wet-streak, .wet-bead { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .lash-hi { stroke: rgba(255, 255, 255, 0.3); }
 .trail:not(.whip.on) .lash-under, .trail:not(.whip.on) .lash-over, .trail:not(.whip.on) .lash-hi { visibility: hidden; }
-/* The snap: a streak of light along the last stretch of the lash, over the leather, gone in a blink. */
+/* The snap: a streak of light that runs the lash's bite, tail to tip, over the leather, gone in a blink. */
 .lash-crack { stroke: rgba(255, 248, 236, 0.9); stroke-width: 2; stroke-dashoffset: var(--len); filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.85)); animation: lash-out 90ms linear forwards, lash-fade 200ms 90ms linear forwards; }
 @keyframes lash-out { to { stroke-dashoffset: 0; } }
 @keyframes lash-fade { to { opacity: 0; } }

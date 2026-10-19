@@ -102,9 +102,9 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
   beetles, ants, flies, mosquitoes and crickets walk, dart, fly and hop over whatever you are doing
   while it keeps working — the more things are running, the more that crawl. A strip at the right
   holds the tools: pick a whip, a flyswatter, a slipper, a newspaper or a spray and the scene takes
-  the pointer (*Hunt*); the tool is in your hand — it follows the pointer and swings where you
-  click, the whip's lash trails behind you and cracks when you let go — a hit splats, a miss cracks
-  or scratches the glass, the spray slows and kills, the squeegee wipes; a streak within two
+  the pointer (*Hunt*); the tool is in your hand — it follows the pointer and strikes where you
+  click, the whip's lash trailing behind you and its tip cracking on the spot — a hit splats, a miss
+  cracks or scratches the glass, the spray slows and kills, the squeegee wipes as you drag; a streak within two
   seconds multiplies the points, the best is kept. `Esc` or the *Work* switch hands the app the pointer back and the insects keep
   walking; the ✕ puts the scene away (the footer's Addons popover brings it back). Sound is on with
   a mute switch; *Calm*, *Busy* and *Swarm* set how many come; the insects keep off a browser tab,
