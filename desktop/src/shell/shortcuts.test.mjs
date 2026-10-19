@@ -79,9 +79,9 @@ test("no native menu key equivalent shadows a declared chord, and the Edit menu'
   const PREDEFINED = { undo: "Mod+Z", redo: "Mod+Shift+Z", cut: "Mod+X", copy: "Mod+C", paste: "Mod+V", select_all: "Mod+A", minimize: "Mod+M", hide: "Mod+H", hide_others: "Mod+Alt+H", quit: "Mod+Q", fullscreen: "Ctrl+Mod+F", close_window: "Mod+W" };
   const menu = shell.slice(shell.indexOf("fn app_menu"), shell.indexOf("fn main()"));
   const used = Object.keys(PREDEFINED).filter((m) => menu.includes(`.${m}()`));
-  assert.ok(used.includes("undo") && used.includes("quit"), "the menu is read");
-  for (const verb of ["cut", "copy", "paste", "select_all", "close_window"]) {
-    assert.ok(!used.includes(verb), `the predefined ${verb} item would claim its key before the webview sees it`);
+  assert.ok(used.includes("quit") && used.includes("hide"), "the menu is read");
+  for (const verb of ["undo", "redo", "cut", "copy", "paste", "select_all", "close_window"]) {
+    assert.ok(!menu.includes(`.${verb}()`), `the predefined ${verb} item would claim its key before the webview sees it`);
   }
   // The chord a Mac takes: a command's `mac` table stands in for its `chords` there — so `quit`, Mod+Q elsewhere, is unbound on a Mac, where the menu's ⌘Q is held for the same question (`src-tauri/src/quit.rs`).
   const onMac = resolveKeymap("default", null, true);
@@ -93,13 +93,14 @@ test("no native menu key equivalent shadows a declared chord, and the Edit menu'
   }
   assert.equal(chordFor(onMac, "quit"), null, "on a Mac the menu's ⌘Q is the way out");
   assert.equal(chordFor(resolveKeymap("default", null, false), "quit"), "Mod+Q", "elsewhere the keymap's Ctrl+Q is");
-  assert.ok(menu.includes("edit_menu::items(handle)"), "the four verbs are custom items");
+  assert.ok(menu.includes("edit_menu::items(handle)"), "the six verbs are custom items");
   assert.ok(shell.includes(".on_menu_event(") && shell.includes("edit_menu::perform(app, verb)"), "a verb runs natively and is told to the webview");
   assert.ok(shell.includes('#[cfg(target_os = "macos")]\nfn app_menu'), "the menu is macOS's alone");
   for (const v of EDIT_VERBS) assert.ok(editMenuRs.includes(`"${editVerbId(v)}"`), `the shell's item id for ${v}`);
   assert.ok(editMenuRs.includes(`"${EDIT_VERB_EVENT}"`), "one event name on both sides");
   const replay = read("shell/editMenu.ts");
   assert.ok(replay.includes(`new KeyboardEvent("keydown"`) && replay.includes("keyOfVerb(verb)"), "the verb is replayed as its chord where the focus is");
+  assert.ok(replay.includes("undoInFocusedEditor(verb)"), "undo and redo are handed to the focused code editor — Monaco's own history — before any replay");
   assert.ok(read("main.tsx").includes("installEditMenu();"), "installed once with the shell");
 });
 

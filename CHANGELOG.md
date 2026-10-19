@@ -98,6 +98,19 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- ⌘Z and ⌘⇧Z undo and redo in the Project IDE's editor on macOS: the Edit menu's predefined Undo
+  and Redo claimed the keys and sent `undo:` to the webview, which answered with Monaco's hidden
+  textarea's native history rather than the model's, so nothing happened. The two are now the
+  shell's own items like Cut, Copy, Paste and Select All — the native verb still runs for every
+  field, and the webview hands the verb to the Monaco editor whose text area holds the focus and
+  replays the chord elsewhere, so the workflow designer's canvas hears it too
+  (`desktop/src-tauri/src/edit_menu.rs`, `desktop/src/shell/editMenu.ts`).
+- The editor's undo history survived nothing — a tab switch, Rendered → Source, the review lens, a
+  format on save and a silent reload each started it empty, since every mount made its own Monaco
+  model and every value pushed in went through `setValue`. The model is now the tab's, kept across
+  unmounts and disposed when the tab closes, and a pushed value — a format on save, a reload, an
+  agent's write, *Take theirs*, a replace from a rendering — is one undoable step with the caret and
+  the scroll kept (`desktop/src/ui/monacoModels.ts`).
 - Checks with problems are detected: a run that errored or failed at startup read as passed (gh's
   `state` was passed through unknown); conclusions are now gh's own `bucket`'s, GitHub's commit
   statuses join the check runs, a run in a state nobody knows is a warn rather than a pass, a GitLab

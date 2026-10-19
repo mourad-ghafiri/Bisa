@@ -288,6 +288,12 @@ selecting it; *Save to… › Elsewhere on this machine…* is the OS's save dia
 keeps the tab, unsaved. *New file* and *Open a file from this machine* are also in the palette
 (`⌘K`).
 
+**Undo and redo are the editor's own.** `⌘Z` undoes and `⌘⇧Z` redoes what you typed, as in any
+field — and the history is the tab's: switch files and come back, switch *Rendered* and *Source*,
+drop the review lens, and `⌘Z` still steps back through what you typed before. A format on save, a
+reload under a clean buffer and *Take theirs* are each one step back. Closing the tab forgets the
+history, and so does a restart.
+
 **A tab keeps its place.** Switch to another file and come back, and the document is where you left
 it: the source with its scroll, cursor, selection and folds; a rendered Markdown, a sheet (its row
 and its column), a PDF, a document or a picture at the same scroll; an HTML page too — which also

@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorNote } from "./Card";
 import { failureReason } from "./failure";
 import { cn } from "./cn";
+import { acquireModel, pushValue } from "./monacoModels";
 import { loadMonaco, type Monaco } from "./monaco";
 import { useEditorTypography } from "./useEditorTypography";
 import { t } from "../i18n/l10n.mjs";
@@ -38,6 +39,13 @@ export interface DiffAnnotation {
 export interface DiffEditorProps {
   original: string;
   modified: string;
+  /**
+   * The key of the tab whose live buffer the modified side edits
+   * (`editorKey`): the side shares the tab's kept model, so the undo
+   * history runs on through the lens and the conflict review. Absent, the
+   * model is the mount's.
+   */
+  keep?: string;
   language?: string;
   path?: string;
   readOnly?: boolean;
@@ -100,6 +108,7 @@ function zoneHeight(): number {
 export function DiffEditor({
   original,
   modified,
+  keep,
   language,
   path,
   readOnly = false,
@@ -114,6 +123,8 @@ export function DiffEditor({
   const zones = useRef<string[]>([]);
   const changeRef = useRef(onModifiedChange);
   changeRef.current = onModifiedChange;
+  /** Held while a value is pushed into the modified side from outside, so its change event is not echoed as a keystroke. */
+  const pushing = useRef(false);
   const typography = useEditorTypography();
   const typographyRef = useRef(typography);
   typographyRef.current = typography;
@@ -136,7 +147,8 @@ export function DiffEditor({
       const uri = path ? m.Uri.file(path) : undefined;
       const taken = (scheme: string) => (uri && !m.editor.getModel(uri.with({ scheme })) ? uri.with({ scheme }) : undefined);
       const originalModel = m.editor.createModel(original, language, taken("original"));
-      const modifiedModel = m.editor.createModel(modified, language, taken("modified"));
+      // The modified side is the tab's live buffer: its kept model when there is a tab, else the mount's.
+      const modifiedModel = keep ? acquireModel(m, keep, modified, language, path) : m.editor.createModel(modified, language, taken("modified"));
       const ed = m.editor.createDiffEditor(host.current, {
         automaticLayout: true,
         readOnly,
@@ -151,13 +163,17 @@ export function DiffEditor({
       });
       ed.setModel({ original: originalModel, modified: modifiedModel });
       editor.current = ed;
-      const sub = modifiedModel.onDidChangeContent(() => changeRef.current?.(modifiedModel.getValue()));
+      const sub = modifiedModel.onDidChangeContent(() => {
+        if (pushing.current) return;
+        changeRef.current?.(modifiedModel.getValue());
+      });
       setReady(true);
       cleanup = () => {
         sub.dispose();
         ed.dispose();
         originalModel.dispose();
-        modifiedModel.dispose();
+        // A kept model is the tab's: it goes when the tab closes, never here.
+        if (!keep) modifiedModel.dispose();
         editor.current = null;
       };
     });
@@ -173,7 +189,7 @@ export function DiffEditor({
     // models by the effect below, and following them here would rebuild the
     // editor on every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, language, readOnly, inline, foldUnchanged]);
+  }, [path, language, readOnly, inline, foldUnchanged, keep]);
 
   // The same typography as the code editor, live: a diff and the file it is
   // about read in one face at one size.
@@ -190,8 +206,9 @@ export function DiffEditor({
     if (!ed) return;
     const om = ed.getOriginalEditor().getModel();
     const mm = ed.getModifiedEditor().getModel();
+    // The original side is read-only and nobody's history; the modified side is the live buffer, pushed as one undoable step.
     if (om && om.getValue() !== original) om.setValue(original);
-    if (mm && mm.getValue() !== modified) mm.setValue(modified);
+    if (mm) pushValue(ed.getModifiedEditor(), mm, modified, pushing);
   }, [original, modified, ready]);
 
   // Annotations are view zones on the modified side: a card that takes

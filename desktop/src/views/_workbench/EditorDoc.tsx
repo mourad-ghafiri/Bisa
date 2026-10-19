@@ -1152,6 +1152,7 @@ export function EditorDoc({
           <DiffEditor
             original={fileReview.base_text}
             modified={buffer.text}
+            keep={registryKey}
             path={path}
             readOnly={buffer.readOnly}
             inline={lensLayout === "inline"}
@@ -1186,6 +1187,7 @@ export function EditorDoc({
           <DiffEditor
             original={conflict.theirs}
             modified={buffer.text}
+            keep={registryKey}
             path={path}
             onModifiedChange={onChange}
             className="min-h-0 flex-1"
@@ -1195,6 +1197,7 @@ export function EditorDoc({
         <div ref={editorBox} className={cn("relative flex min-h-0 flex-1", mode === "split" && "divide-x divide-border")}>
           <CodeEditor
             value={buffer.text}
+            keep={registryKey}
             path={path}
             readOnly={buffer.readOnly}
             plain={buffer.plain}

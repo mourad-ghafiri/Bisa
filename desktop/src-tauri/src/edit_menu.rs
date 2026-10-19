@@ -1,5 +1,5 @@
-//! The Edit menu's four verbs — Cut · Copy · Paste · Select All — as the
-//! shell drives them on macOS (ide/15 §Dispatch).
+//! The Edit menu's six verbs — Undo · Redo · Cut · Copy · Paste · Select All
+//! — as the shell drives them on macOS (ide/15 §Dispatch).
 //!
 //! A menu key equivalent fires before the webview ever sees the key: `NSMenu`
 //! claims ⌘V and sends `paste:` down the responder chain. With muda's
@@ -11,10 +11,13 @@
 //! the responder chain itself — a field, Monaco, xterm perform the verb as
 //! they always did, a tree does nothing — and it tells the webview
 //! (`EDIT_VERB_EVENT`), whose keymap replays the chord where the focus is
-//! (`shell/editMenu.ts`). Undo and redo stay predefined: no keymap chord
-//! spells ⌘Z. Off macOS no Edit menu is built at all — a menubar accelerator
-//! would only shadow the keymap there, and WebView2 and WebKitGTK take
-//! Ctrl+C/V/X/A in the webview.
+//! (`shell/editMenu.ts`). Undo and Redo are verbs too: the predefined pair's
+//! `undo:` reached only the hidden textarea's native history under Monaco,
+//! never the model's, so the webview hands the two to the editor whose text
+//! area holds the focus (`ui/monaco.undoInFocusedEditor`) and replays the
+//! chord elsewhere — the designer's canvas undoes its step. Off macOS no
+//! Edit menu is built at all — a menubar accelerator would only shadow the
+//! keymap there, and WebView2 and WebKitGTK take Ctrl+C/V/X/A/Z in the webview.
 
 use tauri::menu::{MenuItem, MenuItemBuilder};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -25,6 +28,8 @@ pub const EDIT_VERB_EVENT: &str = "edit:verb";
 /// One editing verb of the Edit menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditVerb {
+    Undo,
+    Redo,
     Cut,
     Copy,
     Paste,
@@ -32,8 +37,11 @@ pub enum EditVerb {
 }
 
 impl EditVerb {
-    /// Every verb, in the menu's order.
-    pub const ALL: [EditVerb; 4] = [
+    /// Every verb, in the menu's order: the history above the OS's line,
+    /// the clipboard from Cut below it.
+    pub const ALL: [EditVerb; 6] = [
+        EditVerb::Undo,
+        EditVerb::Redo,
         EditVerb::Cut,
         EditVerb::Copy,
         EditVerb::Paste,
@@ -43,6 +51,8 @@ impl EditVerb {
     /// The menu item's id — `edit:<word>`, the same string `shell/editMenuModel.mjs` spells.
     pub fn id(self) -> &'static str {
         match self {
+            EditVerb::Undo => "edit:undo",
+            EditVerb::Redo => "edit:redo",
             EditVerb::Cut => "edit:cut",
             EditVerb::Copy => "edit:copy",
             EditVerb::Paste => "edit:paste",
@@ -58,6 +68,8 @@ impl EditVerb {
     /// The word the webview hears — the event's payload.
     pub fn word(self) -> &'static str {
         match self {
+            EditVerb::Undo => "undo",
+            EditVerb::Redo => "redo",
             EditVerb::Cut => "cut",
             EditVerb::Copy => "copy",
             EditVerb::Paste => "paste",
@@ -68,6 +80,8 @@ impl EditVerb {
     /// The menu item's title.
     pub fn title(self) -> &'static str {
         match self {
+            EditVerb::Undo => "Undo",
+            EditVerb::Redo => "Redo",
             EditVerb::Cut => "Cut",
             EditVerb::Copy => "Copy",
             EditVerb::Paste => "Paste",
@@ -76,9 +90,12 @@ impl EditVerb {
     }
 
     /// The key equivalent — the OS's own for each verb, which the keymap's
-    /// `files` chords spell the same way (`Mod+X` · `Mod+C` · `Mod+V` · `Mod+A`).
+    /// `files` chords spell the same way (`Mod+X` · `Mod+C` · `Mod+V` · `Mod+A`);
+    /// ⌘Z and ⌘⇧Z are Monaco's own and no keymap chord's.
     pub fn accelerator(self) -> &'static str {
         match self {
+            EditVerb::Undo => "CmdOrCtrl+Z",
+            EditVerb::Redo => "CmdOrCtrl+Shift+Z",
             EditVerb::Cut => "CmdOrCtrl+X",
             EditVerb::Copy => "CmdOrCtrl+C",
             EditVerb::Paste => "CmdOrCtrl+V",
@@ -91,6 +108,8 @@ impl EditVerb {
     #[cfg(target_os = "macos")]
     pub fn selector(self) -> objc2::runtime::Sel {
         match self {
+            EditVerb::Undo => objc2::sel!(undo:),
+            EditVerb::Redo => objc2::sel!(redo:),
             EditVerb::Cut => objc2::sel!(cut:),
             EditVerb::Copy => objc2::sel!(copy:),
             EditVerb::Paste => objc2::sel!(paste:),
@@ -100,21 +119,24 @@ impl EditVerb {
     // LCOV_EXCL_STOP
 }
 
-/// The four items, kept as app state so the webview's words can reach them
+/// The six items, kept as app state so the webview's words can reach them
 /// (`words.rs`, the `shell_words` command).
 pub struct Verbs<R: Runtime>(Vec<(EditVerb, MenuItem<R>)>);
 
 // LCOV_EXCL_START the app's menu bar and its window; out by decision
 impl<R: Runtime> Verbs<R> {
-    /// The items in the menu's order.
-    pub fn items(&self) -> impl Iterator<Item = &MenuItem<R>> {
-        self.0.iter().map(|(_, item)| item)
+    /// The verbs and their items in the menu's order — the menu draws its
+    /// line before the first clipboard verb.
+    pub fn entries(&self) -> impl Iterator<Item = (EditVerb, &MenuItem<R>)> {
+        self.0.iter().map(|(verb, item)| (*verb, item))
     }
 
     /// The verbs in the webview's language; a word not given keeps its English.
     pub fn say(&self, words: &crate::words::ShellWords) {
         for (verb, item) in &self.0 {
             let word = match verb {
+                EditVerb::Undo => &words.undo,
+                EditVerb::Redo => &words.redo,
                 EditVerb::Cut => &words.cut,
                 EditVerb::Copy => &words.copy,
                 EditVerb::Paste => &words.paste,
@@ -131,7 +153,7 @@ impl<R: Runtime> Verbs<R> {
 // LCOV_EXCL_STOP
 
 // LCOV_EXCL_START the app's menu bar and its window; out by decision
-/// The four custom items, in the menu's order, each with its key equivalent.
+/// The six custom items, in the menu's order, each with its key equivalent.
 pub fn items<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<Verbs<R>> {
     EditVerb::ALL
         .into_iter()
@@ -185,8 +207,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_four_verbs_have_ids_that_round_trip_words_titles_and_the_os_key_equivalents() {
-        assert_eq!(EditVerb::ALL.len(), 4);
+    fn the_six_verbs_have_ids_that_round_trip_words_titles_and_the_os_key_equivalents() {
+        assert_eq!(EditVerb::ALL.len(), 6);
+        assert_eq!(
+            &EditVerb::ALL[..3],
+            [EditVerb::Undo, EditVerb::Redo, EditVerb::Cut],
+            "the history above the menu's line, the clipboard from Cut below it — where `app_menu` draws the separator"
+        );
         for verb in EditVerb::ALL {
             assert_eq!(EditVerb::from_id(verb.id()), Some(verb), "{}", verb.id());
             assert!(
@@ -205,11 +232,15 @@ mod tests {
             assert!(!verb.title().is_empty());
         }
         assert_eq!(EditVerb::Paste.accelerator(), "CmdOrCtrl+V");
+        assert_eq!(EditVerb::Undo.accelerator(), "CmdOrCtrl+Z");
+        assert_eq!(EditVerb::Redo.accelerator(), "CmdOrCtrl+Shift+Z");
         assert_eq!(EditVerb::SelectAll.word(), "select_all");
+        assert_eq!(EditVerb::from_id("edit:undo"), Some(EditVerb::Undo));
+        assert_eq!(EditVerb::from_id("edit:redo"), Some(EditVerb::Redo));
         assert_eq!(
-            EditVerb::from_id("edit:undo"),
+            EditVerb::from_id("edit:quit"),
             None,
-            "undo is a predefined item, never a verb here"
+            "Quit is the application menu's predefined item, never a verb here"
         );
         assert_eq!(EDIT_VERB_EVENT, "edit:verb");
     }

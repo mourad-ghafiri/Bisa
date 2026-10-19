@@ -16,7 +16,9 @@ pub struct ShellWords {
     pub dock: Option<String>,
     /// *Quit Bisa* — the menu bar icon's last line.
     pub quit: Option<String>,
-    /// The Edit menu's four verbs.
+    /// The Edit menu's six verbs.
+    pub undo: Option<String>,
+    pub redo: Option<String>,
     pub cut: Option<String>,
     pub copy: Option<String>,
     pub paste: Option<String>,
@@ -32,11 +34,14 @@ mod tests {
         let words: ShellWords =
             serde_json::from_str("{}").expect("an empty object is every word unsaid");
         assert_eq!(words, ShellWords::default());
-        let words: ShellWords =
-            serde_json::from_str(r#"{"open":"Ouvrir Bisa","select_all":"Tout sélectionner"}"#)
-                .expect("two words");
+        let words: ShellWords = serde_json::from_str(
+            r#"{"open":"Ouvrir Bisa","select_all":"Tout sélectionner","undo":"Annuler"}"#,
+        )
+        .expect("three words");
         assert_eq!(words.open.as_deref(), Some("Ouvrir Bisa"));
         assert_eq!(words.select_all.as_deref(), Some("Tout sélectionner"));
+        assert_eq!(words.undo.as_deref(), Some("Annuler"));
+        assert_eq!(words.redo, None);
         assert_eq!(words.quit, None);
     }
 }

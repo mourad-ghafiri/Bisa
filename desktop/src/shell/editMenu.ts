@@ -18,19 +18,41 @@
  * Monaco reads. So the focused editor is asked first
  * (`ui/monaco.selectAllInFocusedEditor`) and the chord is replayed only when
  * no editor took it (`editMenuModel.replaysChord`).
+ *
+ * **Undo and Redo are handed over the same way**: the native `undo:` reaches
+ * Monaco's hidden input, whose native history is not the model's, and a
+ * synthetic key undoes nothing — so the editor whose text area holds the
+ * focus is asked (`ui/monaco.undoInFocusedEditor`, the model's own stack)
+ * and the chord is replayed only when none took it, which is how the
+ * workflow designer's canvas (`ui/FlowCanvas.tsx`, its own ⌘Z/⌘⇧Z handler)
+ * hears them under a menu item that claims the key before any keydown; a
+ * field has already undone natively.
  */
 
 import { inDesktopShell } from "../api";
 import { isMac } from "../ui/KeyHint";
-import { selectAllInFocusedEditor } from "../ui/monaco";
-import { EDIT_VERB_EVENT, isEditVerb, keyOfVerb, replaysChord } from "./editMenuModel.mjs";
+import { selectAllInFocusedEditor, undoInFocusedEditor } from "../ui/monaco";
+import { EDIT_VERB_EVENT, isEditVerb, keyOfVerb, replaysChord, shiftOfVerb } from "./editMenuModel.mjs";
 import type { EditVerb } from "./editMenuModel.mjs";
+
+/** Whether the Monaco editor that holds the focus took the verb — its history, or its whole range. */
+function takenByEditor(verb: EditVerb): boolean {
+  switch (verb) {
+    case "undo":
+    case "redo":
+      return undoInFocusedEditor(verb);
+    case "select_all":
+      return selectAllInFocusedEditor();
+    default:
+      return false;
+  }
+}
 
 /** The chord of a verb as a keydown, on the element that has the focus. */
 function replayEditVerb(verb: EditVerb): void {
-  if (!replaysChord(verb, verb === "select_all" && selectAllInFocusedEditor())) return;
+  if (!replaysChord(verb, takenByEditor(verb))) return;
   const target = document.activeElement ?? document.body;
-  target.dispatchEvent(new KeyboardEvent("keydown", { key: keyOfVerb(verb), metaKey: isMac, ctrlKey: !isMac, bubbles: true, cancelable: true }));
+  target.dispatchEvent(new KeyboardEvent("keydown", { key: keyOfVerb(verb), shiftKey: shiftOfVerb(verb), metaKey: isMac, ctrlKey: !isMac, bubbles: true, cancelable: true }));
 }
 
 /** Hear the shell's verbs; nothing outside the desktop shell. */

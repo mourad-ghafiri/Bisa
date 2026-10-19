@@ -52,6 +52,7 @@ import {
 } from "./workbenchModel.mjs";
 import type { WorkbenchState, WorkbenchTab } from "./workbenchModel.mjs";
 import type { PaneNode } from "../../shell/paneTreeModel.mjs";
+import { releaseModels } from "../../ui/monacoModels";
 import { forgetBuffers, moveBuffers, unsavedNow } from "./docBuffersStore";
 import { forgetRootViews, forgetViews, moveViews } from "./docViewStore";
 import { editorKey } from "./editorRegistry";
@@ -64,14 +65,15 @@ const listeners = new Set<() => void>();
 function set(next: WorkbenchState) {
   if (next === state) return;
   // Every change to the tabs comes through here, so this is the one place a
-  // closed tab's buffer and its place are forgotten — a close, a replace, a
-  // root past the cap — and no close path can leave one behind or take one
-  // by mistake.
+  // closed tab's buffer, its place and its editor model are forgotten — a
+  // close, a replace, a root past the cap — and no close path can leave one
+  // behind or take one by mistake.
   const gone = closedTabs(state, next).map(([root, id]) => editorKey(root, id));
   state = next;
   if (gone.length > 0) {
     forgetBuffers(gone);
     forgetViews(gone);
+    releaseModels(gone);
   }
   for (const listener of listeners) listener();
 }

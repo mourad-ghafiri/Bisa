@@ -379,7 +379,9 @@ it failed or was stopped.
   left with it — the text typed, and the fact that there was any — and a tab could then close, or
   the app quit, with no question. So each open document's `Buffer` lives in a module store under its
   registry key (`editorKey`: `<root>|<tab id>`) from the first keystroke until its **tab** closes:
-  `useDocBuffer` is what the editor reads and writes, and a document that comes back on screen keeps
+  `useDocBuffer` is what the editor reads and writes — the buffer keeps the text and whether it is
+  saved, the tab's Monaco model keeps the undo history, and a mount whose kept model differs from
+  the buffer is reconciled by one undoable push — and a document that comes back on screen keeps
   its unsaved text exactly as typed — the read that follows compares it with the disk
   (`editorModel.remounted`, then `changedOnDisk`), so a file an agent wrote meanwhile raises the
   three-way affordance rather than replacing what was typed. A buffer is forgotten in one place —
@@ -797,6 +799,7 @@ The CLI has the same verbs: `bisa files new|mv|cp|rm`, which say how a delete we
 |---|---|
 | syntax highlighting | Monaco's tokeniser — there are no semantic tokens ([10](10-language-intelligence.md)) |
 | multi-cursor, bracket matching | Monaco, built in |
+| undo · redo | Monaco's own history, on the **tab's** model: ⌘Z · ⌘⇧Z reach it through the Edit menu's hand-over on macOS ([15](15-keymap.md#dispatch)), Ctrl+Z · Ctrl+Y elsewhere; the model is kept across every unmount (`ui/monacoModels.ts` over `monacoModelsModel.mjs`, keyed by the registry key, released in `workbenchStore`'s one `set` beside the buffer and the place), so the history survives a tab switch, a mode switch and the review lens; a value pushed from outside — a format on save, a silent reload, an agent's write settling, *Take theirs*, a replace from a rendering — is **one undoable step** (`pushValue`: `pushEditOperations` between two undo stops, never `setValue`, which destroys the history and flushes the caret), the caret and the scroll kept through it; a rename on disk starts a new model, its URI being the language server's address; the Git panel's conflict editor keeps a model of its own |
 | find, find and replace in the file | Monaco's own widgets, opened by the app's chords — `find` (⌘F) and `replace` (⌘R), `when: document` ([15](15-keymap.md)) — through `CodeEditor.handle.trigger`, from the editor or from the document's own bar (`data-document`); Monaco's ⌘⌥F still works |
 | find in a **rendering** | the kit's one bar (`ui/find/FindBar.tsx` over `findModel.mjs`), on the same chords: markdown and a diagram are walked and drawn with the CSS Custom Highlight API (`useDomFind`, `domFindModel.mjs` — the DOM is never rewritten), a csv searches its parsed rows and scrolls the grid to the cell (`sheetModel.findCells`), a page finds inside its frame (`pageInspector` `FIND` / `FOUND`, the frame highlighting its own text), an svg is a picture and its bar goes to the source; a rendering of bytes (`RenderedFileDoc`: a sheet, a document) finds and never replaces. The chord reaches the rendering because the rendering holds the keyboard — taken when it is shown and given back when the bar closes (`docFocus`) — or because the key landed anywhere in the document's root (`data-document`); the walk is redone when the text or the mode changes (Rendered and Split draw the preview in different boxes) and whenever the rendering's DOM changes under it (a `MutationObserver`, one walk per frame — a diagram landing, a document arriving), since a range over a replaced node collapses and draws nothing; text nobody sees — a closed `<details>`, a `[hidden]`, an SVG's own stylesheet — is not found; the current match is revealed by its own rect inside the rendering's scrollports, innermost first, after the kept scroll yields (`domFindModel.revealOffset`), never by `scrollIntoView`; a bar that closes leaves the found occurrence selected (`select`), the next press collapsing it so a link's click stays a click, and Escape lets go of the field before the close so the rendering takes the keyboard back; a rendering with no query never clears the highlights another one drew — the registry's two names are the page's |
 | replace in a rendering | into the **buffer** — the rendering is drawn from it — through `edited`, so the page follows, the tab dirties and autosave and the on-disk conflict work as for any edit |
@@ -810,4 +813,5 @@ The CLI has the same verbs: `bisa files new|mv|cp|rm`, which say how a delete we
 | go to line | `⌘G` (`go_to_line`) opens the omnibox in its `line` mode, seeded with `:`; a line asked for before the editor is up waits for it (`editorRegistry.requestLine`) — a search hit, a definition, stepping fast through results |
 
 Monaco is wrapped once, in `ui/CodeEditor.tsx` and `ui/DiffEditor.tsx`. Views never import it.
-Models are disposed when their tab closes.
+Models are the tab's: made at the first mount of its editor, kept across every unmount, disposed when
+the tab closes — never on an unmount — one per open tab, so the memory is bounded by the tabs.

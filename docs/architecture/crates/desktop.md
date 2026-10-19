@@ -126,7 +126,7 @@ move the caller wrote down comes back as new props and stays, one it refused lea
 they were and the same resync puts the node back. It takes nodes, edges with a tone, node
 types, and callbacks for the moves of one gesture (`onMoved`, every node a multi-selection dragged),
 connect, select, delete and drop; it owns the keyboard on the focused
-canvas (`Delete`/`Backspace`, `Mod+D`, `Mod+Z`, `Mod+Shift+Z`, `Escape`) and imports the library's
+canvas (`Delete`/`Backspace`, `Mod+D`, `Mod+Z`, `Mod+Shift+Z`, `Escape` — on macOS ⌘Z and ⌘⇧Z arrive as the Edit menu's replayed chord, ide/15 §Dispatch) and imports the library's
 stylesheet inside its chunk. The palette drops a step onto the canvas by HTML5 drag and drop under
 `STEP_MIME`, and it lands where it was dropped. One node type, `StepNode`: one target
 handle on top and `loop-in` on the right (an anchor a loop arrives at, never a drop target); `out` at

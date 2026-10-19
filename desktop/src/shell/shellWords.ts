@@ -17,6 +17,8 @@ function shellWords(): Record<string, string> {
     open: t("shell-words-open-bisa"),
     dock: t("shell-words-show-in-dock"),
     quit: t("shell-words-quit-bisa"),
+    undo: t("shell-words-undo"),
+    redo: t("shell-words-redo"),
     cut: t("shell-words-cut"),
     copy: t("shell-words-copy"),
     paste: t("shell-words-paste"),

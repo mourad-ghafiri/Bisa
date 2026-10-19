@@ -2,8 +2,13 @@
  * The one place a Monaco editor is mounted.
  *
  * Controlled by `value` from the outside and reporting every change through
- * `onChange`; the model is created for the mount and disposed with it — the
- * leak the reference implementation hit and fixed. Read-only above the
+ * `onChange`. With `keep` — the tab's key — the model is the tab's
+ * (`monacoModels.ts`): acquired at mount, left at unmount, let go when the
+ * tab closes, so the undo history survives a tab switch, a mode switch and
+ * the review lens; without it the model is created for the mount and
+ * disposed with it — the leak the reference implementation hit and fixed.
+ * A value pushed from outside goes in as one undoable step, never through
+ * `setValue`, which would destroy the history. Read-only above the
  * editable size is the caller's decision (`readOnly`); a large file also
  * turns tokenisation off here, because Monaco degrades badly past ~10 MiB
  * and pretending otherwise is how an IDE earns a reputation for hanging.
@@ -14,6 +19,7 @@ import { ErrorNote } from "./Card";
 import { failureReason } from "./failure";
 import { cn } from "./cn";
 import { loadMonaco, loadedMonaco, type Monaco } from "./monaco";
+import { acquireModel, freeFileUri, pushValue } from "./monacoModels";
 import { useEditorTypography } from "./useEditorTypography";
 import { t } from "../i18n/l10n.mjs";
 
@@ -22,6 +28,12 @@ export interface CodeEditorProps {
   /** A Monaco language id, or a path to infer it from. */
   language?: string;
   path?: string;
+  /**
+   * The key of the tab whose model this editor shows (`editorKey`): the
+   * model is kept across unmounts and released when the tab closes, so its
+   * undo history outlives the mount. Absent, the model is the mount's.
+   */
+  keep?: string;
   readOnly?: boolean;
   /** Skip tokenisation and the minimap — the large-file mode. */
   plain?: boolean;
@@ -112,6 +124,7 @@ export function CodeEditor({
   value,
   language,
   path,
+  keep,
   readOnly = false,
   plain = false,
   onChange,
@@ -136,6 +149,12 @@ export function CodeEditor({
   initialViewRef.current = initialViewState;
   const onViewStateRef = useRef(onViewState);
   onViewStateRef.current = onViewState;
+  // The latest value, for a mount that awaits Monaco: a kept model that
+  // drifted from the buffer while unmounted is reconciled at mount.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  /** Held while a value is pushed in from outside, so the model's own change event is not echoed as a keystroke. */
+  const pushing = useRef(false);
   const typography = useEditorTypography();
   const typographyRef = useRef(typography);
   typographyRef.current = typography;
@@ -153,15 +172,11 @@ export function CodeEditor({
     let cleanup = () => {};
     const mount = loadMonaco().then((m) => {
       if (disposed || !host.current) return;
-      // One model per URI: a second view of the same file — a conflict
-      // beside the document, a split showing it twice — gets a model of
-      // its own with no address rather than a throw from Monaco.
-      const uri = path ? m.Uri.file(path) : undefined;
-      const model = m.editor.createModel(
-        value,
-        plain ? "plaintext" : languageFor(m, language, path),
-        uri && m.editor.getModel(uri) ? undefined : uri,
-      );
+      // The tab's model when there is a tab to keep it for, else one for the
+      // mount; one model per URI either way — a second view of the same file
+      // gets a model with no address rather than a throw from Monaco.
+      const lang = plain ? "plaintext" : languageFor(m, language, path);
+      const model = keep ? acquireModel(m, keep, value, lang, path) : m.editor.createModel(value, lang, freeFileUri(m, path));
       const ed = m.editor.create(host.current, {
         model,
         readOnly,
@@ -181,6 +196,10 @@ export function CodeEditor({
       // editor was created with; a state made for another text restores what
       // it can and harms nothing.
       if (initialViewRef.current) ed.restoreViewState(initialViewRef.current as Monaco.editor.ICodeEditorViewState);
+      // A kept model may hold what the buffer no longer does — the file
+      // changed on disk while the tab was off screen: the buffer is the
+      // truth, and the difference is one undoable step.
+      pushValue(ed, model, valueRef.current, pushing);
       handle?.({
         revealLine: (line) => {
           ed.revealLineInCenter(line);
@@ -243,6 +262,8 @@ export function CodeEditor({
       };
       const subs = [
         model.onDidChangeContent(() => {
+          // A push from outside is the buffer's own text coming back: not a keystroke.
+          if (pushing.current) return;
           onChangeRef.current?.(model.getValue());
         }),
         ed.onDidChangeCursorPosition(emitCaret),
@@ -261,7 +282,8 @@ export function CodeEditor({
         onViewStateRef.current?.(ed.saveViewState());
         for (const s of subs) s.dispose();
         ed.dispose();
-        model.dispose();
+        // A kept model is the tab's: it goes when the tab closes, never here.
+        if (!keep) model.dispose();
         editor.current = null;
       };
     });
@@ -273,9 +295,9 @@ export function CodeEditor({
       setReady(false);
       cleanup();
     };
-    // The mount owns its model; a new path or language is a new mount.
+    // A new path, language, mode or tab is a new mount; a kept model rides through it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, language, plain]);
+  }, [path, language, plain, keep]);
 
   // Read-only is an option on the mounted editor: flipping it keeps the
   // model, the undo history and the scroll.
@@ -297,11 +319,13 @@ export function CodeEditor({
     });
   }, [typography, plain, ready]);
 
-  // A value pushed from outside (a reload after `file_changed`, a merge)
-  // replaces the text without disturbing an equal buffer.
+  // A value pushed from outside (a reload after `file_changed`, a format on
+  // save, a merge) replaces the text as one undoable step, the view kept,
+  // without disturbing an equal buffer.
   useEffect(() => {
-    const model = editor.current?.getModel();
-    if (model && model.getValue() !== value) model.setValue(value);
+    const ed = editor.current;
+    const model = ed?.getModel();
+    if (ed && model) pushValue(ed, model, value, pushing);
   }, [value, ready]);
 
   // The gutter: line-number text and a hover per line, both from one map.

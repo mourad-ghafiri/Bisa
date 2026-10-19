@@ -309,14 +309,15 @@ async fn restart_node(app: tauri::AppHandle) -> Result<NodeStatus, String> {
 /// Tauri's default: a menu key equivalent fires before the webview ever sees
 /// the key. The default *Window* menu binds ⌘W to *Close Window*, which
 /// would close the whole window under the keymap's `close_tab`; the
-/// predefined Edit items would claim ⌘X ⌘C ⌘V ⌘A the same way and leave a
-/// Files tree — no field, so no `paste:` — with nothing (ide/15 §Dispatch).
-/// So the four editing verbs are the shell's own items (`edit_menu.rs`): the
-/// verb runs natively down the responder chain and the webview is told, so
-/// a field pastes as before and a tree's `paste_entry` fires. Undo and redo
-/// stay predefined. Off macOS no menu is built: a menubar accelerator would
-/// only shadow the keymap, and WebView2 and WebKitGTK take Ctrl+C/V/X/A
-/// themselves.
+/// predefined Edit items would claim ⌘Z ⌘⇧Z ⌘X ⌘C ⌘V ⌘A the same way and
+/// leave a Files tree — no field, so no `paste:` — with nothing (ide/15
+/// §Dispatch). So the six editing verbs are the shell's own items
+/// (`edit_menu.rs`): the verb runs natively down the responder chain and the
+/// webview is told, so a field pastes as before and a tree's `paste_entry`
+/// fires. Undo and Redo are verbs too: the predefined pair's `undo:` never
+/// reached Monaco's own history, only its hidden textarea's. Off macOS no
+/// menu is built: a menubar accelerator would only shadow the keymap, and
+/// WebView2 and WebKitGTK take Ctrl+C/V/X/A/Z themselves.
 #[cfg(target_os = "macos")]
 fn app_menu<R: Runtime>(handle: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
     let app = SubmenuBuilder::new(handle, "Bisa")
@@ -331,11 +332,12 @@ fn app_menu<R: Runtime>(handle: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> 
         .quit()
         .build()?;
     let verbs = edit_menu::items(handle)?;
-    let mut edit = SubmenuBuilder::new(handle, "Edit")
-        .undo()
-        .redo()
-        .separator();
-    for item in verbs.items() {
+    let mut edit = SubmenuBuilder::new(handle, "Edit");
+    for (verb, item) in verbs.entries() {
+        // The OS's line: the history above it, the clipboard from Cut below.
+        if verb == edit_menu::EditVerb::Cut {
+            edit = edit.separator();
+        }
         edit = edit.item(item);
     }
     let edit = edit.build()?;

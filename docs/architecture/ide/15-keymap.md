@@ -259,7 +259,17 @@ which holds a slice of the text, and a synthetic key carries no key code Monaco 
 focused editor is asked first (`ui/monaco.selectAllInFocusedEditor`: the code editor, either side of
 a diff, a lens — whichever Monaco holds the focus selects its model's whole range) and the chord is
 replayed only when none took it (`editMenuModel.replaysChord`), which is how ⌘A selects a file's
-whole text in the editor, a tree's rows in Files, and a field's text in a field. Undo, redo and Quit stay predefined — Quit's ⌘Q is AppKit's `terminate:`, which
+whole text in the editor, a tree's rows in Files, and a field's text in a field. **Undo and Redo are
+the shell's own items too** (⌘Z · ⌘⇧Z): the predefined pair sent `undo:` down the responder chain,
+which WebKit answered with Monaco's hidden textarea's native history — not the model's — so nothing
+happened in the editor, and no `keydown` reached Monaco's own binding. The shell sends the selector as
+it does for the four (a field, a composer undo as they always did) and says the verb; the webview
+hands it to the Monaco editor whose text area holds the focus (`ui/monaco.undoInFocusedEditor`:
+`editor.trigger("menu", "undo")`, the model's own stack — text focus, not widget focus, so a find
+widget's input undoes natively on its own) and replays the chord only when none took it
+(`editMenuModel.HANDED_TO_EDITOR`), which is how the workflow designer's canvas hears ⌘Z and ⌘⇧Z, its
+own handler never seeing the real key under a menu item. Neither is a keymap command: on macOS the
+key never reaches the webview, and off macOS Monaco binds it itself. Quit alone stays predefined — Quit's ⌘Q is AppKit's `terminate:`, which
 `src-tauri/src/quit.rs` holds for the close guard's question, so a `quit` override to ⌘Q on a Mac is
 the menu's first and never the keymap's; off macOS
 no menu is built at all, since WebView2 and WebKitGTK take Ctrl+C/V/X/A themselves and a menubar

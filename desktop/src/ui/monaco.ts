@@ -70,6 +70,26 @@ export function selectAllInFocusedEditor(): boolean {
   return false;
 }
 
+/**
+ * Undo or redo in the Monaco editor whose text area holds the focus — the
+ * model's own history, which the native `undo:` never reaches (it lands on
+ * Monaco's hidden input, whose native history is not the model's) — and
+ * answer whether one did. Text focus, not widget focus: a find widget's
+ * input undoes natively on its own, and Monaco's own `undo` command would
+ * otherwise run `execCommand("undo")` on it a second time. A read-only
+ * editor answers true and does nothing — Monaco's rule (`shell/editMenu.ts`,
+ * ide/15 §Dispatch).
+ */
+export function undoInFocusedEditor(verb: "undo" | "redo"): boolean {
+  if (!mod) return false;
+  for (const editor of mod.editor.getEditors()) {
+    if (!editor.hasTextFocus()) continue;
+    editor.trigger("menu", verb, null);
+    return true;
+  }
+  return false;
+}
+
 /** Install the worker factory once. Safe to call from every mount. */
 function ensureMonacoEnvironment(): void {
   if (environmentReady) return;
