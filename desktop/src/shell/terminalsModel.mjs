@@ -312,7 +312,7 @@ export function mobileDevelopmentOf(mobileDevelopment) {
 }
 
 export function openTerminal(state, target, at = nowSecs()) {
-  const { scope, id, harness = null, label = null, login = null, resume, run = false, mobileDevelopment = null } = target ?? {};
+  const { scope, id, harness = null, label = null, login = null, resume, run = false, mobileDevelopment = null, start = null } = target ?? {};
   if (!TERMINAL_SCOPES.includes(scope) || !id) return state;
   const key = launchKey(harness ?? null, scope, id);
   const session = {
@@ -335,6 +335,10 @@ export function openTerminal(state, target, at = nowSecs()) {
     // explicit `resume` on the target wins: that is the menu's fresh entry
     // saying so in as many words.
     resume: resume ?? hasLaunched(state.launched, key),
+    // Words the tab types once the harness has drawn its prompt (ide/06
+    // §Start words) — a request handed to a harness of the person's own.
+    // Not persisted and cleared once typed: a restart has nothing to say.
+    start: typeof start === "string" && start.trim() ? start : null,
     generation: 0,
     liveness: LIVE,
     restoring: false,
@@ -475,10 +479,23 @@ export function restartTerminal(state, key, at = nowSecs()) {
     terminalId: null,
     sessionId: null,
     running: null,
+    // Words meant for the first shell are not typed into its restart.
+    start: null,
     // A fresh clock: the old run's spans do not carry into the new shell.
     openedAt: at,
     exitedAt: null,
   };
+  return { ...state, sessions };
+}
+
+/** The tab typed its start words: nothing left to say. A stale generation says nothing. */
+export function noteStarted(state, key, generation) {
+  const idx = indexOfKey(state, key);
+  if (idx === -1) return state;
+  const s = state.sessions[idx];
+  if (s.generation !== generation || s.start === null) return state;
+  const sessions = state.sessions.slice();
+  sessions[idx] = { ...s, start: null };
   return { ...state, sessions };
 }
 
@@ -763,6 +780,7 @@ export function restoreTerminals(json, launched = []) {
       terminalId: null,
       sessionId: null,
       running: null,
+      start: null,
       openedAt: null,
       exitedAt: null,
     });

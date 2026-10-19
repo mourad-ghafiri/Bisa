@@ -38,6 +38,8 @@ import { failureTally } from "./checkpointModel.mjs";
 import type { StartState } from "./resumeStartModel.mjs";
 import { RELEASE_AFTER_MS, acquire, emptyPool, release as releaseSlot, wants } from "./webglPoolModel.mjs";
 import { registerTerminalTail } from "./tails";
+import { registerTerminalModes } from "./modes";
+import { ENTER_AFTER_MS, typedWords } from "./typedWordsModel.mjs";
 import type { TerminalScope, TerminalSession } from "./session";
 import { currentScheme, fontSizeOf, monoFamily, readTerminalTokens } from "./tokens";
 import { findDecorations, xtermTheme } from "./xtermTheme.mjs";
@@ -71,6 +73,17 @@ export interface TerminalProps {
    * (`terminal.resume_start`, read by the panel). Meaningless without `resume`.
    */
   startOnResume?: boolean;
+  /**
+   * Words to type once the harness has drawn its prompt (ide/06 §Start
+   * words) — a request handed to this harness by the person. Typed the way
+   * the resume nudge is, through the PTY and never as their keystrokes, as a
+   * bracketed paste when the program asked for one; said once, then
+   * `onStarted`. Dropped — and said so in the tab — once the person types
+   * first or the harness never draws its prompt. Read at mount, like `resume`.
+   */
+  start?: string | null;
+  /** The start words were typed: the tab has nothing left to say. */
+  onStarted?: () => void;
   /**
    * This is the visible pane.
    *
@@ -165,11 +178,15 @@ interface Live {
   search: SearchAddon | null;
   checkpointTimer: number | null;
   unregisterTail: (() => void) | null;
+  /** The mount's answer to "did the program ask for bracketed paste" (`modes.ts`); its teardown. */
+  unregisterModes: (() => void) | null;
   /** Takes a pasted or dropped file as its path (`pathInput.ts`); its teardown. */
   pathInput: (() => void) | null;
-  /** The resume nudge in flight, and its tick — `resumeStartModel`. */
+  /** The resume nudge or the start words in flight, and its tick — `resumeStartModel`. */
   start: StartState | null;
   startTimer: number | null;
+  /** The Enter that follows typed start words, one beat later. */
+  enterTimer: number | null;
 }
 
 /** What the find bar shows: the kit's query, and where the addon stands. */
@@ -206,12 +223,14 @@ export function Terminal({
   run = false,
   mobileDevelopment = null,
   startOnResume = false,
+  start = null,
   active,
   onExit,
   onInput,
   onOpened,
   onUnverifiable,
   onProcess,
+  onStarted,
   sessionKey = null,
   replayCheckpoint = false,
   scrollback = 5000,
@@ -238,6 +257,8 @@ export function Terminal({
   onUnverifiableRef.current = onUnverifiable;
   const onProcessRef = useRef(onProcess);
   onProcessRef.current = onProcess;
+  const onStartedRef = useRef(onStarted);
+  onStartedRef.current = onStarted;
   const findRef = useRef<((open: boolean) => void) | null>(null);
   // Read every render so a click in a long-lived shell reaches the current
   // provider; the boot effect must not re-run for it.
@@ -289,7 +310,9 @@ export function Terminal({
       checkpointTimer: null,
       start: null,
       startTimer: null,
+      enterTimer: null,
       unregisterTail: null,
+      unregisterModes: null,
       pathInput: null,
     };
     liveRef.current = live;
@@ -306,10 +329,10 @@ export function Terminal({
 
     void boot(
       host,
-      { scope, id, harness: harness ?? null, login: login ?? null, resume, run, mobileDevelopment: mobileDevelopment ?? null, startOnResume, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle },
+      { scope, id, harness: harness ?? null, login: login ?? null, resume, run, mobileDevelopment: mobileDevelopment ?? null, startOnResume, start: start ?? null, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle },
       activeRef,
       live,
-      { onExit: onExitRef, onInput: onInputRef, onOpened: onOpenedRef, onUnverifiable: onUnverifiableRef, onProcess: onProcessRef, find: findRef, reserveKey: reserveKeyRef, link: linkRef },
+      { onExit: onExitRef, onInput: onInputRef, onOpened: onOpenedRef, onUnverifiable: onUnverifiableRef, onProcess: onProcessRef, onStarted: onStartedRef, find: findRef, reserveKey: reserveKeyRef, link: linkRef },
       setError,
       () => setBooted((n) => n + 1),
     );
@@ -318,12 +341,15 @@ export function Terminal({
       live.disposed = true;
       if (live.checkpointTimer !== null) window.clearTimeout(live.checkpointTimer);
       if (live.startTimer !== null) window.clearInterval(live.startTimer);
+      if (live.enterTimer !== null) window.clearTimeout(live.enterTimer);
       // The last word before the mount goes: whatever is on screen now —
       // unless the tab is closing and its checkpoint was dropped for good.
       checkpoint(live, sessionKey);
       if (sessionKey) forgotten.delete(sessionKey);
       live.unregisterTail?.();
       live.unregisterTail = null;
+      live.unregisterModes?.();
+      live.unregisterModes = null;
       live.pathInput?.();
       live.pathInput = null;
       live.resize?.disconnect();
@@ -466,6 +492,8 @@ interface BootWhat {
   /** The checkout's Flutter app runs here on that device (ide/19). */
   mobileDevelopment: { device: string } | null;
   startOnResume: boolean;
+  /** Words to type once the prompt is drawn (ide/06 §Start words), or none. */
+  start: string | null;
   sessionKey: string | null;
   replayCheckpoint: boolean;
   scrollback: number;
@@ -481,6 +509,8 @@ interface BootRefs {
   onOpened: { current: ((terminalId: string, session: string | null) => void) | undefined };
   onUnverifiable: { current: ((reason: string) => void) | undefined };
   onProcess: { current: ((harness: string | null) => void) | undefined };
+  /** The start words were typed. */
+  onStarted: { current: (() => void) | undefined };
   find: { current: ((open: boolean) => void) | null };
   reserveKey: { current: ((e: KeyboardEvent) => boolean) | undefined };
   /** The door a path or a URL in the output opens through (ide/17); null outside the provider. */
@@ -548,7 +578,7 @@ async function boot(
   setError: (message: string | null) => void,
   onBooted: () => void,
 ) {
-  const { scope, id, harness, login, resume, run, mobileDevelopment, startOnResume, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle } = what;
+  const { scope, id, harness, login, resume, run, mobileDevelopment, startOnResume, start, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle } = what;
   if (!terminalAvailable()) {
     setError(t("terminal-terminal-shell-needs-desktop-app-running-browser"));
     return;
@@ -596,6 +626,7 @@ async function boot(
   live.serialize = serialize;
   term.loadAddon(serialize);
   if (sessionKey) {
+    live.unregisterModes = registerTerminalModes(sessionKey, () => ({ bracketed: term.modes.bracketedPasteMode }));
     live.unregisterTail = registerTerminalTail(sessionKey, () => {
       const buf = term.buffer.active;
       const out: string[] = [];
@@ -732,10 +763,15 @@ async function boot(
   live.session = session;
   refs.onOpened.current?.(session.id, session.session);
 
-  // A resumed harness picks its work up: once it has drawn its prompt, the
-  // tab types the nudge and Enter through the same path a keystroke takes
-  // (`resumeStartModel`). A sign-in shell is a form, not a session — never.
-  if (resume && startOnResume && harness && !login) {
+  // A harness is spoken to once it has drawn its prompt, through the same
+  // path a keystroke takes and never as the person's keystrokes
+  // (`resumeStartModel`): a resumed one picks its work up with the nudge, one
+  // handed a request types the start words — as a paste when it asked for
+  // one — and Enter a beat later (`typedWordsModel`). One thing said, never
+  // two. A sign-in shell is a form, not a session — never.
+  const startWords = typeof start === "string" && start.trim() ? start : null;
+  if (harness && !login && (startWords || (resume && startOnResume))) {
+    let said = false;
     live.start = armStart(Date.now());
     live.startTimer = window.setInterval(() => {
       const now = Date.now();
@@ -743,11 +779,27 @@ async function boot(
       if (!start || live.disposed || !startPending(start, now)) {
         if (live.startTimer !== null) window.clearInterval(live.startTimer);
         live.startTimer = null;
+        // The words were dropped — the person typed first, or the harness
+        // never drew its prompt: say so in the tab, where the rows above
+        // show why. The request is still in the tray.
+        if (startWords && !said && !live.disposed && !live.exited) term.write(`\r\n\x1b[2m[${t("terminal-terminal-request-not-typed-still-tray")}]\x1b[0m\r\n`);
         return;
       }
       if (!startDue(start, now)) return;
       live.start = startSaid(start);
-      void session.write(nudgeText()).catch((e: unknown) => log.debug("terminal", "the resume nudge could not be typed", errorFields(e)));
+      said = true;
+      if (!startWords) {
+        void session.write(nudgeText()).catch((e: unknown) => log.debug("terminal", "the resume nudge could not be typed", errorFields(e)));
+        return;
+      }
+      const typed = typedWords(startWords, term.modes.bracketedPasteMode);
+      void session.write(typed.text).catch((e: unknown) => log.debug("terminal", "the start words could not be typed", errorFields(e)));
+      live.enterTimer = window.setTimeout(() => {
+        live.enterTimer = null;
+        if (live.disposed || live.exited) return;
+        void session.write(typed.enter).catch((e: unknown) => log.debug("terminal", "the Enter after the start words could not be typed", errorFields(e)));
+        refs.onStarted.current?.();
+      }, ENTER_AFTER_MS);
     }, START_TICK_MS);
   }
 

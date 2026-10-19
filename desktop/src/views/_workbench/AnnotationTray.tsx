@@ -4,7 +4,10 @@
  * × to drop it — over the doors every tray of chips has (`ContextTray`:
  * Send to an agent, Attach to the Agent panel, Clear). The facts — the
  * chips, the words, the target — are `annotationModel.mjs`'s; a sent file
- * page follows the agent to its end (`recordAgentEdit`). The rows are
+ * page follows the agent to its end (`recordAgentEdit`). The same request,
+ * rendered as the engine would frame it, can go **to a harness** of the
+ * person's own instead — typed into a new terminal or a listening one
+ * (`harnessHandoffModel.mjs`, the tray's second door). The rows are
  * `AnnotationRows`, shared with the screen's tray (`PaneAnnotationTray`,
  * ide/18); `CheckoutAnnotationTray` is the same tray for a host that knows
  * the checkout and not its project — the Browser pane.
@@ -14,6 +17,7 @@ import { useWorkstream } from "../_work/useWorkstream";
 import { recordAgentEdit } from "./agentEditsStore";
 import { AnnotationRows } from "./AnnotationRows";
 import { annotationChips, annotationsContent, annotationsTarget, setMessage } from "./annotationModel.mjs";
+import { harnessWords } from "./harnessHandoffModel.mjs";
 import type { AnnotationDraft } from "./annotationModel.mjs";
 import { pageWords } from "./contextChips.mjs";
 import type { PageRef } from "./contextChips.mjs";
@@ -56,6 +60,7 @@ export function AnnotationTray({
       content={annotationsContent(draft.message, count)}
       about={file}
       noun={t("workbench-annotation-tray-annotations")}
+      harness={{ words: () => harnessWords({ message: draft.message, count, page, annotations: draft.annotations }) }}
       rows={<AnnotationRows draft={draft} lost={lost} onDraft={onDraft} />}
       // The page follows the agent to its end: reloaded and said when it
       // rests — a file's; a served page reloads on its own.

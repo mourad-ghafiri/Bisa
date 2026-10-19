@@ -573,6 +573,24 @@ keeps its own chip tray under `chatKey(kind, id)` in the one context store (`age
 as the IDE's Agent pane does; with no conversation on screen the button is held and says what to
 open. The rows both trays draw are `AnnotationRows.tsx`.
 
+The checkout's tray has a third door, **To a harness** (`HarnessHandoffMenu.tsx` over
+`harnessHandoffModel.mjs`): the same request typed into a harness of the person's own — the
+agent's words (the lead, the target, the edit contract kept or undone by hand) and then the
+chips as the engine itself would frame them, byte for byte (`contextBlock` mirrors
+`framing.rs context_block`; a test reads the Rust) — into a **new terminal** per harness the
+node can run (`harnessTargets`: the launchable list, installed first, the rest listed and held
+as the launcher does), or into a **live harness tab** of the workstream (`standingHarnesses`),
+each with what it is doing: a tab that listens takes the words now; one that is working takes
+them with a word (the request waits at its prompt); one still starting, or **waiting on the
+person**, is held with the reason as its second line (`harnessDoor`) — a dialog typed over is a
+dialog answered by accident, and the door is read again at the click. A new tab opens with the
+words as its **start words** ([06](06-terminals.md) §Start words), typed once the harness has
+drawn its prompt; a live one is typed into through its bytes and shown. Neither door empties the
+tray: a fresh tab has not typed yet, and a terminal has no keep or undo — the toast says the
+rows stay until *Clear*. The capture tray offers no such door: a picture cannot be typed. Never a
+session the engine runs — the hand-off rule's one exception is the person's own terminal, by
+their choice ([09](09-agents-in-the-ide.md)).
+
 ## Agents browse here
 
 Agents have no browser of their own. The injected `bisa` MCP server holds **twenty-one tools on every
@@ -802,3 +820,4 @@ page's network. The tools do not pretend to them.
 | under either program — the frame's and the browser's — a pick opens the note box in the page with its crumbs, text and question, the caret in it; while it is open the pointer outlines nothing, a click outside is swallowed and a click inside is the box's own; Enter or Add says the note with its element and closes the box, Escape or Never mind closes it alone and says so, Escape with no box open leaves; a crumb re-picks keeping the words typed, an annotated element opens with its note and Change; the box sits above, below or beside the element and never on it, and follows a scroll; the tag rides outside the element and inside the right edge; the app's word closes it | `desktop/src/ui/artifact/pageInspector.test.mjs` |
 | a browser tab id round-trips, rides the strip and is never stored; its menu, the annotation offered on a page an agent can edit; the run tab's identity; the surfaces count | `workbenchModel.test.mjs`, `tabMenuModel.test.mjs`, `terminalsModel.test.mjs`, `ui/surfacesModel.test.mjs` |
 | annotations are about a page — a file's or a URL's — and the chips say which | `annotationModel.test.mjs`, `contextChips.test.mjs` |
+| the harness door: the words a harness reads are the agent's request and the engine's own block, byte for byte; a new terminal per harness the node can run and the workstream's live harness tabs, a waiting one held with its reason, a working one with a word; a fresh tab carries the words until typed and never into storage or a restart; a paste when the program asked, one line otherwise, Enter apart; the wiring — the door only where the rows read as words, never on a capture, the words through the PTY and never as keystrokes | `desktop/src/views/_workbench/harnessHandoffModel.test.mjs`, `desktop/src/terminal/typedWordsModel.test.mjs`, `desktop/src/shell/terminalsModel.test.mjs`, `desktop/src/scenarios/harnessHandoff.test.mjs` |

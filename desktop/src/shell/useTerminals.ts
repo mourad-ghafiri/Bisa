@@ -28,6 +28,9 @@ import { errorFields, log } from "../log";
 import { jsonPref, readPref, webStorage, writePref } from "./storedPrefModel.mjs";
 import { useSyncExternalStore } from "react";
 import { answeredInTerminal, terminalAvailable, writeTerminal } from "../terminal/session";
+import { terminalBracketed } from "../terminal/modes";
+import { ENTER_AFTER_MS, typedWords } from "../terminal/typedWordsModel.mjs";
+import { t } from "../i18n/l10n.mjs";
 import type { TerminalScope } from "../terminal/session";
 import { dropScrollback } from "../terminal/Terminal";
 import { onSessionTransition, sessionRows } from "./sessionsStore";
@@ -44,6 +47,7 @@ import {
   moveTabToPane,
   noteExit,
   noteLive,
+  noteStarted,
   noteUnverifiable,
   openTerminal,
   reorderTerminal,
@@ -257,6 +261,26 @@ export function writeToTerminalTab(key: string, data: string): Promise<void> {
 }
 
 /**
+ * Type a request into a live harness tab — what the annotation tray's
+ * harness door does (ide/18 §Annotating a page, ide/06 §Start words): the
+ * words as a paste when the program asked for bracketed paste, one line
+ * otherwise (`typedWordsModel`), then Enter a beat later, and the tab shown.
+ * Raw bytes, like the resume nudge, never xterm's own paste: that would pass
+ * for the person's keystrokes and answer a dialog by accident. A tab with no
+ * emulator on screen cannot say which it is, and says so.
+ */
+export async function pasteIntoTerminalTab(key: string, text: string): Promise<void> {
+  const bracketed = terminalBracketed(key);
+  if (bracketed === null) throw new Error(t("shell-use-terminals-terminal-not-on-screen"));
+  const typed = typedWords(text, bracketed);
+  if (!typed.text) return;
+  await writeToTerminalTab(key, typed.text);
+  await new Promise((resolve) => setTimeout(resolve, ENTER_AFTER_MS));
+  await writeToTerminalTab(key, typed.enter);
+  set(focusTerminal(state, key));
+}
+
+/**
  * Close one tab — which unmounts its terminal, which ends the shell — and
  * forget its checkpoint: a tab you closed is not one to bring back.
  */
@@ -324,6 +348,11 @@ export function terminalUnverifiable(key: string, generation: number, reason: st
 /** The shell said which harness runs under this tab's shell right now, or that none does. */
 export function terminalRunning(key: string, generation: number, harness: string | null): void {
   set(noteRunning(state, key, generation, harness));
+}
+
+/** The tab typed its start words (ide/06 §Start words): nothing left to say. */
+export function terminalStarted(key: string, generation: number): void {
+  set(noteStarted(state, key, generation));
 }
 
 /** Split the focused pane and open a shell in the new half. */

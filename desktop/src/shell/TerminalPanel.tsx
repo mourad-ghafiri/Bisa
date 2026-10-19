@@ -106,6 +106,7 @@ import {
   terminalUnverifiable,
   useTerminals,
   terminalRunning,
+  terminalStarted,
   terminalTyped,
 } from "./useTerminals";
 import { t as tr } from "../i18n/l10n.mjs";
@@ -364,6 +365,7 @@ export function TerminalPanel() {
                   run={s.run}
                   mobileDevelopment={s.mobileDevelopment}
                   startOnResume={settings.resumeStart}
+                  start={s.start}
                   visible={showing}
                   reserveKey={reserveKey}
                   active={showing && (!manyPanes || leaf?.id === focusedPane)}
@@ -378,6 +380,7 @@ export function TerminalPanel() {
                   onOpened={(tid, session) => terminalLive(s.key, s.generation, tid, session)}
                   onUnverifiable={(reason) => terminalUnverifiable(s.key, s.generation, reason)}
                   onProcess={(h) => terminalRunning(s.key, s.generation, h)}
+                  onStarted={() => terminalStarted(s.key, s.generation)}
                   className="rounded-none border-0"
                 />
               </div>

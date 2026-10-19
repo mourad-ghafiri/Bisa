@@ -30,6 +30,13 @@ export interface TerminalSessionState {
    * this tab did rather than what the place has become since.
    */
   readonly resume: boolean;
+  /**
+   * Words the tab types once the harness has drawn its prompt (ide/06 §Start
+   * words) — a request handed to a harness of the person's own. `null` for a
+   * tab with nothing to say, once the words are typed, and across a restart;
+   * never persisted.
+   */
+  readonly start: string | null;
   /** The project's run command runs in it (ide/18): labelled *run*, never resumed. */
   readonly run: boolean;
   /** The checkout's Flutter app runs in it on that device (ide/19): labelled *flutter*. */
@@ -113,6 +120,8 @@ export interface TerminalTarget {
   run?: boolean;
   /** Run the checkout's Flutter app on that device (ide/19) — the node's line for it. */
   mobileDevelopment?: TerminalMobileDevelopment | null;
+  /** Words to type once the harness has drawn its prompt (ide/06 §Start words); never persisted. */
+  start?: string | null;
   /** The pane to open in; the focused one when absent or gone. */
   pane?: string | null;
 }
@@ -186,6 +195,8 @@ export declare function noteExit(
 ): TerminalsState;
 export declare function noteLive(state: TerminalsState, key: string, generation: number, terminalId?: string | null, sessionId?: string | null, at?: number): TerminalsState;
 export declare function noteRunning(state: TerminalsState, key: string, generation: number, harness: string | null): TerminalsState;
+/** The tab typed its start words: `start` is `null` from here. */
+export declare function noteStarted(state: TerminalsState, key: string, generation: number): TerminalsState;
 /** The harness a tab is about: the one it was opened with, else the one running in it. */
 export declare function harnessOf(session: { harness?: string | null; running?: string | null } | null | undefined): string | null;
 export declare function noteUnverifiable(

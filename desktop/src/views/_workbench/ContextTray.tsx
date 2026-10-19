@@ -8,7 +8,10 @@
  * edit with one chip per row, and the Agent pane opening; and **Attach**,
  * which puts the same chips in the pane's tray and sends nothing. Either
  * empties the draft; *Clear* does too. A send remembers its agent for the
- * document hand-offs that lead with the last one used.
+ * document hand-offs that lead with the last one used. A caller that knows
+ * how its rows read as plain words (`harness`) gets a third door, **To a
+ * harness** (`HarnessHandoffMenu`): the same request typed into a harness of
+ * the person's own, which keeps the draft.
  *
  * The rows are the caller's — `AnnotationRows` for an annotated page,
  * `CaptureRows` for a device's screen — and so are the chips, the words and
@@ -28,6 +31,7 @@ import { ensureConversation } from "./conversationsStore";
 import { handOffWords } from "./conversationPaneModel.mjs";
 import { fitsBudget } from "./contextChips.mjs";
 import { messageBody, sentWords } from "./editorAgentModel.mjs";
+import { HarnessHandoffMenu } from "./HarnessHandoffMenu";
 import { rememberAgent } from "./rememberedAgent";
 import { showRightPanel } from "./rightPanelStore";
 import { t } from "../../i18n/l10n.mjs";
@@ -44,6 +48,7 @@ export function ContextTray({
   about,
   noun,
   rows,
+  harness,
   onSent,
   onDone,
 }: {
@@ -64,6 +69,12 @@ export function ContextTray({
   /** The rows' noun, plural: *annotations*, *captures*. */
   noun: string;
   rows: ReactNode;
+  /**
+   * The rows as a harness should read them (ide/18 §Annotating a page), when
+   * the caller can say — the annotation tray can; a capture's picture cannot
+   * be typed. Present, the tray offers **To a harness** beside Attach.
+   */
+  harness?: { words: () => string } | null;
   /** The request landed in a conversation, as this agent. */
   onSent?: (landing: { id: string }, agentId: string) => void;
   /** The rows left the tray — sent, attached or cleared. */
@@ -79,7 +90,9 @@ export function ContextTray({
   const { chosen } = useAgentChoice(pid, wanted);
 
   // A request is only ever sent to a conversation — the one this checkout is
-  // on, or a new one about it — never to a session.
+  // on, or a new one about it — never to a session the engine runs. The one
+  // other place it can go is the person's own terminal, by their choice
+  // (`HarnessHandoffMenu`), which is no session of the engine's.
   const send = () => {
     if (sending || count === 0 || over || !chosen || !pid) return;
     const agentId = chosen.id;
@@ -124,6 +137,7 @@ export function ContextTray({
           <Button size="sm" variant="primary" disabled={count === 0 || over || sending || !chosen} onClick={send}>
             <ICON.agent size={12} aria-hidden />{t("workbench-context-tray-send")}</Button>
         </Tooltip>
+        {harness && count > 0 && !over && <HarnessHandoffMenu wid={wid} noun={noun} words={harness.words} disabled={sending} />}
         <Tooltip label={t("workbench-context-tray-attach-them-agent-panel-nothing-sent")}>
           <Button size="sm" variant="ghost" disabled={count === 0 || over || sending} onClick={attach}>
             <ICON.attach size={12} aria-hidden />{t("workbench-context-tray-attach")}</Button>

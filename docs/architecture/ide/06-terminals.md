@@ -440,6 +440,29 @@ sign-in shell is a form, not a session, and is never nudged. Whether to do it at
 **`terminal.resume_start`** (machine scope, on by default) in Settings › Project IDE › Terminal;
 off, the resumed session waits for you at its prompt.
 
+## Start words
+
+The same machine carries a **request** into a fresh harness: a tab opened with `start` words on
+its target (`TerminalTarget.start` → the tab's `start`; `terminalsModel.openTerminal`) types them
+once the harness has drawn its prompt, by the nudge's own rules — and one thing is said, never
+two: a tab with words to type is never nudged as well. The words are a request of many lines —
+the annotation tray's, rendered as the engine would frame it ([18](18-browser-and-servers.md)
+§Annotating a page) — and a harness's TUI reads a newline as Enter, so they go as the program
+asked: every shipped TUI harness asks for **bracketed paste** (DECSET 2004), which xterm tracks
+(`term.modes.bracketedPasteMode`, read off the mount through `terminal/modes.ts`), and the tab
+wraps the words in the brackets by hand with every newline as a paste's carriage return
+(`terminal/typedWordsModel.mjs`, tested), one line with the newlines folded for a program that did
+not ask; Enter follows a beat later (`ENTER_AFTER_MS`), on its own, for a TUI that debounces a
+paste. Through the PTY like the nudge and never as the person's keystrokes, which would pass for
+an answer to a dialog (§Reporting above). Once typed, the tab says so and the words are
+gone (`noteStarted`): they are **never persisted** — `serializeTerminals` leaves them out, a
+restore and a restart start with nothing to say — so a restart never retypes a request. Dropped
+— the person typed first, or no prompt within the window — the tab prints a dimmed line, *the
+request was not typed — it is still in the tray*, and the request is still in the tray. A live
+harness tab is typed into the same way, now (`useTerminals.pasteIntoTerminalTab`): the words
+through `writeToTerminalTab`, Enter a beat later, the tab shown; a tab with no emulator on
+screen says so rather than guess.
+
 ---
 
 ## Session ids

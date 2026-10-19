@@ -1123,7 +1123,13 @@ as a chip; you Keep or Undo the change in the review, and the Agent pane opens s
 follow. The page follows the agent: when it finishes, the page reloads and a toast says so — or
 that the agent failed or was stopped. If you had edited the source meanwhile, the page keeps your
 text and a banner offers *Reload the page*, *Keep mine* or *Review*. **Attach** puts the same chips
-in the Agent pane's tray instead, for a message you want to write there. `Esc` leaves the
+in the Agent pane's tray instead, for a message you want to write there. **To a harness** types the
+same request into a harness of yours instead — the words the agent would get, then every element
+with its change the way the agent sees it: pick a harness for a **new terminal**, which opens and
+types the request once the harness has drawn its prompt (type first and it stays in the tray, and
+the tab says so), or one of the workstream's **live terminals** — *listening* takes it now,
+*working* takes it after its turn, one *waiting on you* is held until you answer it. The
+annotations stay in the tray until you *Clear* them; nothing goes to an agent. `Esc` leaves the
 inspector; the badges stay until you send, attach or clear. Editing the source in *Split* keeps
 them — an element the page no longer has says so in the tray, and its chip keeps the element as it
 was. The same wand sits on the browser tab's bar for any page the tab shows — the checkout the
@@ -1330,7 +1336,9 @@ its own form (Claude Code, Codex, OpenCode, pi, OMP, GitHub Copilot CLI, Grok Bu
 Goose and Cursor alike), and a resumed
 harness **starts**: once it has drawn its prompt the tab types *Continue where you left off.* for
 you, unless you type first; **Start a resumed harness** under Settings › Project IDE › Terminal
-turns that off, and the session then waits at its prompt. What the tab then tells the rail is the
+turns that off, and the session then waits at its prompt. A terminal opened by the annotation
+tray's *To a harness* types your request the same way, as one pasted block, once its harness
+listens — never again after a restart. What the tab then tells the rail is the
 harness's to give: Claude Code, Codex, OpenCode, pi, OMP and GitHub Copilot CLI each report what
 they are doing — Copilot through a plugin the platform mounts for that one launch, which waits *in
 Copilot's own words* when it asks you something — and Claude Code and Copilot CLI ask the guard

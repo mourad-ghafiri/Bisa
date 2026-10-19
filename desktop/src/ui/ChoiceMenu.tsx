@@ -16,12 +16,14 @@
  */
 
 import * as M from "@radix-ui/react-dropdown-menu";
+import { Fragment } from "react";
 import type { ReactNode } from "react";
 import { useOpenSurface } from "./openSurfaces";
 import { cn } from "./cn";
 import { FOCUS_RING } from "./rings";
 import { ICON } from "./icons";
 import type { LucideIcon } from "./icons";
+import type { Mark } from "./harnessMarks";
 import { MENU_ITEM, MENU_ITEM_TONE, POPOVER_SURFACE } from "./surfaces";
 
 export interface MenuChoice<T extends string> {
@@ -29,11 +31,14 @@ export interface MenuChoice<T extends string> {
   label: string;
   /** The one-sentence meaning, drawn under the label. */
   description?: string;
-  icon?: LucideIcon;
+  /** A kit icon, or a harness's own mark — both take `size` and `className`. */
+  icon?: LucideIcon | Mark;
   /** Offered but not choosable — `hint` says why. */
   disabled?: boolean;
   /** Drawn in place of `description` while `disabled`. */
   hint?: string;
+  /** Draw a rule above this choice — a group boundary, not decoration. */
+  separatorBefore?: boolean;
 }
 
 export function ChoiceMenu<T extends string>({
@@ -64,16 +69,19 @@ export function ChoiceMenu<T extends string>({
         <M.Content data-pane align={align} sideOffset={4} collisionPadding={8} className={cn(POPOVER_SURFACE, "min-w-56 py-1")}>
           <M.RadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
             {choices.map((c) => (
-              <M.RadioItem key={c.id} value={c.id} disabled={c.disabled} className={cn(MENU_ITEM, MENU_ITEM_TONE.default, "flex-col items-stretch gap-0.5 py-2")}>
-                <span className="flex items-center gap-2">
-                  {c.icon && <c.icon size={14} aria-hidden className="shrink-0 opacity-70" />}
-                  <span className="min-w-0 flex-1 truncate font-medium">{c.label}</span>
-                  <M.ItemIndicator>
-                    <ICON.check size={12} aria-hidden className="shrink-0 text-text" />
-                  </M.ItemIndicator>
-                </span>
-                {c.disabled && c.hint ? <span className="pl-5 text-2xs text-warn">{c.hint}</span> : c.description ? <span className="pl-5 text-2xs text-text-dim">{c.description}</span> : null}
-              </M.RadioItem>
+              <Fragment key={c.id}>
+                {c.separatorBefore && <M.Separator className="my-1 h-px bg-hairline" />}
+                <M.RadioItem value={c.id} disabled={c.disabled} className={cn(MENU_ITEM, MENU_ITEM_TONE.default, "flex-col items-stretch gap-0.5 py-2")}>
+                  <span className="flex items-center gap-2">
+                    {c.icon && <c.icon size={14} aria-hidden className="shrink-0 opacity-70" />}
+                    <span className="min-w-0 flex-1 truncate font-medium">{c.label}</span>
+                    <M.ItemIndicator>
+                      <ICON.check size={12} aria-hidden className="shrink-0 text-text" />
+                    </M.ItemIndicator>
+                  </span>
+                  {c.disabled && c.hint ? <span className="pl-5 text-2xs text-warn">{c.hint}</span> : c.description ? <span className="pl-5 text-2xs text-text-dim">{c.description}</span> : null}
+                </M.RadioItem>
+              </Fragment>
             ))}
           </M.RadioGroup>
         </M.Content>

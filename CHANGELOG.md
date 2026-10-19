@@ -10,6 +10,18 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **To a harness** — the annotation tray's third door: the request an agent would get (the lead,
+  the target, the edit contract kept or undone by hand) and every annotation as the engine itself
+  frames a chip, typed into a harness of the person's own — a **new terminal** per harness the
+  node can run, which types the request once its harness has drawn its prompt (start words on the
+  tab, never persisted, dropped and said so if the person types first), or a **live harness
+  terminal** of the workstream, typed into now and shown; a tab working takes it with a word, one
+  waiting on the person is held with the reason; as a bracketed paste when the program asked, one
+  line otherwise, Enter a beat later; through the PTY and never as keystrokes; the tray keeps its
+  rows until Clear; never a session the engine runs (`desktop/src/views/_workbench/HarnessHandoffMenu.tsx`,
+  `harnessHandoffModel.mjs`, `desktop/src/terminal/typedWordsModel.mjs`, `modes.ts`,
+  `desktop/src/shell/terminalsModel.mjs`, `useTerminals.ts`, `Terminal.tsx`).
+
 - A **Bug hunt** built-in addon: a see-through scene over the whole desktop app on which
   spiders, cockroaches, beetles, ants, flies, mosquitoes and crickets walk, dart, fly and hop
   while the app keeps working underneath — the more things are running, the more that crawl. A

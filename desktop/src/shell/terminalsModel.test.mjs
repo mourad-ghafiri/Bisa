@@ -435,6 +435,7 @@ import {
   livenessTone,
   moveTabToPane,
   noteLive,
+  noteStarted,
   noteUnverifiable,
   restoreTerminals,
   serializeTerminals,
@@ -937,4 +938,22 @@ test("a tab's liveness and what runs in it are one word each, read by the strip,
     const text = readFileSync(new URL(rel, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     assert.ok(!/`exited \(|\? "exited"|: "shell"|return "unverifiable"|return "open"/.test(text), `${rel} spells no liveness word of its own`);
   }
+});
+
+test("start words ride the tab that opened with them, are typed once, and never survive a restart or a restore (ide/06 §Start words)", () => {
+  let state = openTerminal(emptyTerminals(), { ...PLACE, harness: "codex", resume: false, start: "  Edit the two elements.\n\n[annotation] a\n " });
+  const s = () => state.sessions[0];
+  assert.equal(s().start, "  Edit the two elements.\n\n[annotation] a\n ", "kept as given");
+  assert.equal(s().resume, false);
+  assert.equal(openTerminal(emptyTerminals(), { ...PLACE, harness: "codex", start: "   " }).sessions[0].start, null, "blank words are none");
+  assert.equal(openTerminal(emptyTerminals(), { ...PLACE, harness: "codex" }).sessions[0].start, null);
+  const stored = JSON.parse(JSON.stringify(serializeTerminals(state)));
+  assert.equal(stored.sessions[0].start, undefined, "never persisted: a restart has nothing to say");
+  assert.equal(restoreTerminals(stored).sessions[0].start, null);
+  assert.equal(noteStarted(state, s().key, 9), state, "a stale generation says nothing");
+  const typed = noteStarted(state, s().key, 0);
+  assert.equal(typed.sessions[0].start, null, "typed once, nothing left to say");
+  assert.equal(noteStarted(typed, s().key, 0), typed, "already said: the same state");
+  assert.equal(noteStarted(state, "ghost", 0), state);
+  assert.equal(restartTerminal(state, s().key).sessions[0].start, null, "a restart is a fresh shell with nothing to say");
 });

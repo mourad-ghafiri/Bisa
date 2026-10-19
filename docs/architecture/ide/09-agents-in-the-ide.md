@@ -34,7 +34,11 @@ a **hand-off** does (`conversationsStore.ensureConversation` over
 live one whose turns run here — the checkout's own or its project's, `runsHere` — else the newest of
 the project, else a new one about the workstream) and writes the pick, so the pane lands on it.
 `handOffTarget` goes only where the turn runs here: a sibling checkout's conversation is opened by a
-click, never landed in by a hand-off, since its turns run in that checkout. The pane is the **one
+click, never landed in by a hand-off, since its turns run in that checkout. A hand-off never goes
+to a session the engine runs; the one other place a request can go is the person's **own
+terminal**, by their choice — the annotation tray's *To a harness* types it into a harness
+there, a new tab or a listening one ([18](18-browser-and-servers.md) §Annotating a page,
+[06](06-terminals.md) §Start words) — which is no session of the engine's. The pane is the **one
 conversation surface** every owner paints ([13](../13-conversations.md): `useConversationSurface`
 with the project's list and the `root` selection, `ConversationSurface`), so it shows **one view at a
 time** (`surfaceView`): the conversation; the project's **list** — live, or put away with its *Archived*

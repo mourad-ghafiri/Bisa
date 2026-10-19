@@ -531,7 +531,8 @@ an artifact, which is its own. Press it, point at an element, click it and say w
 in the box that opens beside it — *Enter* adds the note, *Esc* closes the box; each becomes a
 numbered badge on the page and a line in the tray under it. For a tab that belongs to a checkout
 the tray is the IDE's — **Send** to an agent as an edit, file chips when the page is a file of the
-checkout — and for a goal's tab it is the screen's: **Attach to the message** puts the elements as
+checkout, or **To a harness** to type the same request into a harness of yours, in a new terminal
+or one that is listening — and for a goal's tab it is the screen's: **Attach to the message** puts the elements as
 chips in the composer beside it. Beside any other screen the pane only shows the page: there is no
 wand, and annotations you started in the IDE wait there for you.
 
