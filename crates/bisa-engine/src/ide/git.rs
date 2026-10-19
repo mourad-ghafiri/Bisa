@@ -779,9 +779,11 @@ pub struct PrRef {
 }
 
 impl PrRef {
+    /// Open, or the one the branch merged through — the record keeps it.
     fn of(state: &bisa_core::WorkstreamState) -> Option<Self> {
         match state {
-            bisa_core::WorkstreamState::PrOpen { number, url } => Some(Self {
+            bisa_core::WorkstreamState::PrOpen { number, url }
+            | bisa_core::WorkstreamState::Merged { number, url } => Some(Self {
                 number: *number,
                 url: url.clone(),
             }),

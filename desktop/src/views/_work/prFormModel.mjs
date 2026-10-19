@@ -98,7 +98,8 @@ export function prRequest(caps, form) {
 /**
  * One line summarising check runs: `3 passed · 1 failed · 2 running`, or
  * `no checks`. The tone is `danger` with a failure, `dim` while running,
- * `ok` when everything passed.
+ * `warn` when a run completed in a state nobody knows — stale, or a word of
+ * a newer host — and `ok` when everything passed.
  * @param {import("../../types").CheckRun[]} checks
  */
 export function checksSummary(checks) {
@@ -118,7 +119,7 @@ export function checksSummary(checks) {
   if (failed) parts.push(t("work-pr-form-failed", { failed }));
   if (running) parts.push(t("work-pr-form-running", { running }));
   if (other) parts.push(t("work-pr-form-other", { other }));
-  return { text: parts.join(" · "), tone: failed ? "danger" : running ? "dim" : "ok" };
+  return { text: parts.join(" · "), tone: failed ? "danger" : running ? "dim" : other ? "warn" : "ok" };
 }
 
 /**

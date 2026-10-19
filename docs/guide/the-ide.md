@@ -848,7 +848,9 @@ The **Workstreams** panel (`⌘⇧U`), on any workstream with a branch beside th
 branch to its base in seven steps right under its name — **Commit · Push · Open pull request · Checks · Review · Merge ·
 Clean up** — and offers exactly one action at a time, under the step it belongs to: *Commit in Git › Changes* when nothing is beyond the base yet, **Push and open pull
 request** when commits are not on the remote, **Open pull request** once they are, **Merge** once
-the pull request is open, **Clean up branch** once it has landed. In the pull request's dialog,
+the pull request is open, **Clean up branch** once it has landed — wherever it landed: merge it on the code host's own page and
+the panel notices when you come back, the card reads *merged*, and Clean up is the act; close it there
+without merging and the last step offers **Close this workstream…** instead. In the pull request's dialog,
 **Suggest** asks the General Agent for the title and the body from the branch's commits and its
 changes, as the commit box asks for a message: the draft lands in the fields for you to read and
 edit, a field you typed in while it was asked keeps your words, **Undo** puts back what was there,
@@ -961,9 +963,13 @@ and says so: *reviewed by general-agent and you*, *approved by @alice*, *changes
 @carol*. The Merge row is offered from the moment the pull request is open. Checks still running,
 comments still open, and a request for changes still standing, are **cautions**: the Merge row wears
 them, the button stays live, and the confirmation lists them before *Merge anyway*. Only what the
-code host itself cannot merge blocks: a draft, conflicts, failing checks, unpushed commits; while the
+code host itself cannot merge blocks: a draft, conflicts, unpushed commits, and failing checks the host
+requires — on GitHub and GitLab the panel reads the host's own word on the merge, so a failing check
+nothing requires is a caution (*1 check failing, none required*) and the button stays live; while the
 host is still computing whether the branch merges cleanly the row waits with the ring and the button
-is off with the reason. **Merge** is
+is off with the reason. A check that errored or failed at startup reads as *failed*, a run in a state
+the panel does not know as *in an unknown state*, and checks the code host could not be asked about say
+so, with **Retry**, rather than reading as passed. **Merge** is
 the lifecycle's own button under the *Merge* step: the strategy is its caption
 (a menu only when the code host offers more than one, starting on the project's *Merge strategy*
 setting, `merge` by default), and the confirmation says in words how the branch lands and whether the
@@ -976,8 +982,11 @@ harnesses terminated, its shells closed, its agent sessions aborted — and the 
 before you confirm (*1 harness terminated and 2 shells closed*); the summary after says what went.
 The settings *Cleanup after a merge* and *After a merge* make it silent or turn steps off — silent,
 a toast says what was done — and while a session runs on the primary the pull and the return wait,
-with the reason. A pull that stops on conflicts leaves you on the primary's Changes view with the
-Resolve card and the conflict document.
+with the reason. A pull that fails or stops on conflicts is reported and the rest
+still runs — the branch goes, and after a conflict the *Resolve the conflicts* button is the return,
+landing on the primary's Changes view with the Resolve card and the conflict document. Commits you
+made after the merge never reached the pull request; the delete step says how many, and they go with
+the branch.
 
 **Your machine's sign-in comes first.** If the GitHub CLI (`gh`) or the GitLab CLI (`glab`) is
 installed and signed in, the platform runs pull requests, reviews and merges *through it*, as the

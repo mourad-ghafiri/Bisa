@@ -175,11 +175,88 @@ test("the merge is blocked, with its reason, only by what the code host itself c
   oneInHand(unpushed, "commits not pushed");
 
   const closedOnHost = open({ pr: pr({ state: "closed" }) });
-  assert.equal(status(closedOnHost).open_pr, "blocked");
-  assert.equal(closedOnHost.cta.blocked, "closed on the code host");
-  assert.equal(closedOnHost.current, "merge", "the act is the merge's, off — never a merge button under Open pull request");
+  assert.equal(status(closedOnHost).open_pr, "done", "the pull request was opened: one mark for the one fact, on the Merge row");
+  assert.equal(status(closedOnHost).merge, "blocked", "the merge is off for good");
+  assert.equal(step(closedOnHost, "merge").note, "closed on the code host");
+  assert.equal(closedOnHost.cta.id, "close", "the act is the way out, under Clean up — never a merge button under Open pull request");
+  assert.equal(closedOnHost.current, "cleanup");
   assert.equal(status(closedOnHost).review, "todo", "nothing to review on a closed pull request");
   oneInHand(closedOnHost, "closed on the code host");
+});
+
+test("merged on the code host before the record heard: Clean up is the act, every earlier step done, commits after the merge its caution and never the act, and the merge commit is what it merged as", () => {
+  const web = lifecycle(facts({ state: "pr_open", aheadOfBase: 3, upstream: "origin/work/x", ahead: 2, pr: pr({ state: "merged", merge_commit: "fedcba9876" }), checks: passed, review: review([], 2) }));
+  assert.deepEqual(status(web), { commit: "done", push: "done", open_pr: "done", checks: "done", review: "done", merge: "done", cleanup: "current" });
+  assert.deepEqual(web.cta, { id: "cleanup", step: "cleanup", label: "Clean up branch", cautions: ["2 commits never reached the pull request — they go with the branch"] });
+  assert.equal(step(web, "cleanup").note, "2 commits never reached the pull request — they go with the branch");
+  assert.equal(web.current, "cleanup", "the record still says pr_open: the host's word wins");
+  assert.equal(step(web, "merge").note, "as fedcba9", "the merge commit, not the branch tip");
+  assert.deepEqual(step(web, "review").cautions, [], "nothing left to caution about");
+  oneInHand(web, "merged on the web");
+  const tip = lifecycle(facts({ state: "pr_open", aheadOfBase: 3, upstream: "origin/work/x", ahead: 0, pr: pr({ state: "merged" }), checks: passed }));
+  assert.equal(step(tip, "merge").note, "as abcdef1", "a host that names no merge commit: the tip");
+  assert.deepEqual(tip.cta, { id: "cleanup", step: "cleanup", label: "Clean up branch" }, "nothing stranded: no caution");
+  const one = lifecycle(facts({ state: "merged", aheadOfBase: 3, upstream: "origin/work/x", ahead: 1, pr: pr({ state: "merged" }) }));
+  assert.deepEqual(one.cta.cautions, ["1 commit never reached the pull request — they go with the branch"]);
+  assert.equal(status(one).push, "done", "nothing left to push on a merged branch");
+});
+
+test("a pull request closed on the code host without merging ends in the way out: the merge off, the push settled, Close this workstream under Clean up", () => {
+  const out = open({ pr: pr({ state: "closed" }), ahead: 2 });
+  assert.deepEqual(status(out), { commit: "done", push: "done", open_pr: "done", checks: "done", review: "todo", merge: "blocked", cleanup: "current" });
+  assert.deepEqual(out.cta, { id: "close", step: "cleanup", label: "Close this workstream…" });
+  assert.equal(step(out, "open_pr").note, "#12", "opened, whatever the host did since");
+  assert.equal(step(out, "merge").note, "closed on the code host", "the one danger mark");
+  assert.equal(step(out, "cleanup").note, "the pull request was closed without merging — close this workstream, keeping or removing its checkout");
+  oneInHand(out, "closed without merging");
+});
+
+test("a code host that could not be read is said, not guessed: the checks wait with the reason and the merge is cautioned, a stale block stands, and a merge is never a live button for a request nobody has read", () => {
+  const unread = open({ checks: null, checksError: "boom" });
+  assert.equal(status(unread).checks, "waiting");
+  assert.equal(step(unread, "checks").note, "the checks could not be read", "the why is the error note's, under the row");
+  assert.equal(status(unread).merge, "current", "the code host decides at the merge");
+  assert.deepEqual(unread.cta.cautions, ["checks could not be read; the code host decides"]);
+  oneInHand(unread, "checks unread");
+  assert.equal(open({ checks: null }).cta.cautions.length, 0, "not read yet is not a failed read");
+  assert.equal(step(open({ checks: null }), "checks").note, "reading the code host…");
+  const stale = open({ checks: failing, checksError: "boom" });
+  assert.equal(stale.cta.blocked, "1 passed · 1 failed", "a block read before the read failed still stands");
+  const noPr = open({ pr: null, prError: "boom" });
+  assert.equal(status(noPr).merge, "waiting");
+  assert.equal(noPr.cta.blocked, "the pull request could not be read");
+  assert.equal(step(noPr, "merge").note, "the pull request could not be read");
+  oneInHand(noPr, "pull request unread");
+  const reading = open({ pr: null });
+  assert.equal(reading.cta.blocked, "reading the code host…", "never a live generic button");
+  assert.equal(status(reading).merge, "waiting");
+});
+
+test("the host's own word on the merge: blocked blocks with the failing checks or its reason, dirty is conflicts, draft a draft, behind and unstable are cautions, clean merges past a failure nothing requires, and a host without the word keeps the rule", () => {
+  assert.equal(open({ pr: pr({ merge_state: "blocked" }), checks: failing }).cta.blocked, "1 passed · 1 failed");
+  assert.equal(open({ pr: pr({ merge_state: "blocked" }), checks: passed }).cta.blocked, "the code host blocks the merge (required reviews or checks)");
+  assert.equal(open({ pr: pr({ merge_state: "dirty", mergeable: true }) }).cta.blocked, "conflicts with main");
+  assert.equal(open({ pr: pr({ merge_state: "draft" }) }).cta.blocked, "a draft — mark it ready on the code host");
+  const behind = open({ pr: pr({ merge_state: "behind" }) });
+  assert.equal(status(behind).merge, "current");
+  assert.deepEqual(behind.cta.cautions, ["behind main — update the branch"]);
+  const unstable = open({ pr: pr({ merge_state: "unstable" }), checks: failing });
+  assert.equal(status(unstable).merge, "current", "the host can merge: a failing check it does not require is a caution");
+  assert.deepEqual(unstable.cta.cautions, ["1 check failing, none required"]);
+  assert.equal(status(unstable).checks, "done");
+  assert.deepEqual(step(unstable, "checks").cautions, ["1 passed · 1 failed"], "the Checks row wears it");
+  assert.equal(step(unstable, "checks").note, "1 passed · 1 failed");
+  oneInHand(unstable, "unstable");
+  const clean = open({ pr: pr({ merge_state: "clean", mergeable: null }), checks: failing });
+  assert.equal(status(clean).merge, "current", "clean past a failure, and a host that said clean has answered");
+  assert.equal(clean.cta.blocked, undefined);
+  assert.deepEqual(clean.cta.cautions, [], "clean names no failing check of its own");
+  assert.equal(open({ pr: pr({ merge_state: "unknown" }), checks: failing }).cta.blocked, "1 passed · 1 failed", "unknown is today's rule");
+  assert.equal(open({ pr: pr({ merge_state: "unknown", mergeable: null }) }).cta.blocked, "the code host is still checking");
+  const stale = open({ checks: [{ name: "ci", status: "completed", conclusion: "stale" }] });
+  assert.equal(status(stale).checks, "done");
+  assert.deepEqual(step(stale, "checks").cautions, ["1 in an unknown state"], "a run in a state nobody knows is a caution, never a pass");
+  assert.equal(status(stale).merge, "current");
 });
 
 test("comments still open are a caution the merge names, never a block; a code host that exposes none cannot caution", () => {

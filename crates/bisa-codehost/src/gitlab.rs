@@ -15,9 +15,9 @@
 
 use crate::{
     creds, Account, CheckRun, CodeHost, CodeHostCapabilities, CodeHostError, CodeHostId,
-    CodeHostKind, CodeHostResult, MergeOutcome, MergeStrategy, PrCreate, PrFilter, PrReviews,
-    PrState, PullRequest, RemoteUrl, RepoAccess, RepoRef, Review, ReviewEvent, ReviewSummary,
-    ReviewThread, ReviewThreadComment,
+    CodeHostKind, CodeHostResult, MergeOutcome, MergeState, MergeStrategy, PrCreate, PrFilter,
+    PrReviews, PrState, PullRequest, RemoteUrl, RepoAccess, RepoRef, Review, ReviewEvent,
+    ReviewSummary, ReviewThread, ReviewThreadComment,
 };
 use bisa_http::Clients;
 use reqwest::StatusCode;
@@ -150,21 +150,60 @@ pub(crate) struct GlMergeRequest {
     pub author: Option<GlUser>,
     #[serde(default)]
     pub merge_commit_sha: Option<String>,
+    /// The squash commit when the request merged squashed; empty until then.
+    #[serde(default)]
+    pub squash_commit_sha: Option<String>,
+    #[serde(default)]
+    pub merged_at: Option<String>,
     #[serde(default)]
     pub diff_refs: Option<GlDiffRefs>,
 }
 
+/// GitLab's `detailed_merge_status` folded to the crate's word, by the API
+/// reference's list: what a rule holds is *blocked*, a rebase owed is
+/// *behind*, a conflict *dirty*, a draft *draft*; what git or a pipeline has
+/// not finished deciding stays *unknown*, as does a word this build does not know.
+pub(crate) fn merge_state(detailed: &str) -> MergeState {
+    match detailed {
+        "mergeable" => MergeState::Clean,
+        "ci_must_pass"
+        | "not_approved"
+        | "discussions_not_resolved"
+        | "requested_changes"
+        | "status_checks_must_pass"
+        | "security_policy_violations"
+        | "security_policy_pipeline_check"
+        | "merge_request_blocked"
+        | "merge_time"
+        | "jira_association_missing"
+        | "locked_paths"
+        | "locked_lfs_files"
+        | "title_regex"
+        | "commits_status"
+        | "not_open" => MergeState::Blocked,
+        "need_rebase" => MergeState::Behind,
+        "conflict" => MergeState::Dirty,
+        "draft_status" => MergeState::Draft,
+        _ => MergeState::Unknown,
+    }
+}
+
 impl From<GlMergeRequest> for PullRequest {
     fn from(mr: GlMergeRequest) -> Self {
+        // `mergeable` is the crate's word for *no conflicts*, as GitHub's
+        // MERGEABLE/CONFLICTING is: a conflict is `false`, git not done is
+        // `None`, and what a rule holds is `merge_state`'s to say, never a
+        // conflict that is not there.
         let mergeable = match mr
             .detailed_merge_status
             .as_deref()
             .or(mr.merge_status.as_deref())
         {
-            Some("mergeable") | Some("can_be_merged") => Some(true),
+            Some("conflict") | Some("cannot_be_merged") => Some(false),
             Some("checking") | Some("unchecked") | Some("preparing") | None => None,
-            Some(_) => Some(false),
+            Some(_) => Some(true),
         };
+        let merge_state = mr.detailed_merge_status.as_deref().map(merge_state);
         PullRequest {
             number: mr.iid,
             url: mr.web_url,
@@ -181,6 +220,9 @@ impl From<GlMergeRequest> for PullRequest {
             head_sha: mr.sha.unwrap_or_default(),
             base: mr.target_branch,
             author: mr.author.map(|a| a.username),
+            merged_at: mr.merged_at,
+            merge_commit: mr.merge_commit_sha.or(mr.squash_commit_sha),
+            merge_state,
         }
     }
 }
@@ -196,28 +238,49 @@ pub(crate) struct GlJob {
     pub web_url: Option<String>,
     #[serde(default)]
     pub stage: Option<String>,
+    /// A job the pipeline passes without — `true` by default for a manual job.
+    #[serde(default)]
+    pub allow_failure: bool,
 }
 
 impl From<GlJob> for CheckRun {
     fn from(j: GlJob) -> Self {
-        let (status, conclusion) = match j.status.as_str() {
-            "created" | "pending" | "waiting_for_resource" | "preparing" | "scheduled" => {
-                ("queued", None)
-            }
-            "running" => ("in_progress", None),
-            "success" => ("completed", Some("success")),
-            "failed" => ("completed", Some("failure")),
-            "canceled" | "canceling" => ("completed", Some("cancelled")),
-            "skipped" => ("completed", Some("skipped")),
-            "manual" => ("completed", Some("action_required")),
-            _ => ("completed", Some("neutral")),
+        // A failed job the pipeline is allowed to pass without is no failure
+        // of the request's; a manual job allowed to fail is one the pipeline
+        // went on without — skipped — and one it is not allowed to fail is
+        // the pipeline blocked on a person, which GitLab itself will not
+        // merge past under *pipelines must succeed*.
+        let (status, conclusion, note) = match (j.status.as_str(), j.allow_failure) {
+            (
+                "created"
+                | "pending"
+                | "waiting_for_resource"
+                | "waiting_for_callback"
+                | "preparing"
+                | "scheduled",
+                _,
+            ) => ("queued", None, None),
+            ("running", _) => ("in_progress", None, None),
+            ("success", _) => ("completed", Some("success"), None),
+            ("failed", true) => ("completed", Some("neutral"), Some("allowed to fail")),
+            ("failed", false) => ("completed", Some("failure"), None),
+            ("canceled" | "canceling", _) => ("completed", Some("cancelled"), None),
+            ("skipped", _) => ("completed", Some("skipped"), None),
+            ("manual", true) => ("completed", Some("skipped"), Some("manual")),
+            ("manual", false) => ("completed", Some("action_required"), Some("manual")),
+            _ => ("completed", Some("neutral"), None),
+        };
+        let summary = match (j.stage, note) {
+            (Some(stage), Some(note)) => Some(format!("{stage} · {note}")),
+            (stage, None) => stage,
+            (None, Some(note)) => Some(note.to_string()),
         };
         CheckRun {
             name: j.name,
             status: status.to_string(),
             conclusion: conclusion.map(str::to_string),
             url: j.web_url,
-            summary: j.stage,
+            summary,
         }
     }
 }
@@ -982,6 +1045,94 @@ mod tests {
                 .unwrap()
                 .into();
         assert_eq!(failed.conclusion.as_deref(), Some("failure"));
+    }
+
+    #[test]
+    fn a_merge_requests_detailed_status_folds_to_a_merge_state_and_a_job_allowed_to_fail_is_neutral_a_manual_one_skipped_unless_it_blocks(
+    ) {
+        let table = [
+            ("mergeable", MergeState::Clean),
+            ("ci_must_pass", MergeState::Blocked),
+            ("not_approved", MergeState::Blocked),
+            ("discussions_not_resolved", MergeState::Blocked),
+            ("requested_changes", MergeState::Blocked),
+            ("status_checks_must_pass", MergeState::Blocked),
+            ("security_policy_violations", MergeState::Blocked),
+            ("merge_request_blocked", MergeState::Blocked),
+            ("merge_time", MergeState::Blocked),
+            ("jira_association_missing", MergeState::Blocked),
+            ("locked_paths", MergeState::Blocked),
+            ("locked_lfs_files", MergeState::Blocked),
+            ("title_regex", MergeState::Blocked),
+            ("commits_status", MergeState::Blocked),
+            ("not_open", MergeState::Blocked),
+            ("need_rebase", MergeState::Behind),
+            ("conflict", MergeState::Dirty),
+            ("draft_status", MergeState::Draft),
+            ("checking", MergeState::Unknown),
+            ("unchecked", MergeState::Unknown),
+            ("preparing", MergeState::Unknown),
+            ("ci_still_running", MergeState::Unknown),
+            ("approvals_syncing", MergeState::Unknown),
+            ("a_word_of_next_year", MergeState::Unknown),
+        ];
+        for (word, state) in table {
+            assert_eq!(merge_state(word), state, "{word}");
+        }
+        let held: PullRequest = serde_json::from_str::<GlMergeRequest>(
+            r#"{"iid":3,"web_url":"u","title":"t","state":"opened","detailed_merge_status":"ci_must_pass","source_branch":"a","target_branch":"b"}"#,
+        )
+        .unwrap()
+        .into();
+        assert_eq!(
+            (held.mergeable, held.merge_state),
+            (Some(true), Some(MergeState::Blocked)),
+            "a rule's hold is no conflict"
+        );
+        let squashed: PullRequest = serde_json::from_str::<GlMergeRequest>(
+            r#"{"iid":4,"web_url":"u","title":"t","state":"merged","detailed_merge_status":"not_open","source_branch":"a","target_branch":"b","merged_at":"2026-01-02T03:04:05Z","merge_commit_sha":null,"squash_commit_sha":"5quash"}"#,
+        )
+        .unwrap()
+        .into();
+        assert_eq!(
+            (
+                squashed.state,
+                squashed.merged_at.as_deref(),
+                squashed.merge_commit.as_deref()
+            ),
+            (
+                PrState::Merged,
+                Some("2026-01-02T03:04:05Z"),
+                Some("5quash")
+            ),
+            "the squash commit is the merge commit when there is no other"
+        );
+        let job = |text: &str| -> CheckRun { serde_json::from_str::<GlJob>(text).unwrap().into() };
+        let allowed = job(
+            r#"{"name":"flaky","status":"failed","web_url":null,"stage":"test","allow_failure":true}"#,
+        );
+        assert_eq!(
+            (allowed.conclusion.as_deref(), allowed.summary.as_deref()),
+            (Some("neutral"), Some("test · allowed to fail"))
+        );
+        let manual = job(
+            r#"{"name":"deploy","status":"manual","web_url":null,"stage":"deploy","allow_failure":true}"#,
+        );
+        assert_eq!(
+            (manual.conclusion.as_deref(), manual.summary.as_deref()),
+            (Some("skipped"), Some("deploy · manual"))
+        );
+        let blocking =
+            job(r#"{"name":"gate","status":"manual","web_url":null,"allow_failure":false}"#);
+        assert_eq!(
+            (blocking.conclusion.as_deref(), blocking.summary.as_deref()),
+            (Some("action_required"), Some("manual"))
+        );
+        let waiting = job(r#"{"name":"cb","status":"waiting_for_callback","web_url":null}"#);
+        assert_eq!(
+            (waiting.status.as_str(), waiting.conclusion),
+            ("queued", None)
+        );
     }
 
     #[test]

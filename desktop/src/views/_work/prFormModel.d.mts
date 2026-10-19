@@ -9,7 +9,7 @@ export function prRequest(
   caps: CodeHostCapabilities | null | undefined,
   form: { title: string; body: string; draft: boolean; reviewers: string; labels: string },
 ): { title: string; body?: string; draft?: boolean; reviewers?: string[]; labels?: string[] };
-export function checksSummary(checks: CheckRun[] | null | undefined): { text: string; tone: "ok" | "danger" | "dim" };
+export function checksSummary(checks: CheckRun[] | null | undefined): { text: string; tone: "ok" | "danger" | "dim" | "warn" };
 export function prSuggestionOutcome(
   response: { suggested?: boolean; title?: unknown; body?: unknown; error?: unknown } | null | undefined,
 ): { draft: { title: string; body: string } | null; note: string | null };

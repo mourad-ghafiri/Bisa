@@ -92,6 +92,24 @@ test("deleting the checkout says what still stands in it before the person confi
   assert.equal(summaryOf({ delete: "failed" }, "main", standing), "The workstream kept (removing it failed).", "a kept workstream terminated nothing the summary can claim");
 });
 
+test("a person's click is the ask: keep + stay opens the dialog with nothing ticked, never an empty none; the automatic policies still run silently on a click", () => {
+  const asked = afterMergePlan({ ...base, cleanup: "keep", afterMerge: "stay", asked: true });
+  assert.equal(asked.mode, "dialog");
+  assert.deepEqual(stepsToRun(asked.steps), [], "nothing ticked: theirs to tick");
+  assert.equal(afterMergePlan({ ...base, cleanup: "keep", afterMerge: "stay" }).mode, "none", "nobody asked: nothing opens");
+  assert.equal(afterMergePlan({ ...base, cleanup: "remove_when_merged", afterMerge: "return_and_pull", asked: true }).mode, "silent");
+});
+
+test("commits that never reached the pull request are the delete step's caution — warn, above the box — and nowhere else, and a failed pull still reads beside a removed workstream", () => {
+  const { steps } = afterMergePlan({ ...base, stranded: 2 });
+  assert.equal(steps[1].caution, "2 commits on this branch never reached the pull request and go with it.");
+  assert.doesNotMatch(steps[1].detail, /never reached/, "a caution, not a line of the hint");
+  assert.deepEqual([steps[0].caution, steps[2].caution], [null, null]);
+  assert.equal(afterMergePlan({ ...base, stranded: 1, dirty: true }).steps[1].caution, "1 commit on this branch never reached the pull request and go with it.");
+  assert.equal(afterMergePlan(base).steps[1].caution, null, "nothing stranded: nothing said");
+  assert.equal(summaryOf({ pull: "failed", delete: "done", return: "done" }, "main"), "The pull failed, the workstream removed, now on main.");
+});
+
 test("a primary that could not be read is unknown, never idle: the pull waits with its own reason", async () => {
   const { afterMergePlan } = await import("./afterMergeModel.mjs");
   const plan = afterMergePlan({ cleanup: "delete", afterMerge: "return", pullMode: "ff_only", primaryBusy: null, defaultBranch: "main", branch: "topic" });

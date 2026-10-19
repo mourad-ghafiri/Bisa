@@ -1243,6 +1243,9 @@
     "PrState": {
       "$ref": "#/definitions/PrState"
     },
+    "MergeState": {
+      "$ref": "#/definitions/MergeState"
+    },
     "CheckRun": {
       "$ref": "#/definitions/CheckRun"
     },
@@ -18112,6 +18115,31 @@
             "string",
             "null"
           ]
+        },
+        "merged_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "When it merged, as the host writes the time; `None` until then, or on a host that does not say."
+        },
+        "merge_commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The commit the merge made on the base — a merge, squash or rebase commit; `None` until merged, or on a host that does not say."
+        },
+        "merge_state": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MergeState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the host stands on merging; `None` on a host that has no such word."
         }
       },
       "required": [
@@ -18133,6 +18161,47 @@
         "merged",
         "unknown"
       ]
+    },
+    "MergeState": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "draft"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "clean",
+          "description": "Mergeable, every required check passing."
+        },
+        {
+          "type": "string",
+          "const": "blocked",
+          "description": "The host blocks the merge: a required check failing, a review owed, a rule."
+        },
+        {
+          "type": "string",
+          "const": "unstable",
+          "description": "Mergeable, with a check failing that nothing requires."
+        },
+        {
+          "type": "string",
+          "const": "behind",
+          "description": "The head is behind its base."
+        },
+        {
+          "type": "string",
+          "const": "dirty",
+          "description": "The merge commit cannot be made: conflicts."
+        },
+        {
+          "type": "string",
+          "const": "unknown",
+          "description": "The host has not decided yet."
+        }
+      ],
+      "description": "Where the code host stands on merging — its own word folded to seven:\nGitHub's `mergeStateStatus` / `mergeable_state`, GitLab's\n`detailed_merge_status`. `None` on a host that has no such word\n(Bitbucket, an older `gh`), and then only what the host refuses at the\nmerge is known."
     },
     "CheckRun": {
       "type": "object",

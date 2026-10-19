@@ -331,7 +331,12 @@ pub async fn linked_pr(
         return Ok(pr);
     }
     let (host, repo) = code_host_for_path(inner, inner.ws.workstream_checkout(&w)?).await?;
-    let pr = Some(host.get_pr(&repo, number).await?);
+    let pr = host.get_pr(&repo, number).await?;
+    // The host's word moves the record before the answer is cached: the move
+    // drops this checkout's code host entries, so the fresh answer is what
+    // the cache serves next, not an answer older than the record.
+    reconcile_with_host(inner, &w, &pr);
+    let pr = Some(pr);
     if !ttl.is_zero() {
         cache.insert(id, pr.clone());
     }
@@ -347,6 +352,48 @@ pub(crate) async fn linked_pr_fresh(
 ) -> Result<Option<PullRequest>, EngineError> {
     inner.cache.codehost_pr().invalidate(&id);
     linked_pr(inner, id).await
+}
+
+/// The code host's word about the record — the second writer of `Merged`,
+/// after the app's own merge: a `PrOpen { number }` record whose host says
+/// #number is merged moves to `Merged` through the one writer
+/// (`projects::transition`, the same `workstream_changed` frame an in-app
+/// merge sends — the Merged notice is raised, the desktop re-reads the
+/// record), journals *merged pr* with the merge commit, and drops the
+/// checkout's code host caches and its live status. Answers whether it
+/// moved. A closed answer moves nothing — a pull request can be reopened,
+/// and the panel says *closed on the code host* — nor an unknown one,
+/// another number, or a record past `PrOpen` (the primary never holds one).
+/// A transition that cannot be written is logged, never a failed read: the
+/// host's answer is what was asked for.
+fn reconcile_with_host(inner: &Inner, w: &bisa_core::Workstream, pr: &PullRequest) -> bool {
+    let WorkstreamState::PrOpen { number, .. } = &w.state else {
+        return false;
+    };
+    if pr.number != *number || pr.state != PrState::Merged {
+        return false;
+    }
+    match transition(inner, w, &WorkstreamTransition::Merged) {
+        Ok(_) => {
+            journal_progress(
+                inner,
+                w,
+                "merged pr",
+                &number.to_string(),
+                pr.merge_commit.as_deref(),
+            );
+            inner.cache.invalidate_codehost(w.id);
+            inner.ide_status.invalidate(w.id);
+            true
+        }
+        Err(e) => {
+            // The record moved under this read — closed, or merged by the
+            // app's own door a moment ago; the state table refused and the
+            // answer still stands.
+            tracing::warn!(target: "bisa_engine::codehost", workstream = %w.id, pr = number, "the code host says merged but the record would not move: {e}");
+            false
+        }
+    }
 }
 
 /// The pull request a workstream is linked to — open, or the one it merged
@@ -630,7 +677,8 @@ pub async fn reply_review_thread(
 
 /// Merge the workstream's pull request — **through the Publish gate**: a merge
 /// leaves the machine and cannot be recalled, which is the gate's own test.
-/// The first writer of `WorkstreamTransition::Merged`.
+/// The first writer of `WorkstreamTransition::Merged`; the host's own word,
+/// read back by [`reconcile_with_host`], is the second.
 ///
 /// `delete_branch` asks the code host to delete the head branch on the remote
 /// once the merge landed (the merge dialog's toggle, defaulting from
@@ -644,6 +692,26 @@ pub async fn merge(
 ) -> Result<MergeOutcome, EngineError> {
     let w = inner.ws.get_workstream(id)?;
     let number = open_number(&w)?;
+    // A strategy the host does not take is refused before the host is asked anything.
+    {
+        let (host, _) = code_host_for_path(inner, inner.ws.workstream_checkout(&w)?).await?;
+        if !host.capabilities().merge_strategies.contains(&strategy) {
+            return Err(CodeHostError::Unsupported(format!("merge strategy {strategy:?}")).into());
+        }
+    }
+    // The host's word first: a pull request merged elsewhere is not merged
+    // again, and no gate is asked for an act that will not happen — the read
+    // moves the record, and the answer is the merge the person asked about.
+    if let Ok(Some(pr)) = linked_pr_fresh(inner, id).await {
+        if pr.number == number && pr.state == PrState::Merged {
+            return Ok(MergeOutcome {
+                merged: true,
+                sha: pr.merge_commit,
+                message: "already merged on the code host".into(),
+                remote_branch_deleted: None,
+            });
+        }
+    }
     let project = inner.ws.get_project(w.project)?;
     let what = format!("merge pull request #{number}");
     let asked = pass_publish_gate(inner, &w, &project, &what).await?;

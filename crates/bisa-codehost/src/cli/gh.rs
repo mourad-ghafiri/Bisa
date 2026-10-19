@@ -22,7 +22,7 @@ use crate::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-const PR_FIELDS: &str = "number,url,title,state,isDraft,mergeable,headRefName,headRefOid,baseRefName,author,mergeCommit";
+const PR_FIELDS: &str = "number,url,title,state,isDraft,mergeable,headRefName,headRefOid,baseRefName,author,mergeCommit,mergedAt,mergeStateStatus";
 
 #[derive(Clone, Debug)]
 pub struct GhCli {
@@ -218,6 +218,11 @@ struct GhJsonPull {
     author: Option<GhJsonAuthor>,
     #[serde(rename = "mergeCommit", default)]
     merge_commit: Option<GhJsonCommit>,
+    #[serde(rename = "mergedAt", default)]
+    merged_at: Option<String>,
+    /// GraphQL's `MergeStateStatus`, as `gh` relays it.
+    #[serde(rename = "mergeStateStatus", default)]
+    merge_state_status: Option<String>,
 }
 
 impl From<GhJsonPull> for PullRequest {
@@ -242,7 +247,43 @@ impl From<GhJsonPull> for PullRequest {
             head_sha: p.head_sha,
             base: p.base,
             author: p.author.map(|a| a.login),
+            merged_at: p.merged_at,
+            merge_commit: p.merge_commit.map(|c| c.oid),
+            merge_state: p
+                .merge_state_status
+                .as_deref()
+                .map(crate::github::merge_state),
         }
+    }
+}
+
+/// A run's status and conclusion from `gh`'s own verdict (`bucket`: `pass`
+/// · `fail` · `pending` · `skipping` · `cancel`) and the host's word
+/// (`state`): the bucket decides, the state refines within it — a `fail` is
+/// a failure unless the host said timed out, action required or cancelled;
+/// a `skipping` is skipped unless the host said neutral. Two completed words
+/// `gh` buckets as pending are read by the host's word first:
+/// `STARTUP_FAILURE` and `STALE` are conclusions (GitHub's
+/// `CheckConclusionState`), not runs in flight. A bucket this version of
+/// `gh` does not use falls back to the state as it stands, lowercased.
+fn conclusion_of(bucket: &str, state: &str) -> (&'static str, Option<String>) {
+    let done = |word: &str| ("completed", Some(word.to_string()));
+    match (bucket, state) {
+        (_, "STARTUP_FAILURE") => done("startup_failure"),
+        (_, "STALE") => done("stale"),
+        (_, "IN_PROGRESS") => ("in_progress", None),
+        ("pending", _) | (_, "QUEUED" | "PENDING" | "WAITING" | "REQUESTED" | "EXPECTED") => {
+            ("queued", None)
+        }
+        ("pass", _) => done("success"),
+        ("skipping", "NEUTRAL") => done("neutral"),
+        ("skipping", _) => done("skipped"),
+        ("cancel", _) => done("cancelled"),
+        ("fail", "TIMED_OUT") => done("timed_out"),
+        ("fail", "ACTION_REQUIRED") => done("action_required"),
+        ("fail", "CANCELLED") => done("cancelled"),
+        ("fail", _) => done("failure"),
+        (_, other) => done(&other.to_ascii_lowercase()),
     }
 }
 
@@ -260,30 +301,23 @@ struct GhJsonCheck {
 
 impl From<GhJsonCheck> for CheckRun {
     fn from(c: GhJsonCheck) -> Self {
-        let pending = c.bucket == "pending"
-            || matches!(
-                c.state.as_str(),
-                "IN_PROGRESS" | "QUEUED" | "PENDING" | "WAITING" | "REQUESTED"
-            );
-        let (status, conclusion) = if pending {
-            (
-                if c.state == "IN_PROGRESS" {
-                    "in_progress"
-                } else {
-                    "queued"
-                }
-                .to_string(),
-                None,
-            )
-        } else {
-            ("completed".to_string(), Some(c.state.to_ascii_lowercase()))
-        };
+        let (status, conclusion) = conclusion_of(&c.bucket, &c.state);
+        // A host word folded into the vocabulary (`ERROR` read as a failure)
+        // stands in for a missing description, so the row still shows it.
+        let folded = !c.state.is_empty()
+            && conclusion
+                .as_deref()
+                .is_some_and(|word| !word.eq_ignore_ascii_case(&c.state));
+        let summary = c
+            .description
+            .filter(|d| !d.is_empty())
+            .or_else(|| folded.then(|| c.state.to_ascii_lowercase()));
         CheckRun {
             name: c.name,
-            status,
+            status: status.to_string(),
             conclusion,
             url: c.link.filter(|l| !l.is_empty()),
-            summary: c.description.filter(|d| !d.is_empty()),
+            summary,
         }
     }
 }
@@ -516,7 +550,8 @@ impl CodeHostCli for GhCli {
 
     /// `gh pr checks` exits 1 when a check failed and 8 while some are still
     /// running — with the JSON on stdout all the same, so those exits are
-    /// answers, not failures.
+    /// answers, not failures; and exit 1 with no JSON and *no checks
+    /// reported* on stderr is the branch with no checks at all.
     async fn checks(&self, repo: &RepoRef, number: u64) -> CliOutcome<Vec<CheckRun>> {
         self.installed()?;
         let env = self.env().await?;
@@ -541,6 +576,11 @@ impl CodeHostCli for GhCli {
         .await?;
         let has_json = out.stdout.trim_start().starts_with('[');
         if !has_json {
+            // `gh`'s own sentence for a branch with no checks — exit 1 with
+            // nothing on stdout — is an answer: no checks, not a failure.
+            if out.stdout.trim().is_empty() && out.stderr.contains("no checks reported") {
+                return Ok(Vec::new());
+            }
             if !out.success() {
                 return Err(classify_failure("read checks", &out));
             }

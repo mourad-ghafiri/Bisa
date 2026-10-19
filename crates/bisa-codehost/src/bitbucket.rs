@@ -184,6 +184,10 @@ impl From<BbPull> for PullRequest {
             head_sha: p.source.commit.map(|c| c.hash).unwrap_or_default(),
             base: p.destination.branch.name,
             author: p.author.and_then(|a| a.name()),
+            merged_at: None,
+            // Parsed for the merge's answer already; the record of how the work landed.
+            merge_commit: p.merge_commit.map(|c| c.hash),
+            merge_state: None,
         }
     }
 }

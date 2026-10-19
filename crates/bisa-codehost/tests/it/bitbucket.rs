@@ -170,6 +170,15 @@ async fn creating_listing_checks_and_merging_speak_bitbuckets_words() {
         .unwrap();
     assert_eq!(merged[0].state, PrState::Merged);
     assert_eq!(
+        (
+            merged[0].merge_commit.as_deref(),
+            merged[0].merged_at.as_deref(),
+            merged[0].merge_state
+        ),
+        (Some("deadbeef"), None, None),
+        "the merge commit is the record of how it landed; Bitbucket says neither when nor where it stands"
+    );
+    assert_eq!(
         stub.calls()[1].query.as_deref(),
         Some("pagelen=50&state=MERGED&q=source.branch.name%3D%22work%2Fx%22")
     );

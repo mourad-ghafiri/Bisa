@@ -14,6 +14,8 @@ export interface AfterMergeStep {
   checked: boolean;
   available: boolean;
   reason: string | null;
+  /** A loss the step carries that nothing recovers — commits that never reached the pull request — in the warn tone. */
+  caution: string | null;
 }
 
 export declare function afterMergePlan(input: {
@@ -26,6 +28,10 @@ export declare function afterMergePlan(input: {
   dirty?: boolean;
   /** What still stands in the merged checkout — said on the delete step. */
   terminated?: TerminationCounts;
+  /** A person clicked *Clean up*: with both policies off the dialog still opens, nothing ticked. */
+  asked?: boolean;
+  /** Commits on the branch that never reached the pull request — said on the delete step. */
+  stranded?: number;
 }): { mode: "none" | "silent" | "dialog"; steps: AfterMergeStep[] };
 
 export declare function stepsToRun(steps: readonly AfterMergeStep[]): StepId[];

@@ -48,9 +48,9 @@ test("checkFixPrompt names the failed check, its conclusion, the host's summary 
   assert.doesNotMatch(bare, /code host says|Its log/, "nothing invented for what the host did not say");
 });
 
-test("a check failed when it completed as a failure, a timeout, an action required or a cancellation — never while running", () => {
-  for (const conclusion of ["failure", "timed_out", "action_required", "cancelled"]) assert.ok(failedCheck({ status: "completed", conclusion }), conclusion);
-  for (const conclusion of ["success", "neutral", "skipped", null]) assert.ok(!failedCheck({ status: "completed", conclusion }), String(conclusion));
+test("a check failed when it completed as a failure, a timeout, an action required, a cancellation or a failure at startup — never while running, and a stale run is unknown, not failed", () => {
+  for (const conclusion of ["failure", "timed_out", "action_required", "cancelled", "startup_failure"]) assert.ok(failedCheck({ status: "completed", conclusion }), conclusion);
+  for (const conclusion of ["success", "neutral", "skipped", "stale", null]) assert.ok(!failedCheck({ status: "completed", conclusion }), String(conclusion));
   assert.ok(!failedCheck({ status: "in_progress", conclusion: "failure" }), "a run still going has not failed yet");
   assert.ok(!failedCheck({ status: "queued", conclusion: null }));
 });

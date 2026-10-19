@@ -16,7 +16,14 @@
  * commit ahead of its base. So *commit* is done when there is anything beyond
  * the base, *push* when the upstream has nothing outstanding, and the record
  * decides only what git cannot know — whether a pull request was opened,
- * merged, or the workstream closed.
+ * merged, or the workstream closed. **The code host's word beats the
+ * record's** on the pull request itself: one it reports merged is merged —
+ * on the web, by somebody else — and *Clean up* is the act at once, whatever
+ * the record last heard (the engine moves it on the same read, ide/07
+ * §Lifecycle); one it reports closed without merging ends the spine with the
+ * way out, *Close this workstream…*. A host that could not be read is said —
+ * *the checks could not be read*, the why in the error note under the row —
+ * never guessed, and never a block of its own: the code host decides at the merge.
  *
  * **The review is optional.** While a pull request is open the Review step
  * is a todo that says so until anyone reviews, then done with who and what
@@ -27,6 +34,12 @@
  * code host itself cannot merge **blocks** it: a draft, conflicts, failing
  * checks, unpushed commits, a mergeability the host is still computing (the
  * row *waiting* then, not blocked — nothing is wrong, the host is not done).
+ * When the host says where it stands (`merge_state` — GitHub's merge state,
+ * GitLab's detailed status) that word is the block: *blocked* blocks with the
+ * failing checks or the host's reason, *dirty* is conflicts, *draft* a draft;
+ * *clean*, *unstable* and *behind* are a host that can merge — a failing
+ * check it does not require is a caution on the Checks row and the merge's,
+ * never a block — and a host with no such word keeps the rule above.
  * Checks still running, comments still open and a standing request for
  * changes are **cautions** the merge names — on the row and in the
  * confirmation, which then reads *Merge anyway* — while the merge stays legal.
@@ -37,6 +50,7 @@
  */
 
 import { checksSummary } from "./prFormModel.mjs";
+import { failedCheck } from "./prReviewModel.mjs";
 import { stepNote } from "./reviewStepModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -67,7 +81,7 @@ export function prTitleFrom(subject, branch) {
 /**
  * @typedef {{id: string, label: string, status: "done" | "current" | "waiting" | "todo" | "blocked", note: string | null, cautions: string[]}} Step
  * @typedef {{id: string, step: string, label: string, secondary?: boolean, blocked?: string, cautions?: string[], pushes?: boolean}} Cta — `pushes`: the verb pushes first, then opens
- *   the one legal act — what it does (`id`) and the step it is drawn under
+ *   the one legal act — what it does (`id`; `close` is the way out of a pull request the host closed) and the step it is drawn under
  *   (`step`: *Push and open pull request* sits under Push, where the person is).
  */
 
@@ -86,9 +100,11 @@ export function prTitleFrom(subject, branch) {
  * @param {import("./reviewStepModel.mjs").ReviewFacts} facts.review   `reviewFacts`' word on the reviews
  * @param {object | null | undefined} facts.caps          the code host's capabilities
  * @param {string} [facts.noun]                           the host's word — *pull request*, or GitLab's *merge request*
+ * @param {string | null} [facts.checksError]            why the checks could not be read, when they could not
+ * @param {string | null} [facts.prError]                why the pull request could not be read, when it could not
  * @returns {{steps: Step[], current: string | null, cta: Cta | null, note: string | null}}
  */
-export function lifecycle({ isGit, state, aheadOfBase, upstream, ahead, base, pr, checks, review, caps, noun = t("work-publish-outcome-banner-pull-request") }) {
+export function lifecycle({ isGit, state, aheadOfBase, upstream, ahead, base, pr, checks, review, caps, noun = t("work-publish-outcome-banner-pull-request"), checksError = null, prError = null }) {
   if (!isGit) return { steps: [], current: null, cta: null, note: t("work-pr-lifecycle-copy-has-no-branch-nothing-here") };
   const closed = state === "closed";
   const merged = state === "merged" || pr?.state === "merged";
@@ -96,8 +112,19 @@ export function lifecycle({ isGit, state, aheadOfBase, upstream, ahead, base, pr
   const beyond = (aheadOfBase ?? 0) > 0;
   const committed = beyond || prOpened || state === "committed" || state === "pushed";
   const outstanding = ahead ?? 0;
-  const pushed = prOpened ? outstanding === 0 : Boolean(upstream) && committed && outstanding === 0;
   const prClosedOnHost = prOpened && !merged && pr?.state === "closed";
+  // A pull request the host has settled — merged, or closed without merging —
+  // has nothing left to push: commits after it never reached the pull request
+  // and go with the branch, the clean-up's caution, never an act.
+  const settled = merged || prClosedOnHost;
+  const pushed = settled ? true : prOpened ? outstanding === 0 : Boolean(upstream) && committed && outstanding === 0;
+  const stranded = merged ? outstanding : 0;
+  // The host's own word on merging, when it has one: clean, unstable and
+  // behind are a host that has decided it can merge — a failing check it
+  // does not require is its caution, not a block; a host with no word
+  // leaves the rule to what is read of the checks.
+  const host = pr?.merge_state ?? null;
+  const hostDecided = host === "clean" || host === "unstable" || host === "behind";
 
   const steps = [];
   let cta = null;
@@ -122,8 +149,9 @@ export function lifecycle({ isGit, state, aheadOfBase, upstream, ahead, base, pr
     cta = cta ?? { id: "open_pr", step: "push", label: t("work-pr-form-push-open", { noun }), pushes: true };
   }
 
-  // Open a pull request.
-  if (prOpened) put("open_pr", prClosedOnHost ? "blocked" : "done", prClosedOnHost ? t("work-pr-lifecycle-closed-code-host-without-merging") : pr ? `#${pr.number}` : null);
+  // Open a pull request — done once one exists, closed on the host or not:
+  // the mark means one thing, and the Merge row carries that block.
+  if (prOpened) put("open_pr", "done", pr ? `#${pr.number}` : null);
   else if (pushed) {
     put("open_pr", "current");
     cta = cta ?? { id: "open_pr", step: "open_pr", label: t("work-pr-form-open-2", { noun }) };
@@ -134,15 +162,21 @@ export function lifecycle({ isGit, state, aheadOfBase, upstream, ahead, base, pr
   // Runs still running are *waiting*: in flight, nobody's act.
   const summary = checks ? checksSummary([...checks]) : null;
   // Only a code host that reports check runs can fail them: a stale list from
-  // elsewhere is not a gate on a code host that has no such thing.
-  const checksFailing = caps?.check_runs === true && summary?.tone === "danger";
+  // elsewhere is not a gate on a code host that has no such thing — and a
+  // host that has said it can merge past a failing check is not blocked by it.
+  const checksFailing = caps?.check_runs === true && summary?.tone === "danger" && !hostDecided;
   // A dim summary of a non-empty list is runs still going; an empty list is *no checks*, and nothing is running — read from the list, never from the words.
   const checksRunning = caps?.check_runs === true && prOpened && !merged && summary !== null && summary.tone === "dim" && (checks?.length ?? 0) > 0;
+  // The checks could not be read, and nothing is known of them: said, never guessed.
+  const checksUnread = caps?.check_runs === true && prOpened && !merged && summary === null && Boolean(checksError);
+  const failedCount = checks ? checks.filter((c) => failedCheck(c)).length : 0;
   if (!caps?.check_runs) put("checks", prOpened ? "done" : "todo", t("work-pr-lifecycle-not-reported-code-host"));
   else {
     if (!prOpened || merged) put("checks", prOpened ? "done" : "todo", merged && summary ? summary.text : null);
-    else if (!summary) put("checks", "waiting", t("work-pr-lifecycle-reading-code-host"));
+    else if (!summary) put("checks", "waiting", checksUnread ? t("work-pr-lifecycle-checks-could-not-be-read") : t("work-pr-lifecycle-reading-code-host"));
     else if (checksFailing) put("checks", "blocked", summary.text);
+    // A failure the host merges past, or a run in a state nobody knows: done, with the caution on the row.
+    else if (summary.tone === "danger" || summary.tone === "warn") put("checks", "done", summary.text, [summary.text]);
     else if (checksRunning) put("checks", "waiting", summary.text);
     else put("checks", "done", summary.text);
   }
@@ -164,11 +198,23 @@ export function lifecycle({ isGit, state, aheadOfBase, upstream, ahead, base, pr
 
   // Merge — offered whenever the pull request is open; the code host's own
   // reasons are the only blocks. Checks still running lead its cautions.
-  if (merged) put("merge", "done", pr?.head_sha ? t("work-pr-lifecycle-merged-as", { sha: String(pr.head_sha).slice(0, 7) }) : null);
+  // Merged, the row says as what: the merge commit the host made, else the
+  // branch tip the record knew.
+  const landed = pr?.merge_commit ?? pr?.head_sha;
+  if (merged) put("merge", "done", landed ? t("work-pr-lifecycle-merged-as", { sha: String(landed).slice(0, 7) }) : null);
   else if (!prOpened) put("merge", "todo");
+  // Closed on the code host without merging: the merge is off for good, and
+  // the act is the way out, under Clean up — never a merge button here.
+  else if (prClosedOnHost) put("merge", "blocked", t("work-pr-lifecycle-closed-code-host"));
   else {
-    const cautions = [...(checksRunning ? [t("work-pr-lifecycle-checks-still-running")] : []), ...reviewCautions];
-    const hold = mergeHold({ prClosedOnHost, pr, base, checksFailing, summary, outstanding });
+    const cautions = [
+      ...(checksRunning ? [t("work-pr-lifecycle-checks-still-running")] : []),
+      ...(checksUnread ? [t("work-pr-lifecycle-checks-could-not-be-read-host-decides")] : []),
+      ...(host === "behind" ? [t("work-pr-lifecycle-behind-base-update-branch", { base: pr?.base ?? base ?? t("work-new-workstream-dialog-base") })] : []),
+      ...(host === "unstable" && failedCount > 0 ? [t("work-pr-lifecycle-checks-failing-none-required", { failed: failedCount })] : []),
+      ...reviewCautions,
+    ];
+    const hold = mergeHold({ pr, prError, base, host, hostDecided, checksFailing, summary, outstanding });
     if (hold) {
       // Nothing is wrong while the host computes: the row waits, the act holds.
       put("merge", hold.waiting ? "waiting" : "blocked", hold.reason, cautions);
@@ -179,11 +225,18 @@ export function lifecycle({ isGit, state, aheadOfBase, upstream, ahead, base, pr
     }
   }
 
-  // Clean up — pull the base, delete the branch, go back.
+  // Clean up — pull the base, delete the branch, go back. Merged, it is the
+  // act whatever else the rows say: nothing earlier can be in hand once the
+  // pull request has landed, and commits that never reached it are its
+  // caution. Closed on the host without merging, the act is the way out.
   if (closed) put("cleanup", "done");
   else if (merged) {
-    put("cleanup", "current");
-    cta = cta ?? { id: "cleanup", step: "cleanup", label: t("work-pr-lifecycle-clean-up-branch") };
+    const cautions = stranded > 0 ? [t("work-pr-lifecycle-commits-never-reached-pull-request", { stranded })] : [];
+    put("cleanup", "current", cautions[0] ?? null, cautions);
+    cta = { id: "cleanup", step: "cleanup", label: t("work-pr-lifecycle-clean-up-branch"), ...(cautions.length > 0 ? { cautions } : {}) };
+  } else if (prClosedOnHost) {
+    put("cleanup", "current", t("work-pr-lifecycle-closed-without-merging-close-workstream"));
+    cta = { id: "close", step: "cleanup", label: t("work-workstream-panel-close-workstream") };
   } else put("cleanup", "todo");
 
   // The step in hand is the act's; with no act, the first thing in flight or in the way.
@@ -212,20 +265,24 @@ export function readWords(at, following, agent, now = Date.now() / 1000) {
 
 /**
  * Why the merge is off, when it is: what the code host itself cannot merge —
- * closed there, a draft, conflicts, failing checks, commits not pushed —
- * **blocks**; a mergeability the host is still computing is **waited on**,
- * nothing being wrong. The two are told apart here by the fact, never by
- * comparing the sentence. `null` when the merge is legal.
- * @param {{prClosedOnHost: boolean, pr: object | null | undefined, base: string | null | undefined, checksFailing: boolean, summary: {text: string} | null, outstanding: number}} facts
+ * a draft, conflicts, what the host says blocks it, failing checks, commits
+ * not pushed — **blocks**; a pull request not read yet, or a mergeability
+ * the host is still computing, is **waited on**, nothing being wrong — and
+ * never a live button for a request nobody has read. The two are told apart
+ * here by the fact, never by comparing the sentence. `null` when the merge
+ * is legal.
+ * @param {{pr: object | null | undefined, prError: string | null, base: string | null | undefined, host: string | null, hostDecided: boolean, checksFailing: boolean, summary: {text: string} | null, outstanding: number}} facts
  * @returns {{reason: string, waiting: boolean} | null}
  */
-function mergeHold({ prClosedOnHost, pr, base, checksFailing, summary, outstanding }) {
+function mergeHold({ pr, prError, base, host, hostDecided, checksFailing, summary, outstanding }) {
   const block = (reason) => ({ reason, waiting: false });
-  if (prClosedOnHost) return block(t("work-pr-lifecycle-closed-code-host"));
-  if (pr?.is_draft) return block(t("work-pr-lifecycle-draft-mark-ready-code-host"));
-  if (pr && pr.mergeable === false) return block(t("work-pr-lifecycle-conflicts", { base: pr.base ?? base ?? t("work-new-workstream-dialog-base") }));
+  // The why is the error note's, under the row, with the door to read again: the row says the fact once.
+  if (!pr) return { reason: prError ? t("work-pr-lifecycle-pull-request-could-not-be-read") : t("work-pr-lifecycle-reading-code-host"), waiting: true };
+  if (pr.is_draft || host === "draft") return block(t("work-pr-lifecycle-draft-mark-ready-code-host"));
+  if (pr.mergeable === false || host === "dirty") return block(t("work-pr-lifecycle-conflicts", { base: pr.base ?? base ?? t("work-new-workstream-dialog-base") }));
+  if (host === "blocked") return block(checksFailing && summary ? summary.text : t("work-pr-lifecycle-code-host-blocks-merge"));
   if (checksFailing) return block(summary?.text ?? t("work-pr-lifecycle-checks-failing"));
-  if (pr && (pr.mergeable === null || pr.mergeable === undefined)) return { reason: t("work-pr-lifecycle-code-host-still-checking"), waiting: true };
+  if (!hostDecided && (pr.mergeable === null || pr.mergeable === undefined)) return { reason: t("work-pr-lifecycle-code-host-still-checking"), waiting: true };
   if (outstanding > 0) return block(t("work-pr-lifecycle-commits-not-pushed"));
   return null;
 }

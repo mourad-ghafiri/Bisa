@@ -88,6 +88,8 @@ export function PullRequestLifecycle({
   onOpenAbout,
   onOpenChanges,
   onCheckoutGone,
+  readNow = 0,
+  onCloseWorkstream,
 }: {
   /** The checkout, as the panel read it — read once, shared. */
   base: WorkstreamData;
@@ -99,12 +101,16 @@ export function PullRequestLifecycle({
   onOpenChanges?: () => void;
   /** The clean-up deleted the checkout: this root is gone. */
   onCheckoutGone?: () => void;
+  /** The panel's Refresh, counted: each count reads the code host's side again. */
+  readNow?: number;
+  /** The way out of a pull request the host closed without merging: the panel's close dialog. */
+  onCloseWorkstream?: () => void;
 }) {
   const wid = base.wid;
   // Whether an agent run is live decides the read cadence; the run itself
   // needs the reviews read, so the flag follows the run one render behind.
   const [following, setFollowing] = useState(false);
-  const data = usePullRequest(base, { following });
+  const data = usePullRequest(base, { following, readNow });
   // The lifecycle's report, its form and its clean-up dialog live in the
   // checkout's session (`gitPanelStore`): a merge that opened the Publish gate
   // is still reported after a tab switch, and a pull request opened while you
@@ -181,6 +187,8 @@ export function PullRequestLifecycle({
     review,
     caps: data.caps,
     noun: prNoun(data.codeHost),
+    checksError: data.checksError,
+    prError: data.prError,
   });
   const needsPush = life.cta?.id === "open_pr" && life.cta.pushes === true;
   const tipSubject = branches.data?.branches.find((b) => b.current)?.subject ?? null;
@@ -208,8 +216,10 @@ export function PullRequestLifecycle({
   const action = (() => {
     const cta = life.cta;
     if (!cta) return null;
-    if (cta.id === "merge" && data.pr) {
-      return (
+    if (cta.id === "merge") {
+      // The row says why while the pull request is unread: no button stands
+      // in for a request nobody has read.
+      return data.pr ? (
         <MergeControl
           pr={data.pr}
           caps={data.caps}
@@ -220,11 +230,12 @@ export function PullRequestLifecycle({
           busy={busy === "merge"}
           onMerge={merge}
         />
-      );
+      ) : null;
     }
     const go = () => {
       if (cta.id === "open_pr") setPrOpen(true);
       else if (cta.id === "cleanup") void cleanUp();
+      else if (cta.id === "close") onCloseWorkstream?.();
       else onOpenChanges?.();
     };
     return (
@@ -242,6 +253,8 @@ export function PullRequestLifecycle({
     switch (step.id) {
       case "open_pr":
         if (data.pr) return <PullRequestCard pr={data.pr} checks={data.checks} caps={data.caps} codeHost={data.codeHost} />;
+        // A read that failed is said, with the door to read again — never skeletons for good.
+        if (prExpected && data.prError) return <ErrorNote error={data.prError} retry={data.reloadPr} />;
         return prExpected ? <SkeletonRows rows={2} /> : null;
       case "checks":
         // The checks' own home: each run, and a failed one handed to an agent.
@@ -252,6 +265,8 @@ export function PullRequestLifecycle({
               pid={data.projectId ?? null}
               pr={data.pr}
               checks={data.checks}
+              error={data.checksError}
+              onRetry={data.reloadPr}
               caps={data.caps}
               noun={prNoun(data.codeHost)}
               aheadOfBase={s?.ahead_of_base ?? d.ahead_of_base}
@@ -260,6 +275,8 @@ export function PullRequestLifecycle({
             />
           );
         }
+        // A failed pull-request read is said once, under *Open pull request*: no skeletons under it for good.
+        if (prExpected && data.prError) return null;
         return prExpected && data.caps?.check_runs ? <SkeletonRows rows={1} /> : null;
       case "review": {
         // One surface from the moment the branch exists: the branch against
@@ -267,7 +284,7 @@ export function PullRequestLifecycle({
         const base = s?.base ?? d.base;
         if (!data.pr && !prExpected && !base) return null;
         const target = data.pr ? { kind: "pr" as const, pr: data.pr, noun: prNoun(data.codeHost) } : { kind: "branch" as const, base: base ?? t("work-new-workstream-dialog-base") };
-        if (!data.pr && prExpected) return <SkeletonRows rows={2} />;
+        if (!data.pr && prExpected) return data.prError ? null : <SkeletonRows rows={2} />;
         return (
           <ReviewStep
             wid={wid}
@@ -293,7 +310,8 @@ export function PullRequestLifecycle({
 
   // When the code host was last read, and the door to read it now — once there is a pull request to read.
   const readLine = (() => {
-    if (!data.pr) return null;
+    // Once the code host was read, the line and its door stay — a read that failed since does not take them away.
+    if (!data.pr && data.readAt === null) return null;
     const words = readWords(data.readAt, run.busy, run.run?.agent ?? null, readTick / 1000);
     if (!words) return null;
     return (
@@ -342,6 +360,8 @@ export function PullRequestLifecycle({
           pullMode={pullMode}
           primaryBusy={afterMerge.primaryBusy}
           terminated={terminationCounts(sessions, terminals, wid)}
+          asked
+          stranded={s?.ahead ?? d.status.ahead ?? 0}
           onDone={(outcomes) => {
             setAfterMerge(null);
             reloadAll();

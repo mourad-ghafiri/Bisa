@@ -454,6 +454,74 @@ async fn the_pull_request_doors_over_http_at_their_edges() {
     assert!(v["gate"].is_string(), "{v}");
 }
 
+/// A pull request merged on the code host, not here (ide/07 §Lifecycle):
+/// the next read over HTTP answers merged with the facts the host carries,
+/// the record has followed, and the workstream closes like any merged one;
+/// a failing check run reaches the wire typed, as the host said it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pull_request_merged_elsewhere_reads_merged_over_http_the_record_follows_and_the_workstream_closes(
+) {
+    let fake = github_fake();
+    let b = boot(vec![fake.clone()]).await;
+    let socket = b.socket.clone();
+    seed_repo(b.dir.path(), &b.root, true);
+    set_publish(&b, "auto").await;
+    let (wid, wt) = worktree(&b, "feature/y", None).await;
+    commit_file(&wt, "y.txt", "y\n", "the work");
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{wid}/pr"),
+        Some(json!({"title": "Add y"})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let number = v["pr"]["number"].as_u64().unwrap();
+
+    // A failing run, typed as the host said it.
+    fake.set_checks(
+        number,
+        vec![bisa_codehost::CheckRun {
+            name: "ci".into(),
+            status: "completed".into(),
+            conclusion: Some("failure".into()),
+            url: None,
+            summary: Some("boom".into()),
+        }],
+    );
+    let (status, v) = request(
+        &socket,
+        "GET",
+        &format!("/workstreams/{wid}/pr/checks"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["checks"][0]["conclusion"], json!("failure"), "{v}");
+    assert_eq!(v["checks"][0]["summary"], json!("boom"));
+
+    // Merged on the web: the next read says so, with the facts, and the
+    // record follows without a merge of this app's.
+    fake.set_pr_state(number, bisa_codehost::PrState::Merged);
+    let (status, v) = request(&socket, "GET", &format!("/workstreams/{wid}/pr"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["pr"]["state"], json!("merged"), "{v}");
+    assert!(
+        v["pr"]["merged_at"].is_string() && v["pr"]["merge_commit"].is_string(),
+        "{v}"
+    );
+    let (status, v) = request(&socket, "GET", &format!("/workstreams/{wid}"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["workstream"]["state"]["state"], json!("merged"), "{v}");
+    assert_eq!(v["workstream"]["state"]["number"], json!(number));
+
+    // And it closes like any merged workstream.
+    let (status, v) = request(&socket, "DELETE", &format!("/workstreams/{wid}"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["workstream"]["state"]["state"], json!("closed"), "{v}");
+    assert_eq!(v["removed_tree"], json!(false));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_repository_nobody_commits_in_is_offered_its_accounts_identity_over_http() {
     let b = boot(vec![github_fake()]).await;

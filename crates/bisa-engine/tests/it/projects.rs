@@ -2309,6 +2309,13 @@ async fn a_pull_request_closed_elsewhere_is_seen_after_a_refused_merge_and_after
         bisa_codehost::PrState::Closed,
         "a refusal is news: the next read asks the code host"
     );
+    assert!(
+        matches!(
+            engine.workspace().get_workstream(wid).unwrap().state,
+            WorkstreamState::PrOpen { .. }
+        ),
+        "closed elsewhere moves nothing: a pull request can be reopened"
+    );
 
     // Reopened elsewhere while that answer is cached; the accounts change,
     // and no checkout keeps a view read as the account before.
@@ -2319,6 +2326,137 @@ async fn a_pull_request_closed_elsewhere_is_seen_after_a_refused_merge_and_after
         .unwrap();
     let fresh = bisa_engine::codehost::linked_pr(inner, wid).await.unwrap();
     assert_eq!(state(fresh), bisa_codehost::PrState::Open);
+    engine.shutdown().await;
+}
+
+/// The host's word is the second writer of `Merged` (ide/07 §Lifecycle): a
+/// pull request merged elsewhere moves the record on the next read that
+/// reaches the code host — the cache is honoured until then — through the
+/// same `workstream_changed` frame an in-app merge sends, with the Merged
+/// notice behind it; a read after that moves nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pull_request_merged_elsewhere_moves_the_record_on_the_next_read_and_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let fake = deleting_host(false);
+    let (engine, wid, number) = with_open_pr(&dir, &fake).await;
+    let inner = engine.inner();
+    let mut rx = inner.subscribe();
+    let record = || engine.workspace().get_workstream(wid).unwrap().state;
+    let changed_for = |payload: &EnginePayload| match payload {
+        EnginePayload::WorkstreamChanged { workstream, state } if *workstream == wid => {
+            Some(state.clone())
+        }
+        _ => None,
+    };
+
+    let seen = bisa_engine::codehost::linked_pr(inner, wid)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(seen.state, bisa_codehost::PrState::Open);
+    fake.set_pr_state(number, bisa_codehost::PrState::Merged);
+    let cached = bisa_engine::codehost::linked_pr(inner, wid)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        cached.state,
+        bisa_codehost::PrState::Open,
+        "the cache is honoured"
+    );
+    assert!(matches!(record(), WorkstreamState::PrOpen { .. }));
+
+    inner.cache.invalidate_codehost(wid);
+    let fresh = bisa_engine::codehost::linked_pr(inner, wid)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fresh.state, bisa_codehost::PrState::Merged);
+    assert!(
+        fresh.merged_at.is_some() && fresh.merge_commit.is_some(),
+        "the facts the host carries"
+    );
+    assert!(
+        matches!(record(), WorkstreamState::Merged { number: n, .. } if n == number),
+        "{:?}",
+        record()
+    );
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let ev = rx.recv().await.expect("bus");
+            if let Some(state) = changed_for(&ev.payload) {
+                break (ev.payload.clone(), state);
+            }
+        }
+    })
+    .await
+    .expect("a workstream_changed frame");
+    assert!(matches!(frame.1, WorkstreamState::Merged { .. }));
+    assert_eq!(
+        bisa_engine::notices::notice_of_payload(&frame.0),
+        Some(bisa_engine::notices::NoticeKind::Merged),
+        "the same notice an in-app merge raises"
+    );
+
+    inner.cache.invalidate_codehost(wid);
+    let again = bisa_engine::codehost::linked_pr(inner, wid)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(again.state, bisa_codehost::PrState::Merged);
+    let second = tokio::time::timeout(std::time::Duration::from_millis(300), async {
+        loop {
+            let Ok(ev) = rx.recv().await else { break };
+            if changed_for(&ev.payload).is_some() {
+                break;
+            }
+        }
+    })
+    .await;
+    assert!(second.is_err(), "a read after the move moves nothing");
+    engine.shutdown().await;
+}
+
+/// A merge asked on a pull request already merged elsewhere answers merged:
+/// the read moves the record, nothing is merged twice, no gate is asked and
+/// no branch deleted on anyone's behalf; a merge asked after that is the
+/// state table's refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_asked_on_a_pull_request_already_merged_elsewhere_answers_merged_and_merges_nothing(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let fake = deleting_host(true);
+    let (engine, wid, number) = with_open_pr(&dir, &fake).await;
+    let inner = engine.inner();
+    fake.set_pr_state(number, bisa_codehost::PrState::Merged);
+    let asked_before = fake.state.asked_as.lock().unwrap().len();
+    let out = bisa_engine::codehost::merge(inner, wid, bisa_codehost::MergeStrategy::Merge, true)
+        .await
+        .unwrap();
+    assert!(out.merged);
+    assert_eq!(out.sha.as_deref().map(str::len), Some(40));
+    assert_eq!(
+        out.remote_branch_deleted, None,
+        "nobody here asked the host"
+    );
+    assert!(fake.state.deleted_branches.lock().unwrap().is_empty());
+    assert_eq!(
+        fake.state.asked_as.lock().unwrap().len(),
+        asked_before + 1,
+        "one read, no merge"
+    );
+    assert!(matches!(
+        engine.workspace().get_workstream(wid).unwrap().state,
+        WorkstreamState::Merged { .. }
+    ));
+    let refused =
+        bisa_engine::codehost::merge(inner, wid, bisa_codehost::MergeStrategy::Merge, false)
+            .await
+            .unwrap_err();
+    assert!(
+        refused.to_string().contains("open pull request"),
+        "{refused}"
+    );
     engine.shutdown().await;
 }
 

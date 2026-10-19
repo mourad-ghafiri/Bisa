@@ -489,7 +489,7 @@ through the API otherwise, with that login's token from the kind's `TokenStore` 
 environment, the store, the CLI's own token, git's helper — never logged, never returned; two
 stored and none named is a refusal by name), and `WorkstreamTransition::PrOpened { number, url }`
 is recorded, emitting `WorkstreamChanged`. `POST …/pr/merge` takes the same path and is the
-first writer of `Merged`. A push (`POST /workstreams/{wid}/push`) is gated the same way.
+first writer of `Merged`; the host's own word, read back by `codehost::reconcile_with_host`, is the second. A push (`POST /workstreams/{wid}/push`) is gated the same way.
 
 ---
 

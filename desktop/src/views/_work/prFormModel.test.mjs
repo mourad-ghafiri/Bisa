@@ -56,6 +56,15 @@ test("checks summarise to one line with a tone", () => {
   assert.equal(checksSummary([runs[2]]).tone, "dim");
 });
 
+test("a run that completed in a word the summary does not know is a warn, never ok — and a failure or a run still going outranks it", () => {
+  const stale = { name: "x", status: "completed", conclusion: "stale" };
+  assert.deepEqual(checksSummary([stale]), { text: "1 in an unknown state", tone: "warn" });
+  assert.deepEqual(checksSummary([{ name: "y", status: "completed", conclusion: null }]), { text: "1 in an unknown state", tone: "warn" });
+  assert.equal(checksSummary([stale, { name: "z", status: "completed", conclusion: "failure" }]).tone, "danger");
+  assert.equal(checksSummary([stale, { name: "w", status: "queued", conclusion: null }]).tone, "dim");
+  assert.equal(checksSummary([stale, { name: "v", status: "completed", conclusion: "success" }]).text, "1 passed · 1 in an unknown state");
+});
+
 test("a suggested pull request is a draft or a sentence — never a draft nobody wrote", () => {
   assert.deepEqual(prSuggestionOutcome({ suggested: true, title: " Fix the rounding ", body: " Rounds half up. " }), { draft: { title: "Fix the rounding", body: "Rounds half up." }, note: null });
   const refused = prSuggestionOutcome({ suggested: false, title: "", body: "", error: "no harness on this host" });

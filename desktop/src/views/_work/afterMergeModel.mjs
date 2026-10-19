@@ -39,9 +39,11 @@ export const STEP_ORDER = Object.freeze(["pull", "delete", "return"]);
  * @param {string | null} input.branch the merged workstream's branch
  * @param {boolean} [input.dirty] the merged checkout has uncommitted changes
  * @param {import("./closeWorkstreamModel.mjs").TerminationCounts} [input.terminated] what still stands in the merged checkout
- * @returns {{mode: "none" | "silent" | "dialog", steps: Array<{id: string, label: string, detail: string, checked: boolean, available: boolean, reason: string | null}>}}
+ * @param {boolean} [input.asked] a person clicked *Clean up*: with both policies off the dialog still opens, nothing ticked — an empty flow nobody asked for is `none`, one somebody asked for is theirs to tick
+ * @param {number} [input.stranded] commits on the branch that never reached the pull request — they go with it, and the delete step says so as its caution
+ * @returns {{mode: "none" | "silent" | "dialog", steps: Array<{id: string, label: string, detail: string, checked: boolean, available: boolean, reason: string | null, caution: string | null}>}}
  */
-export function afterMergePlan({ cleanup, afterMerge, pullMode, primaryBusy, defaultBranch, branch, dirty = false, terminated = NOTHING }) {
+export function afterMergePlan({ cleanup, afterMerge, pullMode, primaryBusy, defaultBranch, branch, dirty = false, terminated = NOTHING, asked = false, stranded = 0 }) {
   const main = defaultBranch ?? t("work-after-merge-dialog-default-branch");
   const unknown = primaryBusy === null || primaryBusy === undefined;
   const busy = unknown || primaryBusy > 0;
@@ -62,6 +64,7 @@ export function afterMergePlan({ cleanup, afterMerge, pullMode, primaryBusy, def
       checked: wantsReturn && !busy,
       available: !busy,
       reason: busyReason,
+      caution: null,
     },
     {
       id: "delete",
@@ -75,6 +78,8 @@ export function afterMergePlan({ cleanup, afterMerge, pullMode, primaryBusy, def
       checked: wantsCleanup,
       available: true,
       reason: null,
+      // The one loss nothing recovers: said in the warn tone, above the box the person ticks.
+      caution: stranded > 0 ? t("work-after-merge-commits-never-reached-pull-request", { stranded }) : null,
     },
     {
       id: "return",
@@ -83,11 +88,12 @@ export function afterMergePlan({ cleanup, afterMerge, pullMode, primaryBusy, def
       checked: wantsReturn && !busy,
       available: !busy,
       reason: busyReason,
+      caution: null,
     },
   ];
 
   let mode = "dialog";
-  if (!wantsCleanup && !wantsReturn) mode = "none";
+  if (!wantsCleanup && !wantsReturn) mode = asked ? "dialog" : "none";
   else if (cleanup !== "ask" && afterMerge !== "ask" && !(wantsReturn && busy)) mode = "silent";
   return { mode, steps };
 }

@@ -14,9 +14,9 @@
 
 use crate::{
     creds, Account, CheckRun, CodeHost, CodeHostCapabilities, CodeHostError, CodeHostId,
-    CodeHostKind, CodeHostResult, MergeOutcome, MergeStrategy, PrCreate, PrFilter, PrReviews,
-    PrState, PullRequest, RemoteUrl, RepoAccess, RepoRef, Review, ReviewEvent, ReviewSummary,
-    ReviewThread, ReviewThreadComment, Side,
+    CodeHostKind, CodeHostResult, MergeOutcome, MergeState, MergeStrategy, PrCreate, PrFilter,
+    PrReviews, PrState, PullRequest, RemoteUrl, RepoAccess, RepoRef, Review, ReviewEvent,
+    ReviewSummary, ReviewThread, ReviewThreadComment, Side,
 };
 use bisa_http::Clients;
 use reqwest::header::HeaderMap;
@@ -413,9 +413,30 @@ struct GhPull {
     #[serde(default)]
     merged_at: Option<String>,
     mergeable: Option<bool>,
+    /// `clean` · `blocked` · `unstable` · `behind` · `dirty` · `draft` ·
+    /// `unknown` · `has_hooks` — a single pull request's answer; a listing has none.
+    #[serde(default)]
+    mergeable_state: Option<String>,
+    #[serde(default)]
+    merge_commit_sha: Option<String>,
     head: GhRef,
     base: GhRef,
     user: Option<GhUser>,
+}
+
+/// GitHub's word on merging folded to the crate's: the REST `mergeable_state`
+/// and GraphQL's `MergeStateStatus` share one vocabulary, read here whatever
+/// the case — `has_hooks` is clean with pre-receive hooks to run.
+pub(crate) fn merge_state(word: &str) -> MergeState {
+    match word.to_ascii_lowercase().as_str() {
+        "clean" | "has_hooks" => MergeState::Clean,
+        "blocked" => MergeState::Blocked,
+        "unstable" => MergeState::Unstable,
+        "behind" => MergeState::Behind,
+        "dirty" => MergeState::Dirty,
+        "draft" => MergeState::Draft,
+        _ => MergeState::Unknown,
+    }
 }
 
 impl From<GhPull> for PullRequest {
@@ -440,6 +461,9 @@ impl From<GhPull> for PullRequest {
             head_sha: p.head.sha,
             base: p.base.name,
             author: p.user.map(|u| u.login),
+            merged_at: p.merged_at,
+            merge_commit: p.merge_commit_sha,
+            merge_state: p.mergeable_state.as_deref().map(merge_state),
         }
     }
 }
@@ -461,6 +485,46 @@ struct GhCheckRun {
 struct GhCheckRuns {
     #[serde(default)]
     check_runs: Vec<GhCheckRun>,
+}
+/// The commit status API's combined answer — the statuses CI reports
+/// through the older door, beside the check runs.
+#[derive(Deserialize)]
+struct GhCombinedStatus {
+    #[serde(default)]
+    statuses: Vec<GhStatus>,
+}
+#[derive(Deserialize)]
+struct GhStatus {
+    /// `error` · `failure` · `pending` · `success`
+    #[serde(default)]
+    state: String,
+    #[serde(default)]
+    context: String,
+    target_url: Option<String>,
+    description: Option<String>,
+}
+
+impl From<GhStatus> for CheckRun {
+    fn from(s: GhStatus) -> Self {
+        let (status, conclusion) = match s.state.as_str() {
+            "success" => ("completed", Some("success")),
+            "failure" | "error" => ("completed", Some("failure")),
+            _ => ("in_progress", None),
+        };
+        // An errored status is a failure in the vocabulary; the word stands
+        // in for a missing description so the row still says which.
+        let errored = s.state == "error";
+        CheckRun {
+            name: s.context,
+            status: status.into(),
+            conclusion: conclusion.map(str::to_string),
+            url: s.target_url.filter(|u| !u.is_empty()),
+            summary: s
+                .description
+                .filter(|d| !d.is_empty())
+                .or_else(|| errored.then(|| "error".to_string())),
+        }
+    }
 }
 #[derive(Deserialize)]
 struct GhMerge {
@@ -811,8 +875,10 @@ impl CodeHost for GitHubApi {
             .collect())
     }
 
-    /// Two round trips: the pull request for its head SHA, then the check runs
-    /// on that commit — GitHub keys checks by commit, not by pull request.
+    /// Three round trips: the pull request for its head SHA, then the check
+    /// runs on that commit — GitHub keys checks by commit, not by pull
+    /// request — then the commit statuses, which CI reporting through the
+    /// older status door writes and the check runs never show.
     async fn checks(&self, repo: &RepoRef, number: u64) -> CodeHostResult<Vec<CheckRun>> {
         let pr = self.get_pr(repo, number).await?;
         let url = self.url(&format!(
@@ -825,6 +891,13 @@ impl CodeHost for GitHubApi {
                 "read check runs",
             )
             .await?;
+        let url = self.url(&format!(
+            "/repos/{}/{}/commits/{}/status",
+            repo.owner, repo.name, pr.head_sha
+        ));
+        let combined: GhCombinedStatus = self
+            .send(self.http().get(&url), "read commit statuses")
+            .await?;
         Ok(runs
             .check_runs
             .into_iter()
@@ -835,6 +908,7 @@ impl CodeHost for GitHubApi {
                 url: r.html_url,
                 summary: r.output.and_then(|o| o.summary.or(o.title)),
             })
+            .chain(combined.statuses.into_iter().map(CheckRun::from))
             .collect())
     }
 

@@ -50,7 +50,7 @@ export function PullRequestCard({
         <Chip tone={pr.state === "merged" ? "ok" : pr.state === "open" ? "neutral" : "quiet"}>{pr.is_draft ? t("work-pull-request-card-draft") : pr.state}</Chip>
         {pr.mergeable === false && <Chip tone="warn">{t("work-pull-request-card-conflicts")}</Chip>}
         {caps?.check_runs && summary && (
-          <Chip tone={summary.tone === "danger" ? "danger" : summary.tone === "ok" ? "ok" : "quiet"} title={t("work-pull-request-card-checks-each-run-door-fix-failed")}>
+          <Chip tone={summary.tone === "danger" ? "danger" : summary.tone === "warn" ? "warn" : summary.tone === "ok" ? "ok" : "quiet"} title={t("work-pull-request-card-checks-each-run-door-fix-failed")}>
             {summary.text}
           </Chip>
         )}

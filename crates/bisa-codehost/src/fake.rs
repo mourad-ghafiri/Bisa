@@ -10,6 +10,11 @@ use crate::{
 };
 use std::sync::{Arc, Mutex};
 
+/// When the fake merges, as a host writes the time — the same for every merge.
+const MERGED_AT: &str = "2026-01-01T00:00:00Z";
+/// The one hex digit of the fake's merge commit, forty times.
+const MERGE_COMMIT: &str = "1";
+
 /// The login the fake's credential belongs to unless a test says otherwise —
 /// the author of every pull request it creates, and the reviewer of every
 /// review it takes, exactly as one token on a real code host is both.
@@ -22,6 +27,9 @@ pub struct FakeState {
     prs: Mutex<Vec<PullRequest>>,
     pub reviews: Mutex<Vec<(u64, Review)>>,
     pub checks: Mutex<Vec<CheckRun>>,
+    /// Check runs seeded for one pull request (`set_checks`), answered before
+    /// the shared `checks` vector — so a test can have one request failing.
+    pub checks_by_pr: Mutex<std::collections::BTreeMap<u64, Vec<CheckRun>>>,
     /// Review threads a test seeds; `resolve_review_thread` flips their state
     /// and `reply_review_thread` appends a comment as the fake's login.
     pub threads: Mutex<Vec<ReviewThread>>,
@@ -144,17 +152,33 @@ impl FakeCodeHost {
             head_sha: "0".repeat(40),
             base: base.to_string(),
             author: Some(author.to_string()),
+            merged_at: None,
+            merge_commit: None,
+            merge_state: None,
         };
         prs.push(pr.clone());
         pr
     }
 
     /// Move a seeded pull request to `state` — closed on the code host, say —
-    /// so a test can watch the engine refuse what is no longer open.
+    /// so a test can watch the engine refuse what is no longer open; merged
+    /// elsewhere carries the facts a real host carries (`merged_at`, the
+    /// merge commit), and any other state clears them.
     pub fn set_pr_state(&self, number: u64, state: PrState) {
         let mut prs = self.state.prs.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(pr) = prs.iter_mut().find(|p| p.number == number) {
             pr.state = state;
+            let merged = state == PrState::Merged;
+            pr.merged_at = merged.then(|| MERGED_AT.to_string());
+            pr.merge_commit = merged.then(|| MERGE_COMMIT.repeat(40));
+        }
+    }
+
+    /// The check runs of one pull request, answered before the shared
+    /// `checks` vector — a failing run on #1 while #2 passes.
+    pub fn set_checks(&self, number: u64, runs: Vec<CheckRun>) {
+        if let Ok(mut by_pr) = self.state.checks_by_pr.lock() {
+            by_pr.insert(number, runs);
         }
     }
 
@@ -306,6 +330,9 @@ impl CodeHost for FakeCodeHost {
             head_sha: "0".repeat(40),
             base: req.base,
             author: Some(self.login.clone()),
+            merged_at: None,
+            merge_commit: None,
+            merge_state: None,
         };
         prs.push(pr.clone());
         Ok(pr)
@@ -343,16 +370,23 @@ impl CodeHost for FakeCodeHost {
             .cloned()
             .collect())
     }
-    async fn checks(&self, _repo: &RepoRef, _number: u64) -> CodeHostResult<Vec<CheckRun>> {
+    async fn checks(&self, _repo: &RepoRef, number: u64) -> CodeHostResult<Vec<CheckRun>> {
         if !self.caps.check_runs {
             return Err(CodeHostError::Unsupported("check runs".into()));
         }
-        Ok(self
+        let keyed = self
             .state
-            .checks
+            .checks_by_pr
             .lock()
-            .map(|c| c.clone())
-            .unwrap_or_default())
+            .ok()
+            .and_then(|by_pr| by_pr.get(&number).cloned());
+        Ok(keyed.unwrap_or_else(|| {
+            self.state
+                .checks
+                .lock()
+                .map(|c| c.clone())
+                .unwrap_or_default()
+        }))
     }
     /// The rules every real code host holds, held here too so the engine and
     /// the node see them in tests: a comment or a change request needs words,
@@ -504,9 +538,11 @@ impl CodeHost for FakeCodeHost {
             return Err(CodeHostError::Refused(why));
         }
         pr.state = PrState::Merged;
+        pr.merged_at = Some(MERGED_AT.to_string());
+        pr.merge_commit = Some(MERGE_COMMIT.repeat(40));
         Ok(MergeOutcome {
             merged: true,
-            sha: Some("1".repeat(40)),
+            sha: Some(MERGE_COMMIT.repeat(40)),
             message: "merged".into(),
             remote_branch_deleted: None,
         })

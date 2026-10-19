@@ -113,7 +113,13 @@ impl Workstream { pub fn apply(&self, t: &WorkstreamTransition) -> Result<Workst
 ```
 
 `Pushed`, `PrOpen` and `Merged` are *published*, which is what stops cleanup discarding something
-that has left the machine; the code host's merge ([08](08-code-host.md)) is the first writer of `Merged`.
+that has left the machine; the code host's merge ([08](08-code-host.md)) is the first writer of `Merged`,
+and the code host's own word the second: a `PrOpen` record whose pull request the host reports merged —
+on the web, by somebody else — moves to `Merged` on the next read that reaches the host
+(`codehost::reconcile_with_host`, behind `GET /workstreams/{wid}/pr` and the listener poll), through the
+same writer and the same `workstream_changed` frame, so the Merged notice, the card, the Board and the
+desktop's lifecycle follow; never on a closed one — a closed pull request can be reopened, and the panel
+says *closed on the code host*.
 `PrAdopted` is the one edge into `PrOpen` that skips the push: a workstream **opened from a pull
 request that already exists** ([§Where a workstream starts](#where-a-workstream-starts)) is born
 `Open` and moved to `PrOpen` by the engine through the same writer before anyone reads it — a
@@ -224,7 +230,7 @@ row; that is the Git tab's mark on the right panel's rail (`railBadgesModel.gitB
 | rename, annotate, pin, date | `PATCH /workstreams/{wid}` `{name?, note?, pinned?, due?}` | tri-state fields: omitted keeps, `null` clears; the branch is untouched; `due` is a `YYYY-MM-DD` day on the Board |
 | place on the Board | `PUT /workstreams/{wid}/board/place` `{column, index}` | the rank comes from `core/board.rs`; every record rewritten is answered; a closed workstream is Archived and nothing else ([16 — The Board](16-board.md)) |
 | delete a work item | `DELETE /work-items/{item}` | refused while the item is unsettled, naming why |
-| close a workstream | `DELETE /workstreams/{wid}?tree=` | the primary is 409, refused before anything else. **Every session standing in the checkout is stopped first** (`sessions::stop_workstream`, `Scope::Workstream`) — the engine's agents aborted, a terminal's harness ended on the roster; the desktop closes the tabs on its side (`closeTerminalsRootedAt`) — and answered as `stopped_sessions`. With `tree=true` a dirty checkout is refused before anything is stopped when `workstreams.dirty_close` is `refuse`; otherwise **a recovery ref is written next** — for a worktree, dirty or clean: a clean tree still pins its HEAD — then the clean script, then `worktree_remove` — a failing script keeps the tree (`409 script_failed`), its sessions already stopped. `projects::close_workstream` and `ide::interactive::close_workstream_removing_tree` are the two doors; `close_workstream_with` is the checkout half alone and stops nothing — what a project's delete calls per checkout after stopping the whole project's, and what the executor settles a copy workstream through from inside its own session |
+| close a workstream | `DELETE /workstreams/{wid}?tree=` | the primary is 409, refused before anything else. A workstream merged elsewhere closes like any merged one once a read moved its record. **Every session standing in the checkout is stopped first** (`sessions::stop_workstream`, `Scope::Workstream`) — the engine's agents aborted, a terminal's harness ended on the roster; the desktop closes the tabs on its side (`closeTerminalsRootedAt`) — and answered as `stopped_sessions`. With `tree=true` a dirty checkout is refused before anything is stopped when `workstreams.dirty_close` is `refuse`; otherwise **a recovery ref is written next** — for a worktree, dirty or clean: a clean tree still pins its HEAD — then the clean script, then `worktree_remove` — a failing script keeps the tree (`409 script_failed`), its sessions already stopped. `projects::close_workstream` and `ide::interactive::close_workstream_removing_tree` are the two doors; `close_workstream_with` is the checkout half alone and stops nothing — what a project's delete calls per checkout after stopping the whole project's, and what the executor settles a copy workstream through from inside its own session |
 | the workstream scripts | `GET /projects/{pid}/workstream-scripts`, `POST …/approve`; the texts are `workstreams.script.*` settings | pre-create · post-create · clean · run, approved per machine by the digest of their text ([§Workstream scripts](#workstream-scripts)) |
 | commit, push, pull request | `POST /workstreams/{wid}/{commit,push,pr}` | push and pull request pass the Publish gate ([08](08-code-host.md)); commit and push are Git › Changes' verbs on the desktop, the pull request the Workstreams panel's lifecycle. **A commit is a commit, whichever door made it**: the Changes view's own route (`POST /workstreams/{wid}/git/commit`, the paths a person chose — `projects::commit_in`) moves the record to `committed` and says `workstream_committed` as this one does, so the Board and the lifecycle follow it |
 | fetch, pull, revert | `POST /workstreams/{wid}/git/{fetch,pull,revert}` | fetch is safe; pull (`{mode: ff_only \| rebase \| merge}`) and revert are consented, with a recovery ref first ([04](04-git.md#the-sync-bar)) |
@@ -252,11 +258,18 @@ checkbox the policies pre-tick. Under `ask` the dialog shows; under `remove_when
 `return_and_pull` / `stay` / `keep` it runs without asking and only reports. **While a session runs
 on the primary** — the node's `running_agents` for it plus this app's live harness shells there — the
 pull and the return are off, with the reason, and the automatic policies fall back to asking: a pull
-under a harness's feet is the one thing the flow never does. A pull that stops on conflicts ends the
-flow there and offers the primary's Changes view, where the Resolve card and the conflict document are. The
+under a harness's feet is the one thing the flow never does. Every chosen step runs: a pull that fails
+or stops on conflicts is reported and the delete still goes — the one skip is the return after a
+conflict, where the primary's Changes view, with the Resolve card and the conflict document, is the
+return. Commits made after the merge never reached the pull request: the delete step says how many
+(`stranded`), and they go with the branch. With both policies off, a person's click still opens the
+dialog with nothing ticked (`asked`) — an empty flow nobody asked for is `none`, one somebody asked for
+is theirs to tick. A pull request **closed on the code host without merging** has no clean-up: the
+lifecycle's last step offers *Close this workstream…* — the panel's own close dialog, keeping or
+removing the checkout — instead. The
 merge dialog itself carries *Delete the branch on the code host* (`git.delete_branch_after_merge`,
 default on), when the code host can. On the desktop this dialog is the lifecycle's last step, **Clean
-up**, offered once the record reads `merged` — and the record keeps the pull request it merged
+up**, offered as soon as the code host says merged — the record follows on the engine's read — and the record keeps the pull request it merged
 through (`WorkstreamState::Merged { number, url }`), so the cockpit still shows what landed.
 
 ## The card
@@ -344,7 +357,8 @@ The **lifecycle** (`PullRequestLifecycle.tsx`, composed of `LifecycleStepper`,
 `PullRequestCard`, `ReviewStep`, `MergeControl`, `PrForm`, `AfterMergeDialog` over one hook,
 `usePullRequest(base)` — the code host's side, on top of the checkout the panel read) is the cockpit
 ([08](08-code-host.md#surfaces)), under the header and the sessions — the checkout first, then its branch's story: the **lifecycle** — *Commit · Push · Open pull request · Checks · Review · Merge ·
-Clean up* (`prLifecycleModel.mjs`), **always seven** so the spine never changes length under a
+Clean up* (`prLifecycleModel.mjs`) — *Clean up* the act whenever the pull request is merged, whatever the
+rows before it say, commits made after the merge its caution — **always seven** so the spine never changes length under a
 person (a code host that reports no checks says *not reported by this code host* on the step),
 which one is in hand — the act's own step, the one accent dot — which are waiting (in flight, nobody's act: checks running, the code host still computing — a ring), which are blocked and why — the step in hand's note whole, as a `ReasonLine`
 under its label, never cut and never repeated beside the button or in a tooltip — each step's own

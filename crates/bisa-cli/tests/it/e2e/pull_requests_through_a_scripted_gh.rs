@@ -25,15 +25,17 @@ const COMMITTER: &str = "A Journey <journey@example.test>";
 const GH: &str = r#"#!/bin/sh
 # GH_JOURNEY_MODE bends one answer: unsigned (no version, signed in to
 # nothing), refusing (the host rejects the credential), private (the
-# repository is not found), nochecks (no check runs), stubborn (a merge that
-# does not land).
+# repository is not found), nochecks (no check runs, as JSON), nochecks-real
+# (no check runs as the real gh says it: exit 1, nothing on stdout), failing
+# (one check failed), stubborn (a merge that does not land), merged-elsewhere
+# (the pull request merged on the web, whatever this machine did).
 here=$(dirname "$0")
 state="$here/gh-state"
 mode="${GH_JOURNEY_MODE:-}"
 pr() {
-  s=OPEN; mc=null
-  if [ -f "$state" ] && [ "$(cat "$state")" = MERGED ]; then s=MERGED; mc='{"oid":"deadbeef"}'; fi
-  printf '{"number":7,"url":"https://github.example.test/acme/web/pull/7","title":"Add x","state":"%s","isDraft":false,"mergeable":"MERGEABLE","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","author":{"login":"octocat"},"mergeCommit":%s}\n' "$s" "$mc"
+  s=OPEN; mc=null; at=null
+  if [ "$mode" = merged-elsewhere ] || { [ -f "$state" ] && [ "$(cat "$state")" = MERGED ]; }; then s=MERGED; mc='{"oid":"deadbeef"}'; at='"2026-01-01T00:00:00Z"'; fi
+  printf '{"number":7,"url":"https://github.example.test/acme/web/pull/7","title":"Add x","state":"%s","isDraft":false,"mergeable":"MERGEABLE","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","author":{"login":"octocat"},"mergeCommit":%s,"mergedAt":%s,"mergeStateStatus":"CLEAN"}\n' "$s" "$mc" "$at"
 }
 case "$1 $2" in
   "--version ") [ "$mode" = unsigned ] || echo "gh version 2.63.2 (2024-12-05)";;
@@ -53,7 +55,13 @@ case "$1 $2" in
   "pr create") echo OPEN > "$state"; echo "https://github.example.test/acme/web/pull/7";;
   "pr view") pr;;
   "pr list") echo '[]';;
-  "pr checks") if [ "$mode" = nochecks ]; then echo '[]'; else echo '[{"name":"ci","state":"SUCCESS","bucket":"pass","link":"https://ci.example.test/1","description":"ok"}]'; fi;;
+  "pr checks")
+    case "$mode" in
+      nochecks) echo '[]';;
+      nochecks-real) echo "no checks reported on the 'feature/x' branch" >&2; exit 1;;
+      failing) echo '[{"name":"ci","state":"FAILURE","bucket":"fail","link":"","description":""}]'; exit 1;;
+      *) echo '[{"name":"ci","state":"SUCCESS","bucket":"pass","link":"https://ci.example.test/1","description":"ok"}]';;
+    esac;;
   "pr review") ;;
   "pr merge") [ "$mode" = stubborn ] || echo MERGED > "$state";;
   *) echo "unknown command \"$*\" for \"gh\"" >&2; exit 1;;
@@ -556,4 +564,31 @@ fn the_code_host_is_reached_through_a_gh_of_the_journeys_own() {
     ws.set_env("GH_JOURNEY_MODE", "stubborn");
     let merged = ws.json(&["workstream", "pr-merge", &z]);
     assert_eq!(merged["merged"], false, "{merged}");
+    // A check that failed, as the host said it; no checks as the real gh
+    // says it — exit 1 and nothing on stdout — is no checks, not a failure.
+    ws.set_env("GH_JOURNEY_MODE", "failing");
+    let checks = ws.json(&["workstream", "pr-checks", &z]);
+    assert_eq!(checks["checks"][0]["conclusion"], "failure", "{checks}");
+    ws.set_env("GH_JOURNEY_MODE", "nochecks-real");
+    let checks = ws.ok(&["workstream", "pr-checks", &z]);
+    assert!(said(&checks).contains("no check"), "{}", said(&checks));
+    // Merged on the web, not here: the next read says so with the facts,
+    // the record follows — the host's word is the second writer of merged —
+    // and the workstream closes like any merged one.
+    ws.set_env("GH_JOURNEY_MODE", "merged-elsewhere");
+    let viewed = ws.json(&["workstream", "pr-view", &z]);
+    assert_eq!(viewed["pr"]["state"], "merged", "{viewed}");
+    assert_eq!(viewed["pr"]["merge_commit"], "deadbeef", "{viewed}");
+    assert_eq!(viewed["pr"]["merge_state"], "clean", "{viewed}");
+    assert_eq!(
+        viewed["pr"]["merged_at"], "2026-01-01T00:00:00Z",
+        "{viewed}"
+    );
+    assert_eq!(
+        ws.json(&["workstream", "show", &z])["workstream"]["state"]["state"],
+        "merged"
+    );
+    ws.set_env("GH_JOURNEY_MODE", "");
+    let closed = ws.json(&["workstream", "close", &z]);
+    assert_eq!(closed["workstream"]["state"]["state"], "closed", "{closed}");
 }

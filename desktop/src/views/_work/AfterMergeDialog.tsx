@@ -15,8 +15,10 @@
  *
  * Deciding lives in `afterMergeModel.mjs`; this runs the plan over the
  * existing consented routes, so every step is a person's action with its own
- * recovery ref, and a pull that stops on conflicts lands on the primary's
- * Changes view with the Resolve card and the conflict document.
+ * recovery ref. Every chosen step runs: a pull that failed or stopped on
+ * conflicts is reported and the delete still goes, the one skip being the
+ * return after a conflict — the Resolve door is the return then, landing on
+ * the primary's Changes view with the Resolve card and the conflict document.
  */
 import { useEffect, useState } from "react";
 import { ApiError, api } from "../../api";
@@ -28,6 +30,7 @@ import { openPanelView } from "../_workbench/rightPanelStore";
 import { afterMergePlan, stepsToRun, summaryOf, toggleStep } from "./afterMergeModel.mjs";
 import type { AfterMergeStep, StepId, StepOutcome } from "./afterMergeModel.mjs";
 import { closeWorkstream } from "./closeWorkstream";
+import { ReasonLine } from "./ReasonLine";
 import type { TerminationCounts } from "./closeWorkstreamModel.mjs";
 import { afterPull } from "./syncModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
@@ -45,6 +48,8 @@ export function AfterMergeDialog({
   pullMode,
   primaryBusy,
   terminated,
+  asked = false,
+  stranded = 0,
   onDone,
 }: {
   open: boolean;
@@ -63,18 +68,24 @@ export function AfterMergeDialog({
   primaryBusy: number | null;
   /** What still stands in the merged checkout — said on the delete step. */
   terminated: TerminationCounts;
+  /** A person clicked *Clean up*: with both policies off the dialog still opens, nothing ticked. */
+  asked?: boolean;
+  /** Commits on the branch that never reached the pull request — said on the delete step. */
+  stranded?: number;
   /** The flow finished or was dismissed; the caller reloads what it shows. */
   onDone: (outcomes: Partial<Record<StepId, StepOutcome>>) => void;
 }) {
   const toast = useToast();
-  const plan = afterMergePlan({ cleanup, afterMerge, pullMode, primaryBusy, defaultBranch, branch, dirty, terminated });
+  const plan = afterMergePlan({ cleanup, afterMerge, pullMode, primaryBusy, defaultBranch, branch, dirty, terminated, asked, stranded });
   const [steps, setSteps] = useState<AfterMergeStep[]>(plan.steps);
   const [running, setRunning] = useState<StepId | null>(null);
   const [outcomes, setOutcomes] = useState<Partial<Record<StepId, StepOutcome>>>({});
   /** What the delete step actually ended — counted at the close, so the summary reports it, not the promise. */
   const [ended, setEnded] = useState<TerminationCounts>(terminated);
   const [conflictPaths, setConflictPaths] = useState<string[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** What went wrong, one line per step — a later step's trouble never overwrites an earlier one's. */
+  const [errors, setErrors] = useState<string[]>([]);
+  const say = (text: string) => setErrors((cur) => [...cur, text]);
   const [started, setStarted] = useState(false);
   const [finished, setFinished] = useState(false);
   const main = defaultBranch ?? t("work-after-merge-dialog-default-branch");
@@ -86,7 +97,7 @@ export function AfterMergeDialog({
     setOutcomes({});
     setEnded(terminated);
     setConflictPaths(null);
-    setError(null);
+    setErrors([]);
     setStarted(false);
     setFinished(false);
     // Reset on an opening or a changed input: `plan` and `terminated` are
@@ -104,10 +115,12 @@ export function AfterMergeDialog({
     setStarted(true);
     const order = stepsToRun(steps);
     const got: Partial<Record<StepId, StepOutcome>> = {};
-    let stop = false;
     for (const id of order) {
-      if (stop) {
-        got[id] = "skipped";
+      // The one skip: the return after a pull that stopped on conflicts —
+      // the Resolve door is the return then. Everything else chosen runs.
+      if (id === "return" && got.pull === "conflict") {
+        got.return = "skipped";
+        setOutcomes({ ...got });
         continue;
       }
       setRunning(id);
@@ -125,7 +138,7 @@ export function AfterMergeDialog({
             } catch (e) {
               // The checkout is gone and the branch is on the code host; a local
               // branch that would not go is said, not fatal.
-              setError(t("work-after-merge-dialog-local-branch-stayed", { branch, error: failureText("work", "after-merge-dialog-failed", e) }));
+              say(t("work-after-merge-dialog-local-branch-stayed", { branch, error: failureText("work", "after-merge-dialog-failed", e) }));
             }
           }
           got.delete = "done";
@@ -141,14 +154,11 @@ export function AfterMergeDialog({
             setConflictPaths(banner.paths);
           } else {
             got.pull = "failed";
-            setError(banner.kind === "not_fast_forward" ? t("work-after-merge-dialog-cannot-fast-forward-has-local-commit", { main, ahead: banner.ahead }) : message);
+            say(banner.kind === "not_fast_forward" ? t("work-after-merge-dialog-cannot-fast-forward-has-local-commit", { main, ahead: banner.ahead }) : message);
           }
-          // Nothing else runs on a primary that is mid-merge or refused.
-          stop = true;
         } else {
           got[id] = "failed";
-          setError(failureText("work", "after-merge-dialog-failed", e));
-          stop = true;
+          say(failureText("work", "after-merge-dialog-failed", e));
         }
       }
       setOutcomes({ ...got });
@@ -217,6 +227,7 @@ export function AfterMergeDialog({
             <li key={s.id} className="flex items-start gap-2">
               <span className="mt-0.5 w-3 shrink-0">{mark(s.id)}</span>
               <div className="min-w-0 flex-1">
+                {s.caution && <ReasonLine tone="warn">{s.caution}</ReasonLine>}
                 <Checkbox
                   label={s.label}
                   checked={s.checked && s.available}
@@ -234,12 +245,16 @@ export function AfterMergeDialog({
             {t("work-after-merge-dialog-pull-stopped-on-files", { n: conflictPaths.length, main })}
           </p>
           <p className="mt-0.5 text-text-dim">
-            {t("work-after-merge-dialog-nothing-else-ran-open-git-tab", { main })}
+            {t("work-after-merge-dialog-open-git-tab-resolve-card", { main })}
           </p>
           {conflictPaths.length > 0 && <p className="mt-1 font-mono">{conflictPaths.join("  ")}</p>}
         </div>
       )}
-      {error && <p className="mt-3 text-2xs text-danger">{error}</p>}
+      {errors.map((e, i) => (
+        <p key={`${i}:${e}`} className="mt-3 text-2xs text-danger">
+          {e}
+        </p>
+      ))}
     </Dialog>
   );
 }

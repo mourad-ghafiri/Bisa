@@ -66,7 +66,7 @@ async fn with_the_cli_signed_in_it_answers_and_the_api_is_not_asked() {
     assert_eq!(pr.title, "From the CLI");
     assert_eq!(pr.author.as_deref(), Some("octocat"));
     assert!(api.asked_as().is_empty(), "the API was never asked");
-    assert_eq!(cli.lines(), ["gh pr view 12 -R github.com/acme/web --json number,url,title,state,isDraft,mergeable,headRefName,headRefOid,baseRefName,author,mergeCommit"]);
+    assert_eq!(cli.lines(), ["gh pr view 12 -R github.com/acme/web --json number,url,title,state,isDraft,mergeable,headRefName,headRefOid,baseRefName,author,mergeCommit,mergedAt,mergeStateStatus"]);
 }
 
 #[tokio::test]

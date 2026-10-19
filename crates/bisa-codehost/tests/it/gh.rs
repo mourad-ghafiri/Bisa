@@ -6,8 +6,8 @@ use bisa_codehost::cli::gh::GhCli;
 use bisa_codehost::cli::{CliProgram, CliStep, CodeHostCli, Fallback};
 use bisa_codehost::creds::CliToken;
 use bisa_codehost::{
-    CodeHostError, MergeStrategy, PrCreate, PrFilter, PrState, RepoRef, Review, ReviewComment,
-    ReviewEvent,
+    CodeHostError, MergeState, MergeStrategy, PrCreate, PrFilter, PrState, RepoRef, Review,
+    ReviewComment, ReviewEvent,
 };
 use std::sync::Arc;
 
@@ -372,4 +372,118 @@ async fn an_enterprise_host_travels_as_gh_host_and_a_missing_account_is_a_fallba
         absent.get_pr(&repo(), 12).await.unwrap_err(),
         CliStep::Fallback(Fallback::NotInstalled)
     ));
+}
+
+/// `gh`'s own verdict on a run is its `bucket`; the host's word refines it.
+/// Two completed words `gh` buckets as pending — a startup failure, a stale
+/// run — are read by the word, and a word folded into the vocabulary stands
+/// in for a missing description.
+#[tokio::test]
+async fn gh_buckets_decide_a_checks_conclusion_and_a_folded_host_word_stands_in_for_a_missing_description(
+) {
+    let (gh, cli) = gh_over(installed().answer(
+        CliProgram::Gh,
+        &["pr", "checks"],
+        1,
+        r#"[{"name":"a","state":"FAILURE","bucket":"fail","link":"","description":"boom"},{"name":"b","state":"ERROR","bucket":"fail","link":"","description":""},{"name":"c","state":"STARTUP_FAILURE","bucket":"pending","link":"","description":""},{"name":"d","state":"STALE","bucket":"pending","link":"","description":""},{"name":"e","state":"CANCELLED","bucket":"cancel","link":"","description":""},{"name":"f","state":"SKIPPED","bucket":"skipping","link":"","description":""},{"name":"g","state":"NEUTRAL","bucket":"skipping","link":"","description":""},{"name":"h","state":"TIMED_OUT","bucket":"fail","link":"","description":""},{"name":"i","state":"ACTION_REQUIRED","bucket":"fail","link":"","description":""},{"name":"j","state":"EXPECTED","bucket":"pending","link":"","description":""},{"name":"k","state":"IN_PROGRESS","bucket":"pending","link":"","description":""},{"name":"l","state":"WEIRD","bucket":"","link":"","description":""},{"name":"m","state":"SUCCESS","bucket":"pass","link":"https://x","description":""}]"#,
+        "",
+    ));
+    let runs = gh.checks(&repo(), 12).await.unwrap();
+    let read: Vec<(&str, &str, Option<&str>, Option<&str>)> = runs
+        .iter()
+        .map(|r| {
+            (
+                r.name.as_str(),
+                r.status.as_str(),
+                r.conclusion.as_deref(),
+                r.summary.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        vec![
+            ("a", "completed", Some("failure"), Some("boom")),
+            ("b", "completed", Some("failure"), Some("error")),
+            ("c", "completed", Some("startup_failure"), None),
+            ("d", "completed", Some("stale"), None),
+            ("e", "completed", Some("cancelled"), None),
+            ("f", "completed", Some("skipped"), None),
+            ("g", "completed", Some("neutral"), None),
+            ("h", "completed", Some("timed_out"), None),
+            ("i", "completed", Some("action_required"), None),
+            ("j", "queued", None, None),
+            ("k", "in_progress", None, None),
+            ("l", "completed", Some("weird"), None),
+            ("m", "completed", Some("success"), None),
+        ]
+    );
+    assert_eq!(cli.unconsumed(), 0);
+}
+
+/// A merged pull request carries when and as what it merged and where the
+/// host stands on merging; a `gh` that prints none of the three says none.
+#[tokio::test]
+async fn gh_reads_when_and_what_a_pull_request_merged_as_and_where_the_host_stands_and_none_when_it_does_not_say(
+) {
+    const WITH: &str = r#"{"number":12,"url":"u","title":"t","state":"MERGED","isDraft":false,"mergeable":"UNKNOWN","headRefName":"work/x","headRefOid":"abc","baseRefName":"main","author":null,"mergeCommit":{"oid":"deadbeef"},"mergedAt":"2026-01-02T03:04:05Z","mergeStateStatus":"BLOCKED"}"#;
+    let (gh, cli) = gh_over(
+        installed()
+            .answer(CliProgram::Gh, &["pr", "view", "12"], 0, WITH, "")
+            .answer(CliProgram::Gh, &["pr", "view", "12"], 0, PR_JSON, ""),
+    );
+    let merged = gh.get_pr(&repo(), 12).await.unwrap();
+    assert_eq!(
+        (
+            merged.state,
+            merged.merged_at.as_deref(),
+            merged.merge_commit.as_deref(),
+            merged.merge_state
+        ),
+        (
+            PrState::Merged,
+            Some("2026-01-02T03:04:05Z"),
+            Some("deadbeef"),
+            Some(MergeState::Blocked)
+        )
+    );
+    let open = gh.get_pr(&repo(), 12).await.unwrap();
+    assert_eq!(
+        (open.merged_at, open.merge_commit, open.merge_state),
+        (None, None, None),
+        "a gh that does not say"
+    );
+    assert!(
+        cli.lines()[0].ends_with("--json number,url,title,state,isDraft,mergeable,headRefName,headRefOid,baseRefName,author,mergeCommit,mergedAt,mergeStateStatus"),
+        "{:?}",
+        cli.lines()
+    );
+    assert_eq!(cli.unconsumed(), 0);
+}
+
+/// Real `gh pr checks` on a branch with no checks exits 1 with nothing on
+/// stdout and its own sentence on stderr: an empty answer, never a fallback
+/// to the API; any other bare exit 1 is still the failure it is.
+#[tokio::test]
+async fn gh_pr_checks_with_nothing_reported_is_an_empty_answer_and_a_bare_failure_still_fails() {
+    let (gh, cli) = gh_over(
+        installed()
+            .answer(
+                CliProgram::Gh,
+                &["pr", "checks"],
+                1,
+                "",
+                "no checks reported on the 'work/x' branch\n",
+            )
+            .answer(CliProgram::Gh, &["pr", "checks"], 1, "", "HTTP 500: boom\n"),
+    );
+    assert!(
+        gh.checks(&repo(), 12).await.unwrap().is_empty(),
+        "no checks, not a failure"
+    );
+    assert!(
+        gh.checks(&repo(), 12).await.is_err(),
+        "a bare failure still fails"
+    );
+    assert_eq!(cli.unconsumed(), 0);
 }

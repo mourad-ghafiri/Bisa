@@ -9,6 +9,12 @@
  * pull request exists and the panel is on screen — a read, on the
  * visibility-gated clock, as `clock.ts` asks; `0` turns the polling off. The
  * code host has no events: checks finish and reviews land on their own clock.
+ * Three more reads, no new bound: the window coming to the front (the person
+ * back from the browser where the pull request was merged), the panel's
+ * *Refresh* (`readNow`), and once when the record moves to `merged`, so the
+ * merge facts arrive — the engine's ten-second code host cache bounds all
+ * three. A read that failed is carried (`prError`, `checksError`), never
+ * dropped: the lifecycle says what it could not read.
  *
  * **Following an agent.** While the lifecycle's agent run is live
  * (`following`) the cadence is `FOLLOW_MS` whatever the fetch interval says —
@@ -49,13 +55,17 @@ export interface PullRequestData extends WorkstreamData {
    * account opened takes a comment from it and nothing more.
    */
   viewer: string | null;
+  /** Why the pull request could not be read, when it could not; `null` otherwise. */
+  prError: string | null;
+  /** Why the checks could not be read, when they could not; `null` otherwise. */
+  checksError: string | null;
   /** The code host's side again — after a review, a merge, a thread resolved. */
   reloadPr: () => void;
   /** Unix seconds the code host's side was last read — the latest of the pull request, its checks and its reviews; `null` before any. */
   readAt: number | null;
 }
 
-export function usePullRequest(base: WorkstreamData, { following = false }: { following?: boolean } = {}): PullRequestData {
+export function usePullRequest(base: WorkstreamData, { following = false, readNow = 0 }: { following?: boolean; readNow?: number } = {}): PullRequestData {
   const { projectId } = base;
   const wid = base.wid;
   const codeHost = useAsync((s) => (projectId ? api.codeHostCapabilities(projectId, s) : Promise.resolve(null)), [projectId]);
@@ -66,9 +76,12 @@ export function usePullRequest(base: WorkstreamData, { following = false }: { fo
   // kept — and only then is the code host asked about it.
   const word = base.detail?.workstream.state.state;
   const hasPr = word === "pr_open" || word === "merged";
-  const pr = useAsync((s) => (hasPr ? api.workstreamPr(wid, s) : Promise.resolve(null)), [wid, hasPr]);
-  const checks = useAsync((s) => (hasPr && caps?.check_runs ? api.workstreamPrChecks(wid, s) : Promise.resolve(null)), [wid, hasPr, caps?.check_runs]);
-  const reviews = useAsync((s) => (hasPr ? api.workstreamPrReviews(wid, s) : Promise.resolve(null)), [wid, hasPr]);
+  // The record moving to merged is one more read: the merge facts — when, as
+  // what — are the host's, and the lifecycle's last row says them.
+  const merged = word === "merged";
+  const pr = useAsync((s) => (hasPr ? api.workstreamPr(wid, s) : Promise.resolve(null)), [wid, hasPr, merged]);
+  const checks = useAsync((s) => (hasPr && caps?.check_runs ? api.workstreamPrChecks(wid, s) : Promise.resolve(null)), [wid, hasPr, merged, caps?.check_runs]);
+  const reviews = useAsync((s) => (hasPr ? api.workstreamPrReviews(wid, s) : Promise.resolve(null)), [wid, hasPr, merged]);
   // Whose account this checkout speaks to the code host as — the same facts the
   // Connection card under About › Settings shows (`codehost.account` resolved in the
   // checkout: a profile's, a pin's, the default), read once a pull request
@@ -86,6 +99,22 @@ export function usePullRequest(base: WorkstreamData, { following = false }: { fo
     base.reload();
     reloadPr();
   };
+  // The latest door for the listeners below: `reloadPr` is remade every render.
+  const latest = useRef(reloadPr);
+  latest.current = reloadPr;
+  // The person coming back — from the browser where the pull request was
+  // merged, say: the window's focus is a read. The visibility-gated clock
+  // ticks only when the window was hidden; one merely behind another is not.
+  useEffect(() => {
+    if (!hasPr) return;
+    const on = () => latest.current();
+    window.addEventListener("focus", on);
+    return () => window.removeEventListener("focus", on);
+  }, [hasPr]);
+  // The panel's Refresh: the code host's side too, not the record alone.
+  useEffect(() => {
+    if (readNow > 0) latest.current();
+  }, [readNow]);
 
   const secs = numberOf(settings, "git.fetch_interval_secs", 300, { min: 0, max: 3600 });
   const polling = hasPr && secs > 0;
@@ -113,6 +142,8 @@ export function usePullRequest(base: WorkstreamData, { following = false }: { fo
       reviews: reviews.data ? { reviews: reviews.data.reviews, threads: reviews.data.threads } : null,
       settings,
       viewer,
+      prError: pr.error,
+      checksError: checks.error,
       reload,
       reloadPr,
       readAt,
@@ -120,6 +151,6 @@ export function usePullRequest(base: WorkstreamData, { following = false }: { fo
     // `reload` and `reloadPr` are remade every render over stable doors; the
     // object is rebuilt on the facts that change what it says.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [base, caps, codeHost.data, pr.data, checks.data, reviews.data, settings, viewer, readAt],
+    [base, caps, codeHost.data, pr.data, pr.error, checks.data, checks.error, reviews.data, settings, viewer, readAt],
   );
 }

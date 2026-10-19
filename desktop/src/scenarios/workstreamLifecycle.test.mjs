@@ -8,6 +8,7 @@
  * Run with `node --test desktop/src/scenarios/workstreamLifecycle.test.mjs`.
  */
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
 import { TAIL_PLACEHOLDER, canOpenWorkstream, previewBranch, sourceBody } from "../views/_work/workstreamCreation.mjs";
@@ -70,9 +71,18 @@ test("publishing: the seven steps walk with one in hand — commit, push, open, 
   assert.equal(status(out).checks, "done");
   assert.ok(["review", "merge"].includes(out.current), `after the checks the review reads or the merge is in hand: ${out.current}`);
   assert.ok(out.cta === null || STEPS.includes(out.cta.step), "the act names a step");
-  // Merged: clean up.
+  // Merged on the web before the record heard: the host's word wins, clean up is the act.
+  out = lifecycle(facts({ state: "pr_open", aheadOfBase: 2, upstream: "origin/work/dark-mode", pr: pr({ state: "merged", merge_commit: "c0ffee1234" }), checks: [{ name: "ci", status: "completed", conclusion: "success" }] }));
+  assert.equal(status(out).merge, "done");
+  assert.equal(out.current, "cleanup");
+  assert.equal(out.cta.id, "cleanup");
+  // Then the record follows (the engine moved it on the same read): the same.
   out = lifecycle(facts({ state: "merged", aheadOfBase: 0, upstream: "origin/work/dark-mode", pr: pr({ state: "merged" }) }));
   assert.equal(status(out).merge, "done");
+  assert.equal(out.current, "cleanup");
+  // Closed on the web without merging: the way out, under Clean up.
+  out = lifecycle(facts({ state: "pr_open", aheadOfBase: 2, upstream: "origin/work/dark-mode", pr: pr({ state: "closed" }) }));
+  assert.equal(out.cta.id, "close");
   assert.equal(out.current, "cleanup");
   // A copy has no branch: nothing here is published.
   assert.deepEqual(lifecycle(facts({ isGit: false })).steps, []);
@@ -88,4 +98,32 @@ test("closing: a close counts the live harness tabs, the shells and the engine's
   assert.equal(terminationWords(counts), "1 harness terminated, 1 shell closed and 1 agent session aborted");
   assert.equal(terminationConsent(counts), "Closing it ends what stands in it: 1 harness terminated, 1 shell closed and 1 agent session aborted.");
   assert.equal(terminationConsent(terminationCounts([], [tab("w1", "codex", "exited")], "w1")), null, "nothing live: nothing to consent to");
+});
+
+// The wiring, read off the sources (ide/08 §Surfaces): the code host is
+// asked sooner — on the window's focus, on the panel's Refresh, once when
+// the record reads merged — a failed read is carried to the lifecycle, the
+// way out of a closed pull request is the panel's own close dialog, no merge
+// button stands in for an unread request, and the after-merge flow never
+// skips silently.
+test("the code host is asked sooner, a failed read is said, the close act is the panel's dialog, and the clean-up never skips silently", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const hook = src("../views/_work/usePullRequest.ts");
+  assert.ok(hook.includes('window.addEventListener("focus", on)') && hook.includes('window.removeEventListener("focus", on)'), "the window's focus is a read");
+  assert.ok(hook.includes("[wid, hasPr, merged]"), "the record moving to merged is one more read");
+  assert.ok(hook.includes("if (readNow > 0) latest.current();") && hook.includes("}, [readNow]);"), "Refresh reads the code host's side");
+  assert.ok(hook.includes("prError: pr.error,") && hook.includes("checksError: checks.error,"), "a failed read is carried, never dropped");
+  const panel = src("../views/_work/WorkstreamPanel.tsx");
+  assert.ok(panel.includes("setReadNow((n) => n + 1);") && panel.includes("readNow={readNow}"), "the panel's Refresh counts");
+  assert.ok(panel.includes('onCloseWorkstream={() => setClosing("record")}'), "the way out is the panel's close dialog");
+  const lifecycle = src("../views/_work/PullRequestLifecycle.tsx");
+  assert.ok(lifecycle.includes("usePullRequest(base, { following, readNow })"), "the lifecycle reads on the count");
+  assert.ok(lifecycle.includes("checksError: data.checksError,") && lifecycle.includes("prError: data.prError,"), "and hands the read errors to the model");
+  assert.ok(lifecycle.includes('else if (cta.id === "close") onCloseWorkstream?.();'), "the close act");
+  assert.ok(lifecycle.includes('if (cta.id === "merge") {') && lifecycle.includes("return data.pr ? (") && !lifecycle.includes('if (cta.id === "merge" && data.pr)'), "no merge button for an unread request — the row says why");
+  assert.ok(lifecycle.includes("<ErrorNote error={data.prError} retry={data.reloadPr} />") && lifecycle.includes("error={data.checksError}"), "a failed read is drawn with the door to read again");
+  const dialog = src("../views/_work/AfterMergeDialog.tsx");
+  assert.ok(!dialog.includes("let stop"), "every chosen step runs");
+  assert.ok(dialog.includes('if (id === "return" && got.pull === "conflict") {') && dialog.includes('got.return = "skipped";'), "the one skip: the return after a conflict");
+  assert.ok(dialog.includes("asked, stranded })"), "a click is an ask, and stranded commits are said");
 });

@@ -115,11 +115,14 @@ export function checkFixPrompt(pr, check, noun = tr("work-publish-outcome-banner
 /**
  * Whether a check run failed — the one definition, read by the Checks step's
  * *Fix with* and by "checksSummary": completed, and concluded as a failure,
- * a timeout, an action required, or a cancellation.
+ * a timeout, an action required, a cancellation, or a failure at startup
+ * (GitHub's own words for a run; the engine folds every host's into them).
+ * A run marked stale, or completed in a word nobody knows, is not a
+ * failure — it is unknown, which the summary says in its own tone.
  * @param {{status: string, conclusion?: string | null}} check
  */
 export function failedCheck(check) {
   return check.status === "completed" && FAILED.includes(check.conclusion ?? "");
 }
 
-const FAILED = Object.freeze(["failure", "timed_out", "action_required", "cancelled"]);
+const FAILED = Object.freeze(["failure", "timed_out", "action_required", "cancelled", "startup_failure"]);

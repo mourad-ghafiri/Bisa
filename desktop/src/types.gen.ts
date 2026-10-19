@@ -2503,6 +2503,14 @@ export type BrowserWaitUntil = "load" | "selector" | "text" | "gone" | "idle";
 export type BrowserHomeScope = "workstream" | "goal" | "work_item" | "workflow" | "channel" | "dm" | "conversation";
 export type PrState = "open" | "closed" | "merged" | "unknown";
 /**
+ * Where the code host stands on merging — its own word folded to seven:
+ * GitHub's `mergeStateStatus` / `mergeable_state`, GitLab's
+ * `detailed_merge_status`. `None` on a host that has no such word
+ * (Bitbucket, an older `gh`), and then only what the host refuses at the
+ * merge is known.
+ */
+export type MergeState = "draft" | "clean" | "blocked" | "unstable" | "behind" | "dirty" | "unknown";
+/**
  * Which diff a note or a hunk belongs to. Three different patches for one
  * path, so the side is always part of the reference.
  */
@@ -4303,6 +4311,7 @@ export interface BisaApi {
   BrowserScrollPosition?: BrowserScrollPosition;
   PullRequest?: PullRequest;
   PrState?: PrState;
+  MergeState?: MergeState;
   CheckRun?: CheckRun;
   RepoRef?: RepoRef;
   ReviewSummary?: ReviewSummary;
@@ -8552,6 +8561,18 @@ export interface PullRequest {
   head_sha: string;
   base: string;
   author?: string | null;
+  /**
+   * When it merged, as the host writes the time; `None` until then, or on a host that does not say.
+   */
+  merged_at?: string | null;
+  /**
+   * The commit the merge made on the base — a merge, squash or rebase commit; `None` until merged, or on a host that does not say.
+   */
+  merge_commit?: string | null;
+  /**
+   * Where the host stands on merging; `None` on a host that has no such word.
+   */
+  merge_state?: MergeState | null;
   [k: string]: unknown;
 }
 export interface CheckRun {

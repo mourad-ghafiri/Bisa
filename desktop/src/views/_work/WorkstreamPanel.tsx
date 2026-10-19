@@ -80,6 +80,8 @@ export function WorkstreamPanel({
   const session = useGitSession(scope);
   const lifecycleBusy = session.busy === "pr" || session.busy === "merge" ? session.busy : null;
   const [closing, setClosing] = useState<Closing>(null);
+  /** Refresh counted, so the lifecycle reads the code host's side too — not the record alone. */
+  const [readNow, setReadNow] = useState(0);
   /** The clean script's refusal of the last delete, shown in the delete dialog. */
   const [cleanProblem, setCleanProblem] = useSessionDraft<ReturnType<typeof scriptRefusal> | null>(`${scope}|workstream|cleanProblem`, null);
   const [renaming, setRenaming] = useState(false);
@@ -91,6 +93,7 @@ export function WorkstreamPanel({
 
   const reloadAll = () => {
     data.reload();
+    setReadNow((n) => n + 1);
     onChanged?.();
   };
 
@@ -249,7 +252,7 @@ export function WorkstreamPanel({
       {/* The branch's way to its base: the one act under the current step,
           the card, the review, the merge. */}
       {hasBranch && (
-        <PullRequestLifecycle base={data} onChanged={onChanged} onOpenAbout={onOpenAbout} onOpenChanges={onOpenChanges} onCheckoutGone={onCheckoutGone} />
+        <PullRequestLifecycle base={data} readNow={readNow} onChanged={onChanged} onOpenAbout={onOpenAbout} onOpenChanges={onOpenChanges} onCheckoutGone={onCheckoutGone} onCloseWorkstream={() => setClosing("record")} />
       )}
 
 

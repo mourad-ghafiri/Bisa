@@ -14,6 +14,7 @@ use bisa_codehost::CodeHostKind;
 fn store(dir: &tempfile::TempDir) -> TokenStore {
     TokenStore::file_only(CodeHostKind::GitHub, HOST, dir.path())
 }
+use bisa_codehost::MergeState;
 use bisa_codehost::{
     CodeHost, CodeHostError, MergeStrategy, PrCreate, PrFilter, PrState, RemoteUrl, RepoRef,
     Review, ReviewComment, ReviewEvent, Side,
@@ -230,7 +231,8 @@ async fn listing_merged_pull_requests_asks_for_closed_ones_and_keeps_only_the_me
 }
 
 #[tokio::test]
-async fn checks_are_read_by_the_head_commit_in_two_round_trips() {
+async fn checks_are_read_by_the_head_commit_in_three_round_trips_and_the_commit_statuses_join_the_runs(
+) {
     let stub = Stub::start(vec![
         Canned::json("GET", "/repos/acme/web/pulls/9", 200, pull(9, "open", None)),
         Canned::json(
@@ -242,20 +244,106 @@ async fn checks_are_read_by_the_head_commit_in_two_round_trips() {
                 {"name": "lint", "status": "in_progress", "conclusion": null, "html_url": null, "output": null},
             ]}),
         ),
+        Canned::json(
+            "GET",
+            &format!("/repos/acme/web/commits/{}/status", "a".repeat(40)),
+            200,
+            json!({"state": "failure", "statuses": [
+                {"state": "error", "context": "ci/legacy", "target_url": "https://ci/legacy", "description": ""},
+                {"state": "pending", "context": "ci/slow", "target_url": null, "description": "queued"},
+                {"state": "success", "context": "ci/fast", "target_url": "", "description": "fine"},
+            ]}),
+        ),
     ])
     .await;
     let (gh, _dir) = host(&stub).await;
     let runs = gh.checks(&repo(), 9).await.unwrap();
-    assert_eq!(runs.len(), 2);
+    assert_eq!(runs.len(), 5);
     assert_eq!(
         runs[0].summary.as_deref(),
         Some("ok"),
         "the title stands in for a missing summary"
     );
     assert_eq!(runs[1].conclusion, None);
+    let statuses: Vec<_> = runs[2..]
+        .iter()
+        .map(|r| {
+            (
+                r.name.as_str(),
+                r.status.as_str(),
+                r.conclusion.as_deref(),
+                r.url.as_deref(),
+                r.summary.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        statuses,
+        vec![
+            (
+                "ci/legacy",
+                "completed",
+                Some("failure"),
+                Some("https://ci/legacy"),
+                Some("error")
+            ),
+            ("ci/slow", "in_progress", None, None, Some("queued")),
+            ("ci/fast", "completed", Some("success"), None, Some("fine")),
+        ],
+        "an errored status is a failure that says which; a pending one is in flight"
+    );
     let paths: Vec<_> = stub.calls().iter().map(|c| c.path.clone()).collect();
-    assert_eq!(paths.len(), 2);
+    assert_eq!(paths.len(), 3);
     assert!(paths[1].ends_with("/check-runs"));
+    assert!(paths[2].ends_with("/status"));
+}
+
+/// A merged pull request carries when and as what it merged, and every read
+/// carries where the host stands on merging — `has_hooks` being clean with
+/// hooks to run; a listing's row, which has no such word, says none.
+#[tokio::test]
+async fn a_merged_pull_request_carries_when_and_what_it_merged_as_and_where_the_host_stands() {
+    let mut merged = pull(9, "closed", Some("2026-01-01T00:00:00Z"));
+    merged["merge_commit_sha"] = json!("c".repeat(40));
+    merged["mergeable_state"] = json!("has_hooks");
+    let mut blocked = pull(10, "open", None);
+    blocked["mergeable_state"] = json!("blocked");
+    let stub = Stub::start(vec![
+        Canned::json("GET", "/repos/acme/web/pulls/9", 200, merged),
+        Canned::json("GET", "/repos/acme/web/pulls/10", 200, blocked),
+        Canned::json(
+            "GET",
+            "/repos/acme/web/pulls/11",
+            200,
+            pull(11, "open", None),
+        ),
+    ])
+    .await;
+    let (gh, _dir) = host(&stub).await;
+    let merged = gh.get_pr(&repo(), 9).await.unwrap();
+    assert_eq!(
+        (
+            merged.state,
+            merged.merged_at.as_deref(),
+            merged.merge_commit.as_deref().map(str::len),
+            merged.merge_state
+        ),
+        (
+            PrState::Merged,
+            Some("2026-01-01T00:00:00Z"),
+            Some(40),
+            Some(MergeState::Clean)
+        )
+    );
+    assert_eq!(
+        gh.get_pr(&repo(), 10).await.unwrap().merge_state,
+        Some(MergeState::Blocked)
+    );
+    let bare = gh.get_pr(&repo(), 11).await.unwrap();
+    assert_eq!(
+        (bare.merged_at, bare.merge_commit, bare.merge_state),
+        (None, None, None)
+    );
 }
 
 #[tokio::test]

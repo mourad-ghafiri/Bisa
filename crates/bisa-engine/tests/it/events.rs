@@ -3690,8 +3690,16 @@ async fn a_pull_request_that_changed_state_starts_a_project_start() {
         merged[0].signal.dedupe_key,
         Some(format!("merge:{}", pr.number))
     );
+    assert!(
+        matches!(
+            ws.get_workstream(w.id).unwrap().state,
+            bisa_core::WorkstreamState::Merged { .. }
+        ),
+        "the poll's read moved the record: the host's word is the second writer of merged"
+    );
     engine.tick_listeners_at(t0 + 602).await;
     assert_eq!(signals(&engine, &on_pr).len(), 1, "no change, no news");
+    assert_eq!(signals(&engine, &on_merge).len(), 1, "one merge, said once");
     engine.shutdown().await;
 }
 

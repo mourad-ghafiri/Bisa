@@ -15,8 +15,8 @@ export interface LifecycleStep {
 export interface LifecycleCta {
   /** The verb pushes the branch first, then opens the request. */
   pushes?: boolean;
-  /** What the act does. */
-  id: StepId;
+  /** What the act does — `close` is the way out of a pull request the host closed without merging. */
+  id: StepId | "close";
   /** The step the act is drawn under — always the step in hand. */
   step: StepId;
   label: string;
@@ -44,4 +44,8 @@ export declare function lifecycle(facts: {
   caps: CodeHostCapabilities | null | undefined;
   /** The host's word — *pull request*, or GitLab's *merge request*. */
   noun?: string;
+  /** Why the checks could not be read, when they could not. */
+  checksError?: string | null;
+  /** Why the pull request could not be read, when it could not. */
+  prError?: string | null;
 }): { steps: LifecycleStep[]; current: StepId | null; cta: LifecycleCta | null; note: string | null };

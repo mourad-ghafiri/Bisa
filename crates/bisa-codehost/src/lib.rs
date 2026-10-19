@@ -375,6 +375,29 @@ impl PrState {
     }
 }
 
+/// Where the code host stands on merging — its own word folded to seven:
+/// GitHub's `mergeStateStatus` / `mergeable_state`, GitLab's
+/// `detailed_merge_status`. `None` on a host that has no such word
+/// (Bitbucket, an older `gh`), and then only what the host refuses at the
+/// merge is known.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeState {
+    /// Mergeable, every required check passing.
+    Clean,
+    /// The host blocks the merge: a required check failing, a review owed, a rule.
+    Blocked,
+    /// Mergeable, with a check failing that nothing requires.
+    Unstable,
+    /// The head is behind its base.
+    Behind,
+    /// The merge commit cannot be made: conflicts.
+    Dirty,
+    Draft,
+    /// The host has not decided yet.
+    Unknown,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PullRequest {
     pub number: u64,
@@ -388,6 +411,15 @@ pub struct PullRequest {
     pub head_sha: String,
     pub base: String,
     pub author: Option<String>,
+    /// When it merged, as the host writes the time; `None` until then, or on a host that does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged_at: Option<String>,
+    /// The commit the merge made on the base — a merge, squash or rebase commit; `None` until merged, or on a host that does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_commit: Option<String>,
+    /// Where the host stands on merging; `None` on a host that has no such word.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_state: Option<MergeState>,
 }
 
 /// Everything a pull request needs at creation. Reviewers and labels are

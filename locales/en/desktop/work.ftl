@@ -25,6 +25,10 @@ work-after-merge-whether-anything-runs-could-not-read = Whether anything runs on
 work-after-merge-workstream-kept-removing-failed = the workstream kept (removing it failed)
 work-after-merge-workstream-removed = the workstream removed ({ $ends })
 work-after-merge-workstream-removed-2 = the workstream removed
+work-after-merge-commits-never-reached-pull-request = { $stranded } { $stranded ->
+    [one] commit
+   *[other] commits
+  } on this branch never reached the pull request and go with it.
 work-agent-editor-any-workspace-member = Any workspace member
 work-agent-editor-cancel = Cancel
 work-agent-editor-carries-none = Carries none.
@@ -1158,7 +1162,7 @@ work-pr-form-open = Open a { $codeHost }
 work-pr-form-open-2 = Open { $noun }
 work-pr-form-optional-markdown = Optional. Markdown.
 work-pr-form-origin-not-code-host-build-knows = The origin is not on a code host this build knows, or there is no remote — opening will be refused. Name a self-hosted one with codehost.kind.
-work-pr-form-other = { $other } other
+work-pr-form-other = { $other } in an unknown state
 work-pr-form-passed = { $passed } passed
 work-pr-form-push-open = Push and open { $noun }
 work-pr-form-reviewers = Reviewers
@@ -1167,11 +1171,23 @@ work-pr-form-running = { $running } running
 work-pr-form-separated-commas-spaces = Separated by commas or spaces.
 work-pr-form-title = Title
 work-pr-lifecycle-agent = the agent
+work-pr-lifecycle-behind-base-update-branch = behind { $base } — update the branch
 work-pr-lifecycle-beyond = { $aheadOfBase } beyond { $base }
+work-pr-lifecycle-checks-could-not-be-read = the checks could not be read
+work-pr-lifecycle-checks-could-not-be-read-host-decides = checks could not be read; the code host decides
+work-pr-lifecycle-checks-failing-none-required = { $failed } { $failed ->
+    [one] check
+   *[other] checks
+  } failing, none required
 work-pr-lifecycle-checks-failing = checks failing
 work-pr-lifecycle-clean-up-branch = Clean up branch
 work-pr-lifecycle-closed-code-host = closed on the code host
-work-pr-lifecycle-closed-code-host-without-merging = closed on the code host without merging
+work-pr-lifecycle-closed-without-merging-close-workstream = the pull request was closed without merging — close this workstream, keeping or removing its checkout
+work-pr-lifecycle-code-host-blocks-merge = the code host blocks the merge (required reviews or checks)
+work-pr-lifecycle-commits-never-reached-pull-request = { $stranded } { $stranded ->
+    [one] commit
+   *[other] commits
+  } never reached the pull request — they go with the branch
 work-pr-lifecycle-code-host-read = code host read { $ago }
 work-pr-lifecycle-code-host-still-checking = the code host is still checking
 work-pr-lifecycle-commit-git-changes = Commit in Git › Changes
@@ -1189,6 +1205,7 @@ work-pr-lifecycle-not-remote-yet = not on the remote yet
 work-pr-lifecycle-not-reported-code-host = not reported by this code host
 work-pr-lifecycle-nothing-beyond-yet = nothing beyond { $base } yet
 work-pr-lifecycle-on-upstream = on { $upstream }
+work-pr-lifecycle-pull-request-could-not-be-read = the pull request could not be read
 work-pr-lifecycle-open-pull-request = Open pull request
 work-pr-lifecycle-push-git-changes = Push in Git › Changes
 work-pr-lifecycle-reading-code-host = reading the code host…
@@ -2284,7 +2301,7 @@ work-after-merge-dialog-pull-stopped-on-files = The pull stopped on { $n } { $n 
     [one] file
    *[other] files
   } in { $main }.
-work-after-merge-dialog-nothing-else-ran-open-git-tab = Nothing else ran. Open { $main }'s Git tab: the Resolve card names the sides and walks you through each file, conflict by conflict — or abort the merge there and { $main } is back where it was.
+work-after-merge-dialog-open-git-tab-resolve-card = Open { $main }'s Git tab: the Resolve card names the sides and walks you through each file, conflict by conflict — or abort the merge there and { $main } is back where it was.
 
 ## The agent editor's two references (`views/_work/AgentEditor.tsx`) — words moved out of the markup.
 work-agent-editor-skills-count = Skills ({ $n })

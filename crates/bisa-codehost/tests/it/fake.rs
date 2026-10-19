@@ -3,6 +3,7 @@
 //! fake lacks is a typed `Unsupported`, never a silent no-op.
 
 use bisa_codehost::fake::FakeCodeHost;
+use bisa_codehost::{CheckRun, MergeState, RepoRef};
 use bisa_codehost::{
     CodeHost, CodeHostCapabilities, CodeHostError, CodeHostRegistry, MergeStrategy, PrCreate,
     PrFilter, PrState, RemoteUrl, RepoAccess, Review, ReviewComment, ReviewEvent, ReviewThread,
@@ -346,5 +347,82 @@ async fn a_fake_rebound_to_another_account_shares_its_state_and_says_who_asked()
             found: true,
             push: false
         }
+    );
+}
+
+/// A test can give one pull request failing runs while another keeps the
+/// shared answer; a merge — the fake's own, or one a test says happened
+/// elsewhere — carries when and as what it landed, as the real hosts do,
+/// and any other state clears the facts.
+#[tokio::test]
+async fn set_checks_answers_one_pull_requests_runs_and_a_merge_carries_when_and_what_landed() {
+    let host = FakeCodeHost::with_capabilities("codehost.test", full());
+    let repo = RepoRef {
+        host: "codehost.test".into(),
+        owner: "acme".into(),
+        name: "web".into(),
+    };
+    let make = |title: &str, head: &str| PrCreate {
+        title: title.into(),
+        head: head.into(),
+        base: "main".into(),
+        ..Default::default()
+    };
+    let one = host.create_pr(&repo, make("one", "a")).await.unwrap();
+    let two = host.create_pr(&repo, make("two", "b")).await.unwrap();
+    host.set_checks(
+        one.number,
+        vec![CheckRun {
+            name: "ci".into(),
+            status: "completed".into(),
+            conclusion: Some("failure".into()),
+            url: None,
+            summary: Some("boom".into()),
+        }],
+    );
+    assert_eq!(
+        host.checks(&repo, one.number).await.unwrap()[0]
+            .conclusion
+            .as_deref(),
+        Some("failure")
+    );
+    assert!(
+        host.checks(&repo, two.number).await.unwrap().is_empty(),
+        "the shared answer, empty"
+    );
+    assert_eq!(
+        (one.merged_at, one.merge_commit, one.merge_state),
+        (None, None, None)
+    );
+    let out = host
+        .merge(&repo, one.number, MergeStrategy::Squash)
+        .await
+        .unwrap();
+    let merged = host.get_pr(&repo, one.number).await.unwrap();
+    assert_eq!(
+        (
+            merged.state,
+            merged.merged_at.as_deref(),
+            merged.merge_commit.as_deref()
+        ),
+        (
+            PrState::Merged,
+            Some("2026-01-01T00:00:00Z"),
+            out.sha.as_deref()
+        )
+    );
+    host.set_pr_state(two.number, PrState::Merged);
+    let elsewhere = host.get_pr(&repo, two.number).await.unwrap();
+    assert!(
+        elsewhere.merged_at.is_some() && elsewhere.merge_commit.is_some(),
+        "merged elsewhere carries the facts"
+    );
+    host.set_pr_state(two.number, PrState::Open);
+    let reopened = host.get_pr(&repo, two.number).await.unwrap();
+    assert_eq!((reopened.merged_at, reopened.merge_commit), (None, None));
+    assert_eq!(
+        serde_json::to_value(MergeState::Clean).unwrap(),
+        serde_json::json!("clean"),
+        "the wire word"
     );
 }

@@ -10,6 +10,13 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- The code host's word moves the record: a pull request merged on the code host — on the web, by
+  somebody else — is *merged* on the next read (the panel's poll, the window coming to the front,
+  *Refresh*), the card, the Board and the Inbox follow, and Clean up is the act; one closed there
+  without merging ends the lifecycle with *Close this workstream…*. The pull request carries
+  `merged_at`, `merge_commit` and `merge_state` (GitHub's `mergeStateStatus` / `mergeable_state`,
+  GitLab's `detailed_merge_status`), the fake code host takes `set_checks`, and the scripted-gh
+  journey has `failing`, `nochecks-real` and `merged-elsewhere` moods.
 - **To a harness** — the annotation tray's third door: the request an agent would get (the lead,
   the target, the edit contract kept or undone by hand) and every annotation as the engine itself
   frames a chip, typed into a harness of the person's own — a **new terminal** per harness the
@@ -90,6 +97,23 @@ notes (`docs/contributing/release.md`).
   caller having gone through the store's own placement — is removed (`crates/bisa-engine/src/projects.rs`).
 
 ### Fixed
+
+- Checks with problems are detected: a run that errored or failed at startup read as passed (gh's
+  `state` was passed through unknown); conclusions are now gh's own `bucket`'s, GitHub's commit
+  statuses join the check runs, a run in a state nobody knows is a warn rather than a pass, a GitLab
+  job allowed to fail is neutral and a manual one skipped unless it blocks the pipeline, `gh pr
+  checks` on a branch with no checks is *no checks* rather than *reading the code host…* forever, and
+  a read that failed is said on the row with Retry.
+- The merge is blocked by what the code host itself cannot merge: with the host's own word on the
+  merge, a failing check nothing requires no longer blocks the in-app merge (a caution instead), a
+  draft or conflicts the host names block, a GitLab merge request held by a rule no longer reads as
+  *conflicts with main*, and a merge asked on a pull request already merged elsewhere answers merged
+  instead of the host's *not open* refusal.
+- The clean-up after a merge never skips silently: a pull that failed is reported and the delete and
+  the return still run (only the return after a conflict is skipped, where *Resolve the conflicts* is
+  the return); Clean up wins the act even with commits made after the merge, which are its caution;
+  and with both after-merge policies off the dialog still opens on a click, nothing ticked, instead
+  of an empty one.
 - A node that started while wraps waited for it on a relay never heard them: the pool marked a
   wrap as seen when it arrived before anything on the node had subscribed, and every later
   catch-up passed it over. The pool now forgets a wrap nobody listened to, so the next catch-up

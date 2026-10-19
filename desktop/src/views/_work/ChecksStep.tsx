@@ -18,7 +18,7 @@
  */
 
 import type { CheckRun, CodeHostCapabilities, PullRequest } from "../../types";
-import { ExternalLink, SkeletonRows, cn } from "../../ui";
+import { ErrorNote, ExternalLink, SkeletonRows, cn } from "../../ui";
 import { DEFAULT_AGENT, FIX_MENU_LABEL, draftKeys } from "./agentReviewModel.mjs";
 import { AgentMenu } from "./AgentMenu";
 import { useSessionDraft } from "./gitPanelStore";
@@ -33,6 +33,8 @@ export function ChecksStep({
   pid,
   pr,
   checks,
+  error = null,
+  onRetry,
   caps,
   noun,
   aheadOfBase,
@@ -46,6 +48,9 @@ export function ChecksStep({
   pr: PullRequest;
   /** Check runs; `null` while unread. */
   checks: CheckRun[] | null;
+  /** Why the runs could not be read, when they could not — said in place of skeletons, with the door to read again. */
+  error?: string | null;
+  onRetry?: () => void;
   caps: CodeHostCapabilities | null;
   /** The host's word — *pull request*, *merge request*. */
   noun: string;
@@ -74,9 +79,10 @@ export function ChecksStep({
     void run.ask("check", agent, checkFixPrompt(pr, check, noun), { check: check.name });
   };
 
-  if (checks === null) return <SkeletonRows rows={2} />;
+  if (checks === null) return error ? <ErrorNote error={error} retry={onRetry} /> : <SkeletonRows rows={2} />;
   return (
     <section aria-label={t("work-checks-step-checks")} className="flex flex-col gap-1.5 text-2xs">
+      {error && <ErrorNote error={error} retry={onRetry} />}
       <ul className="flex flex-col gap-0.5">
         {checks.map((c) => {
           const failed = failedCheck(c);
