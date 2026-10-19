@@ -90,3 +90,22 @@ export function reconcileEdges(prev, next) {
   if (prev.length === next.length && next.every((e, i) => sameEdge(prev[i], e))) return prev;
   return next;
 }
+
+/**
+ * What is picked in a mirror — the ids of its selected nodes and edges, in
+ * the mirror's order: what xyflow reports on a selection change, and what
+ * the props say when the caller marks a selection.
+ */
+export function selectedOf(nodes, edges) {
+  return { nodes: nodes.filter((n) => n.selected).map((n) => n.id), edges: edges.filter((e) => e.selected).map((e) => e.id) };
+}
+
+/**
+ * Whether two picks name the same nodes and edges, in any order — how the
+ * canvas tells a change the person made from xyflow echoing the selection
+ * the props already carry, after a resync.
+ */
+export function samePick(a, b) {
+  const same = (x, y) => x.length === y.length && x.every((id) => y.includes(id));
+  return same(a.nodes, b.nodes) && same(a.edges, b.edges);
+}

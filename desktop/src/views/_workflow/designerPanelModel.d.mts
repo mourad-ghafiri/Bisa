@@ -17,7 +17,8 @@ export declare const PANEL_PARAM: string;
 export declare function isPane(value: unknown): value is DesignerPane;
 export declare function paneOf(value: unknown): DesignerPane;
 export declare function pressPane(state: DesignerPanelState, target: string): DesignerPanelState;
-export declare function paneForSelection(state: DesignerPanelState, selected: string | null): DesignerPanelState;
+/** A step, a flow or a many picked on the canvas shows Properties; nothing picked changes nothing. */
+export declare function paneForSelection(state: DesignerPanelState, selected: unknown): DesignerPanelState;
 export declare function panelTabs(screen: { open: boolean; tab: DesignerPane }): {
   id: DesignerPane;
   label: string;

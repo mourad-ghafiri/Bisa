@@ -303,7 +303,7 @@ test("the designer's Agent pane comes back to the conversation left open, whatev
 test("the designer comes back on the step it had picked and where its canvas looked, and Back never loops on ?panel=", () => {
   const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
   const screen = src("../views/WorkflowDesigner.tsx");
-  assert.ok(screen.includes("designerMemoryOf(id)") && screen.includes("rememberSelectedStep(id, selected)") && screen.includes("rememberCanvasViewport(id, v)"), "the screen reads its memory once and writes it as the person picks and pans");
+  assert.ok(screen.includes("designerMemoryOf(id)") && screen.includes("rememberSelectedStep(id, storedSelection(selected))") && screen.includes("rememberCanvasViewport(id, v)"), "the screen reads its memory once and writes it as the person picks and pans");
   assert.ok(screen.includes("startViewport={memory.viewport}"), "the canvas opens where it was left");
   assert.ok(screen.includes("setSearch({ [PANEL_PARAM]: null }, { replace: true })"), "a link's ?panel= is taken off the address without a history entry");
   const canvas = src("../ui/FlowCanvas.tsx");

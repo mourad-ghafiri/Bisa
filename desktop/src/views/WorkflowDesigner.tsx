@@ -69,8 +69,9 @@ import { WorkflowAgentPane } from "./_workflow/WorkflowAgentPane";
 import { WorkflowRunsPane } from "./_workflow/WorkflowRunsPane";
 import { PANE_COMMAND, PANEL_PARAM, PANES, isPane, panelTabs, type DesignerPane } from "./_workflow/designerPanelModel.mjs";
 import { pressDesignerPane, revealSelection, showDesignerPane, useDesignerPanel } from "./_workflow/designerPanelStore";
-import { designerMemoryOf, rememberCanvasViewport, rememberSelectedStep } from "./_workflow/designerMemoryStore";
-import { keptSelection } from "./_workflow/designerMemoryModel.mjs";
+import { designerMemoryOf, moveKeptScroll, rememberCanvasViewport, rememberSelectedStep } from "./_workflow/designerMemoryStore";
+import { readOnlyReason } from "./_workflow/inspectorModel.mjs";
+import { keptSelection, propertiesScrollName, stepSelection, storedSelection, type Selection } from "./_workflow/selectionModel.mjs";
 import { useWorkflowVerbs } from "./_workflow/WorkflowCard";
 import { HeldSignals } from "./_workflow/HeldSignals";
 import { ListeningSwitch } from "./_workflow/ListeningSwitch";
@@ -80,7 +81,7 @@ import { movesRunCount } from "./_workflow/workflowRunsModel.mjs";
 import { Designer } from "./_workflow/Designer";
 import { Inspector } from "./_workflow/Inspector";
 import { Palette } from "./_workflow/Palette";
-import { canRedoEdit, canUndoEdit, caughtUp, definitionBody, dirty, edit, keepMine, open, present, putBody, redoEdit, remoteLoaded, rowBehind, statusLine, takeTheirs, undoEdit, type Session, remoteAction } from "./_workflow/designerSession.mjs";
+import { canRedoEdit, canUndoEdit, caughtUp, definitionBody, dirty, edit, keepMine, landedSelection, open, present, putBody, redoEdit, remoteLoaded, rowBehind, statusLine, takeTheirs, undoEdit, type Session, remoteAction } from "./_workflow/designerSession.mjs";
 import { addStep } from "./_workflow/workflowGraph.mjs";
 import { fitColumns } from "./_workbench/ideColumnsModel.mjs";
 import { useAutosave } from "./_workflow/useAutosave";
@@ -120,8 +121,11 @@ export default function WorkflowDesigner({ id }: { id: string }) {
   // Where this designer was left, read once: the screen is keyed by its
   // route, so `id` never changes under it.
   const [memory] = useState(() => designerMemoryOf(id));
-  const [selected, setSelected] = useState<string | null>(memory.selected);
-  useEffect(() => rememberSelectedStep(id, selected), [id, selected]);
+  // What is picked — a step, a flow, several, or nothing — the one value the
+  // canvas and the panel share (`selectionModel.mjs`); a step is what the
+  // memory keeps of it, as the bare id it always wrote.
+  const [selected, setSelected] = useState<Selection>(() => stepSelection(memory.selected));
+  useEffect(() => rememberSelectedStep(id, storedSelection(selected)), [id, selected]);
   // A step just added — by the palette's click, a drop, a duplicate: the
   // canvas brings it into view. One counter, so the asks never race.
   const [reveal, setReveal] = useState<{ id: string; nonce: number } | null>(null);
@@ -217,7 +221,7 @@ export default function WorkflowDesigner({ id }: { id: string }) {
   const propertiesRoot = useRef<HTMLDivElement>(null);
   const drawn = session ? "drawn" : "reading";
   useViewScroll(paletteRoot, `${place}#${drawn}`, place);
-  useViewScroll(propertiesRoot, `${place}#${drawn}:${panel.open ? pane : "closed"}:${selected ?? ""}`, place);
+  useViewScroll(propertiesRoot, `${place}#${drawn}:${panel.open ? pane : "closed"}:${propertiesScrollName(selected)}`, place);
 
   // Retired under this screen — here, from the CLI, from another desktop:
   // a deletion leaves once; an archive re-reads, and the chip says so.
@@ -272,10 +276,10 @@ export default function WorkflowDesigner({ id }: { id: string }) {
   );
   const body = session ? present(session) : null;
   // A picked step the workflow no longer has — an agent's save took it, or
-  // it was remembered from before — is no pick.
+  // it was remembered from before — is no pick; a flow cut is none either.
   useEffect(() => {
     if (!body) return;
-    const kept = keptSelection(selected, body.steps);
+    const kept = keptSelection(selected, body);
     if (kept !== selected) setSelected(kept);
   }, [body, selected]);
   const live = useLiveValidation(body, validate);
@@ -298,9 +302,22 @@ export default function WorkflowDesigner({ id }: { id: string }) {
   // The run verbs — *Run…*, *Stop every run*, *Restart every run* — the
   // same items and dialogs the library card carries.
   const runVerbs = useWorkflowVerbs(data ?? null, reload);
-  const change = (next: NewWorkflowBody) => {
-    if (frozen) return;
-    setSession((s) => (s ? edit(s, next) : s));
+  const change = (next: NewWorkflowBody, token: string | null = null) => {
+    // A frozen designer says why, every time, rather than dropping the edit without a word.
+    if (frozen) {
+      toast.error(readOnlyReason(true, { runningIn: running })?.reason ?? "");
+      return;
+    }
+    // Stamped with the selection, so an undo lands where the person was; a typed burst is one entry.
+    setSession((s) => (s ? edit(s, next, Date.now(), { selection: selected, token }) : s));
+  };
+  // Undo and redo land the selection where the entry was left (`landedSelection`).
+  const step = (dir: "undo" | "redo") => {
+    if (!session) return;
+    const next = dir === "undo" ? undoEdit(session, Date.now(), selected) : redoEdit(session, Date.now(), selected);
+    if (next.history === session.history) return;
+    setSession(next);
+    setSelected(landedSelection(next) as Selection);
   };
   const isDirty = session ? dirty(session) : false;
   const saving = session?.status === "saving";
@@ -480,7 +497,7 @@ export default function WorkflowDesigner({ id }: { id: string }) {
               onAdd={(kind) => {
                 const { wf, id: added } = addStep(body, kind);
                 change(wf);
-                setSelected(added);
+                setSelected(stepSelection(added));
                 revealStep(added);
               }}
             />
@@ -495,8 +512,8 @@ export default function WorkflowDesigner({ id }: { id: string }) {
             selected={selected}
             onSelect={setSelected}
             onChange={change}
-            onUndo={() => setSession((s) => (s ? undoEdit(s) : s))}
-            onRedo={() => setSession((s) => (s ? redoEdit(s) : s))}
+            onUndo={() => step("undo")}
+            onRedo={() => step("redo")}
             canUndo={canUndoEdit(session)}
             canRedo={canRedoEdit(session)}
             settings={settings}
@@ -512,7 +529,8 @@ export default function WorkflowDesigner({ id }: { id: string }) {
         {/* The column, when open: Properties, Agent or Runs. The rail stays either way. */}
         {panel.open && (
           <>
-            <ResizeHandle side="left" size={panelWidth} min={PANEL_MIN} max={PANEL_MAX} defaultSize={PANEL_DEFAULT} onSize={setPanelWidth} label={t("workflow-designer-panel-resize")} />
+            {/* The handle drags from the width drawn now — the fitted one on a narrow window — never from a stored width the row is not showing. */}
+            <ResizeHandle side="left" size={fit.right ?? panelWidth} min={PANEL_MIN} max={PANEL_MAX} defaultSize={PANEL_DEFAULT} onSize={setPanelWidth} label={t("workflow-designer-panel-resize")} />
             <aside className="flex min-h-0 shrink-0 flex-col border-l border-border" style={{ width: fit.right ?? panelWidth }} role="tabpanel" aria-label={tabs.find((tab) => tab.id === pane)?.label}>
               {pane === "agent" ? (
                 <WorkflowAgentPane workflow={base} />
@@ -521,8 +539,20 @@ export default function WorkflowDesigner({ id }: { id: string }) {
               ) : (
                 // Each step's properties are kept under the step's own name: another step's form is another page.
                 <div ref={propertiesRoot} className="flex min-h-0 flex-1 flex-col">
-                  <div data-scroll-keep={`properties:${selected ?? ""}`} className="min-h-0 flex-1 overflow-y-auto">
-                    <Inspector value={body} selected={selected} problems={problems} unreadable={unreadable} onChange={change} onSelect={setSelected} readOnly={frozen} host={{ workflow: id }} listeners={listeners} />
+                  <div data-scroll-keep={propertiesScrollName(selected)} className="min-h-0 flex-1 overflow-y-auto">
+                    <Inspector
+                      value={body}
+                      selected={selected}
+                      problems={problems}
+                      unreadable={unreadable}
+                      onChange={change}
+                      onSelect={setSelected}
+                      readOnly={frozen}
+                      host={{ workflow: id }}
+                      listeners={listeners}
+                      why={{ runningIn: running }}
+                      onRenamed={(from, to) => moveKeptScroll(place, propertiesScrollName(stepSelection(from)), propertiesScrollName(stepSelection(to)))}
+                    />
                   </div>
                 </div>
               )}

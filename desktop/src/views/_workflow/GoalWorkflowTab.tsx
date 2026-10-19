@@ -11,43 +11,46 @@
  *   yours, validation following the cursor, *Save changes* refused while
  *   problems remain. A goal-scoped design wears a *Designed for this goal*
  *   banner; *Promote to library* is in the header's menu;
- * - a run: **read-only** canvas wearing the run; the selected step's actions
- *   beside it. Nothing here edits a running workflow — not an amendment, not
- *   a word to the Workflow Agent: an amendment is the agent's own move
- *   (applied on an auto goal, gated on a guided one) or the CLI's;
+ * - a run: **read-only** canvas wearing the run; the selected step's record
+ *   and actions in the column beside it, under *This run*. Nothing here
+ *   edits a running workflow — not an amendment, not a word to the Workflow
+ *   Agent: an amendment is the agent's own move (applied on an auto goal,
+ *   gated on a guided one) or the CLI's;
  * - a finished run: restart it, start a new run, or pick another workflow.
  *   A run made while one is live queues behind it.
  *
- * What the tab was left on is the goal's memory (`shell/viewMemoryStore`,
- * under the goal's place): the step picked, the run being viewed, where the
- * canvas looked and where its side columns were scrolled — read from the
- * memory on every render, so a switch of tab, a way out and back, and a
- * restart all land on the same picture. The drawing in progress is kept
- * beside them (`designDraftStore`). `?step=` and `?run=` are a link's to
- * hand over once: each is taken into the memory and off the address.
+ * The canvas and one titled, resizable column (`Inspector`, the designer's
+ * own pane) are the tab; the column says why it is read-only in every state
+ * that is, with the door that answers it. What the tab was left on is the
+ * goal's memory (`shell/viewMemoryStore`, under the goal's place): the step
+ * picked, the run being viewed, where the canvas looked and where its side
+ * columns were scrolled — read from the memory on every render, so a switch
+ * of tab, a way out and back, and a restart all land on the same picture. A
+ * flow or a box of steps picked is a moment's pick, held by the tab alone
+ * (`selectionModel.storedSelection`). The drawing in progress is kept beside
+ * them (`designDraftStore`). `?step=` and `?run=` are a link's to hand over
+ * once: each is taken into the memory and off the address.
  */
 
 import { useSessions } from "../../shell/sessionsStore";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../../api";
 import { useEngineEvents } from "../../bus";
-import { setSearch, useSearchValue } from "../../router";
+import { navigate, setSearch, useSearchValue } from "../../router";
 import { placeOf, useViewState } from "../../shell/viewMemoryStore";
 import { idValue } from "../../shell/viewValuesModel.mjs";
 import type { GoalView, ListenerView, NewWorkflowBody, Problem, Workflow, WorkflowRun } from "../../types";
-import { Button, Chip, ConfirmDialog, ErrorNote, ICON, LinkedText, SkeletonRows, failureText, cn, useToast } from "../../ui";
+import { Button, Chip, ConfirmDialog, ErrorNote, ICON, ResizeHandle, SkeletonRows, failureText, cn, useStoredSize, useToast } from "../../ui";
 import { readKey } from "../_work/keptReadsModel.mjs";
 import { attempt, useAsync } from "../_work/useAsync";
 import { Designer } from "./Designer";
-import { keptSelection } from "./designerMemoryModel.mjs";
 import { canvasViewportAt, rememberViewportAt } from "./designerMemoryStore";
 import { bodyOf, definitionBody, goalTabRemote, problemsFromErrorBody } from "./designerSession.mjs";
 import { Inspector } from "./Inspector";
 import { Palette } from "./Palette";
-import { ProblemsList } from "./ProblemsList";
 import { RunOverlay } from "./RunOverlay";
+import { keptSelection, readSelection, stepOf, stepSelection, storedSelection, type Selection } from "./selectionModel.mjs";
 import { StartRunDialog } from "./StartRunDialog";
-import { StepActions } from "./StepActions";
 import { WorkflowPicker } from "./WorkflowPicker";
 import { DesigningCard } from "../_goal/DesigningCard";
 import { designs, modeOf } from "../_goal/goalMode.mjs";
@@ -70,10 +73,14 @@ import { t } from "../../i18n/l10n.mjs";
 // frame while the Workflow Agent designs, so a literal here was a loop.
 const NO_PROBLEMS: readonly Problem[] = Object.freeze([]);
 const NO_LISTENERS: readonly ListenerView[] = Object.freeze([]);
-/** The palette's column with its words (`w-40`), and the inspector's width and its least. */
+/** The palette's column with its words (`w-40`); the inspector's width as stored, its least and its most. */
 const PALETTE_WIDTH = 160;
+const INSPECTOR_KEY = "bisa.goal.workflow.inspector.width";
 const INSPECTOR_WIDTH = 320;
 const INSPECTOR_MIN = 240;
+const INSPECTOR_MAX = 560;
+/** One resize handle, counted in the row's budget as the IDE counts its own (`ideColumnsModel`). */
+const HANDLE_WIDTH = 4;
 
 export function GoalWorkflowTab({
   view,
@@ -109,13 +116,25 @@ export function GoalWorkflowTab({
   const [runParam, setRunParam] = useSearchValue("run");
   const [editParam, setEditParam] = useSearchValue("edit");
   const [picked, setSelected] = useViewState<string | null>(place, "workflow:step", null, idValue);
+  // A flow or a box of steps picked: the tab's own for the moment, never the memory's.
+  const [transient, setTransient] = useState<Selection>(null);
+  const select = useCallback(
+    (sel: Selection) => {
+      const kept = storedSelection(sel);
+      setSelected(kept);
+      setTransient(kept === null ? sel : null);
+    },
+    [setSelected],
+  );
   useEffect(() => {
     if (!stepParam) return;
     setSelected(stepParam);
+    setTransient(null);
     // Replaced, never pushed: the step is the memory's from here on, and a
     // step picked by hand afterwards is not undone by the address.
     setSearch({ step: null }, { replace: true });
   }, [stepParam, setSelected]);
+  const [inspectorWidth, setInspectorWidth] = useStoredSize(INSPECTOR_KEY, INSPECTOR_WIDTH, { min: INSPECTOR_MIN, max: INSPECTOR_MAX });
   const [starting, setStarting] = useState(false);
   const [choosing, setChoosing] = useState(false);
   // The draft outlives this tab, and the window: it is kept per goal in
@@ -243,10 +262,22 @@ export function GoalWorkflowTab({
   );
   const live = useLiveValidation(draft ? draft.present : null, validate);
   const draftProblems: readonly Problem[] = draft ? (live.problems ?? serverProblems) : NO_PROBLEMS;
-  const draftEdit = (next: NewWorkflowBody) => {
+  // What is picked, as the canvas and the column share it; a remembered
+  // step the picture no longer has — an agent's save took it, another run
+  // is shown — is no pick.
+  const selected = keptSelection(transient ?? readSelection(picked), draft ? draft.present : stored_body);
+  const draftEdit = (next: NewWorkflowBody, token: string | null = null) => {
     // Same reference when already empty: a state that does not change is not a commit.
     setServerProblems((p) => (p.length ? [] : p));
-    setDraft((h) => (h ? push(h, next) : h));
+    // Stamped with the selection, so an undo lands where the person was; a typed burst is one entry.
+    setDraft((h) => (h ? push(h, next, { selection: selected, at: Date.now(), token }) : h));
+  };
+  const step = (dir: "undo" | "redo") => {
+    if (!draft) return;
+    const next = dir === "undo" ? undo(draft, selected) : redo(draft, selected);
+    if (next === draft) return;
+    setDraft(next);
+    select(next.landed as Selection);
   };
 
   const saveDesign = async () => {
@@ -286,10 +317,6 @@ export function GoalWorkflowTab({
     );
   }
 
-  // A remembered step the picture no longer has — an agent's save took it, another run is shown — is no pick.
-  const selected = keptSelection(picked, value.steps);
-  const record = selected && activeRun ? activeRun.steps[selected] : null;
-  const step = selected ? value.steps.find((s) => s.id === selected) : undefined;
   const canSave = !!draft && draftProblems.length === 0 && !live.validating;
   const discardDraft = () => {
     setDraft(null);
@@ -301,8 +328,18 @@ export function GoalWorkflowTab({
   // Starting by listening asks only what its events do not supply.
   const startInputs = askedAtStart(workflow ?? value, listen);
 
-  const fit = fitColumns({ total: rowWidth, fixed: 0, rail: PALETTE_WIDTH, railMin: PALETTE_WIDTH, railOpen: draft !== null, right: INSPECTOR_WIDTH, rightMin: INSPECTOR_MIN, rightOpen: true });
+  const fit = fitColumns({ total: rowWidth, fixed: HANDLE_WIDTH, rail: PALETTE_WIDTH, railMin: PALETTE_WIDTH, railOpen: draft !== null, right: inspectorWidth, rightMin: INSPECTOR_MIN, rightOpen: true });
   const paletteCompact = fit.railFolded;
+  // Why the column is read-only, when it is — the first that holds is what it says (`inspectorModel.readOnlyReason`).
+  const runLive = !!activeRun && activeRun.id === run?.id && unfinished;
+  const why = {
+    closed,
+    runLive,
+    runFinished: !!activeRun && !runLive,
+    proposed: !activeRun && !!proposed,
+    ownDesign: !activeRun && !proposed && workflow?.origin.origin === "goal",
+    library: !activeRun && !!workflow && workflow.origin.origin !== "goal",
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -428,7 +465,7 @@ export function GoalWorkflowTab({
               onAdd={(kind) => {
                 const { wf, id } = addStep(draft.present, kind);
                 draftEdit(wf);
-                setSelected(id);
+                select(stepSelection(id));
                 revealStep(id);
               }}
             />
@@ -441,10 +478,10 @@ export function GoalWorkflowTab({
             problems={draftProblems}
             run={activeRun}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={select}
             onChange={draftEdit}
-            onUndo={() => setDraft((h) => (h ? undo(h) : h))}
-            onRedo={() => setDraft((h) => (h ? redo(h) : h))}
+            onUndo={() => step("undo")}
+            onRedo={() => step("redo")}
             canUndo={draft ? canUndo(draft) : false}
             canRedo={draft ? canRedo(draft) : false}
             readOnly={!draft}
@@ -456,27 +493,33 @@ export function GoalWorkflowTab({
             onViewport={keepViewport}
           />
         </div>
-        <aside data-scroll-keep="workflow:inspector" className="shrink-0 overflow-y-auto border-l border-border" style={{ width: fit.right ?? INSPECTOR_WIDTH }}>
-          {draft && (
-            <div className="border-b border-hairline px-4 py-3">
-              <h3 className="mb-1.5 text-2xs font-semibold text-text-dim">{t("workflow-goal-workflow-tab-problems")}</h3>
-              <ProblemsList problems={draftProblems} unreadable={live.error} onSelect={setSelected} />
-            </div>
-          )}
-          {step && activeRun && !draft && (
-            <div className="px-4 py-3">
-              <StepActions run={activeRun.id} step={step} record={record} onChanged={onChanged} onOpenItem={onOpenItem} onDecide={onGoToGate} />
-            </div>
-          )}
-          {step && activeRun && !draft && (
-            <div className="border-t border-hairline px-4 py-2 text-2xs text-text-dim">
-              {record?.error && <p className="text-danger">{record.error}</p>}
-              {record?.output !== undefined && record?.output !== null && (
-                <LinkedText as="pre" className="mt-1 max-h-64 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-2xs" text={JSON.stringify(record.output, null, 2)} />
-              )}
-            </div>
-          )}
-          <Inspector value={value} selected={selected} problems={draftProblems} unreadable={draft ? live.error : null} onChange={draftEdit} onSelect={setSelected} readOnly={!draft} host={{ goal: goal.id }} listeners={heard.data ?? NO_LISTENERS} />
+        {/* The column: the designer's own pane, resizable from its left edge, each step's page keeping its own scroll. */}
+        <ResizeHandle side="left" size={fit.right ?? inspectorWidth} min={INSPECTOR_MIN} max={INSPECTOR_MAX} defaultSize={INSPECTOR_WIDTH} onSize={setInspectorWidth} label={t("workflow-goal-workflow-tab-resize-inspector")} />
+        <aside
+          role="complementary"
+          aria-label={t("workflow-goal-workflow-tab-inspector-label")}
+          data-scroll-keep={`workflow:inspector:${stepOf(selected) ?? ""}`}
+          className="shrink-0 overflow-y-auto border-l border-border"
+          style={{ width: fit.right ?? inspectorWidth }}
+        >
+          <Inspector
+            value={value}
+            selected={selected}
+            problems={draftProblems}
+            unreadable={draft ? live.error : null}
+            onChange={draftEdit}
+            onSelect={select}
+            readOnly={!draft}
+            host={{ goal: goal.id }}
+            listeners={heard.data ?? NO_LISTENERS}
+            why={why}
+            run={activeRun}
+            onEdit={!closed && !activeRun && workflow && workflow.origin.origin === "goal" ? () => setDraft(create(bodyOf(workflow))) : undefined}
+            onOpenDesigner={workflow && workflow.origin.origin !== "goal" ? () => navigate({ name: "workflow", id: workflow.id }) : undefined}
+            onChanged={onChanged}
+            onOpenItem={onOpenItem}
+            onDecide={onGoToGate}
+          />
         </aside>
       </div>
 

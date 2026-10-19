@@ -217,10 +217,12 @@ replace; **Promote to library**, in the header's menu, copies it out when it des
 
 **Manual** is the goal you design. The capture wakes nobody and opens the goal's Workflow tab in
 the designer on a blank canvas: draw the steps, or pick a workflow from the library or a template
-with *Choose workflow…*, and start it. The tab's **Agent** mode is there for help — the goal's own
-conversation in the tab, where `@Workflow Agent` asks for a draft of the whole thing, a step, a fix —
-and what it proposes on a manual goal lands as **your draft** on the canvas, never as a gate; `bisa
-design` is refused on a manual goal by name. `--workflow` on
+with *Choose workflow…*, and start it. Help is the goal's **Conversation** tab, where `@Workflow
+Agent` asks for a draft of the whole thing, a step, a fix — and what it proposes on a manual goal
+lands as **your draft** on the canvas, never as a gate; `bisa design` is refused on a manual goal by
+name. The tab's column — the designer's own panel — says why the workflow is read-only whenever it
+is (a run going, a finished run, a proposal not adopted, a library workflow) with the door that
+answers it: *Edit the steps*, or *Open in the designer* for a library workflow. `--workflow` on
 any mode names the workflow yourself and starts it at once unless `--no-start`.
 
 ## What a run looks like
@@ -299,7 +301,8 @@ in *repair*, and its corrected workflow waits for your adoption like the proposa
 run is not amended — an Inbox row with the whole proposal, still there after a restart; on an auto
 goal the corrected workflow is adopted and started again without asking — up to `goals.auto.repair_limit` failures, after which the
 next proposal waits for you. While a run is going, the goal's Details pane and its Workflow tab are
-read-only — assignees, documents, files and the workflow itself wait for the run to finish.
+read-only — assignees, documents, files and the workflow itself wait for the run to finish; the
+Workflow tab's column says so, and shows the picked step's record under *This run*.
 A queued run is not the current one: an amendment is the live run's alone, and choosing another
 workflow, proposing or designing waits until nothing is live and nothing is queued.
 

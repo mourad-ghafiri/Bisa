@@ -98,18 +98,25 @@ export function open(workflow, problems = []) {
  * is when: the quiet the save waits for is measured from it, and the first
  * edit since the last save starts the clock the max wait is measured on.
  */
-export function edit(s, body, at = Date.now()) {
-  return { ...s, history: push(s.history, body), editedAt: at, dirtySince: s.dirtySince ?? at };
+export function edit(s, body, at = Date.now(), { selection = null, token = null } = {}) {
+  return { ...s, history: push(s.history, body, { selection, at, token }), editedAt: at, dirtySince: s.dirtySince ?? at };
 }
 
-/** Undo and redo move the head like an edit does, so the save follows them. */
-export function undoEdit(s, at = Date.now()) {
-  return { ...s, history: undo(s.history), editedAt: at, dirtySince: s.dirtySince ?? at };
+/**
+ * Undo and redo move the head like an edit does, so the save follows them.
+ * `selection` is where the person is now, stamped on the entry that leaves;
+ * where the history lands is `landedSelection`.
+ */
+export function undoEdit(s, at = Date.now(), selection = null) {
+  return { ...s, history: undo(s.history, selection), editedAt: at, dirtySince: s.dirtySince ?? at };
 }
 
-export function redoEdit(s, at = Date.now()) {
-  return { ...s, history: redo(s.history), editedAt: at, dirtySince: s.dirtySince ?? at };
+export function redoEdit(s, at = Date.now(), selection = null) {
+  return { ...s, history: redo(s.history, selection), editedAt: at, dirtySince: s.dirtySince ?? at };
 }
+
+/** The selection the last undo or redo landed on — what the canvas picks after it. */
+export const landedSelection = (s) => s.history.landed;
 
 export const canUndoEdit = (s) => canUndo(s.history);
 export const canRedoEdit = (s) => canRedo(s.history);

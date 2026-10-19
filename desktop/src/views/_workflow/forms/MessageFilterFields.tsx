@@ -14,7 +14,7 @@
 import { useState } from "react";
 import type { InputDef, MessageFilter as WireMessageFilter, MessageFrom } from "../../../types";
 import { useWorkspace } from "../../../shell/useWorkspaceData";
-import { Field, Select, TextInput } from "../../../ui";
+import { Field, Labelled, Select, TextInput } from "../../../ui";
 import { AssigneePicker } from "../../_work/AssigneePicker";
 import { MESSAGE_FROM } from "../stepKinds.mjs";
 import { ValueRefField } from "./AgentStepForm";
@@ -70,7 +70,7 @@ export function MessageFilterFields<F extends MessageFilter>({
           {listed || <option value={place}>{place}</option>}
         </Select>
       </Field>
-      <Field label={t("workflow-message-filter-fields-from")} hint={t("workflow-message-filter-fields-from-hint")}>
+      <Labelled label={t("workflow-message-filter-fields-from")} hint={t("workflow-message-filter-fields-from-hint")}>
         <div className="flex flex-col gap-1.5">
           <Select
             value={word}
@@ -106,7 +106,7 @@ export function MessageFilterFields<F extends MessageFilter>({
             </ValueRefField>
           )}
         </div>
-      </Field>
+      </Labelled>
       <ValueRefField
         label={t("workflow-message-filter-fields-mentions")}
         hint={t("workflow-message-filter-fields-mentions-hint")}

@@ -10,7 +10,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { InputDef } from "../../../types";
-import { Button, Checkbox, ICON, Select, TextInput } from "../../../ui";
+import { Button, Checkbox, ICON, Select, TextInput, useCommitOnUnmount } from "../../../ui";
 import { useConnectors } from "../useConnectors";
 import { INPUT_KINDS, idProblem, idProblemWords, inputKindWords, nextInputName, optionsFrom, optionsText } from "../workflowForm.mjs";
 import { t as tr } from "../../../i18n/l10n.mjs";
@@ -50,6 +50,16 @@ function DefaultField({ input, disabled, onCommit }: { input: InputDef; disabled
     }
     onCommit(t);
   };
+  useCommitOnUnmount(draft !== shown ? draft : null, (text) => {
+    const t = text.trim();
+    if (t === "") return onCommit(undefined);
+    if (input.kind === "number") {
+      const n = Number(t);
+      if (Number.isFinite(n)) onCommit(n);
+      return;
+    }
+    onCommit(t);
+  });
   return (
     <TextInput
       className="min-w-40 flex-1 font-mono"
@@ -102,6 +112,8 @@ function NameField({
       onProblem(idProblemWords(problem, "input", input.name));
     }
   };
+  // A name typed and left without a blur still renames, when it may.
+  useCommitOnUnmount(problem === null && draft !== input.name ? draft : null, (to) => onRename(input.name, to));
   return (
     <TextInput
       className="font-mono"
@@ -137,6 +149,10 @@ function OptionsField({ options, disabled, onCommit }: { options: string[]; disa
     setDraft(optionsText(next));
     if (optionsText(next) !== stored) onCommit(next);
   };
+  useCommitOnUnmount(draft !== stored ? draft : null, (text) => {
+    const next = optionsFrom(text);
+    if (optionsText(next) !== stored) onCommit(next);
+  });
   return (
     <TextInput
       className="min-w-48 flex-1 font-mono"

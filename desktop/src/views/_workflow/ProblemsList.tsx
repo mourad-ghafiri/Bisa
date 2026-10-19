@@ -28,7 +28,7 @@ export function ProblemsList({
   className?: string;
 }) {
   const notice = unreadable ? (
-    <p className="mb-1 flex items-start gap-1.5 rounded-control border border-danger/30 bg-danger-soft/40 px-2 py-1.5 text-2xs text-danger">
+    <p className="mb-1 flex items-start gap-1.5 rounded-control border border-border bg-danger-soft px-2 py-1.5 text-2xs text-danger">
       <ICON.warn size={12} aria-hidden className="mt-0.5 shrink-0" />
       <span>{rich("workflow-problems-list-node-could-not-read-design", { detail: <span className="text-text-dim">{unreadable}</span> })}</span>
     </p>
@@ -47,8 +47,8 @@ export function ProblemsList({
   return (
     <div className={className}>
       {notice}
-      {/* One list, rows divided by a hairline, rather than a stack of red boxes. */}
-      <ul className="flex flex-col divide-y divide-danger/20 rounded-control border border-danger/30 bg-danger-soft/40">
+      {/* One list, rows divided by the hairline, on the danger wash with the plain edge — never a stack of red boxes, never a status colour with alpha. */}
+      <ul className="flex flex-col divide-y divide-hairline rounded-control border border-border bg-danger-soft">
       {problems.map((p, i) => {
         const body = (
           <>

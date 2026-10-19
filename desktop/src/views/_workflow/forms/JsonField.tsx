@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Field, TextArea } from "../../../ui";
+import { Field, TextArea, keyLabel, useCommitOnUnmount } from "../../../ui";
 import { t } from "../../../i18n/l10n.mjs";
 
 function shown(value: unknown): string {
@@ -54,9 +54,19 @@ export function JsonField({
       setProblem(e instanceof Error ? e.message : String(e));
     }
   };
+  // A draft that parses lands when the field goes away without a blur — another step picked, the pane switched.
+  useCommitOnUnmount(draft !== stored ? draft : null, (text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return onCommit(null);
+    try {
+      onCommit(JSON.parse(trimmed) as unknown);
+    } catch {
+      // Text that is not JSON is not a value; it goes, as it would on a refused blur.
+    }
+  });
 
   return (
-    <Field label={label} hint={problem ? <span className="text-danger">{t("workflow-json-field-not-json", { problem })}</span> : hint}>
+    <Field label={label} error={problem ? t("workflow-json-field-not-json", { problem }) : undefined} hint={hint ? t("workflow-json-field-hint-and-cue", { hint, chord: keyLabel("Mod+Enter") }) : t("workflow-json-field-cue", { chord: keyLabel("Mod+Enter") })}>
       <TextArea
         rows={rows}
         className="font-mono"

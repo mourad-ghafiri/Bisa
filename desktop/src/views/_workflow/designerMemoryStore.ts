@@ -49,3 +49,16 @@ export function rememberSelectedStep(workflow: string, step: string | null): voi
 export function rememberCanvasViewport(workflow: string, viewport: { x: number; y: number; zoom: number }): void {
   rememberViewportAt(designerPlace(workflow), viewport);
 }
+
+/**
+ * A scrollport kept under one name at `place` is kept under another from
+ * now on — what a step renamed in the panel asks, so its page comes back
+ * where it was scrolled rather than at the top under a name nobody kept.
+ * Spelt as `shell/useViewScroll` spells a scroll's name.
+ */
+export function moveKeptScroll(place: string, from: string, to: string): void {
+  if (from === to) return;
+  const at = viewState.read(place, `scroll:${from}`);
+  if (at === undefined || at === null) return;
+  viewState.keepQuietly(place, `scroll:${to}`, at);
+}

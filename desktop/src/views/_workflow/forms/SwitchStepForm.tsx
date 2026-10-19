@@ -7,7 +7,7 @@
  */
 
 import type { Step } from "../../../types";
-import { Button, Chip, Field, ICON, TextInput } from "../../../ui";
+import { Button, Chip, Field, ICON, Labelled, TextInput } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { freshBranch } from "../workflowGraph.mjs";
 import { BranchName } from "./BranchName";
@@ -23,11 +23,11 @@ export function SwitchStepForm({ step, onChange, disabled }: { step: Switch; onC
       <Field label={t("workflow-switch-step-form-words")} hint={t("workflow-switch-step-form-rendered-text-when-step-entered-compared", { TEMPLATE_HINT })}>
         <TextInput className="font-mono" value={step.on} /* for the machine */ placeholder="{steps.triage.output.severity}" disabled={disabled} onChange={(e) => set({ on: e.target.value })} />
       </Field>
-      <Field label={t("workflow-switch-step-form-cases")} hint={t("workflow-switch-step-form-first-case-whose-value-text-names")}>
+      <Labelled label={t("workflow-switch-step-form-cases")} hint={t("workflow-switch-step-form-first-case-whose-value-text-names")}>
         <div className="flex flex-col gap-2">
           {cases.map((c, i) => (
-            <div key={`${c.branch}:${i}`} className="flex flex-wrap items-center gap-2 rounded-control bg-surface-2/50 p-2">
-              <Chip tone="quiet">{t("workflow-switch-step-form-case-n", { n: i + 1 })}</Chip>
+            <div key={i} className="flex flex-wrap items-center gap-2 rounded-control bg-surface-2/50 p-2">
+              <Chip>{t("workflow-switch-step-form-case-n", { n: i + 1 })}</Chip>
               <TextInput
                 className="w-36 font-mono"
                 value={c.value}
@@ -59,7 +59,7 @@ export function SwitchStepForm({ step, onChange, disabled }: { step: Switch; onC
               <ICON.add size={12} aria-hidden />{t("workflow-switch-step-form-add-case")}</Button>
           </div>
         </div>
-      </Field>
+      </Labelled>
       <Field label={t("workflow-decide-step-form-otherwise")} hint={t("workflow-switch-step-form-branch-when-no-case-matches")}>
         <BranchName step={step} branch={step.otherwise} disabled={disabled} className="w-40 font-mono" onChange={onChange} />
       </Field>

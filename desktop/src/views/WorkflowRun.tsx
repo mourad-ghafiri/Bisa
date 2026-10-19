@@ -38,6 +38,7 @@ import { forgetRead } from "./_work/keptReadsStore";
 import { useAsync } from "./_work/useAsync";
 import { Designer } from "./_workflow/Designer";
 import { keptSelection } from "./_workflow/designerMemoryModel.mjs";
+import { stepOf, stepSelection } from "./_workflow/selectionModel.mjs";
 import { canvasViewportAt, rememberViewportAt } from "./_workflow/designerMemoryStore";
 import { useDesignerSettings } from "./_workflow/useDesignerSettings";
 import { StopRunDialog } from "./_workflow/StopRunDialog";
@@ -186,7 +187,8 @@ export default function WorkflowRun({ id }: { id: string }) {
           </div>
         ) : (
           <div className="relative min-h-0 flex-1">
-            <Designer value={run.workflow} problems={[]} run={run} selected={selected} onSelect={setSelected} onChange={() => {}} readOnly settings={settings} startViewport={startViewport} onViewport={keepViewport} />
+            {/* The run's page picks steps only — a flow picked is nothing to show here — and keeps the step as a bare id. */}
+            <Designer value={run.workflow} problems={[]} run={run} selected={stepSelection(selected)} onSelect={(sel) => setSelected(stepOf(sel))} onChange={() => {}} readOnly settings={settings} startViewport={startViewport} onViewport={keepViewport} />
           </div>
         )}
       </div>

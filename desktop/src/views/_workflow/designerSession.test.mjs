@@ -10,7 +10,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
 import { libraryReads } from "./libraryModel.mjs";
-import { MAX_QUIET_MULTIPLE, RETRY_CAP_MS, asksStored, refusalOutcome, bodyOf, canUndoEdit, caughtUp, conflict, definitionBody, dirty, edit, keepMine, open, present, problemsFromErrorBody, putBody, redoEdit, remoteDecision, remoteLoaded, retryDelayMs, saveDue, saveFailed, saveRejected, saveRequest, saveStarted, saveSucceeded, settle, statusLine, takeTheirs, undoEdit, withProblems, WORKFLOW_FACTS, goalTabRemote, remoteAction, rowBehind } from "./designerSession.mjs";
+import { MAX_QUIET_MULTIPLE, RETRY_CAP_MS, asksStored, refusalOutcome, bodyOf, canUndoEdit, caughtUp, conflict, definitionBody, dirty, edit, keepMine, landedSelection, open, present, problemsFromErrorBody, putBody, redoEdit, remoteDecision, remoteLoaded, retryDelayMs, saveDue, saveFailed, saveRejected, saveRequest, saveStarted, saveSucceeded, settle, statusLine, takeTheirs, undoEdit, withProblems, WORKFLOW_FACTS, goalTabRemote, remoteAction, rowBehind } from "./designerSession.mjs";
 
 const stored = (revision, name = "Ship it") => ({
   id: "01WF",
@@ -309,6 +309,25 @@ test("undo and redo move the head like an edit, so the save follows them", () =>
   s = redoEdit(s, 2500);
   assert.equal(dirty(s), false, "redo back to the saved body is clean");
   assert.equal(saveDue(s, 2500, 800), null);
+});
+
+test("a typed burst is one undo, a structural edit its own, and undo hands back where the person was", () => {
+  let s = open(stored(1));
+  const pick = { kind: "step", id: "a" };
+  s = edit(s, { ...present(s), name: "T" }, 100, { selection: pick, token: "workflow" });
+  s = edit(s, { ...present(s), name: "Tw" }, 300, { selection: pick, token: "workflow" });
+  s = edit(s, { ...present(s), name: "Two" }, 500, { selection: pick, token: "workflow" });
+  assert.equal(s.history.past.length, 1, "three keystrokes, one entry");
+  assert.equal(s.editedAt, 500, "the save's clock still moves with every keystroke");
+  s = edit(s, { ...present(s), steps: [] }, 600, { selection: pick });
+  assert.equal(s.history.past.length, 2, "a structural edit never merges");
+  s = undoEdit(s, 700, null);
+  assert.deepEqual([present(s).name, landedSelection(s)], ["Two", pick], "undo lands on the selection the entry was left with");
+  s = undoEdit(s, 800, pick);
+  assert.deepEqual([present(s).name, landedSelection(s)], [stored(1).name, pick]);
+  s = redoEdit(s, 900, null);
+  assert.deepEqual([present(s).name, landedSelection(s)], ["Two", pick]);
+  assert.equal(landedSelection(edit(s, { ...present(s), name: "x" }, 1000)), null, "an edit lands nowhere");
 });
 
 test("settle is the one place a save's outcome becomes a session", () => {

@@ -22,6 +22,10 @@ export declare function progress(run: WorkflowRun | null | undefined): number;
 export declare function currentSteps(run: WorkflowRun | null | undefined): string[];
 export declare function firedBoundaries(run: WorkflowRun | null | undefined, id: string): Set<string>;
 export declare function stepActions(step: Step, record: StepRecord | null | undefined): StepAction[];
+/** The acts that make a waiting step the person's move. */
+export declare const YOUR_ACTS: readonly StepAction[];
+/** Whether the step waits on the person. */
+export declare function yours(step: Step, record: StepRecord | null | undefined): boolean;
 export declare function edgeTone(run: WorkflowRun | null | undefined, edge: GraphEdge): EdgeTone;
 export declare function failedStep(run: WorkflowRun | null | undefined): { id: string; name: string; error: string | null } | null;
 

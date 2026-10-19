@@ -627,6 +627,21 @@ export function setOnFail(wf, id, onFail) {
   return { ...wf, steps: wf.steps.map((s) => (s.id === id ? { ...s, on_fail: onFail } : s)) };
 }
 
+/**
+ * One flow removed, by its reference (`selectionModel.flowRef`) — the one
+ * door for the canvas's Delete and the panel's *Remove flow*. A plain or a
+ * branch's flow is cut; a failure route is put back to `fail`, which is what
+ * deleting the edge that draws it means. A route that no longer points at
+ * `to` is left alone: the person deleted an edge the picture no longer has.
+ */
+export function removeFlow(wf, ref) {
+  if (ref.route === "on_fail") {
+    const src = (wf.steps ?? []).find((s) => s.id === ref.from);
+    return src?.on_fail?.on_fail === "then" && src.on_fail.step === ref.to ? setOnFail(wf, ref.from, { on_fail: "fail" }) : wf;
+  }
+  return disconnect(wf, ref.from, ref.to, ref.branch ?? null);
+}
+
 /** How far a duplicate lands from its source, right and down, so both stay in view. */
 export const DUPLICATE_OFFSET = 24;
 

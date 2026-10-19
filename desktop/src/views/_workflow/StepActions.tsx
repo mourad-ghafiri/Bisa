@@ -6,7 +6,9 @@
  *
  * The verbs come from `runView.mjs`'s `stepActions`; this is paint over
  * `api.answerStep`, `api.markStepDone` and `api.releaseStep`, each addressed
- * to the run by its id.
+ * to the run by its id. *This step is yours* and the accent ground are worn
+ * only while the step waits on the person (`runView.yours`): an agent step
+ * with an item to open is the agent's, and its door is a plain row.
  */
 
 import { useState } from "react";
@@ -14,7 +16,7 @@ import { api } from "../../api";
 import type { Step, StepRecord } from "../../types";
 import { Button, Checkbox, ICON, TextArea, useToast } from "../../ui";
 import { attempt } from "../_work/useAsync";
-import { stepActions } from "./runView.mjs";
+import { stepActions, yours } from "./runView.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 export function StepActions({
@@ -36,6 +38,7 @@ export function StepActions({
 }) {
   const toast = useToast();
   const actions = stepActions(step, record);
+  const mine = yours(step, record);
   const [answer, setAnswer] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -51,9 +54,9 @@ export function StepActions({
   const options = step.kind === "human" ? (step.options ?? []) : [];
   const multi = step.kind === "human" && step.multi === true;
   return (
-    // No edge of its own: it sits inside the step's bordered card, and the accent ground already says it is yours.
-    <div className="flex flex-col gap-2 rounded-control bg-accent-soft/50 p-3">
-      <p className="text-xs font-semibold text-accent-ink">{t("workflow-step-actions-step-yours")}</p>
+    // No edge of its own: it sits inside the step's bordered card, and the accent ground — worn only while the step is yours — already says so.
+    <div className={mine ? "flex flex-col gap-2 rounded-control bg-accent-soft/50 p-3" : "flex flex-col gap-2"}>
+      {mine && <p className="text-xs font-semibold text-accent-ink">{t("workflow-step-actions-step-yours")}</p>}
       {actions.includes("answer") && (
         <>
           {options.length > 0 && !multi && (

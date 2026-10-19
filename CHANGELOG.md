@@ -8,6 +8,40 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- The workflow panel — the designer's Properties pane and the goal's Workflow tab column — is one
+  component over one model (`desktop/src/views/_workflow/inspectorModel.mjs`): the workflow's own
+  view (Identity · Runs · Inputs · Problems), a step's page (*This run* while a run is shown — its
+  state, holder, time, error, answer, output folded, the verbs it admits —, Identity, the kind's own
+  form under the kind's name, *Flow and failure* as a kit fold, its own problems under the forms,
+  *Remove step* with *Undo brings it back*), a flow's page (its two steps as doors, its word, its
+  branch to rename, *Remove flow*) and a word on several picked; a ghost *Workflow* door back
+  instead of a close glyph; every read-only state says why — a closed goal, a run going, running in
+  *n* goals, a finished run, a proposal not adopted, a design saved for the goal, a library workflow
+  — with the door that answers it (*Edit the steps*, *Open in the designer*); the goal tab's column
+  is a named landmark, resizable and remembered (`bisa.goal.workflow.inspector.width`), each step's
+  scroll its own; the kit gained `Note`, `Labelled`'s `error` and `useCommitOnUnmount`; a group of
+  controls is `Labelled`, never a `<label>`; *Id* reads *Step id*, *on fail* reads *on failure*, a
+  condition group's member is *Condition n*, the JSON field says once when it applies, the human
+  step's two icon buttons are named; field pairs go two columns from `@sm` everywhere.
+
+### Fixed
+
+- The designer's panel remounted a step's identity form on every render — two siblings under one
+  key — so typing lost focus and drafts, and a step's problems reflowed above the fields it was
+  typed in; a rename jumped the panel to the top; a flow clicked, a box dragged or Escape on the
+  canvas never reached the panel; deleting a flow cleared the step's selection; undoing a delete
+  brought the step back unselected and undoing an add left a dangling pick; every keystroke was its
+  own undo; a JSON body, a number, a template, an id, a branch name, an input's name or default typed
+  and left without a blur was lost; `⌘⇧D` duplicated the step while the chord showed Properties; the
+  panel's resize handle dragged from the stored width, not the drawn one; an edit in the panel
+  skipped the derived positions and could reflow the picture; a frozen designer dropped edits
+  without a word; the goal tab drew Problems twice, a run's actions and raw output above the
+  step's own heading, and *This step is yours* on an agent step whose only act is a door to its
+  work item; the tab's banners pointed at the wrong place and the docs described an *Agent mode*
+  the tab does not have.
+
 ## [0.5.0] - 2026-10-19
 
 ### Added

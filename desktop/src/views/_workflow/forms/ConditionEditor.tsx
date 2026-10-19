@@ -67,9 +67,7 @@ export function ConditionEditor({
           {value.of.map((child, i) => (
             <div key={i} className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <Chip tone="quiet">
-                  {value.condition} · {i + 1}
-                </Chip>
+                <Chip>{t("workflow-condition-editor-nth", { n: i + 1 })}</Chip>
                 <Button
                   size="sm"
                   variant="ghost"

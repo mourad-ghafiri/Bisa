@@ -284,7 +284,9 @@ opens the designer instead. **Conversation** is the goal's thread, where the Wor
 and proposes — one line per proposal, saying whether it started the run (auto), waits for your
 adoption (guided) or left a draft on the canvas (manual). **Workflow** is its run drawn on the
 designer's canvas — each step ringed and chipped with its state, taken flows solid and skipped ones
-dimmed — with the actions the current step admits on the side; the *Designed for this goal* banner
+dimmed — beside one column, the designer's own panel, resizable: the picked step's record and the
+verbs it admits under *This run*, or why the workflow is read-only and the door that answers it;
+the *Designed for this goal* banner
 (proposed, not yet adopted, or adopted); before a run, *Edit the steps* opens the design as a draft
 — while a run goes it is not offered: a running workflow is not edited from here. The goal's
 conversation, where `@Workflow Agent` asks for a draft, a step or a fix, is the Conversation tab. The
@@ -348,10 +350,10 @@ Validation runs as you type and the problems list names the step and the rule; a
 choice you have not made yet — a connector, an operation, a condition — is a row in it, not a
 refusal. A save is a new revision after `workflow.autosave.delay_ms` of quiet (or ten such delays
 after the first unsaved edit), and a save with problems is kept and cannot start. Leaving the
-designer sends the last edits on the way out; quitting with unsaved edits asks first. `Delete` removes the selection, `⌘D` duplicates, `⌘Z` · `⌘⇧Z` undo and redo, `Esc` clears
+designer sends the last edits on the way out; quitting with unsaved edits asks first. `Delete` removes the selection — a step, a flow or a box of them, what remains staying picked —, `⌘D` duplicates, `⌘Z` · `⌘⇧Z` undo and redo (a typed word is one undo, and undo lands on the step you were on), `Esc` clears
 — on the focused canvas only. Snapping, the grid and the minimap are `workflow.designer.snap`,
 `workflow.designer.grid` and `workflow.designer.minimap` under **Settings → Automation → Workflows**.
-The inspector's width and the library's tab are remembered per viewer; the step you picked, where
+The inspector's width — the designer's and the goal tab's — and the library's tab are remembered per viewer; the step you picked, where
 the canvas looked and the Agent pane's conversation are remembered per workflow, so leaving for the
 Inbox and coming back by any door — or closing the app and opening it — finds the designer as you
 left it.

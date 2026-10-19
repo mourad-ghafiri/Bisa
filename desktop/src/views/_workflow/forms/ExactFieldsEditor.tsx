@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, ICON, TextInput } from "../../../ui";
+import { Button, ICON, TextInput, useCommitOnUnmount } from "../../../ui";
 import { addField, fieldRows, removeField, renameField, setFieldValue, type ExactFields } from "./exactFieldsModel.mjs";
 import { t } from "../../../i18n/l10n.mjs";
 
@@ -32,6 +32,11 @@ function FieldPath({ fields, path, disabled, onChange }: { fields: ExactFields; 
       setDraft(path);
     }
   };
+  // A name typed and left without a blur still lands, when it may; a refused one goes, as it would on a refused blur.
+  useCommitOnUnmount(draft !== path ? draft : null, (next) => {
+    const r = renameField(fields, path, next);
+    if (r.ok && r.fields !== fields) onChange(r.fields);
+  });
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
       <TextInput
@@ -48,7 +53,7 @@ function FieldPath({ fields, path, disabled, onChange }: { fields: ExactFields; 
           }
         }}
       />
-      {why && <span className="text-2xs text-danger">{why}</span>}
+      {why && <span role="alert" className="text-2xs text-danger">{why}</span>}
     </span>
   );
 }
@@ -65,8 +70,9 @@ export function ExactFieldsEditor({
   const fields = value ?? {};
   return (
     <div className="flex flex-col gap-1.5">
-      {fieldRows(fields).map((row) => (
-        <div key={row.path} className="flex items-start gap-2">
+      {/* Rows keyed by place, not by path: a path being renamed keeps its row, its focus and its draft. */}
+      {fieldRows(fields).map((row, i) => (
+        <div key={i} className="flex items-start gap-2">
           <FieldPath fields={fields} path={row.path} disabled={disabled} onChange={onChange} />
           <span className="pt-1.5 text-2xs text-text-dim">=</span>
           <TextInput className="min-w-0 flex-1 font-mono" value={row.value} aria-label={t("workflow-exact-fields-editor-value")} disabled={disabled} onChange={(e) => onChange(setFieldValue(fields, row.path, e.target.value))} />

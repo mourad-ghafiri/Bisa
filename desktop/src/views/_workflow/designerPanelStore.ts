@@ -57,7 +57,7 @@ export function toggleDesignerPanel(): void {
   set({ open: !state.open, tab: state.tab });
 }
 
-/** A step was picked on the canvas: Properties shows. */
-export function revealSelection(selected: string | null): void {
+/** Something was picked on the canvas — a step, a flow, several: Properties shows. */
+export function revealSelection(selected: unknown): void {
   set(paneForSelection(state, selected));
 }

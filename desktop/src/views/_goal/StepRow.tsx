@@ -7,9 +7,10 @@
  * (`run` null) has no body to act on.
  */
 import type { Step, StepRecord } from "../../types";
-import { Button, ICON, LinkedText, RelativeTime, STEP_KIND_ICON, StepStateChip, cn } from "../../ui";
+import { Button, ICON, RelativeTime, STEP_KIND_ICON, StepStateChip, cn } from "../../ui";
 import type { StepKind } from "../../types";
 import { answerSummary } from "../../askModel.mjs";
+import { StepRecordBody } from "../_workflow/StepRecordBody";
 import { HOLDER_LABEL } from "../_goals/goalStripModel.mjs";
 import { StepActions } from "../_workflow/StepActions";
 import { familyInk } from "../_workflow/familyInk";
@@ -73,11 +74,7 @@ export function StepRow({
       </button>
       {expanded && hasBody && (
         <div className="flex flex-col gap-2 px-3 pt-1 pb-3 text-2xs">
-          {row.error && <p className="text-danger">{row.error}</p>}
-          {said && <p className="text-text-dim">{t("goal-step-row-answered", { said })}</p>}
-          {row.output !== null && row.output !== undefined && (
-            <LinkedText as="pre" className="max-h-64 overflow-auto rounded-control bg-surface-2 p-2 font-mono text-2xs" text={JSON.stringify(row.output, null, 2)} />
-          )}
+          <StepRecordBody error={row.error} answer={row.answer} output={row.output} />
           {row.workItem && (
             <Button size="sm" variant="ghost" className="self-start" onClick={() => onOpenItem(row.workItem!)}>
               <ICON.workItem size={12} aria-hidden />{t("goal-step-row-open-work-item")}</Button>

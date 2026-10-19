@@ -32,3 +32,10 @@ export declare function sameShallow<T extends object>(a: T | null | undefined, b
 export declare function reuse<T>(prev: T | undefined, next: T, same: (prev: T, next: T) => boolean): T;
 export declare function reconcileNodes<N extends MirrorNode>(prev: readonly N[], next: readonly N[]): N[];
 export declare function reconcileEdges<E extends MirrorEdge>(prev: readonly E[], next: readonly E[]): E[];
+/** What a mirror picks: the ids of its selected nodes and edges. */
+export interface MirrorPick {
+  nodes: string[];
+  edges: string[];
+}
+export declare function selectedOf(nodes: readonly { id: string; selected?: boolean }[], edges: readonly { id: string; selected?: boolean }[]): MirrorPick;
+export declare function samePick(a: { nodes: readonly string[]; edges: readonly string[] }, b: { nodes: readonly string[]; edges: readonly string[] }): boolean;

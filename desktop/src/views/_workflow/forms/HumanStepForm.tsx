@@ -4,7 +4,7 @@
  */
 
 import type { AskOption, InputDef, Step } from "../../../types";
-import { Button, Checkbox, Field, ICON, TextArea, TextInput } from "../../../ui";
+import { Button, Checkbox, Field, ICON, Labelled, TextArea, TextInput } from "../../../ui";
 import { AssigneePicker } from "../../_work/AssigneePicker";
 import { TEMPLATE_HINT, freshOptionId } from "../stepKinds.mjs";
 import { ValueRefField } from "./AgentStepForm";
@@ -32,7 +32,7 @@ export function HumanStepForm({
       <Field label={t("workflow-approval-step-form-prompt")} hint={t("workflow-human-step-form-one-question-answerable-sentence", { TEMPLATE_HINT })}>
         <TextArea rows={3} value={step.prompt} disabled={disabled} onChange={(e) => set({ prompt: e.target.value })} />
       </Field>
-      <Field label={t("workflow-human-step-form-options")} hint={t("workflow-human-step-form-leave-empty-free-text-question-ids")}>
+      <Labelled label={t("workflow-human-step-form-options")} hint={t("workflow-human-step-form-leave-empty-free-text-question-ids")}>
         <div className="flex flex-col gap-1.5">
           {options.map((o, i) => (
             <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-1.5">
@@ -40,10 +40,10 @@ export function HumanStepForm({
               <TextInput value={o.label} placeholder={t("workflow-human-step-form-label")} aria-label={t("workflow-human-step-form-option-label")} disabled={disabled} onChange={(e) => patch(i, { label: e.target.value })} />
               <div className="flex items-center gap-1">
                 {/* A pressed toggle, so the selected ground — the accent is kept for what waits on the person. */}
-                <Button size="sm" variant="ghost" className={o.recommended ? "bg-selected text-text" : undefined} disabled={disabled} onClick={() => set({ options: options.map((x, j) => ({ ...x, recommended: j === i ? !x.recommended : false })) })}>
+                <Button size="sm" variant="ghost" className={o.recommended ? "bg-selected text-text" : undefined} disabled={disabled} aria-label={t("workflow-human-step-form-recommend-option")} aria-pressed={o.recommended} onClick={() => set({ options: options.map((x, j) => ({ ...x, recommended: j === i ? !x.recommended : false })) })}>
                   <ICON.recommended size={12} aria-hidden />
                 </Button>
-                <Button size="sm" variant="ghost" disabled={disabled} onClick={() => set({ options: options.filter((_, j) => j !== i) })}>
+                <Button size="sm" variant="ghost" disabled={disabled} aria-label={t("workflow-human-step-form-remove-option")} onClick={() => set({ options: options.filter((_, j) => j !== i) })}>
                   <ICON.delete size={12} aria-hidden />
                 </Button>
               </div>
@@ -54,7 +54,7 @@ export function HumanStepForm({
               <ICON.add size={12} aria-hidden />{t("workflow-human-step-form-add-option")}</Button>
           </div>
         </div>
-      </Field>
+      </Labelled>
       {options.length > 0 && (
         <Checkbox label={t("workflow-human-step-form-several-may-picked")} checked={step.multi === true} disabled={disabled} onChange={(multi) => set({ multi })} />
       )}

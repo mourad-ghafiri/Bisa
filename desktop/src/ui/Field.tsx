@@ -19,6 +19,7 @@ import type {
 import { cloneElement, isValidElement, useEffect, useId, useState } from "react";
 import { copyText } from "./clipboard";
 import { cn } from "./cn";
+import { useCommitOnUnmount } from "./useCommitOnUnmount";
 import { ICON } from "./icons";
 import { parseBounded } from "./numberInputModel.mjs";
 import { t as tr } from "../i18n/l10n.mjs";
@@ -150,6 +151,11 @@ export function NumberInput({
     setDraft(String(next));
     if (next !== value) onCommit(next);
   };
+  // A number typed and left without a blur still lands — the field's owner was unmounted under it.
+  useCommitOnUnmount(draft !== String(value) ? draft : null, (text) => {
+    const next = parseBounded(text, { min, max, fallback: value });
+    if (next !== value) onCommit(next);
+  });
   return (
     <input
       inputMode="numeric"

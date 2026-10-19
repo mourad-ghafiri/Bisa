@@ -59,7 +59,7 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
   const notARead = strayOperation(on.operation, reads, def ? def.operations : null);
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 @xs:grid-cols-2">
+      <div className="grid gap-3 @sm:grid-cols-2">
         <Field label={t("workflow-step-kinds-connector")} hint={connectors.rows.length === 0 ? t("workflow-connector-step-form-nothing-installed-here-yet-settings-connectors") : t("workflow-connector-step-form-connector-installed-here-slug")}>
           <Select className="font-mono" value={on.connector ?? ""} disabled={disabled} onChange={(e) => onChange(withConnector(on, e.target.value))}>
             <option value="">{t("workflow-connector-step-form-pick-connector")}</option>

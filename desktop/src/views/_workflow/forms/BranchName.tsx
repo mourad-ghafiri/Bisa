@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import type { Step } from "../../../types";
-import { TextInput } from "../../../ui";
+import { TextInput, useCommitOnUnmount } from "../../../ui";
 import { relabelBranch } from "../workflowGraph.mjs";
 import { t } from "../../../i18n/l10n.mjs";
 
@@ -40,6 +40,11 @@ export function BranchName({
       setDraft(branch);
     }
   };
+  // A name typed and left without a blur still lands, when it may; a refused one goes, as it would on a refused blur.
+  useCommitOnUnmount(draft !== branch ? draft : null, (next) => {
+    const r = relabelBranch(step, branch, next);
+    if (r.ok && r.step !== step) onChange(r.step);
+  });
   return (
     <span className="flex flex-col gap-0.5">
       <TextInput
@@ -56,7 +61,7 @@ export function BranchName({
           }
         }}
       />
-      {why && <span className="text-2xs text-danger">{why}</span>}
+      {why && <span role="alert" className="text-2xs text-danger">{why}</span>}
     </span>
   );
 }

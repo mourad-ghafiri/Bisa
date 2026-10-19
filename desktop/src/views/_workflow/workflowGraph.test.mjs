@@ -14,6 +14,7 @@ import { test } from "node:test";
 
 import {
   addStep,
+  removeFlow,
   connect,
   disconnect,
   DUPLICATE_OFFSET,
@@ -641,4 +642,20 @@ test("renaming an input follows it into a poll's parameters, a check's command a
   assert.equal(watch.on.command, "test -f {inputs.subject}");
   assert.equal(work.boundaries[0].signal, "{inputs.subject}.late");
   assert.deepEqual(work.boundaries[0].payload, { about: "{inputs.subject}" });
+});
+
+test("one flow removed by its reference: a flow is cut, a failure route put back to fail, a stale route left alone", () => {
+  const wf = {
+    steps: [
+      { id: "a", name: "A", kind: "agent", instructions: "x", on_fail: { on_fail: "then", step: "c" }, then: [{ to: "b" }] },
+      { id: "b", name: "B", kind: "decide", rules: [], otherwise: "no", then: [{ to: "c", branch: "no" }] },
+      { id: "c", name: "C", kind: "end" },
+    ],
+  };
+  assert.deepEqual(removeFlow(wf, { from: "a", to: "b", branch: null, route: "then" }).steps[0].then, []);
+  assert.deepEqual(removeFlow(wf, { from: "b", to: "c", branch: "no", route: "then" }).steps[1].then, []);
+  assert.deepEqual(removeFlow(wf, { from: "b", to: "c", branch: null, route: "then" }).steps[1].then, [{ to: "c", branch: "no" }], "the branch names the flow");
+  assert.deepEqual(removeFlow(wf, { from: "a", to: "c", branch: null, route: "on_fail" }).steps[0].on_fail, { on_fail: "fail" });
+  assert.equal(removeFlow(wf, { from: "a", to: "b", branch: null, route: "on_fail" }), wf, "a route that no longer points there is left alone");
+  assert.equal(removeFlow(wf, { from: "zz", to: "b", branch: null, route: "on_fail" }), wf);
 });

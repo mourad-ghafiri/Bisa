@@ -1206,6 +1206,32 @@ keeps seventeen promises the model relies on:
   (`designDraftModel.draftBody`: what is no drawing is nothing). Leaving the window with edits to
   undo asks first; saving, cancelling or a run starting drops it, there too. Nothing of it reaches
   the node until *Save changes*, which saves against the workflow as it stands then.
+- **One panel, four views, one model.** The designer's Properties pane and the goal's Workflow tab
+  column draw the same `Inspector`, from `inspectorModel.mjs` (`inspectorView`): the workflow itself
+  when nothing is picked (Identity · Runs · Inputs · Problems), a **step** (*This run* while a run is
+  shown — its state, who holds it and since when, its error, its answer, its output folded, the verbs
+  it admits —, Identity, the kind's own form, *Flow and failure* folded, its own problems under the
+  forms, *Remove step*), a **flow** (its two steps as doors, its word — a plain flow, a branch's, the
+  otherwise, a boundary's path, the failure route —, a loop said, its branch renamed in place, *Remove
+  flow*) or **several** (a count and a door to each). Every read-only state says why, the first reason
+  that holds (`readOnlyReason`: a closed goal · a run going · running in *n* goals · a finished run ·
+  proposed · saved for the goal · from the library), with the door that answers it — *Edit the
+  steps*, *Open in the designer*; the amendment's finer grain, a step that has started, stays per
+  step. **What is picked is one value** (`selectionModel.mjs`: nothing, a step, a flow named by its
+  ends and its branch exactly as `toGraph` names the edge, or a many from a box select), reported by
+  the canvas through xyflow's own selection listener (`FlowCanvas.onSelect`; the mount's call and
+  the props' echo told from a pick by `flowMirrorModel.samePick`) and marked on its nodes and edges
+  from it; a delete leaves what remains picked (`selectionAfterDelete`); the memory keeps a step as
+  the bare id it always wrote (`storedSelection` · `readSelection`), a flow or a many being a
+  moment's pick. **Undo lands where the person was**: every history entry is stamped with the
+  selection (`history.mjs`), undo and redo hand it back (`landed`), and a typed burst is one entry —
+  a push with the same token (`step:<id>`, `workflow`, `inputs`) within `COALESCE_MS` (800 ms)
+  replaces the head, and a structural edit never merges. The panel is stable while it is typed in:
+  one keyed fragment per step, every edit through `commit` → `withPositions`, a blur-commit field
+  landing its draft on the way out (`ui/useCommitOnUnmount`), a rename carrying the kept scroll to the
+  new id (`designerMemoryStore.moveKeptScroll`). The goal's column is a `complementary` landmark,
+  *Workflow inspector*, resizable from its edge (`bisa.goal.workflow.inspector.width`: 320, from 240
+  to 560), each step's scroll its own.
 - **The designer comes back where it was left.** The screen is keyed by its route, and every door
   back to it — the library's card, the Inbox, the Pulse, a conversation's chip — opens a bare
   `#/workflows/<id>`; so it remembers, per workflow, across leaving it and across a restart

@@ -185,7 +185,7 @@ test("the goal's Workflow tab is read from the memory on every render: the step,
   inOrder(between(tab, "if (!stepParam) return;", "}, [stepParam, setSelected]);"), ["setSelected(stepParam);", "setSearch({ step: null }, { replace: true });"], "a link's step is taken into the memory and off the address");
   inOrder(between(tab, "const liveRun = useRef(run?.id);", "}, [run?.id, setViewingRun]);"), ["if (liveRun.current === run?.id) return;", "setViewingRun(null);"], "the run viewed is let go when the live run changes, never when the tab opens");
   assert.ok(tab.includes("startViewport={startViewport}") && tab.includes("onViewport={keepViewport}") && tab.includes("canvasViewportAt(place)") && tab.includes("rememberViewportAt(place, v)"), "the canvas opens where it was left, as the designer's does");
-  assert.ok(tab.includes("keptSelection(picked, value.steps)"), "a remembered step the picture no longer has is no pick");
+  assert.ok(tab.includes("keptSelection(transient ?? readSelection(picked), draft ? draft.present : stored_body)"), "a remembered step the picture no longer has is no pick; a flow or a box picked is the tab's own for the moment");
   // What the memory gives back is what it is, or nothing.
   assert.deepEqual(parseMemory({ selected: "build", viewport: { x: -40, y: 12, zoom: 1.25 } }), { selected: "build", viewport: { x: -40, y: 12, zoom: 1.25 } });
   assert.equal(keptSelection("build", [{ id: "start" }, { id: "ship" }]), null);
@@ -202,7 +202,7 @@ test("a designer drawn from what the window kept stands on the node's own answer
   inOrder(between(screen, 'const openedOn = useRef<"kept" | "read" | null>(null);', "}, [data, id, at]);"), ['openedOn.current = at === null ? "kept" : "read";', "open(data.workflow, data.problems)", "caughtUp(s, data.workflow, data.problems)"], "opened once, and caught up once when it was opened on a kept answer");
   inOrder(screen, ["if (missing) forgetRead(workflowRead);", 'useGonePlace(missing, { name: "workflow", id });'], "a workflow that is gone is left for the library");
   assert.ok(screen.includes("if (!session || !body || missing) {"), "and never drawn from what was kept of it");
-  assert.ok(screen.includes('data-scroll-keep="palette"') && screen.includes("data-scroll-keep={`properties:${selected ?? \"\"}`}"), "the palette and each step's properties keep their scroll");
+  assert.ok(screen.includes('data-scroll-keep="palette"') && screen.includes("data-scroll-keep={propertiesScrollName(selected)}"), "the palette and each step's properties keep their scroll");
   assert.ok(!between(screen, "<WorkflowAgentPane", "/>").includes("scroll"), "the Agent pane is left to itself");
   const run = read("views/WorkflowRun.tsx");
   assert.ok(run.includes('useAsync((s) => api.run(id, s), [id], { keep: runRead })') && run.includes('useGonePlace(missing, { name: "run", id });'), "the run page too");

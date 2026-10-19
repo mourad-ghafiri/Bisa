@@ -142,6 +142,18 @@ export function stepActions(step, record) {
   return out;
 }
 
+/** The acts that make a waiting step the person's move — an answer, a decision, a release — as `stepActions` names them. */
+export const YOUR_ACTS = Object.freeze(["answer", "decide", "release"]);
+
+/**
+ * Whether the step waits on the person: one of its acts is theirs. An agent
+ * step with a work item to open is the agent's, never theirs — the door to
+ * the item is a door, not a summons.
+ */
+export function yours(step, record) {
+  return stepActions(step, record).some((a) => YOUR_ACTS.includes(a));
+}
+
 /** How a step's failure is passed on, from the run's frozen workflow: `fail` when it says nothing. */
 function onFailOf(run, id) {
   const step = (run?.workflow?.steps ?? []).find((s) => s.id === id);

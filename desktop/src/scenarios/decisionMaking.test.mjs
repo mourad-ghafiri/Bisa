@@ -137,7 +137,7 @@ test("the four ways it is switched on: for the workspace, for one agent, for one
 
   // 3. For one workflow: its own switch, beside its name, description and tags — a field of the definition, saved with it.
   const inspector = src("../views/_workflow/Inspector.tsx");
-  assert.ok(inspector.includes("checked={Boolean(value.decision_making)}") && inspector.includes("onChange({ ...value, decision_making })"));
+  assert.ok(inspector.includes("checked={Boolean(value.decision_making)}") && inspector.includes("commit({ ...value, decision_making })"));
   assert.ok(inspector.includes('t("workflow-inspector-let-decision-making-agent-decide-runs-workflow")'));
 
   // 4. By naming it: a judge step, an auto-route plan, an effort of auto, the classifier's provider — on whatever the switch says.

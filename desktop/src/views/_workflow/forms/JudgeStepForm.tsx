@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from "react";
 import type { Step } from "../../../types";
-import { Button, Chip, Field, ICON, TextArea, TextInput } from "../../../ui";
+import { Button, Chip, Field, ICON, Labelled, TextArea, TextInput } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { BranchName } from "./BranchName";
 import { addOption, confidenceText, judgeWords, removeOption, setConfidence, setMeaning } from "./judgeStepModel.mjs";
@@ -89,12 +89,12 @@ export function JudgeStepForm({ step, onChange, disabled }: { step: Judge; onCha
           onChange={(e) => set({ instructions: e.target.value })}
         />
       </Field>
-      <Field label={t("workflow-human-step-form-options")} hint={t("workflow-judge-step-form-what-each-branch-means-decision-making-agent")}>
+      <Labelled label={t("workflow-human-step-form-options")} hint={t("workflow-judge-step-form-what-each-branch-means-decision-making-agent")}>
         <div className="flex flex-col gap-2">
           {options.map((o, i) => (
-            <div key={`${o.branch}:${i}`} className="flex flex-col gap-1.5 rounded-control bg-surface-2/50 p-2">
+            <div key={i} className="flex flex-col gap-1.5 rounded-control bg-surface-2/50 p-2">
               <div className="flex items-center gap-2">
-                <Chip tone="quiet">{t("workflow-judge-step-form-option-n", { n: i + 1 })}</Chip>
+                <Chip>{t("workflow-judge-step-form-option-n", { n: i + 1 })}</Chip>
                 <span className="text-2xs text-text-dim">{t("workflow-decide-step-form-branch")}</span>
                 <BranchName step={step} branch={o.branch} disabled={disabled} className="w-32 font-mono" onChange={onChange} />
                 <Button
@@ -123,7 +123,7 @@ export function JudgeStepForm({ step, onChange, disabled }: { step: Judge; onCha
           </div>
           {words.options && <p className="text-2xs text-warn">{words.options}</p>}
         </div>
-      </Field>
+      </Labelled>
       <Field label={t("workflow-decide-step-form-otherwise")} hint={t("workflow-judge-step-form-branch-when-not-sure-enough-gives")}>
         <BranchName step={step} branch={step.otherwise} disabled={disabled} className="w-40 font-mono" onChange={onChange} />
         <p className="mt-1 text-2xs text-text-dim">{words.otherwise}</p>

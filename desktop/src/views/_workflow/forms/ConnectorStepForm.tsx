@@ -22,7 +22,7 @@
 
 import { useEffect, useState } from "react";
 import type { ConnectorOperationDef, ConnectorParamDef, InputDef, Step } from "../../../types";
-import { Button, Chip, Field, ICON, Labelled, Select, Switch, TextArea, TextInput } from "../../../ui";
+import { Button, Chip, Field, ICON, Labelled, Select, Switch, TextArea, TextInput, useCommitOnUnmount } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
 import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
@@ -51,6 +51,7 @@ function TemplateField({
   const commit = () => {
     if (draft !== value) onCommit(draft);
   };
+  useCommitOnUnmount(draft !== value ? draft : null, onCommit);
   if (rows && rows > 1) {
     return <TextArea rows={rows} className="font-mono" value={draft} aria-label={ariaLabel} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />;
   }
@@ -96,7 +97,7 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 @xs:grid-cols-2">
+      <div className="grid gap-3 @sm:grid-cols-2">
         <Field label={t("workflow-step-kinds-connector")} hint={connectors.rows.length === 0 ? t("workflow-connector-step-form-nothing-installed-here-yet-settings-connectors") : t("workflow-connector-step-form-connector-installed-here-slug")}>
           <Select
             className="font-mono"

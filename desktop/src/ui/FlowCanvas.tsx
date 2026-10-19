@@ -30,10 +30,20 @@
  * that re-renders with the same picture commits nothing and never costs
  * xyflow a re-measure.
  *
+ * **Selection is the caller's value.** The caller marks what is selected on
+ * the nodes and edges it hands in; every change the person makes — a node
+ * clicked, an edge clicked, a box dragged, a pane click that clears — is
+ * reported once as the ids now picked (`onSelect`), through xyflow's own
+ * selection listener, so an edge or a box is a pick the caller hears as
+ * well as a node. The listener also fires at mount and echoes what the
+ * props already say after every resync; both are told from a pick by
+ * `flowMirrorModel.samePick` and never reported.
+ *
  * Keyboard, on the focused canvas only: Delete/Backspace removes the
- * selection, `Mod+D` duplicates it, `Mod+Z` / `Mod+Shift+Z` undo and redo,
- * `Escape` clears the selection. None of these are keymap commands — they are
- * the editor's own, the way a text field owns its arrows.
+ * selection, `Mod+D` duplicates it (`Mod+Shift+D` is a keymap chord and is
+ * left alone), `Mod+Z` / `Mod+Shift+Z` undo and redo, `Escape` clears the
+ * selection. None of these are keymap commands — they are the editor's own,
+ * the way a text field owns its arrows.
  *
  * **Where it looks.** A canvas opens on the viewport its caller hands in
  * (`startViewport` — where the person left it), and fitted to the picture
@@ -65,17 +75,21 @@ import {
   type OnEdgesChange,
   type OnNodeDrag,
   type OnNodesChange,
+  type OnSelectionChangeFunc,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "./cn";
-import { reconcileEdges, reconcileNodes } from "./flowMirrorModel.mjs";
+import { reconcileEdges, reconcileNodes, samePick, selectedOf } from "./flowMirrorModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 
 export type FlowPosition = { x: number; y: number };
 
 /** Where a canvas looks: the pan and the zoom. */
 export type FlowViewport = { x: number; y: number; zoom: number };
+
+/** What is picked on the canvas: the ids of its selected nodes and edges. */
+export type FlowPick = { nodes: string[]; edges: string[] };
 
 /** A node the caller hands in: an id, a position, and whatever its renderer needs. */
 export interface FlowNode<D extends Record<string, unknown> = Record<string, unknown>> {
@@ -108,6 +122,7 @@ export interface FlowEdge {
   animated?: boolean;
   /** The flow a running process came along to where it stands now — drawn moving toward it (`theme/flow.css`, `.is-live`). */
   live?: boolean;
+  selected?: boolean;
 }
 
 /** What a node measured at, reported once xyflow knows. */
@@ -124,7 +139,8 @@ export interface FlowCanvasProps<D extends Record<string, unknown>> {
   onMoved?: (moves: { id: string; position: FlowPosition }[]) => void;
   /** A connection was drawn from a source (and its handle) to a target. */
   onConnect?: (source: string, sourceHandle: string | null, target: string) => void;
-  onSelect?: (id: string | null) => void;
+  /** What is picked now — a node, an edge, several, or nothing — whenever the person changes it. */
+  onSelect?: (pick: FlowPick) => void;
   /** Delete pressed on a selection — node ids and edge ids. */
   onDelete?: (nodes: string[], edges: string[]) => void;
   onDuplicate?: (id: string) => void;
@@ -224,6 +240,7 @@ function toEdge(e: FlowEdge): Edge {
     targetHandle: e.targetHandle ?? undefined,
     label: e.label,
     animated: e.animated,
+    selected: e.selected,
     className: cn(`tone-${e.tone ?? "default"}`, `kind-${e.kind ?? "then"}`, e.loop && "kind-loop", e.live && "is-live"),
     // Every flow is a smooth step from its handle to the other's; a loop and
     // an on_fail leave from a side handle and come around.
@@ -280,6 +297,8 @@ function Inner<D extends Record<string, unknown>>({
     [nodes, readOnly],
   );
   const rfEdges = useMemo(() => edges.map(toEdge), [edges]);
+  // What the props say is picked: the pick xyflow echoes after a resync.
+  const propsPick = useMemo(() => selectedOf(rfNodes, rfEdges), [rfNodes, rfEdges]);
 
   // The live mirror: what xyflow draws. Every change it reports lands here;
   // every change the caller makes replaces it — by content, so a re-render
@@ -330,6 +349,25 @@ function Inner<D extends Record<string, unknown>>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reveal?.id, reveal?.nonce]);
 
+  // One listener for the life of the canvas, reading the latest props through
+  // refs: xyflow keeps the function it was first given. The mount's own call
+  // — before this component's effects have run — and the echo of what the
+  // props already carry are no pick of the person's.
+  const pickRef = useRef(propsPick);
+  pickRef.current = propsPick;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const ready = useRef(false);
+  useEffect(() => {
+    ready.current = true;
+  }, []);
+  const handleSelection: OnSelectionChangeFunc<Node<D>, Edge> = useCallback(({ nodes: picked, edges: pickedEdges }) => {
+    if (!ready.current) return;
+    const pick = { nodes: picked.map((n) => n.id), edges: pickedEdges.map((e) => e.id) };
+    if (samePick(pick, pickRef.current)) return;
+    onSelectRef.current?.(pick);
+  }, []);
+
   const handleConnect: OnConnect = useCallback(
     (c: Connection) => {
       if (c.source && c.target) onConnect?.(c.source, c.sourceHandle ?? null, c.target);
@@ -358,7 +396,7 @@ function Inner<D extends Record<string, unknown>>({
         e.preventDefault();
         onDelete?.(ns, es);
       }
-    } else if (mod && e.key.toLowerCase() === "d") {
+    } else if (mod && !e.shiftKey && e.key.toLowerCase() === "d") {
       const one = liveNodes.find((n) => n.selected);
       if (one) {
         e.preventDefault();
@@ -369,7 +407,7 @@ function Inner<D extends Record<string, unknown>>({
       if (e.shiftKey) onRedo?.();
       else onUndo?.();
     } else if (e.key === "Escape") {
-      onSelect?.(null);
+      onSelect?.({ nodes: [], edges: [] });
     }
   };
 
@@ -423,8 +461,7 @@ function Inner<D extends Record<string, unknown>>({
         onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onNodeDragStop={handleDragStop}
-        onNodeClick={(_e, n) => onSelect?.(n.id)}
-        onPaneClick={() => onSelect?.(null)}
+        onSelectionChange={handleSelection}
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         // Selecting is a read — a run's canvas selects a step to show its

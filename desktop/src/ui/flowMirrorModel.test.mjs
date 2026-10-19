@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reconcileEdges, reconcileNodes, reuse, sameShallow } from "./flowMirrorModel.mjs";
+import { reconcileEdges, reconcileNodes, reuse, samePick, sameShallow, selectedOf } from "./flowMirrorModel.mjs";
 
 const data = { label: "build" };
 const node = (id, x = 0, extra = {}) => ({ id, position: { x, y: 0 }, type: "step", selected: false, draggable: true, connectable: true, data, ...extra });
@@ -71,4 +71,18 @@ test("reuse hands back the previous object when nothing about it changed", () =>
   assert.ok(sameShallow(null, undefined));
   assert.ok(!sameShallow(null, {}));
   assert.ok(sameShallow({ state: "pending" }, { state: "pending" }), "a run state re-fetched with the same words is the same");
+});
+
+test("a selected edge survives a resync, and a pick is the selected ids in any order", () => {
+  const edge = (id, selected) => ({ id, source: "a", target: "b", selected });
+  const prev = [edge("a->b", true)];
+  assert.equal(reconcileEdges(prev, [edge("a->b", true)]), prev, "the same selection is the same array");
+  assert.equal(reconcileEdges(prev, [edge("a->b", false)])[0].selected, false, "a cleared selection is a change");
+  const nodes = [{ id: "x", selected: true, position: { x: 0, y: 0 } }, { id: "y", position: { x: 0, y: 0 } }, { id: "z", selected: false, position: { x: 0, y: 0 } }];
+  assert.deepEqual(selectedOf(nodes, [edge("a->b", true), edge("b->c", undefined)]), { nodes: ["x"], edges: ["a->b"] });
+  assert.deepEqual(selectedOf([], []), { nodes: [], edges: [] });
+  assert.ok(samePick({ nodes: ["x", "y"], edges: ["e"] }, { nodes: ["y", "x"], edges: ["e"] }));
+  assert.ok(!samePick({ nodes: ["x"], edges: [] }, { nodes: ["x"], edges: ["e"] }));
+  assert.ok(!samePick({ nodes: ["x"], edges: [] }, { nodes: ["y"], edges: [] }));
+  assert.ok(samePick({ nodes: [], edges: [] }, { nodes: [], edges: [] }));
 });

@@ -59,6 +59,8 @@ test("a step picked shows Properties — the column opens if it was closed or el
   assert.equal(paneForSelection(already, "build"), already, "the same state, by reference");
   const closed = { open: false, tab: "agent" };
   assert.equal(paneForSelection(closed, null), closed, "clearing a selection is not a wish to see anything");
+  assert.deepEqual(paneForSelection({ open: false, tab: "agent" }, { kind: "flow", from: "a", to: "b", branch: null, route: "then" }), { open: true, tab: "properties" }, "a flow picked shows Properties too");
+  assert.deepEqual(paneForSelection({ open: true, tab: "runs" }, { kind: "many", steps: ["a", "b"], flows: [] }), { open: true, tab: "properties" }, "and a box of steps");
 });
 
 test("the rail's tabs: Properties, Agent, Runs, the chosen one showing while the column is open — none is ever muted, a workflow exists before its designer opens", () => {

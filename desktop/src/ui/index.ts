@@ -134,6 +134,8 @@ export { addressWords, confirmListing, findLinks, linkifyHtml, parseAddress, rel
 export type { DocResolution, LinkResolution, LinkRoot, LinkSpan, PathSpan, UnlistedResolution, UrlSpan } from "./linkModel.mjs";
 export { Checkbox, CopyText, DateInput, Field, NumberInput, Select, TextArea, TextInput } from "./Field";
 export { Labelled } from "./Labelled";
+export { Note } from "./Note";
+export { useCommitOnUnmount } from "./useCommitOnUnmount";
 export { RelativeTime, LiveDuration, absolute, relative } from "./RelativeTime";
 export {
   NO_TAG_FILTER,

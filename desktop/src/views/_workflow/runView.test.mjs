@@ -25,6 +25,8 @@ import {
   overlayFacts,
   progress,
   stepActions,
+  YOUR_ACTS,
+  yours,
   stepLabel,
   stepStateWord,
   stepTone,
@@ -161,6 +163,13 @@ test("a person's actions on a step come from its kind and state", () => {
   assert.deepEqual(stepActions({ kind: "wait", until: { until: "delay", secs: 5 } }, { state: { state: "waiting" } }), []);
   assert.deepEqual(stepActions(run.workflow.steps[0], run.steps.a), ["open"]);
   assert.deepEqual(stepActions(run.workflow.steps[2], { state: { state: "done" } }), []);
+  // Whose move a waiting step is: an answer, a decision, a release are the person's; an open work item is the agent's.
+  assert.deepEqual([...YOUR_ACTS], ["answer", "decide", "release"]);
+  assert.equal(yours(run.workflow.steps[2], run.steps.b), true);
+  assert.equal(yours({ kind: "approval" }, { state: { state: "waiting" } }), true);
+  assert.equal(yours(run.workflow.steps[3], { state: { state: "waiting" } }), true);
+  assert.equal(yours(run.workflow.steps[0], run.steps.a), false, "an agent step with an item to open is never yours");
+  assert.equal(yours(run.workflow.steps[2], { state: { state: "done" } }), false);
 });
 
 test("an edge is taken by the branch chosen and skipped by the one that was not", () => {

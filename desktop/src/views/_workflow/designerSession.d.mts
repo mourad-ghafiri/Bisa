@@ -48,9 +48,11 @@ export declare function definitionBody(body: NewWorkflowBody): NewWorkflowBody;
 /** What `PUT /workflows/{id}` takes: the definition by name, and the revision it was edited from. */
 export declare function putBody(body: NewWorkflowBody, revision: number): PutWorkflowBody;
 export declare function open(workflow: Workflow, problems?: Problem[]): Session;
-export declare function edit(s: Session, body: NewWorkflowBody, at?: number): Session;
-export declare function undoEdit(s: Session, at?: number): Session;
-export declare function redoEdit(s: Session, at?: number): Session;
+export declare function edit(s: Session, body: NewWorkflowBody, at?: number, edit?: { selection?: unknown; token?: string | null }): Session;
+export declare function undoEdit(s: Session, at?: number, selection?: unknown): Session;
+export declare function redoEdit(s: Session, at?: number, selection?: unknown): Session;
+/** The selection the last undo or redo landed on. */
+export declare function landedSelection(s: Session): unknown;
 export declare function canUndoEdit(s: Session): boolean;
 export declare function canRedoEdit(s: Session): boolean;
 export declare function present(s: Session): NewWorkflowBody;

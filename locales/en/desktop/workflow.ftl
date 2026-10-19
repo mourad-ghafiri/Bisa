@@ -85,10 +85,10 @@ workflow-decide-step-form-branch-when-no-rule-holds = The branch when no rule ho
 workflow-decide-step-form-first-holds-names-branch-draw-flow = The first that holds names the branch. Draw a flow per branch from the step's handles. A step with no rules always takes otherwise.
 workflow-decide-step-form-otherwise = Otherwise
 workflow-decide-step-form-remove-rule = Remove rule
-workflow-decide-step-form-rule-n = rule { $n }
+workflow-decide-step-form-rule-n = Rule { $n }
 workflow-decide-step-form-rules = Rules
 workflow-designer-draw-flows-from-bottom-handle-fail = draw flows from the bottom handle; an on-fail target is set in the inspector
-workflow-designer-fail = on fail
+workflow-designer-fail = on failure
 workflow-designer-fit = Fit
 workflow-designer-fit-whole-workflow = Fit the whole workflow
 workflow-designer-panel-agent = Agent
@@ -127,14 +127,13 @@ workflow-goal-workflow-tab-editing-plan-every-step-yours-change = Editing the pl
 workflow-goal-workflow-tab-finished-run-history-read-only = A finished run is history; it is read-only.
 workflow-goal-workflow-tab-fix-problems-first = Fix the problems first
 workflow-goal-workflow-tab-new-steps-part-plan-will-start = New steps are part of the plan you will start.
-workflow-goal-workflow-tab-not-adopted-yet-edit-adopt-choose = — not adopted yet. Edit and adopt it, or choose another workflow.
+workflow-goal-workflow-tab-not-adopted-yet-edit-adopt-choose = — not adopted yet. Edit the steps here, start it, or choose another workflow.
 workflow-goal-workflow-tab-not-saved-yet = not saved yet
 workflow-goal-workflow-tab-not-started = not started
-workflow-goal-workflow-tab-problems = Problems
 workflow-goal-workflow-tab-proposed-by-workflow-agent = Proposed by the Workflow Agent
 workflow-goal-workflow-tab-queued-run-starts-when-live-run = A queued run: it starts when the live run finishes.
 workflow-goal-workflow-tab-rev = rev { $revision }
-workflow-goal-workflow-tab-review-every-step-move-adopt-start = — review every step in Your move, adopt it to start, ask for changes, or edit it here first.
+workflow-goal-workflow-tab-review-every-step-move-adopt-start = — review the steps here; adopt it from Your move on the Progress tab, ask for changes there, or edit the steps first.
 workflow-goal-workflow-tab-save-changes = Save changes
 workflow-goal-workflow-tab-saved-review-steps-then-start-run = Saved — review the steps, then start the run when you are ready.
 workflow-goal-workflow-tab-steps = { $steps } steps
@@ -188,7 +187,7 @@ workflow-inspector-what-run-started-steps-read-them = What a run is started with
 workflow-json-field-not-json = Not JSON: { $problem }
 workflow-judge-step-form-branch-when-not-sure-enough-gives = The branch when it is not sure enough, or gives no answer that holds to the decision contract. The step never fails for this.
 workflow-judge-step-form-minimum-confidence = Minimum confidence
-workflow-judge-step-form-option-n = option { $n }
+workflow-judge-step-form-option-n = Option { $n }
 workflow-judge-step-form-question-sentence-decision-making-agent-reads-against = The question, in a sentence the Decision-Making Agent reads against the state above.
 workflow-judge-step-form-remove-option = Remove option
 workflow-judge-step-form-rendered-text-when-step-entered-what = Rendered as text when the step is entered — what the Decision-Making Agent judges. { $TEMPLATE_HINT }
@@ -343,7 +342,7 @@ workflow-step-common-form-failed-attempts-re-run-before-failure = Failed attempt
 workflow-step-common-form-failure = On failure
 workflow-step-common-form-how-many-times-loop-may-enter = How many times a loop may enter this step. { $DEFAULT_MAX_VISITS } by default; at least one.
 workflow-step-common-form-how-several-incoming-flows-meet-irrelevant = When several flows lead into this step, which of them it waits for. With one flow in, any choice reads the same.
-workflow-step-common-form-id = Id
+workflow-step-common-form-id = Step id
 workflow-step-common-form-join = Join
 workflow-step-common-form-max-visits = Max visits
 workflow-step-common-form-max-visits-2 = max visits
@@ -458,7 +457,7 @@ workflow-step-node-retries = retries { $retries }
 workflow-step-node-visits = visits ≤ { $max_visits }
 workflow-switch-step-form-add-case = Add a case
 workflow-switch-step-form-branch-when-no-case-matches = The branch when no case matches.
-workflow-switch-step-form-case-n = case { $n }
+workflow-switch-step-form-case-n = Case { $n }
 workflow-switch-step-form-case-value = case value
 workflow-switch-step-form-cases = Cases
 workflow-switch-step-form-first-case-whose-value-text-names = The first case whose value is the text names the branch. Draw a flow per branch from the step's handles.
@@ -1015,3 +1014,50 @@ workflow-runs-pane-no-runs-title = No runs yet
 ## A template being installed or opened (`TemplateCard.tsx`).
 workflow-template-card-opening = Opening…
 workflow-template-card-installing = Installing…
+
+## What is picked on the canvas, as the panel says it (`selectionModel.mjs`): a flow's word.
+workflow-inspector-flow-then = Then
+workflow-inspector-flow-branch = Branch { $branch }
+workflow-inspector-flow-otherwise = Otherwise
+workflow-inspector-flow-boundary = Boundary { $branch }
+workflow-inspector-flow-on-failure = On failure
+
+## The panel over a workflow, a step, a flow or several (`inspectorModel.mjs`, `Inspector.tsx`): its titles, its sections, and why it is read-only.
+workflow-inspector-title-workflow = Workflow
+workflow-inspector-title-flow = Flow
+workflow-inspector-title-many = { $n } selected
+workflow-inspector-many-hint = Pick one to edit it. Delete removes everything selected; undo brings it back.
+workflow-inspector-flow-ends = { $from } → { $to }
+workflow-inspector-flow-loop = Flows back to an earlier step: the run loops.
+workflow-inspector-flow-gone = This flow is no longer in the workflow.
+workflow-inspector-section-run = This run
+workflow-inspector-section-identity = Identity
+workflow-inspector-section-runs = Runs
+workflow-inspector-problems = Problems
+workflow-inspector-output = Output
+workflow-inspector-remove-flow = Remove flow
+workflow-inspector-remove-hint = Undo brings it back.
+workflow-inspector-back = Workflow
+workflow-inspector-read-only-closed = This goal is closed. Its workflow stays as it was.
+workflow-inspector-read-only-run-live = A run is going. The steps are read-only until it finishes.
+workflow-inspector-read-only-running-in = Running in { $n } { $n ->
+    [one] goal. Read-only until that run finishes.
+   *[other] goals. Read-only until those runs finish.
+}
+workflow-inspector-read-only-run-finished = A finished run is history. It is read-only.
+workflow-inspector-read-only-proposed = Proposed by the Workflow Agent. Edit the steps to make it this goal's own.
+workflow-inspector-read-only-own-design = Saved for this goal. Edit the steps before a run starts.
+workflow-inspector-read-only-library = From the library. It is edited in the designer.
+workflow-inspector-read-only-plain = Read-only here.
+workflow-inspector-door-open-designer = Open in the designer
+
+## The forms' words moved out of the markup: a JSON field's one save cue, the human step's two icon buttons, a group's members.
+workflow-json-field-cue = Applied when you leave the field or press { $chord }.
+workflow-json-field-hint-and-cue = { $hint } Applied when you leave the field or press { $chord }.
+workflow-human-step-form-recommend-option = Recommend this option
+workflow-human-step-form-remove-option = Remove option
+workflow-condition-editor-nth = Condition { $n }
+workflow-inspector-flow-from = From
+workflow-inspector-flow-to = To
+workflow-goal-workflow-tab-inspector-label = Workflow inspector
+workflow-goal-workflow-tab-resize-inspector = Resize the inspector

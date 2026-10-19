@@ -23,7 +23,7 @@ import { api } from "../../../api";
 import { errorFields, log } from "../../../log";
 import type { InputDef, Step } from "../../../types";
 import { useWorkspace } from "../../../shell/useWorkspaceData";
-import { Field, Labelled, Select, TextArea, TextInput } from "../../../ui";
+import { Field, Labelled, Select, TextArea, TextInput, useCommitOnUnmount } from "../../../ui";
 import { AssigneePicker } from "../../_work/AssigneePicker";
 import { EffortPicker } from "../../_work/EffortPicker";
 import { effortOptions, withEffort } from "../../_work/effortModel.mjs";
@@ -126,6 +126,10 @@ export function AgentStepForm({
     setHarnessDraft(next.join(", "));
     if (next.join(",") !== (step.harness ?? []).join(",")) set({ harness: next });
   };
+  useCommitOnUnmount(harnessDraft !== stored ? harnessDraft : null, (text) => {
+    const next = harnessesFrom(text);
+    if (next.join(",") !== (step.harness ?? []).join(",")) set({ harness: next });
+  });
 
   return (
     <div className="flex flex-col gap-3">
@@ -168,7 +172,7 @@ export function AgentStepForm({
           </Select>
         )}
       </ValueRefField>
-      <div className="grid gap-3 @xs:grid-cols-2">
+      <div className="grid gap-3 @sm:grid-cols-2">
         <Field label={t("workflow-agent-step-form-harness")} hint={t("workflow-agent-step-form-comma-separated-fallback-order-blank-means")}>
           <TextInput
             className="font-mono"

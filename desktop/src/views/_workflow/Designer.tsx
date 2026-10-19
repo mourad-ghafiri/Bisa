@@ -39,17 +39,17 @@ import type { NewWorkflowBody, Problem, Workflow, WorkflowRun } from "../../type
 import { Button, ICON, Tooltip } from "../../ui";
 import { FlowCanvas, type FlowEdge, type FlowNode, type FlowSize, type FlowViewport } from "../../ui/flow";
 import { reuse, sameShallow } from "../../ui/flowMirrorModel.mjs";
-import { edgeTone, firedBoundaries, stepActions, stepLabel, stepTone } from "./runView.mjs";
+import { edgeTone, firedBoundaries, stepLabel, stepTone, yours as yourMove } from "./runView.mjs";
+import { flowRefOf, selectedIds, selectionAfterDelete, selectionOf, stepSelection, type Selection } from "./selectionModel.mjs";
 import { STEP_MIME, branchHandle, branchOfHandle, type StepKindName } from "./stepKinds.mjs";
 import { HANDLE, NODE_TYPES, type StepNodeData } from "./StepNode";
 import {
   addStep,
   connect,
-  disconnect,
   duplicateStep,
   mayEdit,
+  removeFlow,
   removeStep,
-  setOnFail,
   setPositions,
   toGraph,
   uniqueId,
@@ -79,9 +79,6 @@ function handlesFor(e: { kind: string; branch: string | null; loop: boolean }): 
 const sameNodeData = (a: StepNodeData, b: StepNodeData) =>
   sameShallow(a, b, ["step", "problems", "tone", "label", "fired", "editable", "yours"]) && sameShallow(a.state, b.state);
 
-/** The acts that make a waiting step the person's move — an answer, a decision, a release — as `stepActions` names them. */
-const YOUR_ACTS = new Set(["answer", "decide", "release"]);
-
 /** Where a run is: the states a step is in while the run stands on it. */
 const LIVE_STATES = new Set(["running", "waiting"]);
 
@@ -109,8 +106,9 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
   problems: readonly Problem[];
   /** In run mode: the run whose states the nodes wear. */
   run?: WorkflowRun | null;
-  selected: string | null;
-  onSelect: (id: string | null) => void;
+  /** What is picked — a step, a flow, several, or nothing — the one value the panel reads too (`selectionModel.mjs`). */
+  selected: Selection;
+  onSelect: (selection: Selection) => void;
   onChange: (next: D) => void;
   onUndo?: () => void;
   onRedo?: () => void;
@@ -156,6 +154,8 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
     return m;
   }, [problems]);
   const gate = useMemo(() => ({ readOnly: !!readOnly, editable: editable ?? null }), [readOnly, editable]);
+  // The node and edge ids the selection marks; a step's `selected` is read from here.
+  const marked = useMemo(() => selectedIds(selected), [selected]);
   // The one door every canvas edit leaves by: while any step has no position
   // of its own, the derived picture is written for all of them, so a connect
   // made first can never reflow the graph under the person.
@@ -178,7 +178,7 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
     const out = graph.nodes.map((n) => {
       // A step waiting on the person wears the accent's ring — the summons —
       // where one waiting on the world keeps its state's own.
-      const yours = run ? stepActions(n.step, run.steps[n.id]).some((a) => YOUR_ACTS.has(a)) : false;
+      const yours = run ? yourMove(n.step, run.steps[n.id]) : false;
       const fresh: StepNodeData = {
         step: n.step,
         problems: countBy.get(n.id) ?? 0,
@@ -195,14 +195,14 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
         id: n.id,
         type: "step",
         position: positions.get(n.id) ?? { x: 0, y: 0 },
-        selected: selected === n.id,
+        selected: marked.nodes.includes(n.id),
         draggable: mayEdit(gate, n.id),
         data,
       };
     });
     dataRef.current = kept;
     return out;
-  }, [graph, positions, selected, countBy, run, gate, readOnly]);
+  }, [graph, positions, marked, countBy, run, gate, readOnly]);
   const edges = useMemo<FlowEdge[]>(
     () =>
       graph.edges.map((e) => {
@@ -219,9 +219,10 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
           tone: run ? edgeTone(run, e) : "default",
           // The flow the run came along to the step it stands on: drawn moving toward it (`theme/flow.css`).
           live: run ? edgeTone(run, e) === "taken" && LIVE_STATES.has(run.steps[e.to]?.state?.state ?? "") : false,
+          selected: marked.edges.includes(e.id),
         };
       }),
-    [graph, run],
+    [graph, run, marked],
   );
 
   return (
@@ -241,7 +242,7 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
         acceptMimes={[STEP_MIME]}
         onMeasured={onMeasured}
         reveal={reveal ?? null}
-        onSelect={onSelect}
+        onSelect={(pick) => onSelect(selectionOf(pick))}
         onMoved={(moves) => {
           const allowed = moves.filter((m) => mayEdit(gate, m.id));
           if (allowed.length < moves.length) onRefuse?.(t("workflow-designer-step-has-already-run-stays-where"));
@@ -272,9 +273,12 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
         onDelete={(nodeIds, edgeIds) => {
           let next = value;
           let refused = 0;
+          const gone = { nodes: [] as string[], edges: [] as string[] };
           for (const id of nodeIds) {
-            if (mayEdit(gate, id)) next = removeStep(next, id);
-            else refused += 1;
+            if (mayEdit(gate, id)) {
+              next = removeStep(next, id);
+              gone.nodes.push(id);
+            } else refused += 1;
           }
           for (const eid of edgeIds) {
             const e = graph.edges.find((x) => x.id === eid);
@@ -283,14 +287,16 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
               refused += 1;
               continue;
             }
-            // A `then` flow is cut; an on-fail route is put back to `fail`,
-            // which is what deleting the edge that draws it means.
-            next = e.kind === "then" ? disconnect(next, e.from, e.to, e.branch) : setOnFail(next, e.from, { on_fail: "fail" });
+            // One door for every flow removed (`removeFlow`): a flow is cut,
+            // a failure route put back to `fail`.
+            next = removeFlow(next, flowRefOf(e));
+            gone.edges.push(eid);
           }
           if (refused > 0) onRefuse?.(t("workflow-designer-step-has-already-run-stays-ran"));
           if (next !== value) {
             commit(next);
-            onSelect(null);
+            // What was deleted leaves the selection; a step whose flow was cut stays picked.
+            onSelect(selectionAfterDelete(selected, gone.nodes, gone.edges));
           }
         }}
         onDuplicate={(id) => {
@@ -302,7 +308,7 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
           const { wf: next, id: copy } = duplicateStep(base, id);
           if (copy) {
             commit(next);
-            onSelect(copy);
+            onSelect(stepSelection(copy));
             onReveal?.(copy);
           }
         }}
@@ -314,7 +320,7 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
           const at = nudgeFree(positions, sizes, id, snapTo(point, settings.grid));
           const { wf: added } = addStep(value, kind as StepKindName, id, at);
           commit(added);
-          onSelect(id);
+          onSelect(stepSelection(id));
           onReveal?.(id);
         }}
       />

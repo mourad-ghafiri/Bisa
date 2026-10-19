@@ -10,7 +10,7 @@
  */
 
 import type { InputDef, Rule, Step } from "../../../types";
-import { Button, Chip, Field, ICON, Select } from "../../../ui";
+import { Button, Chip, Field, ICON, Labelled, Select } from "../../../ui";
 import { DECIDE_PICKS } from "../stepKinds.mjs";
 import { freshBranch } from "../workflowGraph.mjs";
 import { BranchName } from "./BranchName";
@@ -56,12 +56,12 @@ export function DecideStepForm({
           ))}
         </Select>
       </Field>
-      <Field label={t("workflow-decide-step-form-rules")} hint={every ? t("workflow-decide-step-form-every-holds-takes-branch") : t("workflow-decide-step-form-first-holds-names-branch-draw-flow")}>
+      <Labelled label={t("workflow-decide-step-form-rules")} hint={every ? t("workflow-decide-step-form-every-holds-takes-branch") : t("workflow-decide-step-form-first-holds-names-branch-draw-flow")}>
         <div className="flex flex-col gap-2">
           {rules.map((r, i) => (
-            <div key={`${r.branch}:${i}`} className="rounded-control bg-surface-2/50 p-2">
+            <div key={i} className="rounded-control bg-surface-2/50 p-2">
               <div className="mb-1.5 flex items-center gap-2">
-                <Chip tone="quiet">{t("workflow-decide-step-form-rule-n", { n: i + 1 })}</Chip>
+                <Chip>{t("workflow-decide-step-form-rule-n", { n: i + 1 })}</Chip>
                 <span className="text-2xs text-text-dim">{t("workflow-decide-step-form-branch")}</span>
                 <BranchName step={step} branch={r.branch} disabled={disabled} className="w-32 font-mono" onChange={onChange} />
                 <Button
@@ -98,7 +98,7 @@ export function DecideStepForm({
               <ICON.add size={12} aria-hidden />{t("workflow-decide-step-form-add-rule")}</Button>
           </div>
         </div>
-      </Field>
+      </Labelled>
       <Field label={t("workflow-decide-step-form-otherwise")} hint={t("workflow-decide-step-form-branch-when-no-rule-holds")}>
         <BranchName step={step} branch={step.otherwise} disabled={disabled} className="w-40 font-mono" onChange={onChange} />
       </Field>

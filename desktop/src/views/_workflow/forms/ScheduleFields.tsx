@@ -7,7 +7,7 @@
  */
 
 import type { InputDef, Schedule } from "../../../types";
-import { Field, NumberInput, Select, TextInput } from "../../../ui";
+import { Field, Labelled, NumberInput, Select, TextInput } from "../../../ui";
 import { DEFAULT_CRON, DEFAULT_EVERY_SECS, cadenceOf, setCadence } from "./startForm.mjs";
 import { RefSource, isInputRef } from "./RefSource";
 import { t } from "../../../i18n/l10n.mjs";
@@ -36,24 +36,24 @@ export function ScheduleFields<S extends Cadence>({
         </Select>
       </Field>
       {cadence === "every" ? (
-        <Field label={t("workflow-wait-step-form-seconds")} hint={t("workflow-schedule-fields-seconds-hint")}>
+        <Labelled label={t("workflow-wait-step-form-seconds")} hint={t("workflow-schedule-fields-seconds-hint")}>
           <div className="flex flex-col gap-1.5">
             <RefSource value={value.every} inputs={inputs} kind="number" disabled={disabled} onChange={(r) => onChange({ ...value, every: r ?? DEFAULT_EVERY_SECS })} />
             {!isInputRef(value.every) && (
               <NumberInput className="w-32" value={typeof value.every === "number" ? value.every : DEFAULT_EVERY_SECS} min={1} disabled={disabled} onCommit={(every) => onChange({ ...value, every })} aria-label={t("workflow-wait-step-form-seconds")} />
             )}
           </div>
-        </Field>
+        </Labelled>
       ) : (
-        <div className="grid gap-3 @xs:grid-cols-2">
-          <Field label={t("workflow-wait-step-form-cron")} hint={t("workflow-wait-step-form-five-fields-0-9-1-5")}>
+        <div className="grid gap-3 @sm:grid-cols-2">
+          <Labelled label={t("workflow-wait-step-form-cron")} hint={t("workflow-wait-step-form-five-fields-0-9-1-5")}>
             <div className="flex flex-col gap-1.5">
               <RefSource value={value.cron} inputs={inputs} kind="text" disabled={disabled} onChange={(r) => onChange({ ...value, cron: r ?? DEFAULT_CRON })} />
               {!isInputRef(value.cron) && (
                 <TextInput className="font-mono" value={typeof value.cron === "string" ? value.cron : ""} disabled={disabled} onChange={(e) => onChange({ ...value, cron: e.target.value })} />
               )}
             </div>
-          </Field>
+          </Labelled>
           <Field label={t("workflow-wait-step-form-timezone")} hint={t("workflow-wait-step-form-blank-utc-named-zone-follows-daylight")}>
             <TextInput className="font-mono" value={value.tz ?? ""} placeholder={t("workflow-wait-step-form-utc")} disabled={disabled} onChange={(e) => onChange({ ...value, tz: e.target.value.trim() || null })} />
           </Field>

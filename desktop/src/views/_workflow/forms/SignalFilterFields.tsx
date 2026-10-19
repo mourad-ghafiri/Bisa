@@ -5,7 +5,7 @@
  * for one and, for a signal, the boundary events that hear one.
  */
 
-import { Field, TextInput } from "../../../ui";
+import { Field, Labelled, TextInput } from "../../../ui";
 import { ExactFieldsEditor } from "./ExactFieldsEditor";
 import { validSignalName } from "./startForm.mjs";
 import { t } from "../../../i18n/l10n.mjs";
@@ -34,9 +34,9 @@ export function SignalFilterFields({
       <Field label={t("workflow-signal-filter-fields-name")} hint={bad ? t("workflow-signal-filter-fields-name-not-dotted-words") : t("workflow-signal-filter-fields-name-hint", { hint: templateHint })}>
         <TextInput className="font-mono" value={name} disabled={disabled} /* for the machine */ placeholder="report.ready" onChange={(e) => onChange({ name: e.target.value, fields: fields ?? {} })} />
       </Field>
-      <Field label={t("workflow-wait-step-form-fields")} hint={t("workflow-signal-filter-fields-exact-matches")}>
+      <Labelled label={t("workflow-wait-step-form-fields")} hint={t("workflow-signal-filter-fields-exact-matches")}>
         <ExactFieldsEditor value={fields} disabled={disabled} onChange={(next) => onChange({ name, fields: next })} />
-      </Field>
+      </Labelled>
     </div>
   );
 }
@@ -57,9 +57,9 @@ export function PlatformFilterFields({
       <Field label={t("workflow-wait-step-form-topic")} hint={t("workflow-signal-filter-fields-topic-hint")}>
         <TextInput className="font-mono" value={topic} disabled={disabled} /* for the machine */ placeholder="goal.closed" onChange={(e) => onChange({ topic: e.target.value, fields: fields ?? {} })} />
       </Field>
-      <Field label={t("workflow-wait-step-form-fields")} hint={t("workflow-signal-filter-fields-exact-matches")}>
+      <Labelled label={t("workflow-wait-step-form-fields")} hint={t("workflow-signal-filter-fields-exact-matches")}>
         <ExactFieldsEditor value={fields} disabled={disabled} onChange={(next) => onChange({ topic, fields: next })} />
-      </Field>
+      </Labelled>
     </div>
   );
 }

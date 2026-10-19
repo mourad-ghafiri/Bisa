@@ -10,7 +10,7 @@
  */
 
 import type { InputDef, Step } from "../../../types";
-import { Field, NumberInput, Select, TextInput } from "../../../ui";
+import { Field, Labelled, NumberInput, Select, TextInput } from "../../../ui";
 import { TEMPLATE_HINT, WAITS, blankWait } from "../stepKinds.mjs";
 import { MessageFilterFields } from "./MessageFilterFields";
 import { ProjectFilterFields } from "./ProjectFilterFields";
@@ -46,14 +46,14 @@ export function WaitStepForm({
         </Select>
       </Field>
       {u.until === "delay" && (
-        <Field label={t("workflow-wait-step-form-seconds")} hint={t("workflow-wait-step-form-counted-engine-s-own-clock-survives")}>
+        <Labelled label={t("workflow-wait-step-form-seconds")} hint={t("workflow-wait-step-form-counted-engine-s-own-clock-survives")}>
           <div className="flex flex-col gap-1.5">
             <RefSource value={u.secs} inputs={inputs} kind="number" disabled={disabled} onChange={(r) => set({ ...u, secs: r ?? 3600 })} />
             {!isInputRef(u.secs) && (
               <NumberInput className="w-32" value={typeof u.secs === "number" ? u.secs : 3600} min={1} disabled={disabled} onCommit={(secs) => set({ ...u, secs })} aria-label={t("workflow-wait-step-form-seconds")} />
             )}
           </div>
-        </Field>
+        </Labelled>
       )}
       {u.until === "time" && (
         <Field label={t("workflow-wait-step-form-until")} hint={t("workflow-wait-step-form-moment-hint", { TEMPLATE_HINT })}>
@@ -61,15 +61,15 @@ export function WaitStepForm({
         </Field>
       )}
       {u.until === "schedule" && (
-        <div className="grid gap-3 @xs:grid-cols-2">
-          <Field label={t("workflow-wait-step-form-cron")} hint={t("workflow-wait-step-form-five-fields-0-9-1-5")}>
+        <div className="grid gap-3 @sm:grid-cols-2">
+          <Labelled label={t("workflow-wait-step-form-cron")} hint={t("workflow-wait-step-form-five-fields-0-9-1-5")}>
             <div className="flex flex-col gap-1.5">
               <RefSource value={u.cron} inputs={inputs} kind="text" disabled={disabled} onChange={(r) => set({ ...u, cron: r ?? "0 9 * * 1-5" })} />
               {!isInputRef(u.cron) && (
                 <TextInput className="font-mono" value={typeof u.cron === "string" ? u.cron : ""} disabled={disabled} onChange={(e) => set({ ...u, cron: e.target.value })} />
               )}
             </div>
-          </Field>
+          </Labelled>
           <Field label={t("workflow-wait-step-form-timezone")} hint={t("workflow-wait-step-form-blank-utc-named-zone-follows-daylight")}>
             <TextInput className="font-mono" value={u.tz ?? ""} placeholder={t("workflow-wait-step-form-utc")} disabled={disabled} onChange={(e) => set({ ...u, tz: e.target.value.trim() || null })} />
           </Field>

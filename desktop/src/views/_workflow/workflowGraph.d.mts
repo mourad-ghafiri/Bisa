@@ -89,6 +89,8 @@ export declare function failChoice(steps: readonly Step[] | null | undefined, st
 /** A branch name the step has for nothing else: what *Add a rule*, *Add a case* and *Add an option* name theirs. */
 export declare function freshBranch(step: Step | null | undefined): string;
 export declare function setOnFail<D extends Definition>(wf: D, id: string, onFail: Step["on_fail"]): D;
+/** One flow removed by its reference: a flow is cut, a failure route put back to `fail`. */
+export declare function removeFlow<D extends Definition>(wf: D, ref: { from: string; to: string; branch: string | null; route: "then" | "on_fail" }): D;
 export declare function duplicateStep<D extends Definition>(wf: D, id: string): { wf: D; id: string | null };
 export declare function replaceStep<D extends Definition>(wf: D, id: string, step: Step): D;
 export declare function backEdges(order: readonly string[], edges: readonly { id: string; from: string; to: string }[]): Set<string>;

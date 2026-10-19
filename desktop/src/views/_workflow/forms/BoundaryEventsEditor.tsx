@@ -13,7 +13,7 @@
 import { useEffect, useState } from "react";
 import type { Boundary, InputDef, Step } from "../../../types";
 import { AssigneePicker } from "../../_work/AssigneePicker";
-import { BOUNDARY_ON_ICON, Button, Field, ICON, Labelled, NumberInput, Select, TextArea, TextInput } from "../../../ui";
+import { BOUNDARY_ON_ICON, Button, Field, ICON, Labelled, NumberInput, Select, TextArea, TextInput, useCommitOnUnmount } from "../../../ui";
 import { BOUNDARY_ACTS, BOUNDARY_EVENTS, TEMPLATE_HINT, mayCarryBoundaries } from "../stepKinds.mjs";
 import { DEFAULT_REMINDERS, actsFor, addBoundary, consequence, removeBoundaryOn, renameBoundaryOn, replaceBoundary, setAct, setEvent, type BoundaryActName, type BoundaryEvent } from "./boundaryModel.mjs";
 import { ExactFieldsEditor } from "./ExactFieldsEditor";
@@ -38,6 +38,11 @@ function BoundaryName({ step, name, disabled, onChange }: { step: Step; name: st
       setDraft(name);
     }
   };
+  // A name typed and left without a blur still lands, when it may; a refused one goes, as it would on a refused blur.
+  useCommitOnUnmount(draft !== name ? draft : null, (next) => {
+    const r = renameBoundaryOn(step, name, next);
+    if (r.ok && r.step !== step) onChange(r.step);
+  });
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
       <TextInput
@@ -54,7 +59,7 @@ function BoundaryName({ step, name, disabled, onChange }: { step: Step; name: st
           }
         }}
       />
-      {why && <span className="text-2xs text-danger">{why}</span>}
+      {why && <span role="alert" className="text-2xs text-danger">{why}</span>}
     </span>
   );
 }
@@ -85,7 +90,7 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
           <ICON.delete size={12} aria-hidden />
         </Button>
       </div>
-      <div className="grid gap-2 @xs:grid-cols-2">
+      <div className="grid gap-2 @sm:grid-cols-2">
         <Select value={event} disabled={disabled} aria-label={t("workflow-boundary-events-editor-listens-for")} onChange={(e) => onChange(setEvent(step, boundary.name, e.target.value as BoundaryEvent))}>
           {BOUNDARY_EVENTS.map((b) => (
             <option key={b.event} value={b.event}>
@@ -107,7 +112,7 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
         </Field>
       )}
       {on.event === "every" && (
-        <div className="grid gap-2 @xs:grid-cols-2">
+        <div className="grid gap-2 @sm:grid-cols-2">
           <Field label={t("workflow-boundary-events-editor-every")} hint={t("workflow-boundary-events-editor-every-hint")}>
             <Seconds secs={on.secs} inputs={inputs} disabled={disabled} onChange={(secs) => put({ ...boundary, on: { ...on, secs } })} />
           </Field>
@@ -153,10 +158,11 @@ export function BoundaryEventsEditor({ step, inputs, onChange, disabled }: { ste
   // A step that no longer carries them — a spawn that stopped waiting — still shows them, to remove.
   if (!carries && boundaries.length === 0) return null;
   return (
-    <Field label={t("workflow-boundary-events-editor-boundary-events")} hint={carries ? t("workflow-boundary-events-editor-hint") : t("workflow-boundary-events-editor-cannot-carry")}>
+    <Labelled label={t("workflow-boundary-events-editor-boundary-events")} hint={carries ? t("workflow-boundary-events-editor-hint") : t("workflow-boundary-events-editor-cannot-carry")}>
       <div className="flex flex-col gap-2">
-        {boundaries.map((b) => (
-          <BoundaryRow key={b.name} step={step} boundary={b} inputs={inputs} disabled={disabled} onChange={onChange} />
+        {/* Rows keyed by place, not by name: a boundary being renamed keeps its row, its focus and its draft. */}
+        {boundaries.map((b, i) => (
+          <BoundaryRow key={i} step={step} boundary={b} inputs={inputs} disabled={disabled} onChange={onChange} />
         ))}
         {carries && (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -173,6 +179,6 @@ export function BoundaryEventsEditor({ step, inputs, onChange, disabled }: { ste
           </div>
         )}
       </div>
-    </Field>
+    </Labelled>
   );
 }

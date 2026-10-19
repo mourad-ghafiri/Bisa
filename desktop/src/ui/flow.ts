@@ -11,4 +11,4 @@
  */
 
 export { FlowCanvas, FlowHandle } from "./FlowCanvas";
-export type { FlowCanvasProps, FlowEdge, FlowNode, FlowNodeProps, FlowPosition, FlowSize, FlowViewport } from "./FlowCanvas";
+export type { FlowCanvasProps, FlowEdge, FlowNode, FlowNodeProps, FlowPick, FlowPosition, FlowSize, FlowViewport } from "./FlowCanvas";

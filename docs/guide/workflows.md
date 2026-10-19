@@ -211,10 +211,13 @@ Archive when a goal, a `spawn` step or another workflow's start does). A
 card opens the **designer**: a palette of the eighteen kinds on the left, under four headings —
 *Events*, *Gateways*, *Loops*, *Tasks* (drag one onto the canvas —
 it lands where you drop it, beside a card it would cover), the graph in the middle, and on the right
-one panel with a rail of three icons at the screen's edge — **Properties**, the selected step's form
-(one per kind) or the workflow's own; **Agent**, the conversation about this workflow; and **Runs**,
-its runs in the workspace. Press an icon to open the panel on it, again to close it; drag its edge
-wider or narrower, and it is remembered; clicking a step shows its properties. The designer comes
+one panel with a rail of three icons at the screen's edge — **Properties**: the workflow's own
+fields when nothing is picked, a step's page (its identity, its kind's own form, *Flow and failure*
+folded, its own problems, *Remove step*), a flow's page (its two steps, what kind of flow it is, its
+branch to rename, *Remove flow*) or a word on several picked; **Agent**, the conversation about this
+workflow; and **Runs**, its runs in the workspace. Press an icon to open the panel on it, again to
+close it; drag its edge wider or narrower, and it is remembered; clicking a step or a flow, or
+dragging a box around several, shows its page. The designer comes
 back as you left it: leave for the Inbox and return by any door — the card, an Inbox row, the
 Pulse — and the step you had picked, where the canvas looked and the conversation the Agent pane
 was on are there again. The arrow at the header's left is the way back to
@@ -235,8 +238,9 @@ installed, a proposal the Workflow Agent made — opens laid out top to bottom b
 down as yours. **Tidy**, beside *Fit*, lays every card out again from the flows and puts the steps in
 reading order — one edit, one undo. A loop comes back around the right side and an on-fail flow leaves
 from the left. Select a flow and press `Delete` to
-remove it; `Delete` on a step removes the step, `⌘D` duplicates, `⌘Z` and `⌘⇧Z` undo and redo, `Esc`
-clears; snapping, the grid and the minimap are `workflow.designer.snap`, `workflow.designer.grid` and
+remove it — the step it left stays picked; `Delete` on a step removes the step, `⌘D` duplicates,
+`⌘Z` and `⌘⇧Z` undo and redo — a word you typed is one undo, and undo lands on the step you were
+on, a deleted step coming back selected —, `Esc` clears; snapping, the grid and the minimap are `workflow.designer.snap`, `workflow.designer.grid` and
 `workflow.designer.minimap` in Settings. Every edit is validated as you type and the problems list
 names the step and the rule; a save is a new revision after `workflow.autosave.delay_ms` of quiet
 (or ten such delays after your first unsaved edit, if you never pause), and a save mid-edit with
@@ -250,8 +254,9 @@ or *Take theirs* — and nothing is saved until you choose. A save the node refu
 reason — a public hook start taken away while its workflow is On — is no conflict: the header says
 *not saved* with the node's own sentence, the draft stays, and the save goes once the cause is
 gone. A workflow a goal is running right now is
-**read-only** until that run finishes — the canvas, the inspector and the palette refuse edits, and
-the *Running in n goals* banner names the goals; the runs keep the copy they started with. A run in
+**read-only** until that run finishes — the canvas, the inspector and the palette refuse edits, the
+panel says so at its head, an edit tried anyway says why, and the *Running in n goals* banner names
+the goals; the runs keep the copy they started with. A run in
 the workspace freezes nothing: it runs its own copy, and the workflow stays yours to edit while it
 goes.
 
@@ -427,7 +432,7 @@ put away; *Unarchive* brings one back. `bisa archive workflow <id> [--undo]` doe
 ## With the Workflow Agent
 
 The Workflow Agent, `workflow-agent`, is woken by an auto or guided capture, by `@Workflow
-Agent` in a goal's thread — a goal's Workflow tab in Agent mode is that thread — and by `@Workflow
+Agent` in a goal's thread — the goal's Conversation tab is that thread — and by `@Workflow
 Agent` in a conversation about a library workflow, the designer's Agent pane — where there is no goal
 and nothing to propose: it reads the workflow, validates until clean and saves it at the revision it
 read, and the canvas beside the pane shows the new revision. On a goal it reads the goal, asks at most one round if the shape is unclear, starts

@@ -46,5 +46,6 @@ test("a rotated secret is shown under the hook it was minted for, and under no o
   const form = src("./forms/StartStepForm.tsx");
   assert.ok(form.includes("shownFor(shown, step.id)"), "the form asks the model");
   // Every step's form is its own: a draft, a picked word or a shown secret never carries over to the next step picked.
-  assert.ok(src("./Inspector.tsx").includes("<KindForm key={step.id}") && src("./Inspector.tsx").includes("<StepCommonForm\n          key={step.id}"), "the inspector keys a step's forms by the step");
+  const inspector = src("./Inspector.tsx");
+  assert.ok(inspector.includes("<Fragment key={step.id}>") && (inspector.match(/ key=\{step\.id\}/g) ?? []).length === 1, "the inspector keys a step's whole page by the step, once — two siblings under one key remounted the identity form on every render");
 });

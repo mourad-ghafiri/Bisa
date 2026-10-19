@@ -66,10 +66,12 @@ export function pressPane(state, target) {
 
 /**
  * A step picked on the canvas shows Properties — the column opens if it was
- * closed. Nothing picked leaves the panel as it is: clearing a selection is
- * not a wish to see anything else.
+ * closed; a flow or several steps picked show it the same way, since every
+ * pick is a wish to see what was picked (`selectionModel.mjs`). Nothing
+ * picked leaves the panel as it is: clearing a selection is not a wish to
+ * see anything else.
  * @param {{open: boolean, tab: string}} state
- * @param {string | null} selected
+ * @param {unknown} selected a selection, or a bare step id
  */
 export function paneForSelection(state, selected) {
   if (!selected) return state;

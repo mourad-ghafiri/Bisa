@@ -13,9 +13,9 @@
  * back says it kept it (`workflowForm.idProblem`).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { InputDef, Step } from "../../../types";
-import { Field, NumberInput, Select, TextInput } from "../../../ui";
+import { Field, NumberInput, Select, TextInput, useCommitOnUnmount } from "../../../ui";
 import { DEFAULT_MAX_VISITS, JOINS, ON_FAILS } from "../stepKinds.mjs";
 import { idProblem, idProblemWords } from "../workflowForm.mjs";
 import { failChoice, failTargets } from "../workflowGraph.mjs";
@@ -53,8 +53,17 @@ function IdentityPart({ step, steps, onChange, onRename, disabled }: { step: Ste
   useEffect(() => setId(step.id), [step.id]);
   const problem = idProblem(id, step.id, (x) => steps.some((s) => s.id === x));
   const error = kept ?? idProblemWords(problem, "step");
+  // A rename is sent once: on blur, or on the way out when no blur came — never both.
+  const sent = useRef<string | null>(null);
+  const rename = (to: string) => {
+    if (sent.current === to) return;
+    sent.current = to;
+    onRename(to);
+  };
+  useCommitOnUnmount(problem === null && id !== step.id ? id : null, rename);
   return (
-    <div className="grid gap-3 @sm:grid-cols-2">
+    // Two short fields: side by side from `@xs`, which the designer's pane clears at its default width; the flow part's selects wait for `@sm`.
+    <div className="grid gap-3 @xs:grid-cols-2">
       <Field label={t("workflow-step-common-form-id")} hint={t("workflow-step-common-form-named-flows-templates-steps-id-output")} error={error}>
         <TextInput
           className="font-mono"
@@ -66,7 +75,7 @@ function IdentityPart({ step, steps, onChange, onRename, disabled }: { step: Ste
           }}
           onBlur={() => {
             if (problem === null) {
-              if (id !== step.id) onRename(id);
+              if (id !== step.id) rename(id);
               return;
             }
             setKept(idProblemWords(problem, "step", step.id));
