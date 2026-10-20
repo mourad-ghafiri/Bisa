@@ -7,7 +7,7 @@
 //! removal under the watch and a root that goes under it, a saved layout
 //! that is no layout and one over the cap.
 
-use crate::common::{new_workflow, step, workspace, workspace_run};
+use crate::common::{armed, new_workflow, step, workspace, workspace_run};
 use bisa_core::{StepKind, WaitFor};
 use bisa_engine::events::FileChangeKind;
 use bisa_engine::ide::files::{self, Disposal, ToDelete};
@@ -543,7 +543,7 @@ async fn the_watcher_reports_renames_and_removals_ignores_the_object_store_and_e
     std::fs::create_dir_all(root.join(".git/objects/aa")).unwrap();
     std::fs::write(root.join("old.txt"), "x").unwrap();
     watch::watch(inner, FileScope::Workstream, &pid).unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    armed(&mut bus, &root).await;
 
     // A rename: reported under its new name, as a rename or as a removal
     // and a creation, whichever way this machine's watcher tells it.
@@ -555,10 +555,17 @@ async fn the_watcher_reports_renames_and_removals_ignores_the_object_store_and_e
         "{seen:?}"
     );
 
-    // Something under `.git/objects/` is nothing the panel shows; the next
-    // removal is reported and nothing of the object store with it.
+    // Something under `.git/objects/` is nothing the panel shows: a sentinel
+    // written after it is reported — the OS tells changes in order — and
+    // nothing of the object store before it; then the next removal is
+    // reported and nothing of the object store with it either.
     std::fs::write(root.join(".git/objects/aa/bb"), "blob").unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    std::fs::write(root.join("after-the-object.txt"), "x").unwrap();
+    let seen = frames_until(&mut bus, |path, _, _| path == "after-the-object.txt").await;
+    assert!(
+        seen.iter().all(|(p, _, _)| !p.starts_with(".git/objects")),
+        "{seen:?}"
+    );
     std::fs::remove_file(root.join("new.txt")).unwrap();
     let seen = frames_until(&mut bus, |path, kind, _| {
         path == "new.txt" && *kind == FileChangeKind::Removed
@@ -612,7 +619,7 @@ async fn the_watcher_reports_renames_and_removals_ignores_the_object_store_and_e
         .unwrap();
     let gid = goal.id.to_string();
     let goal_dir = watch::watch(inner, FileScope::Goal, &gid).unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    armed(&mut bus, &goal_dir).await;
     std::fs::write(goal_dir.join("note.md"), "a note").unwrap();
     let seen = tokio::time::timeout(Duration::from_secs(10), async {
         loop {

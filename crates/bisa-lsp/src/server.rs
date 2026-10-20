@@ -22,6 +22,38 @@ use tokio::sync::{mpsc, oneshot};
 
 pub const INIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a `shutdown` request is given an answer before `exit` is sent anyway.
+pub const SHUTDOWN_ANSWER_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a server told to exit is given to go before it is ended.
+pub const EXIT_WAIT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The wall-clock budgets one server is held to. [`Default`] is what the
+/// engine runs with; a test hands in short ones so a server that never
+/// answers is a typed failure within the test's patience rather than the
+/// suite's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Budgets {
+    /// `initialize` answered, or the start fails.
+    pub init: Duration,
+    /// Any one request answered, or it is a [`LspError::Timeout`].
+    pub request: Duration,
+    /// `shutdown` answered, or `exit` is sent anyway.
+    pub shutdown_answer: Duration,
+    /// The process gone after `exit`, or it is ended; the reader's end
+    /// after the pipe closes is waited for as long, then let go.
+    pub exit_wait: Duration,
+}
+
+impl Default for Budgets {
+    fn default() -> Self {
+        Self {
+            init: INIT_TIMEOUT,
+            request: REQUEST_TIMEOUT,
+            shutdown_answer: SHUTDOWN_ANSWER_TIMEOUT,
+            exit_wait: EXIT_WAIT_TIMEOUT,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "state")]
@@ -54,11 +86,25 @@ pub struct Server {
     next_id: AtomicI64,
     notifications: Mutex<Option<mpsc::Receiver<Notification>>>,
     capabilities: Mutex<Value>,
+    budgets: Budgets,
+    /// The reader task, joined at the shutdown so "the reader ended" is a
+    /// fact a caller holds, not one it waits a while for.
+    reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Server {
-    /// Spawn through the login shell, run `initialize`, send `initialized`.
+    /// Spawn through the login shell, run `initialize`, send `initialized` —
+    /// under the default [`Budgets`].
     pub async fn start(root: &Path, descriptor: ServerDescriptor) -> LspResult<Arc<Server>> {
+        Self::start_with(root, descriptor, Budgets::default()).await
+    }
+
+    /// [`Self::start`] under budgets of the caller's choosing.
+    pub async fn start_with(
+        root: &Path,
+        descriptor: ServerDescriptor,
+        budgets: Budgets,
+    ) -> LspResult<Arc<Server>> {
         let mut command = format!("exec {}", shell_word(&descriptor.command));
         for a in &descriptor.args {
             command.push(' ');
@@ -122,12 +168,14 @@ impl Server {
             next_id: AtomicI64::new(1),
             notifications: Mutex::new(Some(rx)),
             capabilities: Mutex::new(Value::Null),
+            budgets,
+            reader: Mutex::new(None),
         });
 
         // The reader.
         let reader_shared = Arc::clone(&shared);
         let reader_server = Arc::downgrade(&server);
-        tokio::spawn(async move {
+        let reader = tokio::spawn(async move {
             let mut decoder = Decoder::default();
             let mut buf = vec![0u8; 64 * 1024];
             let reason: String = loop {
@@ -161,6 +209,9 @@ impl Server {
             };
             fail(&reader_shared, reason);
         });
+        if let Ok(mut slot) = server.reader.lock() {
+            *slot = Some(reader);
+        } // LCOV_EXCL_LINE a poisoned lock; by construction
 
         // initialize → initialized.
         let init = json!({
@@ -185,9 +236,15 @@ impl Server {
                 "window": {"workDoneProgress": true}
             }
         });
-        let answer = tokio::time::timeout(INIT_TIMEOUT, server.request("initialize", init))
-            .await
-            .map_err(|_| LspError::Timeout("initialize".into()))??;
+        // The handshake answers to the init budget alone: a request budget
+        // short enough to catch a mute server must not catch a server still
+        // starting through the login shell.
+        let answer = tokio::time::timeout(
+            budgets.init,
+            server.request_within("initialize", init, budgets.init),
+        )
+        .await
+        .map_err(|_| LspError::Timeout("initialize".into()))??;
         if let Ok(mut c) = server.capabilities.lock() {
             *c = answer["capabilities"].clone();
         }
@@ -289,8 +346,19 @@ impl Server {
             .map_err(|e| LspError::Protocol(format!("flushing: {e}")))
     }
 
-    /// A request with a deadline.
+    /// A request with a deadline — the request budget's.
     pub async fn request(&self, method: &str, params: Value) -> LspResult<Value> {
+        self.request_within(method, params, self.budgets.request)
+            .await
+    }
+
+    /// A request answered within `budget`, or a [`LspError::Timeout`].
+    async fn request_within(
+        &self,
+        method: &str,
+        params: Value,
+        budget: Duration,
+    ) -> LspResult<Value> {
         if matches!(
             self.state(),
             ServerState::Failed { .. } | ServerState::Stopped
@@ -304,16 +372,17 @@ impl Server {
         }
         self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
             .await?;
-        match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
+        match tokio::time::timeout(budget, rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(LspError::Closed), // LCOV_EXCL_LINE a sender dropped unsent; by construction
-            // LCOV_EXCL_START a twenty-second deadline; by decision
+            // The budget ran out: the waiter leaves the map, so an answer
+            // that lands later finds nobody and the next request is its own.
             Err(_) => {
                 if let Ok(mut p) = self.shared.pending.lock() {
                     p.remove(&id);
-                }
+                } // LCOV_EXCL_LINE a poisoned lock; by construction
                 Err(LspError::Timeout(method.to_string()))
-            } // LCOV_EXCL_STOP
+            }
         }
     }
 
@@ -374,17 +443,18 @@ impl Server {
             .unwrap_or(Value::Null)
     }
 
-    /// `shutdown` then `exit`, then the process is gone whatever it said.
+    /// `shutdown` then `exit`, then the process is gone whatever it said —
+    /// and the reader with it, so the state read after is the final word.
     pub async fn shutdown(&self) {
         match tokio::time::timeout(
-            Duration::from_secs(3),
+            self.budgets.shutdown_answer,
             self.request("shutdown", Value::Null),
         )
         .await
         {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => tracing::debug!("shutdown was not accepted: {e}"),
-            Err(_) => tracing::debug!("shutdown was not answered in 3 s"),
+            Err(_) => tracing::debug!("shutdown was not answered within its budget"),
         }
         if let Err(e) = self.notify("exit", Value::Null).await {
             tracing::debug!("exit was not delivered: {e}"); // LCOV_EXCL_LINE the server gone before exit; a race
@@ -401,9 +471,9 @@ impl Server {
         } // LCOV_EXCL_LINE a poisoned lock; by construction
         let child = self.child.lock().ok().and_then(|mut c| c.take());
         if let Some(mut child) = child {
-            // Two seconds to exit on its own; then it is ended. An end that
+            // Its budget to exit on its own; then it is ended. An end that
             // fails is a child already gone.
-            if tokio::time::timeout(Duration::from_secs(2), child.wait())
+            if tokio::time::timeout(self.budgets.exit_wait, child.wait())
                 .await
                 .is_err()
             {
@@ -416,6 +486,16 @@ impl Server {
         }
         if let Ok(mut g) = self.stdin.try_lock() {
             g.take();
+        }
+        // The reader ends when the pipe does — the process is gone — and is
+        // waited for here, bounded: the state read after a shutdown is the
+        // last word, never one the reader is still about to write.
+        let reader = self.reader.lock().ok().and_then(|mut r| r.take());
+        if let Some(mut reader) = reader {
+            let ended = tokio::time::timeout(self.budgets.exit_wait, &mut reader).await;
+            if ended.is_err() {
+                reader.abort(); // LCOV_EXCL_LINE a reader on a pipe something else holds open; a race
+            }
         }
     }
 }

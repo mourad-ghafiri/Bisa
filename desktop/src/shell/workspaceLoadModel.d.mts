@@ -44,3 +44,4 @@ export declare function offlineLine(loadSaid: string | null, conn: "connecting" 
 export declare function reconnectWords(): string;
 export declare const RELOADS_WORKSPACE: readonly string[];
 export declare function reloadsWorkspace(type: unknown): boolean;
+export declare const COALESCE_MS: number;

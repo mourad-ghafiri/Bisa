@@ -127,3 +127,16 @@ test("a failed scan is said where the ports are read, and nothing is said while 
   assert.equal(portsKeptWords("   "), "");
   assert.equal(portsKeptWords("could not read the socket table"), "The ports could not be scanned — the last answer is kept: could not read the socket table");
 });
+
+test("a port a process holds, seen from a terminal root and a pid root both, is one row of its workstream — the first seen — and another workstream's rows never leak in", () => {
+  const attributed = [
+    { port: 3000, pid: 42, process: "node", workstream: "w1", via: { kind: "terminal", key: "t1" } },
+    { port: 3000, pid: 42, process: "node", workstream: "w1", via: { kind: "harness", session: "s1", harness: "claude-code" } },
+    { port: 8080, pid: 7, process: "python", workstream: "w2", via: { kind: "terminal", key: "t2" } },
+    { port: 80, pid: 9, process: "caddy", workstream: "w1", via: { kind: "terminal", key: "t3" } },
+  ];
+  const rows = portsOf(attributed, "w1");
+  assert.deepEqual(rows.map((r) => [r.port, r.via.kind]), [[80, "terminal"], [3000, "terminal"]], "once, lowest port first, the first seen kept");
+  assert.deepEqual(portsOf(attributed, "w3"), []);
+  assert.deepEqual(portsOf(null, "w1"), []);
+});

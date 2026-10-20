@@ -34,7 +34,7 @@ export type BrowserAsk = Pick<BrowserPending, "id" | "request" | "scope" | "head
 import { parseInspectorMessage } from "../ui/artifact/pageInspector.mjs";
 import type { InspectorAnswer } from "../ui/artifact/pageInspector.mjs";
 import { browserViewBack, browserViewForward, browserViewReload, driveBrowserView, navigateBrowserView } from "../browser/session";
-import { HANDLED_KEPT, LOAD_LATE, NOT_SHOWN, PAGE_SILENT, SHOT_FAILED, TAB_GONE, answerResult, askAgain, navigatedResult, planRequest, screenshotResult, tabResult, tabsResult, wireResult } from "./browserBridgeModel.mjs";
+import { ANSWER_MS, HANDLED_KEPT, LOAD_LATE, LOAD_MS, NAVIGATE_GRACE_MS, NOT_SHOWN, PAGE_SILENT, SHOT_FAILED, TAB_GONE, WAIT_ANSWER_MS, answerResult, askAgain, driveOutcome, navigatedResult, planRequest, screenshotResult, tabResult, tabsResult, wireResult } from "./browserBridgeModel.mjs";
 import { beginBrowserWork, endBrowserWork } from "./browserActivityStore";
 import { showBrowserTab } from "./browserDoors";
 import { inspectorSaid } from "./browserInspectorStore";
@@ -44,14 +44,6 @@ import { browserAsked, browserNavigated, browserSessions, browserState, closeBro
 import { byAgent, byPage, sessionOf } from "./browsersModel.mjs";
 import type { BrowserHistory, BrowserSession } from "./browsersModel.mjs";
 import { t } from "../i18n/l10n.mjs";
-
-/** How long a page gets to answer a read or a click, and a navigation to finish. */
-const ANSWER_MS = 10_000;
-/** A wait in the page may run thirty seconds; the page's answer is given that much and a little more. */
-const WAIT_ANSWER_MS = 32_000;
-const LOAD_MS = 15_000;
-/** How long after an act the bridge listens for the navigation it may have started. */
-const NAVIGATE_GRACE_MS = 300;
 
 /**
  * The requests taken up so far, so one heard as a frame and read again from
@@ -318,23 +310,30 @@ async function perform(pending: BrowserAsk): Promise<BridgeResult> {
         // answer, or the navigation it started — decides; an answer followed
         // by a move within the grace is a move too.
         const watch = untilStarted(key, ANSWER_MS);
-        const outcome = await Promise.race([askPage(key, plan.message).then((asked) => ({ asked })), watch.started.then(() => ({ started: true as const }))]);
-        if ("started" in outcome) {
-          await untilLoaded(key);
-          return { ...navigatedResult(session(key) ?? s), tabs: [] };
+        const raced = await Promise.race([askPage(key, plan.message).then((asked) => ({ asked })), watch.started.then(() => ({ started: true as const }))]);
+        const asked = "asked" in raced ? raced.asked : null;
+        let movedLate = false;
+        if (asked !== null) {
+          const late = untilStarted(key, NAVIGATE_GRACE_MS);
+          const grace = new Promise<false>((resolve) => window.setTimeout(() => resolve(false), NAVIGATE_GRACE_MS));
+          movedLate = await Promise.race([late.started, grace]);
+          late.off();
         }
-        const late = untilStarted(key, NAVIGATE_GRACE_MS);
-        const grace = new Promise<false>((resolve) => window.setTimeout(() => resolve(false), NAVIGATE_GRACE_MS));
-        const movedLate = await Promise.race([late.started, grace]);
-        late.off();
         watch.off();
-        if (movedLate) {
-          await untilLoaded(key);
-          return { ...navigatedResult(session(key) ?? s), tabs: [] };
+        // The race's verdict is the model's (`driveOutcome`): a move wins
+        // over any answer; past the grace the answer is read as it came.
+        const verdict = driveOutcome({ asked, started: asked === null, movedLate });
+        switch (verdict.kind) {
+          case "navigated":
+            await untilLoaded(key);
+            return { ...navigatedResult(session(key) ?? s), tabs: [] };
+          case "gone":
+            return gone(verdict.error);
+          case "silent":
+            return refused(PAGE_SILENT, { tab: key, url: s.url });
+          case "answered":
+            return { ...answerResult(s, verdict.message), tabs: [] };
         }
-        if (outcome.asked.kind === "gone") return gone(outcome.asked.error);
-        if (outcome.asked.kind === "silent") return refused(PAGE_SILENT, { tab: key, url: s.url });
-        return { ...answerResult(s, outcome.asked.message), tabs: [] };
       });
     }
     case "screenshot": {

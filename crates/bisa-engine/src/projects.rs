@@ -319,7 +319,11 @@ pub async fn init_repository(
     let root = inner.ws.project_root_path(&project);
     let unborn = blocking({
         let root = root.clone();
-        move || Ok(git::head(&root).is_err())
+        move || match git::head(&root) {
+            Ok(_) => Ok(false),
+            Err(bisa_vcs::VcsError::NoCommits(_)) => Ok(true),
+            Err(e) => Err(e),
+        }
     })
     .await?;
     if unborn {
@@ -667,7 +671,13 @@ pub async fn open_workstream_for(
     // git's complaint about a reference.
     let unborn = blocking({
         let root = root.clone();
-        move || -> Result<bool, bisa_vcs::VcsError> { Ok(git::head(&root).is_err()) }
+        move || match git::head(&root) {
+            Ok(_) => Ok(false),
+            // LCOV_EXCL_START status saw a commit a moment ago; by construction
+            Err(bisa_vcs::VcsError::NoCommits(_)) => Ok(true),
+            Err(e) => Err(e),
+            // LCOV_EXCL_STOP
+        }
     })
     .await?;
     if unborn {
@@ -2408,7 +2418,11 @@ pub async fn push_workstream(inner: &Inner, id: WorkstreamId) -> Result<(), Engi
     let w = reconcile_before_publish(inner, &w, &status, &path).await?;
     let what = format!("push {branch}");
     let asked = pass_publish_gate(inner, &w, &project, &what).await?;
-    let pushed = push_branch(inner, &w, &path, &branch).await.map(|_| ());
+    let pushed = async {
+        let w = still_open_after(inner, asked, &w)?;
+        push_branch(inner, &w, &path, &branch).await.map(|_| ())
+    }
+    .await;
     asked.heard(inner, &w, &what, pushed)
 }
 
@@ -2707,6 +2721,29 @@ pub(crate) async fn pass_publish_gate(
             what: what.to_string(),
         })
     }
+}
+
+/// The record read again once a person answered the gate
+/// ([`Asked::APerson`]): a workstream closed while the question stood
+/// publishes nothing — its branch may be gone with its tree, and whoever
+/// closed it did not mean for it to go out. Nobody asked, the record in
+/// hand was read a moment ago and stands.
+pub(crate) fn still_open_after(
+    inner: &Inner,
+    asked: Asked,
+    w: &Workstream,
+) -> Result<Workstream, EngineError> {
+    if asked == Asked::Nobody {
+        return Ok(w.clone());
+    }
+    let now = inner.ws.get_workstream(w.id)?;
+    if now.state.is_terminal() {
+        return Err(EngineError::Invalid(bisa_core::text!(
+            "error-engine-invalid-workstream-closed-while-publish-gate-open",
+            id = w.id.to_string()
+        )));
+    }
+    Ok(now)
 }
 
 /// Whether a person was asked before an outward act — what decides who

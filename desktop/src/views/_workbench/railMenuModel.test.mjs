@@ -37,3 +37,15 @@ test("a session row's menu offers Abort only while the session runs or waits on 
   assert.deepEqual(ids(row("idle", { terminalKey: "t1" })), [], "an idle harness in its terminal has nothing to terminate from here — its tab closes from the strip");
   assert.deepEqual(ids(row("running", { parent: "p" })), [], "a sub-agent has no verbs of its own");
 });
+
+test("a workstream row with no harness installed still offers a shell and keeps the separator before it; a primary whose folder is gone offers no shell; a session row in a terminal with a gate waiting offers Terminate alone, and one in a state nobody knows only Show", () => {
+  const none = workstreamMenuSpec({ primary: false, exists: true, harnesses: [], rename: false, close: true });
+  assert.deepEqual(none.map((i) => i.id), ["open", "new-shell", "diff", "close"]);
+  assert.equal(none.find((i) => i.id === "new-shell").separatorBefore, true);
+  assert.ok(!none.some((i) => i.id.startsWith("harness:")));
+  const gone = workstreamMenuSpec({ primary: true, exists: false, harnesses: [{ id: "claude-code", label: "Claude Code" }], rename: true, close: true });
+  assert.deepEqual(gone.map((i) => [i.id, i.disabled ?? false]), [["open", false], ["rename", false], ["new-shell", true], ["harness:claude-code", true]], "the primary has no branch verbs; a folder gone takes no shell");
+  assert.deepEqual(agentRowMenuSpec({ parent: null, terminalKey: "t1", gateId: "g1", state: "running" }).map((i) => i.id), ["terminate"], "answered in its tab, ended there");
+  assert.deepEqual(agentRowMenuSpec({ parent: null, terminalKey: null, gateId: null, state: "nonsense" }).map((i) => i.id), ["show"]);
+  assert.deepEqual(agentRowMenuSpec({ parent: null, terminalKey: null, gateId: "g1", state: { state: "waiting", on: "a gate" } }).map((i) => i.id), ["show", "answer", "abort"]);
+});

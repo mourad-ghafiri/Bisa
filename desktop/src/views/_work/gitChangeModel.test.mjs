@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { GIT_CHANGES, GIT_COALESCE_MS, gitChangeOf, kindsOf, readsFor } from "./gitChangeModel.mjs";
+import { GIT_CHANGES, GIT_COALESCE_MS, MAX_IDLE_ROOTS, WRITES_TREE, gitChangeOf, idleRootsToDrop, kindsOf, readsFor, rereadsFor } from "./gitChangeModel.mjs";
 
 test("every path the watcher reports has its kind, and a .git path the panel cannot show is none", () => {
   assert.equal(gitChangeOf("src/main.rs"), "worktree");
@@ -59,4 +59,36 @@ test("each kind reaches the views that show it, and a burst is one window", () =
   assert.deepEqual(readsFor(["stash"]), { status: true, files: true, history: false, branches: false, stashes: true });
   assert.deepEqual(readsFor(["operation"]), { status: true, files: true, history: true, branches: true, stashes: false });
   assert.ok(GIT_COALESCE_MS >= 100 && GIT_COALESCE_MS <= 500, String(GIT_COALESCE_MS));
+});
+
+test("the roots let go of are the ones left longest ago past the cap — never the ones read first — and a root shown, in flight or about to flush stays whatever its age", () => {
+  const e = (subscribers, leftAt, over = {}) => ({ subscribers, inFlight: false, flush: null, leftAt, ...over });
+  const entries = new Map([
+    ["w:first", e(0, 5)],
+    ["w:second", e(0, 1)],
+    ["w:shown", e(1, 0)],
+    ["w:reading", e(0, 2, { inFlight: true })],
+    ["w:flushing", e(0, 3, { flush: 1 })],
+    ["w:never", e(0, 0)],
+    ["w:third", e(0, 4)],
+  ]);
+  assert.deepEqual(idleRootsToDrop(entries, 2), ["w:never", "w:second"], "never shown first, then the earliest leave; the two left last stay");
+  assert.deepEqual(idleRootsToDrop(entries, 8), [], "under the cap, nothing goes");
+  assert.deepEqual(idleRootsToDrop(entries, 0), ["w:never", "w:second", "w:third", "w:first"], "a cap of none lets every idle root go, oldest first");
+  assert.deepEqual(idleRootsToDrop([], 8), []);
+  assert.equal(MAX_IDLE_ROOTS, 8);
+});
+
+test("a frame re-reads every shown root after what writes into a tree with no frame of its own, one workstream's rows on a file_changed that touched its tree or index, and nothing on a ref move, a goal's folder, or a frame of no root", () => {
+  assert.deepEqual([...WRITES_TREE], ["execution_ended", "result_accepted", "workstream_committed"]);
+  for (const type of WRITES_TREE) assert.deepEqual(rereadsFor({ type }), { kind: "shown" }, type);
+  assert.deepEqual(rereadsFor({ type: "file_changed", scope: "workstream", id: "w1", path: "src/a.rs", kind: "modified" }), { kind: "root", id: "w1" });
+  assert.deepEqual(rereadsFor({ type: "file_changed", scope: "workstream", id: "w1", path: ".git/index", kind: "modified" }), { kind: "root", id: "w1" }, "the index is the rows' other half");
+  assert.deepEqual(rereadsFor({ type: "file_changed", scope: "workstream", id: "w1", path: "", kind: "rescan" }), { kind: "root", id: "w1" }, "a rescan is every kind");
+  assert.deepEqual(rereadsFor({ type: "file_changed", scope: "workstream", id: "w1", path: ".git/refs/remotes/origin/main", kind: "modified" }), { kind: "none" }, "a fetch that only moved refs re-lists nothing");
+  assert.deepEqual(rereadsFor({ type: "file_changed", scope: "goal", id: "g1", path: "notes.md", kind: "modified" }), { kind: "none" }, "a goal's folder has no git rows");
+  assert.deepEqual(rereadsFor({ type: "file_changed", scope: "workstream", id: "", path: "a", kind: "modified" }), { kind: "none" });
+  assert.deepEqual(rereadsFor({ type: "workstream_changed" }), { kind: "none" }, "a record moving wrote nothing into the tree");
+  assert.deepEqual(rereadsFor({}), { kind: "none" });
+  assert.deepEqual(rereadsFor(null), { kind: "none" });
 });

@@ -11,6 +11,7 @@ import {
   EVENTS,
   activityWords,
   agentReply,
+  newRun,
   allowedEvents,
   busyWords,
   clearsOnLanding,
@@ -314,4 +315,29 @@ test("timestamps and keys", () => {
   assert.equal(unixOf("not a date"), null);
   assert.equal(reviewKey({ author: "alice", state: "approved", submitted_at: "t" }, 3), "alice:t");
   assert.equal(reviewKey({ author: null, state: "approved" }, 3), "?:3");
+});
+
+test("the run an ask records carries only what is known: the conversation when one was reached, the commits beyond the base when counted, and a fix's extras", () => {
+  assert.deepEqual(newRun({ kind: "review", agent: "dev", at: 100 }), { kind: "review", agent: "dev", at: 100 });
+  assert.deepEqual(newRun({ kind: "review", agent: "dev", at: 100, conversation: "c1", ahead: 0 }), { kind: "review", agent: "dev", at: 100, conversation: "c1", ahead: 0 }, "zero commits beyond is a count, not an unknown");
+  assert.deepEqual(newRun({ kind: "fix", agent: "dev", at: 100, conversation: null, ahead: null, extras: { count: 2, comment: "t1" } }), { kind: "fix", agent: "dev", at: 100, count: 2, comment: "t1" });
+  assert.deepEqual(newRun({ kind: "fix_check", agent: "dev", at: 100, extras: { check: "ci" } }), { kind: "fix_check", agent: "dev", at: 100, check: "ci" });
+});
+
+test("a session that started a second before the ask — the roster's clock against the draft's — is the run's; two seconds before is another run's", () => {
+  const run = { kind: "review", agent: "dev", at: 1000 };
+  const s = (started) => ({ id: `s${started}`, workstream: "w1", agent: "dev", started, since: started, state: "running", children: [] });
+  assert.equal(reviewRun([s(999)], "w1", run, null)?.session?.id, "s999");
+  assert.equal(reviewRun([s(998)], "w1", run, null)?.session, null);
+  assert.equal(reviewRun([s(1000), s(1005)], "w1", run, null)?.session?.id, "s1005", "the newest of the run's sessions");
+  assert.equal(reviewRun([{ ...s(1001), workstream: "w2" }], "w1", run, null)?.session, null, "another checkout's session is not the run's");
+});
+
+test("two replies at one second: the later in the thread wins; a reply before the ask or retracted is none", () => {
+  const run = { kind: "review", agent: "dev", at: 10 };
+  const m = (id, created_at) => ({ id, author: "pk", created_at, retracted: false });
+  assert.equal(agentReply([m("a", 20), m("b", 20)], () => "dev", run)?.id, "b");
+  assert.equal(agentReply([m("a", 9)], () => "dev", run), null);
+  assert.equal(agentReply([{ ...m("a", 20), retracted: true }], () => "dev", run), null);
+  assert.equal(agentReply([m("a", 20)], () => "other", run), null, "another agent's words are not the reply");
 });

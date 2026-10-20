@@ -121,6 +121,13 @@ Scrollback survives a restart. The mechanism:
 2. The client checkpoints it — on a 2-second debounce after output stops, on tab close, and on clean
    shutdown — to the desktop shell over IPC, which writes `run/terminals/<key>.scrollback` in the
    workspace. Local state, never synced. Capped at 4 MiB (`SCROLLBACK_CAP`) and at the `terminal.scrollback_lines` setting.
+   A close drops the checkpoint of exactly the tabs that closed, whichever door closed them
+   (`terminalsModel.closedKeys`, the one rule for a tab, a burst, the others, the exited); a
+   retirement's close names the tabs rooted at its workstreams and its goal (`keysRootedAt`).
+   The file work is four plain functions the commands call (`scrollback_tail` — the recent part, cut
+   on a character; `write_checkpoint` — beside, then renamed, so a crash leaves the old checkpoint
+   whole; `read_checkpoint` — lossy, never refused; `forget_checkpoint` — gone already is nothing to
+   report), tested without the app.
 3. On restart, a tab with a checkpoint is recreated in the same pane, the checkpoint is **replayed
    into the emulator first**, a divider line marks where the old session ended, and the PTY is
    respawned fresh below it. Restored tabs mount only once the settings have answered, so

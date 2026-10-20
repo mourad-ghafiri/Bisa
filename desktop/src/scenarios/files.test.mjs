@@ -215,3 +215,9 @@ test("nine projects later, what was typed and not saved is still there — and c
   assert.ok(!state.roots.some((r) => r.key === root(1)), "a root with nothing unsaved went, coldest first");
   assert.equal(guardWords([{ label: "notes.md", untitled: false }]).title, "Save changes to notes.md?");
 });
+
+test("the file tree's rows say their depth to a reader, and the guides are drawn by the one formula the rail hands in", () => {
+  const list = readFileSync(new URL("../ui/tree/TreeList.tsx", import.meta.url), "utf8");
+  assert.ok(list.includes("aria-level={row.depth + 1}"), "a row's depth is read out, counted from one");
+  assert.ok(list.includes("left: base + (d - 1) * indent + guideInset"), "a guide stands where its depth's indent is");
+});

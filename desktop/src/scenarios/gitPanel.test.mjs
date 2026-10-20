@@ -22,6 +22,7 @@ import { movesStatuses } from "../shell/workstreamFramesModel.mjs";
 import { reloadsWorkspace } from "../shell/workspaceLoadModel.mjs";
 import { afterPull, pullBannerWords } from "../views/_work/syncModel.mjs";
 import { MAX_SESSION_DRAFTS } from "../views/_work/gitPanelModel.mjs";
+import { MAX_IDLE_ROOTS } from "../views/_work/gitChangeModel.mjs";
 import { misfits } from "./schemaFit.mjs";
 
 const file = (path, over = {}) => ({ path, index: ".", worktree: "M", staged: false, unstaged: true, untracked: false, conflicted: false, ...over });
@@ -162,8 +163,9 @@ test("a pull's outcome is one banner in the catalog's words; the session's own d
   assert.ok(MAX_SESSION_DRAFTS >= 128);
   // The changed-files store keeps the rows of the few roots left last, reads every shown root again when the node comes back, and lands rows only for a root it knows.
   const store = readFileSync(new URL("../views/_work/gitFilesStore.ts", import.meta.url), "utf8");
-  assert.match(store, /const MAX_IDLE_ROOTS = 8;/);
-  assert.ok(store.includes("if (e.subscribers === 0) prune();"), "a root nobody shows any more is a candidate to let go");
+  assert.equal(MAX_IDLE_ROOTS, 8);
+  assert.ok(store.includes("idleRootsToDrop(entries, MAX_IDLE_ROOTS)"), "which roots go is the model's rule");
+  assert.ok(store.includes("e.leftAt = ++leaves;") && store.includes("prune();"), "a root nobody shows any more is stamped with its leave and is a candidate to let go");
   assert.ok(store.includes("reloadOnReconnect(watchConnection, readShown)"), "what changed while the node was away was said by no frame");
   assert.ok(store.includes("const e = entries.get(scope);\n  if (!e) return;"), "rows landing for a root nobody showed make no entry");
 });
@@ -185,4 +187,23 @@ test("a delete from Git › Changes — a file's, a folder's untracked files, ev
   const schema = JSON.parse(src("../../api-schema.json"));
   assert.deepEqual(misfits(schema, "IdeDeleteEntries", { entries: [{ path: "a.txt", recursive: false }, { path: "pkg", recursive: true }] }), []);
   assert.notDeepEqual(misfits(schema, "IdeDeleteEntries", { entries: [{ path: "a.txt" }], recursive: true }), [], "recursive is each entry's, never the batch's");
+});
+
+test("the git views hold their verbs while the checkout is busy, ask before what cannot be undone, and keep one busy flag per checkout", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const stashes = src("../views/_work/StashesPanel.tsx");
+  assert.ok(stashes.includes('onSelect: () => void stashAct("apply", entry)'), "Apply keeps the entry and never asks");
+  assert.ok(stashes.includes('onSelect: () => ask("stash_pop", entry)') && stashes.includes('onSelect: () => ask("stash_drop", entry)'), "Pop and Drop ask first");
+  assert.ok(stashes.includes("<ConfirmDialog"));
+  assert.ok((stashes.match(/busy !== null/g) ?? []).length >= 7, "every verb is off while the checkout is busy");
+  assert.ok(stashes.includes("onDoor(GIT_STASH"), "the keymap's stash door opens the whole-tree dialog");
+  const tree = src("../views/_work/ChangesTree.tsx");
+  assert.ok(tree.includes("verb(spaceVerb(row), row.id)") && tree.includes("deleteVerb(row)"), "Space and Delete resolve through the model's verbs");
+  assert.equal((tree.match(/disabled=\{p\.busy \|\| p\.askingDelete\}/g) ?? []).length, 2, "a row's and a folder's verbs are off while busy or asking");
+  const branches = src("../views/_work/BranchesPanel.tsx");
+  assert.ok(branches.includes("const busy = session.busy !== null;"), "one busy flag, the checkout's session's");
+  assert.ok((branches.match(/busy=\{busy\}/g) ?? []).length >= 9, "every dialog is handed it");
+  const remotes = src("../views/_work/RemotesSection.tsx");
+  assert.ok(remotes.includes("if (!name || !isRemoteUrl(url)) return;"), "a remote is saved only with a name and a URL git can reach");
+  assert.ok(remotes.includes("<ConfirmDialog"), "removing a remote asks");
 });

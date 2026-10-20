@@ -21,7 +21,9 @@
 
 import { t } from "../../i18n/l10n.mjs";
 
-const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+// A hunk header's tail is the file's own line — in a file with Windows
+// endings it ends in `\r`, which `.` never matches; read past it.
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*?)\r?$/;
 
 /**
  * @param {string} diff
@@ -118,20 +120,31 @@ export function linesPatch(header, hunk, picked) {
   const set = new Set(picked);
   const out = [];
   let changes = 0;
+  // A `\ No newline at end of file` marker belongs to the line before it:
+  // it stays when that line reached the patch — as itself, or as the
+  // context an unpicked deletion became, which still names a last line
+  // without a newline — and goes with an unpicked addition. Dropped after
+  // a deletion turned context, the patch would claim a newline the file
+  // lacks, and git would refuse it.
+  let prevKept = false;
   for (let i = 0; i < hunk.lines.length; i++) {
     const l = hunk.lines[i];
     if (l.kind === "context") {
       out.push(l);
+      prevKept = true;
     } else if (l.kind === "meta") {
-      // Belongs to the line before it; keep it only if that line was kept.
-      if (out.length > 0 && out[out.length - 1] === hunk.lines[i - 1]) out.push(l);
+      if (prevKept) out.push(l);
     } else if (set.has(i)) {
       out.push(l);
       changes++;
+      prevKept = true;
     } else if (l.kind === "del") {
       out.push({ kind: "context", text: " " + l.text.slice(1), oldLine: l.oldLine, newLine: null });
+      prevKept = true;
+    } else {
+      // an unpicked "add" is dropped, and a marker of its own with it
+      prevKept = false;
     }
-    // an unpicked "add" is dropped
   }
   if (changes === 0) return null;
   return header + [headerFor(hunk, out), ...out.map((l) => l.text)].join("\n") + "\n";

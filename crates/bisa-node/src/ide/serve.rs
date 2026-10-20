@@ -35,7 +35,7 @@ use bisa_engine::{EngineEvent, EnginePayload};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::watch;
 use tower_http::services::ServeDir;
@@ -348,6 +348,25 @@ impl Servers {
         Some(entry.view)
     }
 
+    /// Stop every server of one checkout — its workstream closed — and
+    /// answer what was stopped.
+    pub fn stop_of(&self, workstream: WorkstreamId) -> Vec<ServedView> {
+        let wid = workstream.to_string();
+        let mut entries = self.entries.locked();
+        let gone: Vec<String> = entries
+            .iter()
+            .filter(|(_, e)| e.view.workstream() == Some(wid.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect();
+        gone.into_iter()
+            .filter_map(|id| {
+                let entry = entries.remove(&id)?;
+                let _server_gone = entry.stop.send(true);
+                Some(entry.view)
+            })
+            .collect()
+    }
+
     /// Stop every server — the node is going down.
     pub fn stop_all(&self) {
         let mut entries = self.entries.locked();
@@ -437,17 +456,45 @@ fn percent_decoded(segment: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Whether `path` — a file that may not stand — is the folder's own once
-/// links are followed: under `root`, by no hidden name. A path that does not
-/// stand leaves nothing to hand out, so it passes to the 404 it is owed.
+/// Whether `path` is the folder's own once links are followed: under
+/// `root`, by no hidden name, and standing — a path that does not stand,
+/// a link to nowhere, a name the disk will not resolve is refused here,
+/// and its 404 is the same the server would give; nothing is ever read on
+/// the strength of a check that could not be made.
 fn stays_within(root: &Path, path: &Path) -> bool {
     match path.canonicalize() {
         Ok(real) => real.strip_prefix(root).is_ok_and(|rel| {
             rel.components()
                 .all(|c| !c.as_os_str().to_string_lossy().starts_with('.'))
         }),
-        Err(_) => true,
+        Err(_) => false,
     }
+}
+
+/// Follow the engine's bus for the node's life: a workstream closed takes
+/// its served folders with it — a listener kept up for a tree that is gone
+/// serves nothing but 404s, and the Browser menu would keep offering it —
+/// and the menu is told, as any stop tells it.
+pub fn follow_closes(servers: Arc<Servers>, engine: &bisa_engine::Engine) {
+    let mut rx = engine.events();
+    let inner = Arc::clone(engine.inner());
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(e) => {
+                    if let EnginePayload::WorkstreamChanged { workstream, state } = &e.payload {
+                        if state.is_terminal() && !servers.stop_of(*workstream).is_empty() {
+                            inner.emit(EngineEvent::global(EnginePayload::ServerChanged {
+                                workstream: Some(*workstream),
+                            }));
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue, // LCOV_EXCL_LINE a reader that fell behind the bus; a race
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break, // LCOV_EXCL_LINE the bus closed with the engine; by construction
+            }
+        }
+    }); // LCOV_EXCL_LINE a task that ends with the engine's runtime; by construction
 }
 
 /// A file name as a URL path segment: what a browser would not take as is,
@@ -736,8 +783,8 @@ mod tests {
         assert!(stays_within(&root, &root));
         assert!(stays_within(&root, &root.join("index.html")));
         assert!(
-            stays_within(&root, &root.join("missing.html")),
-            "nothing stands there: the 404 is the server's to give"
+            !stays_within(&root, &root.join("missing.html")),
+            "nothing stands there: refused, and the 404 is the same"
         );
         assert!(!stays_within(&root, &root.join(".cache/inner.txt")));
         #[cfg(unix)]
@@ -753,6 +800,11 @@ mod tests {
             assert!(
                 !stays_within(&root, &root.join("cache/inner.txt")),
                 "a link to what is hidden"
+            );
+            symlink(dir.path().join("nowhere.txt"), root.join("dangling.html")).unwrap();
+            assert!(
+                !stays_within(&root, &root.join("dangling.html")),
+                "a link to nowhere resolves to nothing and is refused"
             );
             assert!(stays_within(&root, &root.join("home.html")));
         }
@@ -856,6 +908,70 @@ mod tests {
         );
         servers.stop_all();
         assert!(servers.list_all().is_empty());
+    }
+
+    /// Whether anything listens at `port` on the loopback.
+    async fn answers(port: u16) -> bool {
+        tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+    }
+
+    #[tokio::test]
+    async fn the_servers_dropped_whole_end_their_listeners() {
+        let dir = tempfile::tempdir().unwrap();
+        let servers = Servers::default();
+        let up = served(&servers, dir.path(), 0).await.ok().expect("served");
+        assert!(answers(up.port).await, "listening while held");
+        // The entry's stop sender goes with the map, unsent: the listener's
+        // task reads the closed channel as its end, not as a stop.
+        drop(servers);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while answers(up.port).await {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the listener outlived its servers"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_url_resolves_to_the_file_it_lands_on_and_to_nothing_where_none_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let servers = Servers::default();
+        let up = served(&servers, dir.path(), 0).await.ok().expect("served");
+        let root = dir.path().join("site-0");
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::write(root.join("docs").join("a.html"), "<p>a</p>").unwrap();
+        let resolved = |path: &str| servers.resolve(&up.id, path).ok().expect("resolved");
+        assert_eq!(
+            resolved("/docs/a.html").as_deref(),
+            Some("site-0/docs/a.html")
+        );
+        assert_eq!(
+            resolved("/docs"),
+            None,
+            "a folder with no index.html lands on no file"
+        );
+        assert_eq!(resolved("/"), None, "nor the root without one");
+        assert_eq!(
+            resolved("/docs/missing.html"),
+            None,
+            "a path that is not there"
+        );
+        std::fs::write(root.join("index.html"), "<p>home</p>").unwrap();
+        assert_eq!(resolved("/").as_deref(), Some("site-0/index.html"));
+        assert_eq!(
+            resolved("/docs/../index.html"),
+            None,
+            "a dotted segment is nothing"
+        );
+        assert_eq!(
+            servers.resolve("nobody", "/").unwrap_err().status,
+            StatusCode::NOT_FOUND
+        );
+        servers.stop_all();
     }
 
     #[test]

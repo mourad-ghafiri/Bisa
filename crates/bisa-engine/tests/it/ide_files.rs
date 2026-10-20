@@ -1,6 +1,7 @@
 //! The IDE's write path (ide/03): compare-and-swap saves, explorer mutations,
 //! the writable-root boundary, and the watcher.
 
+use crate::common::armed;
 use bisa_engine::events::FileChangeKind;
 use bisa_engine::ide::files::{self, Disposal, EntryKind};
 use bisa_engine::ide::watch;
@@ -713,8 +714,9 @@ async fn the_watcher_reports_a_change_made_outside_the_platform() {
     watch::watch(inner, FileScope::Workstream, &pid).unwrap();
     assert_eq!(inner.ide_watch.watched().len(), 1);
 
-    // Something outside the platform — an agent, an editor — writes a file.
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Something outside the platform — an agent, an editor — writes a file,
+    // once the watch is live as the OS tells it.
+    armed(&mut bus, &root).await;
     std::fs::write(root.join("agent.txt"), "hello").unwrap();
 
     let seen = tokio::time::timeout(Duration::from_secs(10), async {
@@ -856,6 +858,115 @@ async fn every_write_verb_refuses_a_symlink_out_of_the_root() {
     assert!(
         std::fs::read_dir(outside.path()).unwrap().next().is_none(),
         "nothing landed where the link points"
+    );
+    engine.shutdown().await;
+}
+
+/// Two saves of one base hash arriving together: one lands and one is the
+/// conflict, every round — never both landing with the second written over
+/// the first and no conflict said.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_saves_with_one_base_hash_at_once_land_one_and_refuse_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, pid, root) = engine(&dir);
+    files::write_file(
+        engine.inner(),
+        FileScope::Workstream,
+        &pid,
+        "race.txt",
+        "0\n",
+        None,
+    )
+    .unwrap();
+    for round in 1..=12u32 {
+        let base = content_hash(&std::fs::read(root.join("race.txt")).unwrap());
+        let save = |text: String| {
+            let (inner, pid, base) = (
+                std::sync::Arc::clone(engine.inner()),
+                pid.clone(),
+                base.clone(),
+            );
+            tokio::task::spawn_blocking(move || {
+                files::write_file(
+                    &inner,
+                    FileScope::Workstream,
+                    &pid,
+                    "race.txt",
+                    &text,
+                    Some(&base),
+                )
+            })
+        };
+        let (a, b) = tokio::join!(save(format!("A{round}\n")), save(format!("B{round}\n")));
+        let (a, b) = (a.unwrap(), b.unwrap());
+        let landed = usize::from(a.is_ok()) + usize::from(b.is_ok());
+        assert_eq!(
+            landed, 1,
+            "round {round}: exactly one save lands: {a:?} / {b:?}"
+        );
+        let refused = [a, b]
+            .into_iter()
+            .find_map(Result::err)
+            .expect("one of the two was refused");
+        assert!(
+            matches!(refused, EngineError::FileConflict { .. }),
+            "round {round}: the other is the conflict, with the text that won: {refused}"
+        );
+        let on_disk = std::fs::read_to_string(root.join("race.txt")).unwrap();
+        assert!(
+            on_disk == format!("A{round}\n") || on_disk == format!("B{round}\n"),
+            "{on_disk:?}"
+        );
+    }
+    engine.shutdown().await;
+}
+
+/// The `ignored` flag of the next frame naming `wanted`.
+async fn ignored_flag_of(
+    bus: &mut tokio::sync::broadcast::Receiver<bisa_engine::EngineEvent>,
+    wanted: &str,
+) -> bool {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Ok(e) = bus.recv().await {
+                if let EnginePayload::FileChanged { path, ignored, .. } = e.payload {
+                    if path == wanted {
+                        return ignored;
+                    }
+                }
+            }
+        }
+    })
+    .await
+    .expect("the frame in time")
+}
+
+/// A `.gitignore` written under the watch changes what the frames say: a
+/// file under a folder it names is reported ignored from then on, as the
+/// tree would list it — the rules are read again, not once at the watch.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gitignore_edited_under_the_watch_changes_what_the_frames_say() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, pid, root) = engine(&dir);
+    let inner = engine.inner();
+    let mut bus = engine.events();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    watch::watch(inner, FileScope::Workstream, &pid).unwrap();
+    armed(&mut bus, &root).await;
+
+    std::fs::create_dir_all(root.join("build")).unwrap();
+    std::fs::write(root.join("build/before.o"), "x").unwrap();
+    assert!(
+        !ignored_flag_of(&mut bus, "build/before.o").await,
+        "nothing ignores it yet"
+    );
+
+    std::fs::write(root.join(".gitignore"), "build/\n").unwrap();
+    assert!(!ignored_flag_of(&mut bus, ".gitignore").await);
+    std::fs::write(root.join("build/after.o"), "x").unwrap();
+    assert!(
+        ignored_flag_of(&mut bus, "build/after.o").await,
+        "the rules were read again"
     );
     engine.shutdown().await;
 }

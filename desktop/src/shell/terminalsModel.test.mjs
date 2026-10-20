@@ -15,6 +15,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  closedKeys, keysRootedAt,
+  parseLaunched,
+  lastLiveAt,
   LAUNCH_MEMORY,
   SESSIONS_VERSION,
   TERMINAL_SCOPES,
@@ -956,4 +959,77 @@ test("start words ride the tab that opened with them, are typed once, and never 
   assert.equal(noteStarted(typed, s().key, 0), typed, "already said: the same state");
   assert.equal(noteStarted(state, "ghost", 0), state);
   assert.equal(restartTerminal(state, s().key).sessions[0].start, null, "a restart is a fresh shell with nothing to say");
+});
+
+test("the tabs a change closed are read from the two states — one, a burst, the others, the exited ones — never from the door's own reading; a key not open closes nothing", () => {
+  let state = emptyTerminals();
+  for (let i = 0; i < 4; i++) state = openTerminal(state, { scope: "workstream", id: i < 3 ? "w1" : "w2" });
+  const keys = state.sessions.map((s) => s.key);
+  assert.deepEqual(closedKeys(state, closeTerminal(state, keys[1])), [keys[1]]);
+  assert.deepEqual(closedKeys(state, closeTerminals(state, [keys[0], keys[2], "t99"])), [keys[0], keys[2]], "a burst, a key not open ignored");
+  assert.deepEqual(closedKeys(state, closeOtherTerminals(state, keys[0])), [keys[1], keys[2]], "the others rooted where it is, never the other place's");
+  assert.deepEqual(closedKeys(state, state), []);
+  assert.deepEqual(closedKeys(null, state), []);
+  assert.deepEqual(closedKeys(state, null), keys, "every tab, when nothing is left");
+});
+
+test("a retirement's close names the tabs rooted at its workstreams and its goal, and nothing when nothing is named", () => {
+  let state = emptyTerminals();
+  state = openTerminal(state, { scope: "workstream", id: "w1" });
+  state = openTerminal(state, { scope: "workstream", id: "w2" });
+  state = openTerminal(state, { scope: "goal", id: "g1" });
+  state = openTerminal(state, { scope: "goal", id: "g2" });
+  const [w1, w2, g1] = state.sessions.map((s) => s.key);
+  assert.deepEqual(keysRootedAt(state.sessions, ["w1"]), [w1]);
+  assert.deepEqual(keysRootedAt(state.sessions, ["w1", "w2"], "g1"), [w1, w2, g1], "the goal's own too, when named");
+  assert.deepEqual(keysRootedAt(state.sessions, [], "g1"), [g1]);
+  assert.deepEqual(keysRootedAt(state.sessions, [], null), [], "nothing named, nothing closed");
+  assert.deepEqual(keysRootedAt(state.sessions, ["w9"], "g9"), [], "nothing rooted there");
+  assert.deepEqual(keysRootedAt(null, ["w1"]), []);
+});
+
+test("the launched memory is read leniently, and Show terminal finds the most recent live shell rooted here", () => {
+  assert.deepEqual(parseLaunched(["a", 1, null, "b"]), ["a", "b"]);
+  assert.deepEqual(parseLaunched("nope"), []);
+  assert.deepEqual(parseLaunched(null), []);
+  let state = emptyTerminals();
+  for (let i = 0; i < 3; i++) state = openTerminal(state, { scope: "workstream", id: "w1" });
+  state = openTerminal(state, { scope: "goal", id: "g1" });
+  const keys = state.sessions.map((s) => s.key);
+  for (const k of keys) state = noteLive(state, k, state.sessions.find((s) => s.key === k).generation, "term-" + k);
+  state = noteExit(state, keys[2], state.sessions[2].generation, 0);
+  assert.equal(lastLiveAt(state.sessions, "workstream", "w1")?.key, keys[1], "the newest that is still live");
+  assert.equal(lastLiveAt(state.sessions, "goal", "g1")?.key, keys[3]);
+  assert.equal(lastLiveAt(state.sessions, "workstream", "w9"), null);
+});
+
+test("a stored key is one this store minted — t<n> with no leading zero — so two spellings of one number never stand together", () => {
+  const stored = { version: SESSIONS_VERSION, sessions: [
+    { key: "t01", scope: "workstream", id: "w1" },
+    { key: "t1", scope: "workstream", id: "w1" },
+    { key: "t0", scope: "workstream", id: "w1" },
+    { key: "t12", scope: "workstream", id: "w1" },
+  ], seq: 0 };
+  const restored = restoreTerminals(stored, []);
+  assert.deepEqual(restored.sessions.map((s) => s.key), ["t1", "t0", "t12"]);
+  assert.equal(restored.seq, 12, "the counter is past the largest key, whatever the stored counter said");
+});
+
+test("an exit reported for a tab still unverifiable — a restored shell that died before it was seen — is its exit, and a close of the active tab in a pane that empties lands on a tab that stands", () => {
+  const state = restoreTerminals({ version: SESSIONS_VERSION, sessions: [{ key: "t1", scope: "workstream", id: "w1" }], seq: 1 }, []);
+  const key = state.sessions[0].key;
+  assert.equal(state.sessions[0].liveness.status, "unverifiable", "restored, not yet seen");
+  const gone = noteExit(state, key, state.sessions[0].generation, 1);
+  assert.equal(gone.sessions[0].liveness.status, "exited");
+  assert.equal(gone.sessions[0].liveness.code, 1);
+
+  let two = openTerminal(emptyTerminals(), { scope: "workstream", id: "w1" });
+  two = openTerminal(two, { scope: "workstream", id: "w1" });
+  const [a, b] = two.sessions.map((s) => s.key);
+  two = splitPane(two, "row", b);
+  assert.equal(two.active, b);
+  const closed = closeTerminals(two, [b]);
+  assert.equal(closed.active, a, "the pane that emptied is gone; the one left owns the active tab");
+  assert.equal(closed.sessions.length, 1);
+  assert.ok(findLeaf(closed.panes, closed.focusedPane), "the focused pane stands");
 });

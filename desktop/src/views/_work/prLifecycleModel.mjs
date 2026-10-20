@@ -57,6 +57,46 @@ import { t } from "../../i18n/l10n.mjs";
 /** The steps, in the order the work takes them. */
 export const STEPS = Object.freeze(["commit", "push", "open_pr", "checks", "review", "merge", "cleanup"]);
 
+/** While an agent works: above the engine's ten-second code host cache, below a person's patience. */
+export const FOLLOW_MS = 15_000;
+/** With polling off, the clock still ticks — once an hour, to nobody. */
+export const IDLE_MS = 3_600_000;
+
+/**
+ * Whether the record says a pull request exists — open, or merged and kept —
+ * which is when, and only when, the code host is asked about it.
+ * @param {string | null | undefined} word the workstream state's word
+ */
+export function prExists(word) {
+  return word === "pr_open" || word === "merged";
+}
+
+/**
+ * The code host's poll cadence in milliseconds: `FOLLOW_MS` while an agent
+ * is followed — the person asked for it by asking the agent — the fetch
+ * interval while a pull request exists and polling is on, else the idle
+ * tick nobody reads. Following wins over the interval, and `0` turns the
+ * interval off without turning the following off.
+ * @param {{hasPr: boolean, following: boolean, secs: number}} facts
+ */
+export function pollInterval({ hasPr, following, secs }) {
+  if (!hasPr) return IDLE_MS;
+  if (following) return FOLLOW_MS;
+  return secs > 0 ? secs * 1000 : IDLE_MS;
+}
+
+/**
+ * The latest of several read times (unix seconds) — the pull request's, the
+ * checks', the reviews' — nulls ignored; `null` before any read.
+ * @param {Iterable<number | null | undefined>} ats
+ * @returns {number | null}
+ */
+export function latestRead(ats) {
+  let latest = null;
+  for (const t of ats ?? []) if (typeof t === "number" && Number.isFinite(t) && (latest === null || t > latest)) latest = t;
+  return latest;
+}
+
 const LABEL = Object.freeze({
   commit: t("work-git-words-commit"),
   push: t("work-git-words-push"),

@@ -38,7 +38,7 @@
  * the lifecycle's** (`useReviewRun`, handed to the Review and Checks steps to
  * draw — one at a time in the checkout, so two agents never edit one tree)
  * because the run moves what the lifecycle reads: while it is live the code
- * host and the checkout status are read every `FOLLOW_MS`; when the agent
+ * host and the checkout status are read every `FOLLOW_MS` (`prLifecycleModel`); when the agent
  * replies, again; when it ends, everything at once — so every row settles
  * together. A line under the spine says when the code host was last read,
  * with the door to read it now.

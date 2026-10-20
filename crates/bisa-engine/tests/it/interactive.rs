@@ -877,6 +877,29 @@ async fn with_status_reporting_off_every_harness_opens_as_a_plain_terminal() {
 /// One connection to a harness's own event server, as the test's server
 /// answers it: the request head is read, then `body` is written after the
 /// headers of an event stream and the connection closed.
+/// One connection answered with `status` and no body — a harness still
+/// starting, or one that will not serve — then closed.
+async fn serve_status_once(listener: &tokio::net::TcpListener, status: &str) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        if socket.read(&mut byte).await.unwrap() == 0 {
+            break;
+        }
+        head.push(byte[0]);
+    }
+    socket
+        .write_all(
+            format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
+        .await
+        .unwrap();
+    socket.shutdown().await.unwrap();
+}
+
 async fn serve_once(listener: &tokio::net::TcpListener, body: Vec<u8>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (mut socket, _) = listener.accept().await.unwrap();
@@ -948,12 +971,14 @@ async fn a_harness_that_serves_its_own_events_is_pulled_and_its_words_folded() {
         Some(SessionState::Starting)
     );
 
-    // Nobody listens yet: the puller tries again. Then the harness serves:
-    // one event the fold understands, one line that is no JSON, and closes.
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    // The first dial is refused — nobody listens, or a harness still
+    // starting answers 503 — and the puller tries again. Then the harness
+    // serves: one event the fold understands, one line that is no JSON,
+    // and closes.
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .expect("the port the harness was given");
+    serve_status_once(&listener, "503 Service Unavailable").await;
     let started = serde_json::json!({"events": [SessionEvent::Lifecycle(LifecycleEvent::Started), SessionEvent::Progress(ProgressEvent::TurnStarted)]});
     serve_once(
         &listener,
@@ -973,12 +998,14 @@ async fn a_harness_that_serves_its_own_events_is_pulled_and_its_words_folded() {
     serve_once(&listener, Vec::new()).await;
     let too_long = vec![b'x'; bisa_http::MAX_SSE_FRAME_BYTES + 16];
     serve_once(&listener, [b"data: ".to_vec(), too_long].concat()).await;
-    // The puller gave up on the stream: nothing dials the port again.
-    let again = tokio::time::timeout(Duration::from_millis(1500), listener.accept()).await;
-    assert!(
-        again.is_err(),
-        "no further connection after a stream that is not one"
-    );
+    // The puller gave up on the stream: its task ended, so nothing dials
+    // the port again — read as a fact of the desk, never as a silence timed.
+    let desk = &engine.inner().interactive;
+    let session = opened.session;
+    crate::common::until("the puller gave up", || {
+        (desk.puller_finished(session) == Some(true)).then_some(())
+    })
+    .await;
     assert_eq!(
         state_of(&engine, opened.session),
         Some(SessionState::Thinking)

@@ -9,7 +9,9 @@ in another editor can bring their hands with them.
 
 `keymap.preset` is `default` | `vscode` | `vim`, at machine scope. `keymap.overrides` is a map from
 command id to chord, applied over the preset. Both are settings ([13](13-settings.md)), so they are
-one file a person can copy to another machine.
+one file a person can copy to another machine. An override that is no chord leaves the preset's
+binding standing and says so on the Keymap panel; one naming no command — a typo, a command another
+build had — is said there too, never ignored in silence (`resolveKeymap`'s `warnings`).
 
 `desktop/src/shell/keymapModel.mjs` owns the **command registry** — every command's id, label,
 scope and chord per preset — and resolution: overrides over preset over nothing. It is the one source

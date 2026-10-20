@@ -9,6 +9,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { initialState, reduce } from "../ui/fileTreeModel.mjs";
 import { runDoor } from "../views/_workbench/runCommandModel.mjs";
@@ -75,4 +76,10 @@ test("from the caret to a served folder, and back to it with one chord", () => {
   assert.equal(submitWords(serverFor(up, "docs/build")), "Open :4173");
   assert.match(choiceWords("docs/build", serverFor(up, "docs/build")), /Already serving `docs\/build\/` on :4173/);
   assert.equal(runDoor({ run: null, servers: up }).id, "open:s1");
+});
+
+test("the dialog serves only once a folder is picked, and its hint is read out as it changes", () => {
+  const dialog = readFileSync(new URL("../shell/ServeFolderDialog.tsx", import.meta.url), "utf8");
+  assert.ok(dialog.includes("disabled={folder === null}"), "Serve waits for a folder");
+  assert.ok(dialog.includes('aria-live="polite"'), "the hint under the picker is announced");
 });

@@ -111,3 +111,17 @@ test("the words: a fold counts lines, a settled card names its choice and side, 
   assert.equal(documentWords({ settled: 1, total: 1 }), "Every conflict is settled — one of one. Review the result, then mark it resolved.");
   assert.equal(documentWords({ settled: 3, total: 3 }), "Every conflict is settled — 3 of 3. Review the result, then mark it resolved.");
 });
+
+test("markers before a Windows line ending are markers: Mark resolved stays off for a CRLF file until every block is settled, and the blocks read and compose with the file's own endings", () => {
+  const crlf = "a\r\n<<<<<<< HEAD\r\nmine\r\n=======\r\ntheirs\r\n>>>>>>> feature\r\nb\r\n";
+  assert.ok(hasMarkers(crlf), "a marker line ending in \\r\\n is a marker line");
+  assert.ok(hasMarkers("x\r\n=======\r\n") && hasMarkers(">>>>>>> x\r\n") && hasMarkers("||||||| base\r\n"));
+  assert.ok(!hasMarkers("a <<<<<<< b\r\n") && !hasMarkers("========\r\n"), "the same rules as for a Unix file");
+  const { segments, problem } = parseConflicts(crlf);
+  assert.equal(problem, null);
+  assert.equal(conflictsOf(segments).length, 1);
+  const settled = compose(segments, choose({}, "c1", "theirs"), false);
+  assert.equal(settled, "a\r\ntheirs\r\nb\r\n");
+  assert.ok(!hasMarkers(settled), "settled, the file may be marked resolved");
+  assert.ok(hasMarkers(compose(segments, {}, false)), "unsettled, it may not — whatever its endings");
+});

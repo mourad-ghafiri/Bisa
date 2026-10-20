@@ -348,8 +348,15 @@ fn announce(
     dir: bool,
 ) {
     // The engine just changed the tree here: drop the root's cached path index
-    // so the next quick-open walk sees the change at once.
+    // so the next quick-open walk sees the change at once — and the
+    // workstream's cached git status, as the watcher's flush does, so the
+    // panel's next read is the tree as it is whether a watch is live or not.
     super::index::invalidate(scope.as_str(), id);
+    if scope == FileScope::Workstream {
+        if let Ok(wid) = id.parse::<bisa_core::WorkstreamId>() {
+            inner.ide_status.invalidate(wid);
+        } // LCOV_EXCL_LINE a workstream id that is no id; by construction
+    }
     inner.emit(EngineEvent::global(EnginePayload::FileChanged {
         scope: scope.as_str().to_string(),
         id: id.to_string(),
@@ -397,6 +404,14 @@ pub fn write_bytes(
             relative = format!("{relative:?}")
         )));
     }
+    // The compare and the swap are one step: two saves of one base hash
+    // arriving together would each read the same bytes, each pass, and the
+    // second would write over the first with no conflict said. One writer at
+    // a time across the engine — a save is a read and a rename, never long.
+    static SAVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one_at_a_time = SAVING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let existing = match std::fs::read(&path) {
         Ok(bytes) => Some(bytes),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,

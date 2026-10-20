@@ -29,13 +29,8 @@ import { subscribe as busSubscribe, watchConnection } from "../../bus";
 import { reloadOnReconnect } from "../../shell/workspaceLoadModel.mjs";
 import type { GitFileRow, WorkstreamGitFiles } from "../../types";
 import { rootKey } from "../_workbench/workbenchModel.mjs";
-import { GIT_COALESCE_MS, kindsOf, readsFor } from "./gitChangeModel.mjs";
+import { GIT_COALESCE_MS, MAX_IDLE_ROOTS, idleRootsToDrop, rereadsFor } from "./gitChangeModel.mjs";
 import { failureText } from "../../ui";
-
-/** The frames after which every shown root is read again: something may have written into the tree. */
-const WRITE_FRAMES = new Set(["execution_ended", "result_accepted", "workstream_committed"]);
-/** How many roots nobody shows keep their last rows, for the return; the oldest past it forget theirs. */
-const MAX_IDLE_ROOTS = 8;
 
 export interface GitFilesRead {
   readonly data: WorkstreamGitFiles | null;
@@ -54,12 +49,16 @@ interface Entry {
   again: boolean;
   flush: ReturnType<typeof setTimeout> | null;
   subscribers: number;
+  /** The count at which the last subscriber left; 0 while the root was never shown. The prune keeps the roots left last. */
+  leftAt: number;
   /** The read handed to React, stable while nothing changed. */
   snapshot: GitFilesRead;
 }
 
 const entries = new Map<string, Entry>();
 const listeners = new Set<() => void>();
+/** How many times a root was left by its last subscriber, across every root: the clock `leftAt` reads. */
+let leaves = 0;
 let unsubscribeBus: (() => void) | null = null;
 let unwatchConnection: (() => void) | null = null;
 
@@ -68,7 +67,7 @@ const EMPTY_READ = (scope: string): GitFilesRead => ({ data: null, loading: true
 function entryFor(scope: string): Entry {
   let e = entries.get(scope);
   if (!e) {
-    e = { data: null, loading: false, error: null, inFlight: false, again: false, flush: null, subscribers: 0, snapshot: EMPTY_READ(scope) };
+    e = { data: null, loading: false, error: null, inFlight: false, again: false, flush: null, subscribers: 0, leftAt: 0, snapshot: EMPTY_READ(scope) };
     entries.set(scope, e);
   }
   return e;
@@ -129,23 +128,22 @@ function readShown(): void {
 }
 
 /**
- * The roots nobody shows any more, oldest first past `MAX_IDLE_ROOTS`, let
- * go of their rows. A read in flight is left to land; the next leave prunes it.
+ * The roots nobody shows any more, the ones left longest ago first past
+ * `MAX_IDLE_ROOTS`, let go of their rows (`idleRootsToDrop`). A read in
+ * flight is left to land; the next leave prunes it.
  */
 function prune(): void {
-  const idle = [...entries].filter(([, e]) => e.subscribers === 0 && !e.inFlight && e.flush === null);
-  for (const [scope] of idle.slice(0, Math.max(0, idle.length - MAX_IDLE_ROOTS))) entries.delete(scope);
+  for (const scope of idleRootsToDrop(entries, MAX_IDLE_ROOTS)) entries.delete(scope);
 }
 
 function onFrame(type: string | undefined, payload: { scope?: string; id?: string; path?: string; kind?: string }): void {
-  if (!type) return;
-  if (WRITE_FRAMES.has(type)) {
-    for (const [scope, e] of entries) if (e.subscribers > 0) void read(scope);
+  const reread = rereadsFor({ type, ...payload });
+  if (reread.kind === "shown") {
+    readShown();
     return;
   }
-  if (type !== "file_changed" || payload.scope !== "workstream" || !payload.id) return;
-  if (!readsFor(kindsOf({ path: payload.path ?? "", kind: payload.kind ?? "" })).files) return;
-  const scope = rootKey("workstream", payload.id);
+  if (reread.kind !== "root") return;
+  const scope = rootKey("workstream", reread.id);
   const e = entries.get(scope);
   if (!e || e.subscribers === 0 || e.flush !== null) return;
   e.flush = setTimeout(() => {
@@ -174,7 +172,10 @@ function subscribeTo(scope: string): () => void {
       clearTimeout(e.flush);
       e.flush = null;
     }
-    if (e.subscribers === 0) prune();
+    if (e.subscribers === 0) {
+      e.leftAt = ++leaves;
+      prune();
+    }
   };
 }
 

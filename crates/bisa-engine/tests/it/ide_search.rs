@@ -386,3 +386,135 @@ async fn a_search_refuses_in_words_and_ends_when_told_to() {
     assert!(summary.matches <= 3, "{summary:?}");
     engine.shutdown().await;
 }
+
+/// A literal replacement writes its dollar signs verbatim — `$5` is five
+/// dollars, not a group nobody named — while a regex one keeps the regex
+/// crate's grammar, where `$1` is the first group.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_literal_replacement_writes_its_dollar_signs_verbatim_and_a_regex_one_expands_groups() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, pid, root) = engine(&dir);
+    let inner = engine.inner();
+    std::fs::write(root.join("price.txt"), "price: 10 USD\n").unwrap();
+    let literal = query("10");
+    let previews = preview_replace(inner, FileScope::Workstream, &pid, &literal, "$5").unwrap();
+    let price = previews
+        .iter()
+        .find(|p| p.path == "price.txt")
+        .expect("previewed");
+    assert_eq!(
+        price.changes[0].after, "price: $5 USD",
+        "a dollar sign is a dollar sign"
+    );
+    let files = vec![(price.path.clone(), price.base_hash.clone())];
+    apply_replace(inner, FileScope::Workstream, &pid, &literal, "$5", &files).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("price.txt")).unwrap(),
+        "price: $5 USD\n"
+    );
+
+    let mut regex = query(r"(\d+)");
+    regex.regex = true;
+    std::fs::write(root.join("twice.txt"), "n = 10\n").unwrap();
+    let previews = preview_replace(inner, FileScope::Workstream, &pid, &regex, "$1$1").unwrap();
+    let twice = previews
+        .iter()
+        .find(|p| p.path == "twice.txt")
+        .expect("previewed");
+    assert_eq!(
+        twice.changes[0].after, "n = 1010",
+        "a regex replacement names its groups"
+    );
+    engine.shutdown().await;
+}
+
+/// A replace naming one path twice applies it once; the second is skipped as
+/// changed, since the first moved its hash. A symlink that loops under the
+/// root ends the walk rather than the search, and a pattern that matches the
+/// empty string matches no file at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_path_named_twice_is_applied_once_and_a_loop_or_an_empty_match_never_hangs() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, pid, root) = engine(&dir);
+    let inner = engine.inner();
+    let q = query("cart_total");
+    let previews = preview_replace(inner, FileScope::Workstream, &pid, &q, "basket_total").unwrap();
+    let main = previews.iter().find(|p| p.path == "src/main.rs").unwrap();
+    let files = vec![
+        (main.path.clone(), main.base_hash.clone()),
+        (main.path.clone(), main.base_hash.clone()),
+    ];
+    let outcomes = apply_replace(
+        inner,
+        FileScope::Workstream,
+        &pid,
+        &q,
+        "basket_total",
+        &files,
+    )
+    .unwrap();
+    assert!(
+        matches!(&outcomes[0], ReplaceOutcome::Applied { changes, .. } if *changes == 1),
+        "{outcomes:?}"
+    );
+    assert!(
+        matches!(&outcomes[1], ReplaceOutcome::SkippedChanged { .. }),
+        "{outcomes:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/main.rs"))
+            .unwrap()
+            .matches("basket_total")
+            .count(),
+        1,
+        "applied once"
+    );
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+    let started = std::time::Instant::now();
+    let (hits, _) = run(&engine, &pid, &q);
+    assert!(
+        hits.iter().all(|h| !h.path.starts_with("loop/")),
+        "a link is never followed: {hits:?}"
+    );
+    let mut empty = query("x*");
+    empty.regex = true;
+    let (hits, summary) = run(&engine, &pid, &empty);
+    assert!(summary.files_scanned > 0);
+    let _ = hits;
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "both ended"
+    );
+    engine.shutdown().await;
+}
+
+/// A word search and its replace preview agree on a term ending in
+/// punctuation: `foo.` before a space is a word to the searcher, and the
+/// preview lists the file the search listed rather than dropping it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_word_search_and_its_preview_agree_on_a_term_ending_in_punctuation() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, pid, root) = engine(&dir);
+    let inner = engine.inner();
+    std::fs::write(root.join("prose.txt"), "say foo. then foobar.\n").unwrap();
+    let mut q = query("foo.");
+    q.word = true;
+    let (hits, _) = run(&engine, &pid, &q);
+    assert_eq!(
+        hits.iter().filter(|h| h.path == "prose.txt").count(),
+        1,
+        "the searcher says the file: {hits:?}"
+    );
+    let previews = preview_replace(inner, FileScope::Workstream, &pid, &q, "bar.").unwrap();
+    let prose = previews
+        .iter()
+        .find(|p| p.path == "prose.txt")
+        .expect("the preview lists what the search listed");
+    assert_eq!(
+        prose.changes[0].after, "say bar. then foobar.",
+        "the word alone, never the longer word"
+    );
+    engine.shutdown().await;
+}

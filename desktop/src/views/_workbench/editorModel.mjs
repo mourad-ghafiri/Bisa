@@ -203,13 +203,18 @@ export function sizeNote(buffer) {
 /** A keystroke. */
 export function edited(buffer, text, now) {
   if (buffer.readOnly || buffer.status === "binary" || buffer.status === "error") return buffer;
+  // A keystroke while a save is out leaves the save in flight: the status
+  // keeps saying so, so no second save starts on the same base and a frame
+  // landing meanwhile is the save's to settle; the text is as typed either
+  // way, and dirty is read from the text, never from the word.
+  const saving = buffer.status === "saving";
   if (text === buffer.savedText) {
-    return { ...buffer, text, status: buffer.conflict ? "conflict" : "clean", dirtySince: null };
+    return { ...buffer, text, status: buffer.conflict ? "conflict" : saving ? "saving" : "clean", dirtySince: null };
   }
   return {
     ...buffer,
     text,
-    status: buffer.conflict ? "conflict" : "dirty",
+    status: buffer.conflict ? "conflict" : saving ? "saving" : "dirty",
     dirtySince: buffer.dirtySince ?? now,
   };
 }
@@ -232,6 +237,20 @@ export function isUnsaved(buffer) {
  * @param {ReadonlyMap<string, object>} buffers
  * @returns {string[]}
  */
+/**
+ * The keys holding unsaved work as a set — the very set handed in when its
+ * members are the same, so a keystroke in a document already dirty moves no
+ * subscriber that depends on the set's identity.
+ * @param {ReadonlyMap<string, object>} buffers
+ * @param {ReadonlySet<string> | null | undefined} before
+ * @returns {ReadonlySet<string>}
+ */
+export function unsavedSet(buffers, before) {
+  const keys = unsavedKeys(buffers);
+  const same = before instanceof Set && before.size === keys.length && keys.every((k) => before.has(k));
+  return same ? before : new Set(keys);
+}
+
 export function unsavedKeys(buffers) {
   const out = [];
   for (const [key, buffer] of buffers) if (isUnsaved(buffer)) out.push(key);
@@ -312,6 +331,11 @@ export function changedOnDisk(buffer, file) {
   if (buffer.status === "binary" || buffer.status === "error" || buffer.status === "loading") {
     return loaded(buffer, file);
   }
+  // Mid-save, the frame is the save's own write landing before its answer —
+  // or an outside write the save's compare-and-swap is about to refuse. Either
+  // way the answer settles it; a conflict raised here on a keystroke typed
+  // since would be a false alarm the answer then clears.
+  if (buffer.status === "saving") return buffer;
   if (file.hash && file.hash === buffer.savedHash) return buffer;
   if (!isDirty(buffer)) return loaded(buffer, file);
   return conflicted(buffer, file.text ?? "", file.hash ?? null);

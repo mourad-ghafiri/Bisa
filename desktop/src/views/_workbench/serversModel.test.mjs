@@ -126,3 +126,10 @@ test("a server whose own address is no URL is nobody's page and never throws", (
   assert.equal(serverAt(odd, "http://127.0.0.1:4173/"), null);
   assert.equal(serverAt(odd, "nope"), null, "an address that is no URL is on no server");
 });
+
+test("a run door naming an item the menu does not hold marks nothing, and the menu is the same without it", () => {
+  const facts = { checkout: true, servers: [], ports: [], tabs: [], annotate: null, busy: false, door: "open:nope" };
+  const { items } = browserMenu(facts);
+  assert.ok(items.every((i) => i.command === undefined), "no item carries run_project");
+  assert.deepEqual(items.map((i) => i.id), browserMenu({ ...facts, door: null }).items.map((i) => i.id));
+});

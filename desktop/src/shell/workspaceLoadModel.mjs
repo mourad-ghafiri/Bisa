@@ -49,6 +49,9 @@ export const LOAD_SHAPES = Object.freeze({
  * @param {Readonly<Record<string, (value: unknown) => boolean>> | null} [shapes] what an answer must look like, by name; a name without one is taken as it came
  * @returns {{ok: Record<string, T>, degraded: string[], offline: boolean}}
  */
+/** How long a burst of frames is gathered before one read of the workspace, or of the hosts: a run that ends with ten frames is read once. */
+export const COALESCE_MS = 250;
+
 export function settleLoads(names, results, isOffline, shapes = null) {
   const ok = {};
   const degraded = [];

@@ -222,11 +222,15 @@ export declare function setPaneRatio(state: TerminalsState, splitId: string, rat
 export declare function serializeTerminals(state: TerminalsState): unknown;
 export declare function restoreTerminals(json: unknown, launched?: readonly string[]): TerminalsState;
 export declare function tabOfSession<T extends { key: string; sessionId?: string | null }>(terminals: readonly T[], sessionId: string): T | null;
+export declare function closedKeys(before: { sessions: readonly { key: string }[] } | null | undefined, after: { sessions: readonly { key: string }[] } | null | undefined): string[];
+export declare function parseLaunched(raw: unknown): string[];
+export declare function lastLiveAt(sessions: readonly TerminalSession[], scope: TerminalScope, id: string): TerminalSession | null;
 export declare function sessionsRootedAt(
   sessions: readonly TerminalSessionState[],
   scope: TerminalScope,
   id: string,
 ): TerminalSessionState[];
+export declare function keysRootedAt(sessions: readonly TerminalSessionState[] | null | undefined, workstreams: readonly string[], goal?: string | null): string[];
 
 export declare function terminalTitle(session: TerminalSessionState | null | undefined): string;
 export declare function terminalTabLabel(

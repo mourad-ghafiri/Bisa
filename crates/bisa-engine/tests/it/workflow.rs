@@ -787,8 +787,14 @@ async fn a_notify_step_with_mentions_wakes_the_agent_and_without_them_wakes_nobo
     let done = finished_run(&engine, goal.id).await;
     assert_eq!(done.outcome, Some(RunOutcome::Done));
     // The notification, and the mentioned agent's reply to it: a mention
-    // wakes the agent in the thread.
-    let mut messages = ws.messages(&goal.id.to_string(), None, 10).unwrap();
+    // wakes the agent in the thread. The reply is the agent's own turn,
+    // awaited past the run's end — the wake is not the run's to wait for,
+    // so a run reported done is no proof the reply has landed yet.
+    let mut messages = until("the mentioned agent's reply", || {
+        let messages = ws.messages(&goal.id.to_string(), None, 10).unwrap();
+        (messages.len() >= 2).then_some(messages)
+    })
+    .await;
     messages.sort_by_key(|m| m.created_at);
     assert_eq!(messages.len(), 2, "{messages:?}");
     assert_eq!(messages[0].content, "heads up about the launch");

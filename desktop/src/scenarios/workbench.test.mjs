@@ -158,3 +158,23 @@ test("a section header wraps its actions at a panel's narrowest instead of cutti
   assert.match(header, /"group flex min-h-6 shrink-0 flex-wrap items-center gap-1\.5"/, "the row wraps and grows");
   assert.match(header, /cn\("ml-auto", alwaysAction \? "anim" : "row-actions anim"\)/, "the actions keep the right on a line of their own");
 });
+
+test("the tab strip is a tablist of closeable tabs with its shortcut named, a split's drag listeners leave with the drag, and the selection bar never steals the editor's selection", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const strip = src("../ui/TabStrip.tsx");
+  assert.ok(strip.includes('role="tablist"') && strip.includes('role="tab"') && strip.includes("aria-selected={on}"), "the ARIA tabs pattern");
+  assert.ok(strip.includes('aria-keyshortcuts={closes ? "Delete" : undefined}'), "the close chord is named only on a tab that closes");
+  assert.ok(strip.includes('role="img" aria-label={tr("ui-file-tree-unsaved-changes")}'), "the unsaved dot is read out, not drawn alone");
+  const split = src("../ui/SplitPane.tsx");
+  for (const ev of ["pointermove", "pointerup"]) {
+    assert.ok(split.includes(`window.addEventListener("${ev}"`) && split.includes(`window.removeEventListener("${ev}"`), `${ev} is hung for the drag and let go after`);
+  }
+  assert.ok(split.includes("aria-valuenow={size}") && split.includes("aria-valuemin={min}") && split.includes("aria-valuemax={max}"), "the divider says where it stands");
+  const bar = src("../views/_workbench/SelectionAgentBar.tsx");
+  assert.ok(bar.includes("onMouseDown={(e) => e.preventDefault()}"), "a press on the bar keeps the editor's selection");
+  const doc = src("../views/_workbench/EditorDoc.tsx");
+  assert.ok(!/setTimeout\([^)]*trigger\.current/.test(doc), "the find widget waits for the editor through the registry, never a timer");
+  assert.ok(doc.includes("const action = takeAction(registryKey);"), "an action asked before the mount is run at the mount");
+  const omnibox = src("../shell/Omnibox.tsx");
+  assert.ok(!/setTimeout\([^)]*revealLine/.test(omnibox) && omnibox.includes("requestLine(editorKey("), "a symbol's line waits for the editor as a search hit's does");
+});

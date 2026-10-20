@@ -96,6 +96,9 @@ fn descriptors(inner: &Inner) -> Vec<ServerDescriptor> {
 }
 
 fn idle_ttl(inner: &Inner) -> Duration {
+    if let Some(secs) = inner.config.lsp_idle_ttl_override_secs {
+        return Duration::from_secs(secs.clamp(1, 3600));
+    }
     let secs = inner
         .ws
         .setting("lsp.idle_ttl_secs", None)

@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { unsavedKeys } from "./editorModel.mjs";
+import { unsavedKeys, unsavedSet } from "./editorModel.mjs";
 import type { Buffer } from "./editorModel.mjs";
 
 let buffers: ReadonlyMap<string, Buffer> = new Map();
@@ -102,10 +102,7 @@ let unsavedCache: { map: ReadonlyMap<string, Buffer>; keys: ReadonlySet<string> 
 function unsavedOf(map: ReadonlyMap<string, Buffer>): ReadonlySet<string> {
   if (unsavedCache?.map === map) return unsavedCache.keys;
   // The same members as before is the same set: a keystroke in a dirty document re-renders nobody.
-  const keys = unsavedKeys(map);
-  const before = unsavedCache?.keys;
-  const same = before !== undefined && before.size === keys.length && keys.every((k) => before.has(k));
-  unsavedCache = { map, keys: same ? before : new Set(keys) };
+  unsavedCache = { map, keys: unsavedSet(map, unsavedCache?.keys) };
   return unsavedCache.keys;
 }
 

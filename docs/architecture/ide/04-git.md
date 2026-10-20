@@ -178,9 +178,15 @@ tier has none, and `feature-status` says so.
 ### Force pushes
 
 Never `--force`. `--force-with-lease` only; only on a **workstream branch** (never a project's default
-branch); behind `HumanConsent` **and** the `Publish` gate; with a confirmation that names the remote
-ref it will overwrite. It exists because a rebased or amended workstream branch cannot otherwise be
-pushed. Two doors, one dialog (`PushWithLeaseDialog`, the words `consentWords("push_lease")`'s):
+branch — the default by git's word, `origin/HEAD` else the primary's branch, *and* by the project
+record's, refused on either, so a primary left detached with no `origin/HEAD` recorded never lets
+the one forced push there is reach the branch every workstream branches from); behind
+`HumanConsent` **and** the `Publish` gate; with a confirmation that names the remote ref it will
+overwrite. Once a person has answered the gate the record is read again: a workstream closed while
+the question stood publishes nothing — a push, a leased push, a remote branch delete and a pull
+request alike — and the approval that came to nothing is said on its home as every failed publish
+is (`WorkstreamPublishFailed`). It exists because a rebased or amended workstream branch cannot
+otherwise be pushed. Two doors, one dialog (`PushWithLeaseDialog`, the words `consentWords("push_lease")`'s):
 *Force push with lease…* last in the Changes view's sync-bar `⋮` (`syncModel.forcePushRule` says
 when it is open and, off, why — no upstream, half-done, detached, the default branch) and on the
 current branch's `⋮` in the Branches view. The test-source guard bans the substring `--force` in
@@ -650,7 +656,9 @@ base* — with **Keep mine · Keep theirs · Keep both** (mine first, or theirs 
 `nextUnsettled` / `previousUnsettled` move the cursor between the ones still open, wrapping, and
 *Keep all mine* / *Keep all theirs* (`chooseAll`) settle the file at once. The result is `compose`:
 every run as it is, every conflict as chosen — **or as git wrote it, markers and all, when not
-yet**, so an unfinished file is never saved as finished (`hasMarkers` keeps *Mark resolved* off).
+yet**, so an unfinished file is never saved as finished (`hasMarkers` keeps *Mark resolved* off —
+before a Unix or a Windows line ending alike: a file git wrote with CRLF carries its markers before
+a `\r`, and `parseConflicts` reads them there too).
 **Review** is the whole result against either side or the base in the diff editor, editable — an
 edit there becomes the result until a block choice is made again. **Mark resolved** is
 `gitOps.markResolved`: the result saved with a compare-and-swap on the hash the conflict was read
@@ -883,7 +891,11 @@ untracked file (m)?*) last in the toolbar's `▾`, apart from the stage scopes (
 revealed under a sweeping pointer — a folder's verbs are one row's, revealed with the row as a
 file's are), and the hunk
 view's *Discard* for a hunk or for the picked lines (one glyph, `ICON.discard`, everywhere)
-(`hunkPatch` / `linesPatch`, the same patches staging uses, applied in reverse to the tree). The
+(`hunkPatch` / `linesPatch`, the same patches staging uses, applied in reverse to the tree). In a
+picked-lines patch a `\ No newline at end of file` marker travels with the line before it: kept
+when that line reaches the patch as itself or as the context an unpicked deletion became — which
+still names a last line without a newline — and dropped with an unpicked addition, so the patch
+never claims a newline the file lacks, which git would refuse to apply. The
 words — the confirmation, the toast naming the recovery ref — are `gitDiscardModel.mjs`'s. The
 vcs crate reads a discard's paths the way it reads staging's (`literal_pathspecs`, the
 `:(top,literal)` form), so a name with a space that stages discards too — and keeps only those the
@@ -1075,13 +1087,23 @@ desktop still asks for status a moment after a commit's own writes, and the eigh
 fan-out still runs — none of them can hold the lock a commit needs. What can is a process that is
 not ours; that is `RepositoryBusy` (409 `repository_busy`), and the Changes view's note says so in
 one sentence. A commit invalidates the workstream's status cache the moment it lands, as every
-other write does, so the rail's mark and the Board read the new tree at once.
+other write does, so the rail's mark and the Board read the new tree at once. The rows the commit
+route answers with are a second read: one git refuses — a lock another process took, an index it
+cannot open — comes as the empty list it always was with `files_error` beside it, and the panel
+reloads rather than showing a tree it was never told about as clean; `GET /workstreams/{wid}` and
+its `/diff` say `changes_error` the same way beside an empty `changes`. Both fields are additive:
+a reader that never looks at them sees the answer it saw before.
 
 - A project with an **unborn HEAD** has nothing to branch from or diff against. The git panel shows
   the working tree, staging and commit — and *Make the first commit* where a workstream or a graph would
   be. A read that walks commits — the graph, a file's history, blame — answers empty, never git's
   *does not have any commits yet*; the History document says *No commit has touched this path yet*.
-  Everything else appears after the first commit.
+  Everything else appears after the first commit. The vcs crate's word for it is
+  `VcsError::NoCommits` — `HEAD` a symbolic ref naming a branch that holds no commit — and it is
+  the one error the readers that diff against `HEAD` take the empty tree for. A `HEAD` git cannot
+  read for any other reason (a ref file holding garbage, a lock, a child past its budget) is handed
+  on as that reason: read as the empty tree, a diff would show every file as added and an unstage
+  — which restores the index from the baseline — would stage a tracked file's deletion.
 - A **non-git project** gets no git panel, no graph, no workstream switcher; the guide says so.
 - **Conflicts** are a state the panel shows, not an error it throws: `VcsError::Conflict { message,
   paths, in_progress }` names the files and the operation left half-done, the node answers 409 with

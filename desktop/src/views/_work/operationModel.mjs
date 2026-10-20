@@ -21,6 +21,24 @@ export function operationWord(inProgress) {
   return IN_PROGRESS_LABEL[inProgress] ?? "operation";
 }
 
+/**
+ * What a consented act that stopped on conflicts — the node's 409
+ * `conflict` — leaves for the Resolve card: the operation it started, its
+ * kind the node's `in_progress` when the answer names one (a merge that
+ * stopped is a merge whatever was asked), else what was started, and the
+ * paths the answer named. `null` when nothing was started here, so the
+ * session's own operation stands; paths that are no list are none.
+ * @param {Omit<import("./operationModel.d.mts").GitOperation, "paths"> | null | undefined} started
+ * @param {{detail?: unknown} | null | undefined} error
+ * @returns {import("./operationModel.d.mts").GitOperation | null}
+ */
+export function stoppedOn(started, error) {
+  const detail = error && typeof error.detail === "object" && error.detail !== null ? /** @type {{paths?: unknown, in_progress?: unknown}} */ (error.detail) : {};
+  const paths = Array.isArray(detail.paths) ? detail.paths.map(String) : [];
+  const kind = typeof detail.in_progress === "string" ? detail.in_progress : started?.kind ?? null;
+  return started && kind ? { ...started, kind, paths } : null;
+}
+
 /** The paths git still lists as unmerged, from the file rows. */
 export function conflictedPaths(files) {
   return (Array.isArray(files) ? files : []).filter((f) => f && f.conflicted && typeof f.path === "string").map((f) => f.path);

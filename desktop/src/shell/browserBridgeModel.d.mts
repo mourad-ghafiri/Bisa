@@ -32,12 +32,18 @@ export type BridgeResult = Omit<BrowserResult, "tabs" | "scroll" | "dialogs" | "
 };
 export declare const DEFAULT_WAIT_MS: number;
 export declare const MAX_WAIT_MS: number;
+export declare const ANSWER_MS: number;
+export declare const WAIT_ANSWER_MS: number;
+export declare const LOAD_MS: number;
+export declare const NAVIGATE_GRACE_MS: number;
 export declare const NAVIGATING: readonly string[];
 export declare const PLACEHOLDER_ID: string;
 export declare const PAGE_SILENT: string;
 export declare const TAB_GONE: string;
 export declare const PRESENCE_LAPSE_AFTER: number;
 export declare function askAgain(plan: { navigates: boolean }, outcome: { kind: string }, attempt: number): boolean;
+export type DriveVerdict<A> = { kind: "navigated" } | { kind: "gone"; error: unknown } | { kind: "silent" } | { kind: "answered"; message: A };
+export declare function driveOutcome<A>(race: { asked: { kind: "answered"; message: A } | { kind: "silent" } | { kind: "gone"; error: unknown } | null; started: boolean; movedLate: boolean }): DriveVerdict<A>;
 export declare function presenceLapsed(failures: number): boolean;
 export declare const LOAD_LATE: string;
 export declare const NOT_SHOWN: string;

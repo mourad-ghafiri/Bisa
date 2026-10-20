@@ -18,6 +18,14 @@ pub struct EngineConfig {
     /// How long a finished session stays in the roster (`GET /sessions`, the
     /// rail) so its `done` or `failed` is seen before it leaves.
     pub retain_ended_secs: u64,
+    /// The idle time to live of a language server in place of the
+    /// `lsp.idle_ttl_secs` setting (ide/10): a server with no document open
+    /// for that long is stopped. **`None`** — the setting is read, floored
+    /// at its own thirty seconds, since a server restarted every few seconds
+    /// by a person switching tabs would cost more than it answers; a test
+    /// hands in `Some(2)`, so an idle stop takes seconds instead of half a
+    /// minute, through the same sweep.
+    pub lsp_idle_ttl_override_secs: Option<u64>,
     /// How long a verb that stops sessions — a goal's stop, restart, close
     /// or retirement, a run's, the roster's *Terminate*, the engine's own
     /// stop — waits for their harness processes to be gone before it
@@ -191,6 +199,7 @@ impl Default for EngineConfig {
             default_wall_clock_secs: 7200,
             idle_ttl: Duration::from_secs(300),
             retain_ended_secs: 60,
+            lsp_idle_ttl_override_secs: None,
             stop_deadline_ms: 5_000,
             socket_path: None,
             max_result_attempts: 3,

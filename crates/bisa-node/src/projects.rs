@@ -832,10 +832,13 @@ async fn git_status_info(path: PathBuf, recorded_git: bool) -> GitStatusInfo {
     .unwrap_or_default()
 }
 
-async fn changed_files(path: PathBuf) -> Vec<ChangedFile> {
+/// The per-file summary of what is not committed, or the reason git gave
+/// none — said beside an empty list, never folded into one, so a reader
+/// never takes a repository git could not read for a clean one.
+async fn changed_files(path: PathBuf) -> Result<Vec<ChangedFile>, String> {
     tokio::task::spawn_blocking(move || {
         git::diff_stat(&path)
-            .unwrap_or_default()
+            .map_err(|e| e.to_string())?
             .into_iter()
             .map(|c| ChangedFile {
                 path: c.path.display().to_string(),
@@ -848,11 +851,29 @@ async fn changed_files(path: PathBuf) -> Vec<ChangedFile> {
                 deletions: c.deletions,
                 binary: c.binary,
             })
-            .collect()
+            .collect::<Vec<_>>()
+            .pipe(Ok)
     })
     .await
-    .unwrap_or_default()
+    .unwrap_or_else(|e| Err(e.to_string())) // LCOV_EXCL_LINE the blocking task panicked; by construction
 }
+
+/// The list a body carries and the reason beside it: the rows, or none and
+/// git's word.
+fn split_changes(read: Result<Vec<ChangedFile>, String>) -> (Vec<ChangedFile>, Option<String>) {
+    match read {
+        Ok(changes) => (changes, None),
+        Err(reason) => (Vec::new(), Some(reason)),
+    }
+}
+
+/// `x.pipe(f)` is `f(x)`: a value handed on where a method chain ends.
+trait Pipe: Sized {
+    fn pipe<T>(self, f: impl FnOnce(Self) -> T) -> T {
+        f(self)
+    }
+}
+impl<T> Pipe for T {}
 
 /// Branch, ahead/behind, remote and dirty counts for a workstream's checkout —
 /// the project's own tree when the workstream is the primary.
@@ -1341,14 +1362,26 @@ async fn git_commit(
     let commit = eng::commit_in(state.engine.inner(), wid, body.message.trim(), body.paths).await?;
     let ws = state.engine.workspace();
     let root = ws.workstream_checkout(&ws.get_workstream(wid)?)?;
-    let files = tokio::task::spawn_blocking(move || git::status_files(&root).unwrap_or_default())
+    // The commit landed; the rows after it are a second read. One git cannot
+    // give — a lock another process took, a budget — is said as such: the
+    // list stays a list, empty as it always was, and `files_error` carries
+    // the reason beside it, so a reader reloads rather than showing a tree
+    // it was never told about as clean. The field is additive: a reader that
+    // never looks at it sees the answer it saw before.
+    let files = tokio::task::spawn_blocking(move || git::status_files(&root))
         .await
-        .unwrap_or_default();
+        .map_err(|e| e.to_string())
+        .and_then(|read| read.map_err(|e| e.to_string()));
+    let (files, files_error) = match files {
+        Ok(files) => (rows(files), None),
+        Err(reason) => (Vec::new(), Some(reason)),
+    };
     Ok(Json(json!({
         "workstream": wid.to_string(),
         "commit": commit.as_str(),
         "short": commit.short(),
-        "files": rows(files),
+        "files": files,
+        "files_error": files_error,
     })))
 }
 
@@ -1687,10 +1720,10 @@ async fn workstream_detail(
         }
         _ => None,
     };
-    let changes = if status.git {
-        changed_files(path.clone()).await
+    let (changes, changes_error) = if status.git {
+        split_changes(changed_files(path.clone()).await)
     } else {
-        vec![]
+        (vec![], None)
     };
     Ok(Json(json!({
         "workstream": w,
@@ -1702,6 +1735,7 @@ async fn workstream_detail(
         "behind_base": ahead_of_base.map(|(_, b)| b),
         "status": status,
         "changes": changes,
+        "changes_error": changes_error,
     })))
 }
 
@@ -1748,12 +1782,13 @@ async fn workstream_diff(
             bisa_core::text!("error-node-projects-refused", detail = e.to_string()),
         )
     })?;
-    let changes = changed_files(path).await;
+    let (changes, changes_error) = split_changes(changed_files(path).await);
     Ok(Json(json!({
         "workstream": wid.to_string(),
         "clean": diff.trim().is_empty() && untracked.is_empty(),
         "diff": diff,
         "changes": changes,
+        "changes_error": changes_error,
         "untracked": untracked,
     })))
 }

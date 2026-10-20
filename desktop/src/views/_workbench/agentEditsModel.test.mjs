@@ -48,3 +48,14 @@ test("the words say how it ended and the tone follows", () => {
   assert.equal(settledTone("failed"), "error");
   assert.equal(settledTone("aborted"), "info");
 });
+
+test("a settle at the very second the record was made counts, and another conversation's row never does", () => {
+  const record = { scope: "conversation", id: "c1", agentId: "dev", at: 100 };
+  const row = (over = {}) => ({ conversation: "c1", agent: "dev", state: "done", since: 100, ...over });
+  assert.equal(settles(record, "running", row()), true, "since === at settles");
+  assert.equal(settles(record, "running", row({ since: 99 })), false, "a rest from before the record is not its end");
+  assert.equal(settles(record, "running", row({ conversation: "c2" })), false);
+  assert.equal(settles(record, "running", row({ agent: "other" })), false);
+  assert.equal(settles(record, "done", row()), false, "a row that was not live has nothing to settle");
+  assert.equal(settles(record, null, row()), true, "no earlier word is no objection");
+});

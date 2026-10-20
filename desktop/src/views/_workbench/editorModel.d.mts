@@ -77,6 +77,7 @@ export declare function edited(buffer: Buffer, text: string, now: number): Buffe
 export declare function isDirty(buffer: Buffer): boolean;
 export declare function isUnsaved(buffer: Buffer | null | undefined): boolean;
 export declare function unsavedKeys(buffers: ReadonlyMap<string, Buffer>): string[];
+export declare function unsavedSet(buffers: ReadonlyMap<string, Buffer>, before: ReadonlySet<string> | null | undefined): ReadonlySet<string>;
 export declare function remounted(kept: Buffer | null | undefined, path: string): Buffer;
 export declare function saveStarted(buffer: Buffer): Buffer;
 /** The formatter answered during a save: a buffer nobody touched since takes its text; one typed in since is left as typed. */

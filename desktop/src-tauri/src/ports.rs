@@ -164,30 +164,42 @@ pub(crate) fn signal(pid: u32, signal: Signal) -> bool {
         .is_some_and(|p| p.kill_with(signal).unwrap_or_else(|| p.kill()))
 }
 
-// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
-/// `SIGTERM` the process listening on `port`, if it is still `pid`.
+/// Whether the port rail's *Stop* of `pid` on `port` may go ahead.
 ///
 /// The app's own pid and the node's are refused whatever the rail asks: the
 /// person clicking *Stop* meant the dev server, not the desktop they are
-/// looking at.
+/// looking at. A pid that no longer listens on the port is refused too —
+/// the rail's row may be older than the process table, and a pid is reused
+/// — so the signal never reaches a process the person did not name. Pure
+/// over its inputs so the rule is tested without a process table.
+pub(crate) fn stop_target(
+    sockets: &[Socket],
+    protected: &HashSet<u32>,
+    pid: u32,
+    port: u16,
+) -> Result<(), String> {
+    if protected.contains(&pid) {
+        return Err("that port belongs to the app itself".to_string());
+    }
+    if !sockets.iter().any(|s| s.pid == pid && s.port == port) {
+        return Err(format!(
+            "nothing with pid {pid} listens on :{port} any more"
+        ));
+    }
+    Ok(())
+}
+
+// LCOV_EXCL_START a Tauri command over the running app's state; out by decision
+/// `SIGTERM` the process listening on `port`, if it is still `pid` and
+/// neither the app nor its node (`stop_target`).
 #[tauri::command]
 pub async fn stop_port(pid: u32, port: u16, node: State<'_, NodeState>) -> Result<(), String> {
     let protected: HashSet<u32> = [Some(std::process::id()), node.status().pid]
         .into_iter()
         .flatten()
         .collect();
-    if protected.contains(&pid) {
-        return Err("that port belongs to the app itself".to_string());
-    }
     tauri::async_runtime::spawn_blocking(move || {
-        let still = sockets()?
-            .into_iter()
-            .any(|s| s.pid == pid && s.port == port);
-        if !still {
-            return Err(format!(
-                "nothing with pid {pid} listens on :{port} any more"
-            ));
-        }
+        stop_target(&sockets()?, &protected, pid, port)?;
         let sys = processes();
         let process = sys
             .process(Pid::from_u32(pid))
@@ -234,6 +246,34 @@ mod tests {
             process: format!("p{pid}"),
             port,
         }
+    }
+
+    #[test]
+    fn a_stop_refuses_the_app_and_its_node_and_a_pid_no_longer_on_the_port() {
+        let protected: HashSet<u32> = [7, 9].into_iter().collect();
+        let sockets = [sock(7, 3000), sock(42, 5173), sock(43, 5174)];
+        let refused = |pid, port| stop_target(&sockets, &protected, pid, port).unwrap_err();
+        assert_eq!(refused(7, 3000), "that port belongs to the app itself");
+        assert_eq!(
+            refused(9, 5173),
+            "that port belongs to the app itself",
+            "the node's pid, whatever port the row names"
+        );
+        assert_eq!(
+            refused(42, 5174),
+            "nothing with pid 42 listens on :5174 any more",
+            "the row named another process's port"
+        );
+        assert_eq!(
+            refused(44, 5173),
+            "nothing with pid 44 listens on :5173 any more",
+            "a pid that left"
+        );
+        assert_eq!(stop_target(&sockets, &protected, 42, 5173), Ok(()));
+        assert!(
+            stop_target(&[], &HashSet::new(), 42, 5173).is_err(),
+            "an empty table stops nothing"
+        );
     }
 
     #[test]

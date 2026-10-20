@@ -160,9 +160,20 @@ pub(crate) fn run_with_input(
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| VcsError::NotAvailable(format!("spawn `{what}`: {e}")))?;
+    // A spawn the OS refuses for what it was handed — a NUL byte inside an
+    // argument — is the argument's fault, never git's absence: said as an
+    // invalid argument, so a caller answers *bad request* and not *the
+    // service is not there*.
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::InvalidInput {
+            VcsError::InvalidArg {
+                what: what.to_string(),
+                value: e.to_string(),
+            }
+        } else {
+            VcsError::NotAvailable(format!("spawn `{what}`: {e}"))
+        }
+    })?;
 
     // Written from its own thread for the same reason the pipes are read
     // from theirs: a patch larger than the pipe buffer would otherwise block

@@ -37,7 +37,7 @@ import type { MessageRow } from "../../types";
 import { useToast } from "../../ui";
 import { draftKeys } from "./agentReviewModel.mjs";
 import { useSessionDraft } from "./gitPanelStore";
-import { agentReply, clearsOnLanding, reviewRun } from "./reviewStepModel.mjs";
+import { agentReply, clearsOnLanding, newRun, reviewRun } from "./reviewStepModel.mjs";
 import { ensureConversation } from "../_workbench/conversationsStore";
 import type { ReviewFacts, ReviewRun, RunKind, RunState } from "./reviewStepModel.mjs";
 import { attempt } from "./useAsync";
@@ -174,7 +174,7 @@ export function useReviewRun({
           await api.postConversationMessage(target, { content, mentions: [agent] });
         },
         toast.error,
-        () => setRun({ kind, agent, at: now(), ...(target ? { conversation: target } : {}), ...(aheadOfBase !== null ? { ahead: aheadOfBase } : {}), ...extras }),
+        () => setRun(newRun({ kind, agent, at: now(), conversation: target, ahead: aheadOfBase, extras })),
       );
     } finally {
       setAsking(false);

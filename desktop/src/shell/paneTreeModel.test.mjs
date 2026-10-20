@@ -143,3 +143,15 @@ test("a tab moves along its own leaf's strip and nowhere else; the active bit an
   assert.deepEqual(leafOfTab(moveWithin(t, "t1", 99), "t1").tabs, ["t2", "t4", "t1"], "past the end is the end");
   assert.equal(moveWithin(t, "nope", 0), t, "a tab the tree does not hold moves nothing");
 });
+
+test("a stored tree with one id on two nodes keeps the first and refuses the second; a ratio that is no number is half; the only leaf cannot close and has no neighbour", () => {
+  const twice = parseTree({ kind: "split", id: "s2", dir: "row", ratio: 0.5, a: { kind: "leaf", id: "p1", tabs: ["a"], active: "a" }, b: { kind: "leaf", id: "p1", tabs: ["b"], active: "b" } }, ["a", "b"]);
+  assert.equal(leaves(twice).length, 1, "one node per id");
+  assert.deepEqual(leaves(twice)[0].tabs, ["a"]);
+  const odd = parseTree({ kind: "split", id: "s2", dir: "row", ratio: "0.5", a: { kind: "leaf", id: "p1", tabs: ["a"], active: "a" }, b: { kind: "leaf", id: "p3", tabs: ["b"], active: "b" } }, ["a", "b"]);
+  assert.equal(odd.ratio, 0.5);
+  assert.equal(parseTree({ kind: "split", id: "s2", dir: "row", ratio: Number.NaN, a: { kind: "leaf", id: "p1", tabs: ["a"], active: "a" }, b: { kind: "leaf", id: "p3", tabs: ["b"], active: "b" } }, ["a", "b"]).ratio, 0.5);
+  const only = singleLeaf("p1", ["a"], "a");
+  assert.equal(closeLeaf(only, "p1"), only);
+  for (const dir of ["left", "right", "up", "down"]) assert.equal(neighbor(only, "p1", dir), null, dir);
+});

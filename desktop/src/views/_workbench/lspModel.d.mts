@@ -45,6 +45,15 @@ export interface FollowedDocument {
   language: string | null | undefined;
   following: "yes" | "asking" | "no";
 }
+export interface OpenVerdict {
+  following: "yes" | "no" | null;
+  language: string | null | undefined;
+  say: string | null | undefined;
+  closeOnNode: boolean;
+  sendHeld: boolean;
+}
+export function openAnswered(known: string | null | undefined, answer: { following?: boolean; language?: string | null }, when: { alive: boolean; newest: boolean }): OpenVerdict;
+export function openFailed(known: string | null | undefined, when: { alive: boolean; newest: boolean }): { following: "no" | null; language: null | undefined; say: null | undefined };
 /** The open documents a server's change leaves to be opened again: all of its own when it stopped, the unfollowed ones when one is there again. */
 export function documentsToReopen<D extends FollowedDocument>(change: ServerChange | null | undefined, documents: readonly D[] | null | undefined): D[];
 /** The editor's chip for a document's server — null while no language or no status row is known. */

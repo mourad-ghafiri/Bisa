@@ -18,3 +18,15 @@ test("the addressee is the project's default agent, and the general agent when t
   assert.equal(addressee(agents, "workflow-agent", "general-agent", "workflow"), workflow);
   assert.equal(addressee([], "reviewer", "general-agent"), null, "nobody at all");
 });
+
+test("the addressee at the edges: no agents is nobody, a default that is the general agent is it once, a disabled default falls to the general agent, and an id listed twice is the first", () => {
+  const general = { id: "general-agent", name: "General Agent", enabled: true };
+  assert.equal(addressee(undefined, "general-agent", "general-agent"), null);
+  assert.equal(addressee([], "general-agent", "general-agent"), null);
+  assert.equal(addressee([general], "general-agent", "general-agent"), general);
+  const asleep = { id: "reviewer", name: "Reviewer", enabled: false };
+  assert.equal(addressee([general, asleep], "reviewer", "general-agent"), general);
+  const first = { id: "twice", name: "First", enabled: true };
+  const second = { id: "twice", name: "Second", enabled: true };
+  assert.equal(addressee([first, second, general], "twice", "general-agent"), first);
+});

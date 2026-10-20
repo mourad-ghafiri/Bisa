@@ -14,6 +14,51 @@ export const GIT_CHANGES = Object.freeze(["worktree", "index", "head", "refs", "
 /** How long a burst of frames is gathered before one re-read per view. */
 export const GIT_COALESCE_MS = 300;
 
+/**
+ * The frames after which every root somebody shows is read again:
+ * something may have written into a tree with no `file_changed` of its
+ * own — a run's end, a result taken in, a commit the node made.
+ */
+export const WRITES_TREE = Object.freeze(["execution_ended", "result_accepted", "workstream_committed"]);
+
+/** How many roots nobody shows keep their last rows for the return; the ones left longest ago past it forget theirs. */
+export const MAX_IDLE_ROOTS = 8;
+
+/**
+ * The roots to let go of: among those nobody shows and nothing is reading
+ * or about to (`inFlight`, a `flush` pending), the ones left longest ago
+ * past `max` — by `leftAt`, the count at which each was last left, so a
+ * root visited first, left, shown again and left last is the last to go,
+ * never the first because it was read first. A root never shown counts as
+ * left before every one that was.
+ * @param {Iterable<readonly [string, {subscribers: number, inFlight: boolean, flush: unknown, leftAt: number}]>} entries
+ * @param {number} max
+ * @returns {string[]}
+ */
+export function idleRootsToDrop(entries, max) {
+  const idle = [...entries].filter(([, e]) => e.subscribers === 0 && !e.inFlight && e.flush === null).sort((a, b) => a[1].leftAt - b[1].leftAt);
+  return idle.slice(0, Math.max(0, idle.length - Math.max(0, max))).map(([scope]) => scope);
+}
+
+/**
+ * What a frame re-reads of the changed files: every root shown, when the
+ * frame means something wrote into a tree with no frame of its own
+ * (`WRITES_TREE`); one workstream's rows, coalesced, when a `file_changed`
+ * of its touched the tree or the index (`readsFor`); nothing otherwise — a
+ * fetch that only moved refs re-lists nothing, and a goal's folder has no
+ * git rows.
+ * @param {{type?: string, scope?: string, id?: string, path?: string, kind?: string} | null | undefined} frame
+ * @returns {{kind: "shown"} | {kind: "root", id: string} | {kind: "none"}}
+ */
+export function rereadsFor(frame) {
+  const type = frame?.type;
+  if (typeof type !== "string") return { kind: "none" };
+  if (WRITES_TREE.includes(type)) return { kind: "shown" };
+  if (type !== "file_changed" || frame.scope !== "workstream" || typeof frame.id !== "string" || frame.id === "") return { kind: "none" };
+  if (!readsFor(kindsOf({ path: frame.path ?? "", kind: frame.kind ?? "" })).files) return { kind: "none" };
+  return { kind: "root", id: frame.id };
+}
+
 const OPERATION_FILES = new Set(["ORIG_HEAD", "MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]);
 const OPERATION_DIRS = new Set(["rebase-merge", "rebase-apply", "sequencer"]);
 const REF_FILES = new Set(["packed-refs", "FETCH_HEAD"]);

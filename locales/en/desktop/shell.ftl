@@ -1039,6 +1039,7 @@ shell-usage-picker-pick-the-one-to-keep = Pick the one to keep in the footer. Ea
 
 ## An override that is not a chord, told in Settings (`shell/keymapModel.mjs`) — words moved out of the model.
 shell-keymap-override-not-a-chord-preset-stands = keymap.overrides.{ $id }: { $raw } is not a chord; the preset's binding stands
+shell-keymap-override-names-no-command = keymap.overrides.{ $id }: no command of that name; the override is ignored
 
 ## A terminal tab's title when a device run or a run command is in it (`shell/terminalsModel.mjs`) — words moved out of the model.
 shell-terminals-title-flutter-where = flutter · { $where }

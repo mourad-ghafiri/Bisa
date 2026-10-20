@@ -191,10 +191,10 @@ fn collect(
     inner: Arc<Inner>,
     key: Key,
     root: PathBuf,
-    rules: ignore::gitignore::Gitignore,
+    mut rules: ignore::gitignore::Gitignore,
     rx: std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
 ) {
-    let ignored = |rel: &str| {
+    let ignored = |rules: &ignore::gitignore::Gitignore, rel: &str| {
         let full = root.join(rel);
         rules
             .matched_path_or_any_parents(&full, full.is_dir())
@@ -241,11 +241,17 @@ fn collect(
                 if rels.is_empty() {
                     continue;
                 }
+                // The rules themselves moved — `.gitignore` written under the
+                // watch: read again, so the frames that follow say what the
+                // tree says, not what it said when the watch began.
+                if rels.iter().any(|r| r == ".gitignore") {
+                    rules = ignore_rules(&root);
+                }
                 // LCOV_EXCL_START a rename paired by inotify; not this Mac's watcher
                 if kind == FileChangeKind::Renamed && rels.len() == 2 {
                     let from = rels.remove(0);
                     let to = rels.remove(0);
-                    let ig = ignored(&to);
+                    let ig = ignored(&rules, &to);
                     pending.insert(to, (FileChangeKind::Renamed, Some(from), ig));
                     continue;
                 }
@@ -253,7 +259,7 @@ fn collect(
                 for rel in rels {
                     // The later kind wins, except a create followed by a
                     // modify is still a create.
-                    let ig = ignored(&rel);
+                    let ig = ignored(&rules, &rel);
                     let entry = pending.entry(rel).or_insert((kind, None, ig));
                     if !(entry.0 == FileChangeKind::Created && kind == FileChangeKind::Modified) {
                         *entry = (kind, None, ig);

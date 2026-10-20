@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { looseRefusal } from "../../apiModel.mjs";
 
-import { AUTOSAVE_FLOOR_MS, autosaveDue, breadcrumbsOf, changedOnDisk, clampAutosaveDelay, conflicted, edited, emptyBuffer, basenameOf, isDirty, isLoose, isUnsaved, isUntitled, keepMine, loaded, reformatted, remounted, saveFailed, savePathProblem, saveStarted, saved, sourceName, takeTheirs, unsavedKeys, untitledBuffer, DEFAULT_TAB_SIZE, EDITABLE_BYTES, formatOnSave, saveFailure, loadFailed, loadFailure, overBoundWords, refusalWords, sizeNote } from "./editorModel.mjs";
+import { unsavedSet, AUTOSAVE_FLOOR_MS, autosaveDue, breadcrumbsOf, changedOnDisk, clampAutosaveDelay, conflicted, edited, emptyBuffer, basenameOf, isDirty, isLoose, isUnsaved, isUntitled, keepMine, loaded, reformatted, remounted, saveFailed, savePathProblem, saveStarted, saved, sourceName, takeTheirs, unsavedKeys, untitledBuffer, DEFAULT_TAB_SIZE, EDITABLE_BYTES, formatOnSave, saveFailure, loadFailed, loadFailure, overBoundWords, refusalWords, sizeNote } from "./editorModel.mjs";
 
 const file = (text, extra = {}) => ({ text, hash: `h(${text})`, editable: true, truncated: false, binary: false, size: text.length, ...extra });
 
@@ -398,4 +398,40 @@ test("the editor's reads land in order and never on a closed tab", () => {
 test("a document read-only for a reason the node did not name is said read-only, and nothing more", () => {
   assert.equal(sizeNote({ readOnly: true, readOnlyWhy: null, plain: false }), "Read-only.");
   assert.equal(sizeNote({ readOnly: true, plain: true }), "Read-only.");
+});
+
+test("a frame that lands mid-save is the save's to settle: no conflict is raised on a keystroke typed since, and the answer clears or refuses as it always did", () => {
+  const file = { path: "a.ts", size: 2, binary: false, editable: true, truncated: false, text: "a\n", hash: "h0" };
+  let b = loaded(emptyBuffer("a.ts"), file);
+  b = edited(b, "ab\n", 10);
+  b = saveStarted(b);
+  b = edited(b, "abc\n", 11);
+  const during = changedOnDisk(b, { ...file, text: "ab\n", hash: "h1" });
+  assert.equal(during, b, "the buffer stands: the save's own write landing, or an outside write its compare-and-swap refuses");
+  assert.equal(during.status, "saving");
+  assert.equal(during.conflict ?? null, null);
+});
+
+test("a buffer at its edges: a 0-byte file is clean and editable, a conflict comes back on screen as a conflict, and the unsaved set keeps its identity while its members stand", () => {
+  const empty = loaded(emptyBuffer("e.txt"), { path: "e.txt", size: 0, binary: false, editable: true, truncated: false, text: "", hash: "h" });
+  assert.equal(empty.status, "clean");
+  assert.equal(empty.plain, false);
+  assert.ok(!isUnsaved(empty));
+  const clash = conflicted(edited(empty, "x", 1), "theirs", "t");
+  assert.equal(remounted(clash, "e.txt").status, "conflict", "a conflict is unsaved work: kept");
+  const buffers = new Map([["k1", edited(empty, "x", 1)], ["k2", empty]]);
+  const first = unsavedSet(buffers, null);
+  assert.deepEqual([...first], ["k1"]);
+  const again = unsavedSet(new Map([["k1", edited(empty, "xy", 2)], ["k2", empty]]), first);
+  assert.equal(again, first, "a keystroke in a document already dirty is the same set");
+  const grown = unsavedSet(new Map([["k1", edited(empty, "x", 1)], ["k2", edited(empty, "y", 1)]]), first);
+  assert.notEqual(grown, first);
+  assert.deepEqual([...grown], ["k1", "k2"]);
+  assert.deepEqual([...unsavedSet(new Map(), undefined)], []);
+});
+
+test("a path to save under is refused by name: a dot segment, an empty segment, a folder, a backslash, a home path", () => {
+  for (const bad of ["a/./b", "a//b", "a/../b", "dir/", "a\\b", "~/x", "/x", "   "]) assert.ok(savePathProblem(bad) !== null, bad);
+  assert.equal(savePathProblem("  src/a.ts  "), null, "trimmed");
+  assert.equal(savePathProblem("src/a b.ts"), null, "a space is a name");
 });

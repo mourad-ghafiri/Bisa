@@ -126,3 +126,16 @@ test("a file in a state the pane does not name wears the state's own word, quiet
   assert.equal(fileChipTone({ state: "gone" }), "warn");
   assert.equal(fileChipTone({ state: "odd" }), "quiet");
 });
+
+test("a timeline that holds no message — an empty set, not a missing one — puts every card at the end; a missing timeline anchors each card on its reply, else its prompt", () => {
+  const view = { turns: [{ id: "t1", agent: "dev", reply: "m2", prompt: "m1", files: [] }, { id: "t2", agent: "dev", reply: null, prompt: "m3", files: [] }] };
+  const none = turnCardsByAnchor(view, new Set());
+  assert.equal(none.byMessage.size, 0);
+  assert.equal(none.atEnd.length, 2);
+  const open = turnCardsByAnchor(view, null);
+  assert.deepEqual([...open.byMessage.keys()], ["m2", "m3"]);
+  assert.equal(open.atEnd.length, 0);
+  const partial = turnCardsByAnchor(view, new Set(["m1"]));
+  assert.deepEqual([...partial.byMessage.keys()], ["m1"], "the prompt stands in when the reply is not on the page");
+  assert.equal(partial.atEnd.length, 1);
+});

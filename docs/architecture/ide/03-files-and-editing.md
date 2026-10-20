@@ -11,7 +11,13 @@ An agent writes into a workstream while a person has the same file open. The pla
 shape once for notes and reuses it here — send the hash of the body you read, and a mismatch is
 refused with the current body attached.
 
-The IDE reuses that answer verbatim. **Compare-and-swap, never last-write-wins.**
+The IDE reuses that answer verbatim. **Compare-and-swap, never last-write-wins.** The compare and
+the swap are one step across the engine (`write_bytes` holds one writer at a time), so two saves
+of one base hash arriving together land one and refuse one — never both, with the second written
+over the first and no conflict said. On the desktop a keystroke while a save is out leaves the
+save in flight (`editorModel.edited` keeps the *saving* word): no second save starts on the same
+base, and a watcher frame landing meanwhile is the save's own answer to settle — never a conflict
+raised on the keystroke and cleared a moment later.
 
 ```
 GET /ide/file/{scope}/{id}?path=<root-relative>
@@ -152,6 +158,7 @@ The watcher is `notify`, scoped and bounded:
 |---|---|
 | watched | the roots of projects and workstreams currently open in a workbench, registered by the client with `POST /ide/watch/{scope}/{id}` and released on close or after a 5-minute silence |
 | debounce | 50 ms per path; events are coalesced so a save that writes a temp file and renames produces one `Modified` |
+| rules | `.gitignore` is read when the watch begins and again when it changes under the watch, so a file under a folder it names is reported `ignored` from then on — what the tree would list — never what the rules said when the watch began |
 | ignored | `.git/` internals except the closed list the git panel shows — `HEAD`, `index`, `packed-refs`, `FETCH_HEAD`, the operation markers (`ORIG_HEAD`, `MERGE_HEAD`, `REBASE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`) and everything under `refs/`, `rebase-merge/`, `rebase-apply/` and `sequencer/`; `objects/` and `logs/` stay dropped, since one commit writes dozens of objects and one `HEAD` frame is the whole message; paths matched by the root's `.gitignore` are watched but flagged `ignored: true` so the explorer can dim them |
 | delivered | on the `engine` stream: `FileChanged { scope, id, path, kind: Created \| Modified \| Removed \| Renamed{from} , ignored, dir }` — `dir` says the path is a folder: a whole tree made, moved or copied in one frame, which a reader holding a list of *files* cannot patch from the name alone; `false` for a path that is gone |
 | on overflow | the OS queue overflowing is reported as `FileChanged { kind: Rescan }`, and the client refetches the open directories |
@@ -188,6 +195,7 @@ and keeps the two as written here; what a review keeps of a change has its own b
 | ≤ 2 MiB | editable, tokenised — and saved whole: the save route's body is sized from the most the bound may be set to (`WRITE_BODY_BYTES`, twice that text and a hash, since every byte may need a JSON escape), and `PUT /ide/file` refuses a text over the bound in force with the read side's own 413 `{size, limit}`. Above 2 MiB a file this machine calls editable is edited and drawn plain |
 | 2–20 MiB | opens **read-only**, tokenisation off, a banner saying why — the node's word (`editable: false`, its reason kept on the buffer as `readOnlyWhy`); the editor decides nothing about size itself (`editorModel.loaded`, `sizeNote`) |
 | > 20 MiB | refused; the response carries the size and the limit **this machine set**, and the client's sentence says both (`editorModel.loadFailure` reads the 413's `{size, limit}`; `fileDocModel.tooLargeWords(size, limit)` for a rendered document) and offers *Reveal in Finder* (the platform's word, `revealLabel`) — a save over the bound in force is the same sentence with the node's limit (`saveFailure`) |
+| not a regular file | a named pipe, a socket, a device is refused by name at every read — the editor's, the renderer's, `bisa files show` — and never opened: an open blocks until a writer shows, which it never will |
 | binary (sniffed from bytes, never from the extension) | never served as text; the editor shows *Binary — N bytes, and no text to show* with *Reveal in Finder*. A file whose **name** says it renders — a PDF, a picture, a recording, a sheet, a document, a deck — never reaches this route: the workbench opens it as a **rendered document** from its bytes (below) |
 
 Monaco degrades badly past roughly 10 MiB and pretending otherwise is how an IDE earns a reputation
@@ -479,7 +487,10 @@ The document tab strip is `TabStrip` over `workbenchModel.mjs`: one strip per ro
 documents and the terminals rooted there side by side **in one order — the order they were
 opened, newest last** (the root's `strip`: a file opened after a shell is after it, a harness
 opened after that is last; a document appends itself on open, a terminal the strip has not seen
-is recorded at the end when it is drawn — `reconcileStrip` — a close drops the id). A document is a file or the workstream's
+is recorded at the end when it is drawn — `reconcileStrip` — a close drops the id). A saved layout
+comes back with its pane ids as saved and the pane counter past them (`restoreRoot`), so the next
+split never mints an id two panes would answer to; a stored tree naming one id on two nodes keeps
+the first (`parseTree`). A document is a file or the workstream's
 *Diff against base*; the Git views are the right panel's alone and never a tab.
 
 - **An untitled document** — `⌘N` (`new_document`, workbench scope) opens `untitled:<seq>`,
@@ -785,7 +796,11 @@ hook the editor uses), and a `file_changed` frame re-reads only the listings it 
 root's ignore rules match are **dimmed, never hidden** (`FileEntry.ignored`, computed by the store's
 one `ignore_rules`, the same the watcher stamps frames with). A **rename is followed by the open
 document**: the workbench hears the `renamed` frame, saves a dirty buffer first, and re-points the
-tab (`retargetTabs`), pane and pin included; one that will not save keeps its tab and says so.
+tab (`retargetTabs`), pane and pin included; one that will not save keeps its tab and says so. A
+rename onto a path already open closes the moved tab — through `closedTabs`, so its buffer and view
+go the one way every closed tab's do: the document it was is the one already open, whose buffer
+meets the disk through the watcher as any outside change does — never two tabs with one id, never
+a buffer written over another's unsaved text.
 Every explorer mutation lands in the same watcher stream as any other change, so a second window on
 the same project sees it.
 
@@ -810,7 +825,7 @@ The CLI has the same verbs: `bisa files new|mv|cp|rm`, which say how a delete we
 | word wrap | `editor.word_wrap` (`off` · `on` · `bounded`), read by `useEditorTypography` and applied to a mounted editor without a remount; `Alt+Z` (`toggle_word_wrap`) flips it at machine scope |
 | breadcrumbs | the path above the editor as crumbs (`breadcrumbsOf`): a folder reveals itself in Files, the file copies its path |
 | the caret in the footer | *Ln 12, Col 4* and the language of the editor you are in (`editorStatusStore.ts`, published on every caret move, read by the status bar) |
-| go to line | `⌘G` (`go_to_line`) opens the omnibox in its `line` mode, seeded with `:`; a line asked for before the editor is up waits for it (`editorRegistry.requestLine`) — a search hit, a definition, stepping fast through results |
+| go to line | `⌘G` (`go_to_line`) opens the omnibox in its `line` mode, seeded with `:`; a line asked for before the editor is up waits for it (`editorRegistry.requestLine`) — a search hit, a definition, stepping fast through results An editor action asked before the editor is up — the find widget after a picture's source was shown — waits the same way (`editorRegistry.requestAction` / `takeAction`, `editorRegistryModel.actionRequested`), never after a timer's guess; a symbol's line from the palette too. |
 
 Monaco is wrapped once, in `ui/CodeEditor.tsx` and `ui/DiffEditor.tsx`. Views never import it.
 Models are the tab's: made at the first mount of its editor, kept across every unmount, disposed when

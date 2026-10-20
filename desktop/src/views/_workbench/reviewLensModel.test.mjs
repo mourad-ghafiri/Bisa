@@ -101,3 +101,11 @@ test("the bar counts the files still waiting, and a rendered document says its c
   assert.equal(pendingReviewWords(3).text, "This file has 3 changes to review.");
   assert.equal(pendingReviewWords(3).show, "Show diff");
 });
+
+test("the hunk position clamps to what there is: past the end reads as the last, before the start as the first, and no hunks say so", () => {
+  const two = [{ id: "h1" }, { id: "h2" }];
+  assert.equal(hunkPositionWords(two, 5), hunkPositionWords(two, 1));
+  assert.equal(hunkPositionWords(two, -3), hunkPositionWords(two, 0));
+  assert.notEqual(hunkPositionWords(two, 0), hunkPositionWords(two, 1));
+  assert.equal(hunkPositionWords([], 0), hunkPositionWords(null, 7));
+});

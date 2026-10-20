@@ -42,6 +42,7 @@ import {
   openTabBeside,
   reopenLastClosed,
   replaceTab,
+  restoreRoot,
   retargetTabs,
   setDocPaneRatio,
   splitDocPane,
@@ -226,15 +227,7 @@ export function closeDocsRight(key: string, id: string): void {
  * in one step — so the tree is never rebuilt tab by tab into one pane first.
  */
 export function restoreDocs(key: string, tabs: WorkbenchTab[], panes: PaneNode, pinned: string[], strip: readonly string[] = []): void {
-  let next = state;
-  const keep = held();
-  for (const tab of tabs) next = openTab(next, key, tab, { held: keep });
-  const entry = next.roots.find((r) => r.key === key);
-  if (!entry) return;
-  // The saved order first, then whatever the restore opened that it did not name.
-  const known = new Set(strip);
-  const order = [...strip, ...entry.strip.filter((id) => !known.has(id))];
-  set({ roots: next.roots.map((r) => (r.key === key ? { ...entry, panes, pinned: pinned.filter((p) => entry.tabs.some((t) => tabId(t) === p)), strip: order } : r)) });
+  set(restoreRoot(state, key, { tabs, panes, pinned, strip }, held()));
 }
 
 /** Reopen the last document closed in this root; the tab to activate, or null. */

@@ -83,8 +83,11 @@ before it becomes a URI a server would read.
 ## Bounds
 
 - **No server runs unless a document of its language is open in a workbench.** Idle TTL is
-  `lsp.idle_ttl_secs` (default 300): a server stops once its last document has been closed for
-  the whole of it, and not when one was opened and closed again since (`lsp::gone_idle`).
+  `lsp.idle_ttl_secs` (default 300, never below its thirty-second floor): a server stops once its
+  last document has been closed for the whole of it, and not when one was opened and closed again
+  since (`lsp::gone_idle`). A test sets the time to live in seconds in place of the setting
+  (`EngineConfig::lsp_idle_ttl_override_secs`), so the sweep it pins is seconds away, through the
+  same code.
 - **One server per root and language, however many documents open at once.** A workbench that
   restores its tabs opens them together; a start goes through one gate per root and language
   (`LspRegistry::start_gate`), so whoever comes second is given the first's server — never a

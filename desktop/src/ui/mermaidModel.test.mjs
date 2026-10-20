@@ -97,3 +97,11 @@ test("an error's line is the file's: a block deep in a document, a file that is 
   assert.deepEqual(offsetError("error on line 2", -5).line, 2, "and never a line before the file");
 });
 
+test("a fence with an info string beyond mermaid is not a diagram, and a closing fence shorter than its opener leaves the block open", () => {
+  assert.deepEqual(mermaidBlocks("```mermaid title\ngraph LR\n```\n"), [], "an info string is a code block of another kind");
+  const open = mermaidBlocks("````mermaid\ngraph LR\n```\nstill inside\n````\n");
+  assert.equal(open.length, 1);
+  assert.equal(open[0].source, "graph LR\n```\nstill inside", "a shorter fence is text inside the block");
+  assert.equal(open[0].startLine, 2);
+  assert.deepEqual(mermaidBlocks("```mermaid\ngraph LR\n"), [], "a block never closed is no diagram");
+});

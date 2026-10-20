@@ -153,6 +153,16 @@ pub enum VcsError {
     #[error("{} is not a git repository", .0.display())]
     NotARepository(PathBuf),
 
+    /// The repository has no commit yet: `HEAD` names a branch that is still
+    /// unborn. Its own variant because the readers that diff against `HEAD`
+    /// take the empty tree in its place — and only in its place. A `HEAD`
+    /// git cannot read for any other reason (a ref file holding garbage, a
+    /// lock, a child that timed out) is that reason, never "nothing committed
+    /// yet": read as the empty tree it would stage a tracked file's deletion
+    /// and show every file as added.
+    #[error("{} has no commits yet", .0.display())]
+    NoCommits(PathBuf),
+
     /// The working tree has changes the operation refuses to discard.
     #[error("{} has uncommitted changes: {details}", .path.display())]
     Dirty { path: PathBuf, details: String },

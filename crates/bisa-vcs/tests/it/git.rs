@@ -542,7 +542,10 @@ fn a_repository_with_no_commits_is_readable() {
     assert!(st.is_clean);
     // default_branch falls through origin/HEAD to the unborn branch's name.
     assert_eq!(git::default_branch(&repo).unwrap(), st.branch.unwrap());
-    assert!(git::head(&repo).is_err());
+    assert!(
+        matches!(git::head(&repo), Err(VcsError::NoCommits(_))),
+        "an unborn HEAD is its own word, never an untyped failure"
+    );
 
     // Diffing an unborn HEAD works because the baseline is the empty tree,
     // which is what "the first commit would contain" actually means.
@@ -567,6 +570,98 @@ fn a_repository_with_no_commits_is_readable() {
     git::commit(&repo, "first", false).unwrap();
     assert!(git::head(&repo).is_ok());
     assert!(git::status(&repo).unwrap().oid.is_some());
+}
+
+/// A `HEAD` git cannot read for any reason but "no commit yet" is that
+/// reason, handed on: never the empty tree. Read as the empty tree, a diff
+/// shows every tracked file as added — and an unstage, which restores the
+/// index from the baseline, would stage the file's *deletion* with no
+/// consent and no recovery ref. A ref file holding garbage answers
+/// `rev-parse` the same silent exit 1 an unborn branch does; only
+/// `symbolic-ref` tells them apart.
+#[test]
+fn a_branch_ref_git_cannot_read_is_an_error_and_never_the_empty_tree() {
+    let fx = Fixture::new();
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nand more\n").unwrap();
+    git::stage(&fx.repo, &["README.md"]).unwrap();
+    assert_eq!(
+        raw_git(&fx.repo, &["ls-files", "--stage", "README.md"])
+            .lines()
+            .count(),
+        1
+    );
+
+    // The branch HEAD names, its ref file overwritten with words.
+    std::fs::write(
+        fx.repo.join(".git/refs/heads").join(&fx.branch),
+        "not a sha\n",
+    )
+    .unwrap();
+
+    let head = git::head(&fx.repo).expect_err("a broken ref is no HEAD");
+    assert!(
+        !matches!(head, VcsError::NoCommits(_)) && !head.is_unavailable(),
+        "git's own word, not an unborn branch and not a missing repository: {head}"
+    );
+    assert!(
+        git::diff_stat(&fx.repo).is_err(),
+        "never every file as added"
+    );
+    assert!(git::diff_head(&fx.repo).is_err());
+    assert!(git::diff(&fx.repo, true).is_err());
+    assert!(git::diff_file(&fx.repo, "README.md", true).is_err());
+    assert!(
+        git::unstage(&fx.repo, &["README.md"]).is_err(),
+        "never restored from the empty tree"
+    );
+    assert_eq!(
+        raw_git(&fx.repo, &["ls-files", "--stage", "README.md"])
+            .lines()
+            .count(),
+        1,
+        "the index entry stands: nothing staged its deletion"
+    );
+}
+
+/// A `HEAD` read that times out is a timeout, handed on through every reader
+/// built on the baseline — never read as "no commits yet".
+#[test]
+fn a_timed_out_head_read_is_a_timeout_not_the_empty_tree() {
+    let fx = Fixture::new();
+    let slow = fx.path("slow-git");
+    // Real git for everything but the one call `head` makes, which sleeps
+    // past the budget.
+    std::fs::write(
+        &slow,
+        "#!/bin/sh\ncase \"$*\" in *rev-parse*--verify*) sleep 5;; esac\nexec git \"$@\"\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let git = bisa_vcs::Git::new()
+        .with_program(&slow)
+        .with_timeouts(bisa_vcs::Timeouts {
+            local: std::time::Duration::from_millis(400),
+            network: std::time::Duration::from_secs(1),
+        });
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nand more\n").unwrap();
+    let started = std::time::Instant::now();
+    let stat = git.diff_stat(&fx.repo).expect_err("a timeout is handed on");
+    assert!(
+        matches!(stat, VcsError::Timeout { .. }),
+        "the budget's own word: {stat}"
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(4),
+        "ended at the budget, not at the child's leisure"
+    );
+    assert!(
+        matches!(git.head(&fx.repo), Err(VcsError::Timeout { .. })),
+        "head itself says so"
+    );
 }
 
 #[test]
@@ -1124,6 +1219,81 @@ fn another_git_holding_the_index_is_said_as_busy_and_nothing_is_written() {
     std::fs::rename(&lock, fx.path("index.lock.aside")).unwrap();
     git::stage(&fx.repo, &["a.txt".to_string()]).expect("the repository is free again");
     assert!(git::diff(&fx.repo, true).unwrap().contains("a.txt"));
+}
+
+/// The safe tier's reads go through while another git holds the index: a
+/// status, the rows, a diff and a blame are answers, never "busy" — only a
+/// write waits for the lock.
+#[test]
+fn a_read_under_a_held_index_lock_still_answers() {
+    let fx = Fixture::new();
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nand more\n").unwrap();
+    let lock = fx.repo.join(".git").join("index.lock");
+    std::fs::write(&lock, b"").unwrap();
+    let st = git::status(&fx.repo).expect("status reads past the lock");
+    assert_eq!(st.unstaged, 1, "{st:?}");
+    let rows = git::status_files(&fx.repo).expect("rows read past the lock");
+    assert!(
+        rows.iter().any(|r| r.path == Path::new("README.md")),
+        "{rows:?}"
+    );
+    assert!(git::diff(&fx.repo, false).unwrap().contains("+and more"));
+    assert!(git::diff_stat(&fx.repo)
+        .unwrap()
+        .iter()
+        .any(|c| c.path.ends_with("README.md")));
+    assert!(!git::blame(&fx.repo, "README.md", None).unwrap().is_empty());
+    assert!(git::head(&fx.repo).is_ok());
+    std::fs::rename(&lock, fx.path("index.lock.aside")).unwrap();
+}
+
+/// A commit message carrying a NUL byte cannot be handed to a process at
+/// all: the OS refuses the spawn, and that refusal is the message's fault —
+/// an invalid argument — never "git is not available on this machine".
+#[test]
+fn a_commit_message_with_a_nul_byte_is_invalid_not_unavailable() {
+    let fx = Fixture::new();
+    std::fs::write(fx.repo.join("README.md"), "hello\nworld\nand more\n").unwrap();
+    git::stage(&fx.repo, &["README.md"]).unwrap();
+    let err = git::commit(&fx.repo, "one\0two", false).expect_err("a NUL byte");
+    assert!(
+        matches!(err, VcsError::InvalidArg { .. }),
+        "the argument's fault, not the host's: {err}"
+    );
+    assert!(!err.is_unavailable());
+    git::commit(&fx.repo, "one two", false).expect("the same commit with a message git can take");
+}
+
+/// A file whose name holds a newline is listed under its own name — the
+/// status is read with NUL separators — and refused by name at every
+/// pathspec door, typed, rather than staged under a name git's porcelain
+/// could not give back (`literal_pathspec`'s rule).
+#[test]
+fn a_path_with_a_newline_in_its_name_is_listed_and_refused_by_name_never_staged_blind() {
+    let fx = Fixture::new();
+    let name = "line\nbreak.txt";
+    std::fs::write(fx.repo.join(name), "x\n").unwrap();
+    let rows = git::status_files(&fx.repo).unwrap();
+    let row = rows
+        .iter()
+        .find(|r| r.path == Path::new(name))
+        .expect("listed under its own name");
+    assert!(row.untracked, "{row:?}");
+    for refused in [
+        git::stage(&fx.repo, &[name]),
+        git::unstage(&fx.repo, &[name]),
+    ] {
+        let err = refused.expect_err("a name git cannot give back");
+        assert!(
+            matches!(err, VcsError::InvalidArg { .. }),
+            "refused by name, typed: {err}"
+        );
+    }
+    assert_eq!(
+        raw_git(&fx.repo, &["ls-files", "--stage"]).lines().count(),
+        1,
+        "the index holds the fixture's file alone"
+    );
 }
 
 #[test]
@@ -1891,6 +2061,40 @@ fn git_with_no_helper(dir: &Path) -> git::Git {
     git::Git::new()
         .with_env("GIT_CONFIG_GLOBAL", dir.join("no-global.gitconfig"))
         .with_env("GIT_CONFIG_NOSYSTEM", "1")
+}
+
+/// A helper that never answers — a keychain prompt nobody sees, a browser
+/// flow — is given up on within the fill's own short budget, not the local
+/// one: what waits on it reads *could not be read* in seconds, not half a
+/// minute.
+#[test]
+fn a_credential_helper_that_hangs_is_given_up_on_within_its_own_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("hangs.sh");
+    std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let global = dir.path().join("global.gitconfig");
+    std::fs::write(
+        &global,
+        format!("[credential]\n\thelper = !sh {}\n", script.display()),
+    )
+    .unwrap();
+    let g = git::Git::new()
+        .with_env("GIT_CONFIG_GLOBAL", global)
+        .with_env("GIT_CONFIG_NOSYSTEM", "1");
+    let started = std::time::Instant::now();
+    let err = g
+        .credential_fill("https", "github.com")
+        .expect_err("a helper that hangs");
+    assert!(matches!(err, VcsError::Timeout { .. }), "{err}");
+    assert!(
+        started.elapsed() < git::CREDENTIAL_FILL_BUDGET + std::time::Duration::from_secs(5),
+        "given up on at the fill's budget, not the local one"
+    );
 }
 
 #[test]

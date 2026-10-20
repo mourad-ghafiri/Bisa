@@ -19,7 +19,7 @@
 import { errorFields, log } from "../../log";
 import { saveEvery } from "../../shell/closeFlowModel.mjs";
 import { unsavedNow, useUnsavedKeys } from "./docBuffersStore";
-import { INITIAL, activated, dirtyCount as dirtyCountOf, lineRequested, lineTaken, released } from "./editorRegistryModel.mjs";
+import { INITIAL, MOUNT_GRACE_MS, actionRequested, actionTaken, activated, dirtyCount as dirtyCountOf, lineRequested, lineTaken, released } from "./editorRegistryModel.mjs";
 import type { RegistryState } from "./editorRegistryModel.mjs";
 
 interface EditorHandle {
@@ -102,6 +102,25 @@ export function takeLine(key: string): number | null {
   return taken.line;
 }
 
+/**
+ * One of the editor's own actions to run once the document's editor is up —
+ * the find widget after a picture's source was shown. Run now when the
+ * editor is mounted; held until {@link takeAction} otherwise, the way a line
+ * is, so nothing races the mount with a timer.
+ */
+export function requestAction(key: string, action: string): void {
+  const handle = editors.get(key)?.handle;
+  const ranNow = handle?.trigger !== undefined;
+  handle?.trigger?.(action);
+  registry = actionRequested(registry, key, action, ranNow);
+}
+/** The action waiting for this document, once, or null. */
+export function takeAction(key: string): string | null {
+  const taken = actionTaken(registry, key);
+  registry = taken.state;
+  return taken.action;
+}
+
 /** Something outside the workbench that can hold unsaved work. */
 export interface DirtySource {
   dirty: () => boolean;
@@ -155,9 +174,6 @@ export function setRevealer(next: Revealer): () => void {
     if (revealer === next) revealer = null;
   };
 }
-
-/** How long a document brought on screen is given to mount its editor. */
-const MOUNT_GRACE_MS = 3000;
 
 /** The handle of `key` once its editor has registered; null when it never does. */
 function whenRegistered(key: string): Promise<EditorHandle | null> {

@@ -29,6 +29,11 @@ export interface LifecycleCta {
 }
 
 export declare const STEPS: readonly StepId[];
+export declare const FOLLOW_MS: number;
+export declare const IDLE_MS: number;
+export declare function prExists(word: string | null | undefined): boolean;
+export declare function pollInterval(facts: { hasPr: boolean; following: boolean; secs: number }): number;
+export declare function latestRead(ats: Iterable<number | null | undefined>): number | null;
 export declare function prTitleFrom(subject: string | null | undefined, branch: string | null | undefined): string;
 export declare function readWords(at: number | null | undefined, following: boolean, agent: string | null | undefined, now?: number): string | null;
 export declare function lifecycle(facts: {

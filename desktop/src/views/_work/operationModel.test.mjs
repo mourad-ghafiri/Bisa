@@ -4,7 +4,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { abortConsent, conflictedPaths, continueConsent, continuedWords, nextConflict, operationVerbs, operationWord, operationWords, skipConsent, skippedWords } from "./operationModel.mjs";
+import { abortConsent, conflictedPaths, continueConsent, continuedWords, nextConflict, operationVerbs, operationWord, operationWords, skipConsent, skippedWords, stoppedOn } from "./operationModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -85,4 +85,17 @@ test("continuing a cherry-pick says the next commit is picked", () => {
   const c = continueConsent("cherry_pick", null);
   assert.equal(c.body, t("work-operation-commit-made-next-one-picked-another"));
   assert.equal(c.confirm, "Continue");
+});
+
+test("a consented act that stopped on conflicts leaves the operation it started for the Resolve card: the node's in_progress over what was asked, the paths it named, and nothing when nothing was started here", () => {
+  const started = { kind: "merge", from: "feature", to: "main", commits: [] };
+  assert.deepEqual(stoppedOn(started, { detail: { paths: ["a.rs", "b.rs"], in_progress: "merge" } }), { ...started, paths: ["a.rs", "b.rs"] });
+  assert.deepEqual(stoppedOn(started, { detail: { in_progress: "rebase" } }), { ...started, kind: "rebase", paths: [] }, "the node's word on what is in progress wins over what was asked");
+  assert.deepEqual(stoppedOn(started, { detail: { paths: "a.rs" } }), { ...started, paths: [] }, "paths that are no list are none");
+  assert.deepEqual(stoppedOn(started, { detail: { paths: [1, "b"] } }), { ...started, paths: ["1", "b"] }, "every path a string");
+  assert.deepEqual(stoppedOn(started, { detail: null }), { ...started, paths: [] });
+  assert.deepEqual(stoppedOn(started, {}), { ...started, paths: [] });
+  assert.deepEqual(stoppedOn(started, null), { ...started, paths: [] });
+  assert.equal(stoppedOn(null, { detail: { paths: ["a.rs"], in_progress: "merge" } }), null, "nothing started here: the session's own operation stands");
+  assert.equal(stoppedOn({ kind: null, from: "x", to: "y", commits: [] }, { detail: {} }), null, "no kind from either side is no operation");
 });

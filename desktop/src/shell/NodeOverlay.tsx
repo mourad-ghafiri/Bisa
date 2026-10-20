@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import { api, apiBaseSync } from "../api";
+import { errorFields, log } from "../log";
 import type { ConnState } from "../bus";
 import type { RelayCheck } from "../types";
 import { useEngineEvents } from "../bus";
@@ -29,11 +30,17 @@ import { t } from "../i18n/l10n.mjs";
 export function NodeOverlay({ conn, close }: { conn: ConnState; close: () => void }) {
   const read = useAsync(
     async (s) => {
+      // A diagnostic the overlay could not read is a blank in the overlay
+      // and a line in the log, never a silence.
+      const unread = (what: string) => (e: unknown) => {
+        log.debug("node", `${what} could not be read for the overlay`, errorFields(e));
+        return null;
+      };
       const [info, paused, status, sync] = await Promise.all([
-        api.nodeInfo(s).catch(() => null),
-        api.paused(s).catch(() => null),
-        nodeStatus().catch(() => null),
-        api.sync(s).catch(() => null),
+        api.nodeInfo(s).catch(unread("the node's info")), // for the log
+        api.paused(s).catch(unread("the pause flag")), // for the log
+        nodeStatus().catch(unread("the node's status")), // for the log
+        api.sync(s).catch(unread("the sync facts")), // for the log
       ]);
       return { info, paused: paused ? paused.paused : null, status, sync };
     },

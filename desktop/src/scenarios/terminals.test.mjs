@@ -228,3 +228,14 @@ test("the tab says when its harness's dialog was answered, the whole way down: t
   const rust = src("../../src-tauri/src/terminal.rs");
   assert.ok(rust.includes("pub async fn terminal_answered(") && rust.includes('self.send("answered", "{}")'), "which posts the session's own `answered` door");
 });
+
+test("the strip's split buttons hold while no tab is active, and the launcher's run item carries the launcher's own busy word", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const strip = src("../shell/TerminalStripControls.tsx");
+  assert.equal((strip.match(/disabled=\{!activeSession\}/g) ?? []).length, 2, "split right and split down need a tab to split");
+  const launcher = src("../shell/TerminalLauncher.tsx");
+  assert.ok(launcher.includes("busy: disabled"), "the run item is off exactly when the launcher is");
+  const hook = src("../shell/useTerminals.ts");
+  assert.equal((hook.match(/dropScrollback\(/g) ?? []).length, 1, "a closed tab's checkpoint is dropped in one place, from closedKeys");
+  assert.ok(hook.includes("for (const key of closedKeys(before, next))"));
+});

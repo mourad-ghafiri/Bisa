@@ -20,6 +20,8 @@ import {
   documentsToReopen,
   type FollowedDocument,
   hoverMarkdown,
+  openAnswered,
+  openFailed,
   sameServer,
   serverChange,
   type ServerChange,
@@ -206,6 +208,9 @@ export function useLspDocument(
   text: string,
   onLanguage: (language: string | null) => void,
 ): void {
+  // The caller's callback as it stands at the moment of telling, never the one captured at the mount — a server restart tells the latest.
+  const onLanguageRef = useRef(onLanguage);
+  onLanguageRef.current = onLanguage;
   const languageRef = useRef<string | null | undefined>(undefined);
   // The open's answer as state, so the change effect below re-runs once the
   // server holds the document — a ref would leave the first edit unsent.
@@ -220,7 +225,7 @@ export function useLspDocument(
 
   useEffect(() => {
     if (path === null) {
-      onLanguage(null);
+      onLanguageRef.current(null);
       return;
     }
     let alive = true;
@@ -241,45 +246,34 @@ export function useLspDocument(
       following = "asking";
       opening.current = true;
       const carried = latest.current;
+      // What the answer means is the model's (`openAnswered`, `openFailed`):
+      // this hook only writes what it says.
       return api.lspOpen(scope, id, path, carried).then(
         (r) => {
-          if (!alive) {
-            // The document closed while the server was opening it: the node
-            // now holds a document nobody edits — close it rather than leak it.
-            if (r.following) void api.lspClose(scope, id, path).catch((e: unknown) => log.debug("lsp", "a document that closed while opening could not be closed on the node", { path, ...errorFields(e) }));
-            return;
-          }
-          if (mine !== asked) return;
+          const verdict = openAnswered(languageRef.current, r, { alive, newest: mine === asked });
+          // The document closed while the server was opening it: the node
+          // now holds a document nobody edits — close it rather than leak it.
+          if (verdict.closeOnNode) void api.lspClose(scope, id, path).catch((e: unknown) => log.debug("lsp", "a document that closed while opening could not be closed on the node", { path, ...errorFields(e) }));
+          if (verdict.following === null) return;
           opening.current = false;
-          if (r.following && r.language) {
-            following = "yes";
-            languageRef.current = r.language;
-            setLanguage(r.language);
-            onLanguage(r.language);
-            owners.set(m.Uri.file(path).toString(), { scope, id, path, language: r.language });
+          following = verdict.following;
+          if (verdict.language !== undefined) languageRef.current = verdict.language;
+          if (verdict.say !== undefined) onLanguageRef.current(verdict.say);
+          if (verdict.following === "yes" && verdict.language) {
+            setLanguage(verdict.language);
+            owners.set(m.Uri.file(path).toString(), { scope, id, path, language: verdict.language });
             // What was typed while the open was out was held back: it goes now, whole.
-            if (latest.current !== carried) void api.lspChange(scope, id, path, latest.current).catch((e: unknown) => log.debug("lsp", "an edit did not reach the language server; the next one carries the whole text", { path, ...errorFields(e) }));
-            return;
-          }
-          following = "no";
-          // No server took it. The language the node named is kept — it is
-          // which server's start opens the document again, and what its chip
-          // says the server became; a path no language applies to is `null`,
-          // and nothing more is sent for it.
-          if (languageRef.current === undefined || r.language !== null) {
-            languageRef.current = r.language;
-            onLanguage(r.language);
+            if (verdict.sendHeld && latest.current !== carried) void api.lspChange(scope, id, path, latest.current).catch((e: unknown) => log.debug("lsp", "an edit did not reach the language server; the next one carries the whole text", { path, ...errorFields(e) }));
           }
         },
         (e: unknown) => {
-          if (!alive || mine !== asked) return;
+          const verdict = openFailed(languageRef.current, { alive, newest: mine === asked });
+          if (verdict.following === null) return;
           opening.current = false;
-          following = "no";
+          following = verdict.following;
           log.debug("lsp", "a document could not be opened on its language server", { path, ...errorFields(e) });
-          if (languageRef.current === undefined) {
-            languageRef.current = null;
-            onLanguage(null);
-          }
+          if (verdict.language !== undefined) languageRef.current = verdict.language;
+          if (verdict.say !== undefined) onLanguageRef.current(verdict.say);
         },
       );
     };
@@ -309,7 +303,7 @@ export function useLspDocument(
         if (!alive) return;
         log.debug("lsp", "the editor did not load, so no document is followed", { path, ...errorFields(e) });
         languageRef.current = null;
-        onLanguage(null);
+        onLanguageRef.current(null);
       },
     );
     return () => {
@@ -323,10 +317,9 @@ export function useLspDocument(
       clearMarkers();
       if (languageRef.current) void api.lspClose(scope, id, path).catch((e: unknown) => log.debug("lsp", "a document could not be closed on the node", { path, ...errorFields(e) }));
     };
-    // One open per document: `onLanguage` is the caller's callback, and
-    // following it would close and reopen the document on the server for a
-    // caller that hands a new function each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // One open per document: the caller's `onLanguage` is read through a
+    // ref (`onLanguageRef`), so a caller that hands a new function each
+    // render neither reopens the document nor is told through a stale one.
   }, [scope, id, path]);
 
   useEffect(() => {

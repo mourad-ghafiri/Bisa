@@ -272,10 +272,14 @@ pub async fn push_delete(
     }
     let what = format!("delete {remote}/{branch}");
     let asked = pass_publish_gate(inner, &w, &project, &what).await?;
-    let d = blocking(move || {
-        let recovery = ops::push_delete(&path, &remote, &branch, &consent)?;
-        finish(&path, recovery)
-    })
+    let d = async {
+        crate::projects::still_open_after(inner, asked, &w)?;
+        blocking(move || {
+            let recovery = ops::push_delete(&path, &remote, &branch, &consent)?;
+            finish(&path, recovery)
+        })
+        .await
+    }
     .await;
     inner.ide_status.invalidate(workstream);
     asked.heard(inner, &w, &what, d)
@@ -601,16 +605,27 @@ pub async fn push_workstream_with_lease(
     let (w, project, path) = checkout_of(inner, id)?;
     let (branch, _) = require_worktree(&w)?;
     let root = inner.ws.project_root_path(&project);
-    // No default branch readable is no answer, not a refusal: the check
-    // below simply cannot say the branch is the default one.
-    let default = blocking({
+    // Two words on which branch is the default, and the push is refused on
+    // either: git's own (`origin/HEAD`, else the primary's branch) and the
+    // project record's. Git cannot always say — a detached primary with no
+    // `origin/HEAD` recorded — and a check that fell silent then would let
+    // the one forced push there is reach the branch every workstream
+    // branches from; the record stands in for it, and names the branch so
+    // a stale record is seen for what it is.
+    let read = blocking({
         let root = root.clone();
         move || git::default_branch(&root)
     })
     .await
     .inspect_err(|e| tracing::debug!(target: "bisa_engine::ide", "default branch not read: {e}"))
     .ok();
-    if default.as_deref() == Some(branch.as_str()) {
+    let recorded = match &project.vcs {
+        bisa_core::Vcs::Git { default_branch, .. } if !default_branch.is_empty() => {
+            Some(default_branch.as_str())
+        }
+        _ => None,
+    };
+    if read.as_deref() == Some(branch.as_str()) || recorded == Some(branch.as_str()) {
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-project-s-default-branch-forced-push-only",
             branch = branch.to_string()
@@ -625,6 +640,7 @@ pub async fn push_workstream_with_lease(
     let what = format!("push {branch} with lease");
     let asked = pass_publish_gate(inner, &w, &project, &what).await?;
     let pushed = async {
+        let w = crate::projects::still_open_after(inner, asked, &w)?;
         let recovery = blocking({
             let (path, branch) = (path.clone(), branch.clone());
             move || ops::push_with_lease(&path, "origin", &branch, &consent)

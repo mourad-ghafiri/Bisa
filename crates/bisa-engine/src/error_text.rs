@@ -446,6 +446,9 @@ pub fn vcs(e: &bisa_vcs::VcsError) -> Text {
             "error-vcs-not-a-repository",
             a0 = (v0.display()).to_string()
         ),
+        bisa_vcs::VcsError::NoCommits(v0) => {
+            bisa_core::text!("error-vcs-no-commits", a0 = (v0.display()).to_string())
+        }
         bisa_vcs::VcsError::Dirty { path, details, .. } => bisa_core::text!(
             "error-vcs-dirty",
             a0 = (path.display()).to_string(),

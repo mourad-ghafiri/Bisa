@@ -575,6 +575,24 @@ async fn the_project_git_doors_at_their_edges() {
     )
     .await;
     assert_eq!(status, 400, "the default branch is never forced: {v}");
+    // The same with git unable to name the default — no `origin/HEAD`, the
+    // primary detached: the record's word still refuses it, and nothing
+    // reaches the remote.
+    raw_git(&b.root, &["remote", "set-head", "origin", "--delete"]);
+    let at_origin = raw_git(&b.root, &["rev-parse", "origin/main"]);
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{on_main}/push-with-lease"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status, 400,
+        "the recorded default is never forced either, when git cannot say: {v}"
+    );
+    raw_git(&b.root, &["fetch", "--quiet", "origin"]);
+    assert_eq!(raw_git(&b.root, &["rev-parse", "origin/main"]), at_origin);
     let (wid, wt) = worktree(&b, "feature/lease", None).await;
     commit_file(&wt, "l.txt", "l\n", "leased");
     let (status, v) = request(
@@ -590,6 +608,60 @@ async fn the_project_git_doors_at_their_edges() {
         .as_str()
         .unwrap_or("")
         .contains("push_with_lease"));
+    // The remote moved under the lease — another clone pushed — and the
+    // forced push is refused in git's own words, the local branch where it
+    // was and the remote's commit kept.
+    let url = raw_git(&b.root, &["remote", "get-url", "origin"]);
+    let elsewhere = b.dir.path().join("elsewhere");
+    raw_git(
+        b.dir.path(),
+        &[
+            "clone",
+            "--quiet",
+            "--branch",
+            "feature/lease",
+            &url,
+            "elsewhere",
+        ],
+    );
+    raw_git(&elsewhere, &["config", "user.name", "Bisa Test"]);
+    raw_git(
+        &elsewhere,
+        &["config", "user.email", "test@example.invalid"],
+    );
+    std::fs::write(elsewhere.join("theirs.txt"), "theirs\n").unwrap();
+    raw_git(&elsewhere, &["add", "theirs.txt"]);
+    raw_git(&elsewhere, &["commit", "--quiet", "-m", "theirs"]);
+    raw_git(&elsewhere, &["push", "--quiet", "origin", "feature/lease"]);
+    let theirs = raw_git(&elsewhere, &["rev-parse", "HEAD"]);
+    let mine = raw_git(&wt, &["rev-parse", "HEAD"]);
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{wid}/push-with-lease"),
+        None,
+    )
+    .await;
+    assert!(
+        (400..600).contains(&status),
+        "a lease the remote outran is refused: {v}"
+    );
+    assert_eq!(
+        raw_git(&wt, &["rev-parse", "HEAD"]),
+        mine,
+        "the local branch stays"
+    );
+    assert_eq!(
+        raw_git(
+            &elsewhere,
+            &["ls-remote", "origin", "refs/heads/feature/lease"]
+        )
+        .split_whitespace()
+        .next()
+        .unwrap_or(""),
+        theirs,
+        "the remote's commit was not forced over"
+    );
 
     // A checkout git can no longer read, then one that is gone.
     std::fs::write(wt.join(".git"), "gitdir: /nowhere/at/all\n").unwrap();
@@ -628,6 +700,67 @@ async fn the_project_git_doors_at_their_edges() {
     assert_eq!(status, 200, "{v}");
     assert_eq!(v["status"]["git"], json!(true), "{v}");
     assert!(v["status"]["error"].is_string(), "{v}");
+
+    // A repository whose branch ref git cannot read: the per-file summary
+    // says why there is none rather than reading as a clean tree, and an
+    // unstage — which restores the index from HEAD — is refused rather than
+    // restored from the empty tree, which would stage the file's deletion.
+    let (status, v) = request(
+        &socket,
+        "POST",
+        "/projects",
+        Some(json!({"kind": "new", "slug": "unreadable"})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let unreadable = v["project"]["id"].as_str().unwrap().to_string();
+    let unreadable_root = PathBuf::from(v["path"].as_str().unwrap());
+    // A new project is a repository already, on this git's default branch.
+    let branch = raw_git(&unreadable_root, &["symbolic-ref", "--short", "HEAD"]);
+    raw_git(&unreadable_root, &["config", "user.name", "Bisa Test"]);
+    raw_git(
+        &unreadable_root,
+        &["config", "user.email", "test@example.invalid"],
+    );
+    std::fs::write(unreadable_root.join("a.txt"), "one\n").unwrap();
+    raw_git(&unreadable_root, &["add", "a.txt"]);
+    raw_git(&unreadable_root, &["commit", "--quiet", "-m", "one"]);
+    std::fs::write(unreadable_root.join("a.txt"), "one\ntwo\n").unwrap();
+    raw_git(&unreadable_root, &["add", "a.txt"]);
+    std::fs::write(
+        unreadable_root
+            .join(".git")
+            .join("refs")
+            .join("heads")
+            .join(&branch),
+        "not a sha\n",
+    )
+    .unwrap();
+    let (status, v) = request(&socket, "GET", &format!("/workstreams/{unreadable}"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["changes"], json!([]), "{v}");
+    assert!(
+        v["changes_error"].is_string(),
+        "why there is no summary, beside the empty list: {v}"
+    );
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{unreadable}/git/unstage"),
+        Some(json!({"paths": ["a.txt"]})),
+    )
+    .await;
+    assert!(
+        (400..600).contains(&status),
+        "refused, never restored from the empty tree: {v}"
+    );
+    assert_eq!(
+        raw_git(&unreadable_root, &["ls-files", "--stage", "a.txt"])
+            .lines()
+            .count(),
+        1,
+        "the index entry stands"
+    );
 
     // A copy — a plain folder's workstream — has no changes of git's, no
     // branch to force, and closes with its tree pinning nothing.

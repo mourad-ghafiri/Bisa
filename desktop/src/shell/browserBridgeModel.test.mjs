@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { EMPTY_BROWSERS, PERSON, openBrowser, titled } from "./browsersModel.mjs";
-import { DEFAULT_WAIT_MS, LOAD_LATE, MAX_WAIT_MS, NAVIGATING, NOT_SHOWN, PAGE_SILENT, PLACEHOLDER_ID, PRESENCE_LAPSE_AFTER, SHOT_FAILED, TAB_GONE, answerResult, askAgain, presenceLapsed, navigatedResult, planRequest, revealPlan, rootFor, screenshotResult, tabResult, tabsResult, waitBound, wireResult } from "./browserBridgeModel.mjs";
+import { ANSWER_MS, DEFAULT_WAIT_MS, LOAD_LATE, LOAD_MS, MAX_WAIT_MS, NAVIGATE_GRACE_MS, NAVIGATING, NOT_SHOWN, PAGE_SILENT, PLACEHOLDER_ID, PRESENCE_LAPSE_AFTER, SHOT_FAILED, TAB_GONE, WAIT_ANSWER_MS, answerResult, askAgain, driveOutcome, presenceLapsed, navigatedResult, planRequest, revealPlan, rootFor, screenshotResult, tabResult, tabsResult, waitBound, wireResult } from "./browserBridgeModel.mjs";
 
 const here = { scope: "workstream", id: "w9" };
 let state = openBrowser(EMPTY_BROWSERS, { by: PERSON, home: { scope: "workstream", id: "w1" }, url: "http://localhost:5173/" });
@@ -202,6 +202,19 @@ test("a silent page is asked once more only for an act that cannot move the page
   assert.equal(askAgain(click, { kind: "silent" }, 1), false, "a second click is a different act");
   assert.equal(askAgain(read, { kind: "gone" }, 1), false, "a gone tab is not silence");
   assert.equal(askAgain(read, { kind: "answered" }, 1), false);
+});
+
+test("an act that may move the page: a move wins over any answer, and past the grace the answer is read as it came", () => {
+  const said = { ok: true, text: "hi" };
+  assert.deepEqual(driveOutcome({ asked: null, started: true, movedLate: false }), { kind: "navigated" }, "the navigation won the race");
+  assert.deepEqual(driveOutcome({ asked: { kind: "answered", message: said }, started: false, movedLate: true }), { kind: "navigated" }, "an answer followed by a move within the grace is a move");
+  assert.deepEqual(driveOutcome({ asked: { kind: "gone", error: "x" }, started: false, movedLate: true }), { kind: "navigated" }, "the page that moved is the one to read, whatever the old one said");
+  assert.deepEqual(driveOutcome({ asked: { kind: "answered", message: said }, started: false, movedLate: false }), { kind: "answered", message: said });
+  assert.deepEqual(driveOutcome({ asked: { kind: "silent", waited_ms: 10_000 }, started: false, movedLate: false }), { kind: "silent" });
+  assert.deepEqual(driveOutcome({ asked: { kind: "gone", error: "closed" }, started: false, movedLate: false }), { kind: "gone", error: "closed" });
+  assert.deepEqual(driveOutcome({ asked: null, started: false, movedLate: false }), { kind: "silent" }, "nothing asked and nothing moved is silence, never a throw");
+  assert.ok(WAIT_ANSWER_MS > MAX_WAIT_MS, "a wait the agent may ask for at its longest is still answered");
+  assert.ok(NAVIGATE_GRACE_MS < ANSWER_MS && ANSWER_MS <= LOAD_MS, "the grace is short; a load is the longest wait");
 });
 
 test("a gone tab and a silent page are two sentences, each saying what to do", () => {

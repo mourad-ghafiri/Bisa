@@ -5,9 +5,12 @@
 //! makes the next frame garbage, `crash.txt` exits with status 3 at once,
 //! `loud.txt` exits after more stderr than the supervisor keeps, `chatty.txt`
 //! asks the client three things and sends a frame that is nothing,
-//! `mute.txt` leaves every hover unanswered, `refuse-shutdown.txt` refuses
-//! the shutdown and `slow-shutdown.txt` answers neither shutdown nor exit.
-//! Nothing here reads a file or a network; only stdin and stdout.
+//! `mute.txt` leaves every hover unanswered, `mute-once.txt` the next one
+//! only (each unanswered hover is told as a `scripted/heard` notification,
+//! so a test knows the request arrived), `refuse-shutdown.txt` refuses the
+//! shutdown and `slow-shutdown.txt` answers neither shutdown nor exit. Run
+//! with `--deaf-init` it never answers `initialize`. Nothing here reads a
+//! file or a network; only stdin and stdout.
 
 use std::io::{Read, Write};
 
@@ -15,6 +18,7 @@ use std::io::{Read, Write};
 #[derive(Default)]
 struct Mood {
     mute: bool,
+    mute_once: bool,
     refuse_shutdown: bool,
     slow_shutdown: bool,
     /// The answers to the three things `chatty.txt` asked, by their id.
@@ -29,6 +33,7 @@ fn main() {
     let mut buf: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 8192];
     let mut mood = Mood::default();
+    let deaf_init = std::env::args().any(|a| a == "--deaf-init");
     loop {
         let n = match stdin.read(&mut chunk) {
             Ok(0) | Err(_) => return,
@@ -60,6 +65,7 @@ fn main() {
                         }
                     }
                 }
+                ("initialize", Some(_)) if deaf_init => {}
                 ("initialize", Some(id)) => write(
                     &mut stdout,
                     &serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {
@@ -67,7 +73,13 @@ fn main() {
                         "serverInfo": {"name": "scripted-lsp"}
                     }}),
                 ),
-                ("textDocument/hover", Some(_)) if mood.mute => {}
+                ("textDocument/hover", Some(_)) if mood.mute || mood.mute_once => {
+                    mood.mute_once = false;
+                    write(
+                        &mut stdout,
+                        &serde_json::json!({"jsonrpc": "2.0", "method": "scripted/heard", "params": {"method": "textDocument/hover"}}),
+                    );
+                }
                 ("textDocument/hover", Some(id)) => write(
                     &mut stdout,
                     &serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {
@@ -100,6 +112,9 @@ fn main() {
                     }
                     if uri.ends_with("mute.txt") {
                         mood.mute = true;
+                    }
+                    if uri.ends_with("mute-once.txt") {
+                        mood.mute_once = true;
                     }
                     if uri.ends_with("refuse-shutdown.txt") {
                         mood.refuse_shutdown = true;

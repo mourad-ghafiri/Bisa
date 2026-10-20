@@ -32,7 +32,7 @@ import { api } from "../api";
 import { errorFields, log } from "../log";
 import { navigate, useRoute, type Route, type SearchPatch } from "../router";
 import { usePathIndex } from "./pathIndexStore";
-import { activeEditor } from "../views/_workbench/editorRegistry";
+import { activeEditor, editorKey, requestLine } from "../views/_workbench/editorRegistry";
 import { MAX_ITEMS, MAX_ROWS, SECTION_CAPS, admit, groupItems, itemMatches, paletteNeedle, parsePrefix, rankPaths } from "./quickOpenScore.mjs";
 import { Avatar, Dialog, Dot, ICON, cn, harnessMark } from "../ui";
 import { useSurface } from "../ui/openSurfaces";
@@ -842,7 +842,9 @@ export function Omnibox({
               if (!root) return;
               setIdeMode(`${root.scope}:${root.id}`, DOCUMENT_MODE);
               go({ name: "workbench", scope: root.scope, id: root.id }, { doc: `file:${s.path}` } as never);
-              window.setTimeout(() => activeEditor()?.revealLine?.(s.line), 300);
+              // The line waits for the document's editor — shown the moment it
+              // is up, as a search hit's is — never after a timer's guess.
+              requestLine(editorKey(`${root.scope}:${root.id}`, `file:${s.path}`), s.line);
             },
           });
         }

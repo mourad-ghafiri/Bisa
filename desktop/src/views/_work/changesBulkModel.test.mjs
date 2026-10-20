@@ -46,3 +46,15 @@ test("nothing to take: every verb is off, each still naming its zero", () => {
   assert.ok(only.find((i) => i.id === "discard_all").disabled, "an untracked file is not git's to discard");
   assert.ok(!only.find((i) => i.id === "delete_untracked").disabled);
 });
+
+test("a conflicted row is in the discard scope and in no stage scope; a file staged and edited since counts once on each side; a path listed twice counts once", () => {
+  const scopes = stageScopes(groupGitFiles([row("c.rs", "U", "U", { conflicted: true }), row("both.rs", "M", "M"), row("dup.rs", ".", "M"), row("dup.rs", ".", "M")]));
+  const items = bulkMenu(scopes);
+  const by = (id) => items.find((i) => i.id === id);
+  assert.deepEqual(by("discard_all").paths, ["both.rs", "dup.rs", "c.rs"], "the working-tree changes, then the unmerged path");
+  assert.ok(!by("stage_tracked").paths.includes("c.rs") && !by("unstage_all").paths.includes("c.rs") && !by("stage_untracked").paths.includes("c.rs"), "an unmerged path is nobody's to stage from here");
+  assert.deepEqual(by("stage_tracked").paths, ["both.rs", "dup.rs"]);
+  assert.deepEqual(by("unstage_all").paths, ["both.rs"]);
+  assert.equal(by("stage_tracked").label, "Stage tracked (2)");
+  assert.equal(by("discard_all").label, "Discard all changes… (3)");
+});

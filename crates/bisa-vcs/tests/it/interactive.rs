@@ -2432,3 +2432,59 @@ fn a_stash_is_refused_on_a_busy_tree_and_before_the_first_commit() {
         Err(VcsError::NothingToStash)
     ));
 }
+
+/// A consented operation that outruns its budget — a `pre-rebase` hook that
+/// never returns — is a timeout in words: the recovery ref was pinned before
+/// git was asked, nothing is left in progress, and the tree is as it was.
+#[test]
+fn a_consented_operation_that_times_out_leaves_its_recovery_ref_and_the_tree_as_it_was() {
+    let fx = Fixture::new();
+    let c = HumanConsent::mint();
+    raw_git(&fx.repo, &["checkout", "--quiet", "-b", "other"]);
+    std::fs::write(fx.repo.join("other.txt"), "other\n").unwrap();
+    git::add_all(&fx.repo).unwrap();
+    git::commit(&fx.repo, "other", false).unwrap();
+    raw_git(&fx.repo, &["checkout", "--quiet", &fx.branch]);
+    let head = git::head(&fx.repo).unwrap();
+    let hooks = fx.repo.join(".git").join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("pre-rebase");
+    std::fs::write(&hook, "#!/bin/sh\nsleep 5\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let git = bisa_vcs::Git::new().with_timeouts(bisa_vcs::Timeouts {
+        local: std::time::Duration::from_millis(800),
+        network: std::time::Duration::from_secs(2),
+    });
+    let err = interactive::rebase(
+        &git,
+        &fx.repo,
+        &RebaseRequest {
+            upstream: "other".into(),
+            onto: None,
+            autostash: false,
+        },
+        &c,
+    )
+    .expect_err("the hook outran the budget");
+    assert!(matches!(err, VcsError::Timeout { .. }), "{err}");
+    let pinned = raw_git(&fx.repo, &["for-each-ref", "refs/bisa/safety/"]);
+    assert!(
+        pinned.contains("rebase"),
+        "the recovery ref stands: {pinned}"
+    );
+    assert_eq!(
+        git::head(&fx.repo).unwrap(),
+        head,
+        "the tree is where it was"
+    );
+    assert_eq!(
+        git::in_progress(&fx.repo).unwrap(),
+        None,
+        "nothing left half-done"
+    );
+    assert!(git::status(&fx.repo).unwrap().is_clean);
+}

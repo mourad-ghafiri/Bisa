@@ -21,7 +21,7 @@ import { copyText } from "./clipboard";
 import { cn } from "./cn";
 import { resolvedRoles } from "./cssColor";
 import { ICON } from "./icons";
-import { DIAGRAM_ROLES, exportScale, mermaidTheme, offsetError, themeVariablesFor } from "./mermaidModel.mjs";
+import { DIAGRAM_ROLES, RENDER_DEBOUNCE_MS, exportScale, mermaidTheme, offsetError, themeVariablesFor } from "./mermaidModel.mjs";
 import { sayFailure } from "./failure";
 import { useToast } from "./Toast";
 import { useThemeNonce } from "./useTokenPx";
@@ -99,7 +99,7 @@ export function MermaidView({
       } finally {
         if (!cancelled) setBusy(false);
       }
-    }, 250);
+    }, RENDER_DEBOUNCE_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(t);

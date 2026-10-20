@@ -19,3 +19,18 @@ export interface GitReads {
   stashes: boolean;
 }
 export declare function readsFor(kinds: Iterable<GitChange>): GitReads;
+
+export declare const WRITES_TREE: readonly string[];
+export declare const MAX_IDLE_ROOTS: number;
+
+export interface IdleRoot {
+  subscribers: number;
+  inFlight: boolean;
+  flush: unknown;
+  /** The count at which the root was last left by its last subscriber; 0 for one never shown. */
+  leftAt: number;
+}
+export declare function idleRootsToDrop(entries: Iterable<readonly [string, IdleRoot]>, max: number): string[];
+
+export type Reread = { kind: "shown" } | { kind: "root"; id: string } | { kind: "none" };
+export declare function rereadsFor(frame: { type?: string; scope?: string; id?: string; path?: string; kind?: string } | null | undefined): Reread;

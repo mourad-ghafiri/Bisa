@@ -343,3 +343,25 @@ test("the reference page shows a Mac's chord beside the rest's, and a Mac-only c
   assert.match(row("line_start"), /types Ctrl\+A/, "the note names the key the shell is typed");
   assert.match(row("split_right"), /\| Mod\+Backslash \| Mod\+Backslash \|$/, "a chord the same everywhere is written once");
 });
+
+test("a chord at its edges: a modifier alone is none, a key alone is a key, Shift said twice is Shift, and a dead or unidentified key matches nothing", () => {
+  assert.equal(parseChord("Mod+"), null);
+  assert.deepEqual(parseChord("+A"), { mod: false, ctrl: false, shift: false, alt: false, key: "A" });
+  assert.deepEqual(parseChord("Mod+Shift+shift+A"), { mod: true, ctrl: false, shift: true, alt: false, key: "A" });
+  assert.equal(canonicalChord("shift+mod+a"), "Mod+Shift+A");
+  for (const key of ["Dead", "Unidentified"]) {
+    assert.equal(matchesEvent({ key, metaKey: true, ctrlKey: false, shiftKey: false, altKey: false }, "Mod+K", true), false, key);
+  }
+});
+
+test("an override naming no command is said on the panel, never ignored in silence; a bound chord in two live scopes goes to the innermost", () => {
+  const keymap = resolveKeymap("default", { "no-such-command": "Mod+Shift+9" });
+  assert.ok(keymap.warnings.some((w) => w.includes("no-such-command") && w.includes("no command")), keymap.warnings.join(" | "));
+  assert.deepEqual(resolveKeymap("default", {}).warnings, []);
+  const inner = keymap.bindings.find((b) => b.when === "editor" && b.chord);
+  const outer = keymap.bindings.find((b) => b.when === "global" && b.chord);
+  assert.ok(inner && outer, "an editor binding and a global one to compare");
+  const e = (chord) => { const p = parseChord(chord); return { key: p.key, metaKey: p.mod, ctrlKey: p.ctrl, shiftKey: p.shift, altKey: p.alt }; };
+  assert.equal(commandForEvent(keymap, e(inner.chord), ["workbench", "editor"], true), inner.id, "the editor's chord wins in the editor");
+  assert.equal(commandForEvent(keymap, e(outer.chord), ["workbench"], true), outer.id);
+});

@@ -1059,3 +1059,82 @@ async fn a_long_branch_and_a_wide_diff_are_said_so_in_the_pull_request_brief() {
     );
     assert!(prompt.contains("diff truncated"), "the diff was cut");
 }
+
+/// A pull request the host refuses after the push: the record stays
+/// `Pushed` — the branch did go out — and a retry opens it without pushing
+/// again, counted by the checkout's own `pre-push` hook.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pull_request_the_host_refuses_after_the_push_leaves_the_record_pushed_and_a_retry_pushes_no_twice(
+) {
+    let fake = Arc::new(FakeCodeHost {
+        kind: Some(CodeHostKind::GitHub),
+        ..FakeCodeHost::with_capabilities("github.com", full()).signed_in_as("you")
+    });
+    let rig = Rig::start(vec![fake.clone()], None, None);
+    let inner = rig.inner();
+    let origin = rig.bare("github.com", "main");
+    let (project, root) = rig
+        .project("web", origin.to_str().unwrap(), PublishPolicy::Auto)
+        .await;
+    raw_git(&root, &["push", "--quiet", "origin", "HEAD:main"]);
+    let (wid, _) = rig.branch(&project, "feature/refused").await;
+    let pushes = rig.dir.path().join("pushes");
+    let hooks = root.join(".git").join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("pre-push");
+    std::fs::write(
+        &hook,
+        format!("#!/bin/sh\necho x >> '{}'\n", pushes.display()),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let pushed = || {
+        std::fs::read_to_string(&pushes)
+            .map(|s| s.lines().count())
+            .unwrap_or(0)
+    };
+
+    fake.refuse_creates(Some("rate limited"));
+    let err = codehost::open_pr(
+        inner,
+        wid,
+        PrRequest {
+            title: "Add".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(err.to_string().contains("rate limited"), "{err}");
+    assert!(
+        matches!(
+            rig.engine.workspace().get_workstream(wid).unwrap().state,
+            WorkstreamState::Pushed
+        ),
+        "the branch went out before the host said no"
+    );
+    assert_eq!(pushed(), 1);
+    assert!(raw_git(&origin, &["branch", "--list", "feature/refused"]).contains("feature/refused"));
+
+    fake.refuse_creates(None);
+    let pr = codehost::open_pr(
+        inner,
+        wid,
+        PrRequest {
+            title: "Add".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("opened on the retry");
+    assert_eq!(pr.number, 1);
+    assert_eq!(pushed(), 1, "the retry pushed no twice");
+    assert!(matches!(
+        rig.engine.workspace().get_workstream(wid).unwrap().state,
+        WorkstreamState::PrOpen { .. }
+    ));
+}

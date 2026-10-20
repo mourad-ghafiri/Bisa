@@ -718,6 +718,31 @@ export function tabsUnder(tabs, path) {
  * @param {{roots: {key: string, tabs: object[]}[]}} after
  * @returns {[string, string][]}
  */
+/**
+ * A saved layout comes back whole: its documents opened in the one step a
+ * restore is, the saved tree installed with its ids, the pins kept to tabs
+ * that are open, the strip in the saved order with what the restore opened
+ * unnamed after — and the pane counter past every id the tree holds, so the
+ * next split mints a fresh pair and never a second `d3` two panes answer to.
+ * A root with nothing to restore is left as it is.
+ * @param {import("./workbenchModel.d.mts").WorkbenchState} state
+ * @param {string} key
+ * @param {{tabs: import("./workbenchModel.d.mts").WorkbenchTab[], panes: import("../../shell/paneTreeModel.mjs").PaneNode, pinned: string[], strip?: readonly string[]}} saved
+ * @param {Iterable<string> | null} [held]
+ */
+export function restoreRoot(state, key, { tabs, panes, pinned, strip = [] }, held = null) {
+  let next = state;
+  for (const tab of tabs) next = openTab(next, key, tab, { held });
+  const entry = rootAt(next, key);
+  if (!entry) return state;
+  const known = new Set(strip);
+  const order = [...strip, ...entry.strip.filter((id) => !known.has(id))];
+  const ids = (n) => (n.kind === "leaf" ? [n.id] : [n.id, ...ids(n.a), ...ids(n.b)]);
+  const numbered = ids(panes).map((id) => Number(/^ds?(\d+)$/.exec(id)?.[1])).filter(Number.isFinite);
+  const paneSeq = Math.max(entry.paneSeq, 1, ...numbered);
+  return replaceRoot(next, { ...entry, panes, pinned: pinned.filter((p) => entry.tabs.some((t) => tabId(t) === p)), strip: order, paneSeq });
+}
+
 export function closedTabs(before, after) {
   const open = new Map((after?.roots ?? []).map((r) => [r.key, new Set(r.tabs.map(tabId))]));
   const gone = [];
@@ -749,18 +774,33 @@ export function retargetTabs(state, key, from, to) {
     return t;
   });
   if (moved.length === 0) return { state, moved };
+  // A rename onto a path that is already a tab — `mv a.ts b.ts` outside the
+  // app with both open — closes the moved tab: the document it was is the
+  // one already open, whose buffer meets the disk through the watcher as any
+  // outside change does. Two tabs with one id, or a buffer written over
+  // another's unsaved text, is what this refuses.
+  const leaving = new Set(moved.map(([was]) => was));
+  const open = new Set(entry.tabs.filter((t) => t.kind === "file" && !leaving.has(t.path)).map((t) => t.path));
+  const collided = moved.filter(([, now]) => open.has(now));
+  const base = collided.length > 0 ? dropTabs(entry, collided.map(([was]) => tabId({ kind: "file", path: was }))) : entry;
+  const followed = collided.length > 0 ? moved.filter(([was]) => !collided.some(([c]) => c === was)) : moved;
+  const kept = new Set(followed.map(([was]) => was));
+  const retabbed = tabs.filter((t, i) => {
+    const before = entry.tabs[i];
+    return !(before.kind === "file" && leaving.has(before.path) && !kept.has(before.path));
+  });
   // The tree and the pins name tabs by id: rename them in place, keeping each
   // tab's pane and its position in the strip.
-  const rename = new Map(moved.map(([was, now]) => [tabId({ kind: "file", path: was }), tabId({ kind: "file", path: now })]));
+  const rename = new Map(followed.map(([was, now]) => [tabId({ kind: "file", path: was }), tabId({ kind: "file", path: now })]));
   const relabel = (n) =>
     n.kind === "leaf"
       ? { ...n, tabs: n.tabs.map((id) => rename.get(id) ?? id), active: n.active ? rename.get(n.active) ?? n.active : null }
       : { ...n, a: relabel(n.a), b: relabel(n.b) };
-  const panes = normalize(relabel(entry.panes));
-  const pinned = entry.pinned.map((id) => rename.get(id) ?? id);
-  const preview = Object.fromEntries(Object.entries(entry.preview).map(([leaf, id]) => [leaf, rename.get(id) ?? id]));
-  const strip = entry.strip.map((id) => rename.get(id) ?? id);
-  return { state: replaceRoot(state, { ...entry, tabs, panes, pinned, preview, strip }), moved };
+  const panes = normalize(relabel(base.panes));
+  const pinned = base.pinned.map((id) => rename.get(id) ?? id);
+  const preview = Object.fromEntries(Object.entries(base.preview).map(([leaf, id]) => [leaf, rename.get(id) ?? id]));
+  const strip = base.strip.map((id) => rename.get(id) ?? id);
+  return { state: replaceRoot(state, { ...base, tabs: retabbed, panes, pinned, preview, strip }), moved: followed };
 }
 
 /**

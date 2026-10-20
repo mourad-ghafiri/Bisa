@@ -88,7 +88,7 @@ import { mimeOfName } from "../../ui/artifact/artifactModel.mjs";
 import type { EditorSelection } from "../../ui";
 import { bufferOf, useDocBuffer } from "./docBuffersStore";
 import { editorViewOf, keepEditorView, keepPageScroll, keepScroll, pageScrollOf, scrollOf, useDocMode } from "./docViewStore";
-import { registerEditor, releaseActiveEditor, setActiveEditor, takeLine } from "./editorRegistry";
+import { registerEditor, releaseActiveEditor, requestAction, setActiveEditor, takeAction, takeLine } from "./editorRegistry";
 import { DOC_FIND, REVIEW_COMMAND, contexts, currentKeymap } from "../../shell/shortcuts";
 import { chordFor } from "../../shell/keymapModel.mjs";
 import { commandForEvent } from "../../shell/keymapModel.mjs";
@@ -703,9 +703,11 @@ export function EditorDoc({
         return;
       }
       if (docKind === "svg") {
-        // A picture has no text to find in: the source is where the query lands.
+        // A picture has no text to find in: the source is where the query
+        // lands — the widget opens once the source's editor is up, as a line
+        // asked before a mount is shown, never after a timer's guess.
         setMode("source");
-        window.setTimeout(() => trigger.current?.(wantReplace ? "editor.action.startFindReplaceAction" : "actions.find"), 50);
+        requestAction(registryKey, wantReplace ? "editor.action.startFindReplaceAction" : "actions.find");
         return;
       }
       setReplacing(wantReplace && !buffer.readOnly);
@@ -713,7 +715,7 @@ export function EditorDoc({
     };
     window.addEventListener(DOC_FIND, onFind);
     return () => window.removeEventListener(DOC_FIND, onFind);
-  }, [mode, docKind, buffer.readOnly, setMode]);
+  }, [mode, docKind, buffer.readOnly, setMode, registryKey]);
   /** The focusable box the rendering is drawn in — the Rendered wrapper, or the Split pane's half. */
   const renderedShown = () => docRoot.current?.querySelector<HTMLElement>("[data-rendered-doc][tabindex]") ?? null;
   const closeFind = () => {
@@ -1216,6 +1218,8 @@ export function EditorDoc({
               // definition — is shown now that it can be.
               const waiting = takeLine(registryKey);
               if (waiting !== null) h.revealLine(waiting);
+              const action = takeAction(registryKey);
+              if (action !== null) h.trigger(action);
             }}
             // A pane draws one tab at a time: the editor's view — scroll,
             // cursor, selection, folds — is the tab's, kept across the unmount.

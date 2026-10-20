@@ -9,3 +9,4 @@ export declare function themeVariablesFor(
 ): Record<string, string | boolean>;
 export declare function isMermaidPath(path: string | null | undefined): boolean;
 export declare function exportScale(setting?: unknown): number;
+export declare const RENDER_DEBOUNCE_MS: number;

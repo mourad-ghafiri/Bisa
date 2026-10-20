@@ -24,7 +24,7 @@ const WORDS = Object.freeze({
  */
 export function toggleWords(side, open) {
   const w = WORDS[side] ?? WORDS.right;
-  return { label: `${open ? "Hide" : t("workbench-rail-badges-show")} ${w.noun}`, command: w.command };
+  return { label: `${open ? t("workbench-workbench-chrome-hide") : t("workbench-rail-badges-show")} ${w.noun}`, command: w.command };
 }
 
 /** The keymap command that cycles the centre's mode. */

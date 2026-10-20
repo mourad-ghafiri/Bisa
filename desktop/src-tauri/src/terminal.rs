@@ -3015,18 +3015,61 @@ fn scrollback_path(api_base: &str, token: &str, key: &str) -> Result<PathBuf, St
     Ok(scrollback_dir(api_base, token)?.join(format!("{key}.scrollback")))
 }
 
+/// The tail of a scrollback that fits `cap`, cut on a character boundary:
+/// what a person scrolls back to is the recent part. Under the cap, the
+/// whole text.
+fn scrollback_tail(data: &str, cap: usize) -> &str {
+    let bytes = data.as_bytes();
+    if bytes.len() <= cap {
+        return data;
+    }
+    let mut start = bytes.len() - cap;
+    while start < bytes.len() && !data.is_char_boundary(start) {
+        start += 1;
+    }
+    &data[start..]
+}
+
+/// Write a checkpoint beside, then rename: a crash mid-write leaves the old
+/// checkpoint standing, never half of a new one, and no `.tmp` outlives a
+/// write that went through.
+fn write_checkpoint(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("scrollback.tmp");
+    std::fs::write(&tmp, bytes).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("could not place {}: {e}", path.display()))
+}
+
+/// A checkpoint's text: `None` when none stands; one that is not UTF-8
+/// throughout is read lossily rather than refused, since what it holds is
+/// what a shell printed.
+fn read_checkpoint(path: &Path) -> Result<Option<String>, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("could not read {}: {e}", path.display())),
+    }
+}
+
+/// Forget a checkpoint; one already gone is nothing to report.
+fn forget_checkpoint(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("could not forget {}: {e}", path.display())),
+    }
+}
+
 // LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 #[tauri::command]
 pub fn terminal_scrollback_read(
     node: State<'_, NodeState>,
     key: String,
 ) -> Result<Option<String>, String> {
-    let path = scrollback_path(&node.api_base()?, &node.api_token(), &key)?;
-    match std::fs::read(&path) {
-        Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("could not read {}: {e}", path.display())),
-    }
+    read_checkpoint(&scrollback_path(
+        &node.api_base()?,
+        &node.api_token(),
+        &key,
+    )?)
 }
 // LCOV_EXCL_STOP
 
@@ -3038,36 +3081,84 @@ pub fn terminal_scrollback_write(
     data: String,
 ) -> Result<(), String> {
     let path = scrollback_path(&node.api_base()?, &node.api_token(), &key)?;
-    // Keep the tail: what a person scrolls back to is the recent part.
-    let bytes = data.as_bytes();
-    let kept = if bytes.len() > SCROLLBACK_CAP {
-        let mut start = bytes.len() - SCROLLBACK_CAP;
-        while start < bytes.len() && !data.is_char_boundary(start) {
-            start += 1;
-        }
-        &bytes[start..]
-    } else {
-        bytes
-    };
-    // Write beside, then rename: a crash mid-write leaves the old checkpoint,
-    // never half of a new one.
-    let tmp = path.with_extension("scrollback.tmp");
-    std::fs::write(&tmp, kept).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("could not place {}: {e}", path.display()))
+    write_checkpoint(&path, scrollback_tail(&data, SCROLLBACK_CAP).as_bytes())
 }
 // LCOV_EXCL_STOP
 
 // LCOV_EXCL_START a Tauri command over the running app's state; out by decision
 #[tauri::command]
 pub fn terminal_scrollback_forget(node: State<'_, NodeState>, key: String) -> Result<(), String> {
-    let path = scrollback_path(&node.api_base()?, &node.api_token(), &key)?;
-    match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("could not forget {}: {e}", path.display())),
-    }
+    forget_checkpoint(&scrollback_path(
+        &node.api_base()?,
+        &node.api_token(),
+        &key,
+    )?)
 }
 // LCOV_EXCL_STOP
+
+#[cfg(test)]
+mod scrollback_tests {
+    use super::*;
+
+    #[test]
+    fn the_tail_keeps_what_fits_the_cap_and_cuts_on_a_character() {
+        assert_eq!(scrollback_tail("abc", 8), "abc", "under the cap, whole");
+        assert_eq!(
+            scrollback_tail("abcdefgh", 8),
+            "abcdefgh",
+            "at the cap, whole"
+        );
+        assert_eq!(
+            scrollback_tail("abcdefghi", 8),
+            "bcdefghi",
+            "over by one, the recent part"
+        );
+        // `é` is two bytes: a cut inside it moves to the next boundary.
+        assert_eq!(scrollback_tail("xé", 2), "é");
+        assert_eq!(scrollback_tail("xéy", 2), "y", "never half a character");
+        assert_eq!(
+            scrollback_tail("abc", 0),
+            "",
+            "a cap of nothing keeps nothing"
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_is_written_beside_and_placed_whole_read_back_and_forgotten_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t1.scrollback");
+        assert_eq!(read_checkpoint(&path).unwrap(), None, "none stands yet");
+        write_checkpoint(&path, b"first").unwrap();
+        write_checkpoint(&path, b"second").unwrap();
+        assert_eq!(read_checkpoint(&path).unwrap().as_deref(), Some("second"));
+        assert!(
+            !path.with_extension("scrollback.tmp").exists(),
+            "no .tmp outlives a write that went through"
+        );
+        write_checkpoint(&path, &[0x66, 0xff, 0x6f]).unwrap();
+        assert_eq!(
+            read_checkpoint(&path).unwrap().as_deref(),
+            Some("f\u{FFFD}o"),
+            "what a shell printed is read lossily, never refused"
+        );
+        forget_checkpoint(&path).unwrap();
+        assert!(!path.exists());
+        forget_checkpoint(&path)
+            .unwrap_or_else(|e| panic!("gone already is nothing to report: {e}"));
+        let nowhere = dir.path().join("missing").join("t2.scrollback");
+        let err = write_checkpoint(&nowhere, b"x").unwrap_err();
+        assert!(err.contains("could not write"), "{err}");
+        // A folder standing where the checkpoint would: not a missing one,
+        // so the read and the forget say so rather than answering nothing.
+        let folder = dir.path().join("t3.scrollback");
+        std::fs::create_dir(&folder).unwrap();
+        let err = read_checkpoint(&folder).unwrap_err();
+        assert!(err.contains("could not read"), "{err}");
+        let err = forget_checkpoint(&folder).unwrap_err();
+        assert!(err.contains("could not forget"), "{err}");
+        assert!(folder.is_dir(), "and nothing was removed");
+    }
+}
 
 #[cfg(test)]
 mod mobile_development_tests {

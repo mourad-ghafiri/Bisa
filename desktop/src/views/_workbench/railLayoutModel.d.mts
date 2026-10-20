@@ -8,4 +8,6 @@ export declare const INDENT_BASE_PX: number;
 export declare const TWISTY_PX: number;
 
 export declare function guideInset(): number;
+export declare function rowIndent(depth: number): number;
+export declare function guideLeft(level: number): number;
 export declare function rowHeightToken(kind: string): "--spacing-row" | "--spacing-row-sm";

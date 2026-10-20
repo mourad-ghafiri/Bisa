@@ -51,6 +51,7 @@ export interface OperationConsent {
 }
 
 export declare function operationWord(inProgress: GitInProgress | null | undefined): string;
+export declare function stoppedOn(started: Omit<GitOperation, "paths"> | null | undefined, error: { detail?: unknown } | null | undefined): GitOperation | null;
 export declare function conflictedPaths(files: readonly GitFileRow[] | null | undefined): string[];
 export declare function operationWords(inProgress: GitInProgress, facts: GitOperationFacts | null | undefined, operation: GitOperation | null | undefined, files: readonly GitFileRow[] | null | undefined): OperationWords;
 export declare function operationVerbs(inProgress: GitInProgress, conflicted: readonly string[], busy: boolean): OperationVerbs;

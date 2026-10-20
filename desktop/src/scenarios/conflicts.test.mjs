@@ -8,6 +8,7 @@
  *
  * Run with `node --test desktop/src/scenarios/conflicts.test.mjs`.
  */
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -73,4 +74,18 @@ test("a rebase turns the sides around and every take, toast and question reads t
   assert.match(q.text, /--- theirs: main/);
   // Facts for another operation are stale and not read; the swap still holds.
   assert.equal(sidesOf("rebase", mergeFacts).mine.git, "theirs");
+});
+
+test("the conflict document saves only a file with no marker left, keeps its draft per file content, and the hunk view holds no editor of its own", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const view = src("../views/_work/ConflictView.tsx");
+  assert.ok(view.includes("const ready = !busy && conflict.data != null && !markers && (draft.final !== null || p.settled === p.total);"), "Mark resolved needs: not busy, the file read, no marker left, and every block settled or a final text");
+  assert.ok(view.includes("const markers = hasMarkers(result);"), "the marker check reads the text that would be saved — a hand-edited final included");
+  assert.ok(view.includes('`conflict:${hash ?? "?"}`'), "the draft is keyed on the file's hash: a file git rewrote starts afresh");
+  assert.ok(view.includes("window.addEventListener(CONFLICT_COMMAND, onCommand)") && view.includes("window.removeEventListener(CONFLICT_COMMAND, onCommand)"), "the keymap's conflict commands are heard while the document is mounted and let go with it");
+  const hunk = src("../views/_work/HunkDiff.tsx");
+  assert.ok(!/monaco|setValue/i.test(hunk), "the hunk view draws lines; it holds no editor whose state a remount would lose");
+  assert.equal((hunk.match(/useSessionDraft/g) ?? []).length, 4, "picks, the composing hunk and the note are session drafts: a tab switch keeps them");
+  assert.ok((hunk.match(/disabled=\{busy \|\| working !== null\}/g) ?? []).length >= 4, "every act is off while the checkout is busy or a patch is in flight");
+  assert.ok(hunk.includes("<ConfirmDialog"), "a discard asks first");
 });

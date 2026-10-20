@@ -29,5 +29,5 @@ test("the two toggles say what pressing them does now, and each shows a real key
   assert.deepEqual(toggleWords("rail", false), { label: "Show the project rail", command: "toggle_rail" });
   assert.deepEqual(toggleWords("right", true), { label: "Hide the right panel", command: "toggle_right_panel" });
   assert.deepEqual(toggleWords("right", false), { label: "Show the right panel", command: "toggle_right_panel" });
-  const ids = new Set(COMMANDS.map((c) => c.id));
+  assert.deepEqual(toggleWords("nonsense", true), { label: "Hide the right panel", command: "toggle_right_panel" }, "a side nobody named is the right panel");
 });

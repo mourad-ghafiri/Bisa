@@ -305,6 +305,18 @@ pub(crate) fn put_away_what_was_left(inner: &Inner) {
 }
 
 impl InteractiveDesk {
+    /// Whether a session's puller — the task reading a harness's own event
+    /// stream — has ended: `None` for a session this desk does not hold,
+    /// `Some(true)` for one with no puller or whose puller returned. A test's
+    /// door, so a test waits on the fact rather than on a clock that guesses
+    /// when the puller gave up.
+    #[doc(hidden)]
+    pub fn puller_finished(&self, session: LiveRunId) -> Option<bool> {
+        self.rows
+            .get(&session)
+            .map(|row| row.puller.as_ref().is_none_or(|p| p.is_finished()))
+    }
+
     /// Register a harness a person is about to open in a terminal, and answer
     /// the plan that makes it report. A harness with nothing to report still
     /// opens — the shell just gets no session.

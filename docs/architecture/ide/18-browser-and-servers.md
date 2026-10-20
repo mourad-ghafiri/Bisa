@@ -496,8 +496,13 @@ fresh loopback port through the same `Servers` as the checkouts' folders (`Serve
 the page opens with an origin of its own — a port, never the node's origin, which serves no agent
 page ([12 §Security](../12-artifacts.md#security)). `page` is the file's URL, its name escaped; a
 second ask answers the server already up; `GET /servers` lists every server of either kind and
-`DELETE /servers/{id}` stops one. An artifact's server resolves to no file: its page is nobody's
-to edit through an annotation.
+`DELETE /servers/{id}` stops one, and a workstream closed stops every server of its folders
+(`Servers::follow_closes` on the engine's bus — a listener kept up for a tree that is gone would
+serve nothing but 404s, and the Browser menu would keep offering it) with the same `ServerChanged`
+frame any stop sends. A path the disk will not resolve — a link to nowhere, a name that does not
+stand — is refused by `stays_within` as a hidden name is, never read on the strength of a check
+that could not be made; its 404 is the same. An artifact's server resolves to no file: its page is
+nobody's to edit through an annotation.
 
 ## Annotating a page
 
@@ -615,9 +620,11 @@ its default — records each and reports them with the next answer, so nothing e
 agent reads what the page said. An act that may move the page (`BrowserAction::may_navigate`:
 open, click, fill, type, press, select, back, forward, reload) is raced against the navigation it
 starts (`browserBridge.ts`: the page's answer against the webview's `started`, then a
-`NAVIGATE_GRACE_MS` grace); when the page moves the bridge waits for the load and answers the new
-page with `navigated: true` instead of *the page did not answer*; a tab still loading is waited for
-before anything is asked of its page.
+`NAVIGATE_GRACE_MS` grace — the verdict is `browserBridgeModel.driveOutcome`'s, a move winning
+over any answer and past the grace the answer read as it came, with the bounds named beside it:
+`ANSWER_MS`, `WAIT_ANSWER_MS` past `MAX_WAIT_MS`, `LOAD_MS`, `NAVIGATE_GRACE_MS`); when the page
+moves the bridge waits for the load and answers the new page with `navigated: true` instead of
+*the page did not answer*; a tab still loading is waited for before anything is asked of its page.
 
 Every session reads the **one sentence** about them (`bisa_core::browser::BROWSER_NOTE`: a work
 item's first prompt, a conversation's framing, the Workflow Agent's wake and the server's

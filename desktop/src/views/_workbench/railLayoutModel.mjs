@@ -23,6 +23,25 @@ export function guideInset() {
 }
 
 /**
+ * Where a row's content starts at `depth`: the tree's own arithmetic
+ * (`indentBase + depth * indent`) over the rail's two constants.
+ * @param {number} depth
+ */
+export function rowIndent(depth) {
+  return INDENT_BASE_PX + depth * INDENT_PX;
+}
+
+/**
+ * Where the guide of level `level` (from 1) is drawn: in the column of the
+ * row one level up, under its chevron — the tree's
+ * `indentBase + (level - 1) * indent + guideInset`.
+ * @param {number} level
+ */
+export function guideLeft(level) {
+  return rowIndent(level - 1) + guideInset();
+}
+
+/**
  * The token a row kind's height is read from: a project is the one tall
  * card (`--spacing-row`), every other row a tree row (`--spacing-row-sm`).
  * @param {string} kind

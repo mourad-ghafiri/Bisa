@@ -30,7 +30,7 @@ import { applyDelta, needsOf, joinOf, waitingOf } from "../views/_studio/inboxMo
 import { withLatest } from "../views/_studio/channelListModel.mjs";
 import { nameIn, principalNames } from "./namesModel.mjs";
 import { rowRead } from "../views/_studio/readModel.mjs";
-import { LOAD_SHAPES, degradedReads, failedRead, hostedFailure, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads } from "./workspaceLoadModel.mjs";
+import { COALESCE_MS, LOAD_SHAPES, degradedReads, failedRead, hostedFailure, offlineLine, offlineWords, reconnectWords, reloadOnReconnect, reloadsWorkspace, settleLoads } from "./workspaceLoadModel.mjs";
 import { bootLine } from "./nodeBootModel.mjs";
 import { useNodeBoot } from "./nodeBootStore";
 import { createLatest } from "./latestModel.mjs";
@@ -361,7 +361,7 @@ export function useWorkspaceState(): WorkspaceData {
     pendingHosted.current = setTimeout(() => {
       pendingHosted.current = null;
       void readHosted();
-    }, 250);
+    }, COALESCE_MS);
   }, [readHosted]);
 
   const schedule = useCallback(() => {
@@ -369,7 +369,7 @@ export function useWorkspaceState(): WorkspaceData {
     pending.current = setTimeout(() => {
       pending.current = null;
       void load();
-    }, 250);
+    }, COALESCE_MS);
   }, [load]);
 
   useEffect(() => {

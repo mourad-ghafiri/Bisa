@@ -293,6 +293,8 @@ pub async fn serve(
     // session's `browser_serve` has a server to ask (ide/18).
     let servers = Arc::new(ide::serve::Servers::default());
     engine.set_folder_server(Arc::clone(&servers) as Arc<dyn bisa_engine::browser::FolderServer>);
+    // A workstream closed takes its served folders with it.
+    ide::serve::follow_closes(Arc::clone(&servers), &engine);
     let state: Shared = Arc::new(AppState {
         engine,
         started_at: std::time::SystemTime::now()

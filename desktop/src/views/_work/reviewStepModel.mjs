@@ -468,6 +468,19 @@ export function agentReply(messages, agentOf, run) {
 }
 
 /**
+ * The run a Review-step ask records: what was asked of whom and when; the
+ * conversation the ask went into when one was reached; the commits beyond
+ * the base at the ask when known, so a fix can say how many it added; and
+ * what a fix carries beyond the ask (`count`, `comment`, `check`). A key
+ * that is unknown is left off, never written as null.
+ * @param {{kind: import("./reviewStepModel.d.mts").RunKind, agent: string, at: number, conversation?: string | null, ahead?: number | null, extras?: {count?: number, comment?: string, check?: string}}} ask
+ * @returns {import("./reviewStepModel.d.mts").ReviewRun}
+ */
+export function newRun({ kind, agent, at, conversation = null, ahead = null, extras = {} }) {
+  return { kind, agent, at, ...(conversation ? { conversation } : {}), ...(ahead !== null && ahead !== undefined ? { ahead } : {}), ...extras };
+}
+
+/**
  * The session word an ended run's mark wears: a stop is *aborted*, a
  * failure *failed*, a landing or a finish *done*, a session that never
  * showed *aborted* too — nothing came of it.

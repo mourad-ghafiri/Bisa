@@ -19,6 +19,7 @@ use crate::config_schema::ConfigScope;
 use crate::exec::{self, describe, s, Output, Timeouts};
 use crate::parse;
 use crate::{ProbeResult, VcsError, VcsResult};
+use std::time::Duration;
 
 /// `%H %h %an %ae %at %s`, fields separated by US and records by RS. See
 /// `parse::log` for why those two separators.
@@ -812,6 +813,13 @@ fn is_hardened(key: &OsStr) -> bool {
     HARDENED_ENV.iter().any(|h| OsStr::new(h) == key)
 }
 
+/// How long a credential helper is given to answer `credential fill`. Five
+/// seconds is long for a helper that answers — a keychain read, `gh`'s
+/// token — and short for one that will not: a prompt nobody sees, a
+/// browser flow. Its own number, beside [`Timeouts::local`], because what
+/// waits on it is a connection view a person is reading.
+pub const CREDENTIAL_FILL_BUDGET: Duration = Duration::from_secs(5);
+
 /// A configured `git`. Cheap to construct; [`Default`] is what the free
 /// functions use.
 #[derive(Debug, Clone)]
@@ -860,6 +868,15 @@ impl Git {
     /// own `PATH`, so a child environment could never do this.
     pub fn with_program(mut self, program: impl Into<OsString>) -> Self {
         self.bin = program.into();
+        self
+    }
+
+    /// The wall-clock budgets every `git` this handle runs is held to —
+    /// [`Timeouts::default`] unless a caller says otherwise. A test hands in
+    /// a short one so a child that hangs is a [`VcsError::Timeout`] within
+    /// the test's patience rather than the suite's.
+    pub fn with_timeouts(mut self, timeouts: Timeouts) -> Self {
+        self.timeouts = timeouts;
         self
     }
 
@@ -2331,27 +2348,47 @@ impl Git {
 
     /// `HEAD`, or the empty tree when the repository has no commits yet.
     /// Diffing against `HEAD` in a fresh repository is a hard error; against
-    /// the empty tree it is the obvious answer.
+    /// the empty tree it is the obvious answer. Only [`VcsError::NoCommits`]
+    /// takes the empty tree: any other reason `HEAD` cannot be read — a ref
+    /// file holding garbage, a lock, a child that timed out — is handed on,
+    /// because a diff against the empty tree reads every file as added and
+    /// an unstage against it stages a tracked file's deletion.
     fn baseline(&self, path: &Path) -> VcsResult<String> {
         match self.head(path) {
             Ok(_) => Ok("HEAD".to_string()),
-            Err(e) if e.is_unavailable() => Err(e),
-            Err(_) => Ok(EMPTY_TREE.to_string()),
+            Err(VcsError::NoCommits(_)) => Ok(EMPTY_TREE.to_string()),
+            Err(e) => Err(e),
         }
     }
 
+    /// `HEAD`'s commit. [`VcsError::NoCommits`] when the repository has none
+    /// yet — `HEAD` is a symbolic ref naming a branch that holds no commit —
+    /// and git's own word, classified, for a `HEAD` it cannot read for any
+    /// other reason: a broken ref answers `rev-parse` the same silent exit 1
+    /// an unborn branch does, and only `symbolic-ref` tells the two apart.
     pub fn head(&self, path: &Path) -> VcsResult<CommitId> {
-        let out = self.capture(Some(path), &[s("rev-parse"), s("HEAD")], false)?;
+        let out = self.capture(
+            Some(path),
+            &[
+                s("rev-parse"),
+                s("--verify"),
+                s("--quiet"),
+                s("HEAD^{commit}"),
+            ],
+            false,
+        )?;
         if out.success {
             return Ok(CommitId::new(out.stdout_text()));
         }
         if !self.is_repo(path) {
             return Err(VcsError::NotARepository(path.to_path_buf()));
         }
-        Err(VcsError::other(format!(
-            "{} has no commits yet",
-            path.display()
-        )))
+        let named = [s("symbolic-ref"), s("--quiet"), s("HEAD")];
+        let sym = self.capture(Some(path), &named, false)?;
+        if sym.success {
+            return Err(VcsError::NoCommits(path.to_path_buf()));
+        }
+        Err(classify(&describe(&self.bin, &named), Some(path), &sym))
     }
 
     /// Commits reachable from HEAD, newest first. `base` limits the walk to
@@ -2772,7 +2809,14 @@ impl Git {
     pub fn credential_fill(&self, protocol: &str, host: &str) -> VcsResult<Option<Credential>> {
         let args = [s("credential"), s("fill")];
         let question = format!("protocol={protocol}\nhost={host}\n\n").into_bytes();
-        let out = self.capture_input(None, &args, question)?;
+        // The fill's own budget, not the local one: a helper that opens a
+        // keychain prompt nobody sees, or waits on a browser, would hold
+        // whatever asked — a connection check, a sign-in word — for the
+        // whole thirty seconds.
+        let mut cmd = self.command(None);
+        cmd.args(&args);
+        let what = describe(&self.bin, &args);
+        let out = exec::run_with_input(cmd, &what, CREDENTIAL_FILL_BUDGET, Some(question))?;
         if !out.success {
             return Ok(None);
         }

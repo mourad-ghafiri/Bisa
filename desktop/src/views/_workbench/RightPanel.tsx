@@ -293,7 +293,10 @@ function GitTab({
   // The connection's cautions — the wrong author, an unloaded key, no account
   // — wear a dot beside the views so About › Settings is one click away
   // before a push. Read once per root; re-read when the setup or a remote moves.
-  const connection = useAsync((s) => api.gitConnection(wid, s).catch(() => null), [wid]);
+  // A read that failed is carried, never folded into "no cautions": the dot
+  // says the connection could not be read, so a push never goes out past a
+  // caution nobody could see.
+  const connection = useAsync((s) => api.gitConnection(wid, s), [wid]);
   useEngineEvents((e) => {
     if (e.payload.type === "git_setup_changed" || e.payload.type === "committer_set") connection.reload();
     // A plain folder became a repository: the standing, the record and the
@@ -359,11 +362,11 @@ function GitTab({
           onChange={(v) => setPanelView("git", v as GitView)}
           options={GIT_VIEWS.map((v) => ({ id: v, label: GIT_VIEW_LABEL[v] }))}
         />
-        {hasCautions(connection.data) && (
-          <Tooltip label={firstCaution(connection.data) ?? t("workbench-right-panel-connection-has-caution-see-about-checkout")}>
+        {(connection.error !== null || hasCautions(connection.data)) && (
+          <Tooltip label={connection.error !== null ? t("workbench-right-panel-connection-could-not-be-read") : firstCaution(connection.data) ?? t("workbench-right-panel-connection-has-caution-see-about-checkout")}>
             <button type="button" className="inline-flex" aria-label={t("workbench-right-panel-connection-has-caution-open-checkout-s")} onClick={() => openPanelView("about", "checkout")}>
               <Chip tone="warn" icon={ICON.warn}>
-                {t("workbench-right-panel-cautions", { cautions: connection.data?.cautions.length ?? 0 })}
+                {connection.error !== null ? t("workbench-right-panel-connection-unread") : t("workbench-right-panel-cautions", { cautions: connection.data?.cautions.length ?? 0 })}
               </Chip>
             </button>
           </Tooltip>

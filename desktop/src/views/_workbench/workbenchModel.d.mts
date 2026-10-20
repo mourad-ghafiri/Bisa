@@ -106,6 +106,7 @@ export declare function stripOrder(tabIds: readonly string[], pinned: readonly s
 export declare function moveTab(state: WorkbenchState, key: string, id: string, index: number, shown?: readonly string[] | null): { state: WorkbenchState; refused: string | null };
 export declare function closeTabsRight(state: WorkbenchState, key: string, id: string): WorkbenchState;
 export declare function tabsRightOf(state: WorkbenchState, key: string, id: string): string[];
+export declare function restoreRoot(state: WorkbenchState, key: string, saved: { tabs: WorkbenchTab[]; panes: PaneNode; pinned: string[]; strip?: readonly string[] }, held?: Iterable<string> | null): WorkbenchState;
 export declare function closedTabs(before: WorkbenchState, after: WorkbenchState): [string, string][];
 export declare function retargetTabs(
   state: WorkbenchState,

@@ -180,6 +180,51 @@ const LIFECYCLE = Object.freeze({ "bisa/serverStarted": "started", "bisa/serverF
  * @param {{type?: string, scope?: unknown, id?: unknown, language?: unknown, method?: unknown} | null | undefined} frame an engine frame's payload
  * @returns {{scope: string, id: string, language: string, event: "started" | "failed" | "stopped"} | null}
  */
+/**
+ * What an open's answer means for the document, given what it already knew
+ * — `known`: the language the node named before, `undefined` until it named
+ * one — and when the answer landed: after the document closed (`alive`
+ * false), or behind a newer open (`newest` false).
+ *
+ * - closed meanwhile: the node holds a document nobody edits when it said it
+ *   follows — closed there (`closeOnNode`), and nothing else is written;
+ * - behind a newer open: nothing is written, the newer answer is the word;
+ * - followed, with a language: the document is followed, the language is
+ *   the server's and said, and what was typed while the open was out goes
+ *   now, whole (`sendHeld`);
+ * - not followed: the language the node named is kept and said once — it is
+ *   which server's start opens the document again, and what its chip says
+ *   the server became; a path no language applies to is `null`, said once,
+ *   and nothing more is sent for it.
+ * @param {string | null | undefined} known
+ * @param {{following?: boolean, language?: string | null}} answer
+ * @param {{alive: boolean, newest: boolean}} when
+ * @returns {{following: "yes" | "no" | null, language: string | null | undefined, say: string | null | undefined, closeOnNode: boolean, sendHeld: boolean}}
+ */
+export function openAnswered(known, answer, { alive, newest }) {
+  const nothing = { following: null, language: undefined, say: undefined, closeOnNode: false, sendHeld: false };
+  if (!alive) return { ...nothing, closeOnNode: answer?.following === true };
+  if (!newest) return nothing;
+  const language = answer?.language ?? null;
+  if (answer?.following === true && language) return { following: "yes", language, say: language, closeOnNode: false, sendHeld: true };
+  const names = known === undefined || language !== null;
+  return { following: "no", language: names ? language : undefined, say: names ? language : undefined, closeOnNode: false, sendHeld: false };
+}
+
+/**
+ * What an open that failed means: nothing when the document closed meanwhile
+ * or a newer open is out; otherwise the document is not followed, and a
+ * document the node never named a language for is said to have none — once.
+ * @param {string | null | undefined} known
+ * @param {{alive: boolean, newest: boolean}} when
+ * @returns {{following: "no" | null, language: null | undefined, say: null | undefined}}
+ */
+export function openFailed(known, { alive, newest }) {
+  if (!alive || !newest) return { following: null, language: undefined, say: undefined };
+  const first = known === undefined;
+  return { following: "no", language: first ? null : undefined, say: first ? null : undefined };
+}
+
 export function serverChange(frame) {
   if (!frame || frame.type !== "lsp" || typeof frame.method !== "string") return null;
   const event = Object.hasOwn(LIFECYCLE, frame.method) ? LIFECYCLE[frame.method] : undefined;

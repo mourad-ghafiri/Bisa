@@ -47,7 +47,7 @@ import { DEFAULT_MODE, DEFAULT_MODE_KEY, MODES } from "../views/_workbench/ideMo
 import { setIdeMode, toggleIdeMode } from "../views/_workbench/ideModeStore";
 import { lastRoot } from "../views/_workbench/lastRootStore";
 import { useResolvedSettings } from "./useResolvedSettings";
-import { isLive, sessionsRootedAt } from "./terminalsModel.mjs";
+import { lastLiveAt } from "./terminalsModel.mjs";
 import type { TerminalScope } from "../terminal/session";
 
 export const OPEN_PLACES = "bisa:open-places";
@@ -459,8 +459,7 @@ export function useGlobalShortcuts({ onOmnibox, onEscape }: ShortcutHandlers): v
           const root = workbenchRoot();
           if (!root) return;
           e.preventDefault();
-          const here = sessionsRootedAt(terminals.sessions, root.scope, root.id).filter(isLive);
-          const last = here[here.length - 1];
+          const last = lastLiveAt(terminals.sessions, root.scope, root.id);
           if (last) {
             focusTerminalTab(last.key);
             fire(SHOW_TERMINAL, last.key);

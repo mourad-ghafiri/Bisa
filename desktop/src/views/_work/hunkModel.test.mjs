@@ -133,3 +133,31 @@ test("a review note that is gone is a 404 on its edit, its resolve and its delet
   for (const verb of ["api.reviewNoteEdit(", "api.reviewNoteResolve(", "api.reviewNoteDelete("]) assert.ok(list.includes(`act("note", () => ${verb}`), `${verb} goes through the one door`);
 });
 
+test("a marker after an unpicked deletion stays — the deletion turned context still names a last line without a newline, and git applies the patch only with it — while a marker of an unpicked addition goes with it", () => {
+  // git's own diff of "a\nx\nb\nlast" (no newline at the end) → "a\ny\nb\nlast2\n".
+  const diff = ["diff --git a/f.txt b/f.txt", "--- a/f.txt", "+++ b/f.txt", "@@ -1,4 +1,4 @@", " a", "-x", "+y", " b", "-last", "\\ No newline at end of file", "+last2", ""].join("\n");
+  const { header, hunks } = parseHunks(diff);
+  const h = hunks[0];
+  // Only the x→y pair: the tail's deletion becomes context and keeps its marker.
+  assert.equal(linesPatch(header, h, [1, 2]), header + ["@@ -1,4 +1,4 @@", " a", "-x", "+y", " b", " last", "\\ No newline at end of file", ""].join("\n"));
+  // Only the tail's deletion: the marker stays with it, the addition is dropped.
+  assert.equal(linesPatch(header, h, [4]), header + ["@@ -1,4 +1,3 @@", " a", " x", " b", "-last", "\\ No newline at end of file", ""].join("\n"));
+  // A marker of an unpicked addition goes with it.
+  const grows = ["diff --git a/g.txt b/g.txt", "--- a/g.txt", "+++ b/g.txt", "@@ -1,2 +1,3 @@", " a", "-b", "+b", "+c", "\\ No newline at end of file", ""].join("\n");
+  const g = parseHunks(grows);
+  assert.equal(linesPatch(g.header, g.hunks[0], [1]), g.header + ["@@ -1,2 +1 @@", " a", "-b", ""].join("\n"));
+  // The marker alone is no pick.
+  assert.equal(linesPatch(header, h, [5]), null);
+});
+
+test("a diff with Windows line endings keeps each line's carriage return and still finds its hunks; a new file's hunk starts at the first line", () => {
+  const crlf = ["diff --git a/w.txt b/w.txt", "--- a/w.txt", "+++ b/w.txt", "@@ -1,2 +1,2 @@ fn main() {\r", " a\r", "-b\r", "+c\r", ""].join("\n");
+  const { header, hunks } = parseHunks(crlf);
+  assert.equal(hunks.length, 1, "the header line is read past its carriage return");
+  assert.equal(hunks[0].context, "fn main() {");
+  assert.deepEqual(hunks[0].lines.map((l) => l.text), [" a\r", "-b\r", "+c\r"], "the lines keep the file's endings, so the patch round-trips");
+  assert.equal(hunkPatch(header, hunks[0]), header + "@@ -1,2 +1,2 @@ fn main() {\r\n a\r\n-b\r\n+c\r\n");
+  const fresh = parseHunks(["--- /dev/null", "+++ b/n.txt", "@@ -0,0 +1,3 @@", "+one", "+two", "+three", ""].join("\n"));
+  assert.deepEqual([fresh.hunks[0].oldStart, fresh.hunks[0].oldCount, fresh.hunks[0].newStart, fresh.hunks[0].newCount], [0, 0, 1, 3]);
+  assert.deepEqual(hunkRange(fresh.hunks[0]), { start: 1, end: 3 });
+});

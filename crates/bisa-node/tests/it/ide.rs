@@ -1310,12 +1310,20 @@ async fn workstreams_have_live_status_and_close_saving_a_recovery() {
     assert_eq!(s["running_agents"], json!(0));
     assert_eq!(s["exists"], json!(true));
 
-    // Dirty the checkout; the cache is two seconds, so wait it out.
+    // Dirty the checkout. The status is cached two seconds by default; this
+    // node is told to cache it not at all, so the read is the tree as it is.
+    let (status, v) = request(
+        &socket,
+        "PUT",
+        "/settings/machine",
+        Some(json!({"values": {"cache.git_status.ttl_ms": 0}})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
     std::fs::write(wt.join("b.txt"), "two\n").unwrap();
     // A tracked change too: it is what a recovery ref saves when the tree
     // goes (an untracked file is stashed only when asked — ide/04).
     std::fs::write(wt.join("a.txt"), "changed\n").unwrap();
-    tokio::time::sleep(Duration::from_millis(2_100)).await;
     let (_, v) = request(
         &socket,
         "GET",
@@ -1771,6 +1779,241 @@ async fn language_servers_are_reported_honestly_and_never_started_for_prose() {
     )
     .await;
     assert_eq!(status, 200);
+}
+
+/// A commit lands, and the rows after it are a second read git may refuse —
+/// a lock another process took, an index it cannot open. The answer says
+/// so: `files` null with the reason beside it, never an empty list a reader
+/// would take for a clean tree while an untracked file still stands. The
+/// refusal is made by a post-commit hook that takes the index's read bit
+/// away, so it begins exactly after the commit and before the read.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_commit_that_lands_but_whose_rows_git_cannot_read_after_it_says_so_instead_of_a_clean_tree(
+) {
+    let (_dir, socket, pid, root, _stop) = boot_with(Some(isolated_git)).await;
+    raw_git(&root, &["init", "--quiet", "-b", "main"]);
+    raw_git(&root, &["config", "user.name", "Bisa Test"]);
+    raw_git(&root, &["config", "user.email", "test@example.invalid"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    std::fs::write(root.join("b.txt"), "two\n").unwrap();
+    let index = root.join(".git").join("index");
+    let hooks = root.join(".git").join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let hook = hooks.join("post-commit");
+    std::fs::write(&hook, "#!/bin/sh\nchmod 000 .git/index\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{pid}/git/stage"),
+        Some(json!({"paths": ["a.txt"]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{pid}/git/commit"),
+        Some(json!({"message": "one"})),
+    )
+    .await;
+    assert_eq!(status, 200, "the commit landed: {v}");
+    assert!(v["commit"].as_str().is_some_and(|c| c.len() >= 7), "{v}");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            std::fs::metadata(&index).unwrap().permissions().mode() & 0o777,
+            0,
+            "the hook ran after the commit"
+        );
+    }
+    assert_eq!(
+        v["files"],
+        json!([]),
+        "the list a reader always had, never a different shape: {v}"
+    );
+    assert!(
+        v["files_error"].is_string(),
+        "and git's own word beside it, so the reader knows not to trust it: {v}"
+    );
+
+    // The index readable again, the next read finds the truth the empty list
+    // would have hidden: `b.txt` still untracked.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&index, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let (status, v) = request(
+        &socket,
+        "GET",
+        &format!("/workstreams/{pid}/git/files"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let files = v["files"].as_array().expect("rows");
+    assert!(
+        files
+            .iter()
+            .any(|f| f["path"] == "b.txt" && f["untracked"] == true),
+        "{v}"
+    );
+}
+
+/// A save through the editor is seen by the very next status read — no
+/// watch live, the status cache still warm: the save invalidates it as the
+/// watcher's flush would, so the Git tab's dot never reads a tree it just
+/// changed as clean.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_save_through_the_editor_is_seen_by_the_next_status_read() {
+    let (_dir, socket, pid, root, _stop) = boot().await;
+    raw_git(&root, &["init", "--quiet", "-b", "main"]);
+    raw_git(&root, &["config", "user.name", "Bisa Test"]);
+    raw_git(&root, &["config", "user.email", "test@example.invalid"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    raw_git(&root, &["add", "-A"]);
+    raw_git(&root, &["commit", "-m", "first", "--quiet"]);
+    let (status, v) = request(&socket, "GET", &format!("/workstreams/{pid}/status"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(
+        v["status"]["clean"],
+        json!(true),
+        "read and cached clean: {v}"
+    );
+    let (status, read) = request(
+        &socket,
+        "GET",
+        &format!("/ide/file/workstream/{pid}?path=a.txt"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{read}");
+    let (status, v) = request(
+        &socket,
+        "PUT",
+        &format!("/ide/file/workstream/{pid}?path=a.txt"),
+        Some(json!({"text": "one\ntwo\n", "base_hash": read["hash"]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = request(&socket, "GET", &format!("/workstreams/{pid}/status"), None).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(
+        v["status"]["clean"],
+        json!(false),
+        "the save is the next read's tree: {v}"
+    );
+}
+
+/// A named pipe in the tree is refused by name at every read — the editor's,
+/// the renderer's — and never opened: an open blocks until a writer shows,
+/// which it never will.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_of_a_named_pipe_is_refused_and_never_hangs() {
+    let (_dir, socket, pid, root, _stop) = boot().await;
+    let made = std::process::Command::new("mkfifo")
+        .arg(root.join("pipe"))
+        .status()
+        .expect("mkfifo");
+    assert!(made.success());
+    let started = std::time::Instant::now();
+    for route in ["ide/file", "ide/raw"] {
+        let (status, v) = request(
+            &socket,
+            "GET",
+            &format!("/{route}/workstream/{pid}?path=pipe"),
+            None,
+        )
+        .await;
+        assert_eq!(status, 400, "{route}: {v}");
+        assert!(
+            v["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("not a regular file"),
+            "{route}: {v}"
+        );
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "answered, never hung on the open"
+    );
+}
+
+/// A served folder of a workstream goes with the workstream: closed, its
+/// servers are stopped and unlisted — the tree kept, so it is the close and
+/// not a folder gone that stops them — and the Browser menu is told.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_served_folder_of_a_workstream_closed_is_stopped_and_unlisted() {
+    let (_dir, socket, pid, root, _stop) = boot().await;
+    raw_git(&root, &["init", "--quiet", "-b", "main"]);
+    raw_git(&root, &["config", "user.name", "Bisa Test"]);
+    raw_git(&root, &["config", "user.email", "test@example.invalid"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    raw_git(&root, &["add", "-A"]);
+    raw_git(&root, &["commit", "-m", "first", "--quiet"]);
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/projects/{pid}/workstreams"),
+        Some(json!({"source": {"source": "new_branch", "name": "served"}})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let wid = v["workstream"]["id"].as_str().unwrap().to_string();
+    let wt = std::path::PathBuf::from(v["path"].as_str().unwrap());
+    std::fs::create_dir_all(wt.join("site")).unwrap();
+    std::fs::write(wt.join("site/index.html"), "<h1>served</h1>\n").unwrap();
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/workstreams/{wid}/servers"),
+        Some(json!({"folder": "site"})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let id = v["id"].as_str().unwrap().to_string();
+    let (status, v) = request(&socket, "GET", "/servers", None).await;
+    assert_eq!(status, 200, "{v}");
+    assert!(
+        v["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == id),
+        "{v}"
+    );
+
+    let (status, v) = request(&socket, "DELETE", &format!("/workstreams/{wid}"), None).await;
+    assert_eq!(status, 200, "{v}");
+    let gone = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (_, v) = request(&socket, "GET", "/servers", None).await;
+            if !v["servers"]
+                .as_array()
+                .is_some_and(|s| s.iter().any(|s| s["id"] == id))
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        gone.is_ok(),
+        "the closed workstream's server was stopped and unlisted"
+    );
+    assert!(
+        wt.join("site/index.html").exists(),
+        "the tree was kept: the close stopped it, not a folder gone"
+    );
 }
 
 /// Who commits here, over HTTP: read, set into the repository's local config,

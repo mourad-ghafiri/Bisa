@@ -1380,7 +1380,15 @@ export interface WorkstreamCommitted {
   workstream: string;
   commit: string;
   short: string;
+  /**
+   * The rows after the commit. The commit landed either way: when git could
+   * not read them (a lock another process took, a budget) the list is empty
+   * and `files_error` says why, and a reader reloads rather than taking the
+   * tree for clean.
+   */
   files: GitFileRow[];
+  /** Why `files` is empty when it is not the tree's word: git could not read it. */
+  files_error?: string | null;
 }
 
 /**
@@ -1472,6 +1480,8 @@ export interface WorkstreamDetail {
   behind_base: number | null;
   status: GitStatusInfo;
   changes: ChangedFile[];
+  /** Why `changes` is empty when it is not the tree's word: git could not read it. */
+  changes_error?: string | null;
 }
 
 /**
@@ -1486,6 +1496,8 @@ export interface WorkstreamDiff {
   clean: boolean;
   diff: string;
   changes: ChangedFile[];
+  /** Why `changes` is empty when it is not the tree's word: git could not read it. */
+  changes_error?: string | null;
   untracked: string[];
 }
 

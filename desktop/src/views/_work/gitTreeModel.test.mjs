@@ -171,3 +171,16 @@ test("a folder row's tooltip counts what it holds, and the conflicted group says
   assert.equal(dirRowTitle({ group: null, path: "src/lib", count: 1 }), "src/lib/ — 1 changed file");
   assert.equal(dirRowTitle({ path: "src", count: 12 }), "src/ — 12 changed files");
 });
+
+test("a file and a folder whose name it prefixes are separate rows, folders first; rows that empty under the cursor leave it nowhere", () => {
+  const rows = changesTreeRows([file("a"), file("a.b/c")], "tree", NONE);
+  assert.deepEqual(shape(rows), [
+    ["dir", 0, "a.b", "dir:a.b"],
+    ["file", 1, "c", "file:a.b/c"],
+    ["file", 0, "a", "file:a"],
+  ]);
+  assert.equal(nextCursor(rows, fileId("a"), []), null);
+  assert.equal(nextCursor(rows, null, rows), null);
+  assert.equal(nextCursor([], fileId("a"), rows), fileId("a"), "a cursor the new rows hold stays, whatever the old rows held");
+  assert.equal(nextCursor([], fileId("zzz"), rows), null, "a cursor neither list held lands nowhere");
+});

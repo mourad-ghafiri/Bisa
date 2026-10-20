@@ -4,7 +4,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { STEPS, lifecycle, prTitleFrom, readWords } from "./prLifecycleModel.mjs";
+import { FOLLOW_MS, IDLE_MS, STEPS, latestRead, lifecycle, pollInterval, prExists, prTitleFrom, readWords } from "./prLifecycleModel.mjs";
 import { AGENT_REVIEW_MARK, reviewFacts } from "./reviewStepModel.mjs";
 
 const GITHUB = { draft_prs: true, reviewers: true, labels: true, merge_strategies: ["merge", "squash"], check_runs: true, review_comments: true, review_threads: true, delete_branch: true };
@@ -317,4 +317,24 @@ test("a pull request is titled by the branch tip's subject, else the branch", ()
   assert.equal(prTitleFrom("Fix the cart total rounding\n\nLonger body", "work/cart"), "Fix the cart total rounding");
   assert.equal(prTitleFrom("  ", "work/cart"), "work/cart");
   assert.equal(prTitleFrom(null, null), "");
+});
+
+test("the code host is asked only once the record names a pull request; the poll follows an agent first, the fetch interval next, and idles when nothing is to be read", () => {
+  assert.ok(prExists("pr_open") && prExists("merged"));
+  for (const word of ["open", "dirty", "committed", "pushed", "closed", null, undefined]) assert.ok(!prExists(word), String(word));
+  assert.equal(pollInterval({ hasPr: true, following: true, secs: 300 }), FOLLOW_MS, "following wins over the interval");
+  assert.equal(pollInterval({ hasPr: true, following: true, secs: 0 }), FOLLOW_MS, "polling off does not turn the following off");
+  assert.equal(pollInterval({ hasPr: true, following: false, secs: 300 }), 300_000);
+  assert.equal(pollInterval({ hasPr: true, following: false, secs: 0 }), IDLE_MS, "0 turns the polling off");
+  assert.equal(pollInterval({ hasPr: false, following: true, secs: 300 }), IDLE_MS, "no pull request: nothing to follow or poll");
+  assert.ok(FOLLOW_MS > 10_000 && FOLLOW_MS < 60_000, "above the engine's ten-second cache, below a person's patience");
+});
+
+test("the read time under the spine is the latest of the three reads, nulls ignored, and none before any", () => {
+  assert.equal(latestRead([null, 10, 7]), 10);
+  assert.equal(latestRead([5, null, 9]), 9);
+  assert.equal(latestRead([null, null]), null);
+  assert.equal(latestRead([]), null);
+  assert.equal(latestRead(null), null);
+  assert.equal(latestRead([Number.NaN, 3]), 3, "a time nobody can read is no time");
 });

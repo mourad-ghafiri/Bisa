@@ -11,6 +11,7 @@ export interface ActConsent {
 export declare const MERGE_MODES: readonly GitMergeMode[];
 export declare const MERGE_MODE_WORDS: Readonly<Record<GitMergeMode, { label: string; meaning: string }>>;
 export declare function mergeDefault(setting: unknown): GitMergeMode;
+export declare function mergedWords(r: { sha?: string | null; remote_branch_deleted?: boolean | null }, host: string): string;
 export declare function mergeTakesMessage(mode: GitMergeMode): boolean;
 export declare function mergeMessagePlaceholder(source: string, target: string): string;
 export declare function mergeConsent(source: string, target: string, mode: GitMergeMode): ActConsent;

@@ -8,6 +8,7 @@
  *
  * Run with `node --test desktop/src/scenarios/board.test.mjs`.
  */
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -80,4 +81,13 @@ test("the headers say what needs a hand: a WIP limit reached, a card overdue, an
   ];
   const counts = headerCounts(rows, today, 3);
   assert.ok(counts && typeof counts === "object", "the header's counts are one object");
+});
+
+test("a card lifted as a drag's ghost is out of the accessibility tree and opens nothing; a column names itself and its fold button names the column", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const card = src("../views/_board/BoardCard.tsx");
+  assert.ok(card.includes("aria-hidden={ghost || undefined}") && card.includes("onClick={ghost ? undefined : onOpen}"), "the ghost is decoration");
+  const column = src("../views/_board/BoardColumnView.tsx");
+  assert.ok(column.includes("aria-label={COLUMN_LABEL[column]}"), "the column is named");
+  assert.ok(column.includes('t("board-board-column-view-unfold", { column: COLUMN_LABEL[column] })') && column.includes('t("board-board-column-view-fold", { column: COLUMN_LABEL[column] })'), "the fold names the column it folds");
 });

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  openAnswered,
+  openFailed,
   applyTextEdits,
   documentsToReopen,
   hoverMarkdown,
@@ -184,11 +186,12 @@ test("the client opens a document again through the model, clears a gone server'
   assert.ok(client.includes("if (documentsToReopen(change, [mine]).length === 0) return;"), "which documents are opened again is the model's");
   assert.ok(client.includes('if (change.event !== "started" && change.event !== "restarted" && sameServer(change, mine)) clearMarkers();'), "a stopped or failed server's diagnostics are nobody's");
   assert.ok(client.includes("const change = serverChange(p);") && client.includes("onServer.current?.(change);"), "a lifecycle frame reaches the document");
-  assert.ok(client.includes("if (mine !== asked) return;"), "of two opens out, the newest's answer stands");
-  assert.ok(client.includes("if (opening.current) return;") && client.includes("if (latest.current !== carried) void api.lspChange("), "an edit never races an open: it waits, then goes whole");
+  assert.ok(client.includes("newest: mine === asked"), "of two opens out, the newest's answer stands — the model's word (openAnswered)");
+  assert.ok(client.includes("if (opening.current) return;") && client.includes("if (verdict.sendHeld && latest.current !== carried) void api.lspChange("), "an edit never races an open: it waits, then goes whole");
   assert.ok(client.includes('hear({ scope, id, language, event: "restarted" })'), "a person's Restart is said to every open document");
-  assert.ok(client.includes("if (r.following && r.language) {") && client.includes("languageRef.current = r.language;\n            onLanguage(r.language);"), "a language the node named with no server following is kept: it is which server's start opens the document again");
-  assert.ok(client.includes("if (r.following) void api.lspClose("), "only a document a server took is closed on the node");
+  assert.ok(client.includes("if (verdict.language !== undefined) languageRef.current = verdict.language;") && client.includes("if (verdict.say !== undefined) onLanguageRef.current(verdict.say);"), "a language the node named with no server following is kept, as the model says: it is which server's start opens the document again");
+  assert.ok(!/\bonLanguage\(/.test(client), "the caller's callback is reached through the ref alone, never the one captured at the mount");
+  assert.ok(client.includes("if (verdict.closeOnNode) void api.lspClose("), "only a document a server took is closed on the node");
   assert.ok(client.includes("useReloadOnReconnect(() => {") && client.includes("void api.lspChange(scope, id, path, latest.current).catch((e: unknown) => log.debug(\"lsp\", \"a document could not be sent again after the node came back"), "a node that restarted says nothing of the servers it lost: the document goes again, whole, when the bus is back");
   const doc = here("./EditorDoc.tsx");
   assert.ok(doc.includes("const chip = serverChip(lspLanguage, server);"), "the chip is the model's");
@@ -201,4 +204,25 @@ test("a hover whose contents carry a value and no kind is its value; one of no s
   assert.equal(hoverMarkdown({ value: "just a value" }), "just a value");
   assert.equal(hoverMarkdown({ unknown: true }), "", "no kind, no language, no value");
   assert.equal(hoverMarkdown(42), "");
+});
+
+test("an open's answer is read by when it landed: after a close it only closes the node's document, behind a newer open it writes nothing, followed it names the server's language and sends what was typed meanwhile, unfollowed it keeps the node's word and says it once", () => {
+  const late = openAnswered(undefined, { following: true, language: "rust" }, { alive: false, newest: true });
+  assert.deepEqual(late, { following: null, language: undefined, say: undefined, closeOnNode: true, sendHeld: false });
+  assert.equal(openAnswered(undefined, { following: false, language: "rust" }, { alive: false, newest: true }).closeOnNode, false, "a document the node does not follow has nothing to close there");
+  assert.deepEqual(openAnswered(undefined, { following: true, language: "rust" }, { alive: true, newest: false }), { following: null, language: undefined, say: undefined, closeOnNode: false, sendHeld: false }, "an older open's answer is not the word");
+  assert.deepEqual(openAnswered(undefined, { following: true, language: "rust" }, { alive: true, newest: true }), { following: "yes", language: "rust", say: "rust", closeOnNode: false, sendHeld: true });
+  assert.deepEqual(openAnswered(undefined, { following: false, language: "rust" }, { alive: true, newest: true }), { following: "no", language: "rust", say: "rust", closeOnNode: false, sendHeld: false }, "no server took it: the language is kept and said");
+  assert.deepEqual(openAnswered(undefined, { following: false, language: null }, { alive: true, newest: true }), { following: "no", language: null, say: null, closeOnNode: false, sendHeld: false }, "no language applies: said once");
+  assert.deepEqual(openAnswered(null, { following: false, language: null }, { alive: true, newest: true }), { following: "no", language: undefined, say: undefined, closeOnNode: false, sendHeld: false }, "said already: nothing more");
+  assert.deepEqual(openAnswered("rust", { following: false, language: "rust" }, { alive: true, newest: true }), { following: "no", language: "rust", say: "rust", closeOnNode: false, sendHeld: false }, "the server went: its language is said again for the chip");
+  assert.deepEqual(openAnswered("rust", { following: true, language: null }, { alive: true, newest: true }), { following: "no", language: undefined, say: undefined, closeOnNode: false, sendHeld: false }, "followed with no language is no server");
+});
+
+test("an open that failed leaves the document unfollowed and says no language once — never after a close, never behind a newer open, never after a language was said", () => {
+  assert.deepEqual(openFailed(undefined, { alive: true, newest: true }), { following: "no", language: null, say: null });
+  assert.deepEqual(openFailed("rust", { alive: true, newest: true }), { following: "no", language: undefined, say: undefined });
+  assert.deepEqual(openFailed(null, { alive: true, newest: true }), { following: "no", language: undefined, say: undefined });
+  assert.deepEqual(openFailed(undefined, { alive: false, newest: true }), { following: null, language: undefined, say: undefined });
+  assert.deepEqual(openFailed(undefined, { alive: true, newest: false }), { following: null, language: undefined, say: undefined });
 });

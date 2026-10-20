@@ -57,6 +57,72 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- A `HEAD` git could not read — a ref file holding garbage, a lock another process held, a child
+  past its budget — was taken for a repository with no commits yet, so every diff built on it read
+  as *everything added*, and an unstage, which restores the index from `HEAD`, restored it from the
+  empty tree and staged the file's deletion with no consent and no recovery ref; initialising a
+  repository over such a folder could have committed over history it did not make. The vcs crate
+  now says `NoCommits` for an unborn branch alone and hands any other failure on; the node answers
+  it as git's own word.
+- After a commit, the rows git could not read were answered as an empty list and nothing said so,
+  and the Changes tree showed a tree with an untracked file as clean until the next read; the
+  answer now carries `files_error` with git's reason beside the list and the panel reloads, and
+  `GET /workstreams/{wid}` and its `/diff` say `changes_error` the same way beside an empty
+  summary. Both fields are additive.
+- A commit message holding a NUL byte read as *git is not available on this machine* (a 503),
+  because the OS refused the spawn; it is an invalid argument now (a 400).
+- Staging some lines of a hunk whose tail changed the file's last newline was refused by git: the
+  picked-lines patch dropped the `\ No newline at end of file` marker after an unpicked deletion,
+  so the patch claimed a newline the file lacked. The marker now travels with the line before it,
+  whatever that line became.
+- *Mark resolved* could save a conflicted file with Windows line endings while a marker still stood
+  in a hand-edited result: the marker check never matched a line ending in `\r`.
+- The changed-files cache let go of the checkouts read first rather than the ones left last past
+  its cap of eight, so a checkout visited early and often was the first to forget its rows.
+- A forced push with a lease skipped its *never the default branch* check when git could not name
+  the default — a primary left detached with no `origin/HEAD` recorded — so the one forced push there
+  is could reach the branch every workstream branches from. The project record's default is refused
+  now as git's is.
+- A push, a leased push, a remote branch delete or a pull request approved at the Publish gate went
+  out even when the workstream had been closed while the question stood; the record is read again
+  once the person answers, and a closed one publishes nothing, said on its home.
+- A credential helper that never answered — a keychain prompt nobody saw, a browser flow — held a
+  connection check for git's whole thirty-second local budget; the fill has a budget of its own,
+  five seconds.
+- *Replace across files* in literal mode expanded a `$` in the replacement as a regex group — `$5`
+  wrote nothing — and a *word* search's preview dropped a file the search had listed when the term
+  ended in punctuation, since the preview bounded the word with `\b` where the searcher uses a
+  half boundary. The replacement is now the text as typed, and the preview bounds a word as the
+  search does.
+- A save through the editor left the Git tab's status cached as clean for up to two seconds when
+  no watch was live; the save invalidates it as the watcher's flush does.
+- A named pipe in the tree hung the read that opened it — the editor's, the renderer's — for good;
+  what is not a regular file is refused by name before the open.
+- Two saves of one base hash arriving together could both land, the second written over the first
+  with no conflict said; the compare and the swap are one step now.
+- A `.gitignore` written under a live watch did not change what its frames said: the rules were read
+  once when the watch began. They are read again when it changes.
+- A split restored from a saved layout minted the restored pane's id again on the next split, so two
+  panes answered to one id; the pane counter now starts past every saved id, and a saved tree naming
+  one id twice keeps the first.
+- A file renamed outside the app onto a path already open — `mv a.ts b.ts` with both open — left
+  two tabs with one id and wrote the moved buffer over the other's unsaved text; the moved tab
+  closes, and the open one meets the disk through the watcher.
+- A keystroke while a save was out dropped the *saving* word, so a second save could start on the
+  same base and the watcher's frame for the save's own write raised a conflict that the save's
+  answer then cleared; the word stays until the answer lands.
+- The find widget opened after a picture's source was shown, and a symbol's line from the palette,
+  waited on a timer that guessed the editor's mount; both wait for the editor as a search hit's line
+  does.
+- A folder served from a workstream outlived the workstream: closed, its listener kept serving a tree
+  that was gone and the Browser menu kept offering it. A close now stops every server of its folders
+  and tells the menu.
+- The Git views' connection dot went dark when the connection could not be read, so a push could go
+  out past a caution nobody could see; the dot now says the connection could not be read.
+- A keymap override naming no command — a typo, a command another build had — was ignored in
+  silence; the Keymap panel says so now.
+- The header's *Hide the project rail* and *Hide the right panel* titles glued an English *Hide* to
+  a translated noun; the word is the catalog's now, as *Show* was.
 - The designer's panel remounted a step's identity form on every render — two siblings under one
   key — so typing lost focus and drafts, and a step's problems reflowed above the fields it was
   typed in; a rename jumped the panel to the top; a flow clicked, a box dragged or Escape on the

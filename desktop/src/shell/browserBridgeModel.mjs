@@ -17,6 +17,15 @@ export const HANDLED_KEPT = 256;
 export const DEFAULT_WAIT_MS = 10_000;
 export const MAX_WAIT_MS = 30_000;
 
+/** How long a page gets to answer a read or a click, and a navigation to finish. */
+export const ANSWER_MS = 10_000;
+/** A wait in the page may run `MAX_WAIT_MS`; the page's answer is given that much and a little more, so the bridge never gives up on a wait the page is still keeping. */
+export const WAIT_ANSWER_MS = MAX_WAIT_MS + 2_000;
+/** How long a tab still loading is waited for before its page is asked. */
+export const LOAD_MS = 15_000;
+/** How long after an act the bridge listens for the navigation it may have started. */
+export const NAVIGATE_GRACE_MS = 300;
+
 /**
  * Where a new tab is at home for a request: where the engine said the
  * asking session speaks — a checkout, a goal, a work item, a workflow, a
@@ -225,6 +234,27 @@ export const TAB_GONE = tr("shell-browser-bridge-tab-could-reached-webview-may-h
  */
 export function askAgain(plan, outcome, attempt) {
   return attempt < 2 && !plan.navigates && outcome.kind === "silent";
+}
+
+/**
+ * What an act that may move the page came to, from the race the bridge ran
+ * (`browserBridge.ts`): the page's answer against the navigation the act
+ * started, then the grace in which an answer may still be followed by a
+ * move. A move wins over any answer — the new page is the word, never *the
+ * page did not answer* — and past that the answer is read as it came:
+ * gone, silent, or what the page said. Nothing asked and nothing moved is
+ * silence, never a throw.
+ * @template A
+ * @param {{ asked: { kind: "answered", message: A } | { kind: "silent" } | { kind: "gone", error?: unknown } | null, started: boolean, movedLate: boolean }} race
+ *   `asked` is what the page answered, or null when the navigation won the race
+ * @returns {{ kind: "navigated" } | { kind: "gone", error: unknown } | { kind: "silent" } | { kind: "answered", message: A }}
+ */
+export function driveOutcome({ asked, started, movedLate }) {
+  if (started || movedLate) return { kind: "navigated" };
+  if (!asked) return { kind: "silent" };
+  if (asked.kind === "gone") return { kind: "gone", error: asked.error };
+  if (asked.kind === "silent") return { kind: "silent" };
+  return { kind: "answered", message: asked.message };
 }
 
 /** How many presence reads in a row may fail before the miss is a warning: on the second the engine is about to think nobody is home. */

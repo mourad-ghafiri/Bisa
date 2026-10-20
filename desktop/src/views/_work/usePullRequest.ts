@@ -30,13 +30,9 @@ import { useClock } from "../../shell/clock";
 import { numberOf } from "../../shell/settingsModel.mjs";
 import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import type { CheckRun, CodeHostCapabilities, PullRequest, RepoRef, ResolvedSetting, ReviewSummary, ReviewThread } from "../../types";
+import { latestRead, pollInterval, prExists } from "./prLifecycleModel.mjs";
 import { useAsync } from "./useAsync";
 import type { WorkstreamData } from "./useWorkstream";
-
-/** With polling off, the clock still ticks — once an hour, to nobody. */
-const IDLE_MS = 3_600_000;
-/** While an agent works: above the engine's ten-second code host cache, below a person's patience. */
-export const FOLLOW_MS = 15_000;
 
 export interface PullRequestData extends WorkstreamData {
   caps: CodeHostCapabilities | null;
@@ -75,7 +71,7 @@ export function usePullRequest(base: WorkstreamData, { following = false, readNo
   // The pull request exists once the record says so — open, or merged and
   // kept — and only then is the code host asked about it.
   const word = base.detail?.workstream.state.state;
-  const hasPr = word === "pr_open" || word === "merged";
+  const hasPr = prExists(word);
   // The record moving to merged is one more read: the merge facts — when, as
   // what — are the host's, and the lifecycle's last row says them.
   const merged = word === "merged";
@@ -119,7 +115,7 @@ export function usePullRequest(base: WorkstreamData, { following = false, readNo
   const secs = numberOf(settings, "git.fetch_interval_secs", 300, { min: 0, max: 3600 });
   const polling = hasPr && secs > 0;
   const followed = hasPr && following;
-  const tick = useClock(followed ? FOLLOW_MS : polling ? secs * 1000 : IDLE_MS);
+  const tick = useClock(pollInterval({ hasPr, following, secs }));
   const firstTick = useRef(tick);
   useEffect(() => {
     if ((!polling && !followed) || tick === firstTick.current) return;
@@ -129,7 +125,7 @@ export function usePullRequest(base: WorkstreamData, { following = false, readNo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, polling, followed]);
 
-  const readAt = [pr.at, checks.at, reviews.at].reduce<number | null>((latest, t) => (t !== null && (latest === null || t > latest) ? t : latest), null);
+  const readAt = latestRead([pr.at, checks.at, reviews.at]);
 
   return useMemo(
     () => ({

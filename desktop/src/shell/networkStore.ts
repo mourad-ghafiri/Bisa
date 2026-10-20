@@ -97,7 +97,11 @@ async function tick(): Promise<void> {
         (facts) => ({ facts, error: null as string | null }),
         (e: unknown) => ({ facts: null, error: failureReason("network", "the network facts could not be read", e) }), // for the log
       ),
-      api.network().catch(() => null),
+      // The last status stands when the node cannot say; why is the log's.
+      api.network().catch((e: unknown) => {
+        failureReason("network", "the node's network status could not be read; the last one stands", e); // for the log
+        return null;
+      }),
     ]);
     setPart({ facts: read.facts, error: read.error, status: status ?? part.status, online: windowOnline(), readAt: Date.now() / 1000 });
   } finally {

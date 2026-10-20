@@ -12,7 +12,8 @@ use bisa_core::{
     Assignee, Flow, Goal, GoalId, Home, Join, OnFail, RunId, Step, StepId, StepKind, ToolTier,
     WorkItemSpec, Workflow, WorkflowRun,
 };
-use bisa_engine::{Engine, EngineConfig, EngineEvent, SubmitRequest};
+use bisa_engine::events::FileChangeKind;
+use bisa_engine::{Engine, EngineConfig, EngineEvent, EnginePayload, SubmitRequest};
 use bisa_harness::mock::{IntakeScript, MockAdapter};
 use bisa_harness::HarnessCatalog;
 use bisa_store::{FileKeyStore, NewWorkflow, Paths, Workspace};
@@ -108,6 +109,65 @@ pub async fn wait_for(
     })
     .await
     .unwrap_or_else(|_| panic!("timed out waiting for {what}"))
+}
+
+/// Wait until a watch on `root` is live as the OS tells it: a probe file is
+/// written under the root until its frame is heard, then removed and its
+/// removal drained — so a test writes its own files only once the watcher
+/// reports, never after a sleep that guesses how long the OS takes to arm.
+pub async fn armed(
+    bus: &mut tokio::sync::broadcast::Receiver<EngineEvent>,
+    root: &std::path::Path,
+) {
+    const PROBE: &str = "bisa-watch-probe.tmp";
+    let probe = root.join(PROBE);
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut written = 0u32;
+    loop {
+        written += 1;
+        std::fs::write(&probe, written.to_string()).unwrap();
+        let heard = tokio::time::timeout(Duration::from_millis(300), async {
+            loop {
+                match bus.recv().await {
+                    Ok(e) => {
+                        if let EnginePayload::FileChanged { path, .. } = &e.payload {
+                            if path == PROBE {
+                                return;
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(e) => panic!("bus closed while arming the watch: {e}"),
+                }
+            }
+        })
+        .await;
+        if heard.is_ok() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the watch never reported the probe"
+        );
+    }
+    std::fs::remove_file(&probe).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match bus.recv().await {
+                Ok(e) => {
+                    if let EnginePayload::FileChanged { path, kind, .. } = &e.payload {
+                        if path == PROBE && *kind == FileChangeKind::Removed {
+                            return;
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(e) => panic!("bus closed while arming the watch: {e}"),
+            }
+        }
+    })
+    .await
+    .expect("the probe's removal was reported");
 }
 
 /// Poll until `probe` answers, or panic — for state the engine reaches

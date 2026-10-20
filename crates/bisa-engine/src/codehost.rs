@@ -226,7 +226,11 @@ pub async fn open_pr(
         format!("open a pull request for {branch}")
     };
     let asked = pass_publish_gate(inner, &w, &project, &what).await?;
-    let opened = opened_after_the_gate(inner, &w, path, branch, base, needs_push, req).await;
+    let opened = async {
+        let w = crate::projects::still_open_after(inner, asked, &w)?;
+        opened_after_the_gate(inner, &w, path, branch, base, needs_push, req).await
+    }
+    .await;
     asked.heard(inner, &w, &what, opened)
 }
 

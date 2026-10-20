@@ -164,8 +164,10 @@ match wins, and none is ever logged, journaled, snapshotted or sent to the webvi
 4. **git's own credential helper** — the credential `git push` over HTTPS already uses. The engine
    asks git (`git credential fill`, `protocol=https` / `host=<host>` on stdin) through its own
    `Git` handle (`bisa_vcs::Git::credential_fill`): argv only, the hardened environment
-   (`GIT_TERMINAL_PROMPT=0`, no askpass), time-boxed and terminated on expiry, so a helper that would
-   prompt fails at once. Git runs whatever helper its config names — osxkeychain, `gh auth
+   (`GIT_TERMINAL_PROMPT=0`, no askpass), time-boxed to the fill's own five seconds
+   (`CREDENTIAL_FILL_BUDGET`, not git's thirty-second local budget — what waits on it is a
+   connection view a person is reading) and terminated on expiry, so a helper that would prompt
+   fails at once. Git runs whatever helper its config names — osxkeychain, `gh auth
    git-credential`, a credential manager — and answers, or does not. Nothing of ours reads a file of
    git's or a key; the codehost crate never touches SSH (the API is HTTPS, and only an HTTPS
    credential is asked for), and `bisa-ssh`, which does speak to `ssh` for the transport, reads

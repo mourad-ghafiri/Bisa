@@ -4,7 +4,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { previewWords, MERGE_MODES, MERGE_MODE_WORDS, mergeConsent, mergeDefault, mergeMessagePlaceholder, mergeTakesMessage, pickConsent, pickOrder, rebaseConsent } from "./mergeModel.mjs";
+import { previewWords, MERGE_MODES, MERGE_MODE_WORDS, mergeConsent, mergeDefault, mergeMessagePlaceholder, mergeTakesMessage, mergedWords, pickConsent, pickOrder, rebaseConsent } from "./mergeModel.mjs";
 
 test("the four merge modes each have a label and a sentence, the project's strategy picks the first one, and only a commit-making mode takes a message", () => {
   assert.deepEqual([...MERGE_MODES], ["ff", "no_ff", "ff_only", "squash"]);
@@ -59,4 +59,11 @@ test("the look-ahead says nothing yet, clean, the files that would conflict, or 
   assert.equal(two.tone, "warn");
   assert.equal(previewWords({ supported: true, clean: false, paths: ["a"] }).text, "1 file would conflict: a. The Resolve card walks you through it.");
   assert.match(previewWords({ supported: true, clean: false, paths: ["a", "b", "c", "d", "e", "f"] }).text, /a, b, c, d, … 2 more/);
+});
+
+test("the toast after a pull request merged names the merge commit when the host gave one and what became of the branch there, and says nothing of a branch nothing was asked about", () => {
+  assert.equal(mergedWords({ sha: "0123456789abcdef", remote_branch_deleted: true }, "GitHub"), "Merged as 0123456. The branch on GitHub is deleted.");
+  assert.equal(mergedWords({ sha: null, remote_branch_deleted: false }, "GitLab"), "Merged. The branch on GitLab could not be deleted.");
+  assert.equal(mergedWords({ sha: "abc1234" }, "GitHub"), "Merged as abc1234.");
+  assert.equal(mergedWords({}, "GitHub"), "Merged.");
 });

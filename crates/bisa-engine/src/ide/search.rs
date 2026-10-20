@@ -133,7 +133,12 @@ pub fn regex_for(q: &SearchQuery) -> Result<regex::Regex, EngineError> {
         escape_literal(&q.q)
     };
     if q.word {
-        pattern = format!(r"\b(?:{pattern})\b");
+        // The searcher's own rule (grep-regex): a half boundary on each side,
+        // so a term ending in punctuation — `foo.` — is a word before a space
+        // as the searcher says it is. `\b` on both sides would need a word
+        // character after the `.`, and the preview would drop a file the
+        // search listed.
+        pattern = format!(r"\b{{start-half}}(?:{pattern})\b{{end-half}}");
     }
     let insensitive = match q.case {
         CaseMode::Sensitive => false,
@@ -392,7 +397,15 @@ pub enum ReplaceOutcome {
     },
 }
 
-fn rewrite(re: &regex::Regex, text: &str, replacement: &str) -> (String, Vec<ReplaceChange>) {
+/// Every line rewritten. In literal mode the replacement is the text as
+/// typed — a `$` is a dollar sign; in regex mode it is the regex crate's,
+/// where `$1` and `$name` name a group and `$$` is a dollar sign.
+fn rewrite(
+    re: &regex::Regex,
+    text: &str,
+    replacement: &str,
+    literal: bool,
+) -> (String, Vec<ReplaceChange>) {
     let mut out = String::with_capacity(text.len());
     let mut changes = Vec::new();
     for (i, line) in text.split_inclusive('\n').enumerate() {
@@ -403,7 +416,11 @@ fn rewrite(re: &regex::Regex, text: &str, replacement: &str) -> (String, Vec<Rep
                 None => (line, ""),
             },
         };
-        let replaced = re.replace_all(body, replacement);
+        let replaced = if literal {
+            re.replace_all(body, regex::NoExpand(replacement))
+        } else {
+            re.replace_all(body, replacement)
+        };
         if replaced != body {
             changes.push(ReplaceChange {
                 line: i as u64 + 1,
@@ -480,7 +497,7 @@ pub fn preview_replace(
         let Ok(text) = String::from_utf8(bytes.clone()) else {
             continue;
         };
-        let (_, changes) = rewrite(&re, &text, replacement);
+        let (_, changes) = rewrite(&re, &text, replacement, !query.regex);
         if changes.is_empty() {
             continue;
         }
@@ -556,7 +573,7 @@ pub fn apply_replace(
             });
             continue;
         };
-        let (new_text, changes) = rewrite(&re, &text, replacement);
+        let (new_text, changes) = rewrite(&re, &text, replacement, !query.regex);
         if changes.is_empty() {
             out.push(ReplaceOutcome::Applied {
                 path: rel.clone(),

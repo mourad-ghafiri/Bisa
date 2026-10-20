@@ -258,11 +258,11 @@ mod tests {
             (3, "hello", "oops")
         );
         assert!(!out.success());
-        let env = vec![("BISA_MOBILE_TEST_WORD".to_string(), "spoken".to_string())];
+        let env = vec![("BISA_TEST_WORD".to_string(), "spoken".to_string())];
         let out = exec
             .run(
                 sh,
-                &args("printf \"$BISA_MOBILE_TEST_WORD $NO_COLOR\""),
+                &args("printf \"$BISA_TEST_WORD $NO_COLOR\""),
                 &env,
                 Duration::from_secs(5),
             )

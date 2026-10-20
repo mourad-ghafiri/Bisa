@@ -278,6 +278,12 @@ export function resolveKeymap(preset, overrides, mac = false) {
     }
     bindings.push({ id: c.id, label: c.label, when: c.when, chord, source, note: c.note ?? null, always: c.always === true, typed: c.typed === true });
   }
+  // An override naming no command — a typo, a command another build had —
+  // is said rather than ignored in silence, so a rebinding that never takes
+  // effect is explained on the panel.
+  for (const id of Object.keys(ov)) {
+    if (!COMMANDS.some((c) => c.id === id)) warnings.push(t("shell-keymap-override-names-no-command", { id }));
+  }
   return { preset: pre, bindings, warnings };
 }
 

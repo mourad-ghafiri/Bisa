@@ -20,13 +20,14 @@ import { applied, failureOf } from "./gitPanelModel.mjs";
 import type { FailureKind, GitBusy } from "./gitPanelModel.mjs";
 import { patchSession, sessionFor, setMessage } from "./gitPanelStore";
 import { PLACE } from "./gitWords.mjs";
-import { continuedWords, skippedWords } from "./operationModel.mjs";
+import { continuedWords, skippedWords, stoppedOn } from "./operationModel.mjs";
 import { tookWords } from "./conflictSidesModel.mjs";
 import type { Sides } from "./conflictSidesModel.mjs";
 import type { GitOperation } from "./operationModel.mjs";
 import type { PrFormValues } from "./PrForm";
 import { refused } from "./PublishOutcomeBanner";
 import { appliedWords, droppedWords, poppedWords, stashRefusal, stashedWords } from "./stashModel.mjs";
+import { mergedWords } from "./mergeModel.mjs";
 import { IN_PROGRESS_LABEL, afterPull } from "./syncModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -114,7 +115,10 @@ export function commit(scope: string, wid: string, message: string): Promise<boo
       toaster.ok(t("work-git-ops-committed", { short: r.short }));
       setMessage(scope, "");
       patchSession(scope, { note: null });
-      landed(scope, r.files);
+      // The rows after the commit are a second read; one git refused comes
+      // as `null`, and the tree is reloaded rather than shown as clean.
+      if (r.files_error) moved(scope);
+      else landed(scope, r.files);
     } catch (e) {
       // 409 is the ordinary "nothing to do" — a clean tree or an empty
       // selection — rather than a fault, and it says so in its own words.
@@ -318,8 +322,7 @@ export function mergePr(scope: string, wid: string, strategy: MergeStrategy, del
     try {
       const r = await api.workstreamPrMerge(wid, strategy, deleteBranch);
       if (r.merged) {
-        const branchNote = r.remote_branch_deleted === true ? ` ${t("work-git-ops-branch-deleted", { host })}` : r.remote_branch_deleted === false ? ` ${t("work-git-ops-branch-could-not-deleted", { host })}` : "";
-        toaster.ok(`${r.sha ? t("work-git-ops-merged-as", { sha: r.sha.slice(0, 7) }) : t("work-git-ops-merged")}${branchNote}`);
+        toaster.ok(mergedWords(r, host));
       } else if (r.status === "awaiting_publish_gate") {
         patchSession(scope, { prPublish: { kind: "gate", gate: typeof r.gate === "string" ? r.gate : null, what: "pr" } });
       } else toaster.error(r.message ?? t("work-git-ops-not-merged"));
@@ -351,12 +354,9 @@ async function consentedAct(scope: string, busy: GitBusy, run: () => Promise<Git
       landed(scope, r.files);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.code === "conflict") {
-        const detail = e.detail && typeof e.detail === "object" ? (e.detail as { paths?: unknown; in_progress?: unknown }) : {};
-        const paths = Array.isArray(detail.paths) ? detail.paths.map(String) : [];
-        const kind = typeof detail.in_progress === "string" ? (detail.in_progress as GitInProgress) : started?.kind ?? null;
         patchSession(scope, (s) => ({
           ...s,
-          operation: started && kind ? { ...started, kind, paths } : s.operation,
+          operation: stoppedOn(started, e) ?? s.operation,
           failure: null,
           stale: s.stale + 1,
         }));

@@ -82,3 +82,14 @@ test("a bulk word's toast says how many files it reached, and nothing when it re
   assert.equal(settledAllWords("undo", 7), "Undid the changes to 7 files.");
   assert.equal(settledAllWords("undo", 0), null);
 });
+
+test("the same path in two turns reads by the later turn's word: kept after is no longer pending, pending after is", () => {
+  const view = { turns: [
+    { id: "t1", agent: "dev", files: [{ path: "a.ts", state: "pending" }, { path: "b.ts", state: "pending" }] },
+    { id: "t2", agent: "dev", files: [{ path: "a.ts", state: "kept" }, { path: "c.ts", state: "pending" }] },
+  ] };
+  assert.deepEqual(changedFileRows(view).map((f) => f.path), ["b.ts", "c.ts"]);
+  const back = { turns: [...view.turns, { id: "t3", agent: "dev", files: [{ path: "a.ts", state: "pending" }] }] };
+  assert.deepEqual(changedFileRows(back).map((f) => f.path), ["a.ts", "b.ts", "c.ts"]);
+  assert.deepEqual(changedFileRows(null), []);
+});

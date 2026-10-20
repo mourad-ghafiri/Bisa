@@ -36,12 +36,15 @@ import { dropScrollback } from "../terminal/Terminal";
 import { onSessionTransition, sessionRows } from "./sessionsStore";
 import {
   answerDue,
+  closedKeys,
   closeExitedTerminals,
   closeOtherTerminals,
   closePane,
   closeTerminal,
   closeTerminals,
   focusNeighborPane,
+  keysRootedAt,
+  parseLaunched,
   focusPane,
   focusTerminal,
   moveTabToPane,
@@ -80,8 +83,7 @@ function storedLaunched(): string[] {
     webStorage(),
     LAUNCHED_KEY,
     (raw) => {
-      const v = jsonPref(raw);
-      return Array.isArray(v) ? v.filter((k): k is string => typeof k === "string") : [];
+      return parseLaunched(jsonPref(raw));
     },
     [],
   );
@@ -158,8 +160,15 @@ function set(next: TerminalsState) {
     next.panes !== state.panes ||
     next.active !== state.active ||
     next.focusedPane !== state.focusedPane;
+  const before = state;
   state = next;
   if (structural) {
+    // A tab that left — closed by any door — is not one to bring back: its
+    // checkpoint goes with it, decided once here (`closedKeys`) rather than
+    // by each door's own reading of what it closed.
+    for (const key of closedKeys(before, next)) {
+      void dropScrollback(key).catch((e: unknown) => log.warn("terminals", "a closed tab's scrollback could not be dropped", { key, ...errorFields(e) }));
+    }
     // Persist only when the *serialised* shape changed: a liveness or
     // session-id flip re-renders but is not persisted, since
     // `serializeTerminals` omits them.
@@ -285,7 +294,6 @@ export async function pasteIntoTerminalTab(key: string, text: string): Promise<v
  * forget its checkpoint: a tab you closed is not one to bring back.
  */
 export function closeTerminalTab(key: string): void {
-  if (state.sessions.some((s) => s.key === key)) void dropScrollback(key).catch((e: unknown) => log.warn("terminals", "a closed tab's scrollback could not be dropped", { key, ...errorFields(e) }));
   set(closeTerminal(state, key));
 }
 
@@ -298,7 +306,6 @@ function closeTerminalTabs(keys: readonly string[]): void {
   const open = new Set(state.sessions.map((s) => s.key));
   const closing = keys.filter((k) => open.has(k));
   if (closing.length === 0) return;
-  for (const key of closing) void dropScrollback(key).catch((e: unknown) => log.warn("terminals", "a closed tab's scrollback could not be dropped", { key, ...errorFields(e) }));
   set(closeTerminals(state, closing));
 }
 
@@ -309,11 +316,8 @@ function closeTerminalTabs(keys: readonly string[]): void {
  * has nothing left to stand in. One move for all of them.
  */
 export function closeTerminalsRootedAt(workstreams: readonly string[], goal: string | null = null): void {
-  if (workstreams.length === 0 && goal === null) return;
-  const gone = new Set(workstreams);
-  const keys = state.sessions
-    .filter((s) => (s.scope === "workstream" && gone.has(s.id)) || (goal !== null && s.scope === "goal" && s.id === goal))
-    .map((s) => s.key);
+  const keys = keysRootedAt(state.sessions, workstreams, goal);
+  if (keys.length === 0) return;
   closeTerminalTabs(keys);
 }
 
@@ -381,19 +385,11 @@ export function reorderTerminalSessionTab(key: string, index: number): void {
 
 /** Close every other tab rooted where this one is; each forgets its checkpoint. */
 export function closeOtherTerminalTabs(key: string): void {
-  const me = state.sessions.find((s) => s.key === key);
-  if (!me) return;
-  for (const s of state.sessions) {
-    if (s.key !== key && s.scope === me.scope && s.id === me.id) void dropScrollback(s.key).catch((e: unknown) => log.warn("terminals", "a closed tab's scrollback could not be dropped", { key: s.key, ...errorFields(e) }));
-  }
   set(closeOtherTerminals(state, key));
 }
 
 /** Close the exited tabs rooted in one place. */
 export function closeExitedTerminalTabs(scope: TerminalScope, id: string): void {
-  for (const s of state.sessions) {
-    if (s.scope === scope && s.id === id && s.liveness.status === "exited") void dropScrollback(s.key).catch((e: unknown) => log.warn("terminals", "a closed tab's scrollback could not be dropped", { key: s.key, ...errorFields(e) }));
-  }
   set(closeExitedTerminals(state, scope, id));
 }
 

@@ -479,6 +479,13 @@ fn located(root: &Path, relative: &str) -> Result<(PathBuf, u64), StoreError> {
             relative = format!("{relative:?}")
         )));
     }
+    // What is no regular file has no bytes to serve and an open that blocks.
+    if !meta.is_file() {
+        return Err(StoreError::Invalid(bisa_core::text!(
+            "error-store-invalid-not-a-regular-file",
+            relative = format!("{relative:?}")
+        )));
+    }
     Ok((path, meta.len()))
 }
 
@@ -664,6 +671,14 @@ fn read_bounded(path: &Path, shown: &str, cap: ReadCap) -> Result<FileContent, S
     if meta.is_dir() {
         return Err(StoreError::Invalid(bisa_core::text!(
             "error-store-invalid-directory-list-instead-2",
+            shown = format!("{shown:?}")
+        )));
+    }
+    // A named pipe, a socket, a device: opening one blocks until the other
+    // end shows, which it never will — refused by name before the open.
+    if !meta.is_file() {
+        return Err(StoreError::Invalid(bisa_core::text!(
+            "error-store-invalid-not-a-regular-file-2",
             shown = format!("{shown:?}")
         )));
     }

@@ -46,8 +46,11 @@ test("first results on 100k paths land well inside the budget", () => {
   }
   // Best of three: `node --test` runs every file in parallel, and a single
   // sample taken while the machine is busy measures the machine, not the
-  // scorer. The budget is 50 ms on the reference machine; the test allows
-  // ten times that and still catches an algorithm that went quadratic.
+  // scorer. The budget is 50 ms on the reference machine (ide/14). The test
+  // allows forty times that: V8's coverage instrumentation alone makes the
+  // scorer several times slower, and the coverage measure runs beside a
+  // Rust build on every core. A scorer gone quadratic over 100k paths runs
+  // for minutes, so the slack costs the test nothing it is there to catch.
   let ms = Infinity;
   let ranked = [];
   for (let run = 0; run < 3; run++) {
@@ -56,7 +59,7 @@ test("first results on 100k paths land well inside the budget", () => {
     ms = Math.min(ms, performance.now() - t0);
   }
   assert.ok(ranked.length > 0);
-  assert.ok(ms < 500, `scoring 100k paths took ${ms.toFixed(1)} ms`);
+  assert.ok(ms < 2000, `scoring 100k paths took ${ms.toFixed(1)} ms`);
 });
 
 test("the palette's needle: the words after a prefix in a prefix mode, the whole line in all — trimmed and folded", () => {
@@ -149,4 +152,11 @@ test("a file renamed out of sight leaves the list, and one renamed between two h
 test("the store hands the patch the frame whole — whether the path is a folder, whether it is ignored", () => {
   const store = readFileSync(new URL("./pathIndexStore.ts", import.meta.url), "utf8");
   assert.ok(store.includes("{ kind: p.kind, path: p.path, from: p.from, dir: p.dir, ignored: p.ignored }"), "a frame cut short once listed a new folder as a file, and never re-read a tree copied in");
+});
+
+test("a frame that changes nothing hands the same list back, so nobody re-renders for it", () => {
+  const paths = ["a.ts", "src/b.ts"];
+  assert.equal(patchIndex(paths, { kind: "created", path: "a.ts", ignored: false, dir: false }), paths);
+  assert.equal(patchIndex(paths, { kind: "removed", path: "nope.ts", ignored: false, dir: false }), paths);
+  assert.equal(patchIndex(paths, { kind: "created", path: ".git/index", ignored: false, dir: false }), paths, "git's own files are never listed");
 });

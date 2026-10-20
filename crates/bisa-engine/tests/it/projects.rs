@@ -597,6 +597,42 @@ async fn init_repository_never_commits_over_history_it_did_not_make() {
     engine.shutdown().await;
 }
 
+/// A folder whose branch ref git cannot read is neither history nor an
+/// unborn branch: `init_repository` hands git's word on, and writes no root
+/// commit over a `HEAD` it could not see.
+#[tokio::test(flavor = "multi_thread")]
+async fn init_repository_refuses_a_head_it_cannot_read_rather_than_committing_over_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        config_with_git(git_with_global(
+            &dir,
+            "Grace Hopper",
+            "grace@example.invalid",
+        )),
+    );
+    let (project, theirs) = adopted_plain_folder(&engine, &dir, "unreadable").await;
+    raw_git(&theirs, &["init", "--quiet"]);
+    commit_without_identity(&theirs, "their first");
+    let branch = raw_git(&theirs, &["symbolic-ref", "--short", "HEAD"]);
+    let ref_file = theirs.join(".git").join("refs").join("heads").join(&branch);
+    std::fs::write(&ref_file, "not a sha\n").unwrap();
+
+    let refused = projects::init_repository(engine.inner(), project.id, Vec::new())
+        .await
+        .expect_err("a HEAD git cannot read");
+    assert!(
+        matches!(&refused, EngineError::Vcs(e) if !matches!(e, bisa_vcs::VcsError::NoCommits(_))),
+        "git's own word, never 'no commits yet': {refused}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&ref_file).unwrap(),
+        "not a sha\n",
+        "nothing written over it"
+    );
+    engine.shutdown().await;
+}
+
 /// `clone` is its own explicit step too, and it refuses to write over a
 /// folder that already has something in it.
 ///
@@ -1090,6 +1126,93 @@ async fn a_push_waits_for_the_publish_gate() {
         .any(|e| matches!(&e.payload, P::Progress { verb, object, .. }
             if verb == "pushed" && object == &branch)));
 
+    Arc::try_unwrap(engine).ok().unwrap().shutdown().await;
+}
+
+/// A gate answered after the workstream closed publishes nothing: the
+/// record is read again once the person says yes, and a closed one is
+/// refused in words — the approval was for a workstream that is gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_publish_gate_answered_after_the_workstream_closed_pushes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(engine_with(&dir, config()));
+    let (goal, project, _root, origin) =
+        git_project(&engine, "storefront", PublishPolicy::Gated).await;
+    let spec = item(goal, Some(&project), "Add the checkout flow");
+    let w = projects::open_workstream(engine.inner(), &spec, &project)
+        .await
+        .unwrap()
+        .workstream;
+    let path = engine.workspace().workstream_checkout(&w).unwrap();
+    std::fs::write(path.join("checkout.rs"), "fn checkout() {}\n").unwrap();
+    projects::commit_workstream(engine.inner(), w.id, "add checkout")
+        .await
+        .unwrap();
+    let pushing = tokio::spawn({
+        let (engine, id) = (Arc::clone(&engine), w.id);
+        async move { projects::push_workstream(engine.inner(), id).await }
+    });
+    let gate = pending_publish_gate(&engine).await;
+
+    // Closed while the question stood — the tree kept, so only the record
+    // says no — then the person says yes.
+    projects::close_workstream(engine.inner(), w.id, false)
+        .await
+        .expect("closed under the gate");
+    engine
+        .decide(&gate, true, Some("ship it"), None, None)
+        .unwrap();
+    let refused = pushing
+        .await
+        .unwrap()
+        .expect_err("nothing goes out for a workstream that closed");
+    assert!(refused.to_string().contains("closed"), "{refused}");
+    assert!(origin_branches(&origin).is_empty(), "nothing was pushed");
+    assert_eq!(
+        engine.workspace().get_workstream(w.id).unwrap().state,
+        WorkstreamState::Closed
+    );
+    Arc::try_unwrap(engine).ok().unwrap().shutdown().await;
+}
+
+/// Two opens of one branch name at once: at most one worktree, never two
+/// workstreams on one tree, never a panic — the loser is refused in words.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_opens_of_one_branch_name_at_once_never_share_a_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Arc::new(engine_with(&dir, config()));
+    let (_goal, project, root, _origin) =
+        git_project(&engine, "storefront", PublishPolicy::Auto).await;
+    let req = || projects::WorkstreamRequest {
+        goal: None,
+        work_item: None,
+        label: "same".into(),
+        agent: None,
+        source: bisa_core::WorkstreamSource::NewBranch {
+            name: Some("feature/same".into()),
+            start: None,
+        },
+        base: None,
+    };
+    let (a, b) = tokio::join!(
+        projects::open_workstream_for(engine.inner(), &project, req()),
+        projects::open_workstream_for(engine.inner(), &project, req())
+    );
+    let opened = [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count();
+    assert!(opened <= 1, "two workstreams on one branch");
+    let listed = raw_git(&root, &["worktree", "list", "--porcelain"]);
+    assert!(
+        listed.matches("branch refs/heads/feature/same").count() <= 1,
+        "{listed}"
+    );
+    let on_branch = engine
+        .workspace()
+        .list_workstreams(bisa_store::WorkstreamFilter::All)
+        .unwrap()
+        .into_iter()
+        .filter(|w| w.branch() == Some("feature/same"))
+        .count();
+    assert!(on_branch <= 1, "one record at most for one branch");
     Arc::try_unwrap(engine).ok().unwrap().shutdown().await;
 }
 

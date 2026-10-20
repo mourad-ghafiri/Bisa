@@ -10,6 +10,9 @@ import { t } from "../i18n/l10n.mjs";
  * Every ```mermaid fence in `markdown`, with the 1-based line its first
  * source line sits on — the offset an error needs.
  */
+/** How long a diagram's source is left to settle before it is drawn again: a keystroke in the editor redraws once the typing pauses. */
+export const RENDER_DEBOUNCE_MS = 250;
+
 export function mermaidBlocks(markdown) {
   // A document saved with CRLF is the same document: a `\r` left on a line
   // would ride into the diagram's source and onto its last word.

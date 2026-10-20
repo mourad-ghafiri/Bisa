@@ -36,6 +36,11 @@ the file's hash, with `apply` and those hashes writes them. Its doors are the CL
 replace --apply`) and the API; the Files tab has none ([feature status](../../feature-status.md)).
 An agent editing one of those files between the preview and the apply is reported in the result as
 *skipped: changed since preview*, never a clobbered; a path that leaves the root is refused unread.
+In literal mode the replacement is the text as typed — a `$` is a dollar sign; in regex mode `$1`
+and `$name` name a group and `$$` is a dollar sign, the regex crate's grammar. A *word* search
+bounds the term as the searcher does — a half boundary on each side — so a term ending in
+punctuation, `foo.` before a space, is a word to the preview as it is to the search, and the
+preview lists what the search listed.
 
 ---
 

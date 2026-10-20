@@ -254,3 +254,10 @@ test("the surfaces keep their shape: one trailing button, real buttons for the v
   const card = read("views/_studio/TurnChangesCard.tsx");
   assert.ok(card.includes("useFileSettle(") && bar.includes("useFileSettle("), "one owner of how a change is settled");
 });
+
+test("the Review step's replies and verdicts hold while one is being sent, and a comment handed to an agent shows the agent's words instead of the fix menu", () => {
+  const step = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../views/_work/ReviewStep.tsx"), "utf8");
+  assert.equal((step.match(/disabled=\{sending \|\| empty\}/g) ?? []).length, 2, "Reply and Reply & resolve hold while sending or empty");
+  assert.ok(step.includes("disabled={sending}"), "Cancel holds while sending");
+  assert.ok(step.includes("const busy = run.busy || run.asking ? busyWords(run.state, row.where) : null;"), "a comment being fixed reads the agent's state in words");
+});

@@ -376,3 +376,20 @@ test("the explorer's standings read the working tree's letter first, the index's
   ]);
   assert.deepEqual(treeStandings(null), []);
 });
+
+test("a path listed twice is grouped as listed and scoped once: the bulk verbs act on a path, never on a row", () => {
+  const groups = groupGitFiles([row("a.rs", ".", "M"), row("a.rs", ".", "M"), row("b.rs", "M", "M")]);
+  assert.deepEqual(groups.unstaged.map((r) => r.path), ["a.rs", "a.rs", "b.rs"]);
+  const scopes = stageScopes(groups);
+  assert.deepEqual(scopes.tracked, { paths: ["a.rs", "b.rs"], count: 2 });
+  assert.deepEqual(scopes.all, { paths: ["a.rs", "b.rs"], count: 2 });
+  assert.deepEqual(scopes.discardable, { paths: ["a.rs", "b.rs"], count: 2 });
+  assert.deepEqual(scopes.staged, { paths: ["b.rs"], count: 1 });
+});
+
+test("a selection on a row that turned conflicted under it — a merge begun elsewhere — is dropped: the conflict is read afresh from its own row, never through a stale patch", () => {
+  const selection = { path: "src/a.rs", staged: true };
+  const turned = [row("src/a.rs", "U", "U", { conflicted: true })];
+  assert.equal(keepSelection(selection, turned), null, "the staged side of an unmerged path is no side");
+  assert.deepEqual(keepSelection({ path: "src/a.rs", staged: false }, turned), { path: "src/a.rs", staged: false }, "the working-tree side of an unmerged path is still a side");
+});

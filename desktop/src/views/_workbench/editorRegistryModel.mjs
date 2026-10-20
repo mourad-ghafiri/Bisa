@@ -8,8 +8,40 @@
  * `editorRegistry.ts` holds the handles and the listeners; the rules are here.
  */
 
-/** No editor active, no line waiting. */
-export const INITIAL = Object.freeze({ active: null, pending: Object.freeze({ key: null, line: null }) });
+/** No editor active, no line waiting, no action waiting. */
+export const INITIAL = Object.freeze({ active: null, pending: Object.freeze({ key: null, line: null }), action: Object.freeze({ key: null, action: null }) });
+
+/** How long a document brought on screen is given to mount its editor. */
+export const MOUNT_GRACE_MS = 3000;
+
+/**
+ * One of the editor's own actions — the find widget after a picture's source
+ * was shown — asked for a document before its editor is mounted. Run now
+ * (`ranNow`), nothing waits; otherwise it is the one request held, replacing
+ * whatever waited, for this document or another: the person has moved on.
+ * The same rule as a line's, so nothing races a mount with a timer.
+ * @template {{ action: { key: string | null; action: string | null } }} S
+ * @param {S} state
+ * @param {string} key
+ * @param {string} action
+ * @param {boolean} ranNow
+ * @returns {S}
+ */
+export function actionRequested(state, key, action, ranNow) {
+  return { ...state, action: ranNow ? INITIAL.action : { key, action } };
+}
+
+/**
+ * The action waiting for this document, once: the answer and the state after.
+ * @template {{ action: { key: string | null; action: string | null } }} S
+ * @param {S} state
+ * @param {string} key
+ * @returns {{ action: string | null; state: S }}
+ */
+export function actionTaken(state, key) {
+  if (state.action.key !== key || state.action.action === null) return { action: null, state };
+  return { action: state.action.action, state: { ...state, action: INITIAL.action } };
+}
 
 /**
  * An editor took focus: it is the active one until another does.

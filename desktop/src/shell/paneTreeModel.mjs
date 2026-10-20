@@ -320,9 +320,13 @@ export function neighbor(tree, leafId, direction) {
  */
 export function parseTree(json, validTabs) {
   const valid = new Set(validTabs);
+  // An id is one node's: a second node wearing it is refused, since every
+  // door into the tree finds a pane by its id and two would be ambiguous.
+  const seen = new Set();
   /** @param {any} n @returns {Node | null} */
   const read = (n) => {
-    if (!n || typeof n !== "object" || typeof n.id !== "string") return null;
+    if (!n || typeof n !== "object" || typeof n.id !== "string" || seen.has(n.id)) return null;
+    seen.add(n.id);
     if (n.kind === "leaf") {
       const tabs = Array.isArray(n.tabs) ? n.tabs.filter((t) => typeof t === "string" && valid.has(t)) : [];
       return singleLeaf(n.id, tabs, typeof n.active === "string" && tabs.includes(n.active) ? n.active : null);

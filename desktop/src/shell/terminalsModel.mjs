@@ -761,7 +761,9 @@ export function restoreTerminals(json, launched = []) {
   const sessions = [];
   for (const s of raw) {
     if (!s || typeof s !== "object") continue;
-    if (typeof s.key !== "string" || !/^t\d+$/.test(s.key) || seen.has(s.key)) continue;
+    // A key this store minted: `t<n>` with no leading zero, so `t01` and `t1`
+    // can never both stand and count as one.
+    if (typeof s.key !== "string" || !/^t(?:0|[1-9]\d*)$/.test(s.key) || seen.has(s.key)) continue;
     if (!TERMINAL_SCOPES.includes(s.scope) || typeof s.id !== "string" || !s.id) continue;
     seen.add(s.key);
     sessions.push({
@@ -813,6 +815,43 @@ export function restoreTerminals(json, launched = []) {
   };
 }
 
+/**
+ * The keys of the tabs `before` held that `after` does not — what a store
+ * forgets with a close, whichever door closed them: one tab, a burst, the
+ * others, the exited ones. One rule, so no door drops a checkpoint for a tab
+ * that stays or keeps one for a tab that closed.
+ * @param {{sessions: readonly {key: string}[]} | null | undefined} before
+ * @param {{sessions: readonly {key: string}[]} | null | undefined} after
+ * @returns {string[]}
+ */
+export function closedKeys(before, after) {
+  const still = new Set((after?.sessions ?? []).map((s) => s.key));
+  return (before?.sessions ?? []).map((s) => s.key).filter((k) => !still.has(k));
+}
+
+/**
+ * The launched-harness memory as stored: a list of strings, anything else
+ * left out — a store that was never written, or written by another build,
+ * is an empty memory, never a throw.
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+export function parseLaunched(raw) {
+  return Array.isArray(raw) ? raw.filter((k) => typeof k === "string") : [];
+}
+
+/**
+ * The most recent live shell rooted in one place, or null — what *Show
+ * terminal* focuses before it opens a new one.
+ * @param {readonly object[]} sessions
+ * @param {string} scope
+ * @param {string} id
+ */
+export function lastLiveAt(sessions, scope, id) {
+  const here = sessionsRootedAt(sessions, scope, id).filter(isLive);
+  return here.length > 0 ? here[here.length - 1] : null;
+}
+
 /** The sessions standing in one place — a workstream's own terminals. */
 /**
  * The terminal tab a roster session lives in — the tab whose reporter
@@ -828,6 +867,23 @@ export function tabOfSession(terminals, sessionId) {
 
 export function sessionsRootedAt(sessions, scope, id) {
   return (sessions ?? []).filter((s) => isRootedAt(s, scope, id));
+}
+
+/**
+ * The keys of every tab rooted at one of these workstreams — and at this
+ * goal, when one is named: what a retirement closes in one move, since a
+ * shell in a folder that is gone or put away has nothing left to stand in.
+ * Nothing named, nothing closed.
+ * @param {readonly {key: string, scope: string, id: string}[] | null | undefined} sessions
+ * @param {readonly string[]} workstreams
+ * @param {string | null} [goal]
+ * @returns {string[]}
+ */
+export function keysRootedAt(sessions, workstreams, goal = null) {
+  const gone = new Set(workstreams);
+  return (sessions ?? [])
+    .filter((s) => (s.scope === "workstream" && gone.has(s.id)) || (goal !== null && s.scope === "goal" && s.id === goal))
+    .map((s) => s.key);
 }
 
 const SCOPE_NOUN = {

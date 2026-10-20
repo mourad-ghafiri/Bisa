@@ -10,7 +10,7 @@
 //! test — it says it started, answers `initialize`, and reads until it is
 //! told to go. No language server of this machine is ever started.
 
-use crate::common::engine_with;
+use crate::common::{catalog_with, engine_with, workspace};
 use bisa_core::SettingScope;
 use bisa_core::WorkstreamId;
 use bisa_engine::lsp;
@@ -18,6 +18,22 @@ use bisa_store::{FileScope, NewProject};
 use serde_json::json;
 
 const NOWHERE: &str = "bisa-no-such-language-server";
+
+/// An engine whose idle time to live is `secs`, in place of the setting
+/// and its thirty-second floor, so a sweep is seconds away.
+fn engine_idling(dir: &tempfile::TempDir, secs: u64) -> bisa_engine::Engine {
+    bisa_engine::Engine::start(
+        workspace(dir),
+        catalog_with(vec![]),
+        bisa_engine::EngineConfig {
+            design_enabled: false,
+            events_enabled: false,
+            lsp_idle_ttl_override_secs: Some(secs),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_to_the_lsp_settings_forgets_the_crash_loop_verdict_and_disabling_stops_every_start(
@@ -554,15 +570,15 @@ async fn a_server_that_died_is_started_again_and_a_settings_change_stops_every_s
 
 /// The idle time to live: the last document closed arms it; a document
 /// opened and closed again since makes the earlier sweep find the server
-/// not yet due; the later sweep stops it, and the bus says so. Thirty
-/// seconds is the least the setting allows, so this test takes that long.
+/// not yet due; the later sweep stops it, and the bus says so. The time to
+/// live is the engine's override here, two seconds, so the sweeps are near.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_idle_time_to_live_stops_a_server_nobody_uses_and_spares_one_opened_again() {
     let dir = tempfile::tempdir().unwrap();
     let tools = tempfile::tempdir().unwrap();
     let server = a_server_that_speaks(tools.path());
-    let engine = engine_with(&dir, vec![]);
+    let engine = engine_idling(&dir, 2);
     let lab = a_rust_project(&engine, "lab");
     engine
         .set_setting(
@@ -571,9 +587,6 @@ async fn the_idle_time_to_live_stops_a_server_nobody_uses_and_spares_one_opened_
             "lsp.servers",
             json!([{"language": "rust", "command": server.display().to_string()}]),
         )
-        .unwrap();
-    engine
-        .set_setting(SettingScope::Machine, None, "lsp.idle_ttl_secs", json!(30))
         .unwrap();
     let inner = engine.inner();
     let mut bus = engine.events();
@@ -592,24 +605,18 @@ async fn the_idle_time_to_live_stops_a_server_nobody_uses_and_spares_one_opened_
     close("nothing-open.md").await.unwrap();
     close("b.rs").await.unwrap();
     let first_closed = std::time::Instant::now();
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     open("a.rs").await.unwrap();
     close("a.rs").await.unwrap();
-    // The first sweep, at thirty seconds: a document was closed since, so
-    // the server is not yet due and stays.
-    tokio::time::sleep(std::time::Duration::from_secs(29)).await;
-    let row = lsp::status(inner, FileScope::Workstream, lab)
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|r| r.language == "rust")
-        .unwrap();
+    // The first sweep, two seconds after the first close, finds a document
+    // closed since and spares the server; the second, a second later, stops
+    // it. The stop is heard on the bus, and its time says which sweep did.
+    lsp_frame(&mut bus, "bisa/serverStopped").await;
     assert!(
-        matches!(row.state, bisa_lsp::server::ServerState::Running),
-        "not yet due at {:?}: {row:?}",
+        first_closed.elapsed() >= std::time::Duration::from_millis(2900),
+        "the second sweep stopped it, not the first: {:?}",
         first_closed.elapsed()
     );
-    lsp_frame(&mut bus, "bisa/serverStopped").await;
     let row = lsp::status(inner, FileScope::Workstream, lab)
         .await
         .unwrap()
@@ -625,14 +632,14 @@ async fn the_idle_time_to_live_stops_a_server_nobody_uses_and_spares_one_opened_
 }
 
 /// A sweep whose server was restarted away in the meantime finds nothing
-/// and does nothing. Thirty seconds is the least the setting allows.
+/// and does nothing. The time to live is a second here, so the sweep is near.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sweep_whose_server_went_in_the_meantime_finds_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let tools = tempfile::tempdir().unwrap();
     let server = a_server_that_speaks(tools.path());
-    let engine = engine_with(&dir, vec![]);
+    let engine = engine_idling(&dir, 1);
     let lab = a_rust_project(&engine, "lab");
     engine
         .set_setting(
@@ -641,9 +648,6 @@ async fn a_sweep_whose_server_went_in_the_meantime_finds_nothing() {
             "lsp.servers",
             json!([{"language": "rust", "command": server.display().to_string()}]),
         )
-        .unwrap();
-    engine
-        .set_setting(SettingScope::Machine, None, "lsp.idle_ttl_secs", json!(30))
         .unwrap();
     let inner = engine.inner();
     lsp::open(inner, FileScope::Workstream, &lab, "a.rs", "fn main() {}\n")
@@ -655,7 +659,9 @@ async fn a_sweep_whose_server_went_in_the_meantime_finds_nothing() {
     lsp::restart(inner, FileScope::Workstream, &lab, "rust")
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(31)).await;
+    // Past the sweep's time: it found the restarted server, or none, and
+    // started nothing.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     let row = lsp::status(inner, FileScope::Workstream, &lab)
         .await
         .unwrap()

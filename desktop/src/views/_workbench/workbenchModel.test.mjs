@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { findLeaf, leafOfTab, leaves } from "../../shell/paneTreeModel.mjs";
 
-import { MAX_RECENTLY_CLOSED, MAX_ROOTS, capRoots, heldRoots, activateDoc, closeAllTabs, closeDocPane, closeOtherTabs, closeSavedTabs, closeTab, closeTabsRight, emptyWorkbench, focusDocPane, forgetRoot, isPinned, isPreview, keepTab, leafStrip, mergedTabs, moveDocToPane, moveTab, nextActiveAfterClose, nextUntitledSeq, openTab, openTabBeside, panesFor, parseTabId, previewIds, reconcileStrip, reopenLastClosed, replaceTab, retargetTabs, rootKey, savedTabs, setDocPaneRatio, splitDocPane, stripOrder, tabId, tabLabel, tabTitle, tabsFor, tabsRightOf, tabsUnder, togglePin, untitledName, tabIn } from "./workbenchModel.mjs";
+import { closedTabs, restoreRoot, MAX_RECENTLY_CLOSED, MAX_ROOTS, capRoots, heldRoots, activateDoc, closeAllTabs, closeDocPane, closeOtherTabs, closeSavedTabs, closeTab, closeTabsRight, emptyWorkbench, focusDocPane, forgetRoot, isPinned, isPreview, keepTab, leafStrip, mergedTabs, moveDocToPane, moveTab, nextActiveAfterClose, nextUntitledSeq, openTab, openTabBeside, panesFor, parseTabId, previewIds, reconcileStrip, reopenLastClosed, replaceTab, retargetTabs, rootKey, savedTabs, setDocPaneRatio, splitDocPane, stripOrder, tabId, tabLabel, tabTitle, tabsFor, tabsRightOf, tabsUnder, togglePin, untitledName, tabIn } from "./workbenchModel.mjs";
 
 /** The leaf a document sits in, through the model's own door. */
 const paneOf = (state, key, id) => leafOfTab(panesFor(state, key), id);
@@ -644,4 +644,56 @@ test("a pane is focused by its id and a split's ratio is set — and neither cha
   assert.equal(setDocPaneRatio(resized, KEY, "s99", 0.3), resized, "a split that is not there changes nothing");
   const none = emptyWorkbench();
   assert.equal(setDocPaneRatio(none, KEY, tree.id, 0.3), none, "a root nobody opened is left as it is");
+});
+
+test("a restored split counts its panes from the saved ids: the next split mints a fresh pair, never a second d3 two panes would answer to", () => {
+  const key = "workstream:w1";
+  const tabs = [{ kind: "file", path: "a.ts" }, { kind: "file", path: "b.ts" }, { kind: "file", path: "c.ts" }];
+  const panes = { kind: "split", id: "ds2", dir: "row", ratio: 0.5, a: { kind: "leaf", id: "d1", tabs: ["file:a.ts", "file:b.ts", "file:c.ts"], active: "file:c.ts" }, b: { kind: "leaf", id: "d3", tabs: [], active: null } };
+  const restored = restoreRoot(emptyWorkbench(), key, { tabs, panes, pinned: ["file:a.ts", "file:zzz.ts"], strip: ["file:b.ts"] });
+  const entry = restored.roots.find((r) => r.key === key);
+  assert.equal(entry.paneSeq, 3, "past every id the tree holds");
+  assert.deepEqual(entry.pinned, ["file:a.ts"], "a pin on a tab that is not open is dropped");
+  assert.deepEqual(entry.strip, ["file:b.ts", "file:a.ts", "file:c.ts"], "the saved order first, the rest after");
+  const split = splitDocPane(restored, key, "col", "d1");
+  const ids = (n) => (n.kind === "leaf" ? [n.id] : [n.id, ...ids(n.a), ...ids(n.b)]);
+  const all = ids(split.roots.find((r) => r.key === key).panes);
+  assert.equal(new Set(all).size, all.length, `every pane answers to one id: ${all.join(" ")}`);
+  assert.ok(all.includes("ds4") && all.includes("d5"), `${all.join(" ")}`);
+  const same = emptyWorkbench();
+  assert.equal(restoreRoot(same, key, { tabs: [], panes, pinned: [], strip: [] }), same);
+});
+
+test("a rename onto a path already open closes the moved tab — never two tabs with one id, never a buffer written over another's — and a sibling sharing the prefix is left alone", () => {
+  const key = "workstream:w1";
+  let state = emptyWorkbench();
+  for (const path of ["a.ts", "b.ts", "src/x.ts", "lib/x.ts", "src/y.ts", "src2/z.ts"]) state = openTab(state, key, { kind: "file", path });
+  const before = state;
+  const onto = retargetTabs(state, key, "a.ts", "b.ts");
+  assert.deepEqual(onto.moved, [], "nothing moves onto a tab that is open");
+  const after = onto.state.roots.find((r) => r.key === key);
+  assert.equal(after.tabs.filter((t) => t.path === "b.ts").length, 1);
+  assert.ok(!after.tabs.some((t) => t.path === "a.ts"), "the moved tab closed");
+  assert.deepEqual(closedTabs(before, onto.state), [[key, "file:a.ts"]], "closed the one way, so its buffer and view are forgotten");
+  const folder = retargetTabs(state, key, "src", "lib");
+  assert.deepEqual(folder.moved, [["src/y.ts", "lib/y.ts"]], "the file that collides closes, the other follows");
+  const paths = folder.state.roots.find((r) => r.key === key).tabs.map((t) => t.path).sort();
+  assert.deepEqual(paths, ["a.ts", "b.ts", "lib/x.ts", "lib/y.ts", "src2/z.ts"], "src2 is not under src");
+  const self = retargetTabs(state, key, "a.ts", "a.ts");
+  assert.deepEqual(self.moved, [["a.ts", "a.ts"]]);
+  assert.equal(self.state.roots.find((r) => r.key === key).tabs.length, 6);
+});
+
+test("the strip and the cursor at their edges: a move past the end lands last, a duplicate id is recorded once, and a close of an unknown id keeps the active one", () => {
+  const key = "workstream:w1";
+  let state = emptyWorkbench();
+  for (const path of ["a.ts", "b.ts", "c.ts"]) state = openTab(state, key, { kind: "file", path });
+  const far = moveTab(state, key, "file:a.ts", 99).state;
+  assert.deepEqual(far.roots[0].strip, ["file:b.ts", "file:c.ts", "file:a.ts"], "past the end lands last");
+  const back = moveTab(far, key, "file:a.ts", -5).state;
+  assert.deepEqual(back.roots[0].strip, ["file:a.ts", "file:b.ts", "file:c.ts"], "before the start lands first");
+  const dup = reconcileStrip(state, key, ["file:c.ts", "file:c.ts", "file:a.ts"]);
+  assert.equal(new Set(dup.roots[0].strip).size, dup.roots[0].strip.length);
+  assert.equal(nextActiveAfterClose(state.roots[0].tabs.map(tabId), "file:nope.ts", "file:b.ts"), "file:b.ts");
+  assert.deepEqual(parseTabId("file:dir with space/name:v2."), { kind: "file", path: "dir with space/name:v2." });
 });

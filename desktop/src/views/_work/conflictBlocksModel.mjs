@@ -109,9 +109,14 @@ export function conflictsOf(segments) {
   return (Array.isArray(segments) ? segments : []).filter((s) => s && s.kind === "conflict");
 }
 
-/** Whether `text` still carries a marker line — what keeps *Mark resolved* off. */
+/**
+ * Whether `text` still carries a marker line — what keeps *Mark resolved*
+ * off. A line ends in `\n` or `\r\n` as the file does: a file git wrote
+ * with Windows endings carries its markers before a `\r`, and
+ * `parseConflicts` reads them there too.
+ */
 export function hasMarkers(text) {
-  return /^(<{7}|={7}|>{7}|\|{7})(?: |$)/m.test(String(text ?? ""));
+  return /^(<{7}|={7}|>{7}|\|{7})(?: |\r?$)/m.test(String(text ?? ""));
 }
 
 /**

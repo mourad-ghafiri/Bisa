@@ -156,3 +156,15 @@ test("the body of an opening is what the dialog shows, by name: a label only whi
   assert.ok(dialog.includes("api.openWorkstream(pid, request.body)"));
   assert.ok(dialog.includes("const request = openBody("));
 });
+
+test("the odd names a person types are made safe the way the engine makes them: a lock suffix, a lone dash, a letter git's refs cannot hold, and the primary's branch held by a closed worktree is still the primary's", () => {
+  assert.equal(sanitizeRefComponent("..lock", "x"), "lock", "dots are trimmed first; the word itself is a name");
+  assert.equal(sanitizeRefComponent("fix.lock", "x"), "fix");
+  assert.equal(sanitizeRefComponent("-", "x"), "x");
+  assert.equal(sanitizeRefComponent("é", "x"), "x", "a letter outside git's safe set is no name");
+  assert.equal(sanitizeRefComponent("Fix É 1", "x"), "fix-1");
+  assert.equal(typedBranchName("/x/"), "work/x");
+  assert.equal(typedBranchName("a//b"), "a/b");
+  const taken = takenBranches([{ name: "old", kind: { kind: "worktree", branch: "main" }, state: { state: "closed" } }], "main");
+  assert.equal(taken.get("main"), "the primary", "a closed worktree on the primary's branch holds nothing; the primary does");
+});

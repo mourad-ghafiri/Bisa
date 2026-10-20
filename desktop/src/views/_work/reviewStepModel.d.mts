@@ -117,4 +117,5 @@ export declare function commentRow(comment: ReviewThread): { where: string; auth
 export declare function groupWords(group: { path: string; comments: readonly ReviewThread[] }): { path: string; count: string };
 export declare function commentsSummary(comments: readonly ReviewThread[] | null | undefined): string;
 export declare function unixOf(iso: string | null | undefined): number | null;
+export declare function newRun(ask: { kind: RunKind; agent: string; at: number; conversation?: string | null; ahead?: number | null; extras?: { count?: number; comment?: string; check?: string } }): ReviewRun;
 export declare function reviewKey(review: ReviewSummary, index: number): string;

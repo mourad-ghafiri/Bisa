@@ -127,3 +127,19 @@ test("the code host is asked sooner, a failed read is said, the close act is the
   assert.ok(dialog.includes('if (id === "return" && got.pull === "conflict") {') && dialog.includes('got.return = "skipped";'), "the one skip: the return after a conflict");
   assert.ok(dialog.includes("asked, stranded })"), "a click is an ask, and stranded commits are said");
 });
+
+test("the lifecycle's acts hold while blocked or busy, confirm before what leaves the machine, and hand an agent's fix to the last agent asked", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const merge = src("../views/_work/MergeControl.tsx");
+  assert.ok(merge.includes("disabled={busy || blocked !== null}"), "never a live Merge while the step is blocked or the checkout busy");
+  assert.ok(merge.includes("<ConfirmDialog"), "a merge confirms first");
+  const checks = src("../views/_work/ChecksStep.tsx");
+  assert.ok(checks.includes('const canAsk = pr.state === "open" && !run.busy && !run.asking;'), "a fix is asked only of an open pull request with no run in flight");
+  assert.ok(checks.includes("useSessionDraft<string>(keys.fixAgent, reviewer)") && checks.includes("useSessionDraft<string>(keys.checkAgent, fixer)"), "the agent chain: reviewer, then the fixer, then the check's own");
+  const close = src("../views/_work/CloseWorkstreamDialogs.tsx");
+  assert.ok(close.includes("disabled={busy}") && close.includes("<ConfirmDialog"), "closing holds while busy and confirms");
+  const rebase = src("../views/_work/RebaseEditorDialog.tsx");
+  assert.ok(rebase.includes("disabled={busy || problem !== null || unchanged}"), "a rebase plan with a problem, or one that changes nothing, is never sent");
+  const pick = src("../views/_work/CherryPickDialog.tsx");
+  assert.ok(pick.includes("pickOrder([...picked], listed)") && pick.includes("disabled={busy || ordered.length === 0}"), "picks go in the log's order and never empty");
+});

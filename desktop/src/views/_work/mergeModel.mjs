@@ -13,6 +13,18 @@ import { t } from "../../i18n/l10n.mjs";
 /** The merge modes, in the dialog's order. */
 export const MERGE_MODES = Object.freeze(["ff", "no_ff", "ff_only", "squash"]);
 
+/**
+ * The toast after a pull request merged: the merge commit when the host
+ * named one, and what became of the remote branch — deleted on the host,
+ * could not be deleted, or nothing said when nothing was asked.
+ * @param {{sha?: string | null, remote_branch_deleted?: boolean | null}} r
+ * @param {string} host
+ */
+export function mergedWords(r, host) {
+  const branchNote = r.remote_branch_deleted === true ? ` ${t("work-git-ops-branch-deleted", { host })}` : r.remote_branch_deleted === false ? ` ${t("work-git-ops-branch-could-not-deleted", { host })}` : "";
+  return `${r.sha ? t("work-git-ops-merged-as", { sha: r.sha.slice(0, 7) }) : t("work-git-ops-merged")}${branchNote}`;
+}
+
 export const MERGE_MODE_WORDS = Object.freeze({
   ff: Object.freeze({ label: t("work-merge-fast-forward-when-possible"), meaning: t("work-merge-moves-branch-when-nothing-local-stands") }),
   no_ff: Object.freeze({ label: t("work-merge-always-merge-commit"), meaning: t("work-merge-merge-commit-even-when-fast-forward") }),

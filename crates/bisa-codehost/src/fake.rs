@@ -48,6 +48,10 @@ pub struct FakeState {
     /// Why a branch delete is refused while a test says so — a branch
     /// already gone, a protected one; `None` deletes.
     pub delete_refusal: Mutex<Option<String>>,
+    /// Why opening a pull request is refused while a test says so — a rate
+    /// limit, a host that is down — after the push already went out; `None`
+    /// opens.
+    pub create_refusal: Mutex<Option<String>>,
 }
 
 pub struct FakeCodeHost {
@@ -190,6 +194,14 @@ impl FakeCodeHost {
         }
     }
 
+    /// Refuse every pull request opened with `why`, as a code host does
+    /// when rate-limited or down; `None` opens again.
+    pub fn refuse_creates(&self, why: Option<&str>) {
+        if let Ok(mut refusal) = self.state.create_refusal.lock() {
+            *refusal = why.map(str::to_string);
+        }
+    }
+
     /// Refuse every branch delete with `why`, as a code host does for a
     /// branch that is protected or already gone; `None` deletes again.
     pub fn refuse_branch_deletes(&self, why: Option<&str>) {
@@ -310,6 +322,15 @@ impl CodeHost for FakeCodeHost {
         self.note_asked();
         if req.draft && !self.caps.draft_prs {
             return Err(CodeHostError::Unsupported("draft pull requests".into()));
+        }
+        if let Some(why) = self
+            .state
+            .create_refusal
+            .lock()
+            .ok()
+            .and_then(|r| r.clone())
+        {
+            return Err(CodeHostError::Refused(why));
         }
         let mut prs = self
             .state
