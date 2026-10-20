@@ -1870,7 +1870,10 @@ mod tests {
         let (_d, ws) = ws();
         let local = ws.create_goal(NewGoal::captured("x")).unwrap();
         let mut other_origin = local.clone();
-        other_origin.origin = bisa_core::GoalOrigin::Spawned { parent: local.id };
+        other_origin.origin = bisa_core::GoalOrigin::Spawned {
+            parent: local.id,
+            step: None,
+        };
         assert!(remote_goal_admissible(&local, &other_origin).is_err());
         let mut other_birth = local.clone();
         other_birth.created_at += 1;

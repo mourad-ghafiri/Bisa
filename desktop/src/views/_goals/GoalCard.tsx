@@ -26,7 +26,7 @@ import { progressCount } from "../_goal/progressModel.mjs";
 import { RunVerbDialogs, type RunVerb } from "../_goal/RunVerbDialogs";
 import { CurrentStepPill } from "./CurrentStepPill";
 import { GoalActPopover } from "./GoalActPopover";
-import { assigneeSummary, cardMenu, compactChips, listeningChip, needsYouCount, projectsOf, queuedChip, rowVerbs, secondLine, statusTone, statusWord, workflowWord, designingRow } from "./goalCardModel.mjs";
+import { assigneeSummary, assigneeTitle, cardMenu, compactChips, listeningChip, needsYouCount, projectNames, projectsOf, queuedChip, rowVerbs, secondLine, statusTone, statusWord, workflowWord, designingRow } from "./goalCardModel.mjs";
 import { HolderBadge } from "./HolderBadge";
 import { RetireDialog } from "../_work/RetireDialog";
 import { retiredWords } from "../_work/retireModel.mjs";
@@ -87,7 +87,7 @@ export function GoalCard({
   const second = secondLine(row);
   const StatusIcon = GOAL_STATUS_ICON[row.status] ?? ICON.goal;
   const tone = statusTone(row.status);
-  const folded = compactChips(row.strip.steps, row.strip.current, 12);
+  const folded = compactChips(row.strip.steps, row.strip.current);
   const progress = progressCount(row.strip);
   const workflow = workflowWord(row.strip);
   const attached = projectsOf(row.id, projects);
@@ -176,7 +176,7 @@ export function GoalCard({
           </span>
         )}
         {people.shown.length > 0 && (
-          <span className="hidden items-center gap-1 md:inline-flex" title={t("goals-goal-card-assigned", { people: [...people.shown.map((p) => p.word), ...(people.more > 0 ? [`+${people.more}`] : [])].join(", ") })}>
+          <span className="hidden items-center gap-1 md:inline-flex" title={t("goals-goal-card-assigned", { people: assigneeTitle(people) })}>
             {people.shown.map((p) => (
               <Avatar key={`${p.kind}:${p.word}`} id={p.word} name={p.word} size={16} />
             ))}
@@ -184,7 +184,7 @@ export function GoalCard({
           </span>
         )}
         {attached.length > 0 && (
-          <Tooltip label={attached.map((p) => p.project.name).join(", ")}>
+          <Tooltip label={projectNames(attached)}>
             <span className="hidden items-center gap-1 text-2xs text-text-dim md:inline-flex">
               <ICON.project size={11} aria-hidden />
               <span className="tnum">{attached.length}</span>

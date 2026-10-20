@@ -54,6 +54,25 @@ fn a_designer_that_stalls_once() -> Value {
     ]})
 }
 
+/// The one file under `dir` whose name ends with `suffix` — a run's snapshot
+/// by its id, wherever the store filed it.
+fn file_ending_with(dir: &std::path::Path, suffix: &str) -> Option<std::path::PathBuf> {
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = file_ending_with(&path, suffix) {
+                return Some(found);
+            }
+        } else if path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().ends_with(suffix))
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
 /// Where the Workflow Agent stands on a goal, as the node says it.
 fn design_of(ws: &Sealed, goal: &str) -> String {
     let (status, view) = ws.call("GET", &format!("/goals/{goal}"), &[], None);
@@ -152,6 +171,7 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     // --- moved on by hand ---------------------------------------------------------------
     ws.ok(&["step", "done", &goal, "fit"]);
     let at_oil = ws.json(&["status", &goal]);
+    let run_id = at_oil["run"]["id"].as_str().expect("the run").to_string();
     assert_eq!(at_oil["status"], "waiting", "{at_oil}");
     assert_eq!(at_oil["run"]["steps"]["fit"]["state"]["state"], "done");
     assert_eq!(at_oil["run"]["steps"]["oil"]["state"]["state"], "waiting");
@@ -181,16 +201,44 @@ fn a_design_is_asked_for_again_amended_moved_on_by_hand_and_kept_for_the_library
     // What is the library's already is not promoted again.
     ws.refused(&["workflow", "promote", &copy]);
 
-    // An answer aimed at a goal is taken through the node; one aimed at an
-    // id that is neither a goal nor a pending gate is refused in words.
-    let taken = ws.json(&["answer", &goal, "yes"]);
-    assert_eq!(taken["answered"], true, "{taken}");
+    // An answer aimed at a goal goes through the node, and a done goal with
+    // nothing pending is refused in words — never a stray decision recorded
+    // against a question long settled; an id that is neither a goal nor a
+    // pending gate is refused too.
+    let nothing_pending = ws.bisa(&["answer", &goal, "yes"]);
+    assert!(
+        !nothing_pending.status.success(),
+        "{}",
+        said_by(&nothing_pending)
+    );
+    assert!(
+        said_by(&nothing_pending).contains("no pending gate"),
+        "{}",
+        said_by(&nothing_pending)
+    );
     ws.refused(&["answer", "nonsense", "yes"]);
     let none_going = ws.json(&["workflow", "restart", &copy]);
     assert_eq!(none_going["runs"], json!([]), "{none_going}");
     let _ = ws.bisa(&["workflow", "hook-secret", "workflow", &copy, "fit"]);
     ws.refused(&["workflow", "hook-secret", "workflow", &copy, "not a step!"]);
     ws.stop();
+
+    // --- a run file this build cannot read costs that goal's run, never the list -----
+    let torn = file_ending_with(&ws.data(), &format!("-{run_id}.json")).expect("the run's file");
+    let as_written = std::fs::read(&torn).unwrap();
+    std::fs::write(&torn, "{torn").unwrap();
+    let found = ws.json(&["search"]);
+    let row = found["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["goal"] == goal.as_str())
+        .unwrap_or_else(|| panic!("the goal is still listed: {found}"));
+    assert_eq!(row["run_unreadable"], json!(true), "{row}");
+    assert!(row["status"].is_string(), "drawn without its run: {row}");
+    ws.ok(&["search"]);
+    // The file as it was, for the verbs below to read the run again.
+    std::fs::write(&torn, as_written).unwrap();
 
     // --- without a node: the same verbs on the workspace itself ---------------------
     ws.refused(&["design", &goal]);

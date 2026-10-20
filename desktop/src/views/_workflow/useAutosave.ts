@@ -48,6 +48,8 @@ interface AutosaveDriver {
   /** The stored copy, when a 409 says somebody saved first. */
   fetchStored: (id: string) => Promise<Workflow>;
   delay: number;
+  /** A goal runs this workflow: nothing is saved while it does, not even on the way out. */
+  frozen?: boolean;
 }
 
 export interface Autosave {
@@ -108,6 +110,7 @@ export function useAutosave(
 
   const run = useCallback((): Promise<SaveOutcome | null> => {
     if (inflight.current) return inflight.current;
+    if (driverRef.current.frozen) return Promise.resolve(null);
     const s = latest.current;
     if (!s) return Promise.resolve(null);
     const req = saveRequest(s);
@@ -128,11 +131,11 @@ export function useAutosave(
   // still lands.
   useEffect(() => {
     if (!session) return;
-    const wait = saveDue(session, Date.now(), driver.delay);
+    const wait = saveDue(session, Date.now(), driver.delay, { frozen: !!driver.frozen });
     if (wait === null) return;
     const t = setTimeout(() => void run(), wait);
     return () => clearTimeout(t);
-  }, [session, driver.delay, run]);
+  }, [session, driver.delay, driver.frozen, run]);
 
   // Leaving — the screen or the page — flushes an unsaved edit of a stored
   // workflow, after the save in flight has settled. The session in `latest`
@@ -142,7 +145,7 @@ export function useAutosave(
     const flushOnLeave = () => {
       const pending = inflight.current ?? Promise.resolve(null);
       void pending.then(() => {
-        if (abandoned.current) return;
+        if (abandoned.current || driverRef.current.frozen) return;
         let s = latest.current;
         if (!s) return;
         if (s.status === "saving" && lastOutcome.current) s = settle(s, lastOutcome.current);

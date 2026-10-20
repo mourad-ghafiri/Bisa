@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { finishedWords, liveSteps, progressCount, progressRows, rowOpen, rowPressed, stepHolder } from "./progressModel.mjs";
+import { durationSuffix, finishedWords, liveSteps, progressCount, progressRows, rowOpen, rowPressed, stepHolder } from "./progressModel.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORE = join(HERE, "../../../../crates/bisa-core/src");
@@ -180,4 +180,9 @@ test("the live steps are the ones running or waiting, in definition order — wh
   for (const none of [null, undefined, {}, { workflow: { steps: [{ id: "a" }] } }]) assert.deepEqual(liveSteps(none), []);
   const popover = readFileSync(new URL("../_goals/GoalActPopover.tsx", import.meta.url), "utf8");
   assert.ok(popover.includes("const live = liveSteps(run);") && !popover.includes('=== "waiting"'), "the popover repeats no rule");
+});
+
+test("a duration joins the line after the start time, and nothing joins nothing", () => {
+  assert.equal(durationSuffix("3 min"), " · 3 min");
+  for (const none of [null, undefined, ""]) assert.equal(durationSuffix(none), "");
 });

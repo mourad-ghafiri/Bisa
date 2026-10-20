@@ -172,7 +172,11 @@ sequenceDiagram
 (`listen::turn::turn_off`), withdraws every queued run, cancels the live one (`Cancel { stopped }`)
 and ends the goal's sessions (`sessions::stop_for`), in that order — so nothing its events start
 slips in and the last settle finds nothing to advance — then waits a bounded time for the
-sessions to be gone; the goal reads `draft`. **Every verb goes through one door** (`ending.rs`), in
+sessions to be gone; the goal reads `draft`. While a restart waits for the sessions to end, an
+occurrence of the goal's events is held rather than dispatched (`Inner.ending_goals`, set for the
+goal's life in `signal_goal_work` and cleared with `finish_goal_work`; `dispatch::decide` settles
+the signal *waiting*), and the next tick dispatches it — so the restart's run is the live one and
+no run the occurrence began queues ahead of it. **Every verb goes through one door** (`ending.rs`), in
 one order: listening off and the queue withdrawn; no re-wake — the Workflow Agent's pending cycle
 and the thread's queued message go; the live run cancelled, the run first and the sessions after, so
 an aborted worker finds its item cancelled and nothing retries; **the goals it spawned, recursively**

@@ -748,7 +748,7 @@ fn a_goals_staff_scope_is_its_own_else_its_nearest_ancestors() {
         )
         .unwrap();
     let spawned = |parent: bisa_core::GoalId, s: &str| NewGoal {
-        origin: bisa_core::GoalOrigin::Spawned { parent },
+        origin: bisa_core::GoalOrigin::Spawned { parent, step: None },
         ..NewGoal::captured(s)
     };
 

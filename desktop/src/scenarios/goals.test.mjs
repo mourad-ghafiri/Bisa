@@ -200,3 +200,20 @@ test("putting it away: the preview is read first, the title and the button follo
   const refused = { ...preview, refusal: "goal g cannot be deleted: its design d is still used by goal g2" };
   assert.equal(titleWords(defaultChoices("delete", refused).thing, "Ship the report"), "Archive Ship the report?");
 });
+
+test("an ask card and a step's verbs send once, the act popover reads the goal afresh when opened again, and the card's lines are the model's", () => {
+  const read = (name) => readFileSync(new URL(`../views/${name}`, import.meta.url), "utf8");
+  const ask = read("_studio/PendingAsk.tsx");
+  assert.ok(ask.includes("if (busy || sent) return;") && ask.includes("setSent(true);") && !ask.includes('busy ? "…"'), "decided once, the busy word from the catalog");
+  assert.ok(ask.includes('failureText("studio", "pending-ask-could-not-send-answer", e)') && !ask.includes("e.message"), "a refusal is said through the one helper");
+  assert.equal((ask.match(/disabled=\{busy\}/g) ?? []).length, 0, "every control honours the sent latch");
+  const verbs = read("_workflow/StepActions.tsx");
+  assert.ok(verbs.includes("if (busy || sent) return;") && verbs.includes("setSent(true);") && !/disabled=\{busy\b(?! \|\| sent)/.test(verbs), "sent once, every button latched");
+  const popover = read("_goals/GoalActPopover.tsx");
+  assert.ok(popover.includes("setView(null);\n    setError(null);"), "opened again, nothing stale is acted on");
+  const card = read("_goals/GoalCard.tsx");
+  assert.ok(card.includes("assigneeTitle(people)") && card.includes("projectNames(attached)") && !card.includes('.join(", ")') && card.includes("compactChips(row.strip.steps, row.strip.current)"), "no words joined in glue, and the strip's bound named in the model");
+  const dialog = read("_work/NewGoalDialog.tsx");
+  assert.ok(dialog.includes("const handoff = projectsHandoff();") && dialog.includes("handoff.offer(ids);") && dialog.includes("const ids = handoff.take();") && !dialog.includes("let pendingProjects"), "the projects handed over are the model's slot");
+  assert.ok(read("_workflow/Inspector.tsx").includes("{durationSuffix(row.duration)}"), "the run line joins through the model");
+});

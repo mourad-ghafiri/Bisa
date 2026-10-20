@@ -113,7 +113,16 @@ is `Unreadable`, naming its file and what it should have been — and a referenc
 answered with that, never as a reference to something nobody wrote. A list is a read and repairs nothing —
 `rebuild_index` is the one reconciler of the index against the disk, and it skips the same file
 the same way. The node's read routes carry the fact one step further: a goal whose current run
-cannot be read is a row with `run_unreadable: true`, drawn as a goal with no run.
+cannot be read is a row with `run_unreadable: true`, drawn as a goal with no run; a goal whose
+chosen workflow cannot be read is a row whose strip has no definition, the file said at `error`;
+the library's lists (`list_workflows`, `list_archived_workflows_in`) skip a workflow file this
+build cannot read as the goals list does, said at `error`, never the library lost; a
+workflow a route names that is there and cannot be read is `Unreadable` by its file, never
+*workflow not found* (`workflows::workflow_of`); a goal's journal this node cannot read leaves the
+Workflow Agent's standing unknown on its page and drops the durable asks only the journal could
+rebuild (`inbox::journal_or_empty`), said at `error`, while the live gates, the page and the Inbox
+answer. The command line's `bisa search` follows the same rule for a current run it cannot read:
+the row stands with `run_unreadable: true`, the reason on stderr, never the list lost.
 
 ### One torn file never stops the open
 
@@ -150,7 +159,10 @@ the stored copy must be at exactly `expected` (0 for a new object) or the write 
 `RevisionConflict { kind, id, expected, actual }` and nothing lands. Workflow edits and every run
 event go through it; a run event is also recorded under one lock per process (`run_writes`) and,
 when a peer's snapshot moved the run under the write, is re-read and re-applied a bounded number of
-times.
+times. A goal's snapshot is written the same way — `put_expecting` at the revision before it — and
+every writer of a goal takes `run_writes` as well: a close, its listening, an edit, an archive, a
+run made or started on it, and a workflow's archive or delete around their look for live runs, so
+no read-modify-write crosses another's and a pause racing a close never writes over the closure.
 
 ### Writing truth
 

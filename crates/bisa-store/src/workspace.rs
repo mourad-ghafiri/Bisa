@@ -568,14 +568,21 @@ impl Workspace {
         Ok(goal)
     }
 
+    /// The goal's snapshot, written at its revision — a compare-and-swap:
+    /// the stored copy must be at the revision before it, so a writer that
+    /// read the goal before another's write landed is refused
+    /// (`RevisionConflict`), never taken as the latest because its second
+    /// came later. Every writer takes `run_writer` as well, so the refusal
+    /// is the belt under the lock, never the ordinary case.
     pub(crate) fn write_goal_snapshot(&self, goal: &Goal, at: u64) -> Result<(), StoreError> {
         let d = goal.id.to_string();
-        let event = self.snapshots.put(
+        let event = self.snapshots.put_expecting(
             &Paths::ns_goal(goal.id),
             KIND_GOAL,
             &d,
+            "goal",
             goal,
-            goal.revision,
+            goal.revision.saturating_sub(1),
             &self.owner,
             at,
             None,
@@ -717,6 +724,7 @@ impl Workspace {
     /// or forget a run (`create_run`), begin or stop listening
     /// (`set_listening`), or rewrite where the goal came from.
     pub fn update_goal(&self, mut goal: Goal) -> Result<Goal, StoreError> {
+        let _one_writer = self.run_writer();
         let current = self.get_goal(goal.id)?;
         if current.closed != goal.closed {
             return Err(StoreError::Invalid(bisa_core::text!(
@@ -2422,7 +2430,10 @@ mod tests {
             .create_goal(NewGoal {
                 statement: "part of it".into(),
                 title: None,
-                origin: GoalOrigin::Spawned { parent: goal.id },
+                origin: GoalOrigin::Spawned {
+                    parent: goal.id,
+                    step: None,
+                },
                 mode: GoalMode::Manual,
                 assignees: vec![],
                 tags: Tags::default(),
@@ -2443,7 +2454,10 @@ mod tests {
             .create_goal(NewGoal {
                 statement: "orphan".into(),
                 title: None,
-                origin: GoalOrigin::Spawned { parent: ghost },
+                origin: GoalOrigin::Spawned {
+                    parent: ghost,
+                    step: None,
+                },
                 mode: GoalMode::Manual,
                 assignees: vec![],
                 tags: Tags::default(),

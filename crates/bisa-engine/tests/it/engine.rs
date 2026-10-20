@@ -6,8 +6,8 @@ use crate::common;
 
 use bisa_core::event::JournalPayload;
 use bisa_core::{
-    AgentId, Answer, AskKind, Gate, GoalId, GoalOrigin, GoalStatus, Home, RunOutcome, StepKind,
-    StepState, ToolTier, WorkItemState,
+    AgentId, Answer, AskKind, Gate, GoalId, GoalStatus, Home, RunOutcome, StepKind, StepState,
+    ToolTier, WorkItemState,
 };
 use bisa_engine::{
     Engine, EngineConfig, EnginePayload, ExecutionOutcome, LiveRunId, ScheduleRejection,
@@ -1179,7 +1179,7 @@ async fn spawn_sub_goal_policy() {
     assert_eq!(r["ok"], true, "{r}");
     let child: GoalId = r["child"].as_str().unwrap().parse().unwrap();
     let child_goal = engine.workspace().get_goal(child).unwrap();
-    assert_eq!(child_goal.origin, GoalOrigin::Spawned { parent: goal.id });
+    assert_eq!(child_goal.origin.parent(), Some(goal.id));
     assert_eq!(child_goal.title.as_deref(), Some("Research"));
     assert_eq!(
         engine.workspace().edges_from(child).unwrap(),

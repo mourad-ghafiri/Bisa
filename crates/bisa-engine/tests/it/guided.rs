@@ -492,8 +492,12 @@ async fn a_design_question_records_asking_and_the_answer_resumes() {
         unreachable!()
     };
     assert_eq!(detail.as_deref(), Some("Which tone?"));
-    // The turn ends (or times out) while asking: no stall is recorded.
-    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    // The turn ends (or times out) while asking: once no wake holds the
+    // goal, no stall is recorded.
+    until("the wake to end", || {
+        (!engine.inner().guided.busy(goal.id)).then_some(())
+    })
+    .await;
     assert!(
         !statuses(&engine, goal.id).contains(&GuidanceStatus::Stalled),
         "{:?}",
@@ -1426,8 +1430,8 @@ async fn sub_goal_spawning_respects_depth_budget() {
     assert_eq!(allowed["ok"], json!(true), "budgeted spawn: {allowed}");
     let child: bisa_core::GoalId = allowed["child"].as_str().unwrap().parse().unwrap();
     assert_eq!(
-        engine.workspace().get_goal(child).unwrap().origin,
-        bisa_core::GoalOrigin::Spawned { parent: goal.id }
+        engine.workspace().get_goal(child).unwrap().origin.parent(),
+        Some(goal.id)
     );
     engine.shutdown().await;
 }
@@ -1873,7 +1877,10 @@ async fn an_answer_during_repair_resumes_repair() {
     })
     .await;
     // The turn times out while asking; the session that asked is gone.
-    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    until("the wake to end", || {
+        (!engine.inner().guided.busy(goal.id)).then_some(())
+    })
+    .await;
     let gate = until("the question", || {
         engine
             .inbox()

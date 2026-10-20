@@ -279,6 +279,13 @@ pub enum EnginePayload {
         goal: GoalId,
         archived: bool,
     },
+    /// A goal's own record changed — its statement, title, assignees, tags
+    /// or budget — by a person's edit or an agent's `revise_statement`: the
+    /// screen open on it reads it again. Its workflow, its runs, its
+    /// listening and its closing each have a frame of their own.
+    GoalUpdated {
+        goal: GoalId,
+    },
     /// A goal was deleted: its folder, its runs, its work — gone from this node.
     GoalDeleted {
         goal: GoalId,
@@ -904,6 +911,7 @@ impl EnginePayload {
             EnginePayload::WorkflowArchived { .. } => "workflow.archived",
             EnginePayload::AttachmentChanged { .. } => "attachment.changed",
             EnginePayload::GoalArchived { .. } => "goal.archived",
+            EnginePayload::GoalUpdated { .. } => "goal.updated",
             EnginePayload::GoalDeleted { .. } => "goal.deleted",
             EnginePayload::ProjectArchived { .. } => "project.archived",
             EnginePayload::ProjectDeleted { .. } => "project.deleted",
@@ -1100,6 +1108,7 @@ impl EnginePayload {
                 put("archived", archived.to_string());
             }
             EnginePayload::GoalDeleted { goal } => put("goal", goal.to_string()),
+            EnginePayload::GoalUpdated { goal } => put("goal", goal.to_string()),
             EnginePayload::WorkflowDeleted { workflow } => put("workflow", workflow.to_string()),
             EnginePayload::WorkflowArchived { workflow, archived } => {
                 put("workflow", workflow.to_string());
@@ -1289,6 +1298,7 @@ pub const TOPICS: &[&str] = &[
     "workflow.archived",
     "attachment.changed",
     "goal.archived",
+    "goal.updated",
     "goal.deleted",
     "project.archived",
     "project.deleted",

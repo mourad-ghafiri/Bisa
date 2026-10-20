@@ -70,7 +70,7 @@ export function toGraph(wf) {
  * order, so the edges the canvas draws as loops are exactly the ones the run
  * machine treats as loops.
  */
-export function backEdges(order, edges) {
+function backEdges(order, edges) {
   const out = new Set();
   const state = new Map(); // id → "open" | "done"
   const outgoing = new Map();
@@ -660,9 +660,65 @@ export function duplicateStep(wf, id) {
   return { wf: { ...wf, steps: [...wf.steps, copy] }, id: next };
 }
 
+/**
+ * Several steps and flows removed in one gesture, each through the gate:
+ * what was removed (`gone`, for the selection to follow) and how many the
+ * gate refused, so the canvas says so once.
+ * @param {object} wf
+ * @param {{nodes?: readonly string[], edges?: readonly {id: string, from: string, ref: object}[]}} picked
+ * @param {(id: string) => boolean} allowed whether a step may change
+ */
+export function removeMany(wf, { nodes = [], edges = [] } = {}, allowed = () => true) {
+  let next = wf;
+  let refused = 0;
+  const gone = { nodes: [], edges: [] };
+  for (const id of nodes) {
+    if (allowed(id)) {
+      next = removeStep(next, id);
+      gone.nodes.push(id);
+    } else refused += 1;
+  }
+  for (const e of edges) {
+    if (!allowed(e.from)) {
+      refused += 1;
+      continue;
+    }
+    next = removeFlow(next, e.ref);
+    gone.edges.push(e.id);
+  }
+  return { wf: next, gone, refused };
+}
+
+/**
+ * `duplicateStep` of a card that may have no position of its own: the copy
+ * takes the place the picture draws its source at, then the duplicate's
+ * offset from it.
+ * @param {object} wf @param {string} id @param {ReadonlyMap<string, {x: number, y: number}>} positions
+ */
+export function duplicateFrom(wf, id, positions) {
+  const source = (wf.steps ?? []).find((s) => s.id === id);
+  const base = source && !source.position ? setPositions(wf, new Map([[id, positions.get(id) ?? { x: 0, y: 0 }]])) : wf;
+  return duplicateStep(base, id);
+}
+
 /** Replace one step wholesale — what a form's save does. */
 export function replaceStep(wf, id, step) {
   return { ...wf, steps: (wf.steps ?? []).map((s) => (s.id === id ? step : s)) };
+}
+
+/**
+ * `replaceStep` on the body as it stands: the body itself, untouched, when
+ * the step is gone — what a field's commit on its way out lands on, since
+ * the body it was rendered with may have moved under it (another writer's
+ * copy taken, a run freezing the design, the step deleted).
+ */
+export function replaceStepIfPresent(wf, id, step) {
+  return (wf.steps ?? []).some((s) => s.id === id) ? replaceStep(wf, id, step) : wf;
+}
+
+/** `renameStep` on the body as it stands: the body itself when `from` is gone. */
+export function renameStepIfPresent(wf, from, to) {
+  return (wf.steps ?? []).some((s) => s.id === from) ? renameStep(wf, from, to) : wf;
 }
 
 /**

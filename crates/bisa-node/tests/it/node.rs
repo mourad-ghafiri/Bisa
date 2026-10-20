@@ -6035,7 +6035,10 @@ async fn project_visibility_is_attachment_and_nothing_else() {
     let child = node
         .ws
         .create_goal(bisa_store::NewGoal {
-            origin: bisa_core::GoalOrigin::Spawned { parent: other },
+            origin: bisa_core::GoalOrigin::Spawned {
+                parent: other,
+                step: None,
+            },
             ..bisa_store::NewGoal::captured("a child of the other goal")
         })
         .unwrap()
@@ -11539,5 +11542,94 @@ async fn a_projects_doors_at_their_edges() {
     let v = node.get(&format!("/workstreams/{pid}/git/status")).await;
     assert_eq!(v["status"]["exists"], json!(false), "{v}");
     assert_eq!(v["status"]["clean"], json!(true), "{v}");
+    node.shutdown().await;
+}
+
+/// A goal a `spawn` step made names that step in its origin: the row says
+/// which step of which parent it is for, so a restart pairs each waiting
+/// step with its own child.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spawned_goals_row_names_the_step_that_spawned_it() {
+    let node = Node::start().await;
+    let child = node
+        .workflow(json!({
+            "name": "Held",
+            "steps": [{"id": "hold", "name": "Hold", "kind": "wait", "until": {"until": "release"}}]
+        }))
+        .await;
+    let spawner = node
+        .workflow(json!({
+            "name": "Spawns",
+            "steps": [{
+                "id": "child", "name": "Child", "kind": "spawn",
+                "statement_template": "the child's part", "workflow": child.to_string(), "wait": true
+            }]
+        }))
+        .await;
+    let parent = node.new_goal("spawns a child").await;
+    node.start_run(parent, spawner).await;
+    let mut spawned = None;
+    for _ in 0..200 {
+        let goals = node.get("/goals").await;
+        spawned = goals["goals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|g| g["origin"]["origin"] == json!("spawned"))
+            .cloned();
+        if spawned.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let row = spawned.expect("the child is a row");
+    assert_eq!(row["origin"]["parent"], json!(parent.to_string()), "{row}");
+    assert_eq!(row["origin"]["step"], json!("child"), "{row}");
+    assert_eq!(row["statement"], json!("the child's part"));
+    node.shutdown().await;
+}
+
+/// A closed goal is moved by nothing: every verb that would start, stop,
+/// restart, close, design, amend or decide it is refused, the second close
+/// a conflict, and the goal stands as it was closed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_goal_refuses_every_verb_that_would_move_it() {
+    let node = Node::start().await;
+    let goal = node.new_goal("closed early").await;
+    let (code, v) = node
+        .req("POST", &format!("/goals/{goal}/close"), Some(json!({})))
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let before = node.get(&format!("/goals/{goal}")).await;
+    let mut codes = Vec::new();
+    for (method, verb, body) in [
+        ("POST", "run", json!({})),
+        ("POST", "stop", json!({})),
+        ("POST", "restart", json!({})),
+        ("POST", "close", json!({})),
+        ("POST", "design", json!({})),
+        (
+            "POST",
+            "amend",
+            json!({"workflow": {"name": "x", "description": "", "steps": []}}),
+        ),
+        ("POST", "decide", json!({"approve": true})),
+    ] {
+        let (code, v) = node
+            .req(method, &format!("/goals/{goal}/{verb}"), Some(body))
+            .await;
+        assert!(
+            (400..500).contains(&code),
+            "{method} {verb} on a closed goal: {code} {v}"
+        );
+        codes.push((verb, code));
+    }
+    assert!(
+        codes.contains(&("close", 409)),
+        "closing twice is a conflict: {codes:?}"
+    );
+    let after = node.get(&format!("/goals/{goal}")).await;
+    assert_eq!(after["goal"], before["goal"], "nothing moved: {codes:?}");
+    assert!(after["run"].is_null(), "{after}");
     node.shutdown().await;
 }

@@ -59,7 +59,11 @@ export declare function present(s: Session): NewWorkflowBody;
 export declare function withProblems(s: Session, problems: Problem[]): Session;
 export declare function dirty(s: Session): boolean;
 export declare function saveRequest(s: Session): SaveRequest | null;
-export declare function saveDue(s: Session, now: number, delay: number): number | null;
+export declare function saveDue(s: Session, now: number, delay: number, options?: { frozen?: boolean }): number | null;
+/** The head worth keeping when a designer in `conflict` or `rejected` is left; null otherwise. */
+export declare function parked(s: Session | null | undefined): NewWorkflowBody | null;
+/** A session on the stored workflow with a kept head: a conflict to settle when they differ. */
+export declare function openWithMine(stored: Workflow, problems: Problem[], mine: NewWorkflowBody | null | undefined): Session;
 export declare function saveStarted(s: Session, body: NewWorkflowBody): Session;
 export declare function saveSucceeded(s: Session, saved: Workflow, problems?: Problem[]): Session;
 export declare function saveFailed(s: Session, message: string): Session;
@@ -91,7 +95,7 @@ export interface WorkflowFact {
 }
 export declare function remoteAction(s: Session | null | undefined, payload: WorkflowFact | null | undefined): "leave" | "remark" | "reload" | "ignore";
 export declare function goalTabRemote(
-  tab: { workflow: string | null | undefined; drawing: boolean; running: boolean } | null | undefined,
+  tab: { workflow: string | null | undefined; drawing: boolean; running: boolean; warned?: number | null } | null | undefined,
   payload: WorkflowFact | null | undefined,
 ): "reload" | "warn" | "ignore";
 

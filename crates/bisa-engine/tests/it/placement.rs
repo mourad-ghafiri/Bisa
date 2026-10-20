@@ -329,7 +329,10 @@ async fn a_spawned_child_inherits_its_parents_projects() {
     let child = engine
         .submit_goal(SubmitRequest {
             mode: bisa_core::GoalMode::Manual,
-            origin: bisa_core::GoalOrigin::Spawned { parent: parent.id },
+            origin: bisa_core::GoalOrigin::Spawned {
+                parent: parent.id,
+                step: None,
+            },
             ..guided("a part")
         })
         .unwrap();
@@ -351,7 +354,10 @@ async fn a_spawned_child_inherits_its_parents_projects() {
     let later = engine
         .submit_goal(SubmitRequest {
             mode: bisa_core::GoalMode::Manual,
-            origin: bisa_core::GoalOrigin::Spawned { parent: parent.id },
+            origin: bisa_core::GoalOrigin::Spawned {
+                parent: parent.id,
+                step: None,
+            },
             ..guided("another part")
         })
         .unwrap();
@@ -880,10 +886,7 @@ async fn a_spawned_child_is_given_what_its_step_says_and_works_where_its_parent_
         .unwrap();
     let run = ws.get_current_run(goal.id).unwrap().expect("its run");
     let born = opened_by(&engine, run.id).await;
-    assert_eq!(
-        born.origin,
-        bisa_core::GoalOrigin::Spawned { parent: goal.id }
-    );
+    assert_eq!(born.origin.parent(), Some(goal.id));
     assert!(ws.is_attached(born.id, web.id).unwrap(), "its parent's");
     let its = until("the child's run", || {
         ws.get_current_run(born.id).ok().flatten()
@@ -1326,5 +1329,79 @@ async fn no_session_ever_launches_in_the_workspace_root() {
             projects.display()
         );
     }
+    engine.shutdown().await;
+}
+
+/// A proposal whose agent step has nowhere unambiguous to run — the goal has
+/// several projects attached and the step names none — is not the agent's
+/// tool call to fail with, nor a gate to burn: an auto goal opens the Adopt
+/// gate saying why, and a guided goal's approval is refused with the gate
+/// kept and nothing recorded.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_proposal_that_cannot_be_placed_asks_rather_than_failing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, _) = engine_with(&dir, false);
+    let ws = engine.workspace();
+    let draft = serde_json::json!({
+        "name": "Unplaced",
+        "steps": [{"id": "work", "name": "Work", "kind": "agent",
+                   "instructions": "do it", "harness": ["mock"]}]
+    });
+    let socket = engine.socket_path().to_path_buf();
+    let propose = |goal: GoalId| {
+        let draft = draft.clone();
+        let socket = socket.clone();
+        async move {
+            common::intake_roundtrip(
+                &socket,
+                serde_json::json!({"op": "propose_workflow", "agent": bisa_core::AgentId::WORKFLOW,
+                                   "goal": goal.to_string(), "workflow": draft}),
+            )
+            .await
+        }
+    };
+
+    let auto = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Auto,
+            ..guided("auto, two places")
+        })
+        .unwrap();
+    attached_project(ws, auto.id, NewProject::managed("web").unwrap());
+    attached_project(ws, auto.id, NewProject::managed("api").unwrap());
+    let reply = propose(auto.id).await;
+    assert_eq!(reply["ok"], serde_json::json!(true), "{reply}");
+    let gate = reply["gate"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the adopt gate opens, saying why: {reply}"))
+        .to_string();
+    let question = engine.gate(&gate).unwrap().question;
+    assert!(question.contains("project"), "{question}");
+    assert!(ws.get_goal(auto.id).unwrap().run.is_none(), "nothing ran");
+
+    let guided_goal = engine.submit_goal(guided("guided, two places")).unwrap();
+    attached_project(ws, guided_goal.id, NewProject::managed("web2").unwrap());
+    attached_project(ws, guided_goal.id, NewProject::managed("api2").unwrap());
+    let reply = propose(guided_goal.id).await;
+    let gate = reply["gate"].as_str().unwrap().to_string();
+    let err = engine.decide(&gate, true, None, None, None).unwrap_err();
+    assert!(
+        matches!(err, bisa_engine::EngineError::ProjectAmbiguous { .. }),
+        "{err:?}"
+    );
+    assert!(
+        engine.gate(&gate).is_some_and(|g| g.resolution.is_none()),
+        "the gate stands"
+    );
+    let decisions = ws
+        .journal(&bisa_core::Home::Goal {
+            goal: guided_goal.id,
+        })
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e.payload, bisa_core::event::JournalPayload::Decision { .. }))
+        .count();
+    assert_eq!(decisions, 0, "nothing was recorded");
+    assert!(ws.get_goal(guided_goal.id).unwrap().run.is_none());
     engine.shutdown().await;
 }

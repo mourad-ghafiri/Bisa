@@ -88,6 +88,7 @@ export const FACT_CONCEPT = Object.freeze({
   document_added: "goals",
   goal_archived: "goals",
   goal_deleted: "goals",
+  goal_updated: "goals",
   goal_closed: "goals",
   boundary_fired: "goals",
   guided: "workflows",

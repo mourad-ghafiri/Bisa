@@ -120,14 +120,18 @@ export const WAITS = [
  * A fresh catch of one kind with the fields it needs. A reference not chosen
  * yet — a project — is `null`, never `""`.
  */
+/** A delay's seconds and a schedule's cron when nothing else is said: the blank step's, and the form's when a reference is cleared. */
+export const DEFAULT_DELAY_SECS = 3600;
+export const DEFAULT_CRON = "0 9 * * 1-5";
+
 export function blankWait(until) {
   switch (until) {
     case "delay":
-      return { until, secs: 3600 };
+      return { until, secs: DEFAULT_DELAY_SECS };
     case "time":
       return { until, at: "" };
     case "schedule":
-      return { until, cron: "0 9 * * 1-5", tz: null };
+      return { until, cron: DEFAULT_CRON, tz: null };
     case "signal":
       return { until, name: "", fields: {} };
     case "message":

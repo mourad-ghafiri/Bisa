@@ -59,9 +59,10 @@ import { edgeIdOf, flowRefAfterRelabel, selectionAfterDelete, stepSelection, typ
 import { StepActions } from "./StepActions";
 import { StepRecordBody } from "./StepRecordBody";
 import { TEMPLATE_HINT, branchesOf } from "./stepKinds.mjs";
-import { removeFlow, removeStep, renameInput, renameStep, replaceStep, upstreamOf, type Definition } from "./workflowGraph.mjs";
+import { removeFlow, removeStep, renameInput, renameStepIfPresent, replaceStep, replaceStepIfPresent, upstreamOf, type Definition } from "./workflowGraph.mjs";
 import { layout, withPositions } from "./workflowLayout.mjs";
 import { HOLDER_LABEL } from "../_goals/goalStripModel.mjs";
+import { durationSuffix } from "../_goal/progressModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 /** The fold's name in the collapsed store: *Flow and failure* stays as the person left it, from step to step and across visits. */
@@ -173,8 +174,13 @@ export function Inspector<D extends NewWorkflowBody | Workflow>({
   problems: readonly Problem[];
   /** Why the node could not judge the current design, when it could not. */
   unreadable?: string | null;
-  /** A new definition; `token` names what was typed into, for the history to coalesce a burst on. */
-  onChange: (next: D, token?: string | null) => void;
+  /**
+   * A new definition, or a function of the body as it stands when the edit
+   * lands — what a form's commit on its way out needs, since the body it was
+   * rendered with may be gone by then; `token` names what was typed into,
+   * for the history to coalesce a burst on.
+   */
+  onChange: (next: D | ((body: D) => D), token?: string | null) => void;
   onSelect: (selection: Selection) => void;
   readOnly?: boolean;
   /** In an amendment: the steps that may still change. Null means every step. */
@@ -206,16 +212,20 @@ export function Inspector<D extends NewWorkflowBody | Workflow>({
   const tags = useMemo(() => [...(value.tags ?? [])], [value.tags]);
   const laid = useMemo(() => layout(value as Definition), [value]);
   // The one door every edit leaves by: the derived positions written down first, so a form's edit never reflows the picture.
-  const commit = (next: D, token: string | null = null) => onChange(withPositions(next, laid.positions), token);
+  // A function is applied to the body as it stands when the edit lands, never to the one this render drew.
+  const commit = (next: D | ((body: D) => D), token: string | null = null) =>
+    onChange(typeof next === "function" ? (body: D) => withPositions(next(body), laid.positions) : withPositions(next, laid.positions), token);
   const [flowFolded, toggleFlow] = useCollapsed(FLOW_FOLD, true);
 
   if (view.kind === "step") {
     const { step, frozen } = view;
     const Icon = stepKindIcon(step.kind);
     const token = `step:${step.id}`;
-    const patch = (next: Step) => commit(replaceStep(value, step.id, next), token);
+    // A form's patch and a rename land on the body as it stands: a step gone
+    // by then — deleted, or the body replaced under the form — is left gone.
+    const patch = (next: Step) => commit((body) => replaceStepIfPresent(body, step.id, next), token);
     const rename = (to: string) => {
-      commit(renameStep(value, step.id, to));
+      commit((body) => renameStepIfPresent(body, step.id, to));
       onSelect(stepSelection(to));
       onRenamed?.(step.id, to);
     };
@@ -470,7 +480,7 @@ function RunSection({
           {row.startedAt !== null && (
             <span className="tnum">
               <RelativeTime at={row.startedAt} />
-              {row.duration !== null && ` · ${row.duration}`}
+              {durationSuffix(row.duration)}
             </span>
           )}
         </p>

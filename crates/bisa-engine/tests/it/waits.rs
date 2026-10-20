@@ -410,8 +410,9 @@ async fn a_message_wait_hears_what_the_person_says_and_never_an_announcement() {
     };
     say("please go ahead", bisa_store::PostOrigin::Announced);
     say("not yet", bisa_store::PostOrigin::Asked);
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert_eq!(current_run(&engine, goal.id).status(), RunStatus::Waiting);
+    // The proof that neither moved the step is the one that does: the
+    // output names the third message, never one of the first two.
     let message = say("you may go ahead now", bisa_store::PostOrigin::Asked);
     let done = finished_run(&engine, goal.id).await;
     assert_eq!(done.outcome, Some(RunOutcome::Done));
@@ -1044,5 +1045,62 @@ async fn a_wait_that_hears_a_chained_signal_widens_its_runs_chain() {
     .unwrap();
     let after = step_in_state(&engine, goal.id, "hold", "waiting").await;
     assert_eq!(after.chain, chain, "the run carries the line it heard");
+    engine.shutdown().await;
+}
+
+/// A wait whose event cannot be recorded — its run's snapshot unreadable at
+/// the tick — stays armed: the next tick, once the snapshot reads again,
+/// fires it, once. A wait consumed before its event landed was a timer lost
+/// until a restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_whose_record_fails_stays_armed_and_fires_once_repaired() {
+    let dir = tempfile::tempdir().unwrap();
+    // The engine's own ticker stays out of it: this test ticks by hand.
+    let engine = Engine::start(
+        workspace(&dir),
+        catalog_with(vec![]),
+        bisa_engine::EngineConfig {
+            wait_tick_secs: 3600,
+            ..design_off_config()
+        },
+    )
+    .unwrap();
+    let (goal, run) = run_on(
+        &engine,
+        "wait a second",
+        new_workflow(
+            "delay",
+            vec![wait(
+                "hold",
+                WaitFor::Delay {
+                    secs: bisa_core::ValueRef::Fixed(1),
+                },
+            )],
+        ),
+    );
+    let snapshot = bisa_store::Paths::new(dir.path())
+        .state_dir(&bisa_store::Paths::ns_goal(goal.id))
+        .join(format!(
+            "{}-{}.json",
+            bisa_core::kind::KIND_WORKFLOW_RUN,
+            run.id
+        ));
+    let kept = std::fs::read(&snapshot).unwrap();
+    std::fs::write(&snapshot, "{not an event this build can read").unwrap();
+    engine.tick_waits_at(now() + 5);
+    std::fs::write(&snapshot, kept).unwrap();
+    assert_eq!(
+        current_run(&engine, goal.id).steps[&sid("hold")]
+            .state
+            .as_str(),
+        "waiting",
+        "the wait is still held: the tick could not record it"
+    );
+    engine.tick_waits_at(now() + 6);
+    assert_eq!(
+        finished_run(&engine, goal.id).await.outcome,
+        Some(bisa_core::RunOutcome::Done),
+        "the next tick fires the wait the first could not record"
+    );
     engine.shutdown().await;
 }

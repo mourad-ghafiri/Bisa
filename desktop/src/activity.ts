@@ -175,6 +175,7 @@ const RENDERED_ENGINE: Record<EngineEvent["payload"]["type"], true> = {
   attachment_changed: true,
   goal_archived: true,
   goal_deleted: true,
+  goal_updated: true,
   project_archived: true,
   project_deleted: true,
   document_added: true,

@@ -936,6 +936,10 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
       return { ...base, key, tone: "spine", icon: "icon:goal", text: t("app-activity-goal-archived", { goal: shortId(p.goal), flag: p.archived ? "yes" : "no" }) };
     case "goal_deleted":
       return { ...base, key, tone: "spine", icon: "icon:goal", text: t("app-activity-goal-deleted", { goal: shortId(p.goal) }) };
+    // The goal's own record — its statement, title, assignees, tags or
+    // budget — changed. Spine: its card and its page read it again.
+    case "goal_updated":
+      return { ...base, key, tone: "spine", icon: "icon:goal", text: t("app-activity-goal-updated", { goal: shortId(p.goal) }) };
     case "project_archived":
       return { ...base, key, tone: "spine", icon: "icon:project", text: t("app-activity-project-archived", { project: shortId(p.project), flag: p.archived ? "yes" : "no" }) };
     case "project_deleted":

@@ -45,6 +45,29 @@ export function draftBody(raw) {
  * @param {object | null | undefined} stored the stored workflow's body, `null` on a blank canvas
  * @param {boolean} undoable whether this window holds an edit to undo
  */
+/**
+ * Whether *Save changes* may send: a drawing the node has judged and found
+ * whole — no problem named, no judgement still pending, no body it could
+ * not read — and no save of it already in flight.
+ * @param {{draft?: object | null, problems?: readonly unknown[] | null, validating?: boolean, error?: string | null, saving?: boolean}} state
+ */
+export function canSave({ draft, problems, validating, error, saving }) {
+  return !!draft && (problems?.length ?? 0) === 0 && !validating && !error && !saving;
+}
+
+/**
+ * The drawing after its save landed. Nothing, when what was sent is still
+ * the head: the stored workflow is the drawing now. The history as it
+ * stands when the person drew on during the save: the strokes since are
+ * kept, and the next save carries them.
+ * @param {{present: unknown} | null | undefined} history
+ * @param {unknown} sent the body the save carried
+ */
+export function afterSaved(history, sent) {
+  if (!history || history.present === sent) return null;
+  return history;
+}
+
 export function draftChanged(present, stored, undoable) {
   if (present == null) return false;
   if (undoable) return true;

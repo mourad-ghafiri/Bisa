@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { readFileSync } from "node:fs";
 
-import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody, staffHint, staffNotOffered } from "./newGoalModel.mjs";
+import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody, staffHint, staffNotOffered, projectsHandoff } from "./newGoalModel.mjs";
 
 const brief = { sha256: "ab".repeat(32), name: "brief.pdf", mime: "application/pdf", size: 1234 };
 
@@ -95,4 +95,17 @@ test("projects that could not be attached are said once, counted, with the first
   const loop = dialog.slice(dialog.indexOf("const refused"), dialog.indexOf("attachRefusedWords(refused)"));
   assert.ok(loop.includes("for (const pid of") && loop.includes("try {") && loop.includes("refused.push("), "one refusal never stops the ones after it");
   assert.ok(/log\.(warn|error)\(/.test(loop), "a refusal is the log's too");
+});
+
+test("projects handed over for the next capture are taken once, and a later capture carries none", () => {
+  const handoff = projectsHandoff();
+  assert.deepEqual(handoff.take(), [], "nothing offered yet");
+  handoff.offer(["p1", "p2"]);
+  assert.deepEqual(handoff.take(), ["p1", "p2"]);
+  assert.deepEqual(handoff.take(), [], "taken once");
+  handoff.offer(["p3"]);
+  handoff.offer(["p4"]);
+  assert.deepEqual(handoff.take(), ["p4"], "the latest offer stands");
+  handoff.offer(null);
+  assert.deepEqual(handoff.take(), []);
 });

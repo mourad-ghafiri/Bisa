@@ -21,6 +21,12 @@ export declare function statusTone(status: string | null | undefined): string;
 /** A goal's status in words; a word this build does not know is the node's own. */
 export declare function statusWord(status: string | null | undefined): string;
 export declare function secondLine(row: { title?: string | null; statement?: string | null } | null | undefined): string | null;
+/** How many step chips a card's strip shows before folding the rest. */
+export declare const STRIP_CHIPS: number;
+/** The assignees as one line for the strip's title. */
+export declare function assigneeTitle(people: { shown: readonly { word: string }[]; more: number } | null | undefined): string;
+/** The attached projects' names as one line. */
+export declare function projectNames(attached: readonly { project?: { name?: string } | null }[] | null | undefined): string;
 export declare function compactChips<T extends StripStepLike>(steps: readonly T[] | null | undefined, current: readonly string[] | null | undefined, max?: number): { shown: T[]; hidden: number };
 export declare function projectsOf<P extends ProjectRowLike>(goalId: string, projects: readonly P[] | null | undefined): P[];
 export declare function needsYouCount(goalId: string, inbox: readonly InboxRowLike[] | null | undefined): number;

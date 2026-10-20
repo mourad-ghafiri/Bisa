@@ -54,6 +54,7 @@ pub fn concept_of(payload: &EnginePayload) -> Option<ActivityConcept> {
         | EnginePayload::StepChanged { .. }
         | EnginePayload::DocumentAdded { .. }
         | EnginePayload::GoalArchived { .. }
+        | EnginePayload::GoalUpdated { .. }
         | EnginePayload::GoalDeleted { .. }
         | EnginePayload::GoalClosed { .. }
         | EnginePayload::BoundaryFired { .. } => C::Goals,
@@ -153,6 +154,7 @@ pub fn source_of(event: &EngineEvent) -> ActivitySource {
         EnginePayload::GoalCreated { goal, .. }
         | EnginePayload::DocumentAdded { goal, .. }
         | EnginePayload::GoalArchived { goal, .. }
+        | EnginePayload::GoalUpdated { goal }
         | EnginePayload::GoalDeleted { goal } => ActivitySource::new(K::Goal, goal.to_string()),
         EnginePayload::SignalReceived {
             listener: Some(key),

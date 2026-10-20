@@ -41,6 +41,8 @@ export declare function kindLabel(kind: string): string;
 export declare function mayCarryBoundaries(step: Step | null | undefined): boolean;
 export declare const CONDITIONS: readonly { condition: Condition["condition"]; label: string }[];
 export declare const WAITS: readonly { until: WaitFor["until"]; label: string }[];
+export declare const DEFAULT_DELAY_SECS: number;
+export declare const DEFAULT_CRON: string;
 export declare function blankWait(until: WaitFor["until"]): WaitFor;
 export declare const START_EVENTS: readonly { event: StartOn["event"]; label: string }[];
 export declare const BOUNDARY_EVENTS: readonly { event: BoundaryOn["event"]; label: string }[];

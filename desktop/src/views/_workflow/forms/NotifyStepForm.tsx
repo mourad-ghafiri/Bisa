@@ -10,6 +10,7 @@ import { AssigneePicker } from "../../_work/AssigneePicker";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { ValueRefField } from "./AgentStepForm";
 import { fixedWords, inputNames, pickedAgent, toggleInput, valueOf, withFixed } from "./assigneeRefModel.mjs";
+import { scopeListed as isScopeListed } from "./notifyStepModel.mjs";
 import { t } from "../../../i18n/l10n.mjs";
 
 type Notify = Extract<Step, { kind: "notify" }>;
@@ -24,8 +25,11 @@ export function NotifyStepForm({ step, inputs, onChange, disabled }: { step: Not
   // workflow no longer declares — is shown as it is rather than as the first
   // option, which would be a lie the save then makes true.
   const scope = step.scope ?? "";
-  const scopeListed =
-    scope === "" || ws.channels.some((c) => c.channel.id === scope) || textInputs.some((i) => `{inputs.${i.name}}` === scope);
+  const scopeListed = isScopeListed(
+    scope,
+    ws.channels.map((c) => c.channel.id),
+    textInputs.map((i) => i.name),
+  );
   return (
     <div className="flex flex-col gap-3">
       <Field label={t("workflow-notify-step-form-where")} hint={t("workflow-notify-step-form-blank-posts-into-goal-s-own")}>

@@ -11,9 +11,9 @@
 use crate::common;
 
 use bisa_core::{
-    Boundary, BoundaryAct, BoundaryOn, Branch, Flow, Gate, GoalOrigin, MessageBody, MessageFilter,
-    MessageFrom, RunOutcome, RunStatus, SignalFilter, SignalScope, Step, StepKind, StepState,
-    ValueRef, WaitFor, WorkItemState,
+    Boundary, BoundaryAct, BoundaryOn, Branch, Flow, Gate, MessageBody, MessageFilter, MessageFrom,
+    RunOutcome, RunStatus, SignalFilter, SignalScope, Step, StepKind, StepState, ValueRef, WaitFor,
+    WorkItemState,
 };
 use bisa_engine::{Engine, EngineEvent, EnginePayload};
 use bisa_harness::mock::MockAdapter;
@@ -521,7 +521,7 @@ async fn a_timeout_on_a_spawn_stops_the_waiting_and_the_child_goes_on() {
         ws.list_goals(None)
             .ok()?
             .into_iter()
-            .find(|g| g.origin == GoalOrigin::Spawned { parent: goal.id })
+            .find(|g| g.origin.parent() == Some(goal.id))
     })
     .await;
     step_in_state(&engine, sub_goal.id, "hold", "waiting").await;

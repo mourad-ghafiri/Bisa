@@ -146,6 +146,10 @@ fn host_workflow(inner: &Inner, host: &ListenerHost) -> Result<Option<Workflow>,
 }
 
 /// Build the registry from the listening hosts.
+/// How the registry begins what it says of a listener it could not arm —
+/// the one trouble arming it again clears ([`super::armed_now`]).
+pub(crate) const NOT_ARMED: &str = "not armed: ";
+
 pub fn build(inner: &Arc<Inner>) -> Registry {
     let hosts = match inner.ws.list_listening() {
         Ok(hosts) => hosts,
@@ -193,7 +197,7 @@ pub fn build(inner: &Arc<Inner>) -> Registry {
                         key,
                         None,
                         format!(
-                            "not armed: the workflow has {} problem{} — {first}",
+                            "{NOT_ARMED}the workflow has {} problem{} — {first}",
                             problems.len(),
                             if problems.len() == 1 { "" } else { "s" }
                         ),
@@ -227,6 +231,7 @@ pub fn build(inner: &Arc<Inner>) -> Registry {
             };
             match on.resolve(&wf.with_defaults(&listening.inputs)) {
                 Ok(resolved) => {
+                    super::armed_now(inner, &key);
                     let digest = digest(&resolved, mapping, guard);
                     armed.push(Armed {
                         key,
@@ -239,7 +244,7 @@ pub fn build(inner: &Arc<Inner>) -> Registry {
                     });
                 }
                 Err(e) => {
-                    super::report_once(inner, &key, None, format!("not armed: {e}"));
+                    super::report_once(inner, &key, None, format!("{NOT_ARMED}{e}"));
                 }
             }
         }

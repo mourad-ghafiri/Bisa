@@ -364,9 +364,15 @@ impl ClosureReason {
 pub enum GoalOrigin {
     /// A person captured it.
     Captured,
-    /// A `spawn` step of a goal's run, or an agent's `spawn_sub_goal`,
-    /// refining a parent.
-    Spawned { parent: GoalId },
+    /// A `spawn` step of a goal's run — `step` names it, so a restart pairs
+    /// the child with the step that waits on it and no other — or an agent's
+    /// `spawn_sub_goal`, which names no step; refining a parent. A record
+    /// from before the step was named reads with none.
+    Spawned {
+        parent: GoalId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<StepId>,
+    },
     /// A `spawn` step of a run of the workspace: a goal of its own, refining
     /// nothing, that the step may wait on. History like every origin — the
     /// run may since be gone with its workflow.
@@ -387,7 +393,7 @@ impl GoalOrigin {
     /// The parent in the `refines` hierarchy, when there is one.
     pub fn parent(&self) -> Option<GoalId> {
         match self {
-            GoalOrigin::Spawned { parent } => Some(*parent),
+            GoalOrigin::Spawned { parent, .. } => Some(*parent),
             _ => None,
         }
     }
@@ -745,7 +751,24 @@ pub(crate) mod tests {
     #[test]
     fn origins_carry_their_parent() {
         let parent = GoalId::from_ulid(ulid::Ulid::from_parts(1, 9));
-        assert_eq!(GoalOrigin::Spawned { parent }.parent(), Some(parent));
+        assert_eq!(
+            GoalOrigin::Spawned { parent, step: None }.parent(),
+            Some(parent)
+        );
+        // A spawn step's child names the step; a record from before the
+        // step was named, or an agent's sub-goal, reads with none.
+        let named = GoalOrigin::Spawned {
+            parent,
+            step: Some(StepId::new("s1").unwrap()),
+        };
+        let json = serde_json::to_value(&named).unwrap();
+        assert_eq!(json["step"], "s1");
+        assert_eq!(serde_json::from_value::<GoalOrigin>(json).unwrap(), named);
+        let unnamed = serde_json::json!({"origin": "spawned", "parent": parent.to_string()});
+        assert_eq!(
+            serde_json::from_value::<GoalOrigin>(unnamed).unwrap(),
+            GoalOrigin::Spawned { parent, step: None }
+        );
         assert_eq!(GoalOrigin::Captured.parent(), None);
         let old = serde_json::json!({"origin": "trigger", "trigger": "t", "signal": "s"});
         assert!(
@@ -753,7 +776,7 @@ pub(crate) mod tests {
             "no goal is made by a trigger any more"
         );
         assert_eq!(
-            serde_json::to_value(GoalOrigin::Spawned { parent }).unwrap()["origin"],
+            serde_json::to_value(GoalOrigin::Spawned { parent, step: None }).unwrap()["origin"],
             "spawned"
         );
     }
@@ -826,7 +849,11 @@ pub(crate) mod tests {
         assert_eq!(
             (
                 GoalOrigin::Captured.as_str(),
-                GoalOrigin::Spawned { parent: g.id }.as_str()
+                GoalOrigin::Spawned {
+                    parent: g.id,
+                    step: None
+                }
+                .as_str()
             ),
             ("captured", "spawned")
         );

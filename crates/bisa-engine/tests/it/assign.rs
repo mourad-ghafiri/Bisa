@@ -134,6 +134,7 @@ async fn explicit_beats_project_beats_goal_beats_ancestor() {
         .create_goal(bisa_store::NewGoal {
             origin: bisa_core::GoalOrigin::Spawned {
                 parent: ancestor.id,
+                step: None,
             },
             ..bisa_store::NewGoal::captured("the child")
         })
@@ -266,7 +267,10 @@ async fn a_parent_cycle_terminates() {
     let b = ws.create_goal(bisa_store::NewGoal::captured("b")).unwrap();
     let a = ws
         .create_goal(bisa_store::NewGoal {
-            origin: bisa_core::GoalOrigin::Spawned { parent: b.id },
+            origin: bisa_core::GoalOrigin::Spawned {
+                parent: b.id,
+                step: None,
+            },
             ..bisa_store::NewGoal::captured("a")
         })
         .unwrap();
@@ -505,6 +509,7 @@ fn a_project_human_may_decide_the_goals_gates() {
         .create_goal(bisa_store::NewGoal {
             origin: bisa_core::GoalOrigin::Spawned {
                 parent: ancestor.id,
+                step: None,
             },
             ..bisa_store::NewGoal::captured("the child")
         })

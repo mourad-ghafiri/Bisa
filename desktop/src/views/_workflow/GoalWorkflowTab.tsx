@@ -68,12 +68,12 @@ import { usePropertiesSlot } from "../_goal/propertiesSlot";
 import { propertiesReveal, propertiesScrollName } from "../_work/goalInspectorModel.mjs";
 import { designs, modeOf } from "../_goal/goalMode.mjs";
 import { listeningFacts, pageFacts } from "../_goal/goalPageModel.mjs";
-import { liveSessionsOf, runVerbs } from "../_goal/runControl.mjs";
+import { listenOffer, liveSessionsOf, runIsQueued, runVerbs } from "../_goal/runControl.mjs";
 import { startInputs as askedAtStart } from "./forms/startForm.mjs";
 import { blankWorkflow } from "./stepKinds.mjs";
 import { useDesignDraft } from "./designDraftStore";
 import { canRedo, canUndo, create, push, redo, undo } from "./history.mjs";
-import { draftChanged } from "./designDraftModel.mjs";
+import { afterSaved, canSave, draftChanged } from "./designDraftModel.mjs";
 import { addStep } from "./workflowGraph.mjs";
 import { fitColumns } from "../_workbench/ideColumnsModel.mjs";
 import { useDesignerSettings } from "./useDesignerSettings";
@@ -143,6 +143,7 @@ export function GoalWorkflowTab({
   }, [stepParam, setSelected]);
   const [starting, setStarting] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const picking = useRef(false);
   // The draft outlives this tab, and the window: it is kept per goal in
   // `designDraftStore` so a tab switch, a remount or a restart does not
   // discard what was drawn.
@@ -205,10 +206,13 @@ export function GoalWorkflowTab({
   // A workflow that moved elsewhere (`designerSession.goalTabRemote`): read again when
   // nothing is drawn; with a drawing, said once — its save is refused rather than
   // written over the other change.
+  // The revision already said to have moved elsewhere: said once, not on every frame that carries it.
+  const warned = useRef<number | null>(null);
   useEngineEvents((e) => {
-    const action = goalTabRemote({ workflow: goal.workflow, drawing: !!draft, running: !!run }, e.payload);
+    const action = goalTabRemote({ workflow: goal.workflow, drawing: !!draft, running: !!run, warned: warned.current }, e.payload);
     if (action === "ignore") return;
     if (action === "warn") {
+      warned.current = "revision" in e.payload && typeof e.payload.revision === "number" ? e.payload.revision : warned.current;
       toast.info(t("workflow-goal-workflow-tab-workflow-changed-elsewhere-drawing-kept-saving"));
       return;
     }
@@ -221,8 +225,11 @@ export function GoalWorkflowTab({
   // workflow the run has frozen and the window would warn on close for an
   // edit nobody can land.
   useEffect(() => {
-    if (run && draft) setDraft(null);
-  }, [run, draft, setDraft]);
+    if (run && draft) {
+      setDraft(null);
+      toast.info(t("workflow-goal-workflow-tab-drawing-dropped-run-started"));
+    }
+  }, [run, draft, setDraft, toast]);
   // One rule for every start the page offers (`runControl.mjs`): queued
   // behind a live run, never while the Workflow Agent is designing or
   // repairing; a design that begins on events starts by listening.
@@ -230,7 +237,7 @@ export function GoalWorkflowTab({
   const sessionRows = useSessions();
   const verbs = runVerbs({ goal, run, runs, guidance, proposed: !!proposed, startable: true, listens, manualEntry, liveSessions: liveSessionsOf(sessionRows, goal.id) });
   const offer = verbs.start;
-  const listen = !!offer?.listen || (!!proposed && listens);
+  const listen = listenOffer(offer, !!proposed, listens);
   const closed = !!goal.closed;
 
   // Arriving from the proposal's "Edit the steps" door, or a manual capture
@@ -293,35 +300,49 @@ export function GoalWorkflowTab({
   const slot = usePropertiesSlot();
   const propsRoot = useRef<HTMLDivElement>(null);
   useViewScroll(propsRoot, `${place}#workflow:inspector:${slot ? "shown" : "closed"}:${propertiesScrollName(selected)}`, place);
-  const draftEdit = (next: NewWorkflowBody, token: string | null = null) => {
+  // A new body, or a function of the drawing as it stands when the edit lands — what a field's commit on its way out needs.
+  const draftEdit = (next: NewWorkflowBody | ((body: NewWorkflowBody) => NewWorkflowBody), token: string | null = null) => {
     // Same reference when already empty: a state that does not change is not a commit.
     setServerProblems((p) => (p.length ? [] : p));
     // Stamped with the selection, so an undo lands where the person was; a typed burst is one entry.
-    setDraft((h) => (h ? push(h, next, { selection: selected, at: Date.now(), token }) : h));
+    setDraft((h) => (h ? push(h, typeof next === "function" ? next(h.present) : next, { selection: selected, at: Date.now(), token }) : h));
   };
+  // Undo and redo move the drawing as it stands when the key lands, never a
+  // copy from the render the key was seen in; the selection follows where it landed.
   const step = (dir: "undo" | "redo") => {
-    if (!draft) return;
-    const next = dir === "undo" ? undo(draft, selected) : redo(draft, selected);
-    if (next === draft) return;
-    setDraft(next);
-    select(next.landed as Selection);
+    setDraft((h) => {
+      if (!h) return h;
+      const next = dir === "undo" ? undo(h, selected) : redo(h, selected);
+      return next === h ? h : next;
+    });
   };
+  const landed = draft?.landed ?? null;
+  useEffect(() => {
+    if (landed != null) select(landed as Selection);
+  }, [landed, select]);
 
+  // One save at a time: a second press while one is in flight sends nothing.
+  const [saving, setSaving] = useState(false);
   const saveDesign = async () => {
-    if (!draft) return;
+    if (!draft || saving) return;
+    const sent = draft.present;
+    setSaving(true);
     try {
       // Editing the proposed plan makes it the goal's own design: the stale
       // adopt gate is withdrawn on the node, and the goal shows the edited
       // steps with an explicit Start — nothing runs on its own.
-      await api.setGoalWorkflow(goal.id, { definition: definitionBody(draft.present), revision: workflow?.revision });
+      await api.setGoalWorkflow(goal.id, { definition: definitionBody(sent), revision: workflow?.revision });
       toast.ok(t("workflow-goal-workflow-tab-saved-review-steps-then-start-run"));
-      setDraft(null);
+      // What was drawn during the save is kept (`afterSaved`), never dropped with the saved head.
+      setDraft((h) => afterSaved(h, sent));
       setServerProblems([]);
       onChanged();
     } catch (e) {
       const problems = e instanceof ApiError ? problemsFromErrorBody(e.body) : [];
       if (problems.length > 0) setServerProblems(problems);
       toast.error(failureText("workflow", "goal-workflow-tab-failed", e));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -366,7 +387,8 @@ export function GoalWorkflowTab({
     );
   }
 
-  const canSave = !!draft && draftProblems.length === 0 && !live.validating;
+  // Whole and judged, and no save in flight (`designDraftModel.canSave`).
+  const saveable = canSave({ draft, problems: draftProblems, validating: live.validating, error: live.error, saving });
   const discardDraft = () => {
     setDraft(null);
     setServerProblems([]);
@@ -449,12 +471,17 @@ export function GoalWorkflowTab({
                 <WorkflowPicker
                   goal={goal.id}
                   value={goal.workflow ?? null}
-                  onChange={(id) =>
+                  onChange={(id) => {
+                    // One pick in flight at a time: two quick picks never race on the goal's record.
+                    if (picking.current) return;
+                    picking.current = true;
                     void attempt(() => api.setGoalWorkflow(goal.id, { workflow: id }), toast.error, () => {
                       setChoosing(false);
                       onChanged();
-                    })
-                  }
+                    }).finally(() => {
+                      picking.current = false;
+                    });
+                  }}
                 />
               </div>
             )}
@@ -468,7 +495,7 @@ export function GoalWorkflowTab({
           <span className="text-2xs text-text-dim">
             {failure
               ? t("workflow-goal-workflow-tab-run-failed-history-read-only-workflow", { failure: failure.name, error: failure.error, flag: (failure.error) ? "yes" : "no", flag2: (designs(mode)) ? "yes" : "no", flag3: (mode === "auto") ? "yes" : "no" })
-              : activeRun.started_at == null && !activeRun.cancelled
+              : runIsQueued(activeRun)
                 ? t("workflow-goal-workflow-tab-queued-run-starts-when-live-run")
                 : t("workflow-goal-workflow-tab-finished-run-history-read-only")}
           </span>
@@ -484,8 +511,8 @@ export function GoalWorkflowTab({
             <Button
               size="sm"
               variant="primary"
-              disabled={!canSave}
-              disabledReason={draftProblems.length > 0 ? t("workflow-goal-workflow-tab-fix-problems-first") : t("workflow-goal-workflow-tab-checking-steps")}
+              disabled={!saveable}
+              disabledReason={saving ? t("workflow-goal-workflow-tab-saving") : draftProblems.length > 0 ? t("workflow-goal-workflow-tab-fix-problems-first") : t("workflow-goal-workflow-tab-checking-steps")}
               onClick={() => void saveDesign()}
             >{t("workflow-goal-workflow-tab-save-changes")}</Button>
             {/* An untouched drawing closes at once; one that differs from the stored workflow asks, since nothing brings it back — a draft restored after a restart included (`draftChanged`). */}

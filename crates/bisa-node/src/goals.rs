@@ -87,7 +87,20 @@ pub(crate) fn goal_row(
     let run = current.run();
     // A draft with a chosen or proposed workflow ghosts its definition.
     let definition = match (run, g.workflow) {
-        (None, Some(wf)) => ws.get_workflow(wf).ok(),
+        (None, Some(wf)) => match ws.get_workflow(wf) {
+            Ok(wf) => Some(wf),
+            // The strip is drawn without a definition it cannot read — an
+            // `error` line, never a failed list.
+            Err(e) => {
+                tracing::error!(
+                    target: "bisa_node",
+                    goal = %g.id,
+                    workflow = %wf,
+                    "the goal's workflow cannot be read; drawing its strip without it: {e}"
+                );
+                None
+            }
+        },
         _ => None,
     };
     Ok(GoalRow {
@@ -163,9 +176,10 @@ async fn create(
         statement: body.statement,
         title: body.title,
         budget: Default::default(),
-        mode: body
-            .mode
-            .unwrap_or_else(|| state.engine.default_goal_mode()),
+        mode: match body.mode {
+            Some(mode) => mode,
+            None => state.engine.default_goal_mode()?,
+        },
         origin: bisa_core::GoalOrigin::Captured,
         workflow,
         start: workflow.is_some() && body.inputs.is_some(),
@@ -248,6 +262,15 @@ fn guidance(
         .engine
         .workspace()
         .journal(&Home::Goal { goal: goal.id })
+        .map_err(|e| {
+            // The standing is unknown without the journal: said, and the
+            // page drawn without it.
+            tracing::error!(
+                target: "bisa_node",
+                goal = %goal.id,
+                "the goal's journal cannot be read; the Workflow Agent's standing is unknown: {e}"
+            );
+        })
         .ok()
         .and_then(|journal| {
             bisa_engine::guided::design_status(state.engine.inner(), goal, run, &journal)

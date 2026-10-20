@@ -844,7 +844,7 @@ async fn a_spawn_step_captures_a_goal_born_of_the_run_and_waits_for_it() {
         engine.workspace().edges_from(child).unwrap().is_empty(),
         "a goal of its own: it refines nothing"
     );
-    assert_eq!(child_goal.mode, engine.default_goal_mode());
+    assert_eq!(child_goal.mode, engine.default_goal_mode().unwrap());
     engine.shutdown().await;
 }
 
@@ -976,5 +976,71 @@ async fn a_held_run_of_the_workspace_is_released_through_its_home() {
     assert_eq!(outcome.home, run.home());
     let done = run_finished(&engine, run.id).await;
     assert_eq!(done.outcome, Some(RunOutcome::Done));
+    engine.shutdown().await;
+}
+
+/// A restart of every run of a workflow walks every run: one whose start is
+/// gone from the revision as it stands is refused and costs the answer, and
+/// the others are restarted all the same.
+#[tokio::test(flavor = "multi_thread")]
+async fn restarting_every_run_walks_past_one_whose_start_is_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, _) = engine_watching(&dir, MockAdapter::default());
+    let ws = engine.workspace();
+    let started_at = |id: &str| {
+        let mut go = step(
+            id,
+            StepKind::Start {
+                on: bisa_core::StartOn::Manual,
+                inputs: Default::default(),
+                guard: Default::default(),
+            },
+        );
+        go.then = vec![bisa_core::Flow::to(sid("hold"))];
+        new_workflow(
+            "walked",
+            vec![
+                go,
+                step(
+                    "hold",
+                    StepKind::Wait {
+                        until: WaitFor::Release,
+                    },
+                ),
+            ],
+        )
+    };
+    let wf = engine.create_workflow(started_at("go")).unwrap();
+    let old = engine.start_workspace_run(wf.id, BTreeMap::new()).unwrap();
+    run_step_in_state(&engine, old.id, "hold", "waiting").await;
+    // The library moves on: the start the first run began at is gone, and a
+    // second run begins at the new one.
+    let (_, problems) = engine
+        .save_workflow(wf.id, started_at("begin"), wf.revision)
+        .unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let new = engine.start_workspace_run(wf.id, BTreeMap::new()).unwrap();
+    run_step_in_state(&engine, new.id, "hold", "waiting").await;
+
+    let err = engine.restart_workflow(wf.id).await.unwrap_err();
+    assert!(
+        matches!(err, bisa_engine::EngineError::Conflict(_)),
+        "{err:?}"
+    );
+    assert!(
+        run_of(&engine, new.id).cancelled.is_some(),
+        "the one that could be restarted was"
+    );
+    assert!(
+        run_of(&engine, old.id).cancelled.is_none(),
+        "the refused one stands as it was"
+    );
+    let live = ws.live_workspace_runs(Some(wf.id)).unwrap();
+    assert_eq!(live.len(), 2, "{live:?}");
+    assert!(live.iter().any(|r| r.id == old.id));
+    assert!(
+        live.iter().all(|r| r.id != new.id),
+        "a fresh run in its place"
+    );
     engine.shutdown().await;
 }

@@ -243,7 +243,7 @@ test("a goal whose design begins on events listens on its page, then a failed ru
   assert.deepEqual(listeningChip(paused), { words: "paused", tone: "warn", paused: true });
   const header = src("../views/_goal/GoalHeader.tsx");
   assert.ok(header.includes("api.listenGoal(goal.id, { inputs: listening?.inputs ?? {} })") && header.includes("api.stopListeningGoal(goal.id)"));
-  assert.ok(src("../views/GoalDetail.tsx").includes('"listening_changed"'), "the page re-reads when its listening moves");
+  assert.ok(src("../views/_goal/goalPageModel.mjs").includes('"listening_changed"') && src("../views/GoalDetail.tsx").includes("if (wantsReload(e.payload)) refresh();"), "the page re-reads when its listening moves — the frames are the model's");
 
   // The goal's start: listening asks only what its events leave unset, shows a minted secret once, and Run now begins at the start by hand.
   const dialogs = src("../views/_goal/RunVerbDialogs.tsx");

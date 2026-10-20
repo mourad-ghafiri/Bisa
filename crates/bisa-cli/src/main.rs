@@ -1190,7 +1190,10 @@ async fn new_goal(ctx: &Ctx, out: &Out, input: NewGoalInput) -> Result<()> {
     };
     drop(ws);
     let (engine, _) = ctx.engine().await?;
-    let mode = mode.unwrap_or_else(|| engine.default_goal_mode());
+    let mode = match mode {
+        Some(mode) => mode,
+        None => engine.default_goal_mode()?,
+    };
     let result = engine.submit_goal_showing(SubmitRequest {
         statement,
         title,
@@ -1951,7 +1954,19 @@ fn search(ctx: &Ctx, out: &Out, query: Option<&str>, filter: &tags::TagFilterArg
         if !tags::keeps(&admitted, &goal.id.to_string()) {
             continue;
         }
-        let run = ws.get_current_run(goal.id)?;
+        // The node's rule: a current run that cannot be read is said, and
+        // the row drawn without it — never the whole list lost to one file.
+        let (run, run_unreadable) = match ws.get_current_run(goal.id) {
+            Ok(run) => (run, false),
+            Err(e) => {
+                out.error(&bisa_i18n::say(&bisa_core::text!(
+                    "cli-main-search-run-unreadable",
+                    goal = goal.id.to_string(),
+                    why = e.to_string()
+                )));
+                (None, true)
+            }
+        };
         let status = goal.status(run.as_ref());
         out.human(&format!(
             "{}  {:<8} {:<20} {}",
@@ -1960,13 +1975,17 @@ fn search(ctx: &Ctx, out: &Out, query: Option<&str>, filter: &tags::TagFilterArg
             tags::label(&goal.tags),
             goal.title.as_deref().unwrap_or(&goal.statement)
         ));
-        rows.push(json!({
+        let mut row = json!({
             "goal": goal.id.to_string(),
             "status": status,
             "workflow": goal.workflow,
             "statement": goal.statement,
             "tags": goal.tags,
-        }));
+        });
+        if run_unreadable {
+            row["run_unreadable"] = json!(true);
+        }
+        rows.push(row);
     }
     if rows.is_empty() {
         out.say(&bisa_core::text!("cli-main-no-matches"));

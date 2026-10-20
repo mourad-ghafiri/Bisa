@@ -33,7 +33,7 @@ import { Button, Dialog, ICON, Labelled, PendingFiles, SegmentedControl, TAG_VOC
 import { DEFAULT_MODE, DEFAULT_MODE_KEY, GOAL_MODES, MODE_MEANING, afterCapture, captureHint, modeSegments } from "../_goal/goalMode.mjs";
 import { showHookSecrets } from "../_workflow/hookSecretsStore";
 import { AssigneePicker, type AssigneeKind } from "./AssigneePicker";
-import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody, staffHint, staffNotOffered } from "./newGoalModel.mjs";
+import { attachRefusedWords, canSubmit, captureLabel, captureToast, documentsHint, goalBody, projectsHandoff, staffHint, staffNotOffered } from "./newGoalModel.mjs";
 import { attempt } from "./useAsync";
 import { t } from "../../i18n/l10n.mjs";
 
@@ -47,9 +47,9 @@ const STAFF_KINDS: AssigneeKind[] = ["agent", "team"];
  * the goal should be attached to once it exists. Consumed once, so a later
  * plain "New goal" carries none.
  */
-let pendingProjects: string[] = [];
+const handoff = projectsHandoff();
 export function setPendingProjects(ids: string[]): void {
-  pendingProjects = [...ids];
+  handoff.offer(ids);
 }
 
 export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
@@ -80,10 +80,8 @@ export function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onC
   // Consume projects handed over from elsewhere, once.
   useEffect(() => {
     if (!open) return;
-    if (pendingProjects.length > 0) {
-      setProjects(pendingProjects);
-      pendingProjects = [];
-    }
+    const ids = handoff.take();
+    if (ids.length > 0) setProjects(ids);
   }, [open]);
 
   const reset = () => {

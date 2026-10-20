@@ -10,5 +10,5 @@
  * @returns {{scope: "workstream", id: string}[]}
  */
 export function goalLinkRoots(projects, goal) {
-  return (projects ?? []).filter((p) => p.exists && p.goals.includes(goal)).map((p) => ({ scope: "workstream", id: p.project.id }));
+  return (projects ?? []).filter((p) => p?.exists && (p.goals ?? []).includes(goal)).map((p) => ({ scope: "workstream", id: p.project.id }));
 }

@@ -237,12 +237,26 @@ pub fn unsafe_to_resend(inner: &Inner, run: &WorkflowRun, step: &bisa_core::Step
 pub fn abort_calls(inner: &Inner, run: bisa_core::RunId) {
     inner.connector_calls.retain(|(r, _), handle| {
         if *r == run {
+            // LCOV_EXCL_START a call cancel_work did not reach, registered as the run settled; a race by construction
             handle.abort();
             false
+            // LCOV_EXCL_STOP
         } else {
             true
         }
     });
+}
+
+/// Abort one step's call, if one is in flight — the step was cancelled
+/// while its run goes on. Answers whether there was one.
+pub fn abort_call(inner: &Inner, run: bisa_core::RunId, step: &bisa_core::StepId) -> bool {
+    match inner.connector_calls.remove(&(run, step.clone())) {
+        Some((_, handle)) => {
+            handle.abort();
+            true
+        }
+        None => false,
+    }
 }
 
 /// Who is calling, for the reason a refusal is recorded with and for the

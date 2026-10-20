@@ -4558,3 +4558,266 @@ async fn deleting_a_listening_goal_or_workflow_stops_its_listening() {
     );
     engine.shutdown().await;
 }
+
+/// A listening goal's failed run pauses its listening and withdraws the runs
+/// its events had queued — and a person's own queued run stays in line and
+/// starts: the gap is the repair's, never the person's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pause_withdraws_the_events_queued_runs_and_leaves_a_persons_in_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let mut held = hold();
+    held.then = vec![Flow::to(sid("bad"))];
+    let (goal, host) = goal_with(
+        &engine,
+        "fails on a ticket",
+        new_workflow(
+            "fails when let go",
+            vec![
+                start("ticket", hook(), "hold"),
+                held,
+                step(
+                    "bad",
+                    StepKind::End {
+                        finish: Finish::Failed,
+                    },
+                ),
+                start("by-hand", StartOn::Manual, "fine"),
+                step(
+                    "fine",
+                    StepKind::End {
+                        finish: Finish::Path,
+                    },
+                ),
+            ],
+        ),
+    );
+    let listener = key(host, "ticket");
+    engine.begin_goal(goal.id, BTreeMap::new()).unwrap();
+    // An occurrence's run goes; a person queues a run by hand behind it; a
+    // second occurrence waits its turn.
+    let first = call(&engine, &listener, json!({}));
+    assert_eq!(engine.drain_signals().await, 1);
+    let live = until("the occurrence's run", || {
+        engine
+            .runs(goal.id)
+            .ok()?
+            .into_iter()
+            .find(|r| r.dispatched.as_deref() == Some(first.as_str()))
+    })
+    .await;
+    let live = run_step_in_state(&engine, live.id, "hold", "waiting").await;
+    let by_hand = engine.start_run(goal.id, BTreeMap::new()).unwrap();
+    assert!(by_hand.is_queued());
+    let second = call(&engine, &listener, json!({}));
+    assert_eq!(engine.drain_signals().await, 1);
+    assert_eq!(signal(&engine, &second).state, SignalState::Waiting);
+
+    engine.release_step(live.id, &sid("hold"), None).unwrap();
+    assert_eq!(
+        run_finished(&engine, live.id).await.outcome,
+        Some(RunOutcome::Failed)
+    );
+    until("the goal's listening to pause", || {
+        ws.get_goal(goal.id).ok()?.listening?.paused.map(|_| ())
+    })
+    .await;
+    // The person's run starts; the waiting occurrence is settled, not run.
+    let started = run_finished(&engine, by_hand.id).await;
+    assert_eq!(started.outcome, Some(RunOutcome::Done), "{started:?}");
+    assert!(ws.queued_runs(goal.id).unwrap().is_empty());
+    assert_eq!(
+        signal_in(&engine, &second, SignalState::Skipped)
+            .await
+            .state,
+        SignalState::Skipped
+    );
+    engine.shutdown().await;
+}
+
+/// *Listen again* on a goal whose design was repaired keeps what the goal
+/// listened with as far as the design still reads it: an input the repair
+/// dropped is left behind, and the rest stands.
+#[tokio::test(flavor = "multi_thread")]
+async fn listening_again_keeps_the_inputs_the_repaired_design_still_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let with_label = |name: &str| {
+        let mut say = step(
+            "say",
+            StepKind::Notify {
+                scope: None,
+                template: "{inputs.label}: {inputs.subject}".into(),
+                mentions: vec![],
+                author: None,
+            },
+        );
+        say.then = vec![Flow::to(sid("hold"))];
+        let mut draft = new_workflow(
+            name,
+            vec![
+                start_with(
+                    "ticket",
+                    hook(),
+                    &[("subject", "{event.payload.subject}")],
+                    Guard::default(),
+                    "say",
+                ),
+                say,
+                hold(),
+            ],
+        );
+        draft.inputs = vec![
+            input("subject", InputKind::Text, true),
+            input("label", InputKind::Text, true),
+        ];
+        draft
+    };
+    let goal = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..guided("labelled tickets")
+        })
+        .unwrap();
+    let (design, _) = engine
+        .design_workflow(goal.id, with_label("labelled"), None)
+        .unwrap();
+    engine
+        .begin_goal(
+            goal.id,
+            BTreeMap::from([("label".to_string(), json!("support"))]),
+        )
+        .unwrap();
+    assert_eq!(
+        goal_of(&engine, &goal).listening.unwrap().inputs["label"],
+        json!("support")
+    );
+    engine
+        .stop_listening(ListenerHost::Goal { goal: goal.id })
+        .unwrap();
+    // The repair: the design reads `subject` alone now.
+    let (_, problems) = engine
+        .design_workflow(goal.id, tickets(), Some(design.revision))
+        .unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let again = engine.listen_again(goal.id, None).unwrap();
+    assert!(
+        !again.listening.inputs.contains_key("label"),
+        "an input the design no longer has is left behind: {:?}",
+        again.listening.inputs
+    );
+    assert!(goal_of(&engine, &goal).is_listening());
+    engine.shutdown().await;
+}
+
+/// A listener a problem kept from arming is armed again by the save that
+/// mends it: its trouble is cleared, and the next call starts a run.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_listener_mended_by_a_save_is_armed_again_and_hears() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let (wf, listener) = listening_hook(&engine, "tickets", Guard::default());
+    let broken = new_workflow("tickets", vec![start("ticket", hook(), "nowhere"), hold()]);
+    let (saved, problems) = engine.save_workflow(wf.id, broken, wf.revision).unwrap();
+    assert!(!problems.is_empty(), "the save kept the problem: {saved:?}");
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    until("the listener to say why it is not armed", || {
+        ws.listener_runtime(&listener).failed
+    })
+    .await;
+    assert!(engine.armed_listeners().get(&listener).is_none());
+
+    let mended = new_workflow(
+        "tickets",
+        vec![
+            start_with("ticket", hook(), &[], Guard::default(), "hold"),
+            hold(),
+        ],
+    );
+    let (_, problems) = engine.save_workflow(wf.id, mended, saved.revision).unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    engine.tick_listeners_at(t0 + 61).await;
+    until("the listener to be armed again", || {
+        engine.armed_listeners().get(&listener).map(|_| ())
+    })
+    .await;
+    // The record follows the arming: the build that armed it writes the
+    // trouble away, a moment after the registry is out.
+    until("the trouble to go with the problem", || {
+        ws.listener_runtime(&listener)
+            .failed
+            .is_none()
+            .then_some(())
+    })
+    .await;
+    call(&engine, &listener, json!({}));
+    assert_eq!(engine.drain_signals().await, 1);
+    assert_eq!(
+        runs_of(&engine, wf.id).len(),
+        1,
+        "the mended listener hears"
+    );
+    engine.shutdown().await;
+}
+
+/// A listening goal pointed at a workflow with no start on an event stops
+/// listening at once — its record goes and its hook refuses — and one
+/// pointed at a workflow that hears by another start listens by that one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goal_pointed_elsewhere_listens_as_its_new_workflow_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let (goal, host) = goal_with(&engine, "pointed elsewhere", tickets());
+    let listener = key(host, "ticket");
+    engine.begin_goal(goal.id, BTreeMap::new()).unwrap();
+    assert!(goal_of(&engine, &goal).is_listening());
+
+    // A design that hears by another start: the goal listens by that one.
+    let (by_order, _) = library(
+        &engine,
+        new_workflow("orders", vec![start("order", hook(), "hold"), hold()]),
+    );
+    engine.set_workflow(goal.id, Some(by_order.id)).unwrap();
+    assert!(goal_of(&engine, &goal).is_listening());
+    let order = key(host, "order");
+    until("the new start to be armed", || {
+        engine.armed_listeners().get(&order).map(|_| ())
+    })
+    .await;
+    assert!(
+        engine.armed_listeners().get(&listener).is_none(),
+        "the old start is not a start of the goal's design"
+    );
+    assert_eq!(
+        engine.call_hook(&listener, json!({}), None, HookDoor::Local),
+        Err(HookRefusal::NoSuchStart(listener.to_string()))
+    );
+    call(&engine, &order, json!({}));
+    assert_eq!(engine.drain_signals().await, 1);
+    let run = step_in_state(&engine, goal.id, "hold", "waiting").await;
+    let_go(&engine, &run).await;
+
+    // A design with no start on an event: nothing to hear, so it stops.
+    let (by_hand, _) = library(
+        &engine,
+        new_workflow(
+            "by hand",
+            vec![start("go", StartOn::Manual, "hold"), hold()],
+        ),
+    );
+    engine.set_workflow(goal.id, Some(by_hand.id)).unwrap();
+    let goal_now = goal_of(&engine, &goal);
+    assert!(!goal_now.is_listening());
+    assert_eq!(goal_now.listening, None, "the record goes with it");
+    assert_eq!(ws.listening(&host).unwrap(), None);
+    assert_eq!(
+        engine.call_hook(&order, json!({}), None, HookDoor::Local),
+        Err(HookRefusal::NotListening(host.to_string()))
+    );
+    assert!(engine.armed_listeners().get(&order).is_none());
+    engine.shutdown().await;
+}

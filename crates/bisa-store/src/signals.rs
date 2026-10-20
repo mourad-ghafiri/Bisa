@@ -110,6 +110,10 @@ pub struct QueuedSignal {
     pub note: Option<String>,
 }
 
+/// How many times a signal is claimed before a claim nobody settled fails
+/// it ([`Workspace::requeue_stale_running`]).
+pub const MAX_SIGNAL_ATTEMPTS: u32 = 5;
+
 /// The index row for a signal about to be written.
 fn row_of(signal: &Signal, state: SignalState) -> Result<SignalRow, StoreError> {
     let (host_kind, host_id, step) = match &signal.listener {
@@ -319,12 +323,32 @@ impl Workspace {
 
     /// Crash recovery: return `running` signals claimed more than
     /// `older_than_secs` ago to the queue — the truth log first, one line
-    /// per signal, then the index. Returns the ids requeued.
+    /// per signal, then the index. Returns the ids requeued. One claimed
+    /// [`MAX_SIGNAL_ATTEMPTS`] times and never settled is failed instead,
+    /// with the count on it: a signal nobody can settle is not claimed for
+    /// ever.
     pub fn requeue_stale_running(&self, older_than_secs: u64) -> Result<Vec<String>, StoreError> {
         let cutoff = now_secs().saturating_sub(older_than_secs);
         let stale = self.idx().stale_running_signals(cutoff)?;
         let mut ids = Vec::with_capacity(stale.len());
         for row in stale {
+            if row.attempts >= MAX_SIGNAL_ATTEMPTS {
+                let note = format!("claimed {} times and never settled; failed", row.attempts);
+                self.append_queue_line(&QueueLine::State {
+                    id: row.id.clone(),
+                    state: SignalState::Failed.as_str().into(),
+                    attempts: row.attempts,
+                    last_error: Some(note.clone()),
+                })?;
+                self.idx().set_signal_state(
+                    &row.id,
+                    SignalState::Failed.as_str(),
+                    None,
+                    row.attempts,
+                    Some(&note),
+                )?;
+                continue;
+            }
             self.append_queue_line(&QueueLine::State {
                 id: row.id.clone(),
                 state: SignalState::Queued.as_str().into(),
@@ -865,5 +889,70 @@ mod tests {
                 goal: GoalId::from_ulid(crate::workspace::mint_ulid())
             })
             .unwrap());
+    }
+}
+
+/// A claim a stopped worker keeps dropping is put back a bounded number of
+/// times: a signal nobody can settle is failed, never claimed for ever.
+#[cfg(test)]
+mod stale_claims {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+    use bisa_core::WorkflowId;
+
+    fn ws() -> (tempfile::TempDir, Workspace, WorkflowId) {
+        let dir = tempfile::tempdir().unwrap();
+        let w =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        let wf = w
+            .create_workflow(
+                crate::workflows::tests::notify_workflow("Post"),
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        (dir, w, wf.id)
+    }
+
+    #[test]
+    fn a_signal_a_stopped_worker_keeps_dropping_is_failed_after_its_fifth_claim() {
+        let (_dir, ws, wf) = ws();
+        let signal = Signal {
+            id: "poison".into(),
+            listener: Some(ListenerKey {
+                host: ListenerHost::Workspace { workflow: wf },
+                step: StepId::new("tick").unwrap(),
+            }),
+            source: SignalSource::Schedule,
+            name: None,
+            at: 1,
+            payload: serde_json::json!({"n": 1}),
+            scope: SignalScope::Workspace,
+            chain: Chain::default(),
+            dedupe_key: Some("k".into()),
+        };
+        ws.enqueue_signal(&signal).unwrap();
+        for attempt in 1..=MAX_SIGNAL_ATTEMPTS {
+            let claimed = ws.claim_next_signal().unwrap().expect("claimable");
+            assert_eq!(claimed.attempts, attempt);
+            // The worker died with the claim: the sweep finds it stale at once.
+            let requeued = ws.requeue_stale_running(0).unwrap();
+            if attempt < MAX_SIGNAL_ATTEMPTS {
+                assert_eq!(requeued, vec!["poison".to_string()], "attempt {attempt}");
+            } else {
+                assert!(requeued.is_empty(), "the fifth claim is the last");
+            }
+        }
+        assert_eq!(
+            ws.signal_state("poison").unwrap(),
+            Some(SignalState::Failed)
+        );
+        assert!(ws.claim_next_signal().unwrap().is_none());
+        let note = ws
+            .signal("poison")
+            .unwrap()
+            .unwrap()
+            .note
+            .unwrap_or_default();
+        assert!(note.contains('5'), "the note says how often: {note}");
     }
 }

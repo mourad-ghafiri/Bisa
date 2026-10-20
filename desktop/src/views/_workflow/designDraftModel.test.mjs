@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { Lru } from "../../shell/lru.mjs";
-import { MAX_DRAFTS, draftBody, draftChanged } from "./designDraftModel.mjs";
+import { MAX_DRAFTS, afterSaved, canSave, draftBody, draftChanged } from "./designDraftModel.mjs";
 import { canUndo, create, push } from "./history.mjs";
 import { blankWorkflow } from "./stepKinds.mjs";
 
@@ -113,4 +113,24 @@ test("discarding asks whenever the drawing holds something the stored workflow d
   assert.equal(draftChanged(edited, stored, false), true, "a draft read back after a restart has no history, and still differs");
   assert.equal(draftChanged(same, stored, true), true, "an edit made here counts, even one undone back to the same shape");
   assert.equal(draftChanged(same, null, false), true, "on a blank canvas the drawing is the whole design");
+});
+
+test("Save changes sends a whole, judged drawing once: a problem, a judgement pending, a body the node could not read, or a save in flight each hold it", () => {
+  const whole = { draft: create(drawing()), problems: [], validating: false, error: null, saving: false };
+  assert.equal(canSave(whole), true);
+  assert.equal(canSave({ ...whole, draft: null }), false, "nothing drawn");
+  assert.equal(canSave({ ...whole, problems: [{ kind: "no_start" }] }), false);
+  assert.equal(canSave({ ...whole, validating: true }), false);
+  assert.equal(canSave({ ...whole, error: "the node could not read the body" }), false, "unjudged is not whole");
+  assert.equal(canSave({ ...whole, saving: true }), false, "one save at a time");
+  assert.equal(canSave({ draft: create(drawing()) }), true, "the rest absent is the rest clear");
+});
+
+test("a save that landed drops the drawing when the head is what was sent, and keeps what was drawn during the save", () => {
+  const h = create(drawing());
+  assert.equal(afterSaved(h, h.present), null, "saved as it stands: the stored workflow is the drawing now");
+  const moved = push(h, { ...drawing(), name: "Drawn on during the save" });
+  assert.equal(afterSaved(moved, h.present), moved, "the strokes since are kept, with their undo");
+  assert.equal(afterSaved(null, h.present), null);
+  assert.equal(afterSaved(undefined, h.present), null);
 });

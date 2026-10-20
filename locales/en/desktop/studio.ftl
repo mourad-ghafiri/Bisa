@@ -229,7 +229,6 @@ studio-pending-ask-approve = Approve
 studio-pending-ask-can-t-answer = can't answer this
 studio-pending-ask-choose-any-apply = Choose any that apply
 studio-pending-ask-choose-one = Choose one
-studio-pending-ask-could-not-send-answer = could not send your answer
 studio-pending-ask-decline = Decline
 studio-pending-ask-i-m-not-sure = I'm not sure
 studio-pending-ask-i-m-not-sure-answer-not = “I'm not sure” is an answer, not a decline — the agent asks something narrower rather than stopping.

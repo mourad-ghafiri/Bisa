@@ -157,7 +157,10 @@ export const MAX_QUIET_MULTIPLE = 10;
  * backoff; otherwise the sooner of `delay` since the last edit and
  * `MAX_QUIET_MULTIPLE × delay` since the first unsaved one.
  */
-export function saveDue(s, now, delay) {
+export function saveDue(s, now, delay, { frozen = false } = {}) {
+  // A frozen designer — a goal runs this workflow — saves nothing, however
+  // long an edit made before the freeze has been waiting.
+  if (frozen) return null;
   if (saveRequest(s) === null) return null;
   if (s.status === "failed") return retryDelayMs(s);
   const quiet = s.editedAt === null ? 0 : Math.max(0, s.editedAt + delay - now);
@@ -419,6 +422,34 @@ export function remoteAction(s, payload) {
 export function goalTabRemote(tab, payload) {
   if (!tab?.workflow || !payload || payload.workflow !== tab.workflow) return "ignore";
   if (!WORKFLOW_FACTS.includes(payload.type) || tab.running) return "ignore";
-  return tab.drawing ? "warn" : "reload";
+  if (!tab.drawing) return "reload";
+  // Said once per revision: the same fact echoed — by another window, by
+  // the row re-read — is not said again. A fact with no revision is new.
+  if (typeof payload.revision === "number" && payload.revision === tab.warned) return "ignore";
+  return "warn";
+}
+
+/**
+ * The head worth keeping when the designer is left — by a route change, a
+ * tab closed — in `conflict` or `rejected`: the person's own edits, which no
+ * save on the way out would carry (`saveRequest` is null in both). Nothing
+ * in any other state, and nothing when the head is already what is saved.
+ */
+export function parked(s) {
+  if (!s || (s.status !== "conflict" && s.status !== "rejected")) return null;
+  return dirty(s) ? present(s) : null;
+}
+
+/**
+ * A session opened on the stored workflow with a head kept from the last
+ * visit (`parked`): the stored copy is the base, the kept head the edit on
+ * it, and the two a conflict for the person to settle — *Keep mine* saves
+ * the kept head at the stored revision, *Take theirs* puts it in the undo
+ * history. A kept head equal to the stored body is nothing to settle.
+ */
+export function openWithMine(stored, problems, mine) {
+  const s = open(stored, problems);
+  if (!mine || JSON.stringify(mine) === JSON.stringify(bodyOf(stored))) return s;
+  return conflict(edit(s, mine), stored);
 }
 

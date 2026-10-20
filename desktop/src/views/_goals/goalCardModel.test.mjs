@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { STATUS_TONE, assigneeSummary, cardMenu, compactChips, listeningChip, needsYouCount, projectsOf, queuedChip, rowVerbs, secondLine, statusTone, statusWord, workflowWord, designingRow } from "./goalCardModel.mjs";
+import { STATUS_TONE, STRIP_CHIPS, assigneeSummary, assigneeTitle, cardMenu, compactChips, listeningChip, needsYouCount, projectNames, projectsOf, queuedChip, rowVerbs, secondLine, statusTone, statusWord, workflowWord, designingRow } from "./goalCardModel.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORE = join(HERE, "../../../../crates/bisa-core/src");
@@ -155,4 +155,15 @@ test("a card says designing only for a goal the design holds, in a mode that des
 // added by the coverage pass: goalCardModel.test.mjs
 test("an assignee of a shape nobody knows is a question mark, never a crash", () => {
   assert.deepEqual(assigneeSummary([{ odd: 1 }]), { shown: [{ kind: "unknown", word: "?" }], more: 0 });
+});
+
+test("the card's lines are the model's: the assignees shown by name with the rest counted, the attached projects by name, and the strip's bound named", () => {
+  assert.equal(assigneeTitle(assigneeSummary([{ agent: "dev" }, { team: "ops" }, { human: "ab".repeat(32) }, { agent: "qa" }])), "dev, ops, abababab, +1");
+  assert.equal(assigneeTitle(assigneeSummary([])), "");
+  assert.equal(assigneeTitle(null), "");
+  assert.equal(projectNames([{ project: { name: "api" } }, { project: { name: "web" } }, { project: {} }]), "api, web");
+  assert.equal(projectNames(undefined), "");
+  assert.equal(STRIP_CHIPS, 12);
+  const many = Array.from({ length: 20 }, (_, i) => ({ id: `s${i}`, state: "pending" }));
+  assert.equal(compactChips(many, []).shown.length, compactChips(many, [], STRIP_CHIPS).shown.length, "the default is the named bound");
 });

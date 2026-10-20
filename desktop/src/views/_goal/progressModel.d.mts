@@ -34,3 +34,6 @@ export declare function progressCount(strip: RunStrip | null | undefined): { rea
 export declare function liveSteps(run: WorkflowRun | null | undefined): WorkflowRun["workflow"]["steps"];
 /** The finished banner's sentence: what the run came to — and, failed, at which step and why. */
 export declare function finishedWords(run: Pick<WorkflowRun, "outcome" | "workflow" | "steps"> | null | undefined): string;
+
+/** A duration as one more part of a line, or nothing. */
+export declare function durationSuffix(duration: string | null | undefined): string;

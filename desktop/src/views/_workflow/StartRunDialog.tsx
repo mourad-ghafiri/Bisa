@@ -23,6 +23,7 @@ import { attempt } from "../_work/useAsync";
 import { HookSecretNote } from "./HookSecretNote";
 import { InputsForm } from "./InputsForm";
 import { initialValues, toRequest, validateInputs, type InputValues } from "./workflowForm.mjs";
+import { startedWords } from "./startRunModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 export function StartRunDialog({
@@ -100,17 +101,7 @@ export function StartRunDialog({
     );
     setBusy(false);
     if (ok) {
-      toast.ok(
-        adopt
-          ? listen
-            ? t("workflow-start-run-dialog-adopted-listening")
-            : t("workflow-start-run-dialog-adopted-run-has-started")
-          : listen
-            ? t("workflow-start-run-dialog-listening")
-            : did.queued
-              ? t("workflow-start-run-dialog-queued-starts-when-live-run-finishes")
-              : t("workflow-run-workflow-dialog-run-has-started"),
-      );
+      toast.ok(startedWords({ adopt: !!adopt, listen, queued: did.queued }));
       onDone();
       // A secret is shown once: the dialog stays until the person has it.
       if (did.minted.length > 0) setSecrets(did.minted);

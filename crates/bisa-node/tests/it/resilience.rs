@@ -720,3 +720,276 @@ async fn a_broken_machine_settings_layer_leaves_the_node_up_named_and_repairable
         "repaired: {ws}"
     );
 }
+
+/// The adoption's row of the goal, when the Inbox owes one: the `adopt:`
+/// action on the goal's row.
+fn adoption_of(inbox: &Value, goal: GoalId) -> Option<Value> {
+    inbox["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|r| r["key"] == json!(goal.to_string()))
+        .and_then(|r| {
+            r["needs_action"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|a| {
+                    a["subject"]
+                        .as_str()
+                        .is_some_and(|s| s.starts_with("adopt:"))
+                })
+                .cloned()
+        })
+}
+
+/// The steps the goal's row says are owed an answer, sorted.
+fn steps_owed(inbox: &Value, goal: GoalId) -> Vec<String> {
+    let mut steps: Vec<String> = inbox["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r["key"] == json!(goal.to_string()))
+        .flat_map(|r| r["needs_action"].as_array().cloned().unwrap_or_default())
+        .filter_map(|a| a["step"].as_str().map(str::to_string))
+        .collect();
+    steps.sort();
+    steps
+}
+
+/// A proposal the person edits on the Workflow tab is theirs: the adoption
+/// is withdrawn in the journal too, so the Inbox rebuilds no *Adopt this
+/// workflow?* for it — now, with no live gate left, and after a restart —
+/// and a decision on the goal finds nothing to adopt and starts nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edited_proposal_owes_no_adoption_now_nor_after_a_restart() {
+    let node = Node::start().await;
+    let v = node
+        .post(
+            "/goals",
+            json!({"statement": "edit the plan", "mode": "guided"}),
+        )
+        .await;
+    let goal: GoalId = serde_json::from_value(v["goal"]["id"].clone()).expect("goal id");
+    let steps = |name: &str| {
+        json!([{"id": "do", "name": name, "kind": "agent", "instructions": "do it",
+                "harness": ["no-such-harness"]}])
+    };
+    let reply = node
+        .intake_op(json!({
+            "op": "propose_workflow", "agent": AgentId::WORKFLOW, "goal": goal.to_string(),
+            "workflow": {"name": "Proposed", "steps": steps("Do")}
+        }))
+        .await;
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert!(
+        adoption_of(&node.get("/inbox").await, goal).is_some(),
+        "the adoption is owed while the proposal stands"
+    );
+
+    node.put(
+        &format!("/goals/{goal}/workflow"),
+        json!({"definition": {"name": "Proposed, edited", "steps": steps("Do, edited")}, "revision": 1}),
+    )
+    .await;
+    let inbox = node.get("/inbox").await;
+    assert!(
+        adoption_of(&inbox, goal).is_none(),
+        "edited by hand, the plan is the person's: {inbox}"
+    );
+    let node = node.restart().await;
+    let inbox = node.get("/inbox").await;
+    assert!(
+        adoption_of(&inbox, goal).is_none(),
+        "and a restart rebuilds no adoption: {inbox}"
+    );
+    let page = node.get(&format!("/goals/{goal}")).await;
+    assert!(
+        page["guidance"]["open_questions"]
+            .as_array()
+            .is_none_or(|q| q.is_empty()),
+        "{page}"
+    );
+    let (status, body) = node
+        .req(
+            "POST",
+            &format!("/goals/{goal}/decide"),
+            Some(json!({"approve": true})),
+        )
+        .await;
+    assert_ne!(status, 200, "nothing to decide: {body}");
+    assert!(
+        node.get(&format!("/goals/{goal}/runs")).await["runs"]
+            .as_array()
+            .is_some_and(|r| r.is_empty()),
+        "nothing started"
+    );
+    node.shutdown().await;
+}
+
+/// A live question on one step hides no other step's durable one: after a
+/// restart both of two waiting human steps are owed from the run alone;
+/// "not sure" on the first re-asks it through a live gate, and the second
+/// stays owed on the row and on the goal beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_live_re_ask_hides_no_other_steps_durable_question() {
+    let node = Node::start().await;
+    let goal = node.new_goal("two questions").await;
+    let wf = node
+        .workflow(json!({"name": "Twice", "steps": [
+            {"id": "fan", "name": "Fan", "kind": "parallel", "then": ["a", "b"]},
+            {"id": "a", "name": "A", "kind": "human", "prompt": "a?"},
+            {"id": "b", "name": "B", "kind": "human", "prompt": "b?"}
+        ]}))
+        .await;
+    let run = node.start_run(goal, wf).await;
+    assert_eq!(steps_owed(&node.get("/inbox").await, goal), ["a", "b"]);
+    let node = node.restart().await;
+    assert_eq!(
+        steps_owed(&node.get("/inbox").await, goal),
+        ["a", "b"],
+        "both rebuilt from the run"
+    );
+    node.post(
+        &format!("/runs/{run}/steps/a/answer"),
+        json!({"answer": {"unsure": true}}),
+    )
+    .await;
+    let inbox = node.get("/inbox").await;
+    assert_eq!(
+        steps_owed(&inbox, goal),
+        ["a", "b"],
+        "a re-asked live, b still owed: {inbox}"
+    );
+    let page = node.get(&format!("/goals/{goal}")).await;
+    let owed: Vec<&str> = page["guidance"]["open_questions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|q| q["step"].as_str())
+        .collect();
+    assert!(owed.contains(&"a") && owed.contains(&"b"), "{page}");
+    node.shutdown().await;
+}
+
+/// A library workflow that is there and cannot be read is said by its file
+/// — the store's own refusal, never *workflow not found* — by every route
+/// that names it; the goal pointed at it is still a row, drawn without the
+/// definition, and the library lists without it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_library_workflow_is_said_by_its_file_and_the_goal_pointed_at_it_still_lists()
+{
+    let node = Node::start().await;
+    let wf = node.workflow(hook_workflow("broken later")).await;
+    let other = node.workflow(hook_workflow("fine")).await;
+    let goal = node.new_goal("points at it").await;
+    let (code, v) = node
+        .req(
+            "PUT",
+            &format!("/goals/{goal}/workflow"),
+            Some(json!({"workflow": wf.to_string()})),
+        )
+        .await;
+    assert_eq!(code, 200, "{v}");
+    let file = Paths::new(node.data_dir()).library_workflow_snapshot(wf);
+    assert!(file.is_file(), "{}", file.display());
+    poison(&file);
+
+    let said = |v: &Value| v["error"].as_str().unwrap_or_default().to_string();
+    for (method, path, body) in [
+        ("GET", format!("/workflows/{wf}"), None),
+        ("GET", format!("/workflows/{wf}/retirement"), None),
+        (
+            "POST",
+            format!("/workflows/{wf}/archive"),
+            Some(json!({"archived": true})),
+        ),
+        ("DELETE", format!("/workflows/{wf}"), None),
+    ] {
+        let (code, v) = node.req(method, &path, body).await;
+        assert_eq!(code, 404, "{method} {path}: {v}");
+        assert!(
+            said(&v).contains(&wf.to_string()) && !said(&v).contains("workflow not found"),
+            "{method} {path} names the file, not a workflow nobody has: {v}"
+        );
+    }
+    // What nobody wrote is still what nobody wrote.
+    let ghost = bisa_core::WorkflowId::from_ulid(ulid::Ulid::from_parts(7, 7));
+    let (code, v) = node.req("GET", &format!("/workflows/{ghost}"), None).await;
+    assert_eq!(code, 404, "{v}");
+    assert!(said(&v).contains("workflow not found"), "{v}");
+
+    let v = node.get("/workflows").await;
+    let ids: Vec<Value> = v["workflows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["workflow"]["id"].clone())
+        .collect();
+    assert!(ids.contains(&json!(other.to_string())), "{ids:?}");
+    assert!(
+        !ids.contains(&json!(wf.to_string())),
+        "the list goes on without it: {ids:?}"
+    );
+
+    let goals = node.get("/goals").await;
+    let row = goals["goals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["id"] == json!(goal.to_string()))
+        .expect("the goal is still a row");
+    assert_eq!(row["workflow"], json!(wf.to_string()));
+    assert!(
+        row["strip"].is_object(),
+        "drawn without the definition: {row}"
+    );
+    let (code, v) = node.req("GET", &format!("/goals/{goal}"), None).await;
+    assert_eq!(code, 200, "{v}");
+    node.shutdown().await;
+}
+
+/// A goal whose journal this node cannot read — the file itself refused by
+/// the system, since a torn line is skipped by the signed log's reader —
+/// keeps its page and the Inbox answering: the live gate is still owed,
+/// the Workflow Agent's standing is unknown, and the journal route alone
+/// refuses.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_journal_keeps_the_goal_page_and_the_inbox_answering() {
+    use std::os::unix::fs::PermissionsExt;
+    let node = Node::start().await;
+    let goal = node.new_goal("loses its journal").await;
+    let gate = node.ask(goal).await;
+    let journal = Paths::new(node.data_dir())
+        .home(&bisa_core::Home::Goal { goal })
+        .journal();
+    assert!(journal.is_file(), "{}", journal.display());
+    std::fs::set_permissions(&journal, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let (code, v) = node
+        .req("GET", &format!("/goals/{goal}/journal"), None)
+        .await;
+    assert_ne!(code, 200, "the journal itself is refused: {v}");
+    let (code, v) = node.req("GET", &format!("/goals/{goal}"), None).await;
+    assert_eq!(code, 200, "{v}");
+    assert!(v["guidance"]["design"].is_null(), "{v}");
+    let owed: Vec<&str> = v["guidance"]["open_questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|q| q["gate_id"].as_str())
+        .collect();
+    assert_eq!(
+        owed,
+        vec![gate.as_str()],
+        "the live gate is still owed: {v}"
+    );
+    let inbox = node.get("/inbox").await;
+    let rows = inbox["rows"].as_array().unwrap();
+    assert!(
+        rows.iter().any(|r| r.to_string().contains(&gate)),
+        "the goal's row carries its live gate: {inbox}"
+    );
+    node.shutdown().await;
+}

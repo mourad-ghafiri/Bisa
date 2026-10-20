@@ -22,6 +22,10 @@ export interface PanelTab {
 export declare function panelTabs(offered: readonly Panel[], counts?: { work?: number }): PanelTab[];
 export declare function propertiesReveal(showing: { kind: string | null | undefined; panel: unknown }, selection: unknown): { aux: "inspector"; auxId: null; insp: "properties" } | null;
 export declare function propertiesScrollName(selection: unknown): string;
+/** Whether a work item is still at work: claimed, in progress, or in review. */
+export declare function isRunning(item: { state?: { state?: string } | null } | null | undefined): boolean;
+/** The rows the goal made first, the rest after, in a stable order. */
+export declare function projectsFirst<R>(rows: readonly R[] | null | undefined, madeByGoal: (row: R) => boolean): R[];
 export declare function spendWords(spent: Pick<BudgetSpent, "tokens" | "usd_cents" | "wall_clock_secs"> | null | undefined): string;
 export declare function runCardWords(run: Pick<WorkflowRun, "id" | "workflow" | "outcome" | "cancelled">, runs: readonly RunSummary[] | null | undefined): string;
 export declare const PROJECTS_NAMED: number;

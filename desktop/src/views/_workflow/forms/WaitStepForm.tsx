@@ -11,7 +11,7 @@
 
 import type { InputDef, Step } from "../../../types";
 import { Field, Labelled, NumberInput, Select, TextInput } from "../../../ui";
-import { TEMPLATE_HINT, WAITS, blankWait } from "../stepKinds.mjs";
+import { DEFAULT_CRON, DEFAULT_DELAY_SECS, TEMPLATE_HINT, WAITS, blankWait } from "../stepKinds.mjs";
 import { MessageFilterFields } from "./MessageFilterFields";
 import { ProjectFilterFields } from "./ProjectFilterFields";
 import { RefSource, isInputRef } from "./RefSource";
@@ -48,9 +48,9 @@ export function WaitStepForm({
       {u.until === "delay" && (
         <Labelled label={t("workflow-wait-step-form-seconds")} hint={t("workflow-wait-step-form-counted-engine-s-own-clock-survives")}>
           <div className="flex flex-col gap-1.5">
-            <RefSource value={u.secs} inputs={inputs} kind="number" disabled={disabled} onChange={(r) => set({ ...u, secs: r ?? 3600 })} />
+            <RefSource value={u.secs} inputs={inputs} kind="number" disabled={disabled} onChange={(r) => set({ ...u, secs: r ?? DEFAULT_DELAY_SECS })} />
             {!isInputRef(u.secs) && (
-              <NumberInput className="w-32" value={typeof u.secs === "number" ? u.secs : 3600} min={1} disabled={disabled} onCommit={(secs) => set({ ...u, secs })} aria-label={t("workflow-wait-step-form-seconds")} />
+              <NumberInput className="w-32" value={typeof u.secs === "number" ? u.secs : DEFAULT_DELAY_SECS} min={1} disabled={disabled} onCommit={(secs) => set({ ...u, secs })} aria-label={t("workflow-wait-step-form-seconds")} />
             )}
           </div>
         </Labelled>
@@ -64,7 +64,7 @@ export function WaitStepForm({
         <div className="grid gap-3 @sm:grid-cols-2">
           <Labelled label={t("workflow-wait-step-form-cron")} hint={t("workflow-wait-step-form-five-fields-0-9-1-5")}>
             <div className="flex flex-col gap-1.5">
-              <RefSource value={u.cron} inputs={inputs} kind="text" disabled={disabled} onChange={(r) => set({ ...u, cron: r ?? "0 9 * * 1-5" })} />
+              <RefSource value={u.cron} inputs={inputs} kind="text" disabled={disabled} onChange={(r) => set({ ...u, cron: r ?? DEFAULT_CRON })} />
               {!isInputRef(u.cron) && (
                 <TextInput className="font-mono" value={typeof u.cron === "string" ? u.cron : ""} disabled={disabled} onChange={(e) => set({ ...u, cron: e.target.value })} />
               )}

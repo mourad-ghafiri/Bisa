@@ -27,6 +27,26 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+/// A run as a settlement left it, with the effects that settlement owes.
+type Batch = (WorkflowRun, Vec<RunEffect>);
+
+thread_local! {
+    /// The batches an effect's own settlement produced while a batch was
+    /// running on this thread, waiting their turn ([`run_effects`]).
+    static PENDING: std::cell::RefCell<Option<std::collections::VecDeque<Batch>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The outermost batch on this thread drains what the inner ones queued;
+/// the queue goes with it, however the batch ends.
+struct Draining;
+
+impl Drop for Draining {
+    fn drop(&mut self) {
+        PENDING.with(|pending| *pending.borrow_mut() = None);
+    }
+}
+
 /// Run every effect the run produced, in order.
 ///
 /// An effect names a step; before acting, the step is re-read from the run
@@ -34,7 +54,42 @@ use std::time::{Duration, SystemTime};
 /// moved it (a check that failed synchronously, an `end` step that cancelled
 /// the rest). An effect whose step is no longer where the effect expects it
 /// is skipped, not forced.
+///
+/// **One loop, never a stack.** An instant step settles inside its own
+/// effect — a `notify` posts and is done, an `emit` raises and is done, a
+/// check that cannot render fails — and its settlement produces the next
+/// batch. Run there and then, each batch would sit on the stack of the one
+/// before it, and a loop of instant steps — a `for_each` over a `notify`
+/// body — grew the stack with its iterations until it overflowed. A batch
+/// produced while one runs on this thread waits its turn on the outermost
+/// call's queue instead, and the outermost call drains the queue: the depth
+/// never grows with the graph, and every batch still runs in the order it
+/// was produced.
 pub fn run_effects(inner: &Arc<Inner>, run: &WorkflowRun, effects: Vec<RunEffect>) {
+    let queued = PENDING.with(|pending| match pending.borrow_mut().as_mut() {
+        Some(queue) => {
+            queue.push_back((run.clone(), effects.clone()));
+            true
+        }
+        None => false,
+    });
+    if queued {
+        return;
+    }
+    PENDING.with(|pending| *pending.borrow_mut() = Some(std::collections::VecDeque::new()));
+    let _draining = Draining;
+    run_batch(inner, run, effects);
+    loop {
+        let next =
+            PENDING.with(|pending| pending.borrow_mut().as_mut().and_then(|q| q.pop_front()));
+        match next {
+            Some((run, effects)) => run_batch(inner, &run, effects),
+            None => break,
+        }
+    }
+}
+
+fn run_batch(inner: &Arc<Inner>, run: &WorkflowRun, effects: Vec<RunEffect>) {
     for effect in effects {
         tracing::debug!(run = %run.id, ?effect, "running a run effect");
         let result = match &effect {
@@ -987,6 +1042,19 @@ fn judge(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), EngineE
 /// Abort every `check` and `judge` task of a run that is ended: the run's
 /// settle already decided its steps, and a shell command running on would
 /// only outlive the reason it ran. Answers how many were aborted.
+/// Abort one step's `check` or `judge` task, if one is in flight — the step
+/// was cancelled, diverted or amended away while its run goes on. Answers
+/// whether there was one.
+pub(crate) fn abort_step_task(inner: &Inner, run: RunId, step: &StepId) -> bool {
+    match inner.step_tasks.remove(&(run, step.clone())) {
+        Some((_, handle)) => {
+            handle.abort();
+            true
+        }
+        None => false,
+    }
+}
+
 pub(crate) fn abort_step_tasks(inner: &Inner, run: RunId) -> usize {
     let mut aborted = 0;
     inner.step_tasks.retain(|(r, _), handle| {
@@ -1103,6 +1171,9 @@ fn post_as(
     for a in &assignees {
         principals.extend(assign::principals(inner, a));
     }
+    // One set: an agent named beside its team is mentioned once, wherever
+    // the two names stood.
+    principals.sort();
     principals.dedup();
     Ok(inner.ws.post_message(
         &scope_id,
@@ -1306,10 +1377,13 @@ fn spawn_goal(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), En
             // adopted and repaired alone too.
             Some(parent) => (
                 inner.ws.get_goal(parent)?.mode,
-                GoalOrigin::Spawned { parent },
+                GoalOrigin::Spawned {
+                    parent,
+                    step: Some(step.clone()),
+                },
             ),
             None => (
-                ops::default_goal_mode(inner),
+                ops::default_goal_mode(inner)?,
                 GoalOrigin::Run {
                     run: run.id,
                     step: step.clone(),
@@ -1332,6 +1406,12 @@ fn spawn_goal(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), En
                 documents: vec![],
             },
         )?;
+        // Paired before the child can end: a child whose first effect lands on
+        // another task can finish before this returns, and a pairing armed
+        // only then would wait for an end that already came.
+        if *wait {
+            waits::arm_child(inner, run_id, step, child.id);
+        }
         // A spawned child runs now, at its workflow's start by hand — never
         // listens: the step that spawned it is what it was for — with what
         // the step gives it, each word read by the kind the child's input
@@ -1354,7 +1434,27 @@ fn spawn_goal(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), En
             if run.scope.goal().is_none() {
                 ops::attach_given(inner, child.id, &given)?;
             }
-            ops::begin_goal(inner, child.id, given, ops::Begin::RunNow)?;
+            if let Err(refused) = ops::begin_goal(inner, child.id, given, ops::Begin::RunNow) {
+                // A child nobody can start — its step has nowhere unambiguous
+                // to run, an input does not bind — is closed with the reason,
+                // never left a draft nobody will run.
+                let rationale = format!("its start was refused: {refused}");
+                // Unpaired first: the close releases a parent waiting on the
+                // child, and this step fails rather than completes.
+                waits::disarm(inner, run_id, step);
+                if let Err(e) = ops::close_goal(
+                    inner,
+                    child.id,
+                    bisa_core::ClosureReason::Abandoned {
+                        rationale: Some(rationale),
+                    },
+                ) {
+                    // LCOV_EXCL_START closing the child just made fails only unwritable (disk-only)
+                    tracing::warn!(run = %run.id, %step, child = %child.id, "a child whose start was refused could not be closed: {e}");
+                    // LCOV_EXCL_STOP
+                }
+                return Err(refused);
+            }
         } // LCOV_EXCL_LINE: the question-mark edge of the line above
         let owner = inner.ws.owner_keys().clone();
         warn_on_err(
@@ -1377,17 +1477,20 @@ fn spawn_goal(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), En
                 done_step(inner, run_id, step, json!({ "child": child.to_string() }));
                 return Ok(());
             }
-            // The child may already be finished (a workflow of one `end`
-            // step); otherwise the parent waits for it.
+            // A child already over — a workflow of one `end` step — releases
+            // the step now, through the pairing armed above; one that ended
+            // on another task meanwhile released it already, and the pairing
+            // is gone. Otherwise the parent waits.
             let finished = inner
                 .ws
                 .get_goal(child)
                 .ok()
                 .and_then(|g| g.run.and_then(|r| inner.ws.get_run(r).ok()))
                 .filter(|r| r.is_finished());
-            match finished {
-                Some(r) => done_step(inner, run_id, step, child_output(child, r.outcome)),
-                None => waits::arm_child(inner, run_id, step, child),
+            if let Some(r) = finished {
+                // LCOV_EXCL_START a child that finished inside the spawn window, between the arming and this read; a race by construction
+                waits::child_finished(inner, child, r.outcome);
+                // LCOV_EXCL_STOP
             }
         }
     }
@@ -1406,15 +1509,26 @@ pub(crate) fn child_output(child: GoalId, outcome: Option<RunOutcome>) -> Value 
 /// away, or diverted by a boundary event. Their work items are cancelled,
 /// their questions withdrawn, their waits and boundaries disarmed; a `spawn`
 /// stops waiting and its child goes on.
+/// Why a step's question is withdrawn: the step was cancelled, diverted
+/// or amended away.
+const STEP_CANCELLED: &str = "the step was cancelled";
+
 fn cancel_work(inner: &Arc<Inner>, run: &WorkflowRun, steps: &[StepId]) {
     for step in steps {
         if let Some(item) = run.steps.get(step).and_then(|r| r.work_item) {
-            executor::cancel_item(inner, &run.home(), item, "the step was cancelled");
+            executor::cancel_item(inner, &run.home(), item, STEP_CANCELLED);
         }
+        // The gate, and the question journaled under its id with it, so the
+        // journal says the question is settled.
         for gate in inner.gates.pending_for_step(run.id, step) {
             inner.gates.withdraw(&gate.id);
+            crate::recovery::withdraw_question(inner, run.home(), &gate.id, STEP_CANCELLED, None);
         }
         waits::disarm(inner, run.id, step);
+        // Its check or judge task, and its call to a platform: a step that is
+        // over waits for nothing, as a stopped run's does not.
+        abort_step_task(inner, run.id, step);
+        crate::connectors::abort_call(inner, run.id, step);
     }
 }
 
@@ -1436,6 +1550,11 @@ pub(crate) enum End {
 /// A run of the workspace is nobody's child and nobody's queue.
 fn settle(inner: &Arc<Inner>, run: &WorkflowRun, end: End) {
     let goal = run.scope.goal();
+    // Nothing of a run that is over waits on a shell or a platform: an `end`
+    // that finished the run beside a check still running, a failure on
+    // another branch — whatever a stop would abort, the end aborts too.
+    abort_step_tasks(inner, run.id);
+    crate::connectors::abort_calls(inner, run.id);
     if run.started_at.is_some() {
         match goal {
             Some(goal) => {

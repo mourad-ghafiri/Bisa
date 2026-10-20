@@ -7,29 +7,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import {
-  FROZEN_HINT,
-  anyRunLive,
-  cancelWords,
-  listenVerb,
-  liveRun,
-  panelFrozen,
-  queuedRuns,
-  restartWords,
-  runIndex,
-  runIsLive,
-  runIsQueued,
-  runRows,
-  runStatus,
-  runVerbs,
-  runWords,
-  stopWords,
-  summaryIsLive,
-  summaryIsQueued,
-  liveSessionsOf,
-  sessionsByGoal,
-  spawnedOpen,
-} from "./runControl.mjs";
+import { FROZEN_HINT, anyRunLive, cancelWords, listenVerb, liveRun, panelFrozen, queuedRuns, restartWords, runIndex, runIsLive, runIsQueued, runRows, runStatus, runVerbs, runWords, stopWords, summaryIsLive, summaryIsQueued, liveSessionsOf, sessionsByGoal, spawnedOpen, listenOffer } from "./runControl.mjs";
 
 const goal = { id: "01G", mode: "manual", closed: null };
 const manual = { mode: "manual", design_enabled: true, phase: "manual", design: null, open_questions: [] };
@@ -236,4 +214,66 @@ test("a run status this build has no word for is said as the node said it", () =
   assert.equal(words.tone, "quiet");
   assert.equal(words.at, 7);
   assert.equal(runWords({}).word, "unknown");
+});
+
+test("a stop's words name each thing it ends — the live run and its work, the queue, the sessions, the children — and that the goal stays open", () => {
+  const whole = stopWords({ live: true, queued: 2, liveSteps: 3, sessions: 1, children: 1 });
+  for (const part of ["3", "2", "1"]) assert.ok(whole.includes(part), `${part} in: ${whole}`);
+  const bare = stopWords({ live: false, queued: 0 });
+  assert.ok(bare.length > 0 && !bare.includes("cancelled"), "nothing live: only that the goal stays open");
+  const sessions = stopWords({ live: false, queued: 0, sessions: 2 });
+  assert.ok(sessions.length > bare.length, "sessions working on the goal with no run are named");
+  assert.equal(stopWords({ live: true, queued: 0, liveSteps: 0, sessions: 2 }).includes(sessions), false, "a live run says it already");
+});
+
+test("a restart confirms only when a run is live, counting the queue and the children", () => {
+  assert.equal(restartWords({ live: false, queued: 3, children: 2 }), null, "a finished goal only starts a run");
+  const said = restartWords({ live: true, queued: 1 });
+  assert.ok(said && said.includes("1"));
+  const alone = restartWords({ live: true, queued: 0 });
+  const withChildren = restartWords({ live: true, queued: 0, children: 2 });
+  assert.ok(withChildren.length > alone.length, "the children are named beside it");
+});
+
+test("the open goals a goal spawned are counted through every generation, never twice, and closed ones are left out", () => {
+  const spawned = (id, parent, extra = {}) => ({ id, origin: { origin: "spawned", parent }, ...extra });
+  const goals = [
+    { id: "root" },
+    spawned("c1", "root"),
+    spawned("c2", "root", { status: "closed" }),
+    spawned("g1", "c1"),
+    spawned("g2", "c1", { closed: { at: 1 } }),
+    spawned("other", "elsewhere"),
+    { id: "captured", origin: { origin: "captured" } },
+  ];
+  assert.equal(spawnedOpen(goals, "root"), 2, "c1 and its g1");
+  assert.equal(spawnedOpen(goals, "c1"), 1);
+  assert.equal(spawnedOpen(goals, "nobody"), 0);
+  assert.equal(spawnedOpen(null, "root"), 0);
+  const loop = [spawned("a", "b"), spawned("b", "a")];
+  assert.equal(spawnedOpen(loop, "a"), 2, "a cycle ends");
+});
+
+test("the runs as rows: newest first, numbered from the oldest, Withdraw for a queued one alone, live while going or queued", () => {
+  const runs = [
+    { id: "r1", number: 1, status: "done", queued_at: 10 },
+    { id: "r2", number: 2, status: "running", queued_at: 20 },
+    { id: "r3", number: 3, status: "queued", queued_at: 30 },
+  ];
+  const rows = runRows(runs);
+  assert.deepEqual(rows.map((r) => r.id), ["r3", "r2", "r1"]);
+  assert.deepEqual(rows.map((r) => r.index), [3, 2, 1]);
+  assert.deepEqual(rows.map((r) => r.withdraw), [true, false, false]);
+  assert.deepEqual(rows.map((r) => r.live), [true, true, false]);
+  assert.ok(rows.every((r) => typeof r.words.word === "string" && r.words.word.length > 0));
+  assert.deepEqual(runRows(null), []);
+  assert.deepEqual(runRows([{ id: "x", status: "done" }, { id: "y", status: "done" }]).map((r) => r.index), [2, 1], "numbered among themselves when the node did not");
+});
+
+test("a start offered now is a start by listening when the verb says so, or when a proposal still to adopt begins on events", () => {
+  assert.equal(listenOffer({ listen: true }, false, false), true);
+  assert.equal(listenOffer({ listen: false }, true, true), true);
+  assert.equal(listenOffer({ listen: false }, true, false), false, "a proposal by hand runs");
+  assert.equal(listenOffer(null, false, true), false, "listens but nothing to adopt and no verb");
+  assert.equal(listenOffer(undefined, true, true), true);
 });

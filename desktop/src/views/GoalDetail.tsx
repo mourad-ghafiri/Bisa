@@ -36,7 +36,7 @@ import { useViewScroll } from "../shell/useViewScroll";
 import { useWorkspace } from "../shell/useWorkspaceData";
 import { placeOf } from "../shell/viewMemoryStore";
 import type { WorkItemSpec } from "../types";
-import { closeBody, closeWords, pageFacts, replacements, type CloseForm } from "./_goal/goalPageModel.mjs";
+import { closeBody, closeWords, pageFacts, replacements, wantsReload, type CloseForm } from "./_goal/goalPageModel.mjs";
 import { Button, ConfirmDialog, Dialog, ErrorNote, Field, GOAL_STATUS_ICON, ICON, Select, SkeletonRows, Tabs, TextArea, useToast, type MenuItem } from "../ui";
 import { GoalHeader } from "./_goal/GoalHeader";
 import { ProgressTab } from "./_goal/ProgressTab";
@@ -58,38 +58,9 @@ import { GoalWorkflowTab } from "./_workflow/GoalWorkflowTab";
 import { WorkflowPicker } from "./_workflow/WorkflowPicker";
 import { t as tr } from "../i18n/l10n.mjs";
 
-/**
- * The frames that change what this screen shows. `guided` is not one of
- * them: `DesigningCard` applies that frame to its own state, and refetching
- * the whole goal on every status tick was what kept the Workflow tab
- * re-rendering — `workflow_proposed` / `workflow_changed` are the design
- * frames that change the page.
- */
-const STRUCTURAL = new Set([
-  "run_started",
-  "run_queued",
-  "run_finished",
-  "run_cancelled",
-  "step_changed",
-  "goal_closed",
-  "workflow_proposed",
-  "workflow_changed",
-  "workflow_archived",
-  "goal_archived",
-  "gate_opened",
-  "gate_decided",
-  "question_asked",
-  "result_accepted",
-  "execution_ended",
-  // The goal's listening: armed, cleared or paused, and a start event of its
-  // workflow that could not start a run.
-  "listening_changed",
-  "listener_failed",
-  "guided",
-  "attachment_changed",
-  "document_added",
-  "project_created",
-]);
+// The frames that change what this screen shows are the model's
+// (`goalPageModel.wantsReload`): a tick of the design in progress is the
+// Designing card's own, not a reason to read the whole goal again.
 
 const TAB_DEFS = GOAL_TABS.map((id) => ({ id, label: GOAL_TAB_LABEL[id] }));
 
@@ -160,7 +131,7 @@ export default function GoalDetail({ id }: { id: string }) {
       leave(tr("screens-goal-detail-goal-deleted"));
       return;
     }
-    if (STRUCTURAL.has(e.payload.type)) refresh();
+    if (wantsReload(e.payload)) refresh();
   }, id);
 
   // The dialogs stand outside the loading and error gates below: a goal

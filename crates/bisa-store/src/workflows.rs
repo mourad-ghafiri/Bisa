@@ -392,12 +392,16 @@ impl Workspace {
                     e = e.to_string()
                 ))
             })?;
-            match self.get_workflow(id) {
-                Ok(wf) => out.push(wf),
+            let read = match self.get_workflow(id) {
                 // Gone between the listing and the read — a held amendment
                 // dropped as its run finished: not in the list, not an error.
                 Err(StoreError::WorkflowNotFound(_)) => continue,
-                Err(e) => return Err(e),
+                read => read,
+            };
+            // A file this build cannot read costs that workflow, never the
+            // library: skipped and said, as a goal's is.
+            if let Some(wf) = crate::workspace::tolerated("workflow", &id.to_string(), read)? {
+                out.push(wf);
             }
         }
         Ok(out)
@@ -427,7 +431,13 @@ impl Workspace {
                     e = e.to_string()
                 ))
             })?;
-            let wf = self.get_workflow(id)?;
+            let read = match self.get_workflow(id) {
+                Err(StoreError::WorkflowNotFound(_)) => continue, // LCOV_EXCL_LINE gone between the listing and the read; a race no test can time
+                read => read,
+            };
+            let Some(wf) = crate::workspace::tolerated("workflow", &id.to_string(), read)? else {
+                continue;
+            };
             if scope.admits(&wf) {
                 out.push(wf);
             }
@@ -444,6 +454,9 @@ impl Workspace {
         id: WorkflowId,
         archived: bool,
     ) -> Result<Workflow, StoreError> {
+        // Under the run writer: a run of the workflow cannot start between
+        // the look for live runs and the mark.
+        let _one_writer = self.run_writer();
         let mut wf = self.get_workflow(id)?;
         if wf.is_archived() == archived {
             return Ok(wf);
@@ -558,6 +571,9 @@ impl Workspace {
     /// with it, and so is what it listened with — its record, its listeners'
     /// memories, its hook secrets, its queued signals.
     pub fn delete_workflow(&self, id: WorkflowId) -> Result<(), StoreError> {
+        // Under the run writer: a run of the workflow cannot start between
+        // the look for live runs and the folders going.
+        let _one_writer = self.run_writer();
         let wf = self.get_workflow(id)?;
         let d = id.to_string();
         self.refuse_if_used(UsageKind::Workflow, &d)?;
@@ -1144,6 +1160,46 @@ pub(crate) mod tests {
         let third = ws.update_workflow(wf.id, second, 2).unwrap();
         assert_eq!(third.revision, 3);
         assert_eq!(third.description, "second");
+    }
+
+    /// A library workflow file this build cannot read costs that workflow,
+    /// never the library: the lists — the library's and the archived — skip
+    /// it and say so, and a single read refuses it by its file.
+    #[test]
+    fn an_unreadable_workflow_file_is_skipped_by_the_lists_and_refused_alone() {
+        let (_dir, ws) = ws();
+        let kept = ws
+            .create_workflow(notify_workflow("kept"), WorkflowOrigin::Workspace)
+            .unwrap();
+        let torn = ws
+            .create_workflow(notify_workflow("torn"), WorkflowOrigin::Workspace)
+            .unwrap();
+        let away = ws
+            .create_workflow(
+                notify_workflow("put away, then torn"),
+                WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        ws.set_workflow_archived(away.id, true).unwrap();
+        for id in [torn.id, away.id] {
+            std::fs::write(ws.paths().library_workflow_snapshot(id), b"{torn").unwrap();
+        }
+        assert!(
+            matches!(ws.get_workflow(torn.id), Err(StoreError::Unreadable { .. })),
+            "a single read refuses it"
+        );
+        let listed: Vec<WorkflowId> = ws.list_workflows().unwrap().iter().map(|w| w.id).collect();
+        assert_eq!(
+            listed,
+            vec![kept.id],
+            "the library skips it and keeps the rest"
+        );
+        assert!(
+            ws.list_archived_workflows_in(WorkflowScope::Library)
+                .unwrap()
+                .is_empty(),
+            "the archived list skips it too"
+        );
     }
 
     #[test]

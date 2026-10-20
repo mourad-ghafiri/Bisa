@@ -135,6 +135,16 @@ export function runVerbs({ goal, run, runs, guidance, proposed, startable, liste
  * listens, *Listen again* once a failed run or a spent budget paused it —
  * `null` for a goal that does not listen, and for a closed one.
  */
+/**
+ * Whether a start offered now is a start by listening: the verb says so, or
+ * a proposal still to adopt begins on events — the tab and the dialogs ask
+ * the same question.
+ * @param {{listen?: boolean} | null | undefined} start @param {boolean} proposed @param {boolean} listens
+ */
+export function listenOffer(start, proposed, listens) {
+  return !!start?.listen || (!!proposed && !!listens);
+}
+
 export function listenVerb(goal) {
   const listening = goal?.listening;
   if (!listening || goal.closed) return null;

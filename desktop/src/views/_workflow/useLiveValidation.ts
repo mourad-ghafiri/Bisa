@@ -16,8 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { NewWorkflowBody, Problem } from "../../types";
 import { failureText } from "../../ui";
-
-const VALIDATE_DELAY_MS = 200;
+import { VALIDATE_DELAY_MS } from "./designerSettingsModel.mjs";
 
 interface LiveValidation {
   problems: Problem[] | null;

@@ -23,7 +23,7 @@ import { attempt } from "../_work/useAsync";
 import { StartRunDialog } from "../_workflow/StartRunDialog";
 import { startInputs } from "../_workflow/forms/startForm.mjs";
 import { pageFacts } from "./goalPageModel.mjs";
-import { queuedRuns, restartWords, runVerbs, stopWords, liveSessionsOf, spawnedOpen } from "./runControl.mjs";
+import { listenOffer, liveSessionsOf, queuedRuns, restartWords, runVerbs, spawnedOpen, stopWords } from "./runControl.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 export type RunVerb = "start" | "stop" | "restart";
@@ -55,7 +55,7 @@ export function RunVerbDialogs({
   const { adoptGate, proposed, listens, manualEntry } = pageFacts({ goal, run, pendingGates: pending_gates, startable });
   const verbs = runVerbs({ goal, run, runs, guidance, proposed, startable: !!startable || !!goal.workflow, listens, manualEntry, liveSessions });
   // Starting by listening asks only what its events do not supply.
-  const listen = !!verbs.start?.listen || (proposed && listens);
+  const listen = listenOffer(verbs.start, proposed, listens);
   const asked = startInputs(startable, listen);
   const live = !!verbs.stop?.live;
   const queued = queuedRuns(runs).length;

@@ -49,7 +49,7 @@ import { AssigneePicker, AssigneeTag, AssigneeTags, useAssigneeOptions } from ".
 import { DocumentsCard } from "./DocumentsCard";
 import { ProjectDot, projectIsGit } from "./ProjectDetail";
 import { madeByGoal, stepOf } from "./projectOriginModel.mjs";
-import { designLine, originChips, panelOf, panelTabs, panelsFor, projectsWords, runCardWords, spendWords, workstreamWord, type Panel } from "./goalInspectorModel.mjs";
+import { designLine, isRunning, originChips, panelOf, panelTabs, panelsFor, projectsFirst, projectsWords, runCardWords, spendWords, workstreamWord, type Panel } from "./goalInspectorModel.mjs";
 import { publishPropertiesSlot } from "../_goal/propertiesSlot";
 import { headline } from "./workItemRowModel.mjs";
 import { stateLabel as workstreamStateLabel } from "./workstreamCardModel.mjs";
@@ -71,11 +71,6 @@ import { percent } from "../../i18n/format.mjs";
  * finished can still be writing its result, and a tree that stops following
  * one row too early is the case a reader never notices is wrong.
  */
-function isRunning(w: WorkItemSpec): boolean {
-  const s = w.state.state;
-  return s === "claimed" || s === "in_progress" || s === "review";
-}
-
 /** A project this goal can see, with the checkouts open against it. */
 interface ProjectWithSites {
   row: ProjectRow;
@@ -126,7 +121,7 @@ function ProjectsPanel({ goal }: { goal: string }) {
  — then the rest it can see. A link opens the IDE on the
           project; the rail follows the route and shows the row. */}
       <ul className="flex flex-col gap-2">
-        {[...rows].sort((a, b) => Number(madeByGoal(b.row.project.origin, goal)) - Number(madeByGoal(a.row.project.origin, goal))).map(({ row, workstreams }) => (
+        {projectsFirst(rows, ({ row }) => madeByGoal(row.project.origin, goal)).map(({ row, workstreams }) => (
           <li key={row.project.id} className="rounded-control border border-border p-2">
             <a
               href={href({ name: "workbench", scope: "workstream", id: row.project.id })}

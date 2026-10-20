@@ -2287,11 +2287,20 @@ fn merged_assignees(current: Vec<Assignee>, added: Vec<Assignee>, replace: bool)
 /// names — and, once the design is adopted, the goal listens. A note on the
 /// goal says who captured it.
 fn capture_goal(inner: &Arc<Inner>, statement: String, title: Option<String>) -> serde_json::Value {
+    let mode = match ops::default_goal_mode(inner) {
+        Ok(mode) => mode,
+        // LCOV_EXCL_START the mode is read from the settings layers, which fail only unreadable (disk-only)
+        Err(e) => {
+            return err(format!(
+                "the workspace's default mode could not be read: {e}"
+            ))
+        } // LCOV_EXCL_STOP
+    };
     let captured = ops::submit(
         inner,
         ops::SubmitRequest {
             title: title.filter(|t| !t.trim().is_empty()),
-            mode: ops::default_goal_mode(inner),
+            mode,
             ..ops::SubmitRequest::captured(statement)
         },
     );
@@ -3881,12 +3890,12 @@ fn revise_statement(
     if g.is_closed() {
         return err("the goal is closed; its statement no longer changes");
     }
-    let live = inner
-        .ws
-        .get_current_run(goal_id)
-        .ok()
-        .flatten()
-        .is_some_and(|r| !r.is_finished());
+    // A run that cannot be read is taken for live: the statement stays as it
+    // is rather than change under work nobody could look at.
+    let live = match inner.ws.get_current_run(goal_id) {
+        Ok(run) => run.is_some_and(|r| !r.is_finished()),
+        Err(_) => true, // LCOV_EXCL_LINE the goal's run file cannot be read; disk-only
+    };
     if live {
         return err(
             "a run is live — the statement can no longer change; use ask_human to escalate",
@@ -3897,6 +3906,7 @@ fn revise_statement(
     if inner.ws.update_goal(g).is_err() {
         return err("failed to update the goal"); // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
     }
+    ops::announce_goal_updated(inner, goal_id);
     let owner = inner.ws.owner_keys().clone();
     let note = match why {
         Some(why) => format!("statement revised: {why}\nwas: {old}"),
@@ -4003,20 +4013,30 @@ fn spawn_sub_goal(
         }
     }
     let (mode, origin) = match home {
-        Home::Goal { goal: parent } => (
-            inner
-                .ws
-                .get_goal(parent)
-                .map(|g| g.mode)
-                .unwrap_or_default(),
-            GoalOrigin::Spawned { parent },
-        ),
+        Home::Goal { goal: parent } => {
+            // A child moves as its parent does — never *auto* for a parent
+            // nobody could read.
+            let mode = match inner.ws.get_goal(parent) {
+                Ok(parent) => parent.mode,
+                // LCOV_EXCL_START the parent was read a moment ago by resolve_scope; a read that fails here is disk-only
+                Err(e) => return err(format!("the parent goal could not be read: {e}")),
+                // LCOV_EXCL_STOP
+            };
+            (mode, GoalOrigin::Spawned { parent, step: None })
+        }
         // LCOV_EXCL_START: a spawn budget is a guided session's alone today, and a guided session is a goal's; a run's item never reaches past the budget check above
         Home::Run { run } => {
             let Some(step) = parent_spec.as_ref().and_then(|s| s.step.clone()) else {
                 return err("this work item names no step of its run to spawn from");
             };
-            (ops::default_goal_mode(inner), GoalOrigin::Run { run, step })
+            match ops::default_goal_mode(inner) {
+                Ok(mode) => (mode, GoalOrigin::Run { run, step }),
+                Err(e) => {
+                    return err(format!(
+                        "the workspace's default mode could not be read: {e}"
+                    ))
+                }
+            }
         } // LCOV_EXCL_STOP
     };
     let child = match ops::submit(

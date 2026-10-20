@@ -827,17 +827,17 @@ impl From<bisa_store::StoreError> for ApiError {
             }
             // Deleting `general`, disabling the core agent: the record is
             // fine and the request is not — a conflict with what the
-            // workspace is, not a malformed body.
+            // workspace is, not a malformed body. The run saying no is the
+            // same: the step is not where the caller thinks it is, or a run
+            // is still unfinished. One arm, one body: two arms with one body
+            // are folded by the compiler and one of them never records a hit.
             SE::Channel(bisa_core::ChannelError::Permanent { .. })
             | SE::Agent(bisa_core::AgentError::CoreCannotBeRemoved)
-            | SE::Agent(bisa_core::AgentError::CoreCannotBeDisabled) => {
-                ApiError::text(StatusCode::CONFLICT, e.text())
-            }
-            // The run said no: the step is not where the caller thinks it
-            // is, or a run is still unfinished.
-            SE::Run(_) | SE::RunNotFinished { .. } | SE::RunNotQueued { .. } | SE::WorkItem(_) => {
-                ApiError::text(StatusCode::CONFLICT, e.text())
-            }
+            | SE::Agent(bisa_core::AgentError::CoreCannotBeDisabled)
+            | SE::Run(_)
+            | SE::RunNotFinished { .. }
+            | SE::RunNotQueued { .. }
+            | SE::WorkItem(_) => ApiError::text(StatusCode::CONFLICT, e.text()),
             // The workstream's table said no — named, so a client never reads
             // it as the project's publishing policy.
             SE::Workstream(_) => ApiError::coded(

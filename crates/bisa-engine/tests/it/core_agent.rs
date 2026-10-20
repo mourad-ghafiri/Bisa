@@ -629,7 +629,7 @@ async fn get_goal_says_where_files_go() {
     let child = engine
         .submit_goal(SubmitRequest {
             mode: bisa_core::GoalMode::Manual,
-            origin: GoalOrigin::Spawned { parent },
+            origin: GoalOrigin::Spawned { parent, step: None },
             ..SubmitRequest::captured("one slice of it")
         })
         .unwrap()

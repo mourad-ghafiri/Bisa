@@ -98,6 +98,25 @@ export function documentsHint(count) {
  * @param {readonly {id: string, origin: unknown, enabled: boolean}[]} agents
  * @returns {string[]}
  */
+/**
+ * The projects chosen elsewhere for the next capture, handed over once:
+ * `offer` keeps them, `take` hands them to the dialog and forgets them, so
+ * a later plain capture carries none.
+ */
+export function projectsHandoff() {
+  let held = [];
+  return {
+    offer(ids) {
+      held = [...(ids ?? [])];
+    },
+    take() {
+      const out = held;
+      held = [];
+      return out;
+    },
+  };
+}
+
 export function staffNotOffered(agents) {
   return (agents ?? []).filter((a) => a.origin === "core" || !a.enabled).map((a) => a.id);
 }

@@ -23,6 +23,8 @@ const COMPILE_TIME = Object.freeze({
   "activity.ts: RENDERED": "the exhaustiveness check over every wire payload — `noUnusedLocals` refuses it unexported, and a caller would be wrong",
 });
 const escape = (name) => name.replace(/\$/g, "\\$");
+/** The source without its comments: a name said in a comment reaches nothing. */
+const code = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 
 /** The exported value names of one source: declarations and `export { … }` lists, types left out. */
 function exportedValues(text) {
@@ -39,8 +41,8 @@ function exportedValues(text) {
 }
 
 test("every exported value is imported by a source or read by a test", () => {
-  const sources = sourceFiles(SRC, isSource).map((p) => [p, readFileSync(p, "utf8")]);
-  const tests = sourceFiles(SRC, (p) => /\.test\.mjs$/.test(p)).map((p) => readFileSync(p, "utf8")).join("\n");
+  const sources = sourceFiles(SRC, isSource).map((p) => [p, code(readFileSync(p, "utf8"))]);
+  const tests = code(sourceFiles(SRC, (p) => /\.test\.mjs$/.test(p)).map((p) => readFileSync(p, "utf8")).join("\n"));
   const everything = sources.map(([, t]) => t).join("\n");
   const dead = [];
   for (const [file, text] of sources) {

@@ -208,7 +208,19 @@ pub fn set_goal_assignees(
     assignees: Vec<Assignee>,
 ) -> Result<Goal, EngineError> {
     check_assignees(inner, &assignees)?;
-    Ok(inner.ws.set_goal_assignees(goal, assignees)?)
+    let updated = inner.ws.set_goal_assignees(goal, assignees)?;
+    announce_goal_updated(inner, goal);
+    Ok(updated)
+}
+
+/// Say a goal's own record changed, on the goal's row: the screen open on
+/// it reads it again, the list refreshes its card.
+pub(crate) fn announce_goal_updated(inner: &Arc<Inner>, goal: GoalId) {
+    inner.emit(EngineEvent::scoped(
+        goal,
+        None,
+        EnginePayload::GoalUpdated { goal },
+    ));
 }
 
 /// Rewrite a goal's own record — its title, statement, tags, budget. Its
@@ -216,7 +228,10 @@ pub fn set_goal_assignees(
 /// and it closes through [`close_goal`].
 // LCOV_EXCL_START a door nobody calls today; kept for the goal's own record
 pub fn update_goal(inner: &Arc<Inner>, goal: Goal) -> Result<Goal, EngineError> {
-    Ok(inner.ws.update_goal(goal)?)
+    let id = goal.id;
+    let updated = inner.ws.update_goal(goal)?;
+    announce_goal_updated(inner, id);
+    Ok(updated)
 }
 // LCOV_EXCL_STOP
 
@@ -347,6 +362,12 @@ pub fn submit_showing(inner: &Arc<Inner>, req: SubmitRequest) -> Result<Submitte
         }
     }
     crate::documents::check(inner, &req.documents)?;
+    // A goal made without a budget of its own takes the workspace's default
+    // (`budget.default.*`) — the ceiling a standing goal its events start
+    // spends against for a year. A budget the caller decided is kept as
+    // given, an empty one included: no ceiling, whatever the default says.
+    // Read before the first write, like everything else the goal needs.
+    let budget = budget_or_default(inner, req.budget)?;
     let mut goal = inner.ws.create_goal(NewGoal {
         statement: req.statement,
         title: req.title,
@@ -355,11 +376,6 @@ pub fn submit_showing(inner: &Arc<Inner>, req: SubmitRequest) -> Result<Submitte
         assignees: req.assignees,
         tags: req.tags,
     })?;
-    // A goal made without a budget of its own takes the workspace's default
-    // (`budget.default.*`) — the ceiling a standing goal its events start
-    // spends against for a year. A budget the caller decided is kept as
-    // given, an empty one included: no ceiling, whatever the default says.
-    let budget = budget_or_default(inner, req.budget);
     if !budget.is_unlimited() {
         goal.budget = budget;
         goal = inner.ws.update_goal(goal)?;
@@ -379,7 +395,7 @@ pub fn submit_showing(inner: &Arc<Inner>, req: SubmitRequest) -> Result<Submitte
     // A child works where its parent works: its attachments are inherited
     // before anything can run on it, so placement resolves there the way it
     // would on the parent, and a sub-goal never mints a project of its own.
-    if let GoalOrigin::Spawned { parent } = goal.origin {
+    if let GoalOrigin::Spawned { parent, .. } = goal.origin {
         crate::projects::inherit_attachments(inner, parent, goal.id)?;
     }
     let mut secrets = Vec::new();
@@ -481,13 +497,67 @@ pub fn begin_goal(
     )?)))
 }
 
-/// The adoption and design questions a start settles.
-fn withdraw_design_gates(inner: &Arc<Inner>, goal_id: GoalId) {
-    for gate in inner.gates.pending_for_goal(goal_id) {
-        if gate.subject.starts_with("adopt:") || gate.subject.starts_with("ask_human:") {
+/// Why a question of the goal's own was withdrawn by the person's act — the
+/// words on the `Withdrawn` fact.
+pub(crate) const STARTED_BY_HAND: &str = "the goal was started by hand";
+pub(crate) const DESIGN_EDITED: &str = "the design was edited by hand";
+pub(crate) const WORKFLOW_CHOSEN: &str = "another workflow was chosen by hand";
+pub(crate) const SUPERSEDED: &str = "a newer proposal took its place";
+pub(crate) const AMENDMENT_MOOT: &str = "the run it would have amended is over";
+pub(crate) const GOAL_CLOSED: &str = "the goal was closed";
+
+/// The questions a goal owes of its own — never a step's, which is its
+/// run's: an adoption (`adopt:`), a held amendment (`amend:`), the
+/// designer's question (`ask_human:`).
+fn is_adoption(subject: &str) -> bool {
+    subject.starts_with("adopt:")
+}
+fn is_amendment(subject: &str) -> bool {
+    subject.starts_with("amend:")
+}
+fn is_design_question(subject: &str) -> bool {
+    is_adoption(subject) || subject.starts_with("ask_human:")
+}
+fn is_goal_question(subject: &str) -> bool {
+    is_design_question(subject) || is_amendment(subject)
+}
+
+/// Withdraw the goal's questions whose subject `applies` picks out, because
+/// the person's own act settled them — `reason` says which: the live gates,
+/// and in the journal every such question still open, so the Inbox's rebuild
+/// and the durable decide find them settled after a restart as well. A
+/// question standing in the journal alone — its gate died with an earlier
+/// process — is withdrawn the same way; one taken back in memory alone would
+/// come back the moment nothing live stands beside it.
+pub(crate) fn withdraw_questions_of_goal(
+    inner: &Arc<Inner>,
+    goal: GoalId,
+    applies: impl Fn(&str) -> bool,
+    reason: &str,
+) {
+    for gate in inner.gates.pending_for_goal(goal) {
+        if applies(&gate.subject) {
             inner.gates.withdraw(&gate.id);
         }
     }
+    let home = Home::Goal { goal };
+    let journal = match inner.ws.journal(&home) {
+        Ok(journal) => journal,
+        // LCOV_EXCL_START the goal's journal is read from disk, which fails only unreadable (disk-only)
+        Err(e) => {
+            tracing::warn!(target: "bisa_engine", %goal, "the goal's open questions could not be read to withdraw them: {e}");
+            return;
+        } // LCOV_EXCL_STOP
+    };
+    let open = crate::recovery::still_open(journal.iter().map(|e| &e.payload), &applies);
+    for (subject, _) in open {
+        crate::recovery::withdraw_question(inner, home, &subject, reason, None);
+    }
+}
+
+/// The adoption and design questions a start settles.
+fn withdraw_design_gates(inner: &Arc<Inner>, goal_id: GoalId) {
+    withdraw_questions_of_goal(inner, goal_id, is_design_question, STARTED_BY_HAND);
 }
 
 /// Make a run of the goal's workflow at `entry`: started at once when the
@@ -545,16 +615,14 @@ pub fn start_run(
 
 /// The ceiling a caller decided — a listening workflow's, a person's — kept
 /// as given, an empty one included: no ceiling, whatever the default says.
-/// None decided takes the workspace's default (`budget.default.*`).
-fn budget_or_default(inner: &Arc<Inner>, decided: Option<Budget>) -> Budget {
-    decided.unwrap_or_else(|| {
-        inner.ws.default_budget().unwrap_or_else(|e| {
-            // LCOV_EXCL_START: the default budget is read from the settings file, which fails only unreadable (disk-only)
-            tracing::warn!("the default budget could not be read; the work runs unlimited: {e}");
-            Budget::default()
-        })
-        // LCOV_EXCL_STOP
-    })
+/// None decided takes the workspace's default (`budget.default.*`) — and a
+/// default this node cannot read refuses the start rather than letting the
+/// work run with no ceiling at all.
+fn budget_or_default(inner: &Arc<Inner>, decided: Option<Budget>) -> Result<Budget, EngineError> {
+    match decided {
+        Some(budget) => Ok(budget),
+        None => Ok(inner.ws.default_budget()?),
+    }
 }
 
 /// Start a run of a library workflow **in the workspace** at `entry`: no
@@ -574,7 +642,7 @@ pub fn start_workspace_run(
     dispatched: Option<String>,
 ) -> Result<WorkflowRun, EngineError> {
     let scope = RunScope::Workspace {
-        budget: budget_or_default(inner, budget),
+        budget: budget_or_default(inner, budget)?,
     };
     let (run, effects) = inner
         .ws
@@ -816,6 +884,10 @@ pub async fn restart_goal_ended(
     // Before anything is cancelled: a restart that has nowhere to begin must
     // leave the run it would have replaced as it is.
     let entry = restart_entry(inner, &latest)?;
+    // From the cancel to the new run's start the goal's occurrences are held
+    // (`Ending`): the restart's run is the live one, never queued behind a
+    // run an occurrence started on the goal the cancel had just left idle.
+    let _ending = Ending::take(inner, goal_id);
     // The cancel before the sessions end, as `stop_goal` orders it — and
     // every session of the goal ended whether or not its last run is live.
     let done = crate::ending::end_goal_work(
@@ -833,6 +905,27 @@ pub async fn restart_goal_ended(
     }
     let run = start_run(inner, goal_id, latest.inputs.clone(), entry, None)?;
     Ok((run, done.ended))
+}
+
+/// A goal whose work is being ended and begun again: the mark the listening
+/// worker reads to hold the goal's occurrences meanwhile, set for the
+/// restart's whole span and released with it, however it ends.
+struct Ending<'a> {
+    inner: &'a Inner,
+    goal: GoalId,
+}
+
+impl<'a> Ending<'a> {
+    fn take(inner: &'a Inner, goal: GoalId) -> Self {
+        inner.ending_goals.insert(goal);
+        Self { inner, goal }
+    }
+}
+
+impl Drop for Ending<'_> {
+    fn drop(&mut self) {
+        self.inner.ending_goals.remove(&self.goal);
+    }
 }
 
 /// Where a restart begins: the start the run began at, on the event that
@@ -1060,16 +1153,29 @@ pub async fn stop_workflow_ended(
     inner.ws.get_workflow(workflow)?;
     let mut stopped = Vec::new();
     let mut ended = sessions::Ended::default();
+    let mut refused = None;
     for run in inner.ws.live_workspace_runs(Some(workflow))? {
         // One that ended by itself since the list was read was not stopped
-        // by this, and is not said to have been.
-        let (after, done) = stop_run_ended(inner, run.id, None).await?;
-        ended.add(done);
-        if after.cancelled.is_some() {
-            stopped.push(run.id);
+        // by this, and is not said to have been. One that cannot be stopped
+        // costs the answer, never the others: every run is stopped first.
+        match stop_run_ended(inner, run.id, None).await {
+            Ok((after, done)) => {
+                ended.add(done);
+                if after.cancelled.is_some() {
+                    stopped.push(run.id);
+                }
+            }
+            // LCOV_EXCL_START a run the list read a moment ago that cannot be stopped: the store fails only unwritable (disk-only)
+            Err(e) => {
+                tracing::warn!(%workflow, run = %run.id, "a run of the workflow could not be stopped: {e}");
+                refused.get_or_insert(e);
+            } // LCOV_EXCL_STOP
         }
     }
-    Ok((stopped, ended))
+    match refused {
+        Some(e) => Err(e), // LCOV_EXCL_LINE the first refusal of the loop above; disk-only
+        None => Ok((stopped, ended)),
+    }
 }
 
 /// Restart every run of the workspace of the workflow that is going.
@@ -1091,12 +1197,25 @@ pub async fn restart_workflow_ended(
     inner.ws.get_workflow(workflow)?;
     let mut runs = Vec::new();
     let mut ended = sessions::Ended::default();
+    let mut refused = None;
     for run in inner.ws.live_workspace_runs(Some(workflow))? {
-        let (started, done) = restart_run_ended(inner, run.id).await?;
-        ended.add(done);
-        runs.push(started.id);
+        // A run that cannot be restarted — its start gone from the revision
+        // as it stands — costs the answer, never the others.
+        match restart_run_ended(inner, run.id).await {
+            Ok((started, done)) => {
+                ended.add(done);
+                runs.push(started.id);
+            }
+            Err(e) => {
+                tracing::warn!(%workflow, run = %run.id, "a run of the workflow could not be restarted: {e}");
+                refused.get_or_insert(e);
+            }
+        }
     }
-    Ok((runs, ended))
+    match refused {
+        Some(e) => Err(e),
+        None => Ok((runs, ended)),
+    }
 }
 
 /// **The funnel.** Apply one event to a run, announce every step it moved,
@@ -1116,14 +1235,17 @@ pub fn record_run_event_with_effects(
     run_id: RunId,
     event: RunEvent,
 ) -> Result<(WorkflowRun, Vec<RunEffect>), EngineError> {
-    let before = inner.ws.get_run(run_id)?;
-    let (run, effects) = inner.ws.record_run_event(run_id, event)?;
-    emit_step_changes(inner, &before.steps, &run);
+    // The steps the event was applied to come back from the writer with the
+    // run after: a read of this function's own, taken before the lock, could
+    // name a step another writer moved meanwhile, and that step's change
+    // would be announced twice — once here, once by the writer that made it.
+    let moved = inner.ws.record_run_event_moved(run_id, event)?;
+    emit_step_changes(inner, &moved.before, &moved.run);
     // The boundaries follow the snapshot: what a step's new visit arms, what
     // a step that stopped no longer does.
-    waits::sync_boundaries(inner, &run);
-    effects::run_effects(inner, &run, effects.clone());
-    Ok((inner.ws.get_run(run_id)?, effects))
+    waits::sync_boundaries(inner, &moved.run);
+    effects::run_effects(inner, &moved.run, moved.effects.clone());
+    Ok((inner.ws.get_run(run_id)?, moved.effects))
 }
 
 /// Journal a question a gate opened outside a run step — a publish, a
@@ -1373,11 +1495,7 @@ pub fn design_workflow(
     // stale. Withdraw it, as a by-hand `set_workflow` does — the goal then
     // shows the edited steps with an explicit start, and nothing runs on its
     // own.
-    for gate in inner.gates.pending_for_goal(goal_id) {
-        if gate.subject.starts_with("adopt:") {
-            inner.gates.withdraw(&gate.id);
-        }
-    }
+    withdraw_questions_of_goal(inner, goal_id, is_adoption, DESIGN_EDITED);
     Ok((wf, problems))
 }
 
@@ -1412,11 +1530,7 @@ pub fn set_workflow(
         }
     }
     // A choice made by hand settles any adoption still pending.
-    for gate in inner.gates.pending_for_goal(goal_id) {
-        if gate.subject.starts_with("adopt:") {
-            inner.gates.withdraw(&gate.id);
-        }
-    }
+    withdraw_questions_of_goal(inner, goal_id, is_adoption, WORKFLOW_CHOSEN);
     if let Some(id) = workflow {
         let wf = inner.ws.get_workflow(id)?;
         inner.emit(EngineEvent::scoped(
@@ -1484,11 +1598,7 @@ pub fn propose_workflow(
     // A new proposal settles what came before it: an earlier adoption, and a
     // question the designer asked on the way — a question that outlives the
     // proposal would sit in *Your move* doing nothing when answered.
-    for gate in inner.gates.pending_for_goal(goal_id) {
-        if gate.subject.starts_with("adopt:") || gate.subject.starts_with("ask_human:") {
-            inner.gates.withdraw(&gate.id);
-        }
-    }
+    withdraw_questions_of_goal(inner, goal_id, is_design_question, SUPERSEDED);
     let gate = match goal.mode {
         GoalMode::Guided => Some(open_adopt_gate(inner, &goal, &wf, phase, None, by)?),
         GoalMode::Auto => match adopt_alone(inner, &goal, &wf) {
@@ -1766,7 +1876,9 @@ fn open_adopt_gate(
 /// goal's record of one: a first proposal is attached after the goal was
 /// read, and a rule that looked there would find nothing to refuse.
 fn adopt_alone(inner: &Arc<Inner>, goal: &Goal, proposal: &Workflow) -> Result<(), String> {
-    repairs_spent(failed_runs(inner, goal), auto_repair_limit(inner))?;
+    let limit = auto_repair_limit(inner)
+        .map_err(|e| format!("the repair limit could not be read — {e}"))?;
+    repairs_spent(failed_runs(inner, goal), limit)?;
     let watched: Vec<String> = proposal
         .event_starts()
         .iter()
@@ -1800,14 +1912,15 @@ fn repairs_spent(failed: u64, limit: u64) -> Result<(), String> {
     ))
 }
 
-/// `goals.auto.repair_limit`, resolved; the registry's default when unreadable.
-fn auto_repair_limit(inner: &Arc<Inner>) -> u64 {
-    inner
+/// `goals.auto.repair_limit`, resolved — the registry's default for a value
+/// that is no number; a layer this node cannot read is the caller's to say.
+fn auto_repair_limit(inner: &Arc<Inner>) -> Result<u64, EngineError> {
+    Ok(inner
         .ws
-        .setting(AUTO_REPAIR_LIMIT_KEY, None)
-        .ok()
-        .and_then(|r| r.value.as_u64())
-        .unwrap_or(DEFAULT_AUTO_REPAIR_LIMIT)
+        .setting(AUTO_REPAIR_LIMIT_KEY, None)?
+        .value
+        .as_u64()
+        .unwrap_or(DEFAULT_AUTO_REPAIR_LIMIT))
 }
 
 pub const AUTO_REPAIR_LIMIT_KEY: &str = "goals.auto.repair_limit";
@@ -1815,14 +1928,18 @@ const DEFAULT_AUTO_REPAIR_LIMIT: u64 = 3;
 pub const DEFAULT_MODE_KEY: &str = "goals.default_mode";
 
 /// `goals.default_mode`, resolved — the mode a capture takes when it does
-/// not say. The registry's default, `auto`, when unreadable.
-pub fn default_goal_mode(inner: &Arc<Inner>) -> GoalMode {
-    inner
+/// not say; the registry's default, `auto`, for a value that is no mode. A
+/// layer this node cannot read is refused to the caller: *auto* is the one
+/// mode that runs unattended, and never the answer to a file nobody could
+/// open.
+pub fn default_goal_mode(inner: &Arc<Inner>) -> Result<GoalMode, EngineError> {
+    Ok(inner
         .ws
-        .setting(DEFAULT_MODE_KEY, None)
-        .ok()
-        .and_then(|r| r.value.as_str().and_then(|s| s.parse().ok()))
-        .unwrap_or_default()
+        .setting(DEFAULT_MODE_KEY, None)?
+        .value
+        .as_str()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_default())
 }
 
 /// How many of the goal's runs failed **in a row**, newest back to the last
@@ -1830,14 +1947,32 @@ pub fn default_goal_mode(inner: &Arc<Inner>) -> GoalMode {
 /// against. A standing goal that runs for a year is judged by its latest
 /// trouble, never by every failure it ever had.
 fn failed_runs(inner: &Arc<Inner>, goal: &Goal) -> u64 {
-    goal.runs
-        .iter()
-        .rev()
-        .filter_map(|r| inner.ws.get_run(*r).ok())
-        .filter(|r| r.is_finished())
-        .take_while(|r| r.outcome != Some(RunOutcome::Done))
-        .filter(|r| r.outcome == Some(RunOutcome::Failed))
-        .count() as u64
+    failures_in_a_row(
+        goal.runs
+            .iter()
+            .rev()
+            .map(|id| inner.ws.get_run(*id).map(|r| (r.is_finished(), r.outcome))),
+    )
+}
+
+/// The count behind [`failed_runs`], over the runs newest first as
+/// `(finished, outcome)`: a run still going is passed over, a cancelled one
+/// too — it neither failed nor settled anything — a done one ends the count,
+/// and a run that cannot be read counts as a failure: the conservative
+/// reading, so a repair budget is never spent past its limit for a file
+/// nobody could open.
+fn failures_in_a_row<E>(runs: impl Iterator<Item = Result<(bool, Option<RunOutcome>), E>>) -> u64 {
+    let mut failed = 0;
+    for run in runs {
+        match run {
+            Ok((false, _)) => {}
+            Ok((true, Some(RunOutcome::Done))) => break,
+            Ok((true, Some(RunOutcome::Failed))) => failed += 1,
+            Ok((true, None)) => {}
+            Err(_) => failed += 1,
+        }
+    }
+    failed
 }
 
 fn adopt_subject(wf: &Workflow) -> String {
@@ -2121,11 +2256,7 @@ fn settle_amendment(
 /// is nothing left for them to change. Best effort; nothing here fails the
 /// caller.
 pub(crate) fn drop_held_amendments(inner: &Arc<Inner>, goal: GoalId) {
-    for gate in inner.gates.pending_for_goal(goal) {
-        if gate.subject.starts_with("amend:") {
-            inner.gates.withdraw(&gate.id);
-        }
-    }
+    withdraw_questions_of_goal(inner, goal, is_amendment, AMENDMENT_MOOT);
     let designs = match inner.ws.list_workflows_in(WorkflowScope::Goal(goal)) {
         Ok(d) => d,
         // LCOV_EXCL_START listing the goal's designs fails only unreadable (disk-only)
@@ -2161,6 +2292,7 @@ pub fn close_goal(
     goal_id: GoalId,
     reason: bisa_core::ClosureReason,
 ) -> Result<Goal, EngineError> {
+    refuse_closed(inner, goal_id)?;
     let noted = note_closing(inner, goal_id)?;
     let goal = close_record(inner, goal_id, reason.clone())?;
     // Whatever was running for the goal is told to stop with it — its
@@ -2169,7 +2301,14 @@ pub fn close_goal(
     // and the release follow on a task of their own, since this caller
     // cannot wait (`close_goal_settled` can).
     let mut signalled =
-        crate::ending::signal_goal_work(inner, goal_id, sessions::EndCause::Close, None)?;
+        match crate::ending::signal_goal_work(inner, goal_id, sessions::EndCause::Close, None) {
+            Ok(signalled) => signalled,
+            // LCOV_EXCL_START a close whose signal fails after its record landed: the run was cancelled under the lock a moment ago, so the reads here fail only unreadable (disk-only)
+            Err(e) => {
+                inner.guided.end_stopping(goal_id);
+                return Err(e);
+            } // LCOV_EXCL_STOP
+        };
     signalled.told = signalled.told.max(noted);
     match (inner.arc(), tokio::runtime::Handle::try_current()) {
         (Some(owned), Ok(_)) => {
@@ -2195,6 +2334,7 @@ pub async fn close_goal_settled(
     goal_id: GoalId,
     reason: bisa_core::ClosureReason,
 ) -> Result<(Goal, sessions::Ended), EngineError> {
+    refuse_closed(inner, goal_id)?;
     let noted = note_closing(inner, goal_id)?;
     let goal = close_record(inner, goal_id, reason.clone())?;
     let mut done = crate::ending::end_goal_work(
@@ -2212,6 +2352,18 @@ pub async fn close_goal_settled(
         EnginePayload::GoalClosed { reason },
     ));
     Ok((goal, done.ended))
+}
+
+/// A closed goal is a state a close meets, not a malformed ask: a conflict,
+/// met before anything of the goal's is entered in the ending ledger.
+fn refuse_closed(inner: &Arc<Inner>, goal_id: GoalId) -> Result<(), EngineError> {
+    if inner.ws.get_goal(goal_id)?.is_closed() {
+        return Err(EngineError::Conflict(bisa_core::text!(
+            "error-engine-invalid-goal-closed",
+            goal_id = goal_id.to_string()
+        )));
+    }
+    Ok(())
 }
 
 /// Every live session of the goal entered in the ledger before the record
@@ -2263,6 +2415,7 @@ pub(crate) fn close_record(
     for gate in inner.gates.pending_for_goal(goal_id) {
         inner.gates.withdraw(&gate.id);
     }
+    withdraw_questions_of_goal(inner, goal_id, is_goal_question, GOAL_CLOSED);
     drop_held_amendments(inner, goal_id);
     effects::release_goal_workstreams(inner, goal_id);
     waits::child_finished(inner, goal_id, None);
@@ -2465,9 +2618,11 @@ pub fn decide_showing(
 
     let unsure = answer.map(|a| a.unsure).unwrap_or(false);
     let round = if unsure {
-        Some(count_clarify_round(inner, entry.home))
+        Some(count_clarify_round(inner, entry.home, &entry.subject))
     } else {
-        inner.clarify_rounds.remove(&entry.home);
+        inner
+            .clarify_rounds
+            .remove(&(entry.home, entry.subject.clone()));
         None
     };
     let clarify_rounds_left = round.map(|r| r.left);
@@ -2480,6 +2635,16 @@ pub fn decide_showing(
         if let Some(event) = step_answer_event(step, answer, round) {
             run_accepts(inner, run, event)?;
         }
+    }
+    // An approval's decision the same way: a step no longer waiting — the
+    // run moved under the decide — leaves the gate open and nothing recorded.
+    if let (Gate::Approval, Some(run), Some(step)) = (entry.gate, entry.run, entry.step.as_ref()) {
+        let probe = RunEvent::Decided {
+            step: step.clone(),
+            approve,
+            approval: ApprovalId(String::new()),
+        };
+        run_accepts(inner, run, probe)?;
     }
 
     let approval = inner.ws.record_decision(
@@ -2683,9 +2848,12 @@ struct ClarifyRound {
     over: bool,
 }
 
-fn count_clarify_round(inner: &Arc<Inner>, home: Home) -> ClarifyRound {
+fn count_clarify_round(inner: &Arc<Inner>, home: Home, subject: &str) -> ClarifyRound {
     let max = inner.config.max_clarify_rounds;
-    let mut used = inner.clarify_rounds.entry(home).or_insert(0);
+    let mut used = inner
+        .clarify_rounds
+        .entry((home, subject.to_string()))
+        .or_insert(0);
     *used = used.saturating_add(1);
     ClarifyRound {
         left: max.saturating_sub(*used),
@@ -2693,21 +2861,84 @@ fn count_clarify_round(inner: &Arc<Inner>, home: Home) -> ClarifyRound {
     }
 }
 
-/// The newest adoption or amendment question in the journal that no decision
-/// has settled — the gate an unnamed decision is about.
+/// The newest adoption or amendment question in the journal that nothing
+/// has settled — no decision and no withdrawal on its subject — the gate an
+/// unnamed decision is about.
 fn newest_undecided_gate_question(journal: &[JournalEvent]) -> Option<String> {
-    let subject = journal.iter().rev().find_map(|e| match &e.payload {
-        JournalPayload::Question { gate, .. }
-            if gate.starts_with("adopt:") || gate.starts_with("amend:") =>
-        {
-            Some(gate.clone())
+    crate::recovery::still_open(journal.iter().map(|e| &e.payload), |s| {
+        is_adoption(s) || is_amendment(s)
+    })
+    .into_iter()
+    .next()
+    .map(|(subject, _)| subject)
+}
+
+/// Where the goal's newest question of its own stands.
+enum Standing {
+    /// Nothing settled it: it is the one to decide.
+    Open,
+    /// A decision settled it — and no newer question of the goal's own is
+    /// open: a second decision is told so.
+    Decided,
+}
+
+/// The goal's own question an unnamed durable decision is about: the newest
+/// adoption, held amendment or designer's question that nothing settled —
+/// the newest fact on a subject says where it stands. One withdrawn is
+/// passed over for an older one still open; when none is open and the
+/// newest was decided, the subject comes back as such, so a second hand is
+/// told the gate was decided rather than that nothing was ever asked. A
+/// step's question is its run's, never this reader's.
+fn newest_goal_question(journal: &[JournalEvent]) -> Option<(String, AskKind, Standing)> {
+    let mut decided: HashSet<&str> = HashSet::new();
+    let mut withdrawn: HashSet<&str> = HashSet::new();
+    let mut newest_decided: Option<(String, AskKind)> = None;
+    for e in journal.iter().rev() {
+        match &e.payload {
+            JournalPayload::Decision { subject, .. } if is_goal_question(subject) => {
+                decided.insert(subject);
+            }
+            JournalPayload::Withdrawn { subject, .. } if is_goal_question(subject) => {
+                withdrawn.insert(subject);
+            }
+            JournalPayload::Question { gate, expects, .. } if is_goal_question(gate) => {
+                if withdrawn.contains(gate.as_str()) {
+                    continue;
+                }
+                if decided.contains(gate.as_str()) {
+                    newest_decided.get_or_insert_with(|| (gate.clone(), expects.clone()));
+                    continue;
+                }
+                return Some((gate.clone(), expects.clone(), Standing::Open));
+            }
+            _ => {}
         }
-        _ => None,
-    })?;
-    let decided = journal.iter().any(
-        |e| matches!(&e.payload, JournalPayload::Decision { subject: s, .. } if *s == subject),
-    );
-    (!decided).then_some(subject)
+    }
+    newest_decided.map(|(subject, expects)| (subject, expects, Standing::Decided))
+}
+
+/// One durable decision at a time per home: whoever took the home decides
+/// alone until the last consequence, and a second hand meanwhile is told
+/// the gate was decided — so of two hands reaching for one adoption
+/// together, one adopts and one is refused, and the goal has one run.
+struct DecidingDurably<'a> {
+    inner: &'a Inner,
+    home: Home,
+}
+
+impl<'a> DecidingDurably<'a> {
+    fn take(inner: &'a Inner, home: Home) -> Result<Self, EngineError> {
+        if !inner.durable_decides.insert(home) {
+            return Err(EngineError::GateAlreadyDecided(home.to_string()));
+        }
+        Ok(Self { inner, home })
+    }
+}
+
+impl Drop for DecidingDurably<'_> {
+    fn drop(&mut self) {
+        self.inner.durable_decides.remove(&self.home);
+    }
 }
 
 /// The goal an adoption or an amendment is owed on. Only a goal owes one: a
@@ -2739,6 +2970,7 @@ pub fn decide_without_engine(
     inputs: Option<BTreeMap<String, Value>>,
     step: Option<&StepId>,
 ) -> Result<DecideOutcome, EngineError> {
+    let _deciding = DecidingDurably::take(inner, *home)?;
     match home {
         Home::Goal { goal } => {
             decide_goal_without_engine(inner, *goal, approve, rationale, answer, inputs, step)
@@ -2881,7 +3113,7 @@ fn decide_waiting_step(
             )?;
             let round = answer
                 .filter(|a| a.unsure)
-                .map(|_| count_clarify_round(inner, *home));
+                .map(|_| count_clarify_round(inner, *home, &format!("step:{}/{step}", run.id)));
             answer_step(inner, run.id, step, answer, round)?;
             Ok(Some(outcome_of(inner, home, Gate::Escalation, approve)?))
         }
@@ -2928,30 +3160,23 @@ fn decide_goal_without_engine(
         }
     }
 
-    // 2. The newest journaled question: an adoption, a held amendment, or an
-    //    agent's own.
-    let question = journal.iter().rev().find_map(|e| match &e.payload {
-        JournalPayload::Question { gate, expects, .. } => Some((gate.clone(), expects.clone())),
-        _ => None,
-    });
-    let Some((subject, expects)) = question else {
-        return Err(EngineError::Invalid(bisa_core::text!(
-            "error-engine-invalid-home-has-no-pending-gate",
-            home = home.to_string()
-        )));
-    };
-    if subject.starts_with("adopt:") {
-        let decided = journal.iter().rev().any(
-            |e| matches!(&e.payload, JournalPayload::Decision { subject: s, .. } if *s == subject), // LCOV_EXCL_LINE a macro arm attributed elsewhere; by construction
-        );
-        if decided {
-            // LCOV_EXCL_START an adoption decided again by its subject, which no journey stages; out by decision
-            return Err(EngineError::Invalid(bisa_core::text!(
-                "error-engine-invalid-adoption-was-already-decided",
-                subject = subject.to_string()
-            )));
-            // LCOV_EXCL_STOP
+    // 2. The newest journaled question of the goal's own that nothing
+    //    settled: an adoption, a held amendment, or the designer's. A step's
+    //    question is its run's (1); one taken back is settled; one decided
+    //    already says so.
+    let (subject, expects) = match newest_goal_question(&journal) {
+        Some((subject, expects, Standing::Open)) => (subject, expects),
+        Some((subject, _, Standing::Decided)) => {
+            return Err(EngineError::GateAlreadyDecided(subject));
         }
+        None => {
+            return Err(EngineError::Invalid(bisa_core::text!(
+                "error-engine-invalid-home-has-no-pending-gate",
+                home = home.to_string()
+            )));
+        }
+    };
+    if is_adoption(&subject) {
         AskKind::Decision.validate_answer(answer)?;
         if approve {
             check_adoption_inputs(inner, goal_id, inputs.as_ref())?;
@@ -2968,21 +3193,13 @@ fn decide_goal_without_engine(
         };
         return Ok(outcome_of(inner, &home, Gate::Approval, approve)?.showing(secrets));
     }
-    if subject.starts_with("amend:") {
-        let decided = journal.iter().rev().any(
-            |e| matches!(&e.payload, JournalPayload::Decision { subject: s, .. } if *s == subject),
-        );
-        if decided {
-            return Err(EngineError::Invalid(bisa_core::text!(
-                "error-engine-invalid-amendment-was-already-decided",
-                subject = subject.to_string()
-            )));
-        }
+    if is_amendment(&subject) {
         AskKind::Decision.validate_answer(answer)?;
         ws.record_decision(&home, Gate::Approval, approve, &subject, rationale, answer)?;
         settle_amendment(inner, goal_id, &subject, approve)?;
         return outcome_of(inner, &home, Gate::Approval, approve);
     }
+    // LCOV_EXCL_START an open design question with no live gate: a restart withdraws the question whose gate it lost, so nothing reaches here while the engine runs; kept for the journal's own replay
     expects.validate_answer(answer)?;
     ws.record_decision(
         &home,
@@ -2995,11 +3212,12 @@ fn decide_goal_without_engine(
     if goal.mode.designs() {
         let left = answer
             .filter(|a| a.unsure)
-            .map(|_| count_clarify_round(inner, home).left);
+            .map(|_| count_clarify_round(inner, home, &subject).left);
         let said = answer_or_verdict(&expects, approve, rationale, answer);
         guided::notify_answered(inner, goal_id, said, left);
-    } // LCOV_EXCL_LINE the `?` above leaves through here; by construction
+    }
     outcome_of(inner, &home, Gate::Escalation, approve)
+    // LCOV_EXCL_STOP
 }
 
 /// [`decide_without_engine`] for a run of the workspace: its waiting step,
@@ -3101,12 +3319,20 @@ fn check_adoption_inputs(
 ) -> Result<(), EngineError> {
     let goal = inner.ws.get_goal(goal_id)?;
     let Some(workflow) = goal.workflow else {
+        // LCOV_EXCL_START an adoption decided on a goal pointed at nothing: the choice by hand withdrew the gate first; by construction
         return Err(EngineError::Invalid(bisa_core::text!(
             "error-engine-invalid-goal-points-no-workflow-adopt",
             goal_id = goal_id.to_string()
         )));
+        // LCOV_EXCL_STOP
     };
     let wf = inner.ws.get_workflow(workflow)?;
+    // Every agent step has one place to run: a design that names none on a
+    // goal with several projects is asked about — an auto goal's gate says
+    // why, a guided goal's approval is refused with the gate kept — never
+    // adopted and then refused at the start, with the decision recorded and
+    // the gate burnt.
+    crate::projects::refuse_ambiguous_steps(inner, goal_id, &wf)?;
     if !wf.event_starts().is_empty() {
         return crate::listen::turn::check(
             inner,
@@ -3193,6 +3419,46 @@ pub(crate) fn journal_note_as(inner: &Inner, agent: Option<&str>, home: Home, te
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The failures in a row an auto goal's repairs are spent against: newest
+    /// first, a run still going or cancelled passed over, a done one ending
+    /// the count, an unreadable one counted as a failure.
+    #[test]
+    fn failures_are_counted_in_a_row_back_to_the_last_done_run() {
+        let done = Ok((true, Some(RunOutcome::Done)));
+        let failed = Ok((true, Some(RunOutcome::Failed)));
+        let cancelled = Ok((true, None));
+        let going = Ok((false, None));
+        let unreadable: Result<(bool, Option<RunOutcome>), ()> = Err(());
+        let count =
+            |runs: Vec<Result<(bool, Option<RunOutcome>), ()>>| failures_in_a_row(runs.into_iter());
+        assert_eq!(count(vec![]), 0);
+        assert_eq!(
+            count(vec![failed, failed, done, failed]),
+            2,
+            "the done run ends the count"
+        );
+        assert_eq!(
+            count(vec![failed, cancelled, failed]),
+            2,
+            "a cancelled run is passed over"
+        );
+        assert_eq!(
+            count(vec![going, failed]),
+            1,
+            "a run still going is passed over"
+        );
+        assert_eq!(
+            count(vec![unreadable, failed]),
+            2,
+            "a run nobody can read counts as a failure"
+        );
+        assert_eq!(
+            count(vec![done, failed, failed]),
+            0,
+            "a done run first: nothing in a row"
+        );
+    }
 
     #[test]
     fn an_auto_goal_goes_alone_up_to_its_limit_and_not_one_failure_past_it() {

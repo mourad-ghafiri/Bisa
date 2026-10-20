@@ -831,6 +831,7 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
             style.dim(&format!("goal {goal} {}", if *archived { "archived" } else { "unarchived" }))
         }
         EnginePayload::GoalDeleted { goal } => style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-goal-deleted", goal = goal.to_string()))),
+        EnginePayload::GoalUpdated { goal } => style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-goal-updated", goal = goal.to_string()))),
         EnginePayload::WorkflowDeleted { workflow } => {
             style.bold(&bisa_i18n::say(&bisa_core::text!("cli-activity-workflow-deleted", workflow = workflow.to_string())))
         }
@@ -2382,6 +2383,7 @@ mod tests {
                 "archived",
             ),
             (EnginePayload::GoalDeleted { goal }, &goal.to_string()),
+            (EnginePayload::GoalUpdated { goal }, "updated"),
             (
                 EnginePayload::WorkflowDeleted { workflow },
                 &workflow.to_string(),

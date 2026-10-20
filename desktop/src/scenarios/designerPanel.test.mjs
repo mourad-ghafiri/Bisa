@@ -22,7 +22,7 @@ test("the panel draws one model's view, in its order, through the kit's own piec
   assert.ok(inspector.includes("{view.sections.map(section)}"), "a step's sections stack in the model's order");
   for (const name of ['case "run":', 'case "identity":', 'case "kind":', 'case "flow":', 'case "problems":', 'case "danger":']) assert.ok(inspector.includes(name), `${name} is drawn`);
   assert.ok(inspector.includes('const FLOW_FOLD = "workflow:inspector:flow";') && inspector.includes("useCollapsed(FLOW_FOLD, true)"), "Flow and failure is a kit fold, closed at first, kept as the person left it");
-  assert.ok(inspector.includes("const commit = (next: D, token: string | null = null) => onChange(withPositions(next, laid.positions), token);"), "one door for every edit: the derived positions written down, the token for the history");
+  assert.ok(inspector.includes("const commit = (next: D | ((body: D) => D), token: string | null = null) =>") && inspector.includes("onChange(typeof next === \"function\" ? (body: D) => withPositions(next(body), laid.positions) : withPositions(next, laid.positions), token);"), "one door for every edit: the derived positions written down, the token for the history");
   assert.ok(!/onChange\(replaceStep|onChange\(renameStep|onChange\(removeStep|onChange\(\{ \.\.\.value/.test(inspector), "no edit leaves by another door");
   assert.ok(inspector.includes("<SectionHeader flush") && inspector.includes("<Note") && inspector.includes("<ReadOnlyNote") && !inspector.includes("rounded-control border border-border bg-surface-2 px-2"), "sections and notes are the kit's, not hand-built boxes");
   assert.ok(inspector.includes('<Chip tone="danger" icon={ICON.warn}>') && inspector.includes("view.problems.count > 0"), "a step with problems wears their count beside its name");
@@ -42,7 +42,7 @@ test("the canvas reports every pick through xyflow's own listener, marks selecte
   const escape = canvas.slice(canvas.indexOf('if (e.key === "Escape") {'), canvas.indexOf("if (readOnly) return;"));
   assert.ok(escape.includes("e.stopPropagation();") && escape.includes("onSelect?.({ nodes: [], edges: [] })") && escape.includes("liveNodes.some((n) => n.selected) || liveEdges.some((x) => x.selected)"), "Escape belongs to the selection first — cleared through the same door and stopped there, so the shell never closes the pane on that press — and precedes the read-only gate, since a pick is not an edit");
   const designer = src("views/_workflow/Designer.tsx");
-  assert.ok(designer.includes("onSelect(selectionOf(pick))") && designer.includes("selectionAfterDelete(selected, gone.nodes, gone.edges)") && designer.includes("removeFlow(next, flowRefOf(e))"), "the designer turns a pick into the shared value, and a delete leaves what remains picked");
+  assert.ok(designer.includes("onSelect(selectionOf(pick))") && designer.includes("selectionAfterDelete(selected, gone.nodes, gone.edges)") && designer.includes("ref: flowRefOf(e)"), "the designer turns a pick into the shared value, and a delete leaves what remains picked");
   assert.ok(designer.includes("marked.nodes.includes(n.id)") && designer.includes("marked.edges.includes(e.id)"), "nodes and edges are marked from the one value");
   assert.ok(designer.includes("yourMove(n.step, run.steps[n.id])") && !designer.includes("YOUR_ACTS"), "whose move a step is comes from runView");
   assert.ok(src("views/_workflow/StepActions.tsx").includes("const mine = yours(step, record);"), "and StepActions wears the accent only then");
@@ -51,12 +51,27 @@ test("the canvas reports every pick through xyflow's own listener, marks selecte
 test("the hosts share the selection, coalesce a typed burst, land undo where the person was, and say why nothing may be edited", () => {
   const screen = src("views/WorkflowDesigner.tsx");
   assert.ok(screen.includes("useState<Selection>(() => stepSelection(memory.selected))") && screen.includes("rememberSelectedStep(id, storedSelection(selected))"), "the designer seeds from its memory and keeps a step as the bare id it always wrote");
-  assert.ok(screen.includes("edit(s, next, Date.now(), { selection: selected, token })") && screen.includes("landedSelection(next) as Selection"), "every edit is stamped; undo and redo land the selection");
-  assert.ok(between(screen, "const change = (next: NewWorkflowBody, token: string | null = null) => {", "};").includes("toast.error(readOnlyReason(true, { runningIn: running })?.reason"), "a frozen designer says why instead of dropping the edit");
+  assert.ok(screen.includes("edit(s, typeof next === \"function\" ? next(present(s)) : next, Date.now(), { selection: selected, token })") && screen.includes("const landed = session ? landedSelection(session) : null;") && screen.includes("if (landed != null) setSelected(landed as Selection);"), "every edit is stamped and lands on the body as it stands; undo and redo land the selection from the session they left");
+  assert.ok(between(screen, "const change = (next: NewWorkflowBody | ((body: NewWorkflowBody) => NewWorkflowBody), token: string | null = null) => {", "};").includes("toast.error(readOnlyReason(true, { runningIn: running })?.reason"), "a frozen designer says why instead of dropping the edit");
   assert.ok(screen.includes("data-scroll-keep={propertiesScrollName(selected)}") && screen.includes("onRenamed={(from, to) => moveKeptScroll(place, propertiesScrollName(stepSelection(from)), propertiesScrollName(stepSelection(to)))}"), "each page keeps its scroll, and a rename moves it");
   assert.ok(screen.includes("<ResizeHandle side=\"left\" size={fit.right ?? panelWidth}"), "the handle drags from the width drawn now");
   assert.ok(screen.includes("why={{ runningIn: running }}"), "the designer hands its one reason in");
   const tab = src("views/_workflow/GoalWorkflowTab.tsx");
+  const insp = src("views/_workflow/Inspector.tsx");
+  // Undo and redo are functional updates in both hosts: a key landing while a save settles never puts a stale session back.
+  assert.ok(!/setSession\(next\)/.test(screen) && !/setDraft\(next\)/.test(tab), "no host writes a session or a draft read at render time");
+  assert.ok(between(screen, "const step = (dir: \"undo\" | \"redo\") => {", "};").includes("setSession((s) => {") && between(tab, "const step = (dir: \"undo\" | \"redo\") => {", "};").includes("setDraft((h) => {"), "undo and redo move the state as it stands");
+  // A form's patch and a rename land on the body as it stands, never the one the form was rendered with.
+  assert.ok(insp.includes("commit((body) => replaceStepIfPresent(body, step.id, next), token)") && insp.includes("commit((body) => renameStepIfPresent(body, step.id, to))"), "a field's commit on its way out resurrects nothing");
+  assert.ok(tab.includes("push(h, typeof next === \"function\" ? next(h.present) : next,"), "the tab's edits land on the drawing as it stands");
+  // A frozen designer saves nothing, and still counts an unsaved edit as unsaved; a designer left in conflict parks the person's head for the next visit.
+  assert.ok(screen.includes("frozen: running > 0,") && screen.includes("registerDirtySource(`workflow:${id}`, {") && !screen.includes("frozen ? undefined : registerDirtySource"), "frozen is the autosave's to honour, not a reason to forget unsaved work");
+  assert.ok(screen.includes("openWithMine(data.workflow, data.problems, takeParkedDesign(id))") && screen.includes("const body = parked(sessionRef.current);") && screen.includes("if (body) parkDesign(id, body);"), "a head left in conflict comes back as a conflict to settle");
+  // The tab saves once at a time, keeps what was drawn during the save, says a dropped drawing, and picks one workflow at a time.
+  assert.ok(tab.includes("if (!draft || saving) return;") && tab.includes("setDraft((h) => afterSaved(h, sent));") && tab.includes("const saveable = canSave({ draft, problems: draftProblems, validating: live.validating, error: live.error, saving });"), "the save's state is the model's");
+  assert.ok(tab.includes('toast.info(t("workflow-goal-workflow-tab-drawing-dropped-run-started"));'), "a drawing dropped by a run is said");
+  assert.ok(tab.includes("if (picking.current) return;") && src("views/_goal/DesigningCard.tsx").includes("if (!id || picking.current) return;"), "the pickers' writes go one at a time");
+  assert.ok(tab.includes("warned: warned.current }") && tab.includes("warned.current = \"revision\" in e.payload"), "the moved-elsewhere word is said once per revision");
   // One right pane on the goal screen: the tab's inspector is the Details pane's Properties panel, filled through the slot the panel publishes.
   assert.ok(!tab.includes('role="complementary"') && !tab.includes("bisa.goal.workflow.inspector.width") && !tab.includes("useStoredSize(") && !tab.includes("<ResizeHandle"), "the tab draws no column of its own and keeps no width");
   assert.equal((tab.match(/<PropertiesPortal>/g) ?? []).length, 3, "the Properties panel is filled in every state the tab draws — never an empty fifth tab");
@@ -77,7 +92,7 @@ test("the hosts share the selection, coalesce a typed burst, land undo where the
   assert.ok(canvas.includes("picked.current = liveNodes.find((n) => n.selected)?.id ?? null;") && canvas.includes("timer = setTimeout(() => centreOn(id), 60);") && canvas.includes("if (next === width) return;"), "a picked node stays in view when the canvas's room changes — the pane opening on a pick — at the person's zoom; nothing picked, nothing moves");
   const nothingYet = tab.slice(tab.indexOf('{designs(mode) ? ('), tab.indexOf("</PropertiesPortal>", tab.indexOf('{designs(mode) ? (')));
   assert.ok(nothingYet.includes('t("workflow-goal-workflow-tab-draw-steps")') && nothingYet.includes("closed ? null :"), "the empty Properties page offers the door its sentence names on a manual goal, none on a closed one");
-  assert.ok(tab.includes("push(h, next, { selection: selected, at: Date.now(), token })") && tab.includes("select(next.landed as Selection)"), "the draft's history is stamped and undo lands");
+  assert.ok(tab.includes("{ selection: selected, at: Date.now(), token })") && tab.includes("const landed = draft?.landed ?? null;") && tab.includes("if (landed != null) select(landed as Selection);"), "the draft's history is stamped and undo lands, from the drawing it left");
   assert.ok(tab.includes("why={why}") && tab.includes("runFinished: !!activeRun && !runLive") && tab.includes("onOpenDesigner={workflow && workflow.origin.origin !== \"goal\" ? () => navigate({ name: \"workflow\", id: workflow.id }) : undefined}"), "every read-only state has its reason, a library workflow its door to the designer");
   assert.ok(tab.includes("const kept = storedSelection(sel);") && tab.includes("setTransient(kept === null ? sel : null);"), "a step is the memory's; a flow or a box is the tab's for the moment");
 });
@@ -147,4 +162,19 @@ test("journeys: three keystrokes then a drag are two undos; a deleted step comes
   assert.equal(keptSelection(stepSelection(id), g.present)?.id, id);
   g = undo(g, stepSelection(id));
   assert.equal(keptSelection(g.landed, g.present), null, "the add undone, the new step's pick goes with it");
+});
+
+test("the canvas removes and duplicates through the graph's doors, the forms through their models, and the designer's clocks are named in one model", () => {
+  const designer = src("views/_workflow/Designer.tsx");
+  assert.ok(designer.includes("removeMany(value, { nodes: nodeIds, edges }, (id) => mayEdit(gate, id))") && designer.includes("duplicateFrom(value, id, positions)"), "one door each, past the gate");
+  assert.ok(!designer.includes("let refused = 0") && !designer.includes("duplicateStep(base, id)"), "no counting or placing by hand");
+  assert.ok(src("views/_workflow/forms/HumanStepForm.tsx").includes("set({ options: pickRecommended(options, i) })"), "the recommended mark is the model's rule");
+  assert.ok(src("views/_workflow/forms/NotifyStepForm.tsx").includes("isScopeListed("), "whether a scope is listed is the model's");
+  const wait = src("views/_workflow/forms/WaitStepForm.tsx");
+  assert.ok(!wait.includes("3600") && !wait.includes('"0 9 * * 1-5"') && wait.includes("DEFAULT_DELAY_SECS") && wait.includes("DEFAULT_CRON"), "a wait's defaults are the blank step's");
+  assert.ok(src("views/_workflow/useDesignerSettings.ts").includes("designerSettingsOf(") && !src("views/_workflow/useLiveValidation.ts").includes("const VALIDATE_DELAY_MS"), "the settings and the validator's delay are the model's");
+  assert.ok(src("views/_workflow/StartRunDialog.tsx").includes("toast.ok(startedWords({ adopt: !!adopt, listen, queued: did.queued }));"), "the start's closing word is the model's");
+  const tab = src("views/_workflow/GoalWorkflowTab.tsx");
+  assert.ok(tab.includes("listenOffer(offer, !!proposed, listens)") && src("views/_goal/RunVerbDialogs.tsx").includes("listenOffer(verbs.start, proposed, listens)"), "one listen rule for the tab and the dialogs");
+  assert.ok(tab.includes("runIsQueued(activeRun)") && !tab.includes("started_at == null && !activeRun.cancelled"), "queued is run control's word");
 });

@@ -92,5 +92,16 @@ export declare function setOnFail<D extends Definition>(wf: D, id: string, onFai
 /** One flow removed by its reference: a flow is cut, a failure route put back to `fail`. */
 export declare function removeFlow<D extends Definition>(wf: D, ref: { from: string; to: string; branch: string | null; route: "then" | "on_fail" }): D;
 export declare function duplicateStep<D extends Definition>(wf: D, id: string): { wf: D; id: string | null };
+/** Several steps and flows removed through the gate: what went, and how many were refused. */
+export declare function removeMany<D extends Definition>(
+  wf: D,
+  picked: { nodes?: readonly string[]; edges?: readonly { id: string; from: string; ref: { from: string; to: string; branch: string | null; route: "then" | "on_fail" } }[] },
+  allowed?: (id: string) => boolean,
+): { wf: D; gone: { nodes: string[]; edges: string[] }; refused: number };
+/** `duplicateStep` of a card that may have no position of its own. */
+export declare function duplicateFrom<D extends Definition>(wf: D, id: string, positions: ReadonlyMap<string, { x: number; y: number }>): { wf: D; id: string | null };
 export declare function replaceStep<D extends Definition>(wf: D, id: string, step: Step): D;
-export declare function backEdges(order: readonly string[], edges: readonly { id: string; from: string; to: string }[]): Set<string>;
+/** `replaceStep` on the body as it stands: the body itself when the step is gone. */
+export declare function replaceStepIfPresent<D extends Definition>(wf: D, id: string, step: Step): D;
+/** `renameStep` on the body as it stands: the body itself when `from` is gone. */
+export declare function renameStepIfPresent<D extends Definition>(wf: D, from: string, to: string): D;

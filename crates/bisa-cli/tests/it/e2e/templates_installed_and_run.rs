@@ -628,9 +628,11 @@ fn went_its_main_way(ws: &Sealed, goal: &str, done: &Value, of: &Installed, all:
             .find(|other| of.step(id)["workflow"] == other.id.as_str())
             .unwrap_or_else(|| panic!("`{slug}`, `{id}` opens a goal on a workflow not installed"));
         let born = ws.json(&["status", &child]);
+        // Whose it is, and which step of the parent's opened it: what a
+        // restart pairs each waiting `spawn` step with its own child by.
         assert_eq!(
             born["goal"]["origin"],
-            json!({ "origin": "spawned", "parent": goal }),
+            json!({ "origin": "spawned", "parent": goal, "step": id }),
             "`{id}` opened a goal that says whose it is: {born}"
         );
         assert_eq!(born["goal"]["workflow"], theirs.id.as_str(), "{born}");

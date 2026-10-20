@@ -188,7 +188,7 @@ fields — `run.finished` has `run`, `workflow` and `outcome`; `step.changed` ha
 `agent.replied`, `gate.decided`, `result.accepted`, `run.started`, `run.queued`,
 `run.finished`, `run.cancelled`, `step.changed`, `goal.closed`, `goal.created`,
 `workflow.proposed`, `workflow.changed`, `workflow.deleted`, `workflow.archived`,
-`attachment.changed`, `goal.archived`, `goal.deleted`, `project.archived`, `project.deleted`,
+`attachment.changed`, `goal.archived`, `goal.updated`, `goal.deleted`, `project.archived`, `project.deleted`,
 `document.added`, `project.created`, `committer.needed`, `committer.set`, `project.changed`,
 `workstream.edited`, `note.changed`, `drawing.changed`, `drawing.request`, `workstream.opened`,
 `workstream.changed`, `workstream.committed`, `workstream.script_ran`,

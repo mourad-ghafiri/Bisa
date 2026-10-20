@@ -104,7 +104,7 @@ pub use problems::{ProblemKind, WorkspaceProblem};
 pub use projects::NewProject;
 pub use recall::RecallRecord;
 pub use review::NewReviewNote;
-pub use runs::{approval_subject, CancelledRun};
+pub use runs::{approval_subject, CancelledRun, RunMoved};
 pub use signals::{QueuedSignal, SignalState};
 pub use skills::NewSkill;
 pub use snapshots::SnapshotStore;

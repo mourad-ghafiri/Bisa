@@ -115,6 +115,27 @@ export function propertiesScrollName(selection) {
  * What the goal has spent, in one line: tokens, cost, seconds.
  * @param {{tokens?: number, usd_cents?: number, wall_clock_secs?: number} | null | undefined} spent
  */
+/**
+ * Whether a work item is still at work — the Files tab polls while one is.
+ * `review` counts: a run that finished can still be writing its result.
+ * @param {{state?: {state?: string} | null} | null | undefined} item
+ */
+export function isRunning(item) {
+  const s = item?.state?.state;
+  return s === "claimed" || s === "in_progress" || s === "review";
+}
+
+/**
+ * The goal's projects with the ones it made first, the rest in the order
+ * given: a stable sort, never the list itself.
+ * @template R
+ * @param {readonly R[] | null | undefined} rows @param {(row: R) => boolean} madeByGoal
+ * @returns {R[]}
+ */
+export function projectsFirst(rows, madeByGoal) {
+  return [...(rows ?? [])].sort((a, b) => Number(madeByGoal(b)) - Number(madeByGoal(a)));
+}
+
 export function spendWords(spent) {
   return t("work-goal-inspector-spent", { tokens: number(Number(spent?.tokens) || 0), cost: cents(Number(spent?.usd_cents) || 0), secs: Number(spent?.wall_clock_secs) || 0 });
 }

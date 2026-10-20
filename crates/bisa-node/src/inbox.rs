@@ -271,31 +271,45 @@ pub(crate) fn needs_actions_for_run(state: &Shared, run: &WorkflowRun) -> Vec<Ne
 }
 
 /// One run of the workspace's actions from its already-filtered live gates:
-/// the live ones, else the asks rebuilt from durable state. A run of the
-/// workspace owes no adoption and no amendment — only a goal does.
+/// the live ones, and the asks rebuilt from durable state they do not
+/// carry. A run of the workspace owes no adoption and no amendment — only a
+/// goal does.
 fn build_run_needs(ws: &Workspace, run: &WorkflowRun, live: Vec<NeedsAction>) -> Vec<NeedsAction> {
-    if !live.is_empty() {
-        return live;
-    }
-    durable_run_actions(ws, run)
+    merged(live, durable_run_actions(ws, run))
 }
 
-/// One goal's actions from its already-filtered live gates: the live ones, else
-/// the asks rebuilt from the run and the journal, with the `adopt:` proposals
-/// attached. The shared tail of `needs_actions_for` (one goal, live gates
-/// re-scanned) and `Facts::gather` (all goals, gates scanned once) — so both
-/// produce the identical card and neither re-scans per goal.
+/// The live asks first, then every durable ask they do not already carry —
+/// one row for one question, told apart by the step it is about or by its
+/// subject. A live gate on one step hides no other step's question rebuilt
+/// from the run (after a restart every old question is durable, and the
+/// first re-ask opens a live gate beside them); a question with both a live
+/// gate and a journal fact is one row, the live one.
+fn merged(live: Vec<NeedsAction>, durable: Vec<NeedsAction>) -> Vec<NeedsAction> {
+    fn key(a: &NeedsAction) -> String {
+        match (&a.run, &a.step) {
+            (Some(run), Some(step)) => format!("{run}/{step}"),
+            _ => a.subject.clone().unwrap_or_default(),
+        }
+    }
+    let seen: HashSet<String> = live.iter().map(key).collect();
+    let mut out = live;
+    out.extend(durable.into_iter().filter(|a| !seen.contains(&key(a))));
+    out
+}
+
+/// One goal's actions from its already-filtered live gates: the live ones,
+/// and the asks rebuilt from the run and the journal they do not carry
+/// (`merged`), with the `adopt:` proposals attached. The shared tail of
+/// `needs_actions_for` (one goal, live gates re-scanned) and `Facts::gather`
+/// (all goals, gates scanned once) — so both produce the identical card and
+/// neither re-scans per goal.
 pub(crate) fn build_needs(
     ws: &Workspace,
     goal: &Goal,
     run: Option<&WorkflowRun>,
     live: Vec<NeedsAction>,
 ) -> Vec<NeedsAction> {
-    let actions = if live.is_empty() {
-        durable_actions(ws, goal, run)
-    } else {
-        live
-    };
+    let actions = merged(live, durable_actions(ws, goal, run));
     with_proposals(ws, actions)
 }
 
@@ -327,6 +341,20 @@ fn proposed_workflow(subject: &str) -> Option<bisa_core::WorkflowId> {
         return rest.split_once('@')?.1.parse().ok();
     }
     None
+}
+
+/// A home's journal, or nothing of it with the reason in the log: the
+/// durable asks of a journal this node cannot read are not shown — said at
+/// `error`, never dropped in silence, and never the whole Inbox lost.
+fn journal_or_empty(ws: &Workspace, home: &Home) -> Vec<bisa_core::event::JournalEvent> {
+    ws.journal(home).unwrap_or_else(|e| {
+        tracing::error!(
+            target: "bisa_node",
+            %home,
+            "the journal cannot be read; its durable asks are not shown: {e}"
+        );
+        Vec::new()
+    })
 }
 
 /// The newest journaled question whose gate starts with `prefix` and has no
@@ -479,7 +507,7 @@ fn durable_run_actions(ws: &Workspace, run: &WorkflowRun) -> Vec<NeedsAction> {
     if run.is_finished() {
         return out;
     }
-    let journal = ws.journal(&run.home()).unwrap_or_default();
+    let journal = journal_or_empty(ws, &run.home());
     if let Some(q) = pending_question(&journal, "ask_human:") {
         out.push(NeedsAction {
             home: run.home(),
@@ -508,7 +536,7 @@ pub(crate) fn durable_actions(
     let mut out = run
         .map(|r| waiting_step_actions(r, Some(goal)))
         .unwrap_or_default();
-    let journal = ws.journal(&home).unwrap_or_default();
+    let journal = journal_or_empty(ws, &home);
     // A held amendment still owed while the run goes on: the run names the
     // subject, so an earlier run's amendment is never rebuilt for this one.
     if let Some(run) = run.filter(|r| !r.is_finished()) {

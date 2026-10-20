@@ -206,6 +206,12 @@ impl GuidedState {
         self.waking.contains_key(&goal)
     }
 
+    /// A wake asked for while one held the goal, still waiting its turn —
+    /// what a test reads to know the wake's tail has run.
+    pub fn has_pending(&self, goal: GoalId) -> bool {
+        self.pending.contains_key(&goal)
+    }
+
     /// A guided context owns the goal: a wake in flight, or a session parked
     /// for a follow-up. What decides whether a proposal or a question landing
     /// on the goal is the Workflow Agent's own guided work.

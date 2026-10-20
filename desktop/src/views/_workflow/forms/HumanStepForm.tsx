@@ -9,6 +9,7 @@ import { AssigneePicker } from "../../_work/AssigneePicker";
 import { TEMPLATE_HINT, freshOptionId } from "../stepKinds.mjs";
 import { ValueRefField } from "./AgentStepForm";
 import { picked, valueOf } from "./assigneeRefModel.mjs";
+import { pickRecommended } from "./humanStepModel.mjs";
 import { t } from "../../../i18n/l10n.mjs";
 
 type Human = Extract<Step, { kind: "human" }>;
@@ -40,7 +41,7 @@ export function HumanStepForm({
               <TextInput value={o.label} placeholder={t("workflow-human-step-form-label")} aria-label={t("workflow-human-step-form-option-label")} disabled={disabled} onChange={(e) => patch(i, { label: e.target.value })} />
               <div className="flex items-center gap-1">
                 {/* A pressed toggle, so the selected ground — the accent is kept for what waits on the person. */}
-                <Button size="sm" variant="ghost" className={o.recommended ? "bg-selected text-text" : undefined} disabled={disabled} aria-label={t("workflow-human-step-form-recommend-option")} aria-pressed={o.recommended} onClick={() => set({ options: options.map((x, j) => ({ ...x, recommended: j === i ? !x.recommended : false })) })}>
+                <Button size="sm" variant="ghost" className={o.recommended ? "bg-selected text-text" : undefined} disabled={disabled} aria-label={t("workflow-human-step-form-recommend-option")} aria-pressed={o.recommended} onClick={() => set({ options: pickRecommended(options, i) })}>
                   <ICON.recommended size={12} aria-hidden />
                 </Button>
                 <Button size="sm" variant="ghost" disabled={disabled} aria-label={t("workflow-human-step-form-remove-option")} onClick={() => set({ options: options.filter((_, j) => j !== i) })}>

@@ -84,6 +84,8 @@ export declare function liveSessionsOf(rows: readonly { goal?: string | null; st
 export declare function sessionsByGoal(rows: readonly { goal?: string | null; state: unknown }[] | null | undefined): Map<string, number>;
 /** The open goals spawned by a goal, recursively, from the rows the window holds. */
 export declare function spawnedOpen(goals: readonly { id: string; status?: string; closed?: unknown; origin?: { origin?: string; parent?: string } | null }[] | null | undefined, id: string): number;
+/** Whether a start offered now is a start by listening. */
+export declare function listenOffer(start: { listen?: boolean } | null | undefined, proposed: boolean, listens: boolean): boolean;
 export declare function listenVerb(goal: Goal | null | undefined): ListenVerb | null;
 export declare function cancelWords(cause: CancelCause | null | undefined): string;
 /** A run's status read off the run itself — the core's `WorkflowRun::status`; `null` for no run. */

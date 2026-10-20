@@ -216,6 +216,20 @@ pub(crate) fn healthy(inner: &Inner, key: &ListenerKey) {
     }
 }
 
+/// A listener armed again has nothing to say of the arming it once could
+/// not do — the definition was mended, or the start resolves now. What a
+/// dispatch or a poll said stands until that works again ([`healthy`]).
+pub(crate) fn armed_now(inner: &Inner, key: &ListenerKey) {
+    if inner
+        .listen
+        .reported
+        .remove_if(key, |_, said| said.starts_with(registry::NOT_ARMED))
+        .is_some()
+    {
+        keep_trouble(inner, key);
+    }
+}
+
 /// Write what is wrong with a listener — or that nothing is — beside its
 /// memory. [`registry::put_runtime`] stamps it on every write, so the record
 /// never says more or less than was last said.

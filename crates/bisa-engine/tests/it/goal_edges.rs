@@ -396,7 +396,7 @@ async fn closing_a_parent_closes_the_child_it_spawned_after_the_close_returns() 
             .list_goals(None)
             .unwrap()
             .into_iter()
-            .find(|g| matches!(g.origin, bisa_core::GoalOrigin::Spawned { parent: p } if p == parent.id))?;
+            .find(|g| matches!(g.origin, bisa_core::GoalOrigin::Spawned { parent: p, .. } if p == parent.id))?;
         let run = engine.workspace().get_current_run(child.id).ok().flatten()?;
         (run.status() == RunStatus::Waiting).then_some(child)
     })
@@ -415,5 +415,151 @@ async fn closing_a_parent_closes_the_child_it_spawned_after_the_close_returns() 
     })
     .await;
     assert!(engine.workspace().get_goal(parent.id).unwrap().is_closed());
+    engine.shutdown().await;
+}
+
+/// A settings layer this node cannot read — not a torn file, which the
+/// resolution works around, but one it may not open — refuses a capture
+/// with the reason rather than making the goal *auto*, the one mode that
+/// runs unattended, or giving it no ceiling.
+#[tokio::test(flavor = "multi_thread")]
+#[cfg(unix)]
+async fn an_unreadable_settings_layer_refuses_a_capture_rather_than_making_it_unattended() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![]);
+    engine
+        .workspace()
+        .set_setting(
+            bisa_core::SettingScope::Machine,
+            None,
+            "goals.default_mode",
+            serde_json::json!("manual"),
+        )
+        .unwrap();
+    assert_eq!(
+        engine.default_goal_mode().unwrap(),
+        bisa_core::GoalMode::Manual
+    );
+    let machine = bisa_store::Paths::new(dir.path()).machine_settings();
+    let mode = std::fs::metadata(&machine).unwrap().permissions();
+    std::fs::set_permissions(&machine, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(
+        engine.default_goal_mode().is_err(),
+        "a mode nobody can read is no mode"
+    );
+    assert!(
+        engine
+            .submit_goal(bisa_engine::SubmitRequest::captured("captured blind"))
+            .is_err(),
+        "a capture whose ceiling cannot be read is refused"
+    );
+    assert!(
+        engine.workspace().list_goals(None).unwrap().is_empty(),
+        "nothing was written"
+    );
+    std::fs::set_permissions(&machine, mode).unwrap();
+    assert_eq!(
+        engine.default_goal_mode().unwrap(),
+        bisa_core::GoalMode::Manual
+    );
+    engine.shutdown().await;
+}
+
+/// A restart whose start is gone from the workflow as it stands — the run
+/// began at an event start a later revision dropped — is refused before
+/// anything is cancelled: the run it would have replaced goes on.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_whose_start_is_gone_is_refused_before_anything_is_cancelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![endless()]);
+    let mut go = step(
+        "go",
+        bisa_core::StepKind::Start {
+            on: bisa_core::StartOn::Signal {
+                filter: bisa_core::SignalFilter {
+                    name: "go".into(),
+                    fields: Default::default(),
+                },
+            },
+            inputs: Default::default(),
+            guard: Default::default(),
+        },
+    );
+    go.then = vec![bisa_core::Flow::to(sid("work"))];
+    let (goal, wf) = goal_on(
+        &engine,
+        "began on an event",
+        new_workflow("on go", vec![go, agent_step("work", "mock")]),
+    );
+    let first = engine
+        .test_run_goal(goal.id, &sid("go"), serde_json::json!({}), BTreeMap::new())
+        .unwrap();
+    step_in_state(&engine, goal.id, "work", "running").await;
+    // The library moves on: the start the run began at is gone.
+    let (_, problems) = engine
+        .save_workflow(
+            wf.id,
+            new_workflow("by hand now", vec![agent_step("work", "mock")]),
+            wf.revision,
+        )
+        .unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let err = engine.restart_goal(goal.id).await.unwrap_err();
+    assert!(matches!(err, EngineError::Conflict(_)), "{err:?}");
+    assert!(err.to_string().contains("go"), "{err}");
+    let live = engine
+        .workspace()
+        .live_run(goal.id)
+        .unwrap()
+        .expect("still live");
+    assert_eq!(live.id, first.id, "nothing was cancelled");
+    assert_eq!(live.steps[&sid("work")].state.as_str(), "running");
+    engine.shutdown().await;
+}
+
+/// An edit of the goal's own record — its assignees by a person, its
+/// statement by an agent — is announced on the goal's row, so the screen
+/// open on it reads it again.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_of_the_goals_record_is_announced() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let assayer = ws
+        .add_agent(bisa_store::NewAgent {
+            name: "Assayer".into(),
+            harness: "mock".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let goal = engine.submit_goal(guided("edited later")).unwrap();
+    let mut rx = engine.events();
+    bisa_engine::ops::set_goal_assignees(
+        engine.inner(),
+        goal.id,
+        vec![bisa_core::Assignee::Agent(assayer.id.to_string())],
+    )
+    .unwrap();
+    let said = wait_for(&mut rx, "the goal's update", |e| {
+        matches!(&e.payload, bisa_engine::EnginePayload::GoalUpdated { goal: g } if *g == goal.id)
+    })
+    .await;
+    assert_eq!(said.goal, Some(goal.id));
+    let reply = intake_roundtrip(
+        engine.socket_path(),
+        serde_json::json!({"op": "revise_statement", "goal": goal.id.to_string(),
+                           "statement": "edited by the agent", "why": "clearer"}),
+    )
+    .await;
+    assert_eq!(reply["ok"], serde_json::json!(true), "{reply}");
+    wait_for(&mut rx, "the statement's update", |e| {
+        matches!(&e.payload, bisa_engine::EnginePayload::GoalUpdated { goal: g } if *g == goal.id)
+    })
+    .await;
+    assert_eq!(
+        ws.get_goal(goal.id).unwrap().statement,
+        "edited by the agent"
+    );
     engine.shutdown().await;
 }

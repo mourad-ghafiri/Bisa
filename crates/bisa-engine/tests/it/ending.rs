@@ -94,7 +94,7 @@ async fn child_of(engine: &Engine, parent: bisa_core::GoalId) -> bisa_core::Goal
             .list_goals(None)
             .ok()?
             .into_iter()
-            .find(|g| g.origin == GoalOrigin::Spawned { parent })
+            .find(|g| g.origin.parent() == Some(parent))
     })
     .await
 }
@@ -285,6 +285,13 @@ async fn restarting_a_goal_ends_the_turn_in_its_thread_before_the_new_run() {
         new_workflow("quick", vec![agent_step("work", "mock")]),
     );
     finished_run(&engine, goal.id).await;
+    // The run is over; its worker's row closes a moment after. The turn in
+    // the thread must be the one live session the restart finds, so the
+    // count below is the turn's and never the worker's lingering row.
+    until("the finished run's worker row to be gone", || {
+        live_rows(&engine).is_empty().then_some(())
+    })
+    .await;
     engine
         .workspace()
         .post_message(
@@ -298,6 +305,7 @@ async fn restarting_a_goal_ends_the_turn_in_its_thread_before_the_new_run() {
         )
         .unwrap();
     let row = live_row(&engine, SessionKind::Conversation).await;
+    assert_eq!(live_rows(&engine).len(), 1, "the turn alone is live");
 
     let (restarted, ended) = engine.restart_goal_ended(goal.id).await.unwrap();
 
@@ -581,7 +589,13 @@ async fn no_wake_follows_a_stopped_design() {
 
     assert!(closed(&closes).contains(&Close::Aborted));
     assert_eq!(state_of(&engine, &row), Some(SessionState::Aborted));
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    // The stop is over once no wake holds the goal and none waits its turn:
+    // a re-wake the stop had bred would be pending until the wake's tail ran.
+    until("the stopped wake and its tail to be over", || {
+        let guided = &engine.inner().guided;
+        (!guided.busy(goal.id) && !guided.has_pending(goal.id)).then_some(())
+    })
+    .await;
     assert_eq!(
         launches.lock().unwrap().len(),
         1,
@@ -649,5 +663,104 @@ async fn a_row_the_registry_does_not_know_is_still_stopped() {
         bisa_engine::sessions::EndCause::Stop
     ));
     assert_eq!(state_of(&engine, &row), Some(SessionState::Aborted));
+    engine.shutdown().await;
+}
+
+/// An occurrence that arrives while a restart waits for the goal's sessions
+/// to end is held until the restart is through: the restart's run is the
+/// live one — never queued behind a run the occurrence started on the goal
+/// the cancel had just left idle — and the occurrence waits its turn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_holds_an_occurrence_until_it_is_through() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = std::process::Command::new("sleep")
+        .arg("300")
+        .spawn()
+        .unwrap();
+    let adapter = MockAdapter {
+        id: "stubborn".into(),
+        script: Some(vec![]),
+        ignore_abort: true,
+        pid: Some(child.id()),
+        ..Default::default()
+    };
+    let closes = Arc::clone(&adapter.closes);
+    let engine = Engine::start(
+        workspace(&dir),
+        catalog_with(vec![adapter]),
+        EngineConfig {
+            events_enabled: true,
+            ..quick_deadline()
+        },
+    )
+    .unwrap();
+    let mut go = step(
+        "go",
+        StepKind::Start {
+            on: bisa_core::StartOn::Signal {
+                filter: bisa_core::SignalFilter {
+                    name: "go".into(),
+                    fields: Default::default(),
+                },
+            },
+            inputs: Default::default(),
+            guard: Default::default(),
+        },
+    );
+    go.then = vec![bisa_core::Flow::to(sid("work"))];
+    let (goal, _) = goal_on(
+        &engine,
+        "listens, and is restarted",
+        new_workflow("on go", vec![go, agent_step("work", "stubborn")]),
+    );
+    engine.begin_goal(goal.id, Default::default()).unwrap();
+    let scope = bisa_core::SignalScope::Goal { goal: goal.id };
+    engine
+        .emit_signal("go", serde_json::json!({}), scope.clone())
+        .unwrap();
+    engine.drain_signals().await;
+    let first = until("the first run", || {
+        engine.workspace().live_run(goal.id).ok().flatten()
+    })
+    .await;
+    let row = live_row(&engine, SessionKind::Worker).await;
+    until("the row to carry the child's pid", || {
+        engine.inner().presence.get(row.id)?.pid.map(|_| ())
+    })
+    .await;
+
+    let (restarted, _) = tokio::join!(engine.restart_goal(goal.id), async {
+        until("the restart to reach the harness", || {
+            closed(&closes).contains(&Close::Aborted).then_some(())
+        })
+        .await;
+        engine
+            .emit_signal("go", serde_json::json!({}), scope.clone())
+            .unwrap();
+        engine.drain_signals().await;
+    });
+    let restarted = restarted.unwrap();
+    assert_ne!(restarted.id, first.id);
+    let live = engine
+        .workspace()
+        .live_run(goal.id)
+        .unwrap()
+        .expect("a live run");
+    assert_eq!(live.id, restarted.id, "the restart's run is the live one");
+    assert!(
+        engine.workspace().queued_runs(goal.id).unwrap().is_empty(),
+        "the occurrence waits its turn, queued behind nothing"
+    );
+    let key = bisa_core::ListenerKey {
+        host: bisa_core::ListenerHost::Goal { goal: goal.id },
+        step: sid("go"),
+    };
+    let pending = engine.workspace().pending_signals(&key).unwrap();
+    assert_eq!(pending.len(), 1, "{pending:?}");
+    assert_eq!(pending[0].state, bisa_store::SignalState::Waiting);
+    // The stand-in process is this test's: ended, unless the deadline
+    // already ended it, and reaped either way.
+    child.kill().ok();
+    child.wait().expect("the stand-in is reaped");
     engine.shutdown().await;
 }

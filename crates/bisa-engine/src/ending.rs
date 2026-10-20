@@ -95,7 +95,17 @@ fn end_goal_work_in<'a>(
             return Ok(WorkEnded::default());
             // LCOV_EXCL_STOP
         }
-        let mut signalled = signal_goal_work(inner, goal, cause, rationale)?;
+        let mut signalled = match signal_goal_work(inner, goal, cause, rationale) {
+            Ok(signalled) => signalled,
+            Err(e) => {
+                // A stop that failed half-way is no stop in progress: the
+                // mark that keeps the Workflow Agent from waking the goal
+                // goes with it, or every later wake would be refused for
+                // the process's life.
+                inner.guided.end_stopping(goal);
+                return Err(e);
+            }
+        };
         signalled.workstreams.extend(extra.iter().copied());
         let mut done = WorkEnded {
             run: signalled.run,
@@ -383,15 +393,26 @@ pub async fn end_run_work(
         inner,
         |g| matches!(&g.origin, bisa_core::GoalOrigin::Run { run, .. } if *run == run_id),
     )?;
+    let mut refused = None;
     for child in born {
         let why = bisa_core::text!(
             "engine-rationale-parent-run-stopped",
             run = run_id.to_string()
         )
         .to_string();
-        let child_done = end_child(inner, child, cause, why, &mut visited, 0).await?;
-        done.ended.children.push(child);
-        done.ended.add(child_done.ended);
+        // A child that cannot be ended costs the answer, never the others
+        // nor the sessions told and waited for below.
+        match end_child(inner, child, cause, why, &mut visited, 0).await {
+            Ok(child_done) => {
+                done.ended.children.push(child);
+                done.ended.add(child_done.ended);
+            }
+            // LCOV_EXCL_START closing a child born of the run fails only unwritable (disk-only)
+            Err(e) => {
+                tracing::warn!(target: "bisa_engine", run = %run_id, %child, "a goal born of the run could not be ended with it: {e}");
+                refused.get_or_insert(e);
+            } // LCOV_EXCL_STOP
+        }
     }
     // 6. Every session told, 7. and waited for.
     let home = Home::Run { run: run_id };
@@ -417,7 +438,10 @@ pub async fn end_run_work(
     )
     .await;
     done.ended.add(Ended::of(settled));
-    Ok((run, done))
+    match refused {
+        Some(e) => Err(e), // LCOV_EXCL_LINE the first refusal among the children; disk-only
+        None => Ok((run, done)),
+    }
 }
 
 impl EndCause {

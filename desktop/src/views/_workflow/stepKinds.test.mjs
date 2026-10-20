@@ -16,49 +16,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import {
-  BOUNDARY_ACTS,
-  BOUNDARY_EVENTS,
-  CHECKS,
-  COMBINATORS,
-  CONDITIONS,
-  DECIDE_PICKS,
-  DEFAULT_MAX_ITERATIONS,
-  DEFAULT_MAX_VISITS,
-  END_FINISHES,
-  FAMILIES,
-  FAMILY_LABEL,
-  FIRE_ON,
-  FIXED_BRANCHES,
-  JOINS,
-  MAX_CONDITION_DEPTH,
-  MESSAGE_FROM,
-  ON_FAILS,
-  OVERLAPS,
-  PROBLEM_KIND_LABEL,
-  PROJECT_CHANGES,
-  RUN_ENDS,
-  START_EVENTS,
-  START_STEP_ID,
-  STEP_KINDS,
-  STEP_MIME,
-  WAITS,
-  BRANCH_HANDLE_PREFIX,
-  blankCondition,
-  blankStep,
-  blankWait,
-  blankWorkflow,
-  branchHandle,
-  branchOfHandle,
-  branchesOf,
-  divertNamesOf,
-  familyOf,
-  freshOptionId,
-  isBranching,
-  kindBranchesOf,
-  kindLabel,
-  mayCarryBoundaries,
-} from "./stepKinds.mjs";
+import { BOUNDARY_ACTS, BOUNDARY_EVENTS, CHECKS, COMBINATORS, CONDITIONS, DECIDE_PICKS, DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_VISITS, END_FINISHES, FAMILIES, FAMILY_LABEL, FIRE_ON, FIXED_BRANCHES, JOINS, MAX_CONDITION_DEPTH, MESSAGE_FROM, ON_FAILS, OVERLAPS, PROBLEM_KIND_LABEL, PROJECT_CHANGES, RUN_ENDS, START_EVENTS, START_STEP_ID, STEP_KINDS, STEP_MIME, WAITS, BRANCH_HANDLE_PREFIX, blankCondition, blankStep, blankWait, blankWorkflow, branchHandle, branchOfHandle, branchesOf, divertNamesOf, familyOf, freshOptionId, isBranching, kindBranchesOf, kindLabel, mayCarryBoundaries, DEFAULT_CRON, DEFAULT_DELAY_SECS, TEMPLATE_HINT } from "./stepKinds.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORE = join(HERE, "../../../../crates/bisa-core/src");
@@ -425,4 +383,11 @@ test("a step's labels are its kind's branches and its diverting boundaries' name
 
 test("the drag MIME type is ours and not a text type a drop zone would misread", () => {
   assert.match(STEP_MIME, /^application\/x-bisa-/);
+});
+
+test("the template hint names both grammars, and a blank wait's defaults are the named ones", () => {
+  assert.ok(TEMPLATE_HINT.includes("{inputs.") && TEMPLATE_HINT.includes("{steps."), TEMPLATE_HINT);
+  assert.equal(blankWait("delay").secs, DEFAULT_DELAY_SECS);
+  assert.equal(blankWait("schedule").cron, DEFAULT_CRON);
+  assert.ok(DEFAULT_DELAY_SECS > 0 && DEFAULT_CRON.split(" ").length === 5);
 });

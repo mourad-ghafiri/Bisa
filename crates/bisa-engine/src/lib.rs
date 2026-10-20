@@ -108,7 +108,7 @@ use bisa_core::{
 use bisa_harness::HarnessCatalog;
 use bisa_store::Workspace;
 use bisa_store::{KnownRuntime, NewWorkflow};
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -500,8 +500,19 @@ pub struct Inner {
     pub stopping: std::sync::atomic::AtomicBool,
     /// How many times each goal — or run of the workspace — has already been
     /// re-asked after an "I'm not sure". Bounded by
-    /// [`EngineConfig::max_clarify_rounds`].
-    pub clarify_rounds: DashMap<Home, u8>,
+    /// [`EngineConfig::max_clarify_rounds`] — per question (its home and
+    /// its subject), so two steps waiting side by side spend nothing of
+    /// each other's.
+    pub clarify_rounds: DashMap<(Home, String), u8>,
+    /// The homes a durable decision is being taken on right now
+    /// (`ops::DecidingDurably`): one at a time per home.
+    pub durable_decides: DashSet<Home>,
+    /// The goals whose work is being ended and begun again — a restart,
+    /// from its cancel to its new run's start (`ops::Ending`): an
+    /// occurrence of theirs is held meanwhile, so the restart's run is the
+    /// live one and never queued behind a run the occurrence started on the
+    /// goal the cancel had just left idle.
+    pub ending_goals: DashSet<GoalId>,
     /// What the engine knows right now about which `(harness, model)` pairs
     /// will actually run. In-memory and per-process on purpose.
     pub models: ModelLedger,
@@ -804,6 +815,8 @@ impl Engine {
             executors: std::sync::Mutex::new(Vec::new()),
             stopping: std::sync::atomic::AtomicBool::new(false),
             clarify_rounds: DashMap::new(),
+            durable_decides: DashSet::new(),
+            ending_goals: DashSet::new(),
             models: ModelLedger::new(),
             guided: guided::GuidedState::default(),
             conversation: conversation::ConversationState::default(),
@@ -1009,7 +1022,7 @@ impl Engine {
     }
 
     /// The mode a capture takes when it does not say: `goals.default_mode`.
-    pub fn default_goal_mode(&self) -> bisa_core::GoalMode {
+    pub fn default_goal_mode(&self) -> Result<bisa_core::GoalMode, EngineError> {
         ops::default_goal_mode(&self.inner)
     }
 
@@ -1263,14 +1276,21 @@ impl Engine {
             ops::decide(&self.inner, &gate.id, true, None, Some(answer), None)?;
             return Ok(self.inner.ws.get_run(run.id)?);
         }
-        ops::record_run_event(
+        // No live gate — after a restart, from the command line offline: the
+        // durable mirror decides the step under the rules a live gate keeps
+        // (a signed decision, the clarify rounds, the re-ask), never the raw
+        // event, which would take "not sure" as an answer and mark the step
+        // done.
+        ops::decide_without_engine(
             &self.inner,
-            run.id,
-            bisa_core::RunEvent::Answered {
-                step: step.clone(),
-                answer: answer.clone(),
-            },
-        )
+            &run.home(),
+            true,
+            None,
+            Some(answer),
+            None,
+            Some(step),
+        )?;
+        Ok(self.inner.ws.get_run(run.id)?)
     }
 
     /// Release a `wait` step a person — or a call — is holding; a payload,

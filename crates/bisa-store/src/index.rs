@@ -1683,6 +1683,32 @@ impl Index {
         }
     }
 
+    /// One step's due time, on its row alone: a timer's bookkeeping, never
+    /// a rewrite of the run's rows.
+    pub fn set_step_due(
+        &self,
+        run_id: &str,
+        step_id: &str,
+        due_at: Option<u64>,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE run_steps SET due_at = ?3 WHERE run_id = ?1 AND step_id = ?2",
+            params![run_id, step_id, due_at.map(|v| v as i64)],
+        )?;
+        Ok(())
+    }
+
+    /// The due times the run's rows carry, by step.
+    pub fn due_times_of_run(&self, run_id: &str) -> Result<Vec<(String, u64)>, StoreError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT step_id, due_at FROM run_steps WHERE run_id = ?1 AND due_at IS NOT NULL",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.max(0) as u64))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     /// Steps whose timer or schedule is due at or before `now`.
     pub fn due_steps(&self, now: u64) -> Result<Vec<RunStepRow>, StoreError> {
         let mut stmt = self.conn.prepare(
@@ -4524,6 +4550,7 @@ mod tests {
             "hold"
         );
         assert!(idx.waiting_steps(Some("other.topic")).unwrap().is_empty());
+        assert_eq!(idx.waiting_steps(None).unwrap().len(), 1, "every topic");
         assert_eq!(idx.due_steps(60).unwrap().len(), 1);
         assert!(idx.due_steps(10).unwrap().is_empty());
         assert_eq!(idx.armed_steps().unwrap().len(), 1);

@@ -53,6 +53,7 @@ app-activity-gave-document = gave the document { $file }
 app-activity-global-git-identity = your global git identity
 app-activity-goal-closed = goal closed ({ $closed })
 app-activity-goal-deleted = goal { $goal } deleted
+app-activity-goal-updated = goal { $goal } updated
 app-activity-harness = Harness
 app-activity-hash = Hash
 app-activity-held-message-let-through = a held message in { $scope } was let through

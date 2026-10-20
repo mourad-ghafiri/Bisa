@@ -54,7 +54,7 @@ export function CaptureTray({
 }
 
 /** The lines of a capture tray, and the one sentence a tray with nothing in it says. */
-export function CaptureRows({ draft, onDraft }: { draft: CaptureDraft; onDraft: (next: CaptureDraft) => void }) {
+function CaptureRows({ draft, onDraft }: { draft: CaptureDraft; onDraft: (next: CaptureDraft) => void }) {
   if (draft.captures.length === 0) {
     return <p className="text-text-dim">{t("workbench-capture-tray-drag-rectangle-over-screen-click-whole")}</p>;
   }

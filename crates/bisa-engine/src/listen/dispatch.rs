@@ -149,6 +149,22 @@ fn decide(inner: &Arc<Inner>, queued: QueuedSignal) {
             // LCOV_EXCL_STOP
         }
     };
+    // A goal whose work is being ended and begun again — a restart, from
+    // its cancel to its new run's start — holds its occurrences meanwhile:
+    // one let in now would start a run on the goal the cancel had just left
+    // idle, and the restart's own run would queue behind it. Held, it goes
+    // on the next tick, behind the restart's run.
+    if let ListenerHost::Goal { goal } = key.host {
+        if inner.ending_goals.contains(&goal) {
+            settle(
+                inner,
+                &signal.id,
+                SignalState::Waiting,
+                Some("held while the goal's work is being ended and begun again"),
+            );
+            return;
+        }
+    }
     let now = now_secs();
     let mut rt = runtime_of(inner, armed);
     let since = rt.last_dispatch_at.map(|at| now.saturating_sub(at));

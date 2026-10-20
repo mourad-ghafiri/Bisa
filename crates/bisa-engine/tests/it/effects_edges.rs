@@ -818,7 +818,7 @@ async fn a_spawn_holding_for_a_child_is_paired_again_at_a_restart() {
             .into_iter()
             .find(|g| origin(&g.origin))
     };
-    let spawned_by = |parent: bisa_core::GoalId| move |o: &bisa_core::GoalOrigin| matches!(o, bisa_core::GoalOrigin::Spawned { parent: p } if *p == parent);
+    let spawned_by = |parent: bisa_core::GoalId| move |o: &bisa_core::GoalOrigin| matches!(o, bisa_core::GoalOrigin::Spawned { parent: p, .. } if *p == parent);
     let run_child = |run: bisa_core::RunId| move |o: &bisa_core::GoalOrigin| matches!(o, bisa_core::GoalOrigin::Run { run: r, .. } if *r == run);
     // Every child holds on its release, every parent waits on its spawn.
     let child_a = until("child a to hold", || {
@@ -1474,6 +1474,147 @@ async fn a_check_whose_command_cannot_render_fails_without_running() {
         failed_step(&run, "verify").contains("foo"),
         "{}",
         failed_step(&run, "verify")
+    );
+    engine.shutdown().await;
+}
+
+/// An `end` that finishes the run takes a check still running beside it
+/// with it, as a stop does: its task is aborted, not left to its timeout.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_end_that_finishes_the_run_aborts_a_check_running_beside_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let mut fan = step("fan", StepKind::Parallel);
+    fan.then = vec![
+        bisa_core::Flow::to(sid("slow")),
+        bisa_core::Flow::to(sid("hold")),
+    ];
+    let mut hold = step(
+        "hold",
+        StepKind::Wait {
+            until: WaitFor::Release,
+        },
+    );
+    hold.then = vec![bisa_core::Flow::to(sid("finish"))];
+    let (goal, run) = run_on(
+        &engine,
+        "finished beside a check",
+        new_workflow(
+            "ended",
+            vec![
+                fan,
+                step(
+                    "slow",
+                    StepKind::Check {
+                        check: CheckKind::Command {
+                            command: "sleep 30".into(),
+                        },
+                    },
+                ),
+                hold,
+                step(
+                    "finish",
+                    StepKind::End {
+                        finish: bisa_core::Finish::Done,
+                    },
+                ),
+            ],
+        ),
+    );
+    // The check is at its command when the end comes.
+    until("the check's task to be registered", || {
+        engine
+            .inner()
+            .step_tasks
+            .contains_key(&(run.id, sid("slow")))
+            .then_some(())
+    })
+    .await;
+    engine.release_step(run.id, &sid("hold"), None).unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+    until("the check's task to go with the run", || {
+        (!engine
+            .inner()
+            .step_tasks
+            .contains_key(&(run.id, sid("slow"))))
+        .then_some(())
+    })
+    .await;
+    engine.shutdown().await;
+}
+
+/// A `notify` that names an agent beside a team the agent is in mentions
+/// the agent once: the principals are one set, wherever a name came from.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_notify_mentioning_an_agent_beside_its_team_mentions_the_agent_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let assayer = ws
+        .add_agent(bisa_store::NewAgent {
+            name: "Assayer".into(),
+            harness: "mock".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let builder = ws
+        .add_agent(bisa_store::NewAgent {
+            name: "Builder".into(),
+            harness: "mock".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let team = ws
+        .create_team(
+            "squad",
+            None,
+            vec![
+                Assignee::Agent(builder.id.to_string()),
+                Assignee::Agent(assayer.id.to_string()),
+            ],
+            Default::default(),
+        )
+        .unwrap();
+    let (goal, _) = run_on(
+        &engine,
+        "named twice",
+        new_workflow(
+            "told",
+            vec![step(
+                "tell",
+                StepKind::Notify {
+                    scope: None,
+                    template: "heads up".into(),
+                    mentions: vec![
+                        ValueRef::Fixed(Assignee::Agent(assayer.id.to_string())),
+                        ValueRef::Fixed(Assignee::Team(team.id.to_string())),
+                    ],
+                    author: None,
+                },
+            )],
+        ),
+    );
+    assert_eq!(
+        finished_run(&engine, goal.id).await.outcome,
+        Some(RunOutcome::Done)
+    );
+    until("the post", || {
+        ws.messages(&goal.id.to_string(), None, 10)
+            .ok()?
+            .into_iter()
+            .find(|m| m.content == "heads up")
+    })
+    .await;
+    assert_eq!(
+        ws.mentions_of(assayer.pubkey.as_hex(), 10).unwrap().len(),
+        1,
+        "named twice, mentioned once"
+    );
+    assert_eq!(
+        ws.mentions_of(builder.pubkey.as_hex(), 10).unwrap().len(),
+        1,
+        "the team's other member, once"
     );
     engine.shutdown().await;
 }

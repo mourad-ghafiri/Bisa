@@ -54,7 +54,10 @@ export function secondLine(row) {
  * run of twenty steps stays one line.
  * @returns {{shown: object[], hidden: number}}
  */
-export function compactChips(steps, current, max = 12) {
+/** How many step chips a card's strip shows before folding the rest. */
+export const STRIP_CHIPS = 12;
+
+export function compactChips(steps, current, max = STRIP_CHIPS) {
   const all = steps ?? [];
   if (all.length <= max) return { shown: all, hidden: 0 };
   const live = new Set(current ?? []);
@@ -93,6 +96,18 @@ export function assigneeSummary(assignees, max = 3) {
     return { kind: "unknown", word: "?" };
   });
   return { shown: words.slice(0, max), more: Math.max(0, words.length - max) };
+}
+
+/** The assignees as one line — the shown ones by name, the rest counted — for the strip's title. */
+export function assigneeTitle(people) {
+  const shown = (people?.shown ?? []).map((p) => p.word);
+  const more = people?.more ?? 0;
+  return [...shown, ...(more > 0 ? [`+${more}`] : [])].join(", ");
+}
+
+/** The attached projects' names as one line, for the count's tooltip. */
+export function projectNames(attached) {
+  return (attached ?? []).map((p) => p.project?.name ?? "").filter((n) => n !== "").join(", ");
 }
 
 /** The workflow's name for the card, or nothing when the goal has none yet. */

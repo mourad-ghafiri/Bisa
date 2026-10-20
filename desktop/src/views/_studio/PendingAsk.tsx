@@ -60,7 +60,7 @@ import {
   toggleChoice,
 } from "../../askModel.mjs";
 import type { InputDef, NeedsAction } from "../../types";
-import { Button, Chip, ICON, KeyHint, TextArea, TextInput, cn, useToast } from "../../ui";
+import { Button, Chip, ICON, KeyHint, TextArea, TextInput, cn, failureText, useToast } from "../../ui";
 import { showHookSecrets } from "../_workflow/hookSecretsStore";
 import { InputsForm } from "../_workflow/InputsForm";
 import { initialValues, toRequest, validateInputs, type InputValues } from "../_workflow/workflowForm.mjs";
@@ -125,6 +125,9 @@ export function AskControls({
   const [values, setValues] = useState<InputValues>(() => initialValues(inputs ?? []));
   const [inputErrors, setInputErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // Decided once: the row goes when it is decided, and a second click
+  // landing before it goes must not decide it again.
+  const [sent, setSent] = useState(false);
 
   const question = isAnswerAsk(action.expects);
   const options = useMemo(() => askOptions(action.expects), [action.expects]);
@@ -132,7 +135,7 @@ export function AskControls({
   const anchor = focusTarget(action);
 
   const send = async (over: { approve?: boolean; unsure?: boolean }) => {
-    if (busy) return;
+    if (busy || sent) return;
     let runInputs: Record<string, unknown> | undefined;
     if (inputs && over.approve !== false) {
       const found = validateInputs(inputs, values);
@@ -154,9 +157,10 @@ export function AskControls({
       // by a dialog that outlives this card — the ask is gone the moment it
       // is decided.
       showHookSecrets(decided.secrets ?? []);
+      setSent(true);
       onResolved();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("studio-pending-ask-could-not-send-answer"));
+      toast.error(failureText("studio", "pending-ask-could-not-send-answer", e));
     } finally {
       setBusy(false);
     }
@@ -166,26 +170,26 @@ export function AskControls({
     return (
       <div {...{ [ASK_ATTR]: "true" }} className="flex flex-col gap-2">
         {inputs && inputs.length > 0 && (
-          <InputsForm inputs={inputs} values={values} errors={inputErrors} home="goal" onChange={setValues} disabled={busy} />
+          <InputsForm inputs={inputs} values={values} errors={inputErrors} home="goal" onChange={setValues} disabled={busy || sent} />
         )}
         <TextInput
           {...{ [FOCUS_ATTR]: autoFocus ? "true" : undefined }}
           autoFocus={autoFocus}
           value={text}
           placeholder={t("studio-pending-ask-reason-optional")}
-          disabled={busy}
+          disabled={busy || sent}
           onChange={(e) => setText(e.target.value)}
         />
         <div className="flex gap-2">
-          <Button variant="primary" disabled={busy} onClick={() => void send({ approve: true })}>
-            {busy ? "…" : (labels?.approve ?? t("studio-pending-ask-approve"))}
+          <Button variant="primary" disabled={busy || sent} onClick={() => void send({ approve: true })}>
+            {busy ? t("studio-pending-ask-sending") : (labels?.approve ?? t("studio-pending-ask-approve"))}
           </Button>
           {/* `danger`, because a decline stops work that is waiting on it. The
               Inbox drew this one as a ghost button and the goal screen as a
               danger one, which taught the same reader two things about the
               same act depending on where they met it. */}
           {labels?.decline !== null && (
-            <Button variant="danger" disabled={busy} onClick={() => void send({ approve: false })}>
+            <Button variant="danger" disabled={busy || sent} onClick={() => void send({ approve: false })}>
               {labels?.decline ?? t("studio-pending-ask-decline")}
             </Button>
           )}
@@ -200,7 +204,7 @@ export function AskControls({
   return (
     <div {...{ [ASK_ATTR]: "true" }} className="flex flex-col gap-2">
       {options.length > 0 && (
-        <fieldset className="flex flex-col gap-0.5" disabled={busy}>
+        <fieldset className="flex flex-col gap-0.5" disabled={busy || sent}>
           <legend className="sr-only">
             {multi ? t("studio-pending-ask-choose-any-apply") : t("studio-pending-ask-choose-one")}
           </legend>
@@ -273,7 +277,7 @@ export function AskControls({
         rows={options.length > 0 ? 2 : 3}
         value={text}
         placeholder={options.length > 0 ? t("studio-pending-ask-anything-options-miss") : t("studio-pending-ask-answer")}
-        disabled={busy}
+        disabled={busy || sent}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && ready) {
@@ -284,7 +288,7 @@ export function AskControls({
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" disabled={busy || !ready} onClick={() => void send({})}>
+        <Button variant="primary" disabled={busy || sent || !ready} onClick={() => void send({})}>
           {busy ? t("studio-pending-ask-sending") : t("studio-pending-ask-send-answer")}
         </Button>
         {/* KeyHint, not a literal ⌘: the shortcut is Ctrl+Enter off macOS, and
@@ -294,7 +298,7 @@ export function AskControls({
         <Button
           variant="ghost"
           className="ml-auto"
-          disabled={busy}
+          disabled={busy || sent}
           onClick={() => void send({ unsure: true })}
         >{t("studio-pending-ask-i-m-not-sure")}</Button>
         {/* In the row, not in a tooltip. What this button does is the one

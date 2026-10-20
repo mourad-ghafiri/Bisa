@@ -38,6 +38,9 @@ export function GoalActPopover({
   useEffect(() => {
     if (!open) return;
     const ctl = new AbortController();
+    // Opened again, the goal is read afresh: the last view may have been
+    // acted on since, and no verb lands on it.
+    setView(null);
     setError(null);
     void api
       .goal(goal, ctl.signal)

@@ -23,3 +23,13 @@ test("a goal's link roots are the existing projects attached to it, as workstrea
   assert.deepEqual(goalLinkRoots(projects, "nobody"), []);
   assert.deepEqual(goalLinkRoots(undefined, "g1"), [], "no projects is no roots");
 });
+
+test("a project row with no goals listed, or a row that is none, is passed over rather than a crash", () => {
+  const projects = [
+    { exists: true, project: { id: "p-none" } },
+    null,
+    { exists: true, goals: ["g1"], project: { id: "p-a" } },
+  ];
+  assert.deepEqual(goalLinkRoots(projects, "g1"), [{ scope: "workstream", id: "p-a" }]);
+  assert.deepEqual(goalLinkRoots([], "g1"), []);
+});

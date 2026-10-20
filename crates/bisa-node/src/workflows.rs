@@ -55,12 +55,7 @@ pub(crate) fn routes() -> Router<Shared> {
 pub(crate) fn resolve_workflow(state: &Shared, raw: &str) -> Result<Workflow, ApiError> {
     let ws = state.engine.workspace();
     if let Ok(id) = WorkflowId::from_str(raw) {
-        return ws.get_workflow(id).map_err(|_| {
-            not_found(bisa_core::text!(
-                "error-node-workflows-workflow-not-found",
-                id = id.to_string()
-            ))
-        });
+        return workflow_of(ws, id);
     }
     match ws.workflow_for_slug(raw)? {
         Some(wf) => Ok(wf),
@@ -125,11 +120,19 @@ pub fn row_of(ws: &Workspace, wf: Workflow) -> Result<WorkflowRow, bisa_store::S
 
 /// The workflow a route names, or its 404.
 pub(crate) fn existing(state: &Shared, id: WorkflowId) -> Result<Workflow, ApiError> {
-    state.engine.workspace().get_workflow(id).map_err(|_| {
-        not_found(bisa_core::text!(
+    workflow_of(state.engine.workspace(), id)
+}
+
+/// The workflow by id: nothing under that id is the 404 that says so; a
+/// record that is there and cannot be read is the store's own error — said
+/// by its file, never as a workflow nobody has.
+fn workflow_of(ws: &bisa_store::Workspace, id: WorkflowId) -> Result<Workflow, ApiError> {
+    ws.get_workflow(id).map_err(|e| match e {
+        bisa_store::StoreError::WorkflowNotFound(_) => not_found(bisa_core::text!(
             "error-node-workflows-workflow-not-found",
             id = id.to_string()
-        ))
+        )),
+        other => other.into(),
     })
 }
 
@@ -242,12 +245,7 @@ async fn detail(
     AxPath(wfid): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
-    let wf = state.engine.workspace().get_workflow(id).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-workflows-workflow-not-found",
-            id = id.to_string()
-        ))
-    })?;
+    let wf = workflow_of(state.engine.workspace(), id)?;
     Ok(Json(serde_json::to_value(row(&state, wf)?)?))
 }
 
@@ -262,12 +260,7 @@ async fn save(
     crate::Body(body): crate::Body<PutWorkflowBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
-    state.engine.workspace().get_workflow(id).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-workflows-workflow-not-found",
-            id = id.to_string()
-        ))
-    })?;
+    workflow_of(state.engine.workspace(), id)?;
     let (definition, revision) = body.into_parts();
     let (wf, problems) = state
         .engine
@@ -283,12 +276,7 @@ async fn remove(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
     let ws = state.engine.workspace();
-    ws.get_workflow(id).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-workflows-workflow-not-found",
-            id = id.to_string()
-        ))
-    })?;
+    workflow_of(ws, id)?;
     let usage = ws.usage_of(UsageKind::Workflow, &id.to_string())?;
     if !usage.is_empty() {
         let holders: Vec<String> = usage
@@ -312,12 +300,7 @@ async fn retirement(
     AxPath(wfid): AxPath<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
-    state.engine.workspace().get_workflow(id).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-workflows-workflow-not-found",
-            id = id.to_string()
-        ))
-    })?;
+    workflow_of(state.engine.workspace(), id)?;
     let preview: RetirementDto = state.engine.preview_workflow_retirement(id)?.into();
     Ok(Json(
         json!({"workflow": id.to_string(), "retirement": preview}),
@@ -333,12 +316,7 @@ async fn retire(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
     let ws = state.engine.workspace();
-    ws.get_workflow(id).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-workflows-workflow-not-found",
-            id = id.to_string()
-        ))
-    })?;
+    workflow_of(ws, id)?;
     if plan.workflow == Fate::Delete {
         let usage = ws.usage_of(UsageKind::Workflow, &id.to_string())?;
         if !usage.is_empty() {
@@ -433,12 +411,7 @@ async fn archive(
     crate::Body(body): crate::Body<ArchiveBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = parse_wfid(&wfid)?;
-    state.engine.workspace().get_workflow(id).map_err(|_| {
-        not_found(bisa_core::text!(
-            "error-node-workflows-workflow-not-found",
-            id = id.to_string()
-        ))
-    })?;
+    workflow_of(state.engine.workspace(), id)?;
     let wf = state.engine.archive_workflow(id, body.archived)?;
     Ok(Json(json!({"workflow": row(&state, wf)?})))
 }

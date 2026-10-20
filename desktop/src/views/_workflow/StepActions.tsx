@@ -42,10 +42,15 @@ export function StepActions({
   const [answer, setAnswer] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // Sent once: the step moves on the node when a verb lands, and a second
+  // click before the row is redrawn must not send it again.
+  const [sent, setSent] = useState(false);
   if (actions.length === 0) return null;
   const run = (label: string, fn: () => Promise<unknown>) => async () => {
+    if (busy || sent) return;
     setBusy(true);
     await attempt(fn, toast.error, () => {
+      setSent(true);
       toast.ok(label);
       onChanged();
     });
@@ -62,7 +67,7 @@ export function StepActions({
           {options.length > 0 && !multi && (
             <div className="flex flex-wrap gap-1.5">
               {options.map((o) => (
-                <Button key={o.id} size="sm" disabled={busy} onClick={run(t("workflow-step-actions-answered", { o: o.label }), () => api.answerStep(runId, step.id, { selected: [o.id], text: answer.trim() || null, unsure: false }))}>
+                <Button key={o.id} size="sm" disabled={busy || sent} onClick={run(t("workflow-step-actions-answered", { o: o.label }), () => api.answerStep(runId, step.id, { selected: [o.id], text: answer.trim() || null, unsure: false }))}>
                   {o.label}
                 </Button>
               ))}
@@ -78,7 +83,7 @@ export function StepActions({
                     key={o.id}
                     label={o.label}
                     checked={picked.includes(o.id)}
-                    disabled={busy}
+                    disabled={busy || sent}
                     onChange={(on) => setPicked(on ? [...picked, o.id] : picked.filter((id) => id !== o.id))}
                   />
                 ))}
@@ -86,7 +91,7 @@ export function StepActions({
               <div>
                 <Button
                   size="sm"
-                  disabled={busy || picked.length === 0}
+                  disabled={busy || sent || picked.length === 0}
                   onClick={run(t("workflow-step-actions-answered-one-option-options", { picked: picked.length }), () =>
                     api.answerStep(runId, step.id, { selected: picked, text: answer.trim() || null, unsure: false }),
                   )}
@@ -96,12 +101,12 @@ export function StepActions({
               </div>
             </div>
           )}
-          <TextArea rows={2} value={answer} placeholder={options.length > 0 ? t("workflow-step-actions-anything-options-miss") : t("workflow-step-actions-answer")} disabled={busy} onChange={(e) => setAnswer(e.target.value)} />
+          <TextArea rows={2} value={answer} placeholder={options.length > 0 ? t("workflow-step-actions-anything-options-miss") : t("workflow-step-actions-answer")} disabled={busy || sent} onChange={(e) => setAnswer(e.target.value)} />
           <div className="flex flex-wrap gap-2">
-            <Button variant="primary" size="sm" disabled={busy || !answer.trim()} onClick={run(t("workflow-step-actions-answered-2"), () => api.answerStep(runId, step.id, { selected: [], text: answer.trim(), unsure: false }))}>{t("workflow-step-actions-send-answer")}</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={run(t("workflow-step-actions-said-not-sure"), () => api.answerStep(runId, step.id, { selected: [], text: null, unsure: true }))}>{t("workflow-step-actions-i-m-not-sure")}</Button>
+            <Button variant="primary" size="sm" disabled={busy || sent || !answer.trim()} onClick={run(t("workflow-step-actions-answered-2"), () => api.answerStep(runId, step.id, { selected: [], text: answer.trim(), unsure: false }))}>{t("workflow-step-actions-send-answer")}</Button>
+            <Button size="sm" variant="ghost" disabled={busy || sent} onClick={run(t("workflow-step-actions-said-not-sure"), () => api.answerStep(runId, step.id, { selected: [], text: null, unsure: true }))}>{t("workflow-step-actions-i-m-not-sure")}</Button>
             {actions.includes("done") && (
-              <Button size="sm" className="ml-auto" disabled={busy} onClick={run(t("workflow-step-actions-marked-done"), () => api.markStepDone(runId, step.id))}>
+              <Button size="sm" className="ml-auto" disabled={busy || sent} onClick={run(t("workflow-step-actions-marked-done"), () => api.markStepDone(runId, step.id))}>
                 <ICON.ok size={12} aria-hidden />{t("workflow-step-actions-done-hand")}</Button>
             )}
           </div>
@@ -118,7 +123,7 @@ export function StepActions({
       {actions.includes("release") && (
         <div className="flex items-center gap-2">
           <p className="min-w-0 flex-1 text-2xs text-text-dim">{t("workflow-step-actions-run-holds-here-until-release")}</p>
-          <Button size="sm" variant="primary" disabled={busy} onClick={run(t("workflow-step-actions-released"), () => api.releaseStep(runId, step.id))}>{t("workflow-step-actions-release")}</Button>
+          <Button size="sm" variant="primary" disabled={busy || sent} onClick={run(t("workflow-step-actions-released"), () => api.releaseStep(runId, step.id))}>{t("workflow-step-actions-release")}</Button>
         </div>
       )}
       {actions.includes("open") && record?.work_item && onOpenItem && (

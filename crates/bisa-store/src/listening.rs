@@ -142,6 +142,7 @@ impl Workspace {
         goal: GoalId,
         listening: Option<Listening>,
     ) -> Result<(), StoreError> {
+        let _one_writer = self.run_writer();
         let mut g = self.get_goal(goal)?;
         if g.listening == listening {
             return Ok(());

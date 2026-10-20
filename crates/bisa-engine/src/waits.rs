@@ -368,9 +368,10 @@ pub fn arm(inner: &Arc<Inner>, goal: Option<GoalId>, run: RunId, step: &StepId, 
             let entered = entered_at(&run, step).unwrap_or_else(now_secs);
             arm_resolving(inner, goal, &run, step, until, entered);
         }
+        // LCOV_EXCL_START the run is read from the store, which fails only unreadable (disk-only)
         Err(e) => {
             crate::effects::fail_step(inner, run, step, format!("the wait cannot be armed: {e}"))
-        }
+        } // LCOV_EXCL_STOP
     }
 }
 
@@ -470,12 +471,22 @@ pub fn tick(inner: &Arc<Inner>, now: u64) {
         .map(|e| e.key().clone())
         .collect();
     for (run, step) in due {
-        inner.waits.armed.remove(&(run, step.clone()));
+        // Taken out before the event lands — a loop that re-enters the step
+        // in the same settle arms it anew — and put back when the event
+        // could not be recorded: the run's snapshot unreadable for a
+        // moment is not a timer lost until a restart. A refusal is the step
+        // having moved on, and the entry is stale.
+        let Some((_, entry)) = inner.waits.armed.remove(&(run, step.clone())) else {
+            continue; // LCOV_EXCL_LINE an entry taken by another tick between the list and the remove; a race
+        };
+        if record(inner, run, RunEvent::Elapsed { step: step.clone() }) == Recorded::Failed {
+            inner.waits.armed.insert((run, step), entry);
+            continue;
+        }
         crate::warn_on_err(
             inner.ws.set_wait_due(run, &step, None),
             "clearing a wait's due time",
         );
-        record(inner, run, RunEvent::Elapsed { step });
     }
     let mut timers: Vec<((RunId, StepId, Branch), ArmedBoundary)> = inner
         .waits
@@ -567,16 +578,22 @@ pub fn on_heard(inner: &Arc<Inner>, heard: &Heard) {
         .map(|e| e.key().clone())
         .collect();
     for (run, step) in hit {
-        inner.waits.armed.remove(&(run, step.clone()));
-        record(
+        // As the ticker: out before the event lands, back if it could not.
+        let Some((_, entry)) = inner.waits.armed.remove(&(run, step.clone())) else {
+            continue; // LCOV_EXCL_LINE an entry taken by another ear between the list and the remove; a race
+        };
+        let recorded = record(
             inner,
             run,
             RunEvent::Heard {
-                step,
+                step: step.clone(),
                 payload: heard.payload.clone(),
                 chain: heard.chain.clone(),
             },
         );
+        if recorded == Recorded::Failed {
+            inner.waits.armed.insert((run, step), entry);
+        }
     }
     let mut fired: Vec<((RunId, StepId, Branch), ArmedBoundary)> = inner
         .waits
@@ -765,7 +782,9 @@ pub fn release(
             payload,
         },
     )?;
-    inner.waits.armed.remove(&(run, step.clone()));
+    // The step is over: its wait, and — a `spawn` let go of — the child it
+    // waited on, whose end moves nothing of this run's now.
+    disarm(inner, run, step);
     Ok(())
 }
 
@@ -893,8 +912,12 @@ pub fn rearm_children(inner: &Arc<Inner>) {
     };
     for child in goals {
         let (parent_run, named) = match &child.origin {
-            GoalOrigin::Spawned { parent } => match inner.ws.get_current_run(*parent) {
-                Ok(Some(run)) => (run, None),
+            // A spawn step's child names its step, so two steps waiting on
+            // two children are each paired with their own; a record from
+            // before the step was named is paired with the first waiting
+            // spawn, as it always was.
+            GoalOrigin::Spawned { parent, step } => match inner.ws.get_current_run(*parent) {
+                Ok(Some(run)) => (run, step.clone()),
                 // LCOV_EXCL_START: a spawned child's parent goal keeps its run until the child is closed with it (close_goal)
                 _ => continue,
                 // LCOV_EXCL_STOP
@@ -955,15 +978,29 @@ pub fn rearm_children(inner: &Arc<Inner>) {
     }
 }
 
-fn record(inner: &Arc<Inner>, run: RunId, event: RunEvent) {
+/// What recording a wait's event did: it landed; the run refused it (the
+/// step had moved on — the entry was stale); or it could not be written —
+/// the entry is put back for the next tick or the next hearing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Recorded {
+    Landed,
+    Refused,
+    Failed,
+}
+
+fn record(inner: &Arc<Inner>, run: RunId, event: RunEvent) -> Recorded {
     match ops::record_run_event(inner, run, event) {
-        Ok(_) => {}
+        Ok(_) => Recorded::Landed,
         Err(e) if e.is_refusal() => {
             // LCOV_EXCL_START: a refusal here is the step having moved on between two settlements of it, a race no test can stage
-            tracing::debug!(run = %run, "a wait moved a step that had already moved: {e}")
+            tracing::debug!(run = %run, "a wait moved a step that had already moved: {e}");
+            Recorded::Refused
             // LCOV_EXCL_STOP
         }
-        Err(e) => tracing::warn!(run = %run, "a wait could not move its step: {e}"),
+        Err(e) => {
+            tracing::warn!(run = %run, "a wait could not move its step: {e}");
+            Recorded::Failed
+        }
     }
 }
 

@@ -29,6 +29,8 @@ export declare function canSubmit(s: { statement: string; busy: boolean; uploadi
 export declare function captureLabel(s: { busy: boolean; uploading: boolean }): string;
 export declare function documentsHint(count: number): string;
 /** The agents *Who carries it* never offers: core and disabled ones. */
+/** The projects handed over for the next capture: offered once, taken once. */
+export declare function projectsHandoff(): { offer(ids: readonly string[] | null | undefined): void; take(): string[] };
 export declare function staffNotOffered(agents: readonly { id: string; origin: unknown; enabled: boolean }[]): string[];
 /** What *Who carries it* says under itself, by how many are picked. */
 export declare function staffHint(count: number): string;

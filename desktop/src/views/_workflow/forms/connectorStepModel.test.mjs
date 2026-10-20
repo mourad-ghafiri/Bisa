@@ -3,7 +3,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_ACCOUNT, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
+import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
 
 test("the account travels as one select value and comes back as the step's shape", () => {
   assert.equal(accountValue(null), DEFAULT_ACCOUNT);
@@ -69,4 +69,10 @@ test("a picker shows what the definition names even when it is not among its opt
   assert.equal(strayOperation("post", all, all), null, "a step may name it");
   assert.equal(strayOperation("vanished", all, all), "vanished (not one of its operations)");
   assert.equal(strayOperation("vanished", [], null), null, "nothing is said before the definition is read");
+});
+
+test("the unattended switch has a label and a longer hint, in the catalog's words", () => {
+  assert.ok(UNATTENDED_LABEL.length > 0 && UNATTENDED_HINT.length > UNATTENDED_LABEL.length);
+  assert.notEqual(UNATTENDED_LABEL, UNATTENDED_HINT);
+  assert.ok(!/^workflow-/.test(UNATTENDED_LABEL) && !/^workflow-/.test(UNATTENDED_HINT), "said, never a bare message id");
 });

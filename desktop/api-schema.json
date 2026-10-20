@@ -2495,6 +2495,16 @@
             "parent": {
               "$ref": "#/definitions/GoalId"
             },
+            "step": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/StepId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "origin": {
               "type": "string",
               "const": "spawned"
@@ -2504,7 +2514,7 @@
             "origin",
             "parent"
           ],
-          "description": "A `spawn` step of a goal's run, or an agent's `spawn_sub_goal`,\nrefining a parent."
+          "description": "A `spawn` step of a goal's run — `step` names it, so a restart pairs\nthe child with the step that waits on it and no other — or an agent's\n`spawn_sub_goal`, which names no step; refining a parent. A record\nfrom before the step was named reads with none."
         },
         {
           "type": "object",

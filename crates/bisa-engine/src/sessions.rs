@@ -860,7 +860,7 @@ pub fn withdraw_questions_of(inner: &Arc<Inner>, run: LiveRunId) -> usize {
             "a question the session was asking — \"{}\" — was withdrawn: {STOPPED}",
             crate::recovery::first_line(&gate.question)
         );
-        crate::recovery::withdraw_question(inner, gate.home, &gate.subject, STOPPED, note);
+        crate::recovery::withdraw_question(inner, gate.home, &gate.subject, STOPPED, Some(note));
         withdrawn += 1;
     }
     withdrawn

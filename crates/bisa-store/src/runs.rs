@@ -46,6 +46,18 @@ use std::sync::MutexGuard;
 /// A run a close cancelled, with the effects the engine settles it by.
 pub type CancelledRun = (WorkflowRun, Vec<RunEffect>);
 
+/// What recording an event did: the step records **as the writer read them
+/// under the lock** — the very steps the event was applied to — the run
+/// after, and the effects the machine returned. A caller that says what
+/// changed diffs `before` against `run`, never a read of its own that
+/// another writer may have moved between.
+#[derive(Clone, Debug)]
+pub struct RunMoved {
+    pub before: BTreeMap<StepId, StepRecord>,
+    pub run: WorkflowRun,
+    pub effects: Vec<RunEffect>,
+}
+
 /// The subject a decision on an `approval` step carries: `<run>:<step>`.
 pub fn approval_subject(run: RunId, step: &StepId) -> String {
     format!("approval:{run}/{step}")
@@ -66,8 +78,13 @@ struct Making {
 }
 
 impl Workspace {
-    /// The one writer at a time. A poisoned lock is taken over: the run on
-    /// disk is whatever the last write left, and the next write re-reads it.
+    /// The one writer at a time — of a run, and of a goal's snapshot: every
+    /// writer of either takes it, so a read-modify-write never crosses
+    /// another's (a pause of the goal's listening racing its close wrote
+    /// `listening: paused, closed: none` over the closure once). A poisoned
+    /// lock is taken over: the record on disk is whatever the last write
+    /// left, and the next write re-reads it. Never taken by a writer that
+    /// another writer calls under it: `std::sync::Mutex` does not re-enter.
     pub(crate) fn run_writer(&self) -> MutexGuard<'_, ()> {
         self.run_writes.lock().unwrap_or_else(|poisoned| {
             tracing::warn!("run write lock was poisoned; continuing with the run as it stands");
@@ -445,8 +462,20 @@ impl Workspace {
         run_id: RunId,
         event: RunEvent,
     ) -> Result<(WorkflowRun, Vec<RunEffect>), StoreError> {
+        self.record_run_event_moved(run_id, event)
+            .map(|moved| (moved.run, moved.effects))
+    }
+
+    /// [`Self::record_run_event`], answering the steps the event was applied
+    /// to as well ([`RunMoved`]) — for the caller that announces what
+    /// changed.
+    pub fn record_run_event_moved(
+        &self,
+        run_id: RunId,
+        event: RunEvent,
+    ) -> Result<RunMoved, StoreError> {
         let _one_writer = self.run_writer();
-        self.record_run_event_locked(run_id, event)
+        self.record_run_event_locked_moved(run_id, event)
     }
 
     /// [`Self::record_run_event`] for a caller that already holds the writer.
@@ -455,6 +484,15 @@ impl Workspace {
         run_id: RunId,
         event: RunEvent,
     ) -> Result<(WorkflowRun, Vec<RunEffect>), StoreError> {
+        self.record_run_event_locked_moved(run_id, event)
+            .map(|moved| (moved.run, moved.effects))
+    }
+
+    fn record_run_event_locked_moved(
+        &self,
+        run_id: RunId,
+        event: RunEvent,
+    ) -> Result<RunMoved, StoreError> {
         const ATTEMPTS: usize = 3;
         for attempt in 1..=ATTEMPTS {
             match self.record_run_event_once(run_id, event.clone()) {
@@ -479,7 +517,7 @@ impl Workspace {
         &self,
         run_id: RunId,
         event: RunEvent,
-    ) -> Result<(WorkflowRun, Vec<RunEffect>), StoreError> {
+    ) -> Result<RunMoved, StoreError> {
         let mut run = self.get_run(run_id)?;
         // A goal's run reads its goal: the journal its facts go to, and the
         // row that caches the goal's status. A run of the workspace is its
@@ -552,7 +590,11 @@ impl Workspace {
                 Ok(())
             })?;
         }
-        Ok((run, effects))
+        Ok(RunMoved {
+            before,
+            run,
+            effects,
+        })
     }
 
     /// Close a goal: `Cancel { closed }` on every queued run and on the live
@@ -617,6 +659,7 @@ impl Workspace {
     /// makes on its own, and the one that goes back; an open goal is closed
     /// first by its caller — archiving never cancels anything itself.
     pub fn set_goal_archived(&self, goal_id: GoalId, archived: bool) -> Result<Goal, StoreError> {
+        let _one_writer = self.run_writer();
         let mut goal = self.get_goal(goal_id)?;
         if archived && !goal.is_closed() {
             return Err(StoreError::Invalid(bisa_core::text!(
@@ -1117,6 +1160,10 @@ impl Workspace {
     ) -> Result<(), StoreError> {
         let d = run.id.to_string();
         let now = now_secs();
+        // A due time a timer wrote on its row stays while the step waits:
+        // the ticker's bookkeeping outlives the run's other events.
+        let kept: std::collections::HashMap<String, u64> =
+            idx.due_times_of_run(&d)?.into_iter().collect();
         let rows: Vec<RunStepRow> = run
             .workflow
             .steps
@@ -1129,7 +1176,10 @@ impl Workspace {
                     kind: step.kind.as_str().to_string(),
                     state: record.state.as_str().to_string(),
                     wait_topic: wait_word(&step.kind, &record.state),
-                    due_at: None,
+                    due_at: match record.state {
+                        StepState::Waiting => kept.get(step.id.as_str()).copied(),
+                        _ => None,
+                    },
                     work_item: record.work_item.map(|w| w.to_string()),
                     updated_at: now,
                 })
@@ -1175,43 +1225,19 @@ impl Workspace {
 
     /// Record when a timer or schedule step comes due, so the ticker finds it
     /// without opening every run. The snapshot is untouched: a due time is
-    /// this node's bookkeeping, derived again on re-arm.
+    /// this node's bookkeeping, derived again on re-arm. Written on the
+    /// step's own row alone — never a rewrite of the run's rows from a read
+    /// of this writer's own, which could put back a state another writer has
+    /// moved since — and kept by the run's next event (`index_run_in`) while
+    /// the step still waits.
     pub fn set_wait_due(
         &self,
         run: RunId,
         step: &StepId,
         due_at: Option<u64>,
     ) -> Result<(), StoreError> {
-        let r = self.get_run(run)?;
-        let mut rows = self.idx().waiting_steps(None)?;
-        rows.retain(|row| row.run_id == run.to_string());
-        // Re-derive every row for the run, with the one due time changed.
-        let d = run.to_string();
-        let now = now_secs();
-        let rows: Vec<RunStepRow> = r
-            .workflow
-            .steps
-            .iter()
-            .filter_map(|s| {
-                let record = r.steps.get(&s.id)?;
-                let wait_topic = wait_word(&s.kind, &record.state);
-                let existing_due = rows
-                    .iter()
-                    .find(|row| row.step_id == s.id.as_str())
-                    .and_then(|row| row.due_at);
-                Some(RunStepRow {
-                    run_id: d.clone(),
-                    step_id: s.id.to_string(),
-                    kind: s.kind.as_str().to_string(),
-                    state: record.state.as_str().to_string(),
-                    wait_topic,
-                    due_at: if &s.id == step { due_at } else { existing_due },
-                    work_item: record.work_item.map(|w| w.to_string()),
-                    updated_at: now,
-                })
-            })
-            .collect();
-        self.idx().replace_run_steps(&d, &rows)
+        self.idx()
+            .set_step_due(&run.to_string(), step.as_str(), due_at)
     }
 
     /// Rebuild support: every run snapshot of a goal, with its steps.
@@ -3286,5 +3312,256 @@ mod tests {
             .as_deref(),
             Some("platform:deploys")
         );
+    }
+}
+
+/// One writer for the goal's snapshot, as for the run's: every writer takes
+/// the lock, and the write is a compare-and-swap on the revision — a stale
+/// writer is refused, never a late one taken as the latest.
+#[cfg(test)]
+mod one_writer {
+    use super::*;
+    use crate::identity::MemoryKeyStore;
+    use crate::workflows::tests::{sid, step};
+    use crate::workflows::NewWorkflow;
+    use crate::workspace::NewGoal;
+    use bisa_core::{ClosureReason, ListenerHost, Listening, PauseReason, Paused, Tags, WaitFor};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    fn ws() -> (tempfile::TempDir, Workspace) {
+        let dir = tempfile::tempdir().unwrap();
+        let w =
+            Workspace::open_with_keystore(dir.path(), Box::new(MemoryKeyStore::default())).unwrap();
+        (dir, w)
+    }
+
+    /// A workflow held open by a wait a person releases.
+    fn held(name: &str) -> NewWorkflow {
+        NewWorkflow {
+            name: name.into(),
+            description: String::new(),
+            inputs: vec![],
+            steps: vec![step(
+                "hold",
+                StepKind::Wait {
+                    until: WaitFor::Release,
+                },
+                &[],
+            )],
+            tags: Tags::default(),
+            decision_making: false,
+        }
+    }
+
+    fn listening(paused: bool) -> Listening {
+        Listening {
+            inputs: BTreeMap::new(),
+            budget: None,
+            since: 1,
+            paused: paused.then_some(Paused {
+                reason: PauseReason::BudgetSpent,
+                at: 2,
+            }),
+        }
+    }
+
+    /// A writer that read the goal before another's write lands, and writes
+    /// its own next revision a second later, is refused: the stored revision
+    /// is not the one it read. The close it would have written over stands.
+    #[test]
+    fn a_stale_writer_never_writes_over_a_newer_goal_snapshot() {
+        let (_dir, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("race")).unwrap();
+        let stale = goal.clone();
+        let (closed, _) = ws
+            .set_goal_closed(goal.id, ClosureReason::Abandoned { rationale: None })
+            .unwrap();
+        assert_eq!(closed.revision, stale.revision + 1);
+        let mut reopened = stale;
+        reopened.revision += 1;
+        let err = ws
+            .write_goal_snapshot(&reopened, closed.closed.as_ref().unwrap().at + 1)
+            .unwrap_err();
+        assert!(
+            matches!(err, StoreError::RevisionConflict { .. }),
+            "{err:?}"
+        );
+        assert!(ws.get_goal(goal.id).unwrap().is_closed());
+    }
+
+    /// Two edits of one goal at once are both written, one after the other,
+    /// neither refused as a stale write of the same revision.
+    #[test]
+    fn two_edits_of_one_goal_at_once_are_both_written() {
+        let (_dir, ws) = ws();
+        let goal = ws
+            .create_goal(NewGoal::captured("edited twice at once"))
+            .unwrap();
+        std::thread::scope(|s| {
+            let ws = &ws;
+            let id = goal.id;
+            s.spawn(move || {
+                for i in 0..20 {
+                    let mut g = ws.get_goal(id).unwrap();
+                    g.title = Some(format!("title {i}"));
+                    ws.update_goal(g).unwrap();
+                }
+            });
+            s.spawn(move || {
+                for i in 0..20 {
+                    let mut g = ws.get_goal(id).unwrap();
+                    g.statement = format!("statement {i}");
+                    ws.update_goal(g).unwrap();
+                }
+            });
+        });
+        assert_eq!(ws.get_goal(goal.id).unwrap().revision, goal.revision + 40);
+    }
+
+    /// A pause of the goal's listening racing its close leaves the goal
+    /// closed, whichever lands first: the pause after the close is refused,
+    /// the close after the pause closes.
+    #[test]
+    fn a_pause_racing_a_close_leaves_the_goal_closed() {
+        let (_dir, ws) = ws();
+        for i in 0..20 {
+            let goal = ws
+                .create_goal(NewGoal::captured(&format!("listens {i}")))
+                .unwrap();
+            let host = ListenerHost::Goal { goal: goal.id };
+            ws.set_listening(&host, Some(listening(false))).unwrap();
+            std::thread::scope(|s| {
+                let ws = &ws;
+                s.spawn(move || {
+                    drop(ws.set_goal_closed(goal.id, ClosureReason::Abandoned { rationale: None }));
+                });
+                s.spawn(move || {
+                    drop(ws.set_listening(&host, Some(listening(true))));
+                });
+            });
+            let after = ws.get_goal(goal.id).unwrap();
+            assert!(after.is_closed(), "goal {i} reopened: {after:?}");
+            assert!(
+                after.listening.is_none(),
+                "goal {i} listens closed: {after:?}"
+            );
+        }
+    }
+
+    /// A start racing an archive never leaves a live run under an archived
+    /// workflow: one of the two is refused, whichever came second.
+    #[test]
+    fn a_start_racing_an_archive_never_leaves_a_live_run_under_an_archived_workflow() {
+        let (_dir, ws) = ws();
+        for i in 0..20 {
+            let wf = ws
+                .create_workflow(
+                    held(&format!("held {i}")),
+                    bisa_core::WorkflowOrigin::Workspace,
+                )
+                .unwrap();
+            std::thread::scope(|s| {
+                let ws = &ws;
+                s.spawn(move || {
+                    drop(ws.create_run(
+                        RunScope::Workspace {
+                            budget: bisa_core::goal::Budget::default(),
+                        },
+                        wf.id,
+                        BTreeMap::new(),
+                        bisa_core::RunEntry::by_hand(),
+                        None,
+                    ));
+                });
+                s.spawn(move || {
+                    drop(ws.set_workflow_archived(wf.id, true));
+                });
+            });
+            let archived = ws.get_workflow(wf.id).unwrap().is_archived();
+            let live = ws.live_workspace_runs(Some(wf.id)).unwrap();
+            assert!(
+                !(archived && !live.is_empty()),
+                "workflow {i}: archived with a live run"
+            );
+        }
+    }
+
+    /// An open goal is never archived: it is closed first by its caller.
+    #[test]
+    fn an_open_goal_is_not_archived() {
+        let (_dir, ws) = ws();
+        let goal = ws.create_goal(NewGoal::captured("still open")).unwrap();
+        assert!(ws.set_goal_archived(goal.id, true).is_err());
+        assert!(!ws.get_goal(goal.id).unwrap().is_archived());
+    }
+
+    /// A wait's due time is this node's bookkeeping on the step's row: the
+    /// run's next event — another step done — leaves it standing, and the
+    /// ticker still finds the wait.
+    #[test]
+    fn a_waits_due_time_survives_the_runs_next_event() {
+        let (_dir, ws) = ws();
+        let wf = ws
+            .create_workflow(
+                NewWorkflow {
+                    name: "Fan".into(),
+                    description: String::new(),
+                    inputs: vec![],
+                    steps: vec![
+                        step("fan", StepKind::Parallel, &["say", "hold"]),
+                        step(
+                            "say",
+                            StepKind::Notify {
+                                scope: None,
+                                template: "hello".into(),
+                                mentions: vec![],
+                                author: None,
+                            },
+                            &[],
+                        ),
+                        step(
+                            "hold",
+                            StepKind::Wait {
+                                until: WaitFor::Delay {
+                                    secs: bisa_core::ValueRef::Fixed(100),
+                                },
+                            },
+                            &[],
+                        ),
+                    ],
+                    tags: Tags::default(),
+                    decision_making: false,
+                },
+                bisa_core::WorkflowOrigin::Workspace,
+            )
+            .unwrap();
+        let goal = ws.create_goal(NewGoal::captured("fan out")).unwrap();
+        let (run, _) = ws
+            .create_run(
+                RunScope::Goal { goal: goal.id },
+                wf.id,
+                BTreeMap::new(),
+                bisa_core::RunEntry::by_hand(),
+                None,
+            )
+            .unwrap();
+        ws.set_wait_due(run.id, &sid("hold"), Some(500)).unwrap();
+        assert_eq!(ws.list_due_waits(600).unwrap(), vec![(run.id, sid("hold"))]);
+        ws.record_run_event(
+            run.id,
+            RunEvent::StepDone {
+                step: sid("say"),
+                output: json!({}),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ws.list_due_waits(600).unwrap(),
+            vec![(run.id, sid("hold"))],
+            "the due time outlives another step's event"
+        );
+        ws.set_wait_due(run.id, &sid("hold"), None).unwrap();
+        assert!(ws.list_due_waits(600).unwrap().is_empty());
     }
 }

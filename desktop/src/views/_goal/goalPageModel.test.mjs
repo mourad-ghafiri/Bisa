@@ -6,7 +6,9 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { ADOPT_SUBJECT, adoptGateOf, closeBody, closeWords, headerWords, isProposed, listeningFacts, ownDesignOf, pageFacts, replacements, runStanding } from "./goalPageModel.mjs";
+import { ADOPT_SUBJECT, adoptGateOf, closeBody, closeWords, headerWords, isProposed, listeningFacts, ownDesignOf, pageFacts, replacements, runStanding, PAGE_FACTS,
+  wantsReload,
+} from "./goalPageModel.mjs";
 
 const ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
@@ -100,6 +102,15 @@ test("a goal is replaced by a goal that still stands: never itself, never one cl
   assert.deepEqual(replacements(others, "G5").map((g) => g.id), ["G1", "G2", "G6"]);
   for (const nothing of [null, undefined, [], "G1"]) assert.deepEqual(replacements(nothing, "G1"), []);
   assert.deepEqual(replacements([null, row("G9")], "G1").map((g) => g.id), ["G9"], "a row that is none is passed over");
+});
+
+test("the page reads the goal again on the frames that move it, and on a guided frame only when the design's standing moved — never on a tick of work in progress", () => {
+  for (const type of PAGE_FACTS) assert.equal(wantsReload({ type }), true, type);
+  for (const type of ["goal_updated", "goal_archived", "run_queued", "listener_failed"]) assert.ok(PAGE_FACTS.includes(type), `${type} moves the page`);
+  for (const status of ["proposed", "failed", "stalled", "off"]) assert.equal(wantsReload({ type: "guided", status }), true, status);
+  for (const status of ["scheduled", "working", "asking"]) assert.equal(wantsReload({ type: "guided", status }), false, `${status} is the card's own`);
+  for (const type of ["session", "agent_streamed", "file_changed", "goal_deleted", "project_archived"]) assert.equal(wantsReload({ type }), false, type);
+  for (const none of [null, undefined, {}, { type: 7 }]) assert.equal(wantsReload(none), false);
 });
 
 test("a close sends the person's word on why, or the goal that replaces this one as `superseded_by` — never both, never an empty string", () => {

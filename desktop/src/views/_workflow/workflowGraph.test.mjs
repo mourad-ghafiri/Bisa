@@ -29,8 +29,12 @@ import {
   relabelBranch,
   removeStep,
   renameInput,
+  duplicateFrom,
+  removeMany,
   renameStep,
+  renameStepIfPresent,
   replaceStep,
+  replaceStepIfPresent,
   setOnFail,
   setPosition,
   setBranchTarget,
@@ -658,4 +662,46 @@ test("one flow removed by its reference: a flow is cut, a failure route put back
   assert.deepEqual(removeFlow(wf, { from: "a", to: "c", branch: null, route: "on_fail" }).steps[0].on_fail, { on_fail: "fail" });
   assert.equal(removeFlow(wf, { from: "a", to: "b", branch: null, route: "on_fail" }), wf, "a route that no longer points there is left alone");
   assert.equal(removeFlow(wf, { from: "zz", to: "b", branch: null, route: "on_fail" }), wf);
+});
+
+test("a replace or a rename of a step that is gone leaves the body itself, untouched — what a field's commit on its way out lands on", () => {
+  const wf = { steps: [agent("a", [{ to: "b" }]), agent("b")] };
+  assert.equal(replaceStepIfPresent(wf, "gone", { ...agent("gone"), name: "Back from the dead" }), wf, "the same object: nothing to record, nothing to save");
+  assert.equal(renameStepIfPresent(wf, "gone", "renamed"), wf);
+  // Present, it is the plain edit.
+  const replaced = replaceStepIfPresent(wf, "b", { ...agent("b"), name: "B!" });
+  assert.equal(replaced.steps[1].name, "B!");
+  assert.deepEqual(renameStepIfPresent(wf, "b", "c").steps[0].then, [{ to: "c" }]);
+  const bare = {};
+  assert.equal(replaceStepIfPresent(bare, "a", agent("a")), bare, "a body with no steps is left as it is");
+  assert.equal(renameStepIfPresent(bare, "a", "b"), bare);
+});
+
+test("one gesture removes several steps and flows through the gate, says what went, and counts what the gate refused", () => {
+  const wf = { steps: [agent("a", [{ to: "b" }, { to: "c" }]), agent("b"), agent("c"), agent("d")] };
+  const ref = { from: "a", to: "c", branch: null, route: "then" };
+  const gate = (id) => id !== "d" && id !== "a";
+  const r = removeMany(wf, { nodes: ["b", "d"], edges: [{ id: "a->c", from: "a", ref }] }, gate);
+  assert.deepEqual(r.gone, { nodes: ["b"], edges: [] });
+  assert.equal(r.refused, 2, "the step that ran and the flow from it");
+  assert.deepEqual(r.wf.steps.map((s) => s.id), ["a", "c", "d"]);
+  assert.deepEqual(r.wf.steps[0].then, [{ to: "c" }], "the flow into the removed step went with it; the refused flow stands");
+  const all = removeMany(wf, { nodes: [], edges: [{ id: "a->c", from: "a", ref }] });
+  assert.deepEqual(all.wf.steps[0].then, [{ to: "b" }]);
+  assert.deepEqual(all.gone.edges, ["a->c"]);
+  assert.equal(removeMany(wf, {}).wf, wf, "nothing picked: the body itself");
+  assert.equal(removeMany(wf, { nodes: ["d"] }, () => false).wf, wf, "everything refused: the body itself");
+});
+
+test("a duplicate of a placeless card takes the place the picture draws it at; a placed one keeps its own", () => {
+  const placeless = { steps: [agent("a")] };
+  const pictured = new Map([["a", { x: 100, y: 40 }]]);
+  const { wf: next, id } = duplicateFrom(placeless, "a", pictured);
+  assert.ok(id && id !== "a");
+  assert.deepEqual(next.steps[0].position, { x: 100, y: 40 }, "the source is written down where the picture drew it");
+  const copy = next.steps.find((s) => s.id === id);
+  assert.ok(copy.position && copy.position.x >= 100, `the copy is offset from it: ${JSON.stringify(copy.position)}`);
+  const placed = { steps: [{ ...agent("a"), position: { x: 7, y: 7 } }] };
+  assert.deepEqual(duplicateFrom(placed, "a", pictured).wf.steps[0].position, { x: 7, y: 7 }, "a placed card keeps its place");
+  assert.equal(duplicateFrom(placeless, "nobody", pictured).id, null);
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { KIND_LABEL, MARKS_AT_ONCE, RELOAD_DEBOUNCE_MS, RELOAD_ON, SOURCES, aboutWords, applyDelta, askHint, askVerbs, browserHomeOf, compareRows, conversationOf, counts, doorLabel, doorOf, emptyWords, filterOf, filterSegments, groupRows, isHandled, isNewestRead, joinOf, joinWords, keyAction, kindLabel, markBatches, matchesFilter, matchesSource, needsOf, needsReload, nextSelection, noticeLine, noticesOf, readOnSelect, rowGlyph, rowState, sourceIdOf, sourceTabs, summarize, unreadKeys, unreadNoticesOf, visibleRows, waitingAbout, waitingOf, waitingWords, wantsList, withReadMark, askTitle } from "./inboxModel.mjs";
+import { KIND_LABEL, MARKS_AT_ONCE, RELOAD_DEBOUNCE_MS, RELOAD_ON, SOURCES, aboutWords, applyDelta, askHint, askVerbs, browserHomeOf, compareRows, conversationOf, counts, doorLabel, doorOf, emptyWords, filterOf, filterSegments, groupRows, isHandled, isNewestRead, joinOf, joinWords, keyAction, kindLabel, markBatches, matchesFilter, matchesSource, needsOf, needsReload, nextSelection, noticeLine, noticesOf, readOnSelect, rowGlyph, rowState, sourceIdOf, sourceTabs, summarize, unreadKeys, unreadNoticesOf, visibleRows, waitingAbout, waitingOf, waitingWords, wantsList, withReadMark, askTitle, rank } from "./inboxModel.mjs";
 
 /** A row with everything the node sends, so a test only states what it means. */
 function row(over = {}) {
@@ -743,4 +743,13 @@ test("two things owed are summarised as a count, and a channel or a direct chann
   assert.match(two.text, /2/);
   assert.deepEqual(conversationOf(row({ kind: "channel", key: "design" })), { kind: "channel", scope: "design" });
   assert.deepEqual(conversationOf(row({ kind: "dm", key: "dm-1" })), { kind: "dm", scope: "dm-1" });
+});
+
+test("a row's rank is its state's bucket — owed first, then unread, then read — and the sort agrees with it", () => {
+  const owed = { id: "a", read: true, needs_action: [{ gate_id: "g" }], latest_at: 1 };
+  const unread = { id: "b", read: false, needs_action: [], latest_at: 9 };
+  const read = { id: "c", read: true, needs_action: [], latest_at: 9 };
+  assert.deepEqual([rowState(owed), rowState(unread), rowState(read)], ["waiting", "unread", "read"]);
+  assert.deepEqual([rank(owed), rank(unread), rank(read)], [0, 1, 2]);
+  assert.ok(compareRows(owed, unread) < 0 && compareRows(unread, read) < 0, "the sort follows the rank before the time");
 });

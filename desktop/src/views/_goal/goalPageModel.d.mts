@@ -17,6 +17,9 @@ export interface ListeningFacts {
 
 export declare const ADOPT_SUBJECT: string;
 /** What the header names the goal by: its title over its statement, else the statement alone — never its id. */
+/** The frames the goal page reads itself again on; `guided` only when its status moves the page. */
+export declare const PAGE_FACTS: readonly string[];
+export declare function wantsReload(payload: { type?: unknown; status?: unknown } | null | undefined): boolean;
 export declare function headerWords(goal: { title?: string | null; statement?: string | null } | null | undefined): { title: string; subtitle: string | null };
 export declare function adoptGateOf(pendingGates: readonly GateEntry[] | null | undefined): GateEntry | undefined;
 export declare function runStanding(run: RunEnd | null | undefined): { finished: boolean; unfinished: boolean };

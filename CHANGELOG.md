@@ -23,6 +23,16 @@ notes (`docs/contributing/release.md`).
   mark, and opens in a terminal as the bare `muse`, resumed with `resume --last` — a plain terminal,
   like Grok Build's. A custom harness descriptor named `muse-code` is refused from now on, as every
   built-in id is.
+- A goal's own record changed — its statement, title, assignees, tags or budget, by a person's
+  edit or an agent's `revise_statement` — is a frame on the bus from now on, `goal.updated`
+  (`EnginePayload::GoalUpdated { goal }`, scoped to the goal): the goal page open on it reads it
+  again, the Goals list refreshes its card, the Pulse and the activity feed file it under the goal.
+  Before, a `bisa assign` left the open page stale until something else moved. A client that does
+  not know the topic ignores it.
+- A goal spawned by a `spawn` step names that step in its origin
+  (`GoalOrigin::Spawned { parent, step }`, `step` optional and absent for a sub-goal an agent
+  captured): a restart pairs each waiting `spawn` step with its own child rather than every child
+  with the first waiting step. The field is additive; a record without it reads as before.
 
 ### Changed
 
@@ -57,6 +67,142 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- The workflow designer and the goal's Workflow tab, at their edges: a blur-committed field —
+  a step's id, a branch name, a JSON schema — committed on its way out the body it had been
+  rendered with, so a step deleted meanwhile, or another writer's copy just taken, was written
+  over by the old body; a form's patch and a rename land on the body as it stands now, and a step
+  gone by then stays gone. Undo and redo wrote back a session or drawing read at render time,
+  which a save settling in between made stale (the designer could stay *saving* for good); both
+  move the state as it stands when the key lands. *Save changes* on the tab could be pressed twice
+  and sent twice, dropped what was drawn during the save, and offered itself over a body the node
+  had not judged; it sends once, keeps what was drawn meanwhile, and waits for the judgement. A
+  designer a goal runs kept its save timer and forgot its unsaved edit; it saves nothing while
+  frozen and still counts the edit as unsaved. The *changed elsewhere* word was said on every
+  frame that carried it; once per revision now. A drawing dropped when the goal started a run was
+  dropped without a word; the tab says so. Leaving a library designer in conflict by in-app
+  navigation lost the person's edits; they are parked for the window's life and come back as a
+  conflict to settle on the next visit. The goal page read itself again on every tick of the
+  Workflow Agent's work; only a change of the design's standing moves it now
+  (`goalPageModel.wantsReload`).
+- An ask card and a step's verbs could send twice — a second click landing before the row went
+  decided the gate again (a 409 live, a double decision after a restart); each sends once. The
+  goal card's act popover acted on the run it last showed until its new read landed; opened again
+  it reads afresh. Two quick picks in the workflow picker raced on the goal's record; one pick is
+  in flight at a time.
+- A `notify` step that read both its place and its voice from the run's inputs was judged on the
+  place alone: with a scope set, an author bound to an input naming a person or a team passed the
+  bound-input check and failed at the step. Both are judged now, each on its own.
+- A library workflow that is there and cannot be read — a file another shape of the code wrote —
+  took the whole library with it: `GET /workflows`, the Workflows screen and every picker failed on
+  the one file, where the goals list skips such a goal. The library's lists skip it now, said at
+  `error` as a goal's is, and keep the rest. The same workflow was answered as *workflow not found*
+  by every route that names one, sending a person after a typo; it is the store's own refusal by its
+  file now, as every other record's is. A goal pointed
+  at such a workflow is still a row, its strip drawn without the definition and the file said at
+  `error`; a goal's journal this node cannot read leaves the Workflow Agent's standing unknown on
+  the page and drops the durable asks the Inbox alone could rebuild, said at `error` — the live
+  gates, the page and the Inbox still answer. `bisa search` lists a goal whose current run cannot
+  be read without it (`run_unreadable: true` on the row, the reason on stderr) rather than losing
+  the whole list to one file, as the node does.
+- A listener a problem had kept from arming — a workflow saved with a flow to nowhere, an input
+  that no longer bound — went on saying *not armed* on its record after the save that mended it:
+  the registry armed it again but only a run it started or a poll that worked cleared the word, so
+  a hook listener mended by hand looked broken until its next call. The build that arms a listener
+  again now takes back the arming trouble alone; what a dispatch or a poll said still stands until
+  that works again.
+- A loop of instant steps — a `for_each` over a `notify` body, an `emit`, a `check` that could not
+  render — ran each step's settlement inside the effect before it, so the engine's stack grew with
+  the iterations: a loop of a thousand overflowed it and took the node down. A batch of effects
+  produced while one runs waits its turn on the outermost call's queue now — one loop, never a
+  stack — and every batch still runs in the order it was produced.
+- After a restart every child a goal had spawned was paired with the first `spawn` step still
+  waiting on the parent's run: two spawn steps waiting side by side on two children — a `parallel`
+  gateway's — ended with one step completed by the wrong child's outcome and the other waiting for
+  ever. A spawned child's origin names the step that spawned it now (`step`, an additive field — a
+  record from before reads with none and is paired as it always was), and the restart pairs each
+  child with its own. A crash between the run's snapshot that entered a `spawn` and the effect that
+  makes its child left the step waiting on nobody; the restart spawns the child now. And the pairing
+  is armed before the child begins, so a child that ends before its parent's step was told of it is
+  not waited for after.
+- A spawned child whose start was refused — its agent step with nowhere unambiguous to run among its
+  parent's projects — failed the step that spawned it and was left a draft nobody would run. It is
+  closed with the reason now.
+- An auto goal's proposal whose agent step had nowhere unambiguous to run — the goal has several
+  projects attached and the step names none — failed the Workflow Agent's tool call after the design
+  was pointed at and noted, with no gate and no run; a guided goal's adoption approved on such a
+  design recorded the decision, resolved the gate, then refused the start. The placement is checked
+  where the adoption's inputs are now: an auto goal opens the Adopt gate saying why, and a guided
+  approval is refused with the gate kept and nothing recorded.
+- A run that finished while a `check` was still at its command, or a `connector` step still calling
+  — an `end` on another branch, a failure that ended the run, a divert of the step — left the shell
+  command running to its timeout and let the call go out for a run that was over; only a stop took
+  them with it. A cancelled step's task and call are aborted now, and a run that ends takes the rest
+  with it.
+- An occurrence of a listening goal that arrived while a restart waited for the goal's sessions to
+  end started a run on the goal the cancel had just left idle, and the restart's own run queued
+  behind it — the contract says the restart's run starts at once. The goal's occurrences are held
+  from the cancel to the new run's start now, and go on the next tick, behind it.
+- A person's release of a waiting `spawn` let the step go but kept waiting on the child: the child's
+  end was refused on a step no longer waiting, and said in the log. The release forgets the child
+  now; and the docs say what the run has always taken — a person may release any `wait` and a
+  waiting `spawn`, not only a wait on a release.
+- The goal's snapshot was a latest-wins write with writers outside the lock the run's writers
+  take: a failed run pausing the goal's listening at the moment a person closed it could write the
+  pause over the closure and reopen the goal, two edits at once were refused as stale or lost one
+  another, and a workflow could be archived or deleted while a run of it was starting under the
+  lock, leaving a live run under an archived workflow. Every goal writer takes the one writer now
+  and the write is a compare-and-swap on the revision, the archive and the delete look for live
+  runs under the same lock, and a timer's due time is written on its step's row alone — it used to
+  rewrite every row of the run from a read of its own, and the run's next event cleared it.
+- A capture refused for a budget or a mode this node could not read, or for a document it could not
+  take, left a goal behind — the goal was written before those were read. Everything a capture
+  needs is read before its first write now; and a settings layer this node cannot open refuses the
+  capture rather than reading as *auto*, the one mode that runs unattended, or as *no ceiling*;
+  a sub-goal takes no mode from a parent nobody could read; a run the goal names that cannot be
+  read counts as a failure for the auto repair limit; and the statement of a goal whose run cannot
+  be read stays as it is.
+- A wait's event was taken out of the ticker before it was recorded: a run snapshot unreadable for
+  a moment lost the timer, or the signal heard, until a restart. The wait stays armed until its
+  event lands now.
+- A signal a stopped worker was holding was put back on the queue on every sweep for ever. One
+  claimed five times and never settled is failed now, with the count on it.
+- Stopping or restarting every run of a workflow stopped at the first run that refused, and ending
+  a run of the workspace stopped at the first goal born of it that could not be closed: every run,
+  and every child, is reached now, and the first refusal is the answer after.
+- A question taken back by a person's own act — a proposal edited on the Workflow tab, another
+  workflow chosen, the goal started by hand, a newer proposal, a step cancelled — was withdrawn in
+  memory alone, so the journal still ended in the question: the Inbox rebuilt *Adopt this
+  workflow?* for a design its person had since edited or chosen past (at once, or once the run
+  finished, or after a restart), and a decision sent to the goal with nothing live — `bisa approve`,
+  the card after a restart — adopted the stale design and started a run nobody asked for, or
+  recorded a stray decision on a step's question answered long ago and resumed the Workflow Agent.
+  Every withdrawal is a `Withdrawn` fact on the journal now, and the durable decide takes the newest
+  open question of the goal's own — an adoption, a held amendment, the designer's — refuses when
+  there is none (`bisa answer` on a done goal says *no pending gate* where it once said *answered*),
+  and tells a second decision on one decided already that it was (409).
+- A durable decision — a gate rebuilt from the journal after a restart — could be taken twice: two
+  hands reaching for one adoption together both journaled a decision and both began the goal, and
+  the second run queued behind the first. One durable decision at a time per goal or run now; the
+  other hand is told the gate was decided.
+- An answer sent with no live gate — `bisa step answer` offline, a step's verbs after a restart —
+  went straight onto the run, and *I am not sure* marked the step done with no decision journaled
+  and no re-ask. It goes through the durable mirror now: a signed decision, the clarify rounds, the
+  re-ask, and past the budget the step fails with the person's words.
+- The Inbox listed a goal's live questions *or* the ones rebuilt from the run and the journal, never
+  both: after a restart one new live gate — a re-ask, an agent's question — hid every other waiting
+  step's question on the row and on the goal page. They are merged now, one row per question.
+- The clarify budget of a human step was counted per goal: two human steps waiting side by side spent
+  each other's rounds, and the first *not sure* on the second failed it. The budget is the
+  question's own now.
+- A stop that failed half-way — its run's snapshot unreadable when the stop reached for it — left the
+  goal marked as being ended for the process's life, and every later wake of the Workflow Agent was
+  refused without a word. The mark goes with the failure now.
+- Closing a goal twice entered its sessions in the ending ledger before the second close was
+  refused, and refused it as a bad request; it is a conflict now, met before anything is entered,
+  as a stop's is.
+- A step's change could be announced twice on the bus: the run-event funnel read the run before the
+  store's lock and diffed against that read, so a change another writer landed between was in both
+  diffs. The writer hands back the steps the event was applied to now.
 - A `HEAD` git could not read — a ref file holding garbage, a lock another process held, a child
   past its budget — was taken for a repository with no commits yet, so every diff built on it read
   as *everything added*, and an unstage, which restores the index from `HEAD`, restored it from the

@@ -11,8 +11,8 @@ use crate::common;
 use bisa_core::event::{JournalPayload, RunFact, StepFact};
 use bisa_core::{
     Answer, AskOption, Branch, CancelCause, CheckKind, ClosureReason, Condition, Flow, Gate,
-    GoalOrigin, GoalStatus, OnFail, Rule, RunOutcome, RunStatus, SignalFilter, SignalScope,
-    StepKind, StepState, ValueRef, WaitFor, WorkItemState,
+    GoalStatus, OnFail, Rule, RunOutcome, RunStatus, SignalFilter, SignalScope, StepKind,
+    StepState, ValueRef, WaitFor, WorkItemState,
 };
 use bisa_engine::{Engine, EnginePayload, SubmitRequest};
 use bisa_harness::mock::MockAdapter;
@@ -1086,7 +1086,7 @@ async fn a_spawn_step_creates_a_refines_child_and_waits_for_its_run() {
     let child: bisa_core::GoalId = output["child"].as_str().unwrap().parse().unwrap();
     assert_eq!(output["outcome"], json!("done"));
     let child_goal = engine.workspace().get_goal(child).unwrap();
-    assert_eq!(child_goal.origin, GoalOrigin::Spawned { parent: goal.id });
+    assert_eq!(child_goal.origin.parent(), Some(goal.id));
     assert_eq!(child_goal.statement, "handle the big one in detail");
     assert_eq!(
         engine.workspace().edges_from(child).unwrap(),
@@ -2217,5 +2217,63 @@ async fn a_one_join_fails_on_two_arrivals() {
     assert_eq!(failed.steps[&sid("one")].state, StepState::Failed);
     let why = failed.steps[&sid("one")].error.clone().unwrap_or_default();
     assert!(why.contains("exactly one flow may arrive; 2 did"), "{why}");
+    engine.shutdown().await;
+}
+
+/// A loop of a thousand instant steps — a `for_each` over a `notify` body
+/// — runs inside one event, and finishes: the engine's stack does not grow
+/// with the iterations.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_for_each_of_a_thousand_items_over_a_notify_body_finishes() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![yielding("mock", json!({"ok": true}))]);
+    let mut each = step(
+        "each",
+        StepKind::ForEach {
+            items: "{inputs.items}".into(),
+            max_iterations: 1000,
+        },
+    );
+    labelled(&mut each, &[("say", "each"), ("after", "done")]);
+    let mut say = step(
+        "say",
+        StepKind::Notify {
+            scope: None,
+            template: "item {steps.each.output.item}".into(),
+            mentions: vec![],
+            author: None,
+        },
+    );
+    say.then = vec![Flow::to(sid("each"))];
+    let after = step(
+        "after",
+        StepKind::Notify {
+            scope: None,
+            template: "all said".into(),
+            mentions: vec![],
+            author: None,
+        },
+    );
+    let mut draft = new_workflow("say a thousand", vec![each, say, after]);
+    draft.inputs = vec![text_input_def("items")];
+    let (goal, _) = goal_on(&engine, "say them all", draft);
+    let items = serde_json::to_string(&(0..1000).collect::<Vec<u32>>()).unwrap();
+    engine
+        .start_run(
+            goal.id,
+            BTreeMap::from([("items".to_string(), json!(items))]),
+        )
+        .unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(
+        done.outcome,
+        Some(RunOutcome::Done),
+        "{:?}",
+        done.steps[&sid("each")]
+    );
+    assert_eq!(
+        done.steps[&sid("each")].output,
+        Some(json!({"index": 1000, "count": 1000}))
+    );
     engine.shutdown().await;
 }

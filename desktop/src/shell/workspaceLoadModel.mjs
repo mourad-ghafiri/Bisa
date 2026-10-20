@@ -236,6 +236,9 @@ export const RELOADS_WORKSPACE = Object.freeze([
   "goal_created",
   "goal_archived",
   "goal_deleted",
+  // A goal's own record edited anywhere — its title, its assignees — moves
+  // its card.
+  "goal_updated",
   "project_archived",
   "project_deleted",
   "run_started",

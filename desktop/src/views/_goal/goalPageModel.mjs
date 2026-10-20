@@ -24,6 +24,52 @@ export { ADOPT_SUBJECT };
  * @param {{title?: string | null, statement?: string | null} | null | undefined} goal
  * @returns {{title: string, subtitle: string | null}}
  */
+/**
+ * The frames that change what the goal page shows — its run, its design, its
+ * listening, its gates, its attachments, its own record — and are read
+ * again when they arrive. `guided` is among them only when its status
+ * moves the page: a proposal, a failure, a stall, the agent off. A tick of
+ * the design in progress (`scheduled`, `working`, `asking`) is the
+ * Designing card's own, applied to its state; reading the whole goal on
+ * every one was what kept the Workflow tab re-rendering.
+ */
+export const PAGE_FACTS = Object.freeze([
+  "run_started",
+  "run_queued",
+  "run_finished",
+  "run_cancelled",
+  "step_changed",
+  "goal_closed",
+  "workflow_proposed",
+  "workflow_changed",
+  "workflow_archived",
+  "goal_archived",
+  "goal_updated",
+  "gate_opened",
+  "gate_decided",
+  "question_asked",
+  "result_accepted",
+  "execution_ended",
+  "listening_changed",
+  "listener_failed",
+  "attachment_changed",
+  "document_added",
+  "project_created",
+]);
+
+/** The design statuses that are a tick of work in progress, not a move of the page. */
+const GUIDED_TICKS = new Set(["scheduled", "working", "asking"]);
+
+/**
+ * Whether the page reads the goal again on this frame (`PAGE_FACTS`).
+ * @param {{type?: unknown, status?: unknown} | null | undefined} payload
+ */
+export function wantsReload(payload) {
+  if (!payload || typeof payload.type !== "string") return false;
+  if (payload.type === "guided") return !GUIDED_TICKS.has(payload.status);
+  return PAGE_FACTS.includes(payload.type);
+}
+
 export function headerWords(goal) {
   const title = String(goal?.title ?? "").trim();
   const statement = String(goal?.statement ?? "").trim();

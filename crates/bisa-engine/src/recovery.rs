@@ -25,12 +25,14 @@
 //! end_stale`]'s, which runs before this walk so no child a crash left is
 //! writing into a checkout the walk is about to resume.
 
-use crate::{executor, ops, waits, Inner};
+use crate::{effects, executor, ops, waits, Inner};
 use bisa_core::event::JournalPayload;
 use bisa_core::run::{dies_with_the_process, AMBIGUOUS_WRITE, INTERRUPTED};
 use bisa_core::{
-    Home, RunEffect, RunEvent, StepId, StepState, WorkItemId, WorkItemState, WorkflowRun,
+    GoalOrigin, Home, RunEffect, RunEvent, StepId, StepKind, StepState, WorkItemId, WorkItemState,
+    WorkflowRun,
 };
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// The reason an item created a moment before the crash, that no step names, is cancelled with.
@@ -191,6 +193,18 @@ fn recover_run(inner: &Arc<Inner>, run: &WorkflowRun, recovered: &mut Recovered)
             } // LCOV_EXCL_STOP
         }
     }
+    // A `spawn` left waiting with no child of its own — the crash fell between
+    // the snapshot that entered it and the effect that makes the child —
+    // spawns it now: the effect runs again, as a check's would.
+    for step in unmade_spawns(inner, run) {
+        effects::run_effects(
+            inner,
+            run,
+            vec![RunEffect::SpawnGoal { step: step.clone() }],
+        );
+        recovered.steps += 1;
+        fates.push(format!("`{step}` spawned its child anew"));
+    }
     if fates.is_empty() && orphans.is_empty() {
         return;
     }
@@ -227,6 +241,61 @@ fn record_interrupted(
     step: &StepId,
 ) -> Result<(WorkflowRun, Vec<RunEffect>), crate::EngineError> {
     ops::record_run_event_with_effects(inner, run, RunEvent::StepInterrupted { step: step.clone() })
+}
+
+/// The run's `spawn` steps waiting on a child that was never made: no goal
+/// names the step in its origin, and — for a child from before the step was
+/// named — none names the run's goal without a step either, each such child
+/// standing for the first waiting spawn it could be.
+fn unmade_spawns(inner: &Arc<Inner>, run: &WorkflowRun) -> Vec<StepId> {
+    let waiting: Vec<StepId> = run
+        .workflow
+        .steps
+        .iter()
+        .filter(|def| matches!(def.kind, StepKind::Spawn { wait: true, .. }))
+        .filter(|def| {
+            run.steps
+                .get(&def.id)
+                .is_some_and(|record| record.state == StepState::Waiting)
+        })
+        .map(|def| def.id.clone())
+        .collect();
+    if waiting.is_empty() {
+        return Vec::new();
+    }
+    let Ok(goals) = inner.ws.list_goals(None) else {
+        return Vec::new(); // LCOV_EXCL_LINE the goals list is read from the index, which fails only unreadable (disk-only)
+    };
+    let mut named: HashSet<StepId> = HashSet::new();
+    let mut unnamed = 0usize;
+    for goal in goals {
+        match &goal.origin {
+            GoalOrigin::Spawned { parent, step } if Some(*parent) == run.scope.goal() => match step
+            {
+                Some(step) => {
+                    named.insert(step.clone());
+                }
+                None => unnamed += 1,
+            },
+            GoalOrigin::Run { run: of, step } if *of == run.id => {
+                named.insert(step.clone());
+            }
+            _ => {}
+        }
+    }
+    waiting
+        .into_iter()
+        .filter(|step| {
+            if named.contains(step) {
+                return false;
+            }
+            if unnamed > 0 {
+                unnamed -= 1;
+                return false;
+            }
+            true
+        })
+        .collect()
 }
 
 /// The steps a restart interrupted, in definition order. Pure.
@@ -307,7 +376,7 @@ pub fn withdraw_dead_questions(inner: &Arc<Inner>) -> usize {
                 "a decision you were asked for was interrupted by a restart — \"{}\" — ask again from where it came",
                 first_line(&text)
             );
-            if withdraw_question(inner, home, &subject, INTERRUPTED, note) {
+            if withdraw_question(inner, home, &subject, INTERRUPTED, Some(note)) {
                 withdrawn += 1;
             }
         }
@@ -329,16 +398,19 @@ pub(crate) fn first_line(text: &str) -> String {
 }
 
 /// Withdraw one journaled question on `home` without deciding it: a
-/// `Withdrawn` fact under its subject with `reason`, and `note` on the home
-/// saying so — the Inbox reads the withdrawal as a decision would be, and a
-/// later boot does not withdraw it again. Answers whether the fact was
-/// written; a journal that cannot be written is logged, never a panic.
+/// `Withdrawn` fact under its subject with `reason`, and — when one is given
+/// — `note` on the home saying so. The one way a question that was journaled
+/// is taken back: the Inbox reads the withdrawal as a decision would be, the
+/// durable decide finds nothing to decide, and a later boot does not withdraw
+/// it again. The live gate, when one stands, is the caller's to withdraw.
+/// Answers whether the fact was written; a journal that cannot be written is
+/// logged, never a panic.
 pub(crate) fn withdraw_question(
     inner: &Arc<Inner>,
     home: Home,
     subject: &str,
     reason: &str,
-    note: String,
+    note: Option<String>,
 ) -> bool {
     let (signer, attestation) = ops::signer_for(&inner.ws, None);
     if let Err(e) = inner.ws.append_journal(
@@ -353,10 +425,12 @@ pub(crate) fn withdraw_question(
         tracing::warn!(target: "bisa_engine", %home, "could not withdraw a question: {e}");
         return false;
     }
-    if let Err(e) = ops::add_note(inner, home, note, None) {
-        // LCOV_EXCL_START: the journal that just took the withdrawal refuses a note only on a disk that fails between the two
-        tracing::warn!(target: "bisa_engine", %home, "could not note a withdrawn question: {e}");
-        // LCOV_EXCL_STOP
+    if let Some(note) = note {
+        if let Err(e) = ops::add_note(inner, home, note, None) {
+            // LCOV_EXCL_START: the journal that just took the withdrawal refuses a note only on a disk that fails between the two
+            tracing::warn!(target: "bisa_engine", %home, "could not note a withdrawn question: {e}");
+            // LCOV_EXCL_STOP
+        }
     }
     true
 }
@@ -367,29 +441,31 @@ fn open_dead_questions(inner: &Arc<Inner>, home: &Home) -> Vec<(String, String)>
     let Ok(journal) = inner.ws.journal(home) else {
         return Vec::new();
     };
-    still_open(journal.iter().map(|e| &e.payload))
+    still_open(journal.iter().map(|e| &e.payload), dies_with_its_asker)
 }
 
 /// The questions of a journal, oldest fact first, that nothing settled,
-/// newest first. The **newest fact on a subject** says where it stands: a
-/// question is open, a decision or a withdrawal is not — so a subject asked
-/// about again after it was answered is open again, and one asked about
-/// twice with no answer between is one question. Pure.
-fn still_open<'a>(
+/// newest first — among the subjects `applies` picks out. The **newest fact
+/// on a subject** says where it stands: a question is open, a decision or a
+/// withdrawal is not — so a subject asked about again after it was answered
+/// is open again, and one asked about twice with no answer between is one
+/// question. Pure.
+pub(crate) fn still_open<'a>(
     facts: impl DoubleEndedIterator<Item = &'a JournalPayload>,
+    applies: impl Fn(&str) -> bool,
 ) -> Vec<(String, String)> {
     let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     let mut open: Vec<(String, String)> = Vec::new();
     for payload in facts.rev() {
         match payload {
-            JournalPayload::Question { gate, text, .. } if dies_with_its_asker(gate) => {
+            JournalPayload::Question { gate, text, .. } if applies(gate) => {
                 if seen.insert(gate) {
                     open.push((gate.clone(), text.clone()));
                 }
             }
             JournalPayload::Decision { subject, .. }
             | JournalPayload::Withdrawn { subject, .. }
-                if dies_with_its_asker(subject) =>
+                if applies(subject) =>
             {
                 seen.insert(subject);
             }
@@ -440,7 +516,7 @@ mod tests {
     }
 
     fn open_in(journal: &[JournalPayload]) -> Vec<(String, String)> {
-        still_open(journal.iter())
+        still_open(journal.iter(), dies_with_its_asker)
     }
 
     #[test]

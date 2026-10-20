@@ -46,10 +46,9 @@ import { HANDLE, NODE_TYPES, type StepNodeData } from "./StepNode";
 import {
   addStep,
   connect,
-  duplicateStep,
+  duplicateFrom,
   mayEdit,
-  removeFlow,
-  removeStep,
+  removeMany,
   setPositions,
   toGraph,
   uniqueId,
@@ -271,27 +270,12 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
           else onRefuse?.(r.reason);
         }}
         onDelete={(nodeIds, edgeIds) => {
-          let next = value;
-          let refused = 0;
-          const gone = { nodes: [] as string[], edges: [] as string[] };
-          for (const id of nodeIds) {
-            if (mayEdit(gate, id)) {
-              next = removeStep(next, id);
-              gone.nodes.push(id);
-            } else refused += 1;
-          }
-          for (const eid of edgeIds) {
+          // The gesture's steps and flows go through the graph's one door (`removeMany`), each past the gate.
+          const edges = edgeIds.flatMap((eid) => {
             const e = graph.edges.find((x) => x.id === eid);
-            if (!e) continue;
-            if (!mayEdit(gate, e.from)) {
-              refused += 1;
-              continue;
-            }
-            // One door for every flow removed (`removeFlow`): a flow is cut,
-            // a failure route put back to `fail`.
-            next = removeFlow(next, flowRefOf(e));
-            gone.edges.push(eid);
-          }
+            return e ? [{ id: eid, from: e.from, ref: flowRefOf(e) }] : [];
+          });
+          const { wf: next, gone, refused } = removeMany(value, { nodes: nodeIds, edges }, (id) => mayEdit(gate, id));
           if (refused > 0) onRefuse?.(t("workflow-designer-step-has-already-run-stays-ran"));
           if (next !== value) {
             commit(next);
@@ -301,11 +285,7 @@ export function Designer<D extends NewWorkflowBody | Workflow>({
         }}
         onDuplicate={(id) => {
           if (!mayEdit(gate, null)) return;
-          // The copy of a placeless card takes the place the picture draws
-          // its source at, then the duplicate's offset from it.
-          const source = value.steps.find((s) => s.id === id);
-          const base = source && !source.position ? setPositions(value, new Map([[id, positions.get(id) ?? { x: 0, y: 0 }]])) : value;
-          const { wf: next, id: copy } = duplicateStep(base, id);
+          const { wf: next, id: copy } = duplicateFrom(value, id, positions);
           if (copy) {
             commit(next);
             onSelect(stepSelection(copy));

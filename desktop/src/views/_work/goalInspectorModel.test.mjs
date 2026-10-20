@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { PANELS, PANEL_FOLD, PANEL_ICON, PROJECTS_NAMED, PROPERTIES, designLine, originChips, panelOf, panelTabs, panelsFor, projectsWords, propertiesReveal, propertiesScrollName, runCardWords, spendWords, workstreamWord } from "./goalInspectorModel.mjs";
+import { isRunning, projectsFirst, PANELS, PANEL_FOLD, PANEL_ICON, PROJECTS_NAMED, PROPERTIES, designLine, originChips, panelOf, panelTabs, panelsFor, projectsWords, propertiesReveal, propertiesScrollName, runCardWords, spendWords, workstreamWord } from "./goalInspectorModel.mjs";
 import { foldGroups } from "../../ui/tabsFitModel.mjs";
 
 const run = (over = {}) => ({ id: "01J0000000000000000000RUN2", workflow: { name: "Bug fix", revision: 4 }, outcome: null, cancelled: null, ...over });
@@ -137,4 +137,18 @@ test("the pane draws what the model says and spells no sentence of its own", () 
   for (const spelt of ["None yet", "} tokens", "workstreams\n", "The Workflow Agent names", "run {", "copy ·", '"1 project"']) assert.ok(!pane.includes(spelt), `the pane spells ${JSON.stringify(spelt)}`);
   assert.ok(!pane.includes("work-goal-inspector-add-folder-work"), "nothing is created or attached here: no door says otherwise");
   assert.ok(/log\.warn\("goal", "a project's workstreams could not be read/.test(pane), "a read that failed is said in the log, never swallowed");
+});
+
+test("a work item is at work while claimed, in progress or in review — never when open, accepted, cancelled or gone", () => {
+  for (const s of ["claimed", "in_progress", "review"]) assert.equal(isRunning({ state: { state: s } }), true, s);
+  for (const s of ["open", "accepted", "cancelled", "blocked", "done", ""]) assert.equal(isRunning({ state: { state: s } }), false, s);
+  for (const none of [null, undefined, {}, { state: null }]) assert.equal(isRunning(none), false);
+});
+
+test("the projects the goal made come first, the rest keep their order, and the list itself is never sorted in place", () => {
+  const rows = [{ id: "x" }, { id: "mine" }, { id: "y" }, { id: "mine-2" }];
+  const sorted = projectsFirst(rows, (r) => r.id.startsWith("mine"));
+  assert.deepEqual(sorted.map((r) => r.id), ["mine", "mine-2", "x", "y"]);
+  assert.deepEqual(rows.map((r) => r.id), ["x", "mine", "y", "mine-2"], "the given list stands");
+  assert.deepEqual(projectsFirst(null, () => true), []);
 });

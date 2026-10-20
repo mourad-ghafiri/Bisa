@@ -7,7 +7,7 @@
  * and listens to the bus so the card moves without a refetch.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { useEngineEvents } from "../../bus";
 import type { ModelLine } from "../../activityModel.mjs";
@@ -22,6 +22,7 @@ import { t as tr } from "../../i18n/l10n.mjs";
 
 export function DesigningCard({ view, onChanged }: { view: GoalView; onChanged: () => void }) {
   const toast = useToast();
+  const picking = useRef(false);
   const { goal, guidance } = view;
   const [design, setDesign] = useState<DesignStatus | null>(guidance.design ?? null);
   const [activity, setActivity] = useState<ModelLine | null>(null);
@@ -113,7 +114,14 @@ export function DesigningCard({ view, onChanged }: { view: GoalView; onChanged: 
               <WorkflowPicker
                 goal={goal.id}
                 value={null}
-                onChange={(id) => id && void attempt(() => api.setGoalWorkflow(goal.id, { workflow: id }), toast.error, onChanged)}
+                onChange={(id) => {
+                  // One pick in flight at a time: two quick picks never race on the goal's record.
+                  if (!id || picking.current) return;
+                  picking.current = true;
+                  void attempt(() => api.setGoalWorkflow(goal.id, { workflow: id }), toast.error, onChanged).finally(() => {
+                    picking.current = false;
+                  });
+                }}
               />
             </div>
           </div>

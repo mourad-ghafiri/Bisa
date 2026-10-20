@@ -555,6 +555,7 @@ const ENGINE = {
   },
   goal_archived: { type: "goal_archived", goal: "01J0GOALCREATED", archived: true },
   goal_deleted: { type: "goal_deleted", goal: "01J0GOALCREATED" },
+  goal_updated: { type: "goal_updated", goal: "01J0GOALCREATED" },
   project_archived: { type: "project_archived", project: "01J0PROJECT000000000000000", archived: false },
   project_deleted: { type: "project_deleted", project: "01J0PROJECT000000000000000" },
   document_added: {

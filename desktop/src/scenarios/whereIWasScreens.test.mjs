@@ -164,7 +164,7 @@ test("a drawing in progress outlives the window as it stands, and is forgotten w
   assert.ok(!draft.includes(".past") && !draft.includes(".future"), "never its undo history");
   for (const door of ["export function draftOf(goal: string): Draft", "export function setDraft(goal: string, next: Draft): void", "export function useDesignDraft(goal: string)"]) assert.ok(draft.includes(door), door);
   const tab = read("views/_workflow/GoalWorkflowTab.tsx");
-  assert.ok((tab.match(/setDraft\(null\)/g) ?? []).length >= 3, "saved, cancelled, and dropped when the goal starts a run");
+  assert.ok((tab.match(/setDraft\(null\)/g) ?? []).length >= 2 && tab.includes("setDraft((h) => afterSaved(h, sent));"), "cancelled and dropped when the goal starts a run; saved through the model, which keeps what was drawn during the save");
 });
 
 test("the goal page opens its Details pane only for a goal never been on, and leaves a goal that is gone", () => {
@@ -199,7 +199,7 @@ test("a designer drawn from what the window kept stands on the node's own answer
   assert.deepEqual([caught.base.revision, present(caught).name, dirty(caught)], [5, "As the agent left it", false]);
   const screen = read("views/WorkflowDesigner.tsx");
   assert.ok(screen.includes('useAsync((s) => api.workflow(id, s), [id], { keep: workflowRead })') && screen.includes('const workflowRead = readKey("workflow", id);'), "the last answer is drawn at once");
-  inOrder(between(screen, 'const openedOn = useRef<"kept" | "read" | null>(null);', "}, [data, id, at]);"), ['openedOn.current = at === null ? "kept" : "read";', "open(data.workflow, data.problems)", "caughtUp(s, data.workflow, data.problems)"], "opened once, and caught up once when it was opened on a kept answer");
+  inOrder(between(screen, 'const openedOn = useRef<"kept" | "read" | null>(null);', "}, [data, id, at]);"), ['openedOn.current = at === null ? "kept" : "read";', "openWithMine(data.workflow, data.problems, takeParkedDesign(id))", "caughtUp(s, data.workflow, data.problems)"], "opened once, and caught up once when it was opened on a kept answer");
   inOrder(screen, ["if (missing) forgetRead(workflowRead);", 'useGonePlace(missing, { name: "workflow", id });'], "a workflow that is gone is left for the library");
   assert.ok(screen.includes("if (!session || !body || missing) {"), "and never drawn from what was kept of it");
   assert.ok(screen.includes('data-scroll-keep="palette"') && screen.includes("data-scroll-keep={propertiesScrollName(selected)}"), "the palette and each step's properties keep their scroll");

@@ -81,7 +81,8 @@ import { movesRunCount } from "./_workflow/workflowRunsModel.mjs";
 import { Designer } from "./_workflow/Designer";
 import { Inspector } from "./_workflow/Inspector";
 import { Palette } from "./_workflow/Palette";
-import { canRedoEdit, canUndoEdit, caughtUp, definitionBody, dirty, edit, keepMine, landedSelection, open, present, putBody, redoEdit, remoteLoaded, rowBehind, statusLine, takeTheirs, undoEdit, type Session, remoteAction } from "./_workflow/designerSession.mjs";
+import { canRedoEdit, canUndoEdit, caughtUp, definitionBody, dirty, edit, keepMine, landedSelection, openWithMine, parked, present, putBody, redoEdit, remoteLoaded, rowBehind, statusLine, takeTheirs, undoEdit, type Session, remoteAction } from "./_workflow/designerSession.mjs";
+import { parkDesign, takeParkedDesign } from "./_workflow/parkedDesignsStore";
 import { addStep } from "./_workflow/workflowGraph.mjs";
 import { fitColumns } from "./_workbench/ideColumnsModel.mjs";
 import { useAutosave } from "./_workflow/useAutosave";
@@ -188,7 +189,8 @@ export default function WorkflowDesigner({ id }: { id: string }) {
     const was = openedOn.current;
     if (was === "read" || (was === "kept" && at === null)) return;
     openedOn.current = at === null ? "kept" : "read";
-    if (was === null) setSession((s) => (s && s.base.id === id ? s : open(data.workflow, data.problems)));
+    // A head parked by the last visit that left in conflict is taken back, once: a conflict to settle on the stored copy.
+    if (was === null) setSession((s) => (s && s.base.id === id ? s : openWithMine(data.workflow, data.problems, takeParkedDesign(id))));
     else setSession((s) => (s ? caughtUp(s, data.workflow, data.problems) : s));
   }, [data, id, at]);
   // The window keeps the workflow as the session last confirmed it, so the
@@ -288,37 +290,57 @@ export default function WorkflowDesigner({ id }: { id: string }) {
   // validator has not judged this body either.
   const unreadable = live.error ?? (session?.status === "rejected" ? session.failure : null);
 
+  // A goal running this workflow right now freezes it: no edit lands, and
+  // none is saved — not the one made before the freeze either, which stays
+  // unsaved and counted as such until the run is over.
+  const liveOn = liveGoals(data?.used_by);
+  const running = liveOn.length;
   const auto = useAutosave(session, setSession, {
     update: (wfid, b, revision, o) => api.putWorkflow(wfid, putBody(b, revision), undefined, o),
     fetchStored: async (wfid) => (await api.workflow(wfid)).workflow,
     delay: settings.autosaveDelayMs,
+    frozen: running > 0,
   });
-
-  // A goal running this workflow right now freezes it: no edit lands, and
-  // nothing is registered as unsaved.
-  const liveOn = liveGoals(data?.used_by);
-  const running = liveOn.length;
   const frozen = running > 0;
   // The run verbs — *Run…*, *Stop every run*, *Restart every run* — the
   // same items and dialogs the library card carries.
   const runVerbs = useWorkflowVerbs(data ?? null, reload);
-  const change = (next: NewWorkflowBody, token: string | null = null) => {
+  // A new body, or a function of the body as it stands when the edit lands — what a field's commit on its way out needs.
+  const change = (next: NewWorkflowBody | ((body: NewWorkflowBody) => NewWorkflowBody), token: string | null = null) => {
     // A frozen designer says why, every time, rather than dropping the edit without a word.
     if (frozen) {
       toast.error(readOnlyReason(true, { runningIn: running })?.reason ?? "");
       return;
     }
     // Stamped with the selection, so an undo lands where the person was; a typed burst is one entry.
-    setSession((s) => (s ? edit(s, next, Date.now(), { selection: selected, token }) : s));
+    setSession((s) => (s ? edit(s, typeof next === "function" ? next(present(s)) : next, Date.now(), { selection: selected, token }) : s));
   };
-  // Undo and redo land the selection where the entry was left (`landedSelection`).
+  // Undo and redo move the session as it stands when the key lands — never
+  // a copy from the render the key was seen in, which a save settling in
+  // between would make stale — and the selection follows where it landed.
   const step = (dir: "undo" | "redo") => {
-    if (!session) return;
-    const next = dir === "undo" ? undoEdit(session, Date.now(), selected) : redoEdit(session, Date.now(), selected);
-    if (next.history === session.history) return;
-    setSession(next);
-    setSelected(landedSelection(next) as Selection);
+    setSession((s) => {
+      if (!s) return s;
+      const next = dir === "undo" ? undoEdit(s, Date.now(), selected) : redoEdit(s, Date.now(), selected);
+      return next.history === s.history ? s : next;
+    });
   };
+  // Where the last undo or redo landed (`landedSelection`), read from the session it left.
+  const landed = session ? landedSelection(session) : null;
+  useEffect(() => {
+    if (landed != null) setSelected(landed as Selection);
+  }, [landed]);
+  // Left in conflict or rejected, the person's own head is parked for the
+  // next visit: no save on the way out would carry it.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  useEffect(
+    () => () => {
+      const body = parked(sessionRef.current);
+      if (body) parkDesign(id, body);
+    },
+    [id],
+  );
   const isDirty = session ? dirty(session) : false;
   const saving = session?.status === "saving";
 
@@ -328,11 +350,11 @@ export default function WorkflowDesigner({ id }: { id: string }) {
   dirtyRef.current = isDirty;
   useEffect(
     () =>
-      frozen ? undefined : registerDirtySource(`workflow:${id}`, {
+      registerDirtySource(`workflow:${id}`, {
         dirty: () => dirtyRef.current,
         save: () => auto.flush(),
       }),
-    [id, auto, frozen],
+    [id, auto],
   );
 
   const menu: MenuItem[] = useMemo(

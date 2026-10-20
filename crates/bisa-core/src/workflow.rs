@@ -5473,35 +5473,34 @@ impl Workflow {
                         push(p.kind, p.text);
                     }
                 }
-                StepKind::Notify {
-                    scope: Some(scope), ..
-                } => {
-                    if let Some(rendered) = from_inputs(scope, Grammar::Run) {
+                // A notify's place and its voice are judged each on its own:
+                // a scope read from the inputs never hides the author's check.
+                StepKind::Notify { scope, author, .. } => {
+                    if let Some(rendered) =
+                        scope.as_deref().and_then(|s| from_inputs(s, Grammar::Run))
+                    {
                         if !is_conversation_id(&rendered) {
                             push(ProblemKind::NotifyScopeUnknown, crate::text!("problem-notify-scope-unknown-step-posts-into-which-not-channel-2", a0 = (step.id).to_string(), rendered = rendered.to_string()));
                         }
                     }
-                }
-                StepKind::Notify {
-                    author: Some(ValueRef::Input { input }),
-                    ..
-                } => {
-                    // A missing or mistyped value is `InputKindMismatch`'s;
-                    // here the value is an assignee, and it must be an agent.
-                    let named = inputs
-                        .get(input.as_str())
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.parse::<Assignee>().ok());
-                    if let Some(who) = named.filter(|a| a.as_agent().is_none()) {
-                        push(
-                            ProblemKind::NotifyAuthorNotAnAgent,
-                            crate::text!(
-                                "problem-notify-author-not-an-agent-step-input-names-who-not-agent",
-                                a0 = (step.id).to_string(),
-                                input = input.to_string(),
-                                who = who.to_string()
-                            ),
-                        );
+                    if let Some(ValueRef::Input { input }) = author {
+                        // A missing or mistyped value is `InputKindMismatch`'s;
+                        // here the value is an assignee, and it must be an agent.
+                        let named = inputs
+                            .get(input.as_str())
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| s.parse::<Assignee>().ok());
+                        if let Some(who) = named.filter(|a| a.as_agent().is_none()) {
+                            push(
+                                ProblemKind::NotifyAuthorNotAnAgent,
+                                crate::text!(
+                                    "problem-notify-author-not-an-agent-step-input-names-who-not-agent",
+                                    a0 = (step.id).to_string(),
+                                    input = input.to_string(),
+                                    who = who.to_string()
+                                ),
+                            );
+                        }
                     }
                 }
                 StepKind::Connector {
@@ -9448,6 +9447,65 @@ pub(crate) mod tests {
                 .to_string()
                 .contains("step `n`: input `voice`"),
             "{problems:?}"
+        );
+    }
+
+    /// A notify that reads both its place and its voice from the inputs is
+    /// judged on both: a scope that binds never hides an author who is no
+    /// agent, and when neither fits, both are said.
+    #[test]
+    fn a_notify_with_a_bound_scope_still_has_its_author_checked() {
+        let mut wf = workflow(vec![step(
+            "n",
+            StepKind::Notify {
+                scope: Some("{inputs.channel}".into()),
+                template: "t".into(),
+                mentions: vec![],
+                author: Some(ValueRef::Input {
+                    input: InputName::new("voice").unwrap(),
+                }),
+            },
+            vec![],
+        )]);
+        wf.inputs = vec![
+            input("channel", InputKind::Text),
+            input("voice", InputKind::Assignee),
+        ];
+        assert_eq!(wf.validate(&ctx()), vec![]);
+        let bound = |channel: &str, voice: &str| {
+            BTreeMap::from([
+                ("channel".to_string(), json!(channel)),
+                ("voice".to_string(), json!(voice)),
+            ])
+        };
+        assert_eq!(
+            wf.validate_bound(
+                &goal_scope(),
+                &bound("general", "agent:developer"),
+                &[],
+                &Picky
+            ),
+            vec![]
+        );
+        let voice = wf.validate_bound(
+            &goal_scope(),
+            &bound("general", "team:engineering"),
+            &[],
+            &Picky,
+        );
+        assert_eq!(kinds(&voice), vec![ProblemKind::NotifyAuthorNotAnAgent]);
+        let both = wf.validate_bound(
+            &goal_scope(),
+            &bound("no such channel!", "team:engineering"),
+            &[],
+            &Picky,
+        );
+        assert_eq!(
+            kinds(&both),
+            vec![
+                ProblemKind::NotifyScopeUnknown,
+                ProblemKind::NotifyAuthorNotAnAgent
+            ]
         );
     }
 

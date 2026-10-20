@@ -485,6 +485,8 @@ export type EnginePayload =
   /** A goal put away or taken back out — a mark, never a status. */
   | { type: "goal_archived"; goal: string; archived: boolean }
   | { type: "goal_deleted"; goal: string }
+  /** A goal's own record changed — statement, title, assignees, tags or budget — by a person's edit or an agent's revision; the page open on it reads it again. */
+  | { type: "goal_updated"; goal: string }
   /** A project put away or taken back out; every session in it was stopped. */
   | { type: "project_archived"; project: string; archived: boolean }
   | { type: "project_deleted"; project: string }

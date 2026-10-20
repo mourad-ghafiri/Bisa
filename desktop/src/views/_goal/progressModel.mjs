@@ -95,6 +95,11 @@ export function progressRows(run, strip, now = Math.floor(Date.now() / 1000)) {
  * order: the ones a person may act on without opening the goal.
  * @param {{workflow?: {steps?: {id: string}[]}, steps?: Record<string, {state?: {state: string}}>} | null | undefined} run
  */
+/** A duration after the time it started, as one more part of the line; nothing when there is none. */
+export function durationSuffix(duration) {
+  return duration === null || duration === undefined || duration === "" ? "" : ` · ${duration}`;
+}
+
 export function liveSteps(run) {
   return (run?.workflow?.steps ?? []).filter((s) => {
     const state = run.steps?.[s.id]?.state?.state;

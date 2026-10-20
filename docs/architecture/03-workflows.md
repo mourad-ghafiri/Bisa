@@ -114,7 +114,7 @@ Four families (`StepKind::family`), which are the designer's palette groups: **e
 | `wait` | until a catch event happens (`WaitFor`): a `delay` of `secs`, a moment (`time`), a `schedule`'s `cron`, a named `signal`, a `message`, a `project`'s change, a `run`'s end, a `platform` topic, or a person's — or a call's — `release`; the filters are the start events' own, their templates rendered when the step is entered; `secs` and `cron` are value references ([Catch events](#catch-events)) | the world, the clock, or a person | `Arm` |
 | `emit` | a named `signal` is raised with `payload`, each value a template over the run; the output is `{ signal, id }` | the engine — done once raised | `Emit` |
 | `notify` | a rendered message is posted to a scope (the goal's thread by default; `general` in a workspace run) as `author` — an agent, the Workflow Agent when none is named — with `mentions` | nobody — done at once | `Post` |
-| `spawn` | a child goal is captured from `statement_template`, `refines`-linked — in a workspace run a goal of its own, refining nothing (`GoalOrigin::Run`) — optionally on a `workflow`, whose run is given what the step's `inputs` say: an input of the child to a template of this run, each word read by the kind the child's input declares (`InputKind::read`). A spawn is a start by hand made by a step, so it is held to what the child asks (`SpawnInput`). The child works where its parent does: a goal's child has its parent's projects, a goal born of a run of the workspace the ones its step gives it; `wait` holds the step until the child finishes | the child's run | `SpawnGoal` |
+| `spawn` | a child goal is captured from `statement_template`, `refines`-linked — in a workspace run a goal of its own, refining nothing (`GoalOrigin::Run`) — optionally on a `workflow`, whose run is given what the step's `inputs` say: an input of the child to a template of this run, each word read by the kind the child's input declares (`InputKind::read`). A spawn is a start by hand made by a step, so it is held to what the child asks (`SpawnInput`). The child works where its parent does: a goal's child has its parent's projects, a goal born of a run of the workspace the ones its step gives it; `wait` holds the step until the child finishes — paired by the step named in the child's origin (`GoalOrigin::Spawned { parent, step }`), armed before the child begins, spawned again at boot when a crash left the step waiting on no child, and let go of by a person's release; a child whose start refuses is closed with the reason and the step fails | the child's run | `SpawnGoal` |
 | `end` | an end event: `finish: path` (the default) ends this path and the run finishes when every path has drained; `done` finishes the run now, cancelling what is still live; `failed` fails this step and the run now | — | `Finished`, `CancelWork` |
 
 A `decide` step's rules, an `if`'s `when` and a `while`'s `when` are a closed set of typed
@@ -326,9 +326,11 @@ pub enum PauseReason { RunFailed { run }, BudgetSpent }
   listening hosts and the definitions as they stand, each start resolved against its host's inputs,
   and dropped whenever what they are built from may have moved — a host turned on or off, a
   definition, a goal, a connector, a project, the people an input may name, an `events.*` setting —
-  and on every tick. A start that cannot be armed is said once (`ListenerFailed`) and skipped. A
-  listener's memory (`ListenerRuntime`: when it is next due, what it has seen) belongs to the
-  digest of its resolved start, so a start that changed starts its memory afresh.
+  and on every tick. A start that cannot be armed is said once (`ListenerFailed`) and skipped;
+  the build that arms it again — the definition mended, the input binding again — takes that word
+  back (`ListenerRuntime.failed` cleared), while what a dispatch or a poll said stands until that
+  works again. A listener's memory (`ListenerRuntime`: when it is next due, what it has seen)
+  belongs to the digest of its resolved start, so a start that changed starts its memory afresh.
 - A save that removes a public hook start its listening host still answers on is refused: its
   secret, and the caller outside, would break silently.
 
@@ -346,7 +348,9 @@ pub enum WaitFor {                       // tagged `until`
 payload is the step's output — `Elapsed` one on a clock, `Released { step, payload? }` one a person
 or a call lets go. A goal's run hears its goal's events and the workspace's; a workspace run never
 hears a goal's (`SignalScope::heard_by`). The engine's `waits.rs` is the projection of the armed
-waits: armed by the `Arm` effect, re-armed from the snapshot at boot, a clock counting from the
+waits — a due or heard wait is taken out of it before its event lands and put back when the record
+could not be written, so a snapshot unreadable for a moment is no timer lost until a restart:
+armed by the `Arm` effect, re-armed from the snapshot at boot, a clock counting from the
 step's entry. Every named signal is recorded once, heard or not, so a `signal` wait re-armed after
 a restart replays what it missed.
 
@@ -404,7 +408,9 @@ pub struct Chain { depth: u32, listeners: Vec<ListenerKey> }
 - **One signal, one run.** The worker (`listen::dispatch`) claims a signal, meets its listener's
   guard and makes its run with the signal's id as `WorkflowRun.dispatched`, which the index holds
   unique: a dispatch replayed after a crash is refused as already dispatched and settles. A restart
-  keeps the run's start and event, never `dispatched`.
+  keeps the run's start and event, never `dispatched`. A claim a stopped worker was holding goes
+  back on the queue — at most `MAX_SIGNAL_ATTEMPTS` (five) times; a signal nobody can settle is
+  then failed with the count on it, never claimed for ever.
 - **The loop guard is the causal chain.** A signal carries the listeners that led to it; a run
   keeps its event's chain and widens it with every chained event it hears (`Chain::absorb`); what
   the run raises, posts or commits carries it on. A listener already in the chain refuses, and a
@@ -607,8 +613,8 @@ stateDiagram-v2
     Running --> Done : StepDone
     Running --> Failed : StepFailed, retries spent
     Running --> Running : StepInterrupted at boot — an agent resumes on its item, a check and an emit run again, the rest within retries
-    Waiting --> Done : Answered · Decided(approve) · Heard · Elapsed · Released
-    Waiting --> Failed : Decided(decline)
+    Waiting --> Done : Answered · Decided(approve) · Heard · Elapsed · Released · StepDone — a waiting spawn's child finished
+    Waiting --> Failed : Decided(decline) · StepFailed — a spawn whose child could not start
     Running --> Diverted : BoundaryFired — a divert
     Waiting --> Diverted : BoundaryFired — a divert
     Done --> Running : re-entered by a loop, visits < max_visits
@@ -633,7 +639,7 @@ one function that changes a run. An `Err` leaves the run byte-identical.
 | `StepInterrupted { step }` | the step is `Running` and its kind dies with the process — agent, check, connector, judge, notify, emit, spawn (`dies_with_the_process`) | what a restart sends at boot (`recovery::sweep`), never a failure of the step's own: `attempts` is untouched and `error` says *interrupted by a restart* — but the record counts its `interruptions`, and past `MAX_INTERRUPTIONS` (3) the step takes the fail path with `INTERRUPTED_TOO_OFTEN`, so a step that kills the node is not resumed on every boot. An `agent` step with a work item → `ResumeAgent` on that item; an `agent` with none, a `check`, an `emit` (its dedupe key makes the repeat one signal) → its entry effect again; a `connector`, `judge`, `notify` or `spawn` → the effect again only while `attempts < retries` — the author accepted a repeat — else `Failed` and the fail path |
 | `Answered { step, answer }` | a `Waiting` `human` step; the answer passes the question's rules | successors |
 | `Decided { step, approve, approval }` | a `Waiting` `approval` step | successors, or the fail path |
-| `Heard { step, payload, chain }` · `Elapsed { step }` · `Released { step, payload? }` | a `Waiting` `wait` step of the matching kind; the payload is the step's output and the chain widens the run's | successors |
+| `Heard { step, payload, chain }` · `Elapsed { step }` · `Released { step, payload? }` | `Heard` and `Elapsed` a `Waiting` `wait` step of the matching kind; `Released` any `Waiting` `wait` step, and a waiting `spawn` — a person may release any wait, and a released `spawn` is no longer waited for while its child goes on (`waits::release` disarms the step whole); the payload is the step's output and the chain widens the run's | successors |
 | `BoundaryFired { step, boundary, entered, payload, chain }` | the step is live, may carry boundaries, has a boundary of that name, was entered at `entered` and the boundary may fire again (`StaleBoundary`, `UnknownBoundary` otherwise) | a divert: the step is `Diverted { by }`, `CancelWork`, then the flows labelled `by`; an act: `BoundaryAct` |
 | `Amended { workflow }` | no non-`Pending` step changes id, kind or boundary events; no finished step changes its `then`; the start the run began at is such a step, the starts it did not begin at may change and are skipped | entry effects for anything newly enterable |
 | `Cancel { cause }` | any time before the run finishes, queued or live; absorbing — a finished run refuses it, like every event, with `Finished` | `CancelWork { steps }` when anything was live, then `Cancelled { cause }` |
@@ -655,6 +661,13 @@ one function that changes a run. An `Err` leaves the run byte-identical.
 | `CancelWork { steps }` | cancel each step's work item, withdraw its gate, disarm its wait and its boundaries — a run cancelled, a step amended away, a step diverted, an `end` that finished the run |
 | `Finished { outcome }` | settle: release the goal's workstreams, drop a held amendment, disarm the run's waits, announce `RunFinished`, release a parent waiting on the goal, ask for a repair when failed, let the waiting signals of the listener that began it go, pause a listening goal when failed — then start the goal's next queued run. A workspace run releases its own workstreams, forgets the answers its sessions were given and disarms its waits; it is nobody's child, has no queue and wakes no repair |
 | `Cancelled { cause }` | settle the same way for a run that had started (a queued run held nothing), announce `RunCancelled { cause }`, release a parent only when the cause is `closed` — a stopped or restarted child may run again — then start the next queued run unless the cause is `restarted`: the restart starts its own replacement ahead of the queue |
+
+The engine runs that list as **one loop, never a stack**: a batch of effects an instant step's own
+settlement produces — a `notify` posted and done, an `emit` raised, a check that could not render —
+waits its turn on the outermost call's queue (`run_effects`), so a loop of instant steps never grows
+the stack with its iterations, and every batch still runs in the order it was produced. A run that
+ends — an outcome, a cancel — aborts the check and judge tasks and the connector calls still in
+flight for it, and a cancelled step its own, as a stop would.
 
 The engine's `effects.rs` is the **one interpreter** of that list: side effects are declared as
 data beside the rule that produces them, and the engine is the only thing that touches the world.
@@ -758,7 +771,10 @@ the table `apply` agrees with — a property test holds `WrongKind ⇔ !accepts`
 is total and never panics.
 
 Two writers never lose each other. The store records an event under one lock per process and writes
-the run through the snapshot store's compare-and-swap on `revision`; a run that moved under the write
+the run through the snapshot store's compare-and-swap on `revision` — and the **goal's** snapshot
+the same way: every writer of it (a close, its listening, an edit, an archive, a run made or
+started on it) takes the same lock, and a stale writer is refused rather than taken as the latest
+because its second came later; a run that moved under the write
 from outside the process (a peer's snapshot) is re-read and the event re-applied, a bounded number of
 times ([08 — Persistence](08-persistence.md#truth)). Two `StepDone`s a second apart — the normal case
 for parallel steps — both land.
@@ -835,7 +851,7 @@ pub struct Goal { id, statement, title, author, workflow: Option<WorkflowId>, ru
 
 pub enum GoalMode { Auto, Guided, Manual }   // designs(): Auto | Guided · adopts_alone(): Auto
 
-pub enum GoalOrigin { Captured, Spawned { parent }, Run { run, step } }
+pub enum GoalOrigin { Captured, Spawned { parent, step? }, Run { run, step } }  // a spawn step's child names its step; an agent's sub-goal none
 pub enum GoalStatus { Draft, Running, Waiting, Done, Failed, Closed }
 ```
 
@@ -892,7 +908,10 @@ then ends every session of the goal and waits for their processes to be gone; th
 and reads `draft`, ready for a new run. A **restart** (`ops::restart_goal`) cancels the live run (`restarted`) and
 starts a new run of the last run's workflow with its inputs — at the start it began at, on the
 event that began it — at once, ahead of the queue, which keeps its place; it is refused, before
-anything is cancelled, when that start is gone from the workflow as it stands. A queued
+anything is cancelled, when that start is gone from the workflow as it stands. From the cancel to
+the new run's start the goal's occurrences are held (`Inner::ending_goals`, read by the listening
+worker), so the restart's run is the live one and never queued behind a run an occurrence started
+on the goal the cancel had just left idle; a held occurrence goes on the next tick, behind it. A queued
 run may be **withdrawn** on its own (`ops::withdraw_run`) — and only a queued one: the run itself
 refuses a withdrawal once it has started (`RunError::AlreadyStarted`, a pre-check of
 `WorkflowRun::apply`, under the run's one writer), so a run that starts between somebody's look and
@@ -1128,7 +1147,12 @@ keeps seventeen promises the model relies on:
   ignored. A newer revision from elsewhere is adopted when the canvas is clean and is a conflict when
   it is dirty: a banner with *Keep mine on top of theirs* and *Take theirs* (undo brings mine back),
   and nothing is sent until the person picks. `PUT /workflows/{wfid}` carries the `revision` edited
-  and the store's compare-and-swap is what says 409. A 409 is that conflict only when the stored
+  and the store's compare-and-swap is what says 409. A designer left in conflict or rejected — the
+  route changed, the tab closed — parks the person's head for the window's life
+  (`parkedDesignsStore`), and the next designer opened on that workflow takes it back as a conflict
+  to settle on the stored copy (`designerSession.openWithMine`): no save on the way out carries it,
+  and nothing is lost. A designer a goal runs is frozen: it saves nothing, not on the way out
+  either, and an edit made before the freeze stays unsaved and counted as such until the run ends. A 409 is that conflict only when the stored
   copy is no longer at the revision the save was sent at (`designerSession.refusalOutcome`): the
   node answers 409 too for a definition it refuses for what it would do — a public hook start a
   listening host still answers on, taken away — and that refusal is the node's own sentence beside
@@ -1140,7 +1164,8 @@ keeps seventeen promises the model relies on:
   goal's Workflow tab reads its stored copy again when nothing is drawn; with a drawing it does
   **not** — a newer revision read under a drawing would let its save carry that revision and write
   over the other change unseen, so the drawing keeps the revision it was made against, the person is
-  told once, and the save is refused until they take the newer one (`goalTabRemote`). The picker
+  told once per revision (`goalTabRemote`, which is handed the revision already said), and the
+  save is refused until they take the newer one. The picker
   re-reads the library, the goal's designs and the catalog: an archived workflow is refused for a
   goal, and a deleted one is gone.
 - **The canvas's keys are its own**, not keymap commands: they act on the focused canvas only.
@@ -1204,8 +1229,11 @@ keeps seventeen promises the model relies on:
   a tab switch or a remount brings it back, and the drawing as it stands across a restart, in the
   desktop's view memory under the goal's place, read back as a history of one entry
   (`designDraftModel.draftBody`: what is no drawing is nothing). Leaving the window with edits to
-  undo asks first; saving, cancelling or a run starting drops it, there too. Nothing of it reaches
-  the node until *Save changes*, which saves against the workflow as it stands then.
+  undo asks first; cancelling drops it, and a run starting drops it with a word — the drawing is
+  put away, since a running workflow is not edited here. Nothing of it reaches the node until
+  *Save changes*, which saves against the workflow as it stands then, once at a time
+  (`designDraftModel.canSave`: a whole, judged drawing and no save in flight); what was drawn
+  during the save is kept with its undo rather than dropped with the saved head (`afterSaved`).
 - **One panel, four views, one model.** The designer's Properties pane and the goal's Workflow tab
   column draw the same `Inspector`, from `inspectorModel.mjs` (`inspectorView`): the workflow itself
   when nothing is picked (Identity · Runs · Inputs · Problems), a **step** (*This run* while a run is
@@ -1224,11 +1252,16 @@ keeps seventeen promises the model relies on:
   from it; a delete leaves what remains picked (`selectionAfterDelete`); the memory keeps a step as
   the bare id it always wrote (`storedSelection` · `readSelection`), a flow or a many being a
   moment's pick. **Undo lands where the person was**: every history entry is stamped with the
-  selection (`history.mjs`), undo and redo hand it back (`landed`), and a typed burst is one entry —
+  selection (`history.mjs`), undo and redo move the state as it stands when the key lands — never a
+  copy from the render the key was seen in, which a save settling in between would make stale — and
+  hand the selection back (`landed`), and a typed burst is one entry —
   a push with the same token (`step:<id>`, `workflow`, `inputs`) within `COALESCE_MS` (800 ms)
   replaces the head, and a structural edit never merges. The panel is stable while it is typed in:
-  one keyed fragment per step, every edit through `commit` → `withPositions`, a blur-commit field
-  landing its draft on the way out (`ui/useCommitOnUnmount`), a rename carrying the kept scroll to the
+  one keyed fragment per step, every edit through `commit` → `withPositions` — a form's patch and a
+  rename as a function of the body as it stands when the edit lands (`replaceStepIfPresent`,
+  `renameStepIfPresent`: a step gone by then is left gone, never put back by a stale form) — a
+  blur-commit field landing its draft on the way out the same way (`ui/useCommitOnUnmount`), a
+  rename carrying the kept scroll to the
   new id (`designerMemoryStore.moveKeptScroll`). **The goal screen has one right pane**: the tab's
   inspector is the Details pane's **Properties** panel (`views/_work/goalInspectorModel.mjs`
   `panelsFor` · `panelOf` · `panelTabs` · `propertiesReveal`), offered while the Workflow tab shows
@@ -1455,6 +1488,26 @@ changed step and indexes the row. A peer's run snapshot is admitted only when it
 journal (`store/ingest.rs`); a refusal for a missing decision does not mark the event seen, so a
 later catch-up retries it once the decision has arrived. A goal snapshot may not reopen a closed
 goal. Ordering heals itself; correctness does not bend.
+
+**A question taken back is taken back in the journal.** Every withdrawal of a question a goal owes
+of its own — an adoption settled by a start by hand, by the design edited or by another workflow
+chosen (`adopt:`), a newer proposal (`adopt:`, `ask_human:`), a held amendment whose run is over
+(`amend:`), the goal closed, and a step's question when its step is cancelled — is a `Withdrawn`
+fact under its subject, beside the `Decision` an answer is (`recovery::withdraw_question`, through
+`ops::withdraw_questions_of_goal`: the live gate, and every such question still open in the
+journal, so one whose gate died with an earlier process is taken back the same way). So the durable
+mirror reads one rule wherever it reads: **the newest fact on a subject says where the question
+stands.** The Inbox's `durable_actions` rebuilds an ask only while that fact is the question; the
+durable decide (`decide_without_engine`) takes, when nothing waits on the live run, the newest
+**open** question of the goal's own — an adoption, a held amendment, the designer's — refuses *no
+pending gate* when there is none, and tells a second hand that a decided one was decided (409); a
+step's question is its run's, decided through the waiting step alone. One durable decision is taken
+at a time per home (`DecidingDurably`), as one live gate is decided by one hand. An answer with no
+live gate — after a restart, from the command line offline — goes through the mirror too, never the
+raw event: a signed decision, the clarify rounds (counted per question, so two steps waiting side
+by side spend nothing of each other's), the re-ask. And the Inbox lists the live asks and the
+durable ones they do not carry, one row per question (`inbox::merged`): a live gate on one step
+hides no other step's question rebuilt from the run.
 
 ---
 

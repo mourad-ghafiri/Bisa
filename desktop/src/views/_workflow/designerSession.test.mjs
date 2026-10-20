@@ -10,7 +10,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
 import { libraryReads } from "./libraryModel.mjs";
-import { MAX_QUIET_MULTIPLE, RETRY_CAP_MS, asksStored, refusalOutcome, bodyOf, canUndoEdit, caughtUp, conflict, definitionBody, dirty, edit, keepMine, landedSelection, open, present, problemsFromErrorBody, putBody, redoEdit, remoteDecision, remoteLoaded, retryDelayMs, saveDue, saveFailed, saveRejected, saveRequest, saveStarted, saveSucceeded, settle, statusLine, takeTheirs, undoEdit, withProblems, WORKFLOW_FACTS, goalTabRemote, remoteAction, rowBehind } from "./designerSession.mjs";
+import { MAX_QUIET_MULTIPLE, RETRY_CAP_MS, asksStored, refusalOutcome, bodyOf, canRedoEdit, canUndoEdit, openWithMine, parked, caughtUp, conflict, definitionBody, dirty, edit, keepMine, landedSelection, open, present, problemsFromErrorBody, putBody, redoEdit, remoteDecision, remoteLoaded, retryDelayMs, saveDue, saveFailed, saveRejected, saveRequest, saveStarted, saveSucceeded, settle, statusLine, takeTheirs, undoEdit, withProblems, WORKFLOW_FACTS, goalTabRemote, remoteAction, rowBehind } from "./designerSession.mjs";
 
 const stored = (revision, name = "Ship it") => ({
   id: "01WF",
@@ -370,6 +370,11 @@ test("a goal's Workflow tab reads a moved workflow again only when nothing is dr
   const changed = { type: "workflow_changed", workflow: "wf-1", revision: 7 };
   assert.equal(goalTabRemote({ workflow: "wf-1", drawing: false, running: false }, changed), "reload");
   assert.equal(goalTabRemote({ workflow: "wf-1", drawing: true, running: false }, changed), "warn");
+  // Said once per revision: the same fact again is not; a newer one is.
+  assert.equal(goalTabRemote({ workflow: "wf-1", drawing: true, running: false, warned: 7 }, changed), "ignore", "revision 7 was already said");
+  assert.equal(goalTabRemote({ workflow: "wf-1", drawing: true, running: false, warned: 6 }, changed), "warn", "a newer revision is news");
+  assert.equal(goalTabRemote({ workflow: "wf-1", drawing: true, running: false, warned: 7 }, { type: "workflow_archived", workflow: "wf-1" }), "warn", "a fact with no revision is new");
+  assert.equal(goalTabRemote({ workflow: "wf-1", drawing: false, running: false, warned: 7 }, changed), "reload", "with nothing drawn the revision warned is moot");
   assert.equal(goalTabRemote({ workflow: "wf-1", drawing: false, running: true }, changed), "ignore", "a run's copy is frozen");
   for (const type of WORKFLOW_FACTS) assert.equal(goalTabRemote({ workflow: "wf-1", drawing: false, running: false }, { type, workflow: "wf-1" }), "reload", type);
   assert.equal(goalTabRemote({ workflow: "wf-1", drawing: false, running: false }, { ...changed, workflow: "wf-2" }), "ignore");
@@ -485,4 +490,43 @@ test("the header's line is the catalog's in every state, and the driver decides 
   assert.ok(driver.includes("refusalOutcome(refusal, req.revision, theirs)") && driver.includes("asksStored(refusal.status)"));
   assert.ok(!driver.includes("=== 409") && !driver.includes("=== 400"), "which answer is which is the model's");
   assert.ok(!/catch \{\s*theirs = null;/.test(driver) && driver.includes('log.warn("designer", "the stored workflow could not be read after a save was refused"'), "a stored copy that could not be read is said in the log");
+});
+
+test("a frozen designer has no save due, however long an edit has waited, and redo is offered only once something was undone", () => {
+  let s = edit(open(stored(1)), { ...bodyOf(stored(1)), name: "Edited" }, 1000);
+  assert.equal(saveDue(s, 5000, 800), 0, "long overdue");
+  assert.equal(saveDue(s, 5000, 800, { frozen: true }), null, "frozen: nothing is sent");
+  assert.equal(saveDue(s, 5000, 800, { frozen: false }), 0);
+  assert.equal(canRedoEdit(s), false);
+  s = undoEdit(s, 2000);
+  assert.equal(canRedoEdit(s), true);
+  assert.equal(canRedoEdit(redoEdit(s, 3000)), false);
+});
+
+test("leaving a designer in conflict or rejected parks the person's own head, and the next visit opens it as a conflict to settle", () => {
+  const theirs = stored(2, "Theirs");
+  const mine = { ...bodyOf(stored(1)), name: "Mine" };
+  let s = edit(open(stored(1)), mine, 1000);
+  assert.equal(parked(s), null, "an idle dirty session saves on its own way out");
+  s = conflict(s, theirs);
+  assert.deepEqual(parked(s), mine, "in conflict nothing would be sent: the head is parked");
+  assert.equal(parked(conflict(open(stored(1)), theirs)), null, "a clean head is nothing to keep");
+  assert.deepEqual(parked(saveRejected(edit(open(stored(1)), mine, 1000), "no")), mine, "rejected the same");
+  for (const none of [null, undefined]) assert.equal(parked(none), null);
+
+  const again = openWithMine(theirs, [], mine);
+  assert.equal(again.status, "conflict");
+  assert.equal(again.base.revision, 2, "stood on the stored copy");
+  assert.equal(present(again).name, "Mine");
+  assert.equal(dirty(again), true);
+  const kept = keepMine(again);
+  assert.equal(kept.status, "idle");
+  assert.equal(saveRequest(kept)?.revision, 2, "Keep mine saves the kept head at the stored revision");
+  const took = takeTheirs(again);
+  assert.equal(present(took).name, "Theirs");
+  assert.equal(canUndoEdit(took), true, "Take theirs keeps mine one undo away");
+  // A kept head equal to the stored body, or none, is a plain open.
+  assert.equal(openWithMine(theirs, [], bodyOf(theirs)).status, "idle");
+  assert.equal(openWithMine(theirs, [], null).status, "idle");
+  assert.equal(dirty(openWithMine(theirs, [], undefined)), false);
 });
