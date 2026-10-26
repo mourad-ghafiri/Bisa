@@ -19,6 +19,7 @@ tags = ["planning", "management"]
 base_url = "https://api.trello.com"
 hosts = ["api.trello.com"]
 check = "me"
+revision = 1
 
 [connector.auth]
 scheme = "api_key"

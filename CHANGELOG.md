@@ -125,6 +125,86 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **Connectors, the leaf crate.** A request the platform took and never answered — the
+  connection closed before a response — read as *could not connect*, and a step's own `retries`
+  sent the write again: a possible double post. It is a transport failure now
+  (`TransportError::Lost`), never retried for a write, and the step stops with *the platform may
+  have received it*. The operation's deadline restarted per page, per 401 resend and per token
+  refresh; it is one for the whole call, each getting what is left, and a timeout names the
+  operation's own deadline. A 403 read as *refused (401)*; it keeps its status. Two calls meeting
+  a 401 at once refreshed the token twice; the second takes the one the first stored. A loopback
+  client that failed to build fell back silently to a default client that follows redirects; the
+  strict client stands in, said in the log (`crates/bisa-connectors/src/http.rs`, `client.rs`,
+  `oauth.rs`, `outcome.rs`, `retry.rs`).
+- **Connectors, the engine.** A health check's verdict landing after the account's secrets were set
+  again, or after the account was forgotten, was kept as the account's health — a verdict about a
+  way in that was no more; it answers its caller and is not kept. A check on an account that holds
+  no secret for its scheme reported *refused (401)*, a status the platform never gave; it is
+  *refused* with no status and says which field is missing, and a 403 keeps its own status. An
+  agent's `call_connector` read had no bound around its wait for a permit: behind a full pool it
+  waited until the pool freed; it is refused in the operation's time plus the engine's overhead,
+  like a poll. A run that ends while a connector call is in flight aborts the call — pinned now,
+  as the CHANGELOG had claimed. The connector journey's load flake had a cause: its stub recorded
+  a poll's request before reading the list it answered, and the journey added incidents the
+  moment the request was recorded — inside the first poll's answer, where they were learnt as what
+  was there and never fired; the stub reads first, the journey waits for the poll's completion
+  through the listener's `next_due`, and the doubled patience is gone
+  (`crates/bisa-engine/src/connector_health.rs`, `connectors.rs`, `intake.rs`,
+  `crates/bisa-cli/tests/it/e2e/a_platform_reached_through_a_connector.rs`).
+- **Connectors: the store, the catalog, the node, the command line.** A blank or stray secret on
+  a new account was refused after the account — and the good secrets beside it — were already
+  written, leaving an account with no record of what it held; the secrets are judged whole before
+  anything is written (`validate_connector_secrets`), on a new account and on an edit alike. Five
+  built-ins (Gmail, Google Calendar, Google Drive, YouTube, Trello) named no `revision`, so no
+  change to them could ever reach an installed copy; every built-in names one now, and the pin
+  test hashes each file so a change without a bump fails in CI. A declined consent left the
+  callback listener bound for the flow's whole lifetime, and a flow pending on an account that was
+  then forgotten kept it up too; the declined flow is abandoned and the listener goes at once. A
+  platform refusing the exchange — a used code — read as *stale link*; the page says the
+  platform refused, in its words. Connector errors carried no `code`, so a client could not tell
+  the platform's 401 from the node's own token refused; every connector error is coded
+  (`connector_not_authenticated`, `connector_refused`, `connector_unreachable`, …), statuses
+  unchanged. `bisa connector connect` blocked on stdin until end-of-file even once the browser had
+  landed; it ends on the pasted line, or on the landing, whichever comes first. `bisa connector
+  account add` printed two row shapes, one through the daemon and one without; both print the
+  node's row. `bisa connector new` through the daemon printed the id in quotes. The roster the
+  Workflow Agent and `list_connectors` read promised to say whether an account is connected and
+  never did; it says *not connected* beside an account missing its secret (`crates/bisa-store/src/connectors.rs`,
+  `catalog.rs`, `crates/bisa-engine/src/connectors.rs`, `crates/bisa-node/src/connectors.rs`,
+  `lib.rs`, `dto.rs`, `crates/bisa-cli/src/connector.rs`, `library/catalog/connectors/*.toml`).
+- **Settings › Connectors.** *Connect again* on an account that already held a token closed its
+  paste box the moment it opened, since the box read the token as the landing; a connection now
+  remembers the row as it stood and reads the landing as a change to it — a token now held, tokens
+  issued anew, the health the reconnect forgot. The toast said the browser was opening before it
+  had; a browser that cannot open leaves the consent link on the row to copy, and the box says
+  how long a pasted code is still taken and when the connection expired. Enter could send a code
+  twice; one send at a time. *Check all* could be pressed again while it read the connectors, and
+  a connector it could not read was skipped in silence; the button is held from the first read and
+  the count of unread connectors is said. Editing a label or a parameter toasted *Nothing changed.*;
+  it says *saved*, with the secrets typed. *Valid.* stayed over a definition edited since the node
+  read it, and a renamed id was refused only after the round trip; the word goes with the first
+  character typed and the rename is said at once. *Edit* pressed while the definition's read failed
+  armed a dialog that popped on a later reload; it waits for the definition. A failed refresh was
+  invisible while rows stood; it is said over them, and *Read again* is held while a read is on its
+  way. The account dialog read the definition a second time; it takes the card's. The secret
+  input's noun was a lowercased label; each field has its own. A health with no check word read as
+  one the desktop does not know (`desktop/src/views/_settings/ConnectorsPanel.tsx`,
+  `connectorsModel.mjs`, `connectorHealthModel.mjs`, `desktop/src/views/_workflow/useConnectors.ts`).
+- **The designer's connector pickers and the hooks.** Every account check anywhere reloaded the
+  connectors list and every mounted detail, whatever connector it was about — *Check all* over
+  many accounts was as many reads of everything; a check reloads only the detail of its own
+  connector, and the list only on a change. The designer's problems list was judged on an edit
+  alone, so a forgotten account or a removed connector was flagged only at the next keystroke; it
+  follows the connectors. An account a step named that this machine no longer has, an input gone,
+  or an input moved to another connector read as *the connector's default*; the picker names it.
+  A list or a definition that could not be read read as *nothing installed* or *no account*; the
+  read's failure is said. A poll's parameters were rewritten on every keystroke — a space typed
+  before a word vanished — and its stray parameters were never shown; the step form's blur-committed
+  field serves both, and strays are listed to remove. A new account input guessed the first
+  connector of a list that may not have been read; it names none until one is picked
+  (`desktop/src/views/_workflow/useConnectors.ts`, `useLiveValidation.ts`,
+  `forms/ConnectorStepForm.tsx`, `forms/StartStepForm.tsx`, `forms/TemplateField.tsx`,
+  `forms/connectorStepModel.mjs`, `InputsForm.tsx`, `workflowForm.mjs`, `forms/InputDefsEditor.tsx`).
 - **To a harness, into a live terminal.** The annotation tray's third door wrote the request into
   a live harness terminal at the click, whatever the harness was doing — Claude Code mid-turn
   swallowed it and nothing arrived, while the door's own words promised a wait. A live tab now

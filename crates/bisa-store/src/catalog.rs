@@ -2298,36 +2298,130 @@ mod bundle_tests {
         );
     }
 
-    /// The revision of each built-in, pinned: a changed file bumps its
-    /// `revision` on purpose — that is what carries the change to an
-    /// installed copy at the next start — and a forgotten bump is noticed
-    /// here, not on a user's machine where the fix never lands.
+    /// The revision of each built-in, pinned with its content: a changed
+    /// file bumps its `revision` on purpose — that is what carries the
+    /// change to an installed copy at the next start — and a byte changed
+    /// without a bump is noticed here, not on a user's machine where the fix
+    /// never lands. A bump updates the revision and the hash on its row.
     #[test]
     fn the_catalog_connector_revisions_are_pinned() {
-        let revisions: Vec<(&str, u32)> = parsed_connectors()
+        use sha2::{Digest, Sha256};
+        let pinned: Vec<(&str, u32, String)> = CATALOG
+            .connectors
             .iter()
-            .map(|(slug, c)| (*slug, c.revision))
+            .map(|(slug, toml_str)| {
+                (
+                    *slug,
+                    parse_connector(slug, toml_str).unwrap().revision,
+                    hex::encode(Sha256::digest(toml_str.as_bytes())),
+                )
+            })
             .collect();
-        assert_eq!(
-            revisions,
-            [
-                ("confluence", 1),
-                ("facebook-pages", 1),
-                ("gmail", 0),
-                ("google-calendar", 0),
-                ("google-drive", 0),
-                ("instagram", 1),
-                ("jira", 1),
-                ("linear", 1),
-                ("notion", 1),
-                ("obsidian", 1),
-                ("slack", 1),
-                ("tiktok", 1),
-                ("trello", 0),
-                ("x", 1),
-                ("youtube", 0),
-            ]
-        );
+        let want: [(&str, u32, &str); 15] = [
+            (
+                "confluence",
+                1,
+                "ac51416e9c945ea5f5b3327a8e027f5537f2314d7e623a88607fe0d8009932b1",
+            ),
+            (
+                "facebook-pages",
+                1,
+                "4490152857eaa11615a2bc9073123c376762d78cc5b9725b8aed3c575ee718e1",
+            ),
+            (
+                "gmail",
+                1,
+                "4b32a4e695bd996767373b21fda629f0201f6dde24a7a47d278aeac5aa6e6434",
+            ),
+            (
+                "google-calendar",
+                1,
+                "bb14f74346630b53248e76127d5ca4243c5bc2333909713103d64d89b0bdc022",
+            ),
+            (
+                "google-drive",
+                1,
+                "fb04d786921363f04c20295894ebd90fcb32e2d31d50430b92e81504fdd28a93",
+            ),
+            (
+                "instagram",
+                1,
+                "89f8b222ea0c429cbbdf73ff938629508b55ec3b590ad85038d792cded715efe",
+            ),
+            (
+                "jira",
+                1,
+                "f9fb40eed4e80b632ac3a525287369aead609e59c921b63ab7e3583574204ef6",
+            ),
+            (
+                "linear",
+                1,
+                "d5b764fa3e7b30efc7dfcbbb80950eeaf9b0f8f8988f7c27a22a2a74389ce19d",
+            ),
+            (
+                "notion",
+                1,
+                "f556684b6ef2b3d4e8591efb86a6b5449b103c79838d984b4b4a0162c871b9df",
+            ),
+            (
+                "obsidian",
+                1,
+                "6c9ccd3d09beb4717e71108b025fcebe7c5a81b8c11bdc62bce2a5934ce0f126",
+            ),
+            (
+                "slack",
+                1,
+                "1c5ff9ffeb1af3d85ad5346d318250012b811f92aac3d9c405397283a77b6200",
+            ),
+            (
+                "tiktok",
+                1,
+                "3184ef794c807babb957c402e3a75bd861f157ab65cd9e8f63c6f774335951f7",
+            ),
+            (
+                "trello",
+                1,
+                "af0f28fb8bc57645a4bbd7281917e5f91653cf646198fccdffd7889ae3ce02fd",
+            ),
+            (
+                "x",
+                1,
+                "33d62a2caa84b3b8e2b4fb8cfa258cbf1b1d1c0f445f24d156192226f23230f4",
+            ),
+            (
+                "youtube",
+                1,
+                "b96653108b8f63d5a86da6b12d9a5b87d166bcb2658c5edbeca61e25a9481563",
+            ),
+        ];
+        assert_eq!(pinned.len(), want.len(), "a built-in added or dropped");
+        for ((slug, revision, hash), (s, r, h)) in pinned.iter().zip(want.iter()) {
+            assert_eq!(slug, s, "the bundle's order moved");
+            assert_eq!(
+                hash, h,
+                "{slug}: the file changed — bump its `revision` and pin the new hash here"
+            );
+            assert_eq!(revision, r, "{slug}: a changed file bumps its revision");
+        }
+    }
+
+    /// Every built-in names a revision of at least one: a file naming none
+    /// parses as revision 0, and an installed copy at 0 could never be
+    /// refreshed, since no later revision is lower than itself.
+    #[test]
+    fn every_built_in_names_a_revision() {
+        for (slug, toml_str) in CATALOG.connectors.iter() {
+            assert!(
+                toml_str
+                    .lines()
+                    .any(|l| l.trim_start().starts_with("revision = ")),
+                "{slug} names no revision"
+            );
+            assert!(
+                parse_connector(slug, toml_str).unwrap().revision >= 1,
+                "{slug}"
+            );
+        }
     }
 
     /// Every built-in connector validates by the same rules a custom one

@@ -130,7 +130,9 @@ pub fn parse(
     if !(200..300).contains(&status) {
         let reason = explanation(&body).unwrap_or_else(|| status_text(status).to_string());
         return Err(match status {
-            401 | 403 => ConnectorError::NotAuthenticated(reason),
+            // A 403 is the platform's own refusal and keeps its status: a
+            // check reports what the platform said, never a 401 it did not.
+            401 => ConnectorError::NotAuthenticated(reason),
             404 => ConnectorError::NotFound(reason),
             429 => ConnectorError::RateLimited {
                 retry_after: crate::retry::retry_after(&resp.headers, now)

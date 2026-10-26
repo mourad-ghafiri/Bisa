@@ -14,8 +14,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useEngineEvents } from "../../bus";
 import type { NewWorkflowBody, Problem } from "../../types";
 import { failureText } from "../../ui";
+import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
+import { listReloads } from "../_settings/connectorHealthModel.mjs";
 import { VALIDATE_DELAY_MS } from "./designerSettingsModel.mjs";
 
 interface LiveValidation {
@@ -35,6 +38,17 @@ export function useLiveValidation(
   const [error, setError] = useState<string | null>(null);
   const validateRef = useRef(validate);
   validateRef.current = validate;
+  // The validator's word on a connector step — an unknown connector, a lost
+  // account, an input of another connector's — moves when the connectors
+  // do, with no edit: the body is judged again on the frame.
+  const [connectorsMoved, setConnectorsMoved] = useState(0);
+  useEngineEvents((e) => {
+    if (listReloads(e.payload)) setConnectorsMoved((n) => n + 1);
+  });
+  // The node was away: what it did meanwhile — a connector gone, an account
+  // forgotten from the command line — reached no frame, so the body is
+  // judged again when the bus comes back.
+  useReloadOnReconnect(() => setConnectorsMoved((n) => n + 1));
 
   useEffect(() => {
     if (body === null) {
@@ -66,7 +80,7 @@ export function useLiveValidation(
       clearTimeout(t);
       ac.abort();
     };
-  }, [body, delay]);
+  }, [body, delay, connectorsMoved]);
 
   return { problems, validating, error };
 }

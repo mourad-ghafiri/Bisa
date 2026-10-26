@@ -376,6 +376,14 @@ async fn put_account(
             body.secrets,
         )?,
         Some(aid) => {
+            // The secrets judged before the label and parameters move: a
+            // blank one refuses the whole edit, never half of it.
+            if !body.secrets.is_empty() {
+                state
+                    .engine
+                    .workspace()
+                    .validate_connector_secrets(&cid, &body.secrets)?;
+            }
             let mut a = eng::update_account(inner, &cid, aid, body.label, body.params)?;
             if !body.secrets.is_empty() {
                 a = eng::set_secrets(inner, &cid, aid, body.secrets)?;
@@ -396,6 +404,8 @@ async fn delete_account(
     let cid = parse_connector_id(&cid)?;
     let aid = parse_account_id(&aid)?;
     eng::delete_account(state.engine.inner(), &cid, aid)?;
+    // A flow the account had pending went with it: the listener need not wait.
+    state.oauth.stop_if_idle(&state).await;
     Ok(Json(
         json!({ "account": aid.to_string(), "forgotten": true }),
     ))
@@ -546,6 +556,11 @@ async fn oauth_callback(
             .error_description
             .filter(|d| !d.trim().is_empty())
             .unwrap_or(error);
+        // The flow the platform declined is over: abandoned, so the
+        // listener goes with it rather than waiting the flow's lifetime out.
+        if let Some(flow_state) = q.state.as_deref().map(str::trim) {
+            eng::oauth_abandon(state.engine.inner(), flow_state);
+        }
         state.oauth.stop_if_idle(&state).await;
         return page(
             StatusCode::BAD_REQUEST,
@@ -575,6 +590,18 @@ async fn oauth_callback(
             &word(&bisa_core::text!("error-node-connectors-page-connected")),
             &word(&bisa_core::text!(
                 "error-node-connectors-page-connected-close-window"
+            )),
+        ),
+        // The platform refused the exchange — a revoked code, a client it
+        // does not know: said in its own words, which is not a stale link.
+        Err(e @ bisa_engine::EngineError::Connector(_)) if e.is_refusal() => page(
+            StatusCode::BAD_REQUEST,
+            &word(&bisa_core::text!(
+                "error-node-connectors-page-not-connected"
+            )),
+            &word(&bisa_core::text!(
+                "error-node-connectors-page-refused",
+                why = escape_html(&eng::redact_reason(state.engine.inner(), &e))
             )),
         ),
         Err(e) if e.is_refusal() => page(

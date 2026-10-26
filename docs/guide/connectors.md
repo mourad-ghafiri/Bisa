@@ -16,7 +16,10 @@ Confluence want your Atlassian `site`; Trello its public app `key`), then the se
 connector's scheme needs, typed once into write-only fields. Every account row wears the
 **health** its last check found — a chip saying *connected (200)*, *refused (401)* or
 *unreachable*, with *checked 2 min ago* in its tooltip and the platform's own sentence under a
-failing row. *Check* makes one request to the platform as that account, within twenty seconds;
+failing row; the status is the platform's own (a 403 reads *refused (403)*), and an account that
+holds no secret for its scheme is *refused* with no status and *the account holds no token;
+connect it first*, since there is no way in to try. *Check* makes one request to the platform as
+that account, within twenty seconds;
 *Check all* does it for every account of every connector that names a check, a few at a time. The
 health is the node's — kept for the engine's lifetime, read back by every window through the bus
 — and is forgotten when the account's secrets are set again, a parameter is edited, it is
@@ -46,7 +49,11 @@ with one — with the redirect URI `http://127.0.0.1:4478/connectors/oauth/callb
 `connectors.oauth.port`, a machine setting), enter its client id and secret on the account, then
 press *Connect*: the browser opens the platform's consent page, the node listens on that loopback
 port only while the connection is pending, the page says the window can be closed, and the tokens
-land in the keystore. Tokens refresh on their own before they expire. The consent page and the
+land in the keystore. The panel reads the landing as a change to the account's row — a token now
+held, tokens issued anew, the health the reconnect forgot — so *Connect again* on a connected
+account lands the same way; a browser that cannot open leaves the consent link on the row to
+copy; the paste box says how long a pasted code is still taken (a connection lives ten minutes)
+and when it expired. Tokens refresh on their own before they expire. The consent page and the
 token endpoint are hosts the scheme declares by its own URLs — nothing to add to
 `security.net.allow_hosts`; the deny list is still read first. A platform that cannot send a
 browser back to loopback shows a *paste the code* field instead (`bisa connector connect
@@ -312,7 +319,7 @@ door, and holds up the same way:
 
 - **A deadline.** The operation's `timeout_secs`, else the engine's own `connector_timeout_secs`
   (60 s — a field of the engine's configuration, not a setting), covers the whole call: every
-  attempt, every wait, every page.
+  attempt, every wait, every page, and the token refresh a call needs on its way.
 - **Retries, by what is safe.** A read is tried three times on a 429, a 500–504, a lost connection
   or a timeout, backing off from half a second to eight with jitter and honouring `Retry-After` up
   to thirty seconds. A **write** is retried only on a 429 or a 502–504 — an answer that says the
@@ -353,7 +360,9 @@ An agent — any session, not only the Workflow Agent — **lists** the connecto
 (`list_connectors`: each platform's operations, which read and which write, whether an account is
 connected; never a secret) and **reads** through one with `call_connector`: the connector, a read
 operation, an account or the default, the parameters as text. The call is the same call a step
-makes — the host policy, the deadline, the cap, the circuit — and its answer comes back **redacted**
+makes — the host policy, the deadline (the operation's plus the engine's overhead, the wait for a
+permit included, so a read behind a full pool is refused in the operation's time), the cap, the
+circuit — and its answer comes back **redacted**
 and then **screened as content from outside** the way a page or a code-host review is
 ([11 — Security](../architecture/11-security.md)), bounded to 16 KiB (`truncated` says when). An
 operation that **writes** is refused to the tool by name: a write is a workflow `connector` step

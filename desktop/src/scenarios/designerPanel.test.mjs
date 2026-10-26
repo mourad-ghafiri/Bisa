@@ -99,7 +99,7 @@ test("the hosts share the selection, coalesce a typed burst, land undo where the
 
 test("every blur-commit field lands its draft on the way out, lists are keyed by place, groups are Labelled, icon buttons are named", () => {
   const forms = (name) => src(`views/_workflow/forms/${name}`);
-  for (const [file, count] of [["JsonField.tsx", 1], ["ConnectorStepForm.tsx", 1], ["StepCommonForm.tsx", 1], ["BoundaryEventsEditor.tsx", 1], ["BranchName.tsx", 1], ["ExactFieldsEditor.tsx", 1], ["InputDefsEditor.tsx", 3], ["AgentStepForm.tsx", 1]]) {
+  for (const [file, count] of [["JsonField.tsx", 1], ["TemplateField.tsx", 1], ["StepCommonForm.tsx", 1], ["BoundaryEventsEditor.tsx", 1], ["BranchName.tsx", 1], ["ExactFieldsEditor.tsx", 1], ["InputDefsEditor.tsx", 3], ["AgentStepForm.tsx", 1]]) {
     assert.equal((forms(file).match(/useCommitOnUnmount\(/g) ?? []).length, count, `${file} commits on unmount`);
   }
   assert.ok(src("ui/Field.tsx").includes("useCommitOnUnmount(draft !== String(value) ? draft : null"), "the kit's NumberInput too");

@@ -39,6 +39,23 @@ export const SECRET_FIELD_LABEL = Object.freeze({
 });
 
 /**
+ * The noun the secret input names a field by in its own sentences — *hidden;
+ * press to type your token* — one message per field, never a label put
+ * through `toLowerCase`, which a language with cased nouns does not survive.
+ */
+export const SECRET_FIELD_WHAT = Object.freeze({
+  api_key: t("settings-connectors-what-api-key"),
+  token: t("settings-connectors-what-token"),
+  username: t("settings-connectors-what-username"),
+  password: t("settings-connectors-what-password"),
+  client_id: t("settings-connectors-what-client-id"),
+  client_secret: t("settings-connectors-what-client-secret"),
+  access_token: t("settings-connectors-what-access-token"),
+  refresh_token: t("settings-connectors-what-refresh-token"),
+  private_key: t("settings-connectors-what-private-key"),
+});
+
+/**
  * The fields whose value spans lines — a PEM block — and so take a text area
  * rather than a one-line password box.
  */
@@ -282,9 +299,137 @@ export function saveRefusedWords(count) {
   return count === 1 ? t("settings-connectors-saved-one-problem-listed-below") : t("settings-connectors-saved-problems-listed-below", { count });
 }
 
-/** The blurb beside *Connect*, for an OAuth2 scheme. */
+/** The blurb beside *Connect*, for an OAuth2 scheme, naming the redirect URI the node resolves for a port. */
 export function connectWords(port) {
-  return t("settings-connectors-register-own-oauth-client-platform-redirect", { port: redirectUri(port) });
+  return connectUriWords(redirectUri(port));
+}
+
+/** The same blurb over the redirect URI a started flow registered — the one the platform must match while the flow is open. */
+export function connectUriWords(uri) {
+  return t("settings-connectors-register-own-oauth-client-platform-redirect", { port: uri });
+}
+
+/**
+ * A connection started for an account: the consent page's URL, the redirect
+ * the node registered, when the flow expires, and the row as it stood — so
+ * the browser's landing is read as a change to the row, and *Connect again*
+ * on an account that already holds a token is not read as landed before it
+ * began. `browserFailed` marks a browser that could not open: the URL is
+ * then shown to copy.
+ * @param {import("../../types").OAuthStart} start
+ * @param {import("../../types").ConnectorAccountRow} account
+ * @returns {import("./connectorsModel.d.mts").PendingFlow}
+ */
+export function pendingFlow(start, account) {
+  return {
+    account: account.id,
+    code: "",
+    url: start.url,
+    redirectUri: start.redirect_uri,
+    expiresAt: typeof start.expires_at === "number" ? start.expires_at : null,
+    browserFailed: false,
+    before: {
+      secrets_set: [...(account.secrets_set ?? [])],
+      expiresAt: account.oauth?.expires_at ?? null,
+      scope: account.oauth?.scope ?? null,
+      health: account.health?.state ?? "unknown",
+    },
+  };
+}
+
+/**
+ * Whether the browser landed since the flow began: the account's row now
+ * holds a token it did not, the tokens were issued anew — a moved expiry or
+ * scope — or the reconnect forgot the account's health, which the node does
+ * on every connection. An unchanged row says nothing landed.
+ * @param {import("./connectorsModel.d.mts").PendingFlow} flow
+ * @param {import("../../types").ConnectorAccountRow | null | undefined} row
+ */
+export function flowLanded(flow, row) {
+  if (!flow || !row || row.id !== flow.account) return false;
+  if (!(row.secrets_set ?? []).includes("access_token")) return false;
+  if (!flow.before.secrets_set.includes("access_token")) return true;
+  if ((row.oauth?.expires_at ?? null) !== flow.before.expiresAt) return true;
+  if ((row.oauth?.scope ?? null) !== flow.before.scope) return true;
+  return flow.before.health !== "unknown" && (row.health?.state ?? "unknown") === "unknown";
+}
+
+/** Whether the flow's lifetime has passed: the node has forgotten it, and a code pasted now is refused. */
+export function flowExpired(flow, now) {
+  return Boolean(flow) && flow.expiresAt !== null && now >= flow.expiresAt;
+}
+
+/**
+ * The line under the paste box: how long a pasted code is still taken, or
+ * that the flow expired and *Connect* starts another; nothing for a flow
+ * with no lifetime said.
+ * @param {import("./connectorsModel.d.mts").PendingFlow} flow
+ * @param {number} now unix seconds
+ */
+export function flowWords(flow, now) {
+  if (!flow || flow.expiresAt === null) return "";
+  if (flowExpired(flow, now)) return t("settings-connectors-flow-expired-start-again");
+  return t("settings-connectors-flow-code-taken-for", { left: Math.max(1, Math.ceil((flow.expiresAt - now) / 60)) });
+}
+
+/**
+ * Whether the pasted code may be sent: a flow open and not expired,
+ * something typed, and no write on its way — Enter during one sends
+ * nothing twice.
+ * @param {{flow: import("./connectorsModel.d.mts").PendingFlow | null, busy: boolean, now: number}} state
+ */
+export function mayPaste({ flow, busy, now }) {
+  return Boolean(flow) && !busy && !flowExpired(flow, now) && flow.code.trim() !== "";
+}
+
+/**
+ * The toast after an account was edited: *saved* when the label or a
+ * parameter moved — with the secret fields typed, when any — and the
+ * secrets' own words, or *Nothing changed.*, when only they could have.
+ * @param {import("../../types").NewConnectorAccount} body what was sent
+ * @param {import("../../types").ConnectorAccountRow | null | undefined} account as it stood
+ */
+export function savedWords(body, account) {
+  const fields = Object.keys(body?.secrets ?? {});
+  const sorted = (o) => JSON.stringify(Object.fromEntries(Object.entries(o ?? {}).sort(([a], [b]) => a.localeCompare(b))));
+  const moved = (body?.label ?? "").trim() !== (account?.label ?? "").trim() || sorted(body?.params) !== sorted(account?.params);
+  if (!moved) return secretsSetWords(fields);
+  const label = (body?.label ?? "").trim();
+  return fields.length === 0 ? t("settings-connectors-account-saved", { label }) : t("settings-connectors-account-saved-secrets", { label, fields: fields.join(", ") });
+}
+
+/**
+ * The validation that still applies to the text in the editor: the node's
+ * word about *this* text, and nothing once a character moved — *Valid.*
+ * never stands over a definition the node has not read.
+ * @param {{text: string, validation: import("../../types").ConnectorValidation} | null | undefined} seen
+ * @param {string} text
+ */
+export function validationFor(seen, text) {
+  return seen && seen.text === text ? seen.validation : null;
+}
+
+/**
+ * The line shown before any round trip when an edited definition renamed
+ * itself: the node writes under the id in the path and refuses a body
+ * naming another, so a rename is a new connector, not an edit. Nothing for
+ * a new definition, or an id that stands.
+ * @param {string | null | undefined} initialId the id the editor opened on
+ * @param {{id?: unknown} | null | undefined} def the definition as typed
+ */
+export function renamedProblem(initialId, def) {
+  if (!initialId || !def || def.id === undefined || def.id === initialId) return null;
+  return t("settings-connectors-id-cannot-change", { from: initialId, to: String(def.id) });
+}
+
+/**
+ * Whether *Edit* may open the definition editor: no write on its way, and
+ * the definition read — an Edit pressed while the read fails would arm a
+ * dialog that pops on a later reload.
+ * @param {{busy: boolean, definitionRead: boolean}} state
+ */
+export function mayEditDefinition({ busy, definitionRead }) {
+  return !busy && definitionRead;
 }
 
 /** The problems of a definition, one line each; empty when it validates. */
@@ -337,7 +482,7 @@ export function emptyDefinition() {
     operations: [
       {
         id: "ping",
-        name: "Ping",
+        name: t("settings-connectors-ping"),
         description: t("settings-connectors-answers-service-s-status"),
         method: "get",
         path: "/status",

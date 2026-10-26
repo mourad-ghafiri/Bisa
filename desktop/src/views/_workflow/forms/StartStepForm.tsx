@@ -22,12 +22,13 @@ import { api } from "../../../api";
 import { useWorkspace } from "../../../shell/useWorkspaceData";
 import type { HookSecret, InputDef, ListenerView, StartOn, Step } from "../../../types";
 import { Button, Checkbox, Chip, ConfirmDialog, Field, ICON, Labelled, NumberInput, Select, TextInput, useToast } from "../../../ui";
+import { TemplateField } from "./TemplateField";
 import { attempt } from "../../_work/useAsync";
 import { FIRE_ON, OVERLAPS, START_EVENTS } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
 import { HookSecretNote } from "../HookSecretNote";
 import { shownFor } from "../hookSecretsModel.mjs";
-import { DEFAULT_ACCOUNT, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, withConnector, withOperation, withParam } from "./connectorStepModel.mjs";
+import { DEFAULT_ACCOUNT, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam } from "./connectorStepModel.mjs";
 import { AgentFilterFields } from "./AgentFilterFields";
 import type { StartOnEx } from "./eventFilters";
 import { GoalFilterFields } from "./GoalFilterFields";
@@ -60,13 +61,18 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
   const operation = reads.find((o) => o.id === on.operation) ?? null;
   const accountInputs = inputs.filter((i) => i.kind === "account" && on.connector != null && i.connector === on.connector);
   const params = on.params ?? {};
-  // What the start names and the pickers do not offer — a connector gone from here, a write where only a read goes — is said in the picker.
+  // What the start names and the pickers do not offer — a connector gone from here, a write where only a read goes, an account or an input no longer here — is said in the picker.
   const notInstalled = strayConnector(on.connector, connectors.rows);
   const notARead = strayOperation(on.operation, reads, def ? def.operations : null);
+  const notAnAccount = strayAccount(on.account, detail.data ? accounts : null, inputs, on.connector);
+  const declared = operation?.params ?? [];
+  // A stray is judged against the definition, never against one not read yet.
+  const stray = def ? strayParams(params, declared) : [];
+  const setParam = (name: string, value: string) => onChange({ ...on, params: withParam(params, name, value) });
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-3 @sm:grid-cols-2">
-        <Field label={t("workflow-step-kinds-connector")} hint={connectors.rows.length === 0 ? t("workflow-connector-step-form-nothing-installed-here-yet-settings-connectors") : t("workflow-connector-step-form-connector-installed-here-slug")}>
+        <Field label={t("workflow-step-kinds-connector")} hint={connectorPickerHint({ count: connectors.rows.length, error: connectors.error })}>
           <Select className="font-mono" value={on.connector ?? ""} disabled={disabled} onChange={(e) => onChange(withConnector(on, e.target.value))}>
             <option value="">{t("workflow-connector-step-form-pick-connector")}</option>
             {connectors.rows.map((c) => (
@@ -77,7 +83,7 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
             {on.connector != null && notInstalled !== null && <option value={on.connector}>{notInstalled}</option>}
           </Select>
         </Field>
-        <Field label={t("workflow-connector-step-form-operation")} hint={operation ? operation.description : t("workflow-start-step-form-poll-reads-only")}>
+        <Field label={t("workflow-connector-step-form-operation")} hint={definitionHint(detail.error, operation ? operation.description : t("workflow-start-step-form-poll-reads-only"))}>
           <Select className="font-mono" value={on.operation ?? ""} disabled={disabled || !def} onChange={(e) => onChange(withOperation(on, e.target.value))}>
             <option value="">{t("workflow-connector-step-form-pick-operation")}</option>
             {reads.map((o) => (
@@ -89,9 +95,10 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
           </Select>
         </Field>
       </div>
-      <Field label={t("workflow-connector-step-form-account")} hint={t("workflow-connector-step-form-connector-s-default-account-node-one")}>
+      <Field label={t("workflow-connector-step-form-account")} hint={accountsNote({ loading: detail.loading, error: detail.error, count: accounts.length, inputs: accountInputs.length }) ?? undefined}>
         <Select value={accountValue(on.account)} disabled={disabled || !def} onChange={(e) => onChange({ ...on, account: accountFromValue(e.target.value) as typeof on.account })}>
           <option value={DEFAULT_ACCOUNT}>{t("workflow-connector-step-form-connector-s-default-account")}</option>
+          {notAnAccount !== null && <option value={accountValue(on.account)}>{notAnAccount}</option>}
           {accounts.length > 0 && (
             <optgroup label={t("workflow-connector-step-form-account-machine")}>
               {accounts.map((a) => (
@@ -110,23 +117,25 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
           )}
         </Select>
       </Field>
-      {(operation?.params ?? []).length > 0 && (
+      {(declared.length > 0 || stray.length > 0) && (
         <Labelled label={t("workflow-connector-step-form-parameters")} hint={t("workflow-start-step-form-poll-params-hint")}>
           <div className="flex flex-col gap-2">
-            {(operation?.params ?? []).map((p) => (
+            {declared.map((p) => (
               <div key={p.name} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-1.5">
                   <code className="font-mono text-2xs">{p.name}</code>
                   {p.required && <Chip tone="warn">{t("workflow-connector-step-form-required")}</Chip>}
                   <span className="truncate text-2xs text-text-dim">{p.label}</span>
                 </div>
-                <TextInput
-                  className="font-mono"
-                  value={params[p.name] ?? ""}
-                  aria-label={p.name}
-                  disabled={disabled}
-                  onChange={(e) => onChange({ ...on, params: withParam(params, p.name, e.target.value) })}
-                />
+                {/* Committed on blur or Enter, as the step form's: a value rewritten on every keystroke drops a space typed before a word. */}
+                <TemplateField value={params[p.name] ?? ""} disabled={disabled} ariaLabel={p.name} onCommit={(v) => setParam(p.name, v)} />
+              </div>
+            ))}
+            {stray.map((name) => (
+              <div key={name} className="flex items-center gap-1.5">
+                <code className="font-mono text-2xs text-danger">{name}</code>
+                <span className="text-2xs text-text-dim">{t("workflow-connector-step-form-not-parameter-operation")}</span>
+                <Button size="sm" variant="ghost" disabled={disabled} onClick={() => setParam(name, "")}>{t("workflow-connector-step-form-remove")}</Button>
               </div>
             ))}
           </div>

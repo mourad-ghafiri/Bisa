@@ -96,6 +96,22 @@ export function accountChoices(accounts) {
 }
 
 /**
+ * The line under an account input's picker: the read's failure when the
+ * accounts could not be read, *no account of X yet* when the machine holds
+ * none, nothing while the read is on its way or when it found some — never
+ * *no account* over a read that failed.
+ * @param {{connector: string | null, loading: boolean, error: string | null | undefined, count: number}} state
+ * @returns {{tone: "danger" | "quiet", text: string} | null}
+ */
+export function accountFieldNote({ connector, loading, error, count }) {
+  if (!connector) return null;
+  if (error) return { tone: "danger", text: t("workflow-inputs-form-accounts-not-read", { error }) };
+  if (loading) return null;
+  if (count === 0) return { tone: "quiet", text: t("workflow-inputs-form-no-account-on-machine", { connector }) };
+  return null;
+}
+
+/**
  * The body `POST /goals/{id}/run` takes: every input the definition declares,
  * typed by its kind, with blanks dropped so the node's defaults apply.
  */

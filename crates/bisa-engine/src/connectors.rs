@@ -1004,6 +1004,18 @@ async fn finish_flow(
     Ok((flow.connector, flow.account))
 }
 
+/// The browser came back with the platform's refusal — the person declined,
+/// or the platform would not: the flow it names is over, and the listener
+/// need not wait for it. Only a state the flow holds abandons one; anything
+/// else abandons nothing. Answers what the flow was about.
+pub fn oauth_abandon(inner: &Inner, state: &str) -> Option<(ConnectorId, AccountId)> {
+    inner
+        .connectors
+        .pending
+        .remove(state)
+        .map(|(_, f)| (f.connector, f.account))
+}
+
 /// The browser came back: exchange the code for tokens and keep them.
 pub async fn oauth_complete(
     inner: &Inner,
@@ -1154,6 +1166,21 @@ pub async fn check_account(
             reason: Some("the connector names no check operation".into()),
         });
     };
+    // No way in to try: an account that holds no secret for its scheme
+    // would be refused before any request, as not authenticated — said
+    // here in words, with no status the platform never gave.
+    let missing = acct.missing(&def.auth);
+    if !missing.is_empty() {
+        let fields: Vec<&str> = missing.iter().map(|f| f.as_str()).collect();
+        return Ok(AccountCheck {
+            state: AccountCheckState::Refused,
+            status: None,
+            reason: Some(format!(
+                "the account holds no {}; connect it first",
+                fields.join(", ")
+            )),
+        });
+    }
     // The hosts a call may reach: the declared ones and, for an OAuth2
     // scheme, the consent page's and the token endpoint's.
     let declared = def.declared_hosts();
@@ -1255,13 +1282,16 @@ pub fn remove_connector(inner: &Inner, id: &ConnectorId) -> Result<(), EngineErr
     Ok(())
 }
 
-/// Add an account and, in the same breath, the secrets it arrived with.
+/// Add an account and, in the same breath, the secrets it arrived with —
+/// judged before the account is made, so a blank or a stray secret refuses
+/// the whole and leaves no account behind.
 pub fn put_account(
     inner: &Inner,
     new: NewConnectorAccount,
     secrets: BTreeMap<SecretField, String>,
 ) -> Result<ConnectorAccount, EngineError> {
     let connector = new.connector.clone();
+    inner.ws.validate_connector_secrets(&connector, &secrets)?;
     let mut account = inner.ws.create_connector_account(new)?;
     if !secrets.is_empty() {
         account = inner
@@ -1356,8 +1386,9 @@ pub struct RosterConnector {
     pub name: String,
     pub description: String,
     pub auth: &'static str,
-    /// `(id, label, default)`.
-    pub accounts: Vec<(AccountId, String, bool)>,
+    /// `(id, label, default, connected)` — connected when the account holds
+    /// every secret its scheme reads.
+    pub accounts: Vec<(AccountId, String, bool, bool)>,
     pub operations: Vec<RosterOp>,
 }
 
@@ -1385,7 +1416,7 @@ impl ConnectorRoster {
                 accounts: accounts
                     .iter()
                     .filter(|a| a.connector == c.id)
-                    .map(|a| (a.id, a.label.clone(), a.default))
+                    .map(|a| (a.id, a.label.clone(), a.default, a.is_connected(&c.auth)))
                     .collect(),
                 operations: c
                     .operations
@@ -1455,13 +1486,14 @@ impl ConnectorRoster {
             } else {
                 c.accounts
                     .iter()
-                    .map(|(_, label, default)| {
-                        if *default {
-                            format!("{label} (default)")
-                        } else {
-                            label.clone()
-                        }
-                    })
+                    .map(
+                        |(_, label, default, connected)| match (default, connected) {
+                            (true, true) => format!("{label} (default)"),
+                            (true, false) => format!("{label} (default, not connected)"),
+                            (false, true) => label.clone(),
+                            (false, false) => format!("{label} (not connected)"),
+                        },
+                    )
                     .collect::<Vec<_>>()
                     .join(", ")
             };
@@ -1621,8 +1653,9 @@ mod tests {
         ));
     }
 
-    /// The roster names every connector, its accounts by label and every
-    /// operation with its parameters — and never a value.
+    /// The roster names every connector, its accounts by label — whether
+    /// each is connected, never a value — and every operation with its
+    /// parameters.
     #[test]
     fn the_roster_renders_accounts_by_label_and_operations_with_params() {
         let account = ConnectorAccount {
@@ -1631,10 +1664,23 @@ mod tests {
             label: "work".into(),
             params: BTreeMap::new(),
             default: true,
+            auth: bisa_core::AccountAuth {
+                fields_set: vec![bisa_core::SecretField::Token],
+                expires_at: None,
+                scope: None,
+            },
+            created_at: 0,
+        };
+        let spare = ConnectorAccount {
+            id: AccountId::from_ulid(ulid::Ulid::from_parts(1, 2)),
+            connector: ConnectorId::new("slack").unwrap(),
+            label: "spare".into(),
+            params: BTreeMap::new(),
+            default: false,
             auth: Default::default(),
             created_at: 0,
         };
-        let roster = ConnectorRoster::from_parts(&[slack()], &[account]);
+        let roster = ConnectorRoster::from_parts(&[slack()], &[account, spare]);
         assert!(roster.holds(
             &ConnectorId::new("slack").unwrap(),
             &OperationId::new("post_message").unwrap()
@@ -1647,9 +1693,9 @@ mod tests {
         assert!(text.starts_with("CONNECTORS — installed here"), "{text}");
         assert!(
             text.contains(
-                "- slack \"Slack\" — Slack, the chat. [auth: bearer; accounts: work (default)]"
+                "- slack \"Slack\" — Slack, the chat. [auth: bearer; accounts: work (default), spare (not connected)]"
             ),
-            "{text}"
+            "the token held says connected, the bare account says not: {text}"
         );
         assert!(text.contains("· post_message \"Post a message\" — Posts into a channel. [POST; params: text (text, required); selects ts; writes]"), "{text}");
         assert!(ConnectorRoster::default()

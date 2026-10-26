@@ -108,12 +108,16 @@ impl Response {
     }
 }
 
-/// Why a request produced no response at all.
+/// Why a request produced no response at all. `Connect` never left this
+/// machine and is safe to send again; `Lost` went out and no answer came —
+/// the connection closed or broke before one — so the platform may have
+/// had it, and a write is never sent again on it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TransportError {
     Connect(String),
     Timeout,
     Body(String),
+    Lost(String),
 }
 
 impl fmt::Display for TransportError {
@@ -122,6 +126,7 @@ impl fmt::Display for TransportError {
             TransportError::Connect(why) => write!(f, "cannot connect: {why}"),
             TransportError::Timeout => f.write_str("timed out"),
             TransportError::Body(why) => write!(f, "cannot read the answer: {why}"),
+            TransportError::Lost(why) => write!(f, "the answer never came: {why}"),
         }
     }
 }
@@ -173,13 +178,24 @@ impl ReqwestTransport {
     fn client(&self, insecure_loopback: bool) -> Arc<reqwest::Client> {
         if insecure_loopback {
             Arc::clone(self.insecure.get_or_init(|| {
-                Arc::new(
-                    Clients::loopback_builder()
-                        .redirect(reqwest::redirect::Policy::none())
-                        .danger_accept_invalid_certs(true)
-                        .build()
-                        .unwrap_or_default(),
-                )
+                match Clients::loopback_builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .danger_accept_invalid_certs(true)
+                    .build()
+                {
+                    Ok(client) => Arc::new(client),
+                    // LCOV_EXCL_START: the same builder built the shared clients at boot; a failure here cannot be staged
+                    Err(e) => {
+                        // Never a default client — one that follows redirects
+                        // off the declared host: the strict client stands in,
+                        // and a self-signed certificate is refused, said once.
+                        tracing::error!(
+                            error = %e,
+                            "the loopback client could not be built; the strict client stands in and a self-signed certificate is refused"
+                        );
+                        self.http.strict()
+                    } // LCOV_EXCL_STOP
+                }
             }))
         } else {
             self.http.strict()
@@ -209,12 +225,18 @@ impl HttpTransport for ReqwestTransport {
             builder = builder.body(body.clone());
         }
         let mut resp = builder.send().await.map_err(|e| {
+            // reqwest's message can carry the URL, and the URL can carry a
+            // credential in its query; the error names the cause only.
             if e.is_timeout() {
                 TransportError::Timeout
-            } else {
-                // reqwest's message can carry the URL, and the URL can carry
-                // a credential in its query; the error names the cause only.
+            } else if e.is_connect() || e.is_builder() {
+                // Never left this machine: safe to send again.
                 TransportError::Connect(cause_of(&e))
+            } else {
+                // The request went out and the answer never came — the
+                // connection closed before a response: the platform may
+                // have had it.
+                TransportError::Lost(cause_of(&e))
             }
         })?;
         let status = resp.status().as_u16();

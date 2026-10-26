@@ -17,6 +17,7 @@ tags = ["marketing", "content"]
 base_url = "https://www.googleapis.com"
 hosts = ["www.googleapis.com"]
 check = "my_channel"
+revision = 1
 
 [connector.auth]
 scheme = "oauth2"

@@ -349,3 +349,33 @@ pub async fn addon(ctx: &Ctx, out: &Out, cmd: AddonCmd) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A grant's words name what it reaches: a media grant its hosts and the
+    /// YouTube player beside them when it is set, a network grant its hosts,
+    /// any other its word alone; no grant at all is said as none.
+    #[test]
+    fn a_grants_words_name_its_hosts_and_the_player() {
+        assert_eq!(words_of(&[]), "none");
+        assert_eq!(
+            words_of(&[
+                AddonPermission::Media {
+                    hosts: vec!["cdn.example".into(), "*".into()],
+                    youtube: true,
+                },
+                AddonPermission::Media {
+                    hosts: vec![],
+                    youtube: false,
+                },
+                AddonPermission::Network {
+                    hosts: vec!["api.example.com".into()],
+                },
+                AddonPermission::Storage,
+            ]),
+            "media (cdn.example, *, youtube), media (), network (api.example.com), storage"
+        );
+    }
+}

@@ -1683,6 +1683,16 @@ mod tests {
         assert_eq!(labels[9], "goal {inputs.goal} to be closed · deleted");
         assert_eq!(labels[10], "a workflow to be saved");
         assert_eq!(labels[11], "agent:reviewer to be done");
+        let any_agent = wait_label(&WaitFor::Agent {
+            filter: bisa_core::AgentFilter {
+                agent: None,
+                project: None,
+                harness: None,
+                change: bisa_core::AgentChange::Failed.into(),
+            },
+        });
+        said(&any_agent);
+        assert_eq!(any_agent, "an agent to fail");
         assert_eq!(
             wait_label(&WaitFor::Message {
                 filter: MessageFilter::default()

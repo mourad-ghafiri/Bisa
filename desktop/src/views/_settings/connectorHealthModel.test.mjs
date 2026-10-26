@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CHECK_ALL_AT_ONCE, checkTargets, healthDetail, healthTone, healthWords } from "./connectorHealthModel.mjs";
+import { CHECK_ALL_AT_ONCE, checkAllSummary, checkTargets, detailReloads, healthDetail, healthTone, healthWords, listReloads } from "./connectorHealthModel.mjs";
 
 test("a row's health reads as a tone and words, the platform's reason under a failing one", () => {
   assert.equal(healthTone(undefined), "quiet");
@@ -29,4 +29,29 @@ test("Check all dials the accounts that can answer, of connectors that name a ch
   assert.deepEqual(checkTargets(mute), [], "no check operation, nothing to dial");
   assert.deepEqual(checkTargets(undefined), []);
   assert.equal(CHECK_ALL_AT_ONCE, 4);
+});
+
+// added by the connectors quality programme
+
+test("a health with no check word reads by its state; Check all says how many connectors it could not read, and nothing when it read them all", () => {
+  assert.equal(healthWords({ state: "ok", check: null, status: 200 }), "connected (200)");
+  assert.equal(healthWords({ state: "ok", check: null }), "connected");
+  assert.equal(healthWords({ state: "failing", check: null }), "failing");
+  assert.equal(healthWords({ state: "failing", check: "refused", status: null }), "refused", "no status, no parenthesis");
+  assert.equal(checkAllSummary({ queued: 3, unread: 0 }), null);
+  assert.equal(checkAllSummary({ queued: 0, unread: 0 }), null);
+  assert.equal(checkAllSummary({ queued: 2, unread: 1 }), "1 connector could not be read; its accounts were not checked.");
+  assert.equal(checkAllSummary({ queued: 0, unread: 2 }), "2 connectors could not be read; their accounts were not checked.");
+});
+
+test("a change moves the list and every detail; a check moves only the detail of the connector it was about, and nothing while none is chosen", () => {
+  assert.equal(listReloads({ type: "connectors_changed", what: "accounts" }), true);
+  assert.equal(listReloads({ type: "connector_checked", connector: "slack", account: "a", ok: true }), false, "the list's rows carry no health");
+  assert.equal(listReloads({ type: "run_finished" }), false);
+  assert.equal(listReloads(null), false);
+  assert.equal(detailReloads({ type: "connectors_changed", what: "definitions" }, "slack"), true);
+  assert.equal(detailReloads({ type: "connector_checked", connector: "slack", account: "a", ok: false }, "slack"), true);
+  assert.equal(detailReloads({ type: "connector_checked", connector: "jira", account: "a", ok: true }, "slack"), false, "another connector's check");
+  assert.equal(detailReloads({ type: "connectors_changed", what: "accounts" }, null), false, "no detail while none is chosen");
+  assert.equal(detailReloads({ type: "run_finished" }, "slack"), false);
 });

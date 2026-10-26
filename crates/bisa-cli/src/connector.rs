@@ -485,7 +485,7 @@ async fn new(ctx: &Ctx, out: &Out, from: &str, id: Option<&str>) -> Result<()> {
         let v = client.post("/connectors", definition_json(&new)).await?;
         out.say(&bisa_core::text!(
             "cli-connector-connector-recorded",
-            a0 = (v["connector"]["id"]).to_string()
+            a0 = (v["connector"]["id"].as_str().unwrap_or_default()).to_string()
         ));
         out.json_value(v);
         return Ok(());
@@ -642,9 +642,34 @@ async fn add_account(
         })
         .to_string()
     ));
-    out.json_value(account_json(&account));
+    out.json_value(account_row_json(engine.workspace(), &account)?);
     engine.shutdown().await;
     Ok(())
+}
+
+/// The account as `PUT /connectors/{cid}/accounts` answers it — the node's
+/// own row, so a script reads one shape with or without a daemon — with the
+/// token's expiry and scope at the top level too, as this verb has always
+/// printed them. The health is unknown: nothing has checked an account just
+/// made.
+fn account_row_json(ws: &bisa_store::Workspace, a: &bisa_core::ConnectorAccount) -> Result<Value> {
+    let def = ws.get_connector(&a.connector)?;
+    let source = ws.connector_account_secrets(&a.connector, a.id)?.source;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let row = bisa_node::dto::ConnectorAccountRow::from_parts(
+        a,
+        &def.auth,
+        source,
+        now,
+        bisa_engine::connector_health::AccountHealthView::unknown(),
+    );
+    let mut v = serde_json::to_value(row)?;
+    v["expires_at"] = json!(a.auth.expires_at);
+    v["scope"] = json!(a.auth.scope);
+    Ok(v)
 }
 
 async fn check(
@@ -746,9 +771,9 @@ async fn rm_account(ctx: &Ctx, out: &Out, connector: &str, account: &str) -> Res
 }
 
 /// The OAuth consent flow from a terminal: start it, print the URL, and
-/// finish it with the code the platform shows — the browser's redirect lands
-/// on the node's own listener when the node runs, so the paste is only
-/// needed when it does not.
+/// finish it — with the code the platform shows, pasted and entered, or
+/// with the browser landing on the node's own listener, whichever comes
+/// first. The verb ends on either; it never waits for an Enter nobody owes.
 async fn connect(ctx: &Ctx, out: &Out, connector: &str, account: &str) -> Result<()> {
     let cid = connector_id(connector)?;
     let aid = account_id(account)?;
@@ -757,6 +782,9 @@ async fn connect(ctx: &Ctx, out: &Out, connector: &str, account: &str) -> Result
             "cli-connector-connecting-oauth-account-needs-node-hosts"
         ));
     };
+    // The row as it stands before the flow: the browser's landing is read
+    // as a change to it.
+    let before = account_row(&client, &cid, aid).await?;
     let started = client
         .post(
             &format!("/connectors/{cid}/accounts/{aid}/oauth/start"),
@@ -775,10 +803,40 @@ async fn connect(ctx: &Ctx, out: &Out, connector: &str, account: &str) -> Result
     out.say(&bisa_core::text!(
         "cli-connector-shows-you-code-instead-paste-here"
     ));
-    let code = std::io::read_to_string(std::io::stdin())
-        .context(bisa_core::text!("cli-connector-reading-code"))?
-        .trim()
-        .to_string();
+    // The code the person pastes — one line, Enter — or the browser landing
+    // on the node's page, whichever comes first. The reader is a thread of
+    // its own: the runtime then waits for no blocking task when the landing
+    // wins and the line never comes.
+    let (tx, rx) = tokio::sync::oneshot::channel::<std::io::Result<String>>();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let read = std::io::stdin().read_line(&mut line).map(|_| line);
+        // Nobody listening: the landing won.
+        let _landed_first = tx.send(read);
+    });
+    let expires_at = started["expires_at"].as_u64();
+    let code = tokio::select! {
+        pasted = rx => pasted
+            .unwrap_or_else(|_reader_gone| Ok(String::new()))
+            .context(bisa_core::text!("cli-connector-reading-code"))?
+            .trim()
+            .to_string(),
+        landed = landing(&client, &cid, aid, &before, expires_at) => {
+            if landed {
+                out.say(&bisa_core::text!(
+                    "cli-connector-account-connected",
+                    aid = aid.to_string(),
+                    cid = cid.to_string()
+                ));
+                out.json_value(json!({ "account": aid, "connected": true }));
+            } else {
+                // LCOV_EXCL_START: a flow lives ten minutes; no journey waits for it to expire
+                out.say(&bisa_core::text!("cli-connector-flow-expired-start-again"));
+                out.json_value(started);
+            } // LCOV_EXCL_STOP
+            return Ok(());
+        }
+    };
     if code.is_empty() {
         out.say(&bisa_core::text!(
             "cli-connector-nothing-pasted-flow-stays-open-until"
@@ -799,4 +857,121 @@ async fn connect(ctx: &Ctx, out: &Out, connector: &str, account: &str) -> Result
     ));
     out.json_value(done);
     Ok(())
+}
+
+/// The account's row as `GET /connectors/{cid}/accounts` lists it, or null
+/// when the node lists no such account.
+async fn account_row(
+    client: &crate::client::NodeClient,
+    cid: &ConnectorId,
+    aid: AccountId,
+) -> Result<Value> {
+    let rows = client.get(&format!("/connectors/{cid}/accounts")).await?;
+    Ok(rows["accounts"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["id"] == json!(aid)))
+        .cloned()
+        .unwrap_or(Value::Null))
+}
+
+/// Whether the browser landed since `before`: the row now holds a token it
+/// did not, the tokens were issued anew — a moved expiry — or the reconnect
+/// forgot the account's health. An unchanged row says nothing landed.
+fn landed(before: &Value, now: &Value) -> bool {
+    let holds_token = |row: &Value| {
+        row["secrets_set"]
+            .as_array()
+            .is_some_and(|fields| fields.iter().any(|f| f == "access_token"))
+    };
+    if !holds_token(now) {
+        return false;
+    }
+    if !holds_token(before) {
+        return true;
+    }
+    let expiry = |row: &Value| row["oauth"]["expires_at"].as_u64();
+    if expiry(now) != expiry(before) {
+        return true;
+    }
+    before["health"]["state"] != json!("unknown") && now["health"]["state"] == json!("unknown")
+}
+
+/// Asks the node once a second whether the browser landed — the account's
+/// row moved as a landing moves it — until it did (`true`) or the flow's
+/// lifetime passed (`false`); without an expiry, until it did.
+async fn landing(
+    client: &crate::client::NodeClient,
+    cid: &ConnectorId,
+    aid: AccountId,
+    before: &Value,
+    expires_at: Option<u64>,
+) -> bool {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        // A row the node could not list reads as none: nothing landed yet.
+        let now = account_row(client, cid, aid).await.unwrap_or(Value::Null);
+        if landed(before, &now) {
+            return true;
+        }
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if expires_at.is_some_and(|at| now_secs >= at) {
+            // LCOV_EXCL_START: a flow lives ten minutes; no journey waits for it to expire
+            return false;
+            // LCOV_EXCL_STOP
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::landed;
+    use serde_json::json;
+
+    /// The browser landed when the row now holds a token it did not, when
+    /// the tokens were issued anew — a moved expiry — or when the reconnect
+    /// forgot the health; an unchanged row, or one still without a token,
+    /// says nothing landed.
+    #[test]
+    fn a_landing_is_read_as_a_change_to_the_accounts_row() {
+        let row = |secrets: &[&str], expires_at: Option<u64>, health: &str| json!({"secrets_set": secrets, "oauth": {"expires_at": expires_at}, "health": {"state": health}});
+        assert!(
+            landed(
+                &row(&["client_id"], None, "unknown"),
+                &row(&["client_id", "access_token"], Some(5), "unknown")
+            ),
+            "a token now held"
+        );
+        assert!(
+            !landed(
+                &row(&["client_id"], None, "unknown"),
+                &row(&["client_id"], None, "unknown")
+            ),
+            "still no token"
+        );
+        assert!(
+            landed(
+                &row(&["access_token"], Some(5), "ok"),
+                &row(&["access_token"], Some(9), "unknown")
+            ),
+            "tokens issued anew"
+        );
+        assert!(
+            landed(
+                &row(&["access_token"], None, "ok"),
+                &row(&["access_token"], None, "unknown")
+            ),
+            "the reconnect forgot the health"
+        );
+        assert!(
+            !landed(
+                &row(&["access_token"], Some(5), "ok"),
+                &row(&["access_token"], Some(5), "ok")
+            ),
+            "nothing moved"
+        );
+        assert!(!landed(&json!(null), &json!(null)), "no row at all");
+    }
 }

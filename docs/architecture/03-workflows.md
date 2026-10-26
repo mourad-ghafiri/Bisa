@@ -1452,9 +1452,13 @@ probes) — and the selected answer through the redactor. An account check runs 
 its own (`check_budget`: twenty seconds unsaid, one to sixty at the caller's word; the permit's
 wait and the request together), is kept as the account's **health** (`connector_health.rs`: in
 memory, per account, for the engine's lifetime; a second ask joins the running check; a check
-whose caller went away leaves no slot behind), is told to the bus (`ConnectorChecked { connector,
-account, ok }`, topic `connectors.checked`) and is forgotten wherever the way in changes — secrets
-set, a parameter edited, connected again, the definition changed or refreshed, the account gone. **A write is keyed or
+whose caller went away leaves no slot behind; a verdict that lands after the way in moved under
+it — secrets set, the account forgotten — answers its caller and is not kept; an account with no
+secret for its scheme is refused in words with no status, the platform never asked), is told to
+the bus (`ConnectorChecked { connector, account, ok }`, topic `connectors.checked`) and is
+forgotten wherever the way in changes — secrets set, a parameter edited, connected again, the
+definition changed or refreshed, the account gone. An agent's read is bounded as a poll's: the
+operation's deadline plus the engine's overhead, the permit's wait included. **A write is keyed or
 stopped:** a step whose operation names an `idempotency` header sends `step_key(run, step)` on
 every attempt, so a retry, a re-run and a restart do the thing once; a step whose write has no key
 and fails ambiguously — a timeout, a connection lost after it was made, a 5xx after sending — is

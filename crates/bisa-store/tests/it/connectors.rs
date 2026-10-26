@@ -331,3 +331,65 @@ fn a_catalog_connector_is_refreshed_to_the_bundles_revision_and_its_secret_moves
         .definitions
         .is_empty());
 }
+
+// added by the connectors quality programme: a refusal writes nothing
+
+/// A blank secret, or one the scheme does not use, is refused whole before
+/// anything is written: the fields beside it stay unset, and no value sits
+/// in the keystore under a name no record lists.
+#[test]
+fn a_blank_or_stray_secret_writes_nothing() {
+    let (_dir, ws) = ws();
+    ws.install(CatalogKind::Connector, "jira").unwrap();
+    let jira = ConnectorId::new("jira").unwrap();
+    let account = ws
+        .create_connector_account(NewConnectorAccount {
+            connector: jira.clone(),
+            label: "work".into(),
+            params: BTreeMap::from([("site".to_string(), serde_json::json!("acme"))]),
+            default: true,
+        })
+        .unwrap();
+    // `username` sorts before `password`: judged whole, the good one is not
+    // written before the blank one refuses.
+    let blank = BTreeMap::from([
+        (SecretField::Username, "me".to_string()),
+        (SecretField::Password, "   ".to_string()),
+    ]);
+    assert!(ws.validate_connector_secrets(&jira, &blank).is_err());
+    assert!(ws.set_connector_secrets(&jira, account.id, &blank).is_err());
+    assert_eq!(
+        ws.connector_account_secrets(&jira, account.id)
+            .unwrap()
+            .fields_set,
+        Vec::<SecretField>::new(),
+        "nothing learnt"
+    );
+    assert_eq!(
+        ws.connector_secret(&jira, account.id, SecretField::Username)
+            .unwrap(),
+        None,
+        "nothing kept"
+    );
+    let stray = BTreeMap::from([
+        (SecretField::Username, "me".to_string()),
+        (SecretField::Token, "t".to_string()),
+    ]);
+    assert!(ws.validate_connector_secrets(&jira, &stray).is_err());
+    assert!(ws.set_connector_secrets(&jira, account.id, &stray).is_err());
+    assert_eq!(
+        ws.connector_secret(&jira, account.id, SecretField::Username)
+            .unwrap(),
+        None
+    );
+    let good = BTreeMap::from([
+        (SecretField::Username, "me".to_string()),
+        (SecretField::Password, "pw".to_string()),
+    ]);
+    assert!(ws.validate_connector_secrets(&jira, &good).is_ok());
+    let with = ws.set_connector_secrets(&jira, account.id, &good).unwrap();
+    assert_eq!(
+        with.auth.fields_set,
+        vec![SecretField::Password, SecretField::Username]
+    );
+}

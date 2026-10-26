@@ -637,3 +637,68 @@ async fn an_oauth_url_is_checked_a_token_type_is_read_in_any_case_and_a_refresh_
         .unwrap();
     assert_eq!(untyped.access_token.expose(), "at-2");
 }
+
+// added by the connectors quality programme: one refresh under contention, on a 401 too
+
+/// Two calls meeting a 401 at the same moment refresh once: the second
+/// finds the token it used already replaced under the lock and resends on
+/// the new one without a second trip to the token endpoint.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_401s_at_once_refresh_once_and_both_resend_on_the_new_token() {
+    let stub = Stub::start(vec![
+        Canned::json("GET", "/v1/items/1", 401, json!({"message": "expired"})),
+        Canned::json("GET", "/v1/items/1", 401, json!({"message": "expired"})),
+        Canned::json(
+            "POST",
+            "/oauth/token",
+            200,
+            json!({"access_token": "at-2", "token_type": "Bearer"}),
+        ),
+        Canned::json(
+            "POST",
+            "/oauth/token",
+            200,
+            json!({"access_token": "at-3", "token_type": "Bearer"}),
+        ),
+        Canned::json("GET", "/v1/items/1", 200, json!({"ok": 1})),
+        Canned::json("GET", "/v1/items/1", 200, json!({"ok": 2})),
+    ])
+    .await;
+    let creds = MemoryCreds::with(
+        &account(),
+        Stored::default()
+            .with(Field::ClientId, "cid")
+            .with(Field::AccessToken, "at-1")
+            .with(Field::RefreshToken, "rt-1"),
+    );
+    let client = std::sync::Arc::new(client(creds.clone()));
+    let spec = spec(&stub, oauth(stub.base_url(), BTreeMap::new()));
+    let acct = account();
+    let none = no_account_params();
+    let ps = params(&[("id", "1")]);
+    let (a, b) = tokio::join!(
+        client.call(&spec, Some(&acct), &none, &ps, &AllowAll),
+        client.call(&spec, Some(&acct), &none, &ps, &AllowAll),
+    );
+    a.unwrap();
+    b.unwrap();
+    let refreshes = stub
+        .calls()
+        .iter()
+        .filter(|c| c.path == "/oauth/token")
+        .count();
+    assert_eq!(refreshes, 1, "one refresh for two 401s");
+    assert_eq!(creds.saves(), 1);
+    let bearers: Vec<Option<String>> = stub
+        .calls()
+        .iter()
+        .filter(|c| c.path == "/v1/items/1")
+        .skip(2)
+        .map(|c| c.authorization.clone())
+        .collect();
+    assert_eq!(bearers.len(), 2, "both resent, once each");
+    assert!(
+        bearers.iter().all(|b| b.as_deref() == Some("Bearer at-2")),
+        "{bearers:?}"
+    );
+}

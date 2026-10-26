@@ -185,6 +185,7 @@ cli-connector-no-connectors-yet-bisa-catalog-install = no connectors yet — `bi
 cli-connector-not-account-id-bisa-connector-accounts = { $raw } is not an account id; `bisa connector accounts <id>` lists them
 cli-connector-not-secret-field = { $k } is not a secret field ({ $a0 })
 cli-connector-nothing-pasted-flow-stays-open-until = nothing pasted; the flow stays open until it expires or the browser comes back
+cli-connector-flow-expired-start-again = The connection was not finished before the flow expired; start it again.
 cli-connector-now-default-account = { $aid } is now the default account of { $cid }
 cli-connector-only-one-secret-can-be-read = only one secret can be read from stdin at a time
 cli-connector-op-s-account-s = { $a0 } { $a1 } { $a2 } op(s) { $a3 } account(s) { $a4 } { $a5 }

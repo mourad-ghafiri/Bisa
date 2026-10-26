@@ -213,7 +213,8 @@ function InputRow({
               (kind === "choice"
                 ? { ...base, kind, options: [] }
                 : kind === "account"
-                  ? { ...base, kind, connector: connectors.rows[0]?.id ?? null }
+                  ? // No connector guessed: the validator's own problem asks which, and a list not read yet guesses nothing either.
+                    { ...base, kind, connector: null }
                   : { ...base, kind }) as InputDef,
             );
           }}

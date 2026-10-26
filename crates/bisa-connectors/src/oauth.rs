@@ -305,13 +305,27 @@ pub async fn exchange(
     Ok(tokens)
 }
 
-/// Trade the refresh token for a new access token, and keep the pair.
+/// Trade the refresh token for a new access token, and keep the pair —
+/// under the token endpoint's own deadline.
 pub async fn refresh(
     client: &Client,
     auth: &AuthSpec,
     account: &AccountRef,
     stored: &Stored,
     judge: &dyn HostJudge,
+) -> Result<TokenSet, ConnectorError> {
+    refresh_within(client, auth, account, stored, judge, client.oauth_timeout()).await
+}
+
+/// The refresh, under `timeout` — what is left of the call that needs the
+/// token, when one is on its way; never more than the endpoint's own.
+async fn refresh_within(
+    client: &Client,
+    auth: &AuthSpec,
+    account: &AccountRef,
+    stored: &Stored,
+    judge: &dyn HostJudge,
+    timeout: Duration,
 ) -> Result<TokenSet, ConnectorError> {
     let OAuthParts {
         token_url,
@@ -340,7 +354,7 @@ pub async fn refresh(
         client_id_param,
         stored,
         pairs,
-        client.oauth_timeout(),
+        timeout.min(client.oauth_timeout()),
     )?;
     let body = match token_body(client, &req, &secrets).await {
         Ok(body) => body,
@@ -362,13 +376,14 @@ pub async fn refresh(
 
 /// A usable access token: the stored one while it is not about to expire,
 /// else a refreshed one — refreshed once even when several calls ask at the
-/// same moment.
+/// same moment, and within `budget`, what the call that needs it has left.
 pub(crate) async fn ensure_fresh(
     client: &Client,
     auth: &AuthSpec,
     account: &AccountRef,
     stored: &Stored,
     judge: &dyn HostJudge,
+    budget: Duration,
 ) -> Result<Secret, ConnectorError> {
     let fresh = |s: &Stored| -> Option<Secret> {
         let token = s.field(crate::creds::Field::AccessToken)?.clone();
@@ -388,21 +403,32 @@ pub(crate) async fn ensure_fresh(
     if let Some(token) = fresh(&again) {
         return Ok(token);
     }
-    let tokens = refresh(client, auth, account, &again, judge).await?;
+    let tokens = refresh_within(client, auth, account, &again, judge, budget).await?;
     Ok(tokens.access_token)
 }
 
-/// Force a refresh — a 401 said the token no longer works whatever its expiry.
+/// Force a refresh — a 401 said the token no longer works whatever its
+/// expiry. Once under contention: `used` is the token the refused request
+/// carried, and a flight that finds another one already stored under the
+/// lock takes that one rather than refreshing again.
 pub(crate) async fn force_refresh(
     client: &Client,
     auth: &AuthSpec,
     account: &AccountRef,
+    used: Option<&Secret>,
     judge: &dyn HostJudge,
+    budget: Duration,
 ) -> Result<Secret, ConnectorError> {
     let lock = client.refresh_lock(account);
     let _held = lock.lock().await;
     let stored = client.creds().load(account).await?;
-    let tokens = refresh(client, auth, account, &stored, judge).await?;
+    let replaced = stored
+        .field(crate::creds::Field::AccessToken)
+        .filter(|now| used.is_some_and(|u| u != *now));
+    if let Some(now) = replaced {
+        return Ok(now.clone());
+    }
+    let tokens = refresh_within(client, auth, account, &stored, judge, budget).await?;
     Ok(tokens.access_token)
 }
 

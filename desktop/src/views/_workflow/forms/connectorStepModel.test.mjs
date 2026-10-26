@@ -3,7 +3,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
+import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
 
 test("the account travels as one select value and comes back as the step's shape", () => {
   assert.equal(accountValue(null), DEFAULT_ACCOUNT);
@@ -75,4 +75,40 @@ test("the unattended switch has a label and a longer hint, in the catalog's word
   assert.ok(UNATTENDED_LABEL.length > 0 && UNATTENDED_HINT.length > UNATTENDED_LABEL.length);
   assert.notEqual(UNATTENDED_LABEL, UNATTENDED_HINT);
   assert.ok(!/^workflow-/.test(UNATTENDED_LABEL) && !/^workflow-/.test(UNATTENDED_HINT), "said, never a bare message id");
+});
+
+// added by the connectors quality programme
+
+test("an account the call names and the picker does not offer is said in the picker — gone from this machine, an input gone, not an account input, or another connector's — never the default over it", () => {
+  const inputs = [
+    { name: "who", kind: "account", connector: "slack" },
+    { name: "other", kind: "account", connector: "jira" },
+    { name: "none", kind: "account", connector: null },
+    { name: "title", kind: "text" },
+  ];
+  const here = [{ id: "a1" }, { id: "a2" }];
+  assert.equal(strayAccount(null, here, inputs, "slack"), null, "the default");
+  assert.equal(strayAccount("a1", here, inputs, "slack"), null, "one of this machine's");
+  assert.equal(strayAccount("gone", here, inputs, "slack"), "gone (not an account on this machine)");
+  assert.equal(strayAccount("gone", null, inputs, "slack"), null, "nothing said while the accounts are not read");
+  assert.equal(strayAccount({ input: "who" }, here, inputs, "slack"), null);
+  assert.equal(strayAccount({ input: "who" }, null, inputs, "slack"), null, "an input needs no read");
+  assert.equal(strayAccount({ input: "vanished" }, here, inputs, "slack"), "input · vanished (no such input)");
+  assert.equal(strayAccount({ input: "title" }, here, inputs, "slack"), "input · title (not an account input)");
+  assert.equal(strayAccount({ input: "other" }, here, inputs, "slack"), "input · other (an account of jira, not slack)");
+  assert.equal(strayAccount({ input: "none" }, here, inputs, "slack"), "input · none (an account input naming no connector)");
+  assert.equal(strayAccount({ input: "none" }, here, inputs, null), null, "a call naming no connector either: the same nothing");
+});
+
+test("a read that failed is said as such — never nothing installed, never no account — and the operation's hint is the one place the definition's failure stands", () => {
+  assert.equal(connectorPickerHint({ count: 0, error: null }), "Nothing is installed here yet — Settings › Capabilities › Connectors.");
+  assert.equal(connectorPickerHint({ count: 2, error: null }), "A connector installed here, by slug.");
+  assert.equal(connectorPickerHint({ count: 0, error: "the node is away" }), "The connectors could not be read: the node is away");
+  assert.equal(definitionHint(null, "Posts a message."), "Posts a message.");
+  assert.equal(definitionHint("refused", "Posts a message."), "The connector's definition could not be read: refused");
+  assert.equal(accountsNote({ loading: true, error: null, count: 0, inputs: 0 }), null, "nothing over a read on its way");
+  assert.equal(accountsNote({ loading: false, error: "refused", count: 0, inputs: 0 }), null, "the operation's hint says it");
+  assert.ok(accountsNote({ loading: false, error: null, count: 0, inputs: 0 }).startsWith("This machine holds no account"));
+  assert.ok(accountsNote({ loading: false, error: null, count: 0, inputs: 1 }).startsWith("The connector's default account"), "an input stands in");
+  assert.ok(accountsNote({ loading: false, error: null, count: 2, inputs: 0 }).startsWith("The connector's default account"));
 });

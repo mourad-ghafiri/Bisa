@@ -9,7 +9,7 @@ import { test } from "node:test";
 
 import { readFileSync } from "node:fs";
 
-import { INPUT_KINDS, accountChoices, idProblem, idProblemWords, initialValues, inputHint, inputKindWords, nextInputName, optionsFrom, optionsText, toRequest, validateInputs } from "./workflowForm.mjs";
+import { INPUT_KINDS, accountChoices, accountFieldNote, idProblem, idProblemWords, initialValues, inputHint, inputKindWords, nextInputName, optionsFrom, optionsText, toRequest, validateInputs } from "./workflowForm.mjs";
 
 const inputs = [
   { name: "who", label: "Who", kind: "text", required: true },
@@ -152,4 +152,14 @@ test("a choice's options are typed as a draft — commas and all — and read on
   assert.equal(optionsText(undefined), "");
   assert.deepEqual(optionsFrom("prod, staging,, prod ,qa"), ["prod", "staging", "qa"]);
   assert.deepEqual(optionsFrom(""), []);
+});
+
+// added by the connectors quality programme
+
+test("an account input's picker says a read that failed as such, no account yet when the machine holds none, and nothing while reading or when it found some", () => {
+  assert.equal(accountFieldNote({ connector: null, loading: false, error: null, count: 0 }), null, "no connector named: nothing to read");
+  assert.equal(accountFieldNote({ connector: "slack", loading: true, error: null, count: 0 }), null, "on its way");
+  assert.deepEqual(accountFieldNote({ connector: "slack", loading: false, error: "the node is away", count: 0 }), { tone: "danger", text: "The accounts could not be read: the node is away" });
+  assert.deepEqual(accountFieldNote({ connector: "slack", loading: false, error: null, count: 0 }), { tone: "quiet", text: "This machine holds no account of slack yet — add one under Settings › Capabilities › Connectors." });
+  assert.equal(accountFieldNote({ connector: "slack", loading: false, error: null, count: 2 }), null);
 });

@@ -281,6 +281,27 @@ impl Sealed {
         child.wait_with_output().expect("the verb ends")
     }
 
+    /// One verb with words on its stdin and the pipe kept open after them —
+    /// a terminal where the person pressed Enter and sits — so a verb that
+    /// must end on the line, not on the pipe's end, is held to it. The
+    /// caller drops the pipe once the verb has ended.
+    pub fn bisa_stdin_open(&self, args: &[&str], input: &str) -> (Child, std::process::ChildStdin) {
+        let mut child = self
+            .command()
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the binary runs");
+        let mut stdin = child.stdin.take().expect("the verb's input");
+        stdin
+            .write_all(input.as_bytes())
+            .expect("the words, handed over");
+        stdin.flush().expect("the words, flushed");
+        (child, stdin)
+    }
+
     /// One verb with words on its stdin, asked as a script asks (`--json`),
     /// that must answer JSON.
     pub fn json_stdin(&self, args: &[&str], input: &str) -> Value {
@@ -716,13 +737,6 @@ impl Sealed {
     /// what the daemon and the agent had said by then.
     pub fn until<T>(&self, what: &str, probe: impl FnMut() -> Option<T>) -> T {
         self.until_within(what, PATIENCE, probe)
-    }
-
-    /// [`Self::until`], with twice the patience: for what takes the daemon
-    /// several of its own ticks and a run or two — a wait the whole
-    /// instrumented workspace running beside it has outrun once.
-    pub fn until_patiently<T>(&self, what: &str, probe: impl FnMut() -> Option<T>) -> T {
-        self.until_within(what, PATIENCE * 2, probe)
     }
 
     fn until_within<T>(

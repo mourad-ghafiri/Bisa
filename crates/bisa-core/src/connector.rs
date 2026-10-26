@@ -1612,15 +1612,24 @@ impl ConnectorAccount {
         out
     }
 
+    /// The secret fields the scheme needs that the account does not hold:
+    /// its access token under OAuth2 — the client's own id and secret are
+    /// the way to one, not the way in — else every field the scheme requires.
+    pub fn missing(&self, auth: &AuthScheme) -> Vec<SecretField> {
+        let needed: &[SecretField] = match auth {
+            AuthScheme::OAuth2 { .. } => &[SecretField::AccessToken],
+            other => other.required(),
+        };
+        needed
+            .iter()
+            .copied()
+            .filter(|f| !self.auth.fields_set.contains(f))
+            .collect()
+    }
+
     /// Whether every field the scheme requires is set.
     pub fn is_connected(&self, auth: &AuthScheme) -> bool {
-        match auth {
-            AuthScheme::OAuth2 { .. } => self.auth.fields_set.contains(&SecretField::AccessToken),
-            other => other
-                .required()
-                .iter()
-                .all(|f| self.auth.fields_set.contains(f)),
-        }
+        self.missing(auth).is_empty()
     }
 }
 
@@ -2331,6 +2340,7 @@ mod tests {
         };
         assert_eq!(account.validate(&c), vec![]);
         assert!(account.is_connected(&c.auth));
+        assert_eq!(account.missing(&c.auth), vec![]);
         let mut bad = account.clone();
         bad.label = String::new();
         bad.params = BTreeMap::from([("zone".to_string(), json!("eu"))]);
@@ -2338,6 +2348,11 @@ mod tests {
         let f = bad.validate(&c);
         assert_eq!(fields(&f), vec!["label", "params", "params", "auth"]);
         assert!(!bad.is_connected(&c.auth));
+        assert_eq!(
+            bad.missing(&c.auth),
+            vec![SecretField::Token],
+            "the field the scheme reads, not the one set"
+        );
         let json = serde_json::to_string(&account).unwrap();
         assert!(
             !json.contains("token\":"),
@@ -2656,11 +2671,17 @@ mod tests {
         }))
         .unwrap();
         assert!(account.is_connected(&oauth));
-        assert!(!ConnectorAccount {
+        assert_eq!(account.missing(&oauth), vec![]);
+        let bare = ConnectorAccount {
             auth: AccountAuth::default(),
             ..account
-        }
-        .is_connected(&oauth));
+        };
+        assert!(!bare.is_connected(&oauth));
+        assert_eq!(
+            bare.missing(&oauth),
+            vec![SecretField::AccessToken],
+            "the token is the way in; the client's own id is the way to one"
+        );
     }
 
     // added by the coverage pass: b5-connector.rs

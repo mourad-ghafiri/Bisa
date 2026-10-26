@@ -1071,6 +1071,7 @@ error-node-connectors-page-connected = Connected
 error-node-connectors-page-connected-close-window = Connected. You can close this window and return to Bisa.
 error-node-connectors-page-declined = The platform declined: { $why }. Start the connection again from Settings › Capabilities › Connectors.
 error-node-connectors-page-not-connected = Not connected
+error-node-connectors-page-refused = The platform refused to finish the connection: { $why }. Start the connection again from Settings › Capabilities › Connectors.
 error-node-connectors-page-stale-link = That link is stale or unknown. Start the connection again from Settings › Capabilities › Connectors.
 error-node-connectors-page-unreachable = The platform could not be reached to finish the connection. Start it again from Settings › Capabilities › Connectors.
 error-node-ide-changed-since-read = { $path } changed since you read it

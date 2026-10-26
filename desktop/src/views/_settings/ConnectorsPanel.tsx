@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, openExternal } from "../../api";
-import type { ConnectorAccountRow, ConnectorDefinition, ConnectorRow, ConnectorValidation, SecretField } from "../../types";
+import type { ConnectorAccountRow, ConnectorDefinition, ConnectorParamDef, ConnectorRow, ConnectorValidation, SecretField } from "../../types";
 import { Button, Card, Chip, ConfirmDialog, Dialog, EmptyState, ErrorNote, Field, ICON, MoreMenu, Pending, SecretInput, SecretTextArea, TextArea, TextInput, Tooltip, failureText, cn, useToast } from "../../ui";
 import type { MenuItem } from "../../ui";
 import { attempt } from "../_work/useAsync";
@@ -26,6 +26,7 @@ import { useConnectorDetail, useConnectors } from "../_workflow/useConnectors";
 import { pendingRows } from "./loadModel.mjs";
 import {
   SECRET_FIELD_LABEL,
+  SECRET_FIELD_WHAT,
   accountBody,
   accountDraft,
   accountRows,
@@ -33,14 +34,19 @@ import {
   addedWords,
   checkLine,
   connectApplies,
+  connectUriWords,
   connectWords,
   connectedWords,
   connectorLine,
   defaultWords,
   definitionOf,
   emptyDefinition,
+  flowLanded,
+  flowWords,
   forgottenWords,
   isYours,
+  mayEditDefinition,
+  mayPaste,
   maySaveAccount,
   needsAccount,
   oauthLine,
@@ -48,15 +54,18 @@ import {
   openedWords,
   originWords,
   parseDefinition,
+  pendingFlow,
   problemLines,
+  renamedProblem,
   saveRefusedWords,
+  savedWords,
   isMultilineSecret,
   secretFields,
   secretsLine,
-  secretsSetWords,
-  typedSecrets,
+  validationFor,
 } from "./connectorsModel.mjs";
-import { CHECK_ALL_AT_ONCE, checkTargets, healthDetail, healthTone, healthWords } from "./connectorHealthModel.mjs";
+import type { PendingFlow } from "./connectorsModel.mjs";
+import { CHECK_ALL_AT_ONCE, checkAllSummary, checkTargets, healthDetail, healthTone, healthWords } from "./connectorHealthModel.mjs";
 import { checkedWords } from "./mcpHealthModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
@@ -76,9 +85,9 @@ function SecretFields({ fields, value, storedFields, onChange }: { fields: Secre
       {fields.map((f) => (
         <Field key={f} label={SECRET_FIELD_LABEL[f]} hint={isMultilineSecret(f) ? t("settings-connectors-panel-paste-whole-pem-block-begin-end") : t("settings-connectors-panel-stored-keystore-machine-never-shown-back")}>
           {isMultilineSecret(f) ? (
-            <SecretTextArea what={SECRET_FIELD_LABEL[f].toLowerCase()} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
+            <SecretTextArea what={SECRET_FIELD_WHAT[f]} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
           ) : (
-            <SecretInput what={SECRET_FIELD_LABEL[f].toLowerCase()} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
+            <SecretInput what={SECRET_FIELD_WHAT[f]} value={value[f] ?? ""} stored={storedFields.includes(f)} onChange={(v) => onChange({ ...value, [f]: v })} />
           )}
         </Field>
       ))}
@@ -86,22 +95,28 @@ function SecretFields({ fields, value, storedFields, onChange }: { fields: Secre
   );
 }
 
-/** Add or edit an account: the label, the connector's parameters, the secrets. */
+/**
+ * Add or edit an account: the label, the connector's parameters, the
+ * secrets. The parameters are the card's reading of the definition — one
+ * detail read per card, not a second one per dialog — and `null` until it
+ * is read, when the form cannot ask and does not save.
+ */
 function AccountDialog({
   connector,
+  params,
   account,
   onClose,
   onSaved,
 }: {
   connector: ConnectorRow;
+  /** The definition's parameters as the card read them; null while unread. */
+  params: readonly ConnectorParamDef[] | null;
   /** Editing this account; adding one when null. */
   account: ConnectorAccountRow | null;
   onClose: () => void;
   onSaved: (row: ConnectorAccountRow) => void;
 }) {
   const toast = useToast();
-  const detail = useConnectorDetail(connector.id);
-  const params = detail.data?.connector.params ?? [];
   const [label, setLabel] = useState(() => accountDraft(account).label);
   const [values, setValues] = useState<Record<string, string>>(() => accountDraft(account).values);
   const [secrets, setSecrets] = useState<Secrets>({});
@@ -114,7 +129,8 @@ function AccountDialog({
       () => api.putConnectorAccount(connector.id, body),
       toast.error,
       (row) => {
-        toast.ok(account ? secretsSetWords(Object.keys(typedSecrets(secrets))) : addedWords(row.label));
+        // An edit says what moved — the label, a parameter, the secrets typed — and *Nothing changed.* only when nothing did.
+        toast.ok(account ? savedWords(body, account) : addedWords(row.label));
         onSaved(row);
       },
     );
@@ -125,7 +141,7 @@ function AccountDialog({
       footer={
         <>
           <Button variant="ghost" disabled={busy} onClick={onClose}>{t("settings-connectors-panel-cancel")}</Button>
-          <Button variant="primary" disabled={!maySaveAccount({ label, busy, definitionRead: detail.data !== null })} onClick={() => void save()}>{busy ? t("settings-connectors-panel-saving") : account ? t("settings-decisions-panel-save") : t("settings-code-host-panel-add-account")}</Button>
+          <Button variant="primary" disabled={!maySaveAccount({ label, busy, definitionRead: params !== null })} onClick={() => void save()}>{busy ? t("settings-connectors-panel-saving") : account ? t("settings-decisions-panel-save") : t("settings-code-host-panel-add-account")}</Button>
         </>
       }
     >
@@ -133,10 +149,9 @@ function AccountDialog({
         <Field label={t("settings-connectors-panel-label")} hint={t("settings-connectors-panel-how-account-named-here-work-personal")}>
           <TextInput value={label} autoFocus onChange={(e) => setLabel(e.target.value)} />
         </Field>
-        {/* The parameters the connector asks for are its definition's: until it is read the form cannot ask, and does not save. */}
-        {detail.error && <ErrorNote error={detail.error} retry={detail.reload} />}
-        {!detail.data && !detail.error && <Pending what={t("settings-connectors-panel-definition")} rows={pendingRows(t("settings-connectors-panel-definition"))} />}
-        {params.map((p) => (
+        {/* The parameters the connector asks for are its definition's: until it is read the form cannot ask, and does not save; the card says when the read failed. */}
+        {params === null && <Pending what={t("settings-connectors-panel-definition")} rows={pendingRows(t("settings-connectors-panel-definition"))} />}
+        {(params ?? []).map((p) => (
           <Field key={p.name} label={p.label || p.name} hint={p.doc || (p.required ? t("settings-connectors-panel-required") : undefined)}>
             <TextInput className="font-mono" value={values[p.name] ?? ""} onChange={(e) => setValues({ ...values, [p.name]: e.target.value })} />
           </Field>
@@ -152,7 +167,8 @@ function AccountDialog({
 function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDefinition | null; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const [text, setText] = useState(() => JSON.stringify(initial ?? emptyDefinition(), null, 2));
-  const [validation, setValidation] = useState<ConnectorValidation | null>(null);
+  // The node's word, and the text it was about: *Valid.* goes with the first character typed since.
+  const [seen, setSeen] = useState<{ text: string; validation: ConnectorValidation } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"validate" | "save" | null>(null);
   // The rules a definition is held to are reference for the one writing it: folded under one line, never a wall over the editor.
@@ -169,8 +185,9 @@ function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDef
   const validate = async () => {
     const def = parsed();
     if (!def) return;
+    const typed = text;
     setBusy("validate");
-    await attempt(() => api.validateConnector(def), toast.error, setValidation);
+    await attempt(() => api.validateConnector(def), toast.error, (v) => setSeen({ text: typed, validation: v }));
     setBusy(null);
   };
   // Nothing is written before the node has read it: Save validates first,
@@ -178,15 +195,22 @@ function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDef
   const save = async () => {
     const def = parsed();
     if (!def) return;
+    // A renamed id is refused by the node after the round trip; said here, before it.
+    const renamedNow = renamedProblem(initial?.id ?? null, def);
+    if (renamedNow) {
+      toast.error(renamedNow);
+      return;
+    }
+    const typed = text;
     setBusy("save");
-    const seen: { validation: ConnectorValidation | null } = { validation: null };
+    const read: { validation: ConnectorValidation | null } = { validation: null };
     await attempt(() => api.validateConnector(def), toast.error, (v) => {
-      seen.validation = v;
-      setValidation(v);
+      read.validation = v;
+      setSeen({ text: typed, validation: v });
     });
-    const found = problemLines(seen.validation);
-    if (!seen.validation || found.length > 0) {
-      if (seen.validation) toast.error(saveRefusedWords(found.length));
+    const found = problemLines(read.validation);
+    if (!read.validation || found.length > 0) {
+      if (read.validation) toast.error(saveRefusedWords(found.length));
       setBusy(null);
       return;
     }
@@ -196,7 +220,10 @@ function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDef
     });
     setBusy(null);
   };
+  const validation = validationFor(seen, text);
   const problems = problemLines(validation);
+  const draft = parseDefinition(text);
+  const renamed = draft.ok ? renamedProblem(initial?.id ?? null, draft.value) : null;
   return (
     <Dialog open onClose={() => !busy && onClose()} title={initial ? t("settings-connectors-panel-edit-3", { initial: initial.name }) : t("settings-connectors-panel-add-connector")} width="max-w-2xl"
       footer={
@@ -221,7 +248,8 @@ function DefinitionDialog({ initial, onClose, onSaved }: { initial: ConnectorDef
           <TextArea rows={22} className="font-mono text-2xs" value={text} spellCheck={false} onChange={(e) => setText(e.target.value)} />
         </Field>
         {parseError && <p className="text-2xs text-danger">{t("settings-connectors-panel-json", { parseError })}</p>}
-        {validation && problems.length === 0 && <p className="text-2xs text-text">{t("settings-connectors-panel-valid")}</p>}
+        {renamed && <p className="text-2xs text-danger">{renamed}</p>}
+        {validation && problems.length === 0 && !renamed && <p className="text-2xs text-text">{t("settings-connectors-panel-valid")}</p>}
         {problems.length > 0 && (
           <ul className="list-disc pl-4 text-2xs text-danger">
             {problems.map((l) => (
@@ -257,7 +285,7 @@ function ConnectorCard({
   const [forgetting, setForgetting] = useState<ConnectorAccountRow | null>(null);
   const [editingDef, setEditingDef] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [pending, setPending] = useState<{ account: string; code: string } | null>(null);
+  const [pending, setPending] = useState<PendingFlow | null>(null);
   const now = Math.floor(Date.now() / 1000);
   const custom = isYours(row.origin);
   const oauth = connectApplies(row.auth);
@@ -282,18 +310,32 @@ function ConnectorCard({
   };
   const connect = async (a: ConnectorAccountRow) => {
     setBusy(`connect:${a.id}`);
-    await attempt(() => api.startConnectorOauth(row.id, a.id), toast.error, (start) => {
-      setPending({ account: a.id, code: "" });
-      toast.ok(openedWords());
-      void openExternal(start.url).catch((e: unknown) => toast.error(failureText("settings", "connectors-panel-failed", e)));
-    });
+    try {
+      const start = await api.startConnectorOauth(row.id, a.id);
+      // The flow remembers the row as it stood, so the landing is read as a
+      // change to it — a reconnect's row already holds a token.
+      const flow = pendingFlow(start, a);
+      setPending(flow);
+      // The toast says the browser is opening once it has; a browser that
+      // cannot open leaves the URL on the row to copy, and the box stays.
+      try {
+        await openExternal(flow.url);
+        toast.ok(openedWords());
+      } catch (e) {
+        toast.error(failureText("settings", "connectors-panel-failed", e));
+        setPending({ ...flow, browserFailed: true });
+      }
+    } catch (e) {
+      toast.error(failureText("settings", "connectors-panel-failed", e));
+    }
     setBusy(null);
   };
   const paste = async () => {
-    if (!pending || !pending.code.trim()) return;
-    setBusy(`paste:${pending.account}`);
-    const label = accounts.find((a) => a.id === pending.account)?.label ?? t("settings-connectors-panel-account");
-    await attempt(() => api.completeConnectorOauth(row.id, pending.account, pending.code.trim()), toast.error, () => {
+    const flow = pending;
+    if (!flow || !mayPaste({ flow, busy: busy !== null, now })) return;
+    setBusy(`paste:${flow.account}`);
+    const label = accounts.find((a) => a.id === flow.account)?.label ?? t("settings-connectors-panel-account");
+    await attempt(() => api.completeConnectorOauth(row.id, flow.account, flow.code.trim()), toast.error, () => {
       toast.ok(connectedWords(label));
       // What *Check* said was about the tokens held before this connection: the node forgets it.
       setPending(null);
@@ -309,11 +351,12 @@ function ConnectorCard({
     });
     setBusy(null);
   };
-  // A connection that landed through the callback clears the paste field.
+  // A connection that landed through the callback clears the paste field —
+  // read as a change to the row since the flow began, never as a token the
+  // row held before it.
   useEffect(() => {
     if (!pending) return;
-    const a = accounts.find((x) => x.id === pending.account);
-    if (a?.secrets_set.includes("access_token")) setPending(null);
+    if (flowLanded(pending, accounts.find((x) => x.id === pending.account))) setPending(null);
   }, [accounts, pending]);
 
   return (
@@ -326,7 +369,7 @@ function ConnectorCard({
         <span className="flex-1" />
         {custom && (
           <>
-            <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setEditingDef(true)}>{t("settings-connectors-panel-edit")}</Button>
+            <Button size="sm" variant="ghost" disabled={!mayEditDefinition({ busy: busy !== null, definitionRead: detail.data !== null })} onClick={() => setEditingDef(true)}>{t("settings-connectors-panel-edit")}</Button>
             <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setDeleting(true)}>{t("settings-connectors-panel-delete")}</Button>
           </>
         )}
@@ -409,19 +452,25 @@ function ConnectorCard({
                     <Field label={t("settings-connectors-panel-paste-code")} hint={t("settings-connectors-panel-platform-cannot-send-browser-back-machine")}>
                       <TextInput className="w-72 font-mono" value={pending.code} onChange={(e) => setPending({ ...pending, code: e.target.value })} />
                     </Field>
-                    <Button size="sm" type="submit" disabled={busy !== null || !pending.code.trim()}>{busy === `paste:${a.id}` ? t("settings-connectors-panel-connecting") : t("settings-connectors-panel-connect-code")}</Button>
+                    <Button size="sm" type="submit" disabled={!mayPaste({ flow: pending, busy: busy !== null, now })}>{busy === `paste:${a.id}` ? t("settings-connectors-panel-connecting") : t("settings-connectors-panel-connect-code")}</Button>
                     <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setPending(null)}>{t("settings-connectors-panel-cancel")}</Button>
                   </form>
                 )}
+                {pending?.account === a.id && pending.browserFailed && (
+                  <p className="mt-1 max-w-measure break-all text-2xs text-warn">
+                    {t("settings-connectors-panel-open-this-link-yourself")} <code className="select-all font-mono">{pending.url}</code>
+                  </p>
+                )}
+                {pending?.account === a.id && flowWords(pending, now) && <p className="mt-1 text-2xs text-text-dim">{flowWords(pending, now)}</p>}
               </li>
             );
           })}
         </ul>
       )}
-      {/* The redirect URI is copied into another platform's console: said with the port the node resolves, never a guessed one. */}
-      {oauth && (port === null ? <Pending what={t("settings-connectors-panel-callback-port")} rows={pendingRows(t("settings-connectors-panel-callback-port"))} /> : <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{connectWords(port)}</p>)}
-      {adding && <AccountDialog connector={row} account={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); detail.reload(); onChanged(); }} />}
-      {editing && <AccountDialog connector={row} account={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); detail.reload(); }} />}
+      {/* The redirect URI is copied into another platform's console: the one a started flow registered while one is open, else the port the node resolves — never a guessed one. */}
+      {oauth && (pending ? <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{connectUriWords(pending.redirectUri)}</p> : port === null ? <Pending what={t("settings-connectors-panel-callback-port")} rows={pendingRows(t("settings-connectors-panel-callback-port"))} /> : <p className="max-w-measure text-2xs leading-relaxed text-text-dim">{connectWords(port)}</p>)}
+      {adding && <AccountDialog connector={row} params={detail.data?.connector.params ?? null} account={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); detail.reload(); onChanged(); }} />}
+      {editing && <AccountDialog connector={row} params={detail.data?.connector.params ?? null} account={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); detail.reload(); }} />}
       {editingDef && detail.data && (
         <DefinitionDialog
           initial={definitionOf(detail.data.connector)}
@@ -464,6 +513,8 @@ export function ConnectorsPanel() {
   const [adding, setAdding] = useState(false);
   // The accounts a check is running for: a row's own *Check*, or *Check all*'s pass over every connector.
   const [checking, setChecking] = useState<ReadonlySet<string>>(new Set());
+  // *Check all* from its first read to its last check: the button is held the whole way, so a second press cannot start a second pass.
+  const [checkingAll, setCheckingAll] = useState(false);
   /**
    * One request as the account; the node keeps the answer and the rows read
    * it back through the bus. A row's own check says its answer in a toast
@@ -486,18 +537,25 @@ export function ConnectorsPanel() {
       return next;
     });
   };
-  /** Every account that can answer, of every connector that names a check, a few at a time. */
+  /** Every account that can answer, of every connector that names a check, a few at a time; a connector that could not be read is counted and said, never skipped in silence. */
   const checkAll = async () => {
+    setCheckingAll(true);
     const queue: { connector: string; account: string; name: string }[] = [];
+    let unread = 0;
     for (const row of connectors.rows) {
       if (row.accounts === 0 || !row.check) continue;
       const detail = await api.connector(row.id).catch(() => null);
       if (detail) queue.push(...checkTargets(detail).map((target) => ({ ...target, name: row.name })));
+      else unread += 1;
     }
+    const queued = queue.length;
     const workers = Array.from({ length: Math.min(CHECK_ALL_AT_ONCE, queue.length) }, async () => {
       for (let next = queue.shift(); next; next = queue.shift()) await check(next.connector, next.account, next.name, false);
     });
     await Promise.all(workers);
+    setCheckingAll(false);
+    const summary = checkAllSummary({ queued, unread });
+    if (summary) toast.error(summary);
   };
   const checkable = connectors.rows.some((row) => row.accounts > 0 && Boolean(row.check));
   // The callback port is a setting: the resolved value the settings store
@@ -519,7 +577,7 @@ export function ConnectorsPanel() {
   const empty = connectors.rows.length === 0;
   const readAgain = (
     <Tooltip label={t("settings-connectors-panel-read-definitions-machine-s-accounts-again")}>
-      <Button size="sm" variant="ghost" disabled={connectors.loading} onClick={connectors.reload} aria-label={t("settings-connectors-panel-read-again")}>
+      <Button size="sm" variant="ghost" disabled={connectors.loading || connectors.refreshing} onClick={connectors.reload} aria-label={t("settings-connectors-panel-read-again")}>
         <ICON.refresh size={12} aria-hidden />
       </Button>
     </Tooltip>
@@ -533,8 +591,8 @@ export function ConnectorsPanel() {
           <span className="flex-1" />
           <Tooltip label={t("settings-connectors-panel-check-every-account")}>
             <span>
-              <Button size="sm" variant="ghost" disabled={!checkable || checking.size > 0} onClick={() => void checkAll()}>
-                {checking.size > 0 ? t("settings-connectors-panel-checking", { checking: checking.size }) : t("settings-connectors-panel-check-all")}
+              <Button size="sm" variant="ghost" disabled={!checkable || checkingAll || checking.size > 0} onClick={() => void checkAll()}>
+                {checking.size > 0 ? t("settings-connectors-panel-checking", { checking: checking.size }) : checkingAll ? t("settings-connectors-panel-check-all-reading") : t("settings-connectors-panel-check-all")}
               </Button>
             </span>
           </Tooltip>
@@ -543,6 +601,8 @@ export function ConnectorsPanel() {
             <ICON.add size={12} aria-hidden />{t("settings-connectors-panel-add-connector")}</Button>
         </div>
       )}
+      {/* A read that failed while rows stand: said above them, with the way to try again — the rows are the last read's. */}
+      {connectors.error && !empty && <ErrorNote error={connectors.error} retry={connectors.reload} />}
       {empty && (
         <EmptyState
           icon={ICON.connector}

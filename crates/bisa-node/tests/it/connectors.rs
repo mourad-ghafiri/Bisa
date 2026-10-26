@@ -779,11 +779,12 @@ async fn a_declined_consent_lands_on_a_page_that_says_so_and_escapes_the_reason(
         )
         .await;
     let aid = row["id"].as_str().unwrap().to_string();
-    node.post(
-        &format!("/connectors/acme-oauth/accounts/{aid}/oauth/start"),
-        json!({}),
-    )
-    .await;
+    let started = node
+        .post(
+            &format!("/connectors/acme-oauth/accounts/{aid}/oauth/start"),
+            json!({}),
+        )
+        .await;
     let (status, body) = tcp_get(
         port,
         "/connectors/oauth/callback?error=access_denied&error_description=%3Cb%3E%22no%22%26%27%3C%2Fb%3E",
@@ -796,6 +797,176 @@ async fn a_declined_consent_lands_on_a_page_that_says_so_and_escapes_the_reason(
         "{body}"
     );
     assert!(!body.contains("<b>"), "{body}");
+    // A decline that names its flow abandons it — the one above named none
+    // and abandoned nothing — and the listener goes at once rather than
+    // waiting the flow's lifetime out.
+    let state = query_param(started["url"].as_str().unwrap(), "state").unwrap();
+    let (status, _) = tcp_get(
+        port,
+        &format!("/connectors/oauth/callback?error=access_denied&state={state}"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, 400);
+    port_refuses_soon(port).await;
+    node.shutdown().await;
+}
+
+/// The port refuses within a few seconds: the listener went down.
+async fn port_refuses_soon(port: u16) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if tcp_get(port, "/connectors/oauth/callback").await.is_err() {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the callback listener on {port} stayed up"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A platform whose token endpoint refuses the exchange — the code was used,
+/// the client is not known — in OAuth's own words.
+async fn refusing_platform_stub() -> (String, tokio::task::JoinHandle<()>) {
+    use axum::http::StatusCode;
+    use axum::routing::{get, post};
+    let app = axum::Router::new()
+        .route(
+            "/token",
+            post(|| async {
+                (
+                    StatusCode::BAD_REQUEST,
+                    axum::Json(json!({
+                        "error": "invalid_grant",
+                        "error_description": "the code was already used"
+                    })),
+                )
+            }),
+        )
+        .route("/me", get(|| async { axum::Json(json!({"ok": true})) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let task = tokio::spawn(async move {
+        let _served = axum::serve(listener, app).await;
+    });
+    (format!("127.0.0.1:{}", addr.port()), task)
+}
+
+/// A refused exchange is said as the platform's refusal, in its words, not
+/// as a stale link; through the route it is a coded refusal a client tells
+/// apart; and a forgotten account's pending flow goes with it, the listener
+/// too.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_exchange_is_the_platforms_word_and_a_forgotten_flow_frees_the_listener() {
+    let node = Node::start().await;
+    let (host, _stub) = refusing_platform_stub().await;
+    let port = free_port();
+    node.put(
+        "/settings/machine",
+        json!({"values": {"connectors.oauth.port": port}}),
+    )
+    .await;
+    node.post("/connectors", oauth_definition(&host)).await;
+    let row = node
+        .put(
+            "/connectors/acme-oauth/accounts",
+            json!({"label": "me", "secrets": {"client_id": "stub-client", "client_secret": "stub-secret"}}),
+        )
+        .await;
+    let aid = row["id"].as_str().unwrap().to_string();
+    let start_path = format!("/connectors/acme-oauth/accounts/{aid}/oauth/start");
+    // The browser lands with a code the platform will not take.
+    let (_, started) = node.req("POST", &start_path, Some(json!({}))).await;
+    let state = query_param(started["url"].as_str().unwrap(), "state").unwrap();
+    let (status, body) = tcp_get(
+        port,
+        &format!("/connectors/oauth/callback?code=used&state={state}"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body.contains("refused to finish the connection") && body.contains("invalid_grant"),
+        "the platform's own refusal, not a stale link: {body}"
+    );
+    assert!(!body.contains("stale"), "{body}");
+    port_refuses_soon(port).await;
+    // The same refusal through the route carries its code.
+    node.req("POST", &start_path, Some(json!({}))).await;
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/connectors/acme-oauth/accounts/{aid}/oauth/complete"),
+            Some(json!({"code": "used"})),
+        )
+        .await;
+    assert_eq!(status, 409, "{v}");
+    assert_eq!(v["code"], json!("connector_refused"), "{v}");
+    assert!(
+        v["error"].as_str().unwrap_or("").contains("invalid_grant"),
+        "{v}"
+    );
+    // A flow pending, then the account forgotten: nothing waits for the browser.
+    node.req("POST", &start_path, Some(json!({}))).await;
+    let (status, v) = node
+        .req(
+            "DELETE",
+            &format!("/connectors/acme-oauth/accounts/{aid}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    port_refuses_soon(port).await;
+    node.shutdown().await;
+}
+
+/// A blank secret — or one the scheme does not use — refuses the whole
+/// account: none is left behind, and an edit with one moves nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_secret_leaves_no_account_behind_and_moves_no_edit() {
+    let node = Node::start().await;
+    let (host, _stub) = platform_stub().await;
+    let mut basic = bearer_definition(&host);
+    basic["id"] = json!("basicy");
+    basic["auth"] = json!({"scheme": "basic"});
+    node.post("/connectors", basic).await;
+    let (status, v) = node
+        .req(
+            "PUT",
+            "/connectors/basicy/accounts",
+            Some(json!({"label": "half", "secrets": {"username": "me", "password": "  "}})),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    let rows = node.get("/connectors/basicy/accounts").await;
+    assert_eq!(
+        rows["accounts"],
+        json!([]),
+        "no account left behind: {rows}"
+    );
+    let row = node
+        .put(
+            "/connectors/basicy/accounts",
+            json!({"label": "whole", "secrets": {"username": "me", "password": "pw"}}),
+        )
+        .await;
+    let aid = row["id"].as_str().unwrap().to_string();
+    let (status, v) = node
+        .req(
+            "PUT",
+            "/connectors/basicy/accounts",
+            Some(json!({"id": aid, "label": "renamed", "params": {}, "secrets": {"password": ""}})),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    let rows = node.get("/connectors/basicy/accounts").await;
+    assert_eq!(
+        rows["accounts"][0]["label"],
+        json!("whole"),
+        "the edit moved nothing: {rows}"
+    );
     node.shutdown().await;
 }
 
@@ -869,5 +1040,17 @@ async fn the_callback_listener_follows_its_port_and_a_refused_exchange_lands_on_
     .await
     .unwrap();
     assert_eq!(status, 502, "{body}");
+    // The same through the route: a platform nobody reaches is a coded
+    // refusal a client tells from the node's own failures.
+    node.req("POST", &start_path, Some(json!({}))).await;
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/connectors/acme-oauth/accounts/{aid}/oauth/complete"),
+            Some(json!({"code": "stale"})),
+        )
+        .await;
+    assert_eq!(status, 502, "{v}");
+    assert_eq!(v["code"], json!("connector_unreachable"), "{v}");
     node.shutdown().await;
 }

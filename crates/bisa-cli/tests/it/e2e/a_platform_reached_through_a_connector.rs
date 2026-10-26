@@ -87,8 +87,11 @@ impl Stub {
             uri: Uri,
             headers: HeaderMap,
         ) -> axum::Json<Value> {
-            record(&s, &method, &uri, &headers, Value::Null);
+            // The list first, then the record: a journey that waits for the
+            // GET to be recorded may add incidents then, and they must not
+            // be in the answer the record stands for.
             let open = s.incidents.lock().unwrap().clone();
+            record(&s, &method, &uri, &headers, Value::Null);
             axum::Json(json!({"incidents": open, "count": open.len()}))
         }
         async fn open_incident(
@@ -549,28 +552,35 @@ fn a_platform_is_reached_through_a_connector_and_the_secret_stays_home() {
     // even on an instrumented build.
     ws.ok(&["settings", "set", "machine", "events.tick_secs", "5"]);
     ws.ok(&["workflow", "on", &watch]);
-    let before = stub
-        .seen()
-        .iter()
-        .filter(|s| s.path == "/incidents" && s.method == "GET")
-        .count();
+    // The watch's listener comes due once per tick: `next_due` is set when
+    // the registry arms it and moves again only once a poll has completed —
+    // its memory of what is there stored before the clock advances. The
+    // stub's record of the GET is not enough to wait on: the poll's answer
+    // may still be on its way, and an incident added meanwhile would be in
+    // it, learnt as what was there and never an occurrence.
+    let next_due = |ws: &Sealed| {
+        ws.json(&["workflow", "listeners", &watch])["listeners"]
+            .as_array()
+            .and_then(|rows| rows.first())
+            .and_then(|row| row["next_due"].as_u64())
+    };
+    let armed_due = ws.until("the watch armed", || next_due(&ws));
     ws.until("the first poll, which learns what is there", || {
-        (stub
-            .seen()
-            .iter()
-            .filter(|s| s.path == "/incidents" && s.method == "GET")
-            .count()
-            > before)
-            .then_some(())
+        next_due(&ws).filter(|due| *due != armed_due)
     });
+    assert!(
+        stub.seen()
+            .iter()
+            .any(|s| s.path == "/incidents" && s.method == "GET"),
+        "the first poll asked the platform"
+    );
     // Two more incidents appear at the platform; the next poll sees them.
     stub.incidents.lock().unwrap().extend([
         json!({"id": "inc-2", "title": "the lights"}),
         json!({"id": "inc-3", "title": "the door"}),
     ]);
-    // Two runs on the daemon's own ticks: given twice the patience, since the
-    // whole workspace measured beside this journey has outrun the one.
-    ws.until_patiently("a run per new incident", || {
+    // Two runs on the daemon's own ticks.
+    ws.until("a run per new incident", || {
         let said = general(&ws);
         (said.iter().any(|m| m == "incident inc-2 is open")
             && said.iter().any(|m| m == "incident inc-3 is open"))

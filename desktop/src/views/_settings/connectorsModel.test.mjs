@@ -41,6 +41,17 @@ import {
   connectedWords,
   openedWords,
   typedSecrets,
+  SECRET_FIELD_WHAT,
+  connectUriWords,
+  flowExpired,
+  flowLanded,
+  flowWords,
+  mayEditDefinition,
+  mayPaste,
+  pendingFlow,
+  renamedProblem,
+  savedWords,
+  validationFor,
 } from "./connectorsModel.mjs";
 
 const RUST = readFileSync(new URL("../../../../crates/bisa-core/src/connector.rs", import.meta.url), "utf8");
@@ -302,4 +313,108 @@ test("the words of an account made default, connected, set, and a consent page o
   assert.equal(secretsSetWords([]), "Nothing changed.");
   assert.ok(secretsSetWords(["token"]).includes("token"));
   assert.ok(openedWords().length > 0);
+});
+
+// added by the connectors quality programme
+
+const ROW = (over = {}) => ({ id: "a1", label: "work", params: {}, default: true, secrets_set: ["client_id"], token_source: "file", oauth: null, health: { state: "unknown" }, ...over });
+const START = { url: "https://auth.example/consent?state=s1", redirect_uri: "http://127.0.0.1:4478/connectors/oauth/callback", expires_at: 1_000_600 };
+
+test("a connection started remembers the row as it stood, and the landing is a change to it — never a token the row held before", () => {
+  const fresh = pendingFlow(START, ROW());
+  assert.equal(fresh.account, "a1");
+  assert.equal(fresh.code, "");
+  assert.equal(fresh.url, START.url);
+  assert.equal(fresh.redirectUri, START.redirect_uri);
+  assert.equal(fresh.expiresAt, 1_000_600);
+  assert.equal(fresh.browserFailed, false);
+  assert.equal(flowLanded(fresh, ROW()), false, "no token yet");
+  assert.equal(flowLanded(fresh, ROW({ secrets_set: ["client_id", "access_token"], oauth: { expires_at: 1_003_600, scope: null, expired: false } })), true, "a token now held");
+  assert.equal(flowLanded(fresh, ROW({ id: "other", secrets_set: ["access_token"] })), false, "another account's row");
+  assert.equal(flowLanded(fresh, null), false);
+  // Connect again: the row already holds a token when the flow begins.
+  const held = ROW({ secrets_set: ["client_id", "access_token"], oauth: { expires_at: 1_003_600, scope: "read", expired: false }, health: { state: "ok" } });
+  const again = pendingFlow(START, held);
+  assert.equal(flowLanded(again, held), false, "the same row is not a landing");
+  assert.equal(flowLanded(again, ROW({ ...held, oauth: { expires_at: 1_007_200, scope: "read", expired: false } })), true, "tokens issued anew: the expiry moved");
+  assert.equal(flowLanded(again, ROW({ ...held, oauth: { expires_at: 1_003_600, scope: "read write", expired: false } })), true, "a wider scope");
+  assert.equal(flowLanded(again, ROW({ ...held, health: { state: "unknown" } })), true, "the reconnect forgot the health");
+  assert.equal(flowLanded(again, ROW({ ...held, secrets_set: ["client_id"] })), false, "a token gone is no landing");
+  const timeless = pendingFlow({ ...START, expires_at: null }, ROW());
+  assert.equal(timeless.expiresAt, null);
+});
+
+test("the paste box knows how long a code is taken, says when the flow expired, and sends once: not while busy, not blank, not expired", () => {
+  const flow = pendingFlow(START, ROW());
+  assert.equal(flowExpired(flow, 1_000_000), false);
+  assert.equal(flowExpired(flow, 1_000_600), true, "at the moment the node forgets it");
+  assert.equal(flowExpired(null, 1_000_000), false);
+  assert.equal(flowWords(flow, 1_000_000), "A pasted code is taken for 10 more min.");
+  assert.equal(flowWords(flow, 1_000_570), "A pasted code is taken for 1 more min.", "never zero while open");
+  assert.equal(flowWords(flow, 1_000_600), "This connection expired — start it again with Connect.");
+  assert.equal(flowWords(pendingFlow({ ...START, expires_at: null }, ROW()), 1), "", "no lifetime said, no line");
+  assert.equal(mayPaste({ flow: null, busy: false, now: 1 }), false);
+  assert.equal(mayPaste({ flow, busy: false, now: 1_000_000 }), false, "nothing typed");
+  const typed = { ...flow, code: " abc " };
+  assert.equal(mayPaste({ flow: typed, busy: false, now: 1_000_000 }), true);
+  assert.equal(mayPaste({ flow: typed, busy: true, now: 1_000_000 }), false, "one send at a time: Enter during one sends nothing");
+  assert.equal(mayPaste({ flow: typed, busy: false, now: 1_000_601 }), false, "expired");
+  assert.equal(mayPaste({ flow: { ...typed, code: "   " }, busy: false, now: 1_000_000 }), false);
+  assert.ok(connectUriWords("http://127.0.0.1:5000/connectors/oauth/callback").includes("http://127.0.0.1:5000/connectors/oauth/callback"));
+});
+
+test("an edit says what moved — the label, a parameter, the secrets — and Nothing changed. only when nothing did", () => {
+  const account = ROW({ label: "work", params: { site: "acme", port: 8443 } });
+  assert.equal(savedWords({ id: "a1", label: "work", params: { site: "acme", port: 8443 } }, account), "Nothing changed.");
+  assert.equal(savedWords({ id: "a1", label: "work", params: { port: 8443, site: "acme" } }, account), "Nothing changed.", "the order of the parameters is not a change");
+  assert.equal(savedWords({ id: "a1", label: "work", params: { site: "acme", port: 8443 }, secrets: { token: "t" } }, account), "token set — sent once, never displayed.");
+  assert.equal(savedWords({ id: "a1", label: "personal", params: { site: "acme", port: 8443 } }, account), "personal saved.");
+  assert.equal(savedWords({ id: "a1", label: "work", params: { site: "acme-eu", port: 8443 } }, account), "work saved.");
+  assert.equal(savedWords({ id: "a1", label: "work", params: { site: "acme" } }, account), "work saved.", "a parameter dropped");
+  assert.equal(savedWords({ id: "a1", label: "work ", params: { site: "acme", port: 8443 }, secrets: { token: "t", password: "p" } }, ROW({ label: "work", params: { site: "acme", port: 8443 } })), "Nothing changed.".replace("Nothing changed.", "token, password set — sent once, never displayed."), "a trimmed label is the same label");
+  assert.equal(savedWords({ id: "a1", label: "team", params: {}, secrets: { token: "t" } }, ROW({ label: "work" })), "team saved; token set — sent once, never displayed.");
+});
+
+test("Valid. goes with the first character typed since the node read the text; a renamed id is said before any round trip; Edit waits for the definition", () => {
+  const valid = { problems: [] };
+  assert.equal(validationFor(null, "{}"), null);
+  assert.equal(validationFor({ text: "{}", validation: valid }, "{}"), valid);
+  assert.equal(validationFor({ text: "{}", validation: valid }, "{ }"), null, "a character moved: the node has not read this text");
+  assert.equal(renamedProblem(null, { id: "x" }), null, "a new definition names what it likes");
+  assert.equal(renamedProblem("acme", { id: "acme" }), null);
+  assert.equal(renamedProblem("acme", {}), null, "no id typed yet");
+  assert.equal(renamedProblem("acme", { id: "acme-eu" }), "The id cannot change here: it stays acme. For acme-eu, add a connector under that id and delete this one.");
+  assert.equal(mayEditDefinition({ busy: false, definitionRead: true }), true);
+  assert.equal(mayEditDefinition({ busy: true, definitionRead: true }), false);
+  assert.equal(mayEditDefinition({ busy: false, definitionRead: false }), false, "the read failed or is on its way: no dialog armed for a later reload");
+});
+
+test("every secret field has the noun its input names it by — a message of its own, never a label lowercased", () => {
+  for (const field of rustSecretFields()) {
+    assert.equal(typeof SECRET_FIELD_WHAT[field], "string", `${field} has a noun`);
+    assert.ok(SECRET_FIELD_WHAT[field].length > 0, field);
+  }
+  assert.equal(SECRET_FIELD_WHAT.token, "token");
+  assert.equal(SECRET_FIELD_WHAT.api_key, "API key", "a noun keeps its own case");
+  assert.equal(emptyDefinition().operations[0].name, "Ping");
+});
+
+test("the lines nobody had pinned: a token under a minute, an expired flag with a future time, a refusal and a silence with no reason, a jwt account's secrets", () => {
+  const now = 1_000_000;
+  assert.equal(oauthLine({ oauth: { expires_at: now + 30, scope: null, expired: false } }, now), "token good for 1 min", "never zero minutes");
+  assert.equal(oauthLine({ oauth: { expires_at: now + 3600, scope: null, expired: true } }, now), "token expired; refreshed on the next call", "the node's flag wins over the clock");
+  const refused = checkLine({ state: "refused", status: 401, reason: null }, "Slack");
+  assert.equal(refused.tone, "danger");
+  assert.ok(refused.text.includes("Slack") && refused.text.includes("(401)") && !refused.text.includes("null"), refused.text);
+  const silent = checkLine({ state: "unreachable", reason: null }, "Slack");
+  assert.equal(silent.tone, "warn");
+  assert.ok(silent.text.includes("Slack") && !silent.text.includes("null"), silent.text);
+  const none = checkLine({ state: "refused", status: null, reason: "the account holds no token; connect it first" }, "Slack");
+  assert.ok(none.text.includes("holds no token") && !none.text.includes("("), "no status, no parenthesis: " + none.text);
+  const jwt = secretsLine({ secrets_set: ["private_key"], token_source: "keyring" }, "jwt");
+  assert.equal(jwt.tone, "ok");
+  assert.ok(jwt.text.includes("private_key"), jwt.text);
+  const bare = secretsLine({ secrets_set: [], token_source: "file" }, "jwt");
+  assert.equal(bare.tone, "warn");
+  assert.ok(bare.text.includes("private_key"), bare.text);
 });

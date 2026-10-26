@@ -15,13 +15,15 @@ import { Checkbox, Field, Select, TextInput } from "../../ui";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { AssigneePicker } from "../_work/AssigneePicker";
 import { useConnectorDetail } from "./useConnectors";
-import { accountChoices, inputHint, type InputValues, type RunHome } from "./workflowForm.mjs";
+import { accountChoices, accountFieldNote, inputHint, type InputValues, type RunHome } from "./workflowForm.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 /** An `account` input: this machine's accounts of the input's connector, the default first. */
 function AccountField({ connector, value, disabled, onChange }: { connector: string | null; value: string; disabled?: boolean; onChange: (id: string) => void }) {
   const detail = useConnectorDetail(connector);
   const accounts = accountChoices(detail.data?.accounts);
+  // A read that failed is said as such — never as a machine with no account.
+  const note = accountFieldNote({ connector, loading: detail.loading, error: detail.error, count: accounts.length });
   return (
     <>
       <Select value={value} disabled={disabled || accounts.length === 0} onChange={(e) => onChange(e.target.value)}>
@@ -32,7 +34,7 @@ function AccountField({ connector, value, disabled, onChange }: { connector: str
           </option>
         ))}
       </Select>
-      {connector !== null && !detail.loading && accounts.length === 0 && <p className="mt-1 text-2xs text-text-dim">{t("workflow-inputs-form-no-account-on-machine", { connector })}</p>}
+      {note && <p className={`mt-1 text-2xs ${note.tone === "danger" ? "text-danger" : "text-text-dim"}`}>{note.text}</p>}
     </>
   );
 }

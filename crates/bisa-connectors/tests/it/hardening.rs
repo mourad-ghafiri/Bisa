@@ -356,3 +356,110 @@ async fn a_connection_cut_mid_body_is_a_transport_failure_asked_once() {
         "the one connection, never a second"
     );
 }
+
+// added by the connectors quality programme: one deadline, a lost answer
+
+/// A platform that takes the request and closes the connection without a
+/// word — the request went out, no answer came — is a transport failure,
+/// not a connection never made: a write is never sent again on it, by this
+/// crate or by a step's own retries, since the platform may have done the
+/// thing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_lost_after_it_was_sent_is_a_transport_failure_never_sent_again() {
+    use std::io::Read;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let served = std::thread::spawn(move || {
+        let mut count = 0;
+        for stream in listener.incoming().take(1) {
+            let mut stream = stream.expect("a connection");
+            let mut request = [0u8; 4096];
+            let _bytes_read = stream.read(&mut request);
+            drop(stream);
+            count += 1;
+        }
+        count
+    });
+    let mut lost = bisa_connectors::spec::CallSpec {
+        base_url: format!("http://{addr}"),
+        hosts: vec![addr.to_string()],
+        timeout: std::time::Duration::from_secs(5),
+        ..offline_spec(AuthSpec::None)
+    };
+    lost.method = bisa_connectors::spec::Method::Post;
+    lost.writes = true;
+    let client = client(MemoryCreds::with(
+        &account(),
+        bisa_connectors::creds::Stored::default(),
+    ));
+    let err = client
+        .call(&lost, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, ConnectorError::Transport(_)),
+        "the request went out: {err}"
+    );
+    assert_eq!(
+        served.join().unwrap(),
+        1,
+        "the one connection, never a second"
+    );
+}
+
+/// A transport that takes two hundred milliseconds a page, within the
+/// request's own deadline, and answers every page with a cursor to the next.
+struct SlowPages {
+    sent: std::sync::Mutex<Vec<bisa_connectors::http::Request>>,
+}
+
+#[async_trait::async_trait]
+impl bisa_connectors::http::HttpTransport for SlowPages {
+    async fn send(
+        &self,
+        req: &bisa_connectors::http::Request,
+        _insecure_loopback: bool,
+    ) -> Result<bisa_connectors::http::Response, TransportError> {
+        let n = {
+            let mut sent = self.sent.lock().unwrap();
+            sent.push(req.clone());
+            sent.len()
+        };
+        let page = tokio::time::sleep(std::time::Duration::from_millis(200));
+        if tokio::time::timeout(req.timeout, page).await.is_err() {
+            return Err(TransportError::Timeout);
+        }
+        ok(200, json!({"items": [n], "next": format!("c{}", n + 1)}))
+    }
+}
+
+/// The operation's deadline is one for the whole read, its pages included:
+/// a second page that would start past it is not asked for, and the call
+/// times out naming the operation's own deadline.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paged_read_shares_one_deadline_across_its_pages() {
+    let transport = std::sync::Arc::new(SlowPages {
+        sent: std::sync::Mutex::new(Vec::new()),
+    });
+    let client = bisa_connectors::Client::new(
+        transport.clone(),
+        MemoryCreds::with(&account(), Default::default()),
+        FixedClock::at(0),
+        CountingEntropy::from(1),
+    );
+    let mut spec = paged_spec();
+    spec.timeout = std::time::Duration::from_millis(300);
+    let err = client
+        .call(&spec, None, &no_account_params(), &params(&[]), &AllowAll)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, ConnectorError::Timeout(d) if d == std::time::Duration::from_millis(300)),
+        "{err}"
+    );
+    assert_eq!(
+        transport.sent.lock().unwrap().len(),
+        2,
+        "the second page met the deadline; a third was never asked for"
+    );
+}

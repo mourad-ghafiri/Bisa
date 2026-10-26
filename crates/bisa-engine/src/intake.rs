@@ -1867,24 +1867,32 @@ async fn call_connector(
         subject: format!("{} {}{}", op.method.as_str(), def.hosts.join("|"), op.path),
         declared: &declared,
     };
-    let outcome = match crate::connectors::invoke(
-        inner,
-        crate::connectors::Invocation {
-            deadline: None,
-            def: &def,
-            op,
-            account: acct.as_ref(),
-            params: &params,
-            files: &bisa_connectors::NoFiles,
-            judge: &judge,
-            key: None,
-            caller: crate::connectors::Caller::Agent,
-        },
+    // Bounded like a poll's: the operation's deadline plus the engine's
+    // overhead covers the wait for a permit too, so a read behind a full
+    // pool is refused in the operation's time rather than when the pool frees.
+    let timeout = crate::connectors::operation_timeout(inner, op) + crate::connectors::OVERHEAD;
+    let outcome = match tokio::time::timeout(
+        timeout,
+        crate::connectors::invoke(
+            inner,
+            crate::connectors::Invocation {
+                deadline: None,
+                def: &def,
+                op,
+                account: acct.as_ref(),
+                params: &params,
+                files: &bisa_connectors::NoFiles,
+                judge: &judge,
+                key: None,
+                caller: crate::connectors::Caller::Agent,
+            },
+        ),
     )
     .await
     {
-        Ok(o) => o,
-        Err(e) => return err(crate::connectors::redact_reason(inner, &e)), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
+        Err(_elapsed) => return err(format!("the call timed out after {}s", timeout.as_secs())),
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => return err(crate::connectors::redact_reason(inner, &e)), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
     };
     // What the platform said is content from outside: screened once, whole,
     // before the agent reads a word of it — and bounded like a page read.

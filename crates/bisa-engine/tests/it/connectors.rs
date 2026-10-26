@@ -6,9 +6,9 @@
 use crate::common;
 
 use bisa_core::{
-    AccountId, AuthScheme, ConnectorId, Flow, HttpMethod, InputDef, InputKind, InputName,
-    Operation, OperationBody, OperationId, OutputSpec, ParamKind, Part, PartSource, ProblemKind,
-    RunOutcome, SecretField, SettingScope, StepKind, StepState, ValueRef,
+    AccountId, AuthScheme, ConnectorId, Finish, Flow, Gate, HttpMethod, InputDef, InputKind,
+    InputName, Operation, OperationBody, OperationId, OutputSpec, ParamKind, Part, PartSource,
+    ProblemKind, RunOutcome, SecretField, SettingScope, StepKind, StepState, ValueRef,
 };
 use bisa_engine::connectors::{self, ConnectorRoster};
 use bisa_engine::{Engine, EngineConfig, EnginePayload};
@@ -1556,5 +1556,201 @@ async fn a_call_refuses_a_step_that_names_too_little_by_name() {
         .unwrap_err();
     assert!(says(err).contains("nope"));
     assert!(stub.calls().is_empty(), "nothing reached the wire");
+    engine.shutdown().await;
+}
+
+// added by the connectors quality programme: a lost answer, a diverted call, a full pool
+
+/// A write the platform took and never answered — the connection closed
+/// before a response — is stopped, never re-sent by the step's own
+/// `retries`: one request reaches the platform, and the step says it may
+/// have received it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_whose_answer_was_lost_is_stopped_and_never_sent_again_by_retries() {
+    use std::io::Read;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let connections = Arc::new(AtomicUsize::new(0));
+    std::thread::spawn({
+        let connections = Arc::clone(&connections);
+        move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut request = [0u8; 4096];
+                let _bytes_read = stream.read(&mut request);
+                connections.fetch_add(1, Ordering::SeqCst);
+                drop(stream);
+            }
+        }
+    });
+    let stub = Stub::start(vec![]).await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let mut def = chat(&stub, AuthScheme::None);
+    def.base_url = format!("http://{addr}");
+    def.hosts = vec![addr.to_string()];
+    engine.workspace().create_connector(def).unwrap();
+    let mut say = post_step("say", None, None);
+    say.retries = 1;
+    let (goal, _) = run_on(&engine, "lost", new_workflow("lost", vec![say]));
+    let failed = finished_run(&engine, goal.id).await;
+    assert_eq!(failed.outcome, Some(RunOutcome::Failed), "{failed:?}");
+    let record = &failed.steps[&sid("say")];
+    assert_eq!(record.attempts, 1, "stopped, whatever `retries` allowed");
+    let why = record.error.clone().unwrap_or_default();
+    assert!(why.contains(bisa_core::run::AMBIGUOUS_WRITE), "{why}");
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(
+        connections.load(Ordering::SeqCst),
+        1,
+        "one request reached the platform; a second never"
+    );
+    engine.shutdown().await;
+}
+
+/// A run that ends while a `connector` step's call is still in flight — a
+/// sibling branch reached its end — aborts the call: the step reads
+/// cancelled, the call's task is gone, and nothing waits on the platform
+/// for a step nobody reads any more.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_that_ends_mid_call_drops_the_call_in_flight() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![slow("POST", "/post", 200, json!({"ts": "1"}), 8_000)]).await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat(&engine, &stub, Some(TOKEN));
+    let mut rx = engine.events();
+    let mut first = step(
+        "first",
+        StepKind::Notify {
+            scope: None,
+            template: "go".into(),
+            mentions: vec![],
+            author: None,
+        },
+    );
+    first.then = vec![Flow::to(sid("say")), Flow::to(sid("ask"))];
+    let say = post_step("say", None, None);
+    let mut ask = step(
+        "ask",
+        StepKind::Approval {
+            prompt: "Done?".into(),
+        },
+    );
+    ask.then = vec![Flow::to(sid("finish"))];
+    let finish = step(
+        "finish",
+        StepKind::End {
+            finish: Finish::Done,
+        },
+    );
+    let (goal, run) = run_on(
+        &engine,
+        "a slow platform",
+        new_workflow("ending", vec![first, say, ask, finish]),
+    );
+    // The call is in flight: the platform has the request and sits on it.
+    step_in_state(&engine, goal.id, "say", "running").await;
+    until("the platform has the request", || {
+        (!stub.calls().is_empty()).then_some(())
+    })
+    .await;
+    let opened = wait_for(&mut rx, "the approval gate", |e| {
+        matches!(
+            &e.payload,
+            EnginePayload::GateOpened {
+                gate: Gate::Approval,
+                ..
+            }
+        )
+    })
+    .await;
+    let EnginePayload::GateOpened { gate_id, .. } = opened.payload else {
+        unreachable!()
+    };
+    let started = std::time::Instant::now();
+    engine.decide(&gate_id, true, None, None, None).unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "the run did not wait the call out: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(done.steps[&sid("say")].state, StepState::Cancelled);
+    assert!(
+        !engine
+            .inner()
+            .connector_calls
+            .contains_key(&(run.id, sid("say"))),
+        "the call's task is gone with the run"
+    );
+    engine.shutdown().await;
+}
+
+/// An agent's read that waits at a full permit pool is refused in the
+/// operation's own time plus the engine's overhead — never when the pool
+/// frees — and the request is never sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_read_waiting_at_a_full_permit_pool_is_timed_out_in_the_operations_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        slow("POST", "/post", 200, json!({"ts": "1"}), 9_000),
+        canned("GET", "/whoami", 200, json!({"user": "me"})),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    engine
+        .set_setting(
+            SettingScope::Machine,
+            None,
+            connectors::CONCURRENCY_KEY,
+            json!(1),
+        )
+        .unwrap();
+    let ws = engine.workspace();
+    let mut def = chat(&stub, AuthScheme::Bearer);
+    def.operations[1].timeout_secs = Some(1);
+    ws.create_connector(def).unwrap();
+    let account = ws
+        .create_connector_account(NewConnectorAccount {
+            connector: ConnectorId::new("chat").unwrap(),
+            label: "work".into(),
+            params: BTreeMap::new(),
+            default: true,
+        })
+        .unwrap();
+    ws.set_connector_secrets(
+        &ConnectorId::new("chat").unwrap(),
+        account.id,
+        &BTreeMap::from([(SecretField::Token, TOKEN.to_string())]),
+    )
+    .unwrap();
+    // The step's call holds the one permit.
+    let (goal, _) = run_on(
+        &engine,
+        "hold the pool",
+        new_workflow("a", vec![post_step("say", None, None)]),
+    );
+    step_in_state(&engine, goal.id, "say", "running").await;
+    let started = std::time::Instant::now();
+    let read = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "call_connector", "connector": "chat", "operation": "whoami", "agent": "researcher"}),
+    )
+    .await;
+    assert_eq!(read["ok"], json!(false), "{read}");
+    let why = read["errors"][0].as_str().unwrap_or("").to_string();
+    assert!(why.contains("timed out after 6s"), "{why}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(8),
+        "refused in the operation's time plus the overhead, not when the pool freed: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        stub.calls().iter().filter(|c| c.path == "/whoami").count(),
+        0,
+        "never sent"
+    );
     engine.shutdown().await;
 }

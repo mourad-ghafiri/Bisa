@@ -44,8 +44,13 @@ export function healthWords(health, name = t("settings-connectors-platform")) {
       return t("settings-connectors-health-unreachable");
     case "no_check":
       return t("settings-connectors-s-definition-names-check-operation-first", { name });
+    case null:
+    case undefined:
+      // A health with no check word — a node that only says ok or failing —
+      // reads by its state, never as a state this desktop does not know.
+      return health.state === "ok" ? t("settings-connectors-health-connected", { status }) : t("settings-connectors-health-failing");
     default:
-      return t("settings-connectors-check-answered-state-desktop-does-know", { state: String(health.check ?? health.state) });
+      return t("settings-connectors-check-answered-state-desktop-does-know", { state: String(health.check) });
   }
 }
 
@@ -76,5 +81,41 @@ export function checkTargets(detail) {
     .map((a) => ({ connector: def.id, account: a.id }));
 }
 
+/**
+ * Whether a bus frame moves the connectors *list*: a definition or an
+ * account changed. A check moves one account's health, which the list's
+ * rows do not carry — the detail's do — so a check reloads no list, and
+ * *Check all* over many accounts is not as many reads of the list.
+ * @param {{type?: string} | null | undefined} payload
+ */
+export function listReloads(payload) {
+  return payload?.type === "connectors_changed";
+}
+
+/**
+ * Whether a bus frame moves one connector's detail — its definition, its
+ * accounts, their health: a change anywhere, or a check of *this*
+ * connector's account. Another connector's check is not this one's reload,
+ * and no detail is read while none is chosen.
+ * @param {{type?: string, connector?: string} | null | undefined} payload
+ * @param {string | null | undefined} id the connector the detail is of
+ */
+export function detailReloads(payload, id) {
+  if (!id || !payload) return false;
+  if (payload.type === "connectors_changed") return true;
+  return payload.type === "connector_checked" && payload.connector === id;
+}
+
 /** How many accounts *Check all* dials at once — the engine joins a second ask to a running check, so more buys nothing. */
 export const CHECK_ALL_AT_ONCE = 4;
+
+/**
+ * What *Check all* says once it is done: nothing when every connector was
+ * read, else how many could not be — their accounts were never dialled,
+ * and their chips did not move for a reason the chips cannot show.
+ * @param {{queued: number, unread: number}} tally the accounts queued, the connectors that could not be read
+ */
+export function checkAllSummary({ queued, unread }) {
+  if (unread === 0) return null;
+  return t("settings-connectors-check-all-unread", { unread, queued });
+}

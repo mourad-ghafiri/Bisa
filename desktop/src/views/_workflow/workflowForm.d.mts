@@ -21,6 +21,8 @@ export type RunHome = "goal" | "workspace";
 /** The line under an input's field: required or not, what picking a project does, and what is wrong. */
 export declare function inputHint(def: Pick<InputDef, "kind" | "required">, error: string | null | undefined, home: RunHome): string;
 export declare function accountChoices(accounts: readonly { id: string; label: string; default?: boolean }[] | null | undefined): { id: string; label: string; isDefault: boolean }[];
+/** The line under an account input's picker: the read's failure, no account yet, or nothing. */
+export declare function accountFieldNote(state: { connector: string | null; loading: boolean; error: string | null | undefined; count: number }): { tone: "danger" | "quiet"; text: string } | null;
 export declare function nextInputName(inputs: readonly InputDef[] | null | undefined): string;
 export declare const INPUT_KINDS: readonly InputDef["kind"][];
 /** An input kind in words, never its wire slug. */

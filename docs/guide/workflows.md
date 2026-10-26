@@ -377,11 +377,15 @@ operation = "post_message"
 params = { channel = "{inputs.channel}", text = "Released {goal.title}: {steps.notes.output.summary}" }
 ```
 
-An operation marked `writes` changes something on the platform; put an `approval` step before it,
-as the Workflow Agent does. A call reaches only the hosts the connector declares, minus what
+An operation marked `writes` changes something on the platform; put an `approval` or `human` step
+before it, as the Workflow Agent does — or mark the step `unattended: true` when it is yours to
+run on its own word (the validator refuses a write with neither). A call reaches only the hosts the connector declares, minus what
 `security.net.deny_hosts` forbids and plus what `security.net.allow_hosts` allows; a refusal, a
 failed call or an answer that misses the schema fails the step with a reason the credential never
-appears in. An account read from an input is checked when the run starts.
+appears in. An account read from an input is checked when the run starts. The designer's pickers
+name what a step holds and this machine no longer has — a connector gone, an operation that is
+not the connector's, an account or an input no longer here — rather than showing the default over
+it, and the problems list follows a connector or an account that changes under the design.
 
 ```sh
 bisa connector list                              # the connectors installed here, with their accounts

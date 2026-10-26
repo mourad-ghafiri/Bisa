@@ -137,3 +137,56 @@ async fn a_not_found_and_a_refusal_carry_the_services_words() {
         "{err}"
     );
 }
+
+// added by the connectors quality programme: a 403 is the platform's own status
+
+/// A 401 is *not authenticated*; a 403 is the platform's refusal and keeps
+/// its own status — what an account check then reports is what the
+/// platform said, never a status the crate made up.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_401_is_not_authenticated_and_a_403_is_a_refusal_with_its_status() {
+    let stub = Stub::start(vec![
+        Canned::json("GET", "/v1/items/1", 401, json!({"message": "bad token"})),
+        Canned::json(
+            "GET",
+            "/v1/items/2",
+            403,
+            json!({"message": "not allowed here"}),
+        ),
+    ])
+    .await;
+    let client = client(MemoryCreds::with(&account(), Default::default()));
+    let spec = spec(&stub, AuthSpec::None);
+    let err = client
+        .call(
+            &spec,
+            None,
+            &no_account_params(),
+            &params(&[("id", "1")]),
+            &AllowAll,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, ConnectorError::NotAuthenticated(ref m) if m == "bad token"),
+        "{err}"
+    );
+    let err = client
+        .call(
+            &spec,
+            None,
+            &no_account_params(),
+            &params(&[("id", "2")]),
+            &AllowAll,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, ConnectorError::Refused { status: 403, ref reason } if reason == "not allowed here"),
+        "{err}"
+    );
+    assert!(
+        err.is_refusal(),
+        "a 403 is the caller's to fix, like any refusal"
+    );
+}

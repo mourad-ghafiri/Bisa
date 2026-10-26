@@ -12,6 +12,7 @@ use bisa_engine::connector_health::{AccountHealthState, AccountHealthView, DROPP
 use bisa_engine::connectors::{self, AccountCheckState};
 use bisa_engine::EnginePayload;
 use bisa_harness::mock::MockAdapter;
+use bisa_store::NewConnectorAccount;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -459,12 +460,139 @@ async fn a_check_reads_every_answer_and_every_state_has_its_word() {
             )
             .await
             .unwrap();
-        assert_eq!(not_yet.status, Some(401), "{not_yet:?}");
+        assert_eq!(
+            not_yet.status, None,
+            "no request was made, so no status: {not_yet:?}"
+        );
         assert_eq!(not_yet.state.as_str(), "refused");
+        assert_eq!(
+            not_yet.reason.as_deref(),
+            Some("the account holds no private_key; connect it first")
+        );
     }
     assert_eq!(AccountCheckState::NoCheck.as_str(), "no_check");
     assert_eq!(AccountHealthState::Unknown.as_str(), "unknown");
     assert_eq!(AccountHealthState::Ok.as_str(), "ok");
     assert_eq!(AccountHealthState::Failing.as_str(), "failing");
+    engine.shutdown().await;
+}
+
+// added by the connectors quality programme: a verdict is about the way in it was asked of
+
+/// A check whose account moved under it — its secrets set again, or the
+/// account forgotten — still answers its caller, but is not kept as the
+/// account's health: the verdict was about a way in that is no more, and
+/// nothing is kept for an account that is gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_verdict_that_lands_after_the_account_moved_or_went_is_not_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![
+        slow("GET", "/whoami", 200, json!({"user": "me"}), 1_500),
+        slow("GET", "/whoami", 200, json!({"user": "me"}), 1_500),
+    ])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let account = install_chat(&engine, &stub, Some(TOKEN)).unwrap();
+    let inner = Arc::clone(engine.inner());
+    let check_in_flight = || {
+        tokio::spawn({
+            let inner = Arc::clone(&inner);
+            async move {
+                inner
+                    .connector_health
+                    .check(&inner, &cid(), account, None)
+                    .await
+            }
+        })
+    };
+    // The secrets move under the check.
+    let check = check_in_flight();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    connectors::set_secrets(
+        &inner,
+        &cid(),
+        account,
+        BTreeMap::from([(SecretField::Token, "another-token".to_string())]),
+    )
+    .unwrap();
+    let answered = check.await.unwrap().unwrap();
+    assert_eq!(
+        answered.state,
+        AccountCheckState::Connected,
+        "the caller still hears the answer"
+    );
+    assert_eq!(
+        inner.connector_health.view_of(&cid(), account),
+        AccountHealthView::unknown(),
+        "not kept: the secrets moved under it"
+    );
+    // The account goes under the check.
+    let check = check_in_flight();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    connectors::delete_account(&inner, &cid(), account).unwrap();
+    let answered = check.await.unwrap().unwrap();
+    assert_eq!(answered.state, AccountCheckState::Connected);
+    assert!(
+        inner.connector_health.health_of(&cid(), account).is_none(),
+        "no slot for an account that is gone"
+    );
+    assert_eq!(stub.calls().len(), 2);
+    engine.shutdown().await;
+}
+
+/// A 403 keeps the status the platform gave; an account that holds no
+/// secret for its scheme has no way in to try — refused in words, with no
+/// status the platform never gave, and the platform never asked.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_403_keeps_its_status_and_an_account_with_no_secret_is_refused_without_a_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![canned(
+        "GET",
+        "/whoami",
+        403,
+        json!({"message": "not for this token"}),
+    )])
+    .await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let account = install_chat(&engine, &stub, Some(TOKEN)).unwrap();
+    let health = &engine.inner().connector_health;
+    let check = health
+        .check(engine.inner(), &cid(), account, None)
+        .await
+        .unwrap();
+    assert_eq!(check.state, AccountCheckState::Refused);
+    assert_eq!(
+        check.status,
+        Some(403),
+        "the platform's own status, never a 401 it did not say"
+    );
+    assert_eq!(
+        check.reason.as_deref(),
+        Some("the service refused (403): not for this token")
+    );
+    let bare = engine
+        .workspace()
+        .create_connector_account(NewConnectorAccount {
+            connector: cid(),
+            label: "bare".into(),
+            params: BTreeMap::new(),
+            default: false,
+        })
+        .unwrap();
+    let check = health
+        .check(engine.inner(), &cid(), bare.id, None)
+        .await
+        .unwrap();
+    assert_eq!(check.state, AccountCheckState::Refused);
+    assert_eq!(check.status, None, "no request, no status");
+    assert_eq!(
+        check.reason.as_deref(),
+        Some("the account holds no token; connect it first")
+    );
+    assert_eq!(stub.calls().len(), 1, "the 403 was the one request");
+    assert_eq!(
+        health.view_of(&cid(), bare.id).state,
+        AccountHealthState::Failing
+    );
     engine.shutdown().await;
 }

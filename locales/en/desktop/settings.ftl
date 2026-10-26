@@ -1575,6 +1575,28 @@ settings-connectors-panel-definition = the connector's definition
 settings-connectors-panel-definition-json = Definition, as JSON
 settings-connectors-panel-more-account = More for { $account }
 settings-connectors-panel-callback-port = the callback port
+settings-connectors-panel-open-this-link-yourself = The browser did not open. Open this link yourself:
+settings-connectors-panel-check-all-reading = Reading the accounts…
+settings-connectors-flow-code-taken-for = A pasted code is taken for { $left } more min.
+settings-connectors-flow-expired-start-again = This connection expired — start it again with Connect.
+settings-connectors-account-saved = { $label } saved.
+settings-connectors-account-saved-secrets = { $label } saved; { $fields } set — sent once, never displayed.
+settings-connectors-id-cannot-change = The id cannot change here: it stays { $from }. For { $to }, add a connector under that id and delete this one.
+settings-connectors-check-all-unread = { $unread } { $unread ->
+    [one] connector could not be read; its accounts were not checked.
+   *[other] connectors could not be read; their accounts were not checked.
+  }
+settings-connectors-health-failing = failing
+settings-connectors-ping = Ping
+settings-connectors-what-api-key = API key
+settings-connectors-what-token = token
+settings-connectors-what-username = username or email
+settings-connectors-what-password = password or API token
+settings-connectors-what-client-id = OAuth client id
+settings-connectors-what-client-secret = OAuth client secret
+settings-connectors-what-access-token = access token
+settings-connectors-what-refresh-token = refresh token
+settings-connectors-what-private-key = private key
 
 ## A setting's origin badge and the scope a row writes to (`views/_settings/settingOriginModel.mjs`) — a scope is said as a person types it.
 settings-setting-origin-default = default

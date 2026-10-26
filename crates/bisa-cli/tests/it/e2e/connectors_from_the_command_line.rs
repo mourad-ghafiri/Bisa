@@ -121,6 +121,11 @@ fn a_connectors_verbs_through_the_daemon_and_with_it_gone() {
     assert_eq!(made["connector"]["id"], "acme", "{made}");
     let aliased = ws.json(&["connector", "new", "--from", &path, "--id", "acme-eu"]);
     assert_eq!(aliased["connector"]["id"], "acme-eu", "{aliased}");
+    let said = said_by(&ws.ok(&["connector", "new", "--from", &path, "--id", "quoted"]));
+    assert!(
+        said.contains("connector quoted recorded") && !said.contains("\"quoted\""),
+        "the id, not its JSON: {said}"
+    );
     let not_one = ws.file("not-one.json", r#"{"nope": 1}"#);
     let refused = ws.refused(&["connector", "new", "--from", &not_one.to_string_lossy()]);
     assert!(refused.contains("definition"), "{refused}");
@@ -271,8 +276,59 @@ fn a_connectors_verbs_through_the_daemon_and_with_it_gone() {
             .contains("/auth?"),
         "{left_open}"
     );
-    let done = ws.json_stdin(&["connector", "connect", "oauthy", &me_id], "the-code\n");
+    // The code pasted and entered, the pipe kept open as a terminal keeps
+    // it: the verb ends on the line, never waiting for an Enter nobody owes.
+    let (mut child, stdin) = ws.bisa_stdin_open(
+        &["--json", "connector", "connect", "oauthy", &me_id],
+        "the-code\n",
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while child.try_wait().expect("the verb's state").is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "connect did not end on the pasted line while stdin stayed open"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    drop(stdin);
+    let out = child.wait_with_output().expect("the verb ends");
+    assert!(out.status.success(), "{}", said_by(&out));
+    let done: Value = serde_json::from_slice(&out.stdout).expect("JSON");
     assert_eq!(done["connected"], true, "{done}");
+    // The browser lands while the verb waits with the pipe open and nothing
+    // on it: the verb ends on the landing — read off the account's row,
+    // whose health the reconnect forgets — with no Enter owed. A second
+    // connect's paste stands in for the browser here; a check first gives
+    // the row a health for the landing to forget.
+    ws.json(&[
+        "connector",
+        "account",
+        "check",
+        "oauthy",
+        &me_id,
+        "--timeout-secs",
+        "1",
+    ]);
+    let (mut waiting, open) =
+        ws.bisa_stdin_open(&["--json", "connector", "connect", "oauthy", &me_id], "");
+    // The waiting verb has read the row and started its flow before the
+    // landing moves the row under it.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let again = ws.json_stdin(&["connector", "connect", "oauthy", &me_id], "the-code\n");
+    assert_eq!(again["connected"], true, "{again}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while waiting.try_wait().expect("the verb's state").is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "connect did not end on the landing while stdin stayed open"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    drop(open);
+    let out = waiting.wait_with_output().expect("the verb ends");
+    assert!(out.status.success(), "{}", said_by(&out));
+    let landed: Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(landed["connected"], true, "ended on the landing: {landed}");
     let connected = said_by(&ws.ok(&["connector", "accounts", "oauthy"]));
     assert!(connected.contains("expires"), "{connected}");
 
@@ -296,6 +352,13 @@ fn a_connectors_verbs_through_the_daemon_and_with_it_gone() {
         "region=us",
     ]);
     assert_eq!(off["secrets_set"], json!([]), "{off}");
+    assert_eq!(
+        off["token_source"],
+        json!("file"),
+        "one row shape with or without the daemon: {off}"
+    );
+    assert_eq!(off["health"]["state"], json!("unknown"), "{off}");
+    assert!(off.get("expires_at").is_some(), "{off}");
     let undeclared = ws.refused(&[
         "connector",
         "account",

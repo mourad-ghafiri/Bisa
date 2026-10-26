@@ -918,7 +918,7 @@ fn call_connector(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<()
                     .await
                 {
                     Ok(result) => result,
-                    // LCOV_EXCL_START the client's own deadline is the shorter; the wrapper keeps the call total
+                    // LCOV_EXCL_START the client's deadline is the shorter but for a wait at a full permit pool, which the intake's wrapper covers (an_agents_read_waiting_at_a_full_permit_pool_is_timed_out_in_the_operations_time); a step's wait is the same code and would cost the suite six seconds more
                     Err(_) => Err(EngineError::Connector(
                         crate::connectors::ConnectorError::Timeout(deadline),
                     )),

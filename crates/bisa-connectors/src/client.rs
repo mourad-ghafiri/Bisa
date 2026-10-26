@@ -262,6 +262,10 @@ impl Client {
         judge: &dyn HostJudge,
         exposed: &mut Vec<String>,
     ) -> Result<Outcome, ConnectorError> {
+        // One deadline for the whole call: the credential's refresh, every
+        // page, every attempt and wait, a 401's resend — each gets what is
+        // left of it, never a budget of its own.
+        let started = Instant::now();
         let bound = request::bind_params(&spec.params, params)?;
         let file_data = Self::read_files(spec, &bound, files).await?;
 
@@ -276,10 +280,22 @@ impl Client {
             (_, Some(a)) => (self.creds.load(a).await?, Some(a)),
         };
         let mut credential = auth::credential_for(&spec.auth, &stored)?;
+        // The access token the request carries, so a 401 can tell whether
+        // another flight already replaced it.
+        let mut bearer: Option<Secret> = None;
         if let (AuthSpec::OAuth2 { .. }, Some(a)) = (&spec.auth, account) {
-            credential = Credential::OAuth2(
-                crate::oauth::ensure_fresh(self, &spec.auth, a, &stored, judge).await?,
-            );
+            let token = crate::oauth::ensure_fresh(
+                self,
+                &spec.auth,
+                a,
+                &stored,
+                judge,
+                left_of(spec.timeout, started),
+            )
+            .await
+            .map_err(|e| whole_deadline(e, spec.timeout))?;
+            bearer = Some(token.clone());
+            credential = Credential::OAuth2(token);
         }
         let sign = SignContext {
             now: self.clock.now(),
@@ -302,6 +318,7 @@ impl Client {
                 params: &bound_page,
             };
             let mut req = request::build_request(spec, &values, &file_data, self.entropy.as_ref())?;
+            req.timeout = left_of(spec.timeout, started);
             hosts::check(&req.url, &spec.hosts, spec.insecure_tls)?;
             let host = hosts::host_of(&req.url).unwrap_or_default();
             judge
@@ -315,14 +332,26 @@ impl Client {
             let applied = auth::apply(&spec.auth, &credential, &mut req, &sign)?;
             exposed.extend(applied.secrets);
 
-            let mut resp = self.send_judged(&req, spec.writes, insecure, &host).await?;
+            let mut resp = self
+                .send_judged(&req, spec.writes, insecure, &host)
+                .await
+                .map_err(|e| whole_deadline(e, spec.timeout))?;
             // A 401 under OAuth2 with a refresh token: the token died before its
             // expiry said so. One refresh, one resend, then the answer stands.
             if resp.status == 401 {
                 if let (AuthSpec::OAuth2 { .. }, Some(a)) = (&spec.auth, account) {
                     if stored.field(crate::creds::Field::RefreshToken).is_some() {
-                        let token: Secret =
-                            crate::oauth::force_refresh(self, &spec.auth, a, judge).await?;
+                        let token: Secret = crate::oauth::force_refresh(
+                            self,
+                            &spec.auth,
+                            a,
+                            bearer.as_ref(),
+                            judge,
+                            left_of(spec.timeout, started),
+                        )
+                        .await
+                        .map_err(|e| whole_deadline(e, spec.timeout))?;
+                        bearer = Some(token.clone());
                         credential = Credential::OAuth2(token);
                         let mut again = request::build_request(
                             spec,
@@ -332,11 +361,13 @@ impl Client {
                             // LCOV_EXCL_START: the same request was built once above; a second build cannot fail differently
                         )?;
                         // LCOV_EXCL_STOP
+                        again.timeout = left_of(spec.timeout, started);
                         let applied = auth::apply(&spec.auth, &credential, &mut again, &sign)?;
                         exposed.extend(applied.secrets);
                         resp = self
                             .send_judged(&again, spec.writes, insecure, &host)
-                            .await?;
+                            .await
+                            .map_err(|e| whole_deadline(e, spec.timeout))?;
                     }
                 }
             }
@@ -398,11 +429,30 @@ impl Drop for Admission<'_> {
 }
 
 /// A connect failure never reached the platform — safe to send again; a
-/// timeout or a failure mid-body may have: the caller tells them apart.
+/// timeout, an answer that never came or a failure mid-body may have: the
+/// caller tells them apart.
 fn transport_error(e: TransportError, timeout: Duration) -> ConnectorError {
     match e {
         TransportError::Timeout => ConnectorError::Timeout(timeout),
         TransportError::Connect(why) => ConnectorError::Unreachable(why),
         other => ConnectorError::Transport(other.to_string()),
+    }
+}
+
+/// What is left of the operation's deadline since the call began — the
+/// budget the next page, refresh or resend gets. Nothing, once it is spent:
+/// the send under it then times out at once, and `whole_deadline` names
+/// the operation's.
+fn left_of(deadline: Duration, started: Instant) -> Duration {
+    deadline.saturating_sub(started.elapsed())
+}
+
+/// A timeout met on a page's share of the deadline is the operation's
+/// timeout: the error names the deadline the definition set, not the slice
+/// the page had left.
+fn whole_deadline(e: ConnectorError, deadline: Duration) -> ConnectorError {
+    match e {
+        ConnectorError::Timeout(_) => ConnectorError::Timeout(deadline),
+        other => other,
     }
 }

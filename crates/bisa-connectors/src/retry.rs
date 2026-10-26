@@ -62,6 +62,8 @@ pub fn decide(
     }
     let again = match result {
         Err(TransportError::Connect(_)) | Err(TransportError::Timeout) => !writes,
+        // The request went out: a read may ask again, a write never.
+        Err(TransportError::Lost(_)) => !writes,
         Err(TransportError::Body(_)) => false,
         Ok(r) => match r.status {
             429 | 502 | 503 | 504 => true,
@@ -175,6 +177,32 @@ mod tests {
         assert_eq!(
             decide(&p, 0, &Err(TransportError::Timeout), true, None, 0.5),
             Next::Done
+        );
+        assert!(
+            matches!(
+                decide(
+                    &p,
+                    0,
+                    &Err(TransportError::Lost("closed".into())),
+                    false,
+                    None,
+                    0.5
+                ),
+                Next::RetryAfter(_)
+            ),
+            "a read whose answer never came is asked again"
+        );
+        assert_eq!(
+            decide(
+                &p,
+                0,
+                &Err(TransportError::Lost("closed".into())),
+                true,
+                None,
+                0.5
+            ),
+            Next::Done,
+            "a write whose answer never came may have been done"
         );
         assert_eq!(decide(&p, 0, &resp(400), false, None, 0.5), Next::Done);
         assert_eq!(decide(&p, 0, &resp(200), false, None, 0.5), Next::Done);

@@ -443,6 +443,29 @@ pub enum ErrorCode {
     /// list moved (a push or a drop here or in another worktree). `detail`
     /// carries `index`, `commit` and `now` — what sits there today. Reload.
     StashMoved,
+    /// A connector call: the platform answered *not authenticated* (401) —
+    /// connect the account again. The node's own token refused is a 401
+    /// with no code.
+    ConnectorNotAuthenticated,
+    /// The platform has no such thing (404).
+    ConnectorNotFound,
+    /// Refused before the platform — a definition, a parameter, an OAuth or
+    /// a host refusal (400, 409) — or by it (409).
+    ConnectorRefused,
+    /// The platform's rate limit (429); the wait is in the sentence.
+    ConnectorRateLimited,
+    /// The platform could not be reached, failed, or its answer was lost
+    /// (502).
+    ConnectorUnreachable,
+    /// The call timed out (504).
+    ConnectorTimeout,
+    /// The host's circuit is open after failures in a row (503).
+    ConnectorPaused,
+    /// The answer passed the size cap (500): the operation's `select` is
+    /// the thing to narrow.
+    ConnectorTooLarge,
+    /// The credential store refused (500).
+    ConnectorStore,
 }
 
 /// One goal on the `GET /goals` list — and the same row `GET /teams/{id}`
@@ -5274,7 +5297,7 @@ pub struct ConnectorRow {
     pub description: String,
     pub tags: Vec<String>,
     pub origin: bisa_core::Origin,
-    /// The auth scheme's word: `none`, `api_key`, `bearer`, `basic`, `oauth2`.
+    /// The auth scheme's word: `none`, `api_key`, `bearer`, `basic`, `oauth2`, `jwt`.
     pub auth: String,
     pub hosts: Vec<String>,
     pub operations: Vec<ConnectorOperationRow>,

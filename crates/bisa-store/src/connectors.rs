@@ -433,32 +433,29 @@ impl Workspace {
         connector: &ConnectorId,
         account: AccountId,
     ) -> Result<(), StoreError> {
-        let existing = self.get_connector_account(connector, account)?;
+        self.get_connector_account(connector, account)?;
         for field in SecretField::ALL.iter().copied() {
             self.identity
                 .delete_secret(&secret_name(connector, account, field))?;
         }
         let path = self.paths.connector_account_file(connector, account);
         std::fs::remove_file(&path).map_err(|e| StoreError::io(path.display().to_string(), e))?;
-        let _ = existing;
         Ok(())
     }
 
     // --- secrets -------------------------------------------------------
 
-    /// Set secret fields on an account — each replaced, never read back. A
-    /// field the connector's scheme does not use is refused by name. The
-    /// account's record learns which fields are set; the values go to the
-    /// keystore and nowhere else.
-    pub fn set_connector_secrets(
+    /// Whether `secrets` may be set on an account of `connector`: every
+    /// field one the scheme uses, every value non-blank — judged whole,
+    /// before any value is written, so a refusal leaves no half-set account
+    /// behind and a caller can ask before creating the account at all.
+    pub fn validate_connector_secrets(
         &self,
         connector: &ConnectorId,
-        account: AccountId,
         secrets: &BTreeMap<SecretField, String>,
-    ) -> Result<ConnectorAccount, StoreError> {
+    ) -> Result<(), StoreError> {
         let def = self.get_connector(connector)?;
-        let mut existing = self.get_connector_account(connector, account)?;
-        for field in secrets.keys() {
+        for (field, value) in secrets {
             if !def.auth.fields().contains(field) {
                 return Err(StoreError::Invalid(bisa_core::text!(
                     "error-store-invalid-connector-has-no-secret-field",
@@ -467,14 +464,30 @@ impl Workspace {
                     a1 = (field.as_str()).to_string()
                 )));
             }
-        }
-        for (field, value) in secrets {
             if value.trim().is_empty() {
                 return Err(StoreError::Invalid(bisa_core::text!(
                     "error-store-invalid-secret-field-empty",
                     a0 = (field.as_str()).to_string()
                 )));
             }
+        }
+        Ok(())
+    }
+
+    /// Set secret fields on an account — each replaced, never read back. A
+    /// field the connector's scheme does not use, or a blank value, is
+    /// refused by name before anything is written. The account's record
+    /// learns which fields are set; the values go to the keystore and
+    /// nowhere else.
+    pub fn set_connector_secrets(
+        &self,
+        connector: &ConnectorId,
+        account: AccountId,
+        secrets: &BTreeMap<SecretField, String>,
+    ) -> Result<ConnectorAccount, StoreError> {
+        self.validate_connector_secrets(connector, secrets)?;
+        let mut existing = self.get_connector_account(connector, account)?;
+        for (field, value) in secrets {
             self.identity
                 .set_secret(&secret_name(connector, account, *field), value)?;
             if !existing.auth.fields_set.contains(field) {

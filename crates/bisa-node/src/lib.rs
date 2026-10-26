@@ -998,26 +998,37 @@ impl From<bisa_engine::EngineError> for ApiError {
             // account, fix the definition or the step, wait out the limit —
             // and the platform's failures are the platform's.
             // LCOV_EXCL_START the provider's own failure, stood in for nowhere; out by decision
+            // Coded, so a client tells the platform's 401 from the node's own
+            // token refused, and acts on each: the status is the promise, the
+            // code says which refusal.
             EE::Connector(c) => {
                 use bisa_engine::connectors::ConnectorError as CE;
-                let status = match c {
-                    CE::NotAuthenticated(_) => StatusCode::UNAUTHORIZED, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
-                    CE::NotFound(_) => StatusCode::NOT_FOUND, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                use dto::ErrorCode as Code;
+                let (status, code) = match c {
+                    CE::NotAuthenticated(_) => {
+                        (StatusCode::UNAUTHORIZED, Code::ConnectorNotAuthenticated)
+                    } // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::NotFound(_) => (StatusCode::NOT_FOUND, Code::ConnectorNotFound), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                     CE::BadDefinition(_)
                     | CE::BadParam { .. }
                     | CE::Unresolved(_)
                     | CE::SelectMissing { .. }
-                    | CE::OAuth(_) => StatusCode::BAD_REQUEST, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
-                    CE::HostRefused { .. } | CE::Refused { .. } => StatusCode::CONFLICT, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
-                    CE::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    | CE::OAuth(_) => (StatusCode::BAD_REQUEST, Code::ConnectorRefused), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::HostRefused { .. } | CE::Refused { .. } => {
+                        (StatusCode::CONFLICT, Code::ConnectorRefused)
+                    } // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::RateLimited { .. } => {
+                        (StatusCode::TOO_MANY_REQUESTS, Code::ConnectorRateLimited)
+                    } // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                     CE::Upstream { .. } | CE::Transport(_) | CE::Unreachable(_) => {
-                        StatusCode::BAD_GATEWAY // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                        (StatusCode::BAD_GATEWAY, Code::ConnectorUnreachable)
                     }
-                    CE::Timeout(_) => StatusCode::GATEWAY_TIMEOUT, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
-                    CE::Open { .. } => StatusCode::SERVICE_UNAVAILABLE, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
-                    CE::Store(_) | CE::TooLarge(_) => StatusCode::INTERNAL_SERVER_ERROR, // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::Timeout(_) => (StatusCode::GATEWAY_TIMEOUT, Code::ConnectorTimeout), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::Open { .. } => (StatusCode::SERVICE_UNAVAILABLE, Code::ConnectorPaused), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::TooLarge(_) => (StatusCode::INTERNAL_SERVER_ERROR, Code::ConnectorTooLarge), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                    CE::Store(_) => (StatusCode::INTERNAL_SERVER_ERROR, Code::ConnectorStore), // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
                 };
-                ApiError::text(status, e.text()) // LCOV_EXCL_LINE: the provider's own failure, stood in for nowhere; out by decision
+                ApiError::coded(status, code, e.text())
             }
             // LCOV_EXCL_STOP
             // A code host's refusals are the caller's to act on: sign in, name a

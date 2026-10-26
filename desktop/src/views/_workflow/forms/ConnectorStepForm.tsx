@@ -20,58 +20,17 @@
  * The spellings and the words are `connectorStepModel.mjs`'s.
  */
 
-import { useEffect, useState } from "react";
 import type { ConnectorOperationDef, ConnectorParamDef, InputDef, Step } from "../../../types";
-import { Button, Chip, Field, ICON, Labelled, Select, Switch, TextArea, TextInput, useCommitOnUnmount } from "../../../ui";
+import { Button, Chip, Field, ICON, Labelled, Select, Switch } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
-import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
+import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
 import { JsonField } from "./JsonField";
+import { TemplateField } from "./TemplateField";
 import { t } from "../../../i18n/l10n.mjs";
 import { rich } from "../../../i18n/rich";
 
 type Connector = Extract<Step, { kind: "connector" }>;
-
-/** A template typed as a draft and committed on blur — a JSON parameter's value can be long. */
-function TemplateField({
-  value,
-  rows,
-  disabled,
-  ariaLabel,
-  onCommit,
-}: {
-  value: string;
-  rows?: number;
-  disabled?: boolean;
-  ariaLabel: string;
-  onCommit: (next: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => {
-    if (draft !== value) onCommit(draft);
-  };
-  useCommitOnUnmount(draft !== value ? draft : null, onCommit);
-  if (rows && rows > 1) {
-    return <TextArea rows={rows} className="font-mono" value={draft} aria-label={ariaLabel} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />;
-  }
-  return (
-    <TextInput
-      className="font-mono"
-      value={draft}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          commit();
-        }
-      }}
-    />
-  );
-}
 
 export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: Connector; inputs: InputDef[]; onChange: (next: Step) => void; disabled?: boolean }) {
   const set = (patch: Partial<Connector>) => onChange({ ...step, ...patch });
@@ -88,17 +47,20 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
   // What the definition names and the pickers do not offer, said in the picker — never *pick one* over a name still written.
   const notInstalled = strayConnector(connector, connectors.rows);
   const notItsOperation = strayOperation(chosenOperation, def?.operations ?? [], def ? def.operations : null);
+  // An account the step names and the picker does not offer — gone from this machine, an input gone or moved to another connector — is said in the picker too.
+  const notAnAccount = strayAccount(step.account, detail.data ? accounts : null, inputs, connector);
 
   const setParam = (name: string, value: string) => set({ params: withParam(params, name, value) });
 
   const declared: ConnectorParamDef[] = operation?.params ?? [];
-  const stray = strayParams(params, declared);
+  // A stray is judged against the definition, never against one not read yet.
+  const stray = def ? strayParams(params, declared) : [];
   const unattended = step.unattended ?? false;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-3 @sm:grid-cols-2">
-        <Field label={t("workflow-step-kinds-connector")} hint={connectors.rows.length === 0 ? t("workflow-connector-step-form-nothing-installed-here-yet-settings-connectors") : t("workflow-connector-step-form-connector-installed-here-slug")}>
+        <Field label={t("workflow-step-kinds-connector")} hint={connectorPickerHint({ count: connectors.rows.length, error: connectors.error })}>
           <Select
             className="font-mono"
             value={connector ?? ""}
@@ -114,7 +76,7 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
             {connector !== null && notInstalled !== null && <option value={connector}>{notInstalled}</option>}
           </Select>
         </Field>
-        <Field label={t("workflow-connector-step-form-operation")} hint={operation ? operation.description : t("workflow-connector-step-form-one-connector-s-operations")}>
+        <Field label={t("workflow-connector-step-form-operation")} hint={definitionHint(detail.error, operation ? operation.description : t("workflow-connector-step-form-one-connector-s-operations"))}>
           <Select
             className="font-mono"
             value={chosenOperation ?? ""}
@@ -142,14 +104,11 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
       )}
       <Field
         label={t("workflow-connector-step-form-account")}
-        hint={
-          accounts.length === 0 && accountInputs.length === 0
-            ? t("workflow-connector-step-form-machine-holds-no-account-yet-default")
-            : t("workflow-connector-step-form-connector-s-default-account-node-one")
-        }
+        hint={accountsNote({ loading: detail.loading, error: detail.error, count: accounts.length, inputs: accountInputs.length }) ?? undefined}
       >
         <Select value={accountValue(step.account)} disabled={disabled || !def} onChange={(e) => set({ account: accountFromValue(e.target.value) as Connector["account"] })}>
           <option value={DEFAULT_ACCOUNT}>{t("workflow-connector-step-form-connector-s-default-account")}</option>
+          {notAnAccount !== null && <option value={accountValue(step.account)}>{notAnAccount}</option>}
           {accounts.length > 0 && (
             <optgroup label={t("workflow-connector-step-form-account-machine")}>
               {accounts.map((a) => (

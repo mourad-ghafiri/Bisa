@@ -123,6 +123,7 @@ later pass brings into the catalog — the work list, by file:
 | `presence.rs` | a session's waiting words (*the {gate} gate*, *sign in to {provider}*), why it failed (*budget exhausted*, *wall clock exceeded*) |
 | `guided.rs`, `ops.rs`, `executor.rs` | a run's or a step's reason as it reaches the journal and the Inbox (`interruption_note`, a launch failure's sentence) |
 | `codehost.rs`, `projects.rs`, `ide/connection.rs` | a publish's or a connection's refusal |
+| `connectors.rs`, `connector_health.rs`, `listen/sources.rs` | a check's reason (*the account holds no token; connect it first*, *the connector names no check operation*), a dropped check's sentence (`DROPPED`), a poll's failure (*the poll timed out after …*, *item(s) … have no key*), a run file's refusal |
 
 Each is a `String` on a wire type today (`GateEntry.question`, `Decision.reason`, a readiness
 check's `detail`), so moving one is a change of shape the desktop follows — the same road the

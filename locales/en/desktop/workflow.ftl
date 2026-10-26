@@ -1160,3 +1160,13 @@ workflow-agent-filter-fields-harness = Harness
 workflow-agent-filter-fields-harness-hint = Only sessions on one of these harnesses; none for any.
 workflow-agent-filter-fields-change = What the session does
 workflow-agent-filter-fields-change-hint = Any of the checked. A worker whose result landed ends as aborted; done is a session whose turn ended on its own.
+
+## Connector pickers — what a step or a poll names and the picker does not offer, and what a read that failed says (`forms/connectorStepModel.mjs`, `workflowForm.mjs`)
+workflow-connector-step-form-account-not-here = { $id } (not an account on this machine)
+workflow-connector-step-form-input-no-such = input · { $name } (no such input)
+workflow-connector-step-form-input-not-account = input · { $name } (not an account input)
+workflow-connector-step-form-input-no-connector = input · { $name } (an account input naming no connector)
+workflow-connector-step-form-input-other-connector = input · { $name } (an account of { $other }, not { $connector })
+workflow-connector-step-form-connectors-not-read = The connectors could not be read: { $error }
+workflow-connector-step-form-definition-not-read = The connector's definition could not be read: { $error }
+workflow-inputs-form-accounts-not-read = The accounts could not be read: { $error }

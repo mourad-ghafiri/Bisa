@@ -11352,7 +11352,7 @@
         },
         "auth": {
           "type": "string",
-          "description": "The auth scheme's word: `none`, `api_key`, `bearer`, `basic`, `oauth2`."
+          "description": "The auth scheme's word: `none`, `api_key`, `bearer`, `basic`, `oauth2`, `jwt`."
         },
         "hosts": {
           "type": "array",
@@ -21813,6 +21813,51 @@
           "type": "string",
           "const": "stash_moved",
           "description": "`stash@{index}` no longer holds the commit the caller saw there: the\nlist moved (a push or a drop here or in another worktree). `detail`\ncarries `index`, `commit` and `now` — what sits there today. Reload."
+        },
+        {
+          "type": "string",
+          "const": "connector_not_authenticated",
+          "description": "A connector call: the platform answered *not authenticated* (401) —\nconnect the account again. The node's own token refused is a 401\nwith no code."
+        },
+        {
+          "type": "string",
+          "const": "connector_not_found",
+          "description": "The platform has no such thing (404)."
+        },
+        {
+          "type": "string",
+          "const": "connector_refused",
+          "description": "Refused before the platform — a definition, a parameter, an OAuth or\na host refusal (400, 409) — or by it (409)."
+        },
+        {
+          "type": "string",
+          "const": "connector_rate_limited",
+          "description": "The platform's rate limit (429); the wait is in the sentence."
+        },
+        {
+          "type": "string",
+          "const": "connector_unreachable",
+          "description": "The platform could not be reached, failed, or its answer was lost\n(502)."
+        },
+        {
+          "type": "string",
+          "const": "connector_timeout",
+          "description": "The call timed out (504)."
+        },
+        {
+          "type": "string",
+          "const": "connector_paused",
+          "description": "The host's circuit is open after failures in a row (503)."
+        },
+        {
+          "type": "string",
+          "const": "connector_too_large",
+          "description": "The answer passed the size cap (500): the operation's `select` is\nthe thing to narrow."
+        },
+        {
+          "type": "string",
+          "const": "connector_store",
+          "description": "The credential store refused (500)."
         }
       ],
       "description": "The refusals a client tells apart. Each names one producer that exists;\na message is still the words, the code is what a client switches on."

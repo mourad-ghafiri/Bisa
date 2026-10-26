@@ -154,7 +154,7 @@ A connector is a declarative definition of one outside platform's API — its ho
 of its most useful operations — that a `connector` step calls. Nothing here holds a credential: an **account** is
 added on the machine that has one (Settings › Capabilities › Connectors, or `bisa connector account add`), its secrets live in
 the keystore, and the definition names the account only at run time. An operation marked *writes* changes something
-on the platform; a workflow puts an `approval` step before it. Guide: [Connectors](../guide/connectors.md).
+on the platform; a workflow puts an `approval` or `human` step before it, unless the step says `unattended`. Guide: [Connectors](../guide/connectors.md).
 
 | Connector | Slug | Auth | Hosts | Operations | Tags |
 |---|---|---|---|---|---|

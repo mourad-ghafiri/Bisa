@@ -20,6 +20,7 @@ tags = ["business", "ops"]
 base_url = "https://gmail.googleapis.com"
 hosts = ["gmail.googleapis.com"]
 check = "profile"
+revision = 1
 
 [connector.auth]
 scheme = "oauth2"

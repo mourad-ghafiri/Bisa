@@ -103,7 +103,8 @@ back to the earlier release, the backup is the only way: see [Not promised in 0.
   may change in any release. What you installed is yours: an upgrade never changes an installed copy
   — except a built-in connector, which the engine refreshes to the bundle's revision at start, its
   accounts, secrets and steps kept (a peer on an earlier release sets the refreshed snapshot aside,
-  as mixed releases already do).
+  as mixed releases already do), and a built-in addon, refreshed to the release's own version when
+  the workspace opens, its grants held to the manifest.
 
 ## Not promised in 0.x
 

@@ -1,10 +1,12 @@
-import type { AccountCheck, AuthScheme, Connector, ConnectorAccountRow, ConnectorDefinition, ConnectorRow, ConnectorValidation, NewConnectorAccount, Origin, ResolvedSetting, SecretField } from "../../types";
+import type { AccountCheck, AuthScheme, Connector, ConnectorAccountRow, ConnectorDefinition, ConnectorRow, ConnectorValidation, NewConnectorAccount, OAuthStart, Origin, ResolvedSetting, SecretField } from "../../types";
 
 export type Tone = "ok" | "warn" | "danger" | "quiet";
 export type SchemeWord = "none" | "api_key" | "bearer" | "basic" | "oauth2" | "jwt";
 
 export declare const SECRET_FIELDS_BY_SCHEME: Readonly<Record<SchemeWord, readonly SecretField[]>>;
 export declare const SECRET_FIELD_LABEL: Readonly<Record<SecretField, string>>;
+/** The noun the secret input names each field by in its own sentences. */
+export declare const SECRET_FIELD_WHAT: Readonly<Record<SecretField, string>>;
 export declare function schemeWord(auth: string | AuthScheme | null | undefined): string;
 export declare function secretFields(auth: string | AuthScheme | null | undefined): SecretField[];
 export declare function isMultilineSecret(field: string): boolean;
@@ -22,6 +24,27 @@ export declare function secretsLine(row: ConnectorAccountRow | null | undefined,
 export declare function oauthLine(row: ConnectorAccountRow | null | undefined, now: number): string | null;
 export declare function checkLine(check: AccountCheck | null | undefined, name?: string): { tone: Tone; text: string };
 export declare function connectWords(port: number | string): string;
+export declare function connectUriWords(uri: string): string;
+/** A connection started for an account, and the row as it stood when it began. */
+export interface PendingFlow {
+  account: string;
+  code: string;
+  url: string;
+  redirectUri: string;
+  expiresAt: number | null;
+  /** The browser could not open: the URL is shown to copy. */
+  browserFailed: boolean;
+  before: { secrets_set: string[]; expiresAt: number | null; scope: string | null; health: string };
+}
+export declare function pendingFlow(start: OAuthStart, account: ConnectorAccountRow): PendingFlow;
+export declare function flowLanded(flow: PendingFlow | null | undefined, row: ConnectorAccountRow | null | undefined): boolean;
+export declare function flowExpired(flow: PendingFlow | null | undefined, now: number): boolean;
+export declare function flowWords(flow: PendingFlow | null | undefined, now: number): string;
+export declare function mayPaste(state: { flow: PendingFlow | null; busy: boolean; now: number }): boolean;
+export declare function savedWords(body: NewConnectorAccount, account: ConnectorAccountRow | null | undefined): string;
+export declare function validationFor(seen: { text: string; validation: ConnectorValidation } | null | undefined, text: string): ConnectorValidation | null;
+export declare function renamedProblem(initialId: string | null | undefined, def: { id?: unknown } | null | undefined): string | null;
+export declare function mayEditDefinition(state: { busy: boolean; definitionRead: boolean }): boolean;
 /** What the account form holds while it is open. */
 export interface AccountDraft {
   label: string;

@@ -216,7 +216,21 @@ impl ConnectorHealth {
                     check: check.clone(),
                     checked_at: now_secs(),
                 };
-                self.slots.locked().insert(key, Slot::Done(Box::new(last)));
+                // Kept only while the slot is still this check's: a secret
+                // set, a parameter edited, the definition moved or the
+                // account gone under the check forgot the slot meanwhile,
+                // and the verdict is about a way in that is no more. The
+                // joiners hear it either way.
+                let mine = tx.subscribe();
+                {
+                    let mut slots = self.slots.locked();
+                    if matches!(slots.get(&key), Some(Slot::Running(rx)) if rx.same_channel(&mine))
+                    {
+                        slots.insert(key, Slot::Done(Box::new(last)));
+                    }
+                }
+                // The guard's receiver goes before the send, so a check nobody joined says so.
+                drop(mine);
                 runner.done = true;
                 // A joiner that stopped listening is not a fault.
                 if tx.send(Some(check.clone())).is_err() {
