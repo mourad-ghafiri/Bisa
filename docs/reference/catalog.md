@@ -183,7 +183,7 @@ declare; a folder of your own imports there with nothing granted until you say s
 
 | Addon | Slug | For | Version | Window | Permissions | Tags |
 |---|---|---|---|---|---|---|
-| **Bug hunt** | `bug-hunt` | Insects walk, dart and jump over the app while you wait — pick a whip, a flyswatter, a slipper, a newspaper or a spray and hunt them; a miss cracks the glass, a squeegee wipes it, and the app keeps working underneath. | 0.5.0 | 240×160 | `storage`, `workspace_summary` | `fun` `game` |
+| **Bug hunt** | `bug-hunt` | Insects walk, dart and jump over the app while you wait — pick a whip, a flyswatter, a slipper, a newspaper or a spray and hunt them; a blow scares the rest, a streak and a new best are cheered, a golden one is worth ten times; a miss can crack the glass when glass marks are on, a squeegee wipes it, and the app keeps working underneath. | 0.5.0 | 240×160 | `storage`, `workspace_summary` | `fun` `game` |
 | **Calculator** | `calculator` | Four functions, a backspace and a keyboard, for the arithmetic between two thoughts — left to right, as typed. | 0.5.0 | 220×300 | — | `tool` |
 | **Clock** | `clock` | The time on one face — analog with a sweeping second hand, or digital — 12 or 24 hours, the date if you like; the settings behind a gear. | 0.5.0 | 200×200 | `storage` | `time` |
 | **CPU** | `cpu` | The machine's processor load as a sparkline, at the footer's cadence. | 0.5.0 | 160×64 | `system_load` | `load` `system` |

@@ -103,9 +103,13 @@ the new version no longer asks for is dropped; one it newly asks for is not gran
   while it keeps working — the more things are running, the more that crawl. A strip at the right
   holds the tools: pick a whip, a flyswatter, a slipper, a newspaper or a spray and the scene takes
   the pointer (*Hunt*); the tool is in your hand — it follows the pointer and strikes where you
-  click, the whip's lash trailing behind you and its tip cracking on the spot — a hit splats, a miss
-  cracks or scratches the glass, the spray slows and kills, the squeegee wipes as you drag; a streak within two
-  seconds multiplies the points, the best is kept. `Esc` or the *Work* switch hands the app the pointer back and the insects keep
+  click; the whip's tip *is* the pointer, its lash lies back along the way you came and the hand
+  rides at the far end, so a click cracks the tip on the spot — a hit splats, a blow frightens the
+  insects near it, the spray slows and kills, the squeegee wipes as you drag; a streak within two
+  seconds multiplies the points, *Combo!* at three and *On a roll!* at five, a best moved past is
+  cheered, and now and then a golden insect worth ten times comes through, fast and skittish. A
+  miss cracks or scratches the glass only while *Glass marks* (the strip's switch, `M`) is on — off
+  by default, a miss is a puff of air. `Esc` or the *Work* switch hands the app the pointer back and the insects keep
   walking; the ✕ puts the scene away (the footer's Addons popover brings it back). Sound is on with
   a mute switch; *Calm*, *Busy* and *Swarm* set how many come; the insects keep off a browser tab,
   which paints over them. While hunting, the footer and the pet sit under the scene — `Esc` first.

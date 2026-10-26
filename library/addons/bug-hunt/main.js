@@ -10,7 +10,7 @@
   var glass = $("glass"), bugsEl = $("bugs"), marksEl = $("marks"), fxEl = $("fx"), strip = $("strip");
   var hand = $("hand"), handUse = $("handUse"), handSvg = hand.querySelector("svg"), trail = $("trail");
   var scoreEl = $("score"), streakEl = $("streak"), bestEl = $("best"), waitEl = $("wait");
-  var modeBtn = $("mode"), diffBtn = $("difficulty"), paceValue = $("paceValue"), muteBtn = $("mute"), muteIcon = $("muteIcon"), leaveBtn = $("leave");
+  var modeBtn = $("mode"), diffBtn = $("difficulty"), paceValue = $("paceValue"), muteBtn = $("mute"), muteIcon = $("muteIcon"), marksBtn = $("marksBtn"), leaveBtn = $("leave");
   var toolBtns = Array.prototype.slice.call(strip.querySelectorAll(".tool"));
   var SVG = "http://www.w3.org/2000/svg", XLINK = "http://www.w3.org/1999/xlink";
   var STRIP_WIDTH = 56;
@@ -18,9 +18,11 @@
 
   var state = {
     mode: "work", tool: "swatter", muted: false, difficulty: "busy",
+    marksOn: false,   // whether a miss cracks or scratches the glass: off until the person says so
     bounds: { width: window.innerWidth, height: window.innerHeight }, obstacles: [], cuts: false,
     working: 0, visible: true, score: { score: 0, streak: 0, best: 0, lastHitAt: -1e9, lastPoints: 0 },
-    insects: [], marks: [], nextSpawn: 0.6, nextId: 1, cooldownUntil: 0, strip: null,
+    insects: [], marks: [], scares: [], nextSpawn: 0.6, nextId: 1, cooldownUntil: 0, strip: null,
+    record: 0, bestToldAt: -1e9,   // the best to beat — what the store kept, then the last one cheered — and when it was last cheered
   };
   var r = H.rng((Date.now() ^ (Math.random() * 1e9)) >>> 0);
   var nodes = {};        // insect id → its element
@@ -31,7 +33,8 @@
   var history = [];      // where the pointer has been, newest last: the whip's lash lies along it
   var handAngle = 0, handTarget = 0;   // the tool in hand turns into the swing, a touch behind the hand
   var ribbon = null;     // the whip's lash on the trail layer, once drawn
-  var ribbonHeld = null; // the lash pulled straight by a crack, as offsets from the tip so it rides the grip: { pts, until }
+  var ribbonHeld = null; // the lash pulled straight by a crack, as offsets from the tip so it rides the pointer, the hand at its far end: { pts, until }
+  var handPos = null;    // where the whip's eye stands: the far end of the lash, eased so the handle lags like a held whip
   var band = null;       // the squeegee's wet band while it drags
   var canStore = false, saveTimer = null;
   var clock = 0, raf = null, now = 0;
@@ -43,7 +46,7 @@
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       saveTimer = null;
-      bisa.storage.set("state", JSON.stringify({ best: state.score.best, muted: state.muted, tool: state.tool, difficulty: state.difficulty })).catch(function () {});
+      bisa.storage.set("state", JSON.stringify({ best: state.score.best, muted: state.muted, tool: state.tool, difficulty: state.difficulty, marks: state.marksOn })).catch(function () {});
     }, 300);
   }
   function renderHud() {
@@ -71,6 +74,10 @@
     muteBtn.setAttribute("aria-pressed", state.muted ? "true" : "false");
     muteBtn.setAttribute("aria-label", state.muted ? "Unmute" : "Mute");
     muteBtn.title = state.muted ? "Unmute" : "Mute";
+    var marksWords = state.marksOn ? "Glass marks: on — a miss cracks or scratches the glass" : "Glass marks: off — a miss leaves no crack";
+    marksBtn.setAttribute("aria-pressed", state.marksOn ? "true" : "false");
+    marksBtn.setAttribute("aria-label", marksWords);
+    marksBtn.title = marksWords + " (M)";
     renderHand();
   }
 
@@ -136,15 +143,19 @@
     src.connect(filter); filter.connect(gain); gain.connect(audio.master);
     src.start(t0); src.stop(t0 + 0.1);
   }
-  function play(name, delay) {
+  function play(name, delay, streak) {
     if (state.muted) return;
     var ctx = ensureAudio();
     if (!ctx) return;
     if (ctx.state === "suspended") ctx.resume().catch(function () {});
     var t0 = ctx.currentTime + (delay || 0);
     switch (name) {
+      // A streak reached: two notes rising, higher at five; a best moved past: three; the golden one arriving: a ting.
+      case "chime": { var lo = streak >= 5 ? 880 : 660, hi = streak >= 5 ? 1320 : 880; tone(ctx, t0, "sine", lo, lo, 0.12, 0.12); tone(ctx, t0 + 0.09, "sine", hi, hi, 0.2, 0.14); break; }
+      case "fanfare": tone(ctx, t0, "triangle", 523, 523, 0.14, 0.12); tone(ctx, t0 + 0.1, "triangle", 659, 659, 0.14, 0.12); tone(ctx, t0 + 0.2, "triangle", 784, 784, 0.26, 0.14); break;
+      case "ting": tone(ctx, t0, "sine", 2093, 2093, 0.28, 0.09); tone(ctx, t0, "sine", 4186, 4186, 0.12, 0.03); break;
       case "swish": swish(ctx, t0); break;
-      case "whip": burst(ctx, t0, "highpass", 2400, 0.8, 0.12, 0.9, 0.07); tone(ctx, t0, "sine", 1800, 300, 0.05, 0.15); break;
+      case "whip": burst(ctx, t0, "highpass", 6000, 3, 0.012, 1, 0.006); burst(ctx, t0 + 0.004, "highpass", 2400, 0.8, 0.12, 0.9, 0.07); tone(ctx, t0 + 0.004, "sine", 1800, 300, 0.05, 0.15); break;
       case "swat": burst(ctx, t0, "lowpass", 900, 1, 0.1, 0.8, 0.06); break;
       case "thud": tone(ctx, t0, "sine", 110, 40, 0.14, 0.9); burst(ctx, t0, "lowpass", 300, 1, 0.08, 0.3, 0.05); break;
       case "splat": burst(ctx, t0, "lowpass", 500, 1, 0.18, 0.7, 0.14); tone(ctx, t0 + 0.02, "sine", 240, 90, 0.12, 0.3); break;
@@ -192,9 +203,12 @@
   /** What the insects keep off: the tabs the host named, and the strip, which the pointer never reaches on the glass. */
   function walls() { return state.strip ? state.obstacles.concat([state.strip]) : state.obstacles; }
   function arrive() {
-    var species = pickSpecies();
-    var leader = H.spawn(species, state.bounds, walls(), r, now, state.nextId++);
+    // Now and then the golden one comes alone, with a ting; else the usual, an ant with its file.
+    var golden = H.goldenTurn(r, state.insects);
+    var species = golden || pickSpecies();
+    var leader = H.spawn(species, state.bounds, walls(), r, now, state.nextId++, !!golden);
     state.insects.push(leader);
+    if (golden) { play("ting"); return; }
     var file = H.SPECIES[species].file || 1;
     for (var k = 1; k < file; k++) {
       var ant = H.spawn(species, state.bounds, walls(), r, now, state.nextId++);
@@ -214,7 +228,7 @@
     if (el) return el;
     var sp = H.SPECIES[bug.species];
     el = document.createElement("div");
-    el.className = "bug";
+    el.className = bug.golden ? "bug golden" : "bug";
     el.style.setProperty("--size", sp.size + "px");
     el.style.setProperty("--color", sp.color);
     var shadow = document.createElement("span");
@@ -332,9 +346,12 @@
     markNodes[mark.id] = g;
   }
   // --- the tool in hand ---------------------------------------------------------------------
-  /** The tools that turn into the swing, and the symbol's own angle when the swing points right. */
-  var DIRECTIONAL = { newspaper: 0, spray: 0, squeegee: Math.PI / 2, whip: Math.PI / 4 };
-  var LASH = 170;   // px of lash behind the grip
+  /** The tools that turn into the swing, and the symbol's own angle when the swing points right. The whip turns by its lash instead. */
+  var DIRECTIONAL = { newspaper: 0, spray: 0, squeegee: Math.PI / 2 };
+  var LASH = 128;   // px of lash from the tip, on the pointer, back to the hand
+  var HAND_INSET = 20;   // the whip's eye keeps this far inside the glass
+  /** The whip symbol's own angle: its leather leaves the eye at -3π/4 (the grip runs toward +π/4), so the hand turns by this past the way the lash leaves. */
+  var WHIP_TURN = 3 * Math.PI / 4;
   var SWINGS = ["slam", "stomp", "whack", "flick", "puff", "press"];
   function f(n) { return n.toFixed(1); }
   function wrap(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
@@ -345,19 +362,41 @@
     trail.classList.toggle("whip", state.tool === "whip");
     hand.classList.remove("down");
   }
-  function hideHand() { hand.hidden = true; trail.classList.remove("on"); }
+  function hideHand() { hand.hidden = true; trail.classList.remove("on"); handPos = null; }
+  /** A point kept inside the glass by the hand's inset. */
+  function inset(p) {
+    return { x: Math.max(HAND_INSET, Math.min(state.bounds.width - HAND_INSET, p.x)), y: Math.max(HAND_INSET, Math.min(state.bounds.height - HAND_INSET, p.y)) };
+  }
   function handPlay(name) {
     SWINGS.forEach(function (c) { hand.classList.remove(c); });
     void hand.offsetWidth;
     hand.classList.add(name);
   }
   hand.addEventListener("animationend", function (e) { if (e.target === handSvg) SWINGS.forEach(function (c) { hand.classList.remove(c); }); });
-  /** Every frame in hunt mode: the tool sits on the pointer and turns into the swing a touch behind it; a whip's lash lies along the way the hand came. */
+  /**
+   * Every frame in hunt mode: the tool sits on the pointer and turns into
+   * the swing a touch behind it. The whip is the one tool the hand does not
+   * sit on: the pointer is its tip, the lash lies back along the way the
+   * pointer came, and the hand stands at the lash's far end — eased, so the
+   * handle lags like a held whip — turned so the leather leaves its eye
+   * toward the tip.
+   */
   function updateHand() {
     var show = state.mode === "hunt" && !!pointer;
     if (hand.hidden !== !show) hand.hidden = !show;
     if (!show) { trail.classList.remove("on"); return; }
-    if (Object.prototype.hasOwnProperty.call(DIRECTIONAL, state.tool)) handAngle += wrap(handTarget + DIRECTIONAL[state.tool] - handAngle) * 0.3;
+    var at = pointer;
+    if (state.tool === "whip") {
+      if (ribbonHeld && now >= ribbonHeld.until) settleHeld();
+      var pts = ribbonHeld ? heldPoints() : smoothPts(ribbonPoints());
+      var eye = inset(pts[pts.length - 1]), prev = pts[pts.length - 2] || pointer;
+      // A rod a crack holds rides the pointer rigidly, the hand with it; otherwise the hand follows the lash's end.
+      if (!handPos || ribbonHeld) handPos = eye;
+      else handPos = { x: handPos.x + (eye.x - handPos.x) * 0.35, y: handPos.y + (eye.y - handPos.y) * 0.35 };
+      handAngle += wrap(Math.atan2(prev.y - handPos.y, prev.x - handPos.x) + WHIP_TURN - handAngle) * 0.3;
+      at = handPos;
+      drawRibbon(pts, handPos);
+    } else if (Object.prototype.hasOwnProperty.call(DIRECTIONAL, state.tool)) handAngle += wrap(handTarget + DIRECTIONAL[state.tool] - handAngle) * 0.3;
     else handAngle = 0;
     var rot = handAngle, mirror = "";
     if (state.tool === "spray") {
@@ -365,8 +404,8 @@
       if (Math.cos(handAngle) < 0) { mirror = " scaleX(-1)"; rot = wrap(Math.PI - handAngle); }
       rot = Math.max(-0.8, Math.min(0.8, rot));
     }
-    hand.style.transform = "translate3d(" + f(pointer.x) + "px," + f(pointer.y) + "px,0)" + mirror + " rotate(" + (rot * 57.2958).toFixed(1) + "deg)";
-    if (state.tool === "whip") drawRibbon(); else trail.classList.remove("on");
+    hand.style.transform = "translate3d(" + f(at.x) + "px," + f(at.y) + "px,0)" + mirror + " rotate(" + (rot * 57.2958).toFixed(1) + "deg)";
+    if (state.tool !== "whip") trail.classList.remove("on");
   }
   /** The swing's direction as the strike sees it: the hand's smoothed turn for a tool that turns, else the last move. */
   function strikeAngle() {
@@ -382,7 +421,7 @@
     }
     return d;
   }
-  /** The lash: back from the grip along the pointer's history for LASH px; what the hand has not dragged yet lies in a loose curl past the end. */
+  /** The lash: from the tip, on the pointer, back along the pointer's history for LASH px to the hand; what the hand has not dragged yet lies in a loose curl past the end. */
   function ribbonPoints() {
     var pts = [pointer], len = 0, q, i;
     for (i = history.length - 1; i >= 0 && len < LASH; i--) {
@@ -403,7 +442,7 @@
     }
     return pts;
   }
-  /** Which way the lash lies from the grip: toward the first drawn point of the ribbon at least 20 px out — the way the hand came, or the rest curl. */
+  /** Which way the lash lies from the tip: toward the first drawn point of the ribbon at least 20 px out — the way the pointer came, or the rest curl, toward the hand. */
   function lashLie() {
     var pts = ribbonPoints();
     for (var i = 1; i < pts.length; i++) {
@@ -455,7 +494,7 @@
   function makeRibbon() {
     ribbon = { under: el("path", { class: "lash-under" }, trail), over: el("path", { class: "lash-over" }, trail), hi: el("path", { class: "lash-hi", "stroke-width": 1 }, trail) };
   }
-  /** The held rod laid from the grip: its offsets at the pointer. */
+  /** The held rod laid from the tip: its offsets at the pointer, the hand at the last. */
   function heldPoints() {
     var out = [];
     for (var i = 0; i < ribbonHeld.pts.length; i++) out.push({ x: pointer.x + ribbonHeld.pts[i].x, y: pointer.y + ribbonHeld.pts[i].y });
@@ -467,14 +506,15 @@
     history = heldPoints().slice(1).reverse();
     ribbonHeld = null;
   }
-  /** One filled shape from grip to tip, a darker one beneath it, a highlight along its thick half; the rod a crack holds straight rides the grip until its beat is over. */
-  function drawRibbon() {
+  /** One filled shape from the hand to the tip — thick at the grip, a hair at the tip — a darker one beneath it, a highlight along its thick half; the leather always reaches the eye, wherever the hand has got to. */
+  function drawRibbon(pts, eye) {
     if (!ribbon) makeRibbon();
-    if (ribbonHeld && now >= ribbonHeld.until) settleHeld();
-    var pts = densify(ribbonHeld ? heldPoints() : smoothPts(ribbonPoints()));
-    ribbon.under.setAttribute("d", taperedOutline(pts, 6.4, 2.4));
-    ribbon.over.setAttribute("d", taperedOutline(pts, 5, 1.2));
-    ribbon.hi.setAttribute("d", smoothPath(pts.slice(0, Math.ceil(pts.length * 0.6))));
+    var line = pts.slice(0, pts.length - 1);
+    line.push(eye);
+    var back = densify(line).reverse();
+    ribbon.under.setAttribute("d", taperedOutline(back, 6.4, 2.4));
+    ribbon.over.setAttribute("d", taperedOutline(back, 5, 1.2));
+    ribbon.hi.setAttribute("d", smoothPath(back.slice(0, Math.ceil(back.length * 0.6))));
     trail.classList.add("on");
   }
   function drawBand(path) {
@@ -526,9 +566,10 @@
     if (reduced) return;
     for (var i = 0; i < count; i++) fx("spark", x, y, { "--a": Math.round(r.next() * 360) + "deg" }, 240);
   }
-  /** The points a kill earned, rising from it, the streak beside them when it counts. */
-  function floatScore(x, y, points, streak) {
-    var node = fx("float", x, y, null, 900);
+  /** The points a kill earned, rising from it, the streak beside them when it counts, the golden one's ten times, and the word a streak just reached. */
+  function floatScore(x, y, points, streak, golden) {
+    var word = H.comboWord(streak);
+    var node = fx(streak >= 3 ? "float big" : "float", x, y, null, word ? 1100 : 900);
     var b = document.createElement("b");
     b.textContent = "+" + points;
     node.appendChild(b);
@@ -537,11 +578,23 @@
       i.textContent = "\u00d7" + Math.min(5, streak);
       node.appendChild(i);
     }
+    if (golden) {
+      var g = document.createElement("i");
+      g.className = "gold";
+      g.textContent = "\u00d710 golden!";
+      node.appendChild(g);
+    }
+    if (word) {
+      var w = document.createElement("span");
+      w.className = "word";
+      w.textContent = word;
+      node.appendChild(w);
+    }
   }
-  /** What the glass shows of the blow itself: a shock ring the tool's size, a spray's cone, or the sparks and the flash where a whip's tip snapped. */
+  /** What the glass shows of the blow itself: a shock ring the tool's size, a spray's cone, or the sparks, the flash and the shockwave where a whip's tip snapped. */
   function impactFx(tool, g) {
     var rot = ((g.angle || 0) * 57.2958).toFixed(1) + "deg";
-    if (tool === "whip") { sparks(g.x, g.y, 6); fx("flash", g.x, g.y, { "--size": "70px" }, 240); }
+    if (tool === "whip") { sparks(g.x, g.y, 6); fx("flash", g.x, g.y, { "--size": "70px" }, 240); fx("shock", g.x, g.y, null, 300); }
     else if (tool === "swatter") fx("ring", g.x, g.y, { "--w": "58px", "--h": "58px", "--r": "10px" }, 360);
     else if (tool === "slipper") fx("ring", g.x, g.y, { "--w": "54px", "--h": "54px", "--r": "50%" }, 360);
     else if (tool === "newspaper") fx("ring", g.x, g.y, { "--w": "124px", "--h": "44px", "--r": "22px", "--rot": rot }, 360);
@@ -575,7 +628,8 @@
     clock = t;
     now += dt;
     var scale = H.speedScale({ reduced: reduced });
-    var env = { bounds: state.bounds, obstacles: walls(), pointer: state.mode === "hunt" ? pointer : null, rng: r, now: now, scale: scale, leaderOf: leaderOf };
+    state.scares = state.scares.filter(function (s) { return s.until > now; });
+    var env = { bounds: state.bounds, obstacles: walls(), pointer: state.mode === "hunt" ? pointer : null, scares: state.scares, rng: r, now: now, scale: scale, leaderOf: leaderOf };
     var next = [], nearest = Infinity;
     for (var i = 0; i < state.insects.length; i++) {
       var b = state.insects[i];
@@ -585,7 +639,7 @@
         continue;
       }
       b = H.step(b, dt, env);
-      if (b.state === "dead") { b.diedAt = now; b.by = "spray"; addMarks([H.splat(b.x, b.y, b.species, b.seed, now)]); }
+      if (b.state === "dead") { b.diedAt = now; b.by = "spray"; addMarks([H.splat(b.x, b.y, b.species, b.seed, now, undefined, !!b.golden)]); }
       if (H.offstage(b, state.bounds)) { dropBug(b); continue; }
       if (b.species === "mosquito" && pointer && state.mode === "hunt") {
         var d = Math.sqrt((b.x - pointer.x) * (b.x - pointer.x) + (b.y - pointer.y) * (b.y - pointer.y));
@@ -634,38 +688,67 @@
   /** The blow has landed: the insects it reached, the marks, the sounds, and what the glass shows of it. */
   function applyStrike(result, g) {
     if (!result) return;
-    var hit = false;
+    var hit = false, last = null;
     for (var i = 0; i < state.insects.length; i++) {
       var b = state.insects[i];
       if (result.hits.indexOf(b.id) === -1) continue;
       hit = true;
       if (result.slow) { b.slow = result.slow; b.sprayed = true; continue; }
-      var sp = H.SPECIES[b.species];
+      var sp = H.SPECIES[b.species], ink = b.golden ? H.GOLDEN.splat : sp.splat;
       b.hp -= 1;
       b.by = state.tool;
       if (b.hp <= 0) {
         b.state = "dead"; b.diedAt = now;
         state.score = H.scoreHit(state.score, b, now);
-        fling(b.x, b.y, g.angle, sp.splat, 9, 1);
-        floatScore(b.x, b.y - sp.size / 2 - 36, state.score.lastPoints, state.score.streak);
+        fling(b.x, b.y, g.angle, ink, 9, 1);
+        floatScore(b.x, b.y - sp.size / 2 - 36, state.score.lastPoints, state.score.streak, !!b.golden);
+        last = b;
       } else {
         // Struck and alive: knocked a step along the swing, a few droplets lost.
         b.state = "hit"; b.until = b.t + 0.2;
         var k = inside({ x: b.x + Math.cos(g.angle) * 10, y: b.y + Math.sin(g.angle) * 10 });
         b.x = k.x; b.y = k.y;
-        fling(b.x, b.y, g.angle, sp.splat, 4, 0.6);
+        fling(b.x, b.y, g.angle, ink, 4, 0.6);
       }
       drawBug(b);
     }
     if (!hit && !result.wipes && !result.slow) state.score = H.scoreMiss(state.score);
+    // With glass marks off a miss leaves nothing on the pane: no crack, no scratch — a puff of air says the blow landed.
+    result.marks = H.keepMarks(result.marks, state.marksOn);
     play(result.sound);
     if (hit && !result.slow) { for (var n = 0; n < result.hits.length; n++) play("splat", n * 0.03); }
     if (!hit && result.marks.length && result.marks[0].kind === "crack") { play("crack", 0.02); shards(g.x, g.y, 7); fx("flash", g.x, g.y, null, 300); }
+    else if (!hit && !result.marks.length && H.TOOLS[state.tool].miss === "crack") fx("puff-ring", g.x, g.y, null, 240);
     addMarks(result.marks);
     impactFx(state.tool, g);
     shake(SWING[state.tool].shake);
+    // A blow frightens what is near it for a moment, whether it landed on anything or not.
+    if (!result.wipes) state.scares.push({ x: g.x, y: g.y, until: now + H.SCARE_TTL });
+    if (last) celebrate(last);
     renderHud();
     save();
+  }
+  /**
+   * What a kill earns beyond its points: the word a streak reaches, and the
+   * news of a best moved past — the record is what the store kept from
+   * earlier hunts, then the last best cheered, so a first hunt climbs in
+   * peace and a record is cheered at most once in ten seconds, a beat after
+   * the kill's own float so the two never share a spot.
+   */
+  function celebrate(b) {
+    var word = H.comboWord(state.score.streak);
+    if (word) { fx("flash", b.x, b.y, { "--size": "110px" }, 260); play("chime", 0.05, state.score.streak); }
+    if (H.newBest(state.record, state.score.best) && now - state.bestToldAt > 10) {
+      state.bestToldAt = now;
+      state.record = state.score.best;
+      var best = state.score.best, x = b.x, y = b.y - 96;
+      setTimeout(function () {
+        if (state.mode !== "hunt") return;
+        var node = fx("float record", x, y, null, 1600);
+        node.textContent = "New best " + best;
+        play("fanfare", 0.05);
+      }, reduced ? 0 : 320);
+    }
   }
   function resolve(g) {
     if (state.mode !== "hunt") return;
@@ -685,11 +768,13 @@
     else resolve(g);
   }
   /**
-   * The whip, on the press: the tip snaps on the pointer and the blow lands
-   * there at once — the lash straightens from the tip back along its lie and
-   * rides the grip for a beat, a streak of light runs the bite to the tip,
-   * the grip jerks back along the lash; the strike bites at the tip and along
-   * the lash's reach behind it (`TOOLS.whip.shape`).
+   * The whip, on the press: the tip is the pointer, so the blow lands where
+   * the person clicked, at once — the strike bites at the tip and along the
+   * lash's reach behind it (`TOOLS.whip.shape`). The picture: the lash snaps
+   * straight from the tip back to the eye, where the hand stands, and holds
+   * there a beat riding the pointer; the grip jerks back along the lash; a
+   * streak of light runs the leather from the hand to the tip; the sparks,
+   * the flash and the shockwave spread from the tip.
    */
   function crack(p) {
     var tool = H.TOOLS.whip, shape = tool.shape;
@@ -698,23 +783,24 @@
     settleHeld();
     var lie = lashLie(), ux = Math.cos(lie), uy = Math.sin(lie);
     var g = { x: p.x, y: p.y, from: p, to: { x: p.x + ux * shape.reach, y: p.y + uy * shape.reach }, angle: wrap(lie + Math.PI), bounds: state.bounds };
-    // The recoil, in the hand's own turned frame: the grip jerks 10 px back along the lash.
-    var back = lie - handAngle;
-    hand.style.setProperty("--flick-x", f(Math.cos(back) * 10) + "px");
-    hand.style.setProperty("--flick-y", f(Math.sin(back) * 10) + "px");
-    handPlay("flick");
-    // The leather pulls straight along its lie — dead straight over the bite, where it snaps and the rule reaches, bowed a little past it — and holds there a beat: offsets from the tip, so it rides the grip.
-    var bite = shape.reach + 8, tb = bite / LASH, nx = -uy, ny = ux, held = [];
+    // The straight lash runs from the tip to the eye — where the hand stands, else a lash's length back along the lie — bowed a little on the hand's half: leather, not a ruler.
+    var eye = handPos || inset({ x: p.x + ux * LASH, y: p.y + uy * LASH });
+    var ex = eye.x - p.x, ey = eye.y - p.y, len = Math.sqrt(ex * ex + ey * ey) || 1, nx = -ey / len, ny = ex / len, held = [];
     for (var k = 0; k <= 16; k++) {
-      var t = k / 16, b = Math.max(0, (t - tb) / (1 - tb));
+      var t = k / 16, b = Math.max(0, (t - 0.5) / 0.5);
       b = b * b * (3 - 2 * b);   // eased in, so the bow leaves the straight run without a corner
-      var arc = 18 * 4 * b * (1 - b);
-      held.push({ x: ux * LASH * t + nx * arc, y: uy * LASH * t + ny * arc });
+      var arc = 6 * 4 * b * (1 - b);
+      held.push({ x: ex * t + nx * arc, y: ey * t + ny * arc });
     }
-    ribbonHeld = { pts: held, until: now + 0.3 };
-    // A streak of light runs the bite, tail first, to the tip.
-    var streak = el("path", { class: "lash-crack", d: "M" + f(p.x + ux * bite) + " " + f(p.y + uy * bite) + "L" + f(p.x) + " " + f(p.y), "stroke-dasharray": String(bite) }, trail);
-    streak.style.setProperty("--len", String(bite));
+    ribbonHeld = { pts: held, until: now + 0.33 };
+    // The recoil, in the hand's own turned frame: the grip jerks 14 px back along the lash.
+    var back = Math.atan2(ey, ex) - handAngle;
+    hand.style.setProperty("--flick-x", f(Math.cos(back) * 14) + "px");
+    hand.style.setProperty("--flick-y", f(Math.sin(back) * 14) + "px");
+    handPlay("flick");
+    // A streak of light runs the lash, hand first, to the tip.
+    var streak = el("path", { class: "lash-crack", d: "M" + f(eye.x) + " " + f(eye.y) + "L" + f(p.x) + " " + f(p.y), "stroke-dasharray": String(len) }, trail);
+    streak.style.setProperty("--len", String(len));
     setTimeout(function () { streak.remove(); }, 400);
     resolve(g);
   }
@@ -776,6 +862,7 @@
     if (!H.isTool(name)) return;
     // A rod a crack still holds settles when the whip is put down, so the history goes on being written for the next pick.
     if (name !== "whip") { if (pointer) settleHeld(); else ribbonHeld = null; }
+    handPos = null;
     state.tool = name;
     renderStrip();
     save();
@@ -794,6 +881,14 @@
     save();
   });
   muteBtn.addEventListener("click", function () { setMuted(!state.muted); });
+  /** Whether a miss marks the glass; turning it off lets the standing cracks and scratches go, and keeps what the insects left. */
+  function setMarks(on) {
+    state.marksOn = !!on;
+    if (!state.marksOn) { state.marks = H.keepMarks(state.marks, false); syncMarks(); }
+    renderStrip();
+    save();
+  }
+  marksBtn.addEventListener("click", function () { setMarks(!state.marksOn); });
   leaveBtn.addEventListener("click", function () { bisa.window.close().catch(function () {}); });
   // In work mode the strip is the one solid thing: when the pointer leaves it, the app has the pointer again.
   strip.addEventListener("pointerleave", function () { if (state.mode === "work") bisa.scene.release().catch(function () {}); });
@@ -802,6 +897,7 @@
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     var n = parseInt(e.key, 10);
     if (n >= 1 && n <= H.TOOL_NAMES.length && state.mode === "hunt") setTool(H.TOOL_NAMES[n - 1]);
+    if ((e.key === "m" || e.key === "M") && state.mode === "hunt") { e.preventDefault(); setMarks(!state.marksOn); }
   });
   if (window.ResizeObserver) new ResizeObserver(function () { placeStrip(); }).observe(strip);
 
@@ -809,7 +905,7 @@
   function setMode(mode) {
     if (mode === state.mode) return;
     state.mode = mode;
-    if (mode === "work") { stroke = null; pointer = null; history = []; ribbonHeld = null; whine(false, 0); clearBand(); hideHand(); }
+    if (mode === "work") { stroke = null; pointer = null; history = []; ribbonHeld = null; handPos = null; whine(false, 0); clearBand(); hideHand(); }
     renderStrip();
   }
   function onScene(ev) {
@@ -834,10 +930,12 @@
     if (canStore) {
       bisa.storage.get("state").then(function (res) {
         var saved = H.readSaved(res.value);
-        state.score.best = saved.best;
+        state.score.best = Math.max(state.score.best, saved.best);
+        state.record = Math.max(state.record, saved.best);
         state.muted = saved.muted;
         state.tool = saved.tool;
         state.difficulty = saved.difficulty;
+        state.marksOn = saved.marks;
         renderHud();
         renderStrip();
       }).catch(function () {});

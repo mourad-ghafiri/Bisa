@@ -72,6 +72,12 @@ notes (`docs/contributing/release.md`).
   line to add the next, projects and workflows as chips added from a picker, named senders and
   mentions through the assignee picker beside the words. The three new events have forms of
   their own. One value is written bare, so a saved design's digest moves only when its words do.
+- **Bug hunt's fun pass.** A blow — hit or miss — frightens the insects near it for a moment, a
+  cockroach darting; a streak reached says *Combo!* at three and *On a roll!* at five with a flash
+  and a chime, and a best moved past rises from the kill as *New best n* with a fanfare, at most
+  once in ten seconds; now and then a golden insect comes through alone — never an ant, never a
+  mosquito, never two at once — faster and more skittish than its kind, worth ten times its
+  points, gone sooner, glowing gold with a ting on arrival.
 
 ### Changed
 
@@ -100,14 +106,22 @@ notes (`docs/contributing/release.md`).
   controls is `Labelled`, never a `<label>`; *Id* reads *Step id*, *on fail* reads *on failure*, a
   condition group's member is *Condition n*, the JSON field says once when it applies, the human
   step's two icon buttons are named; field pairs go two columns from `@sm` everywhere.
-- Bug hunt's whip cracks on the press, where you click: its tip snaps on the pointer and bites 14px
-  around it and along 56px of the lash lying behind the hand (`TOOLS.whip.shape`, a `lash` of tip,
-  width and reach — the segment rule and its 24px minimum stroke are gone), the lash straightens
-  from the tip back along its lie and rides the grip for a beat before it curls on from where it
-  lay, a streak of light runs the bite to the tip, sparks and a flash sit on the pointer, the grip
-  jerks back along the lash, a hit's splat and droplets are thrown the way the lash flew, a miss
-  scratches from the tip back with the chips at the tip; the squeegee is the one tool that drags,
-  and the strip's tooltip says *click to crack it*.
+- Bug hunt's whip cracks on the press, where you click, and its tip is the pointer: the lash lies
+  back along the way the pointer came and the hand rides at its far end, 128px behind, turned so
+  the leather leaves the eye toward the tip — so the tip, not the grip, lands on the spot. The tip
+  bites 14px around the pointer and along 56px of the lash behind it (`TOOLS.whip.shape`, a `lash`
+  of tip, width and reach — the segment rule and its 24px minimum stroke are gone); the lash
+  straightens from the tip back to the hand and rides the pointer for a beat before it curls on
+  from where it lay, a streak of light runs the leather from the hand to the tip, sparks, a flash
+  and a shockwave ring spread from the tip with a sharper snap, the grip jerks back along the
+  lash, a hit's splat and droplets are thrown the way the lash flew, a miss scratches from the tip
+  back with the chips at the tip; the squeegee is the one tool that drags, and the strip's tooltip
+  says *the tip is your pointer; click to crack it there*.
+- Bug hunt's glass marks are a switch, **off by default**: a swatter's, a slipper's or a newspaper's
+  miss cracked the glass and a whip's scratched it, for up to twenty seconds, and nothing turned
+  that off. The strip's *Glass marks* button (`M`) turns it on; off, a miss is a puff of air on
+  the pane and nothing stays, and turning it off lets the standing cracks and scratches go while
+  what the insects left stays. The choice is kept with the best and the pace.
 
 ### Fixed
 

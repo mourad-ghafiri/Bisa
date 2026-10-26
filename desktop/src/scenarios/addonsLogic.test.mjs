@@ -433,10 +433,12 @@ test("the streak multiplies within two seconds and a miss ends it; arrivals quic
   assert.deepEqual([bottom.x, bottom.y], [484, 332], "tabs on both sides send it to the bottom");
   assert.equal(H.stripPlacement({ width: 400, height: 200 }, [], size).height, 184, "a short glass shortens the strip");
   assert.deepEqual(plain(H.solidRects({ x: 960.4, y: 170, width: 56, height: 320 })), [{ x: 960, y: 170, width: 56, height: 320, radius: 10 }]);
-  assert.deepEqual(plain(H.readSaved("junk")), { best: 0, muted: false, tool: "swatter", difficulty: "busy" });
-  assert.deepEqual(plain(H.readSaved(JSON.stringify({ best: 120.7, muted: true, tool: "whip", difficulty: "swarm" }))), { best: 120, muted: true, tool: "whip", difficulty: "swarm" });
-  assert.deepEqual(plain(H.readSaved(JSON.stringify({ best: -5, muted: "yes", tool: "laser", difficulty: "insane" }))), { best: 0, muted: false, tool: "swatter", difficulty: "busy" });
-  assert.deepEqual(plain(H.readSaved(JSON.stringify([1]))), { best: 0, muted: false, tool: "swatter", difficulty: "busy" });
+  const fresh = { best: 0, muted: false, tool: "swatter", difficulty: "busy", marks: false };
+  assert.deepEqual(plain(H.readSaved("junk")), fresh);
+  assert.deepEqual(plain(H.readSaved(JSON.stringify({ best: 120.7, muted: true, tool: "whip", difficulty: "swarm" }))), { best: 120, muted: true, tool: "whip", difficulty: "swarm", marks: false }, "a record from before the switch reads with the marks off");
+  assert.deepEqual(plain(H.readSaved(JSON.stringify({ best: 1, marks: true }))), { ...fresh, best: 1, marks: true });
+  assert.deepEqual(plain(H.readSaved(JSON.stringify({ best: -5, muted: "yes", tool: "laser", difficulty: "insane", marks: "yes" }))), fresh);
+  assert.deepEqual(plain(H.readSaved(JSON.stringify([1]))), fresh);
   assert.equal(H.waitWords(0), "Nothing is running — hunt anyway.");
   assert.equal(H.waitWords(1), "One thing is running — hunt while you wait.");
   assert.equal(H.waitWords(3), "3 things are running — hunt while you wait.");
@@ -1137,4 +1139,55 @@ test("linerun: a pause freezes the file, a hop in the air and a lane past the ed
   assert.ok(slow.offset <= 0.1 * g.speed + 1e-9);
   assert.equal(Rn.tick(g, 0), g);
   assert.equal(Rn.apply(g, "dance"), g);
+});
+
+test("bug hunt's fun pass: the marks switch keeps what an insect left, a blow scares what is near it, a streak and a best have their words, and the golden one is rare, fast, skittish and worth ten times", () => {
+  // Glass marks off: a crack and a scratch go, a splat, a mist and a smear stay.
+  const marks = [H.crack(100, 100, 1, glass, 0), H.scratch({ x: 0, y: 0 }, { x: 50, y: 0 }, 2, 0), H.splat(10, 10, "fly", 3, 0, 0), H.mist(0, 0, 0, H.TOOLS.spray.shape, 4, 0), H.smear([{ x: 0, y: 0 }, { x: 9, y: 9 }], 60, 5, 0)];
+  assert.deepEqual(H.keepMarks(marks, false).map((m) => m.kind), ["splat", "mist", "smear"]);
+  assert.equal(H.keepMarks(marks, true), marks, "on, the list is left as it is");
+  assert.deepEqual(plain(H.keepMarks(null, false)), []);
+
+  // A blow that just landed scares like a pointer, farther, until its moment is over.
+  const bug = (species, state) => ({ ...H.spawn(species, glass, [], H.rng(7), 0, 1), x: 400, y: 250, heading: 0, state, entered: true, t: 1, until: 5 });
+  const blow = { x: 460, y: 250, until: 0.7 };
+  const fled = H.step(bug("spider", "walk"), 0.016, hunt(H.rng(1), { scares: [blow], now: 0.1 }));
+  assert.ok(Math.cos(fled.heading) < -0.9, `turned away from the blow on its right: ${fled.heading}`);
+  const calm = H.step(bug("spider", "walk"), 0.016, hunt(H.rng(1), { scares: [blow], now: 0.8 }));
+  assert.ok(Math.abs(calm.heading) < 0.05, `a blow that is over scares nobody: ${calm.heading}`);
+  const far = H.step(bug("spider", "walk"), 0.016, hunt(H.rng(1), { scares: [{ x: 560, y: 250, until: 0.7 }], now: 0.1 }));
+  assert.ok(Math.abs(far.heading) < 0.05, `160 px is past a spider's 90 × 1.3 + 30: ${far.heading}`);
+  assert.equal(H.step(bug("cockroach", "walk"), 0.016, hunt(H.rng(1), { scares: [blow], now: 0.1 })).state, "dart");
+  assert.ok(Math.abs(H.step(bug("mosquito", "hover"), 0.016, hunt(H.rng(1), { scares: [blow], now: 0.1 })).heading) < 0.1, "a mosquito fears nothing");
+  assert.equal(H.SCARE_TTL, 0.7);
+
+  // The words.
+  assert.deepEqual([1, 2, 3, 4, 5, 6].map(H.comboWord), [null, null, "Combo!", null, "On a roll!", null]);
+  assert.equal(H.newBest(0, 50), false, "the first best is no news");
+  assert.equal(H.newBest(40, 50), true);
+  assert.equal(H.newBest(50, 50), false);
+
+  // The golden one.
+  const gr = H.rng(9);
+  const turns = [];
+  for (let k = 0; k < 400; k++) { const s = H.goldenTurn(gr, []); if (s) turns.push(s); }
+  assert.ok(turns.length > 8 && turns.length < 60, `rare: ${turns.length} of 400`);
+  assert.ok(turns.every((s) => s !== "ant" && s !== "mosquito"), `never an ant or a mosquito: ${turns}`);
+  assert.equal(H.goldenTurn(H.rng(9), [{ golden: true, state: "walk", gone: false }]), null, "never two at once");
+  const plainFly = H.spawn("fly", glass, [], H.rng(4), 0, 1), gold = H.spawn("fly", glass, [], H.rng(4), 0, 1, true);
+  assert.equal(gold.golden, true);
+  assert.deepEqual([gold.x, gold.y, gold.heading], [plainFly.x, plainFly.y, plainFly.heading], "the usual draws first");
+  assert.ok(Math.abs(gold.speed - plainFly.speed * 1.35) < 1e-9, "faster");
+  assert.ok(gold.life >= 9 && gold.life <= 15, `gone sooner: ${gold.life}`);
+  assert.equal(plainFly.golden, undefined);
+  const goldFly = { ...bug("fly", "fly"), golden: true }, shy = { x: 550, y: 250 };
+  assert.ok(Math.cos(H.step(goldFly, 0.016, hunt(H.rng(1), { pointer: shy, now: 0.1 })).heading) < -0.9, "150 px frightens the golden fly (120 × 1.4)");
+  assert.ok(Math.abs(H.step(bug("fly", "fly"), 0.016, hunt(H.rng(1), { pointer: shy, now: 0.1 })).heading) < 0.2, "and not a plain one");
+  const gs = H.scoreHit({ score: 0, streak: 0, best: 0, lastHitAt: -100 }, { species: "fly", golden: true }, 1);
+  assert.deepEqual([gs.score, gs.lastPoints], [250, 250], "ten times the species' points");
+  const gsplat = H.splat(10, 10, "fly", 3, 0, 0, true);
+  assert.deepEqual([gsplat.color, gsplat.body], [H.GOLDEN.splat, H.GOLDEN.color]);
+  const struck = H.strike("swatter", { x: 400, y: 250, bounds: glass }, [{ ...bug("fly", "fly"), golden: true }], 1);
+  assert.deepEqual(plain(struck.hits), [1]);
+  assert.equal(struck.marks[0].color, H.GOLDEN.splat, "a golden hit's splat is gold");
 });

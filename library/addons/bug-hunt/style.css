@@ -24,6 +24,10 @@ body.shake .glass { animation: shake 120ms linear; }
 /* --- the insects --------------------------------------------------------- */
 .bug { position: absolute; left: 0; top: 0; width: var(--size); height: var(--size); margin: calc(var(--size) / -2) 0 0 calc(var(--size) / -2); will-change: transform; color: var(--color); }
 .bug svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; transform: translateY(calc(var(--z, 0) * -0.6px)) scale(calc(1 + var(--z, 0) / 90)); filter: drop-shadow(0 0 0.6px var(--rim)); }
+/* The golden one: its kind's body turned gold by a filter — the bodies are fixed gradients — under a warm glow that breathes; its rim kept. */
+.bug.golden svg { filter: sepia(1) saturate(2.6) hue-rotate(-8deg) brightness(1.25) drop-shadow(0 0 0.6px var(--rim)) drop-shadow(0 0 6px rgba(255, 200, 80, 0.7)); animation: glint 4s ease-in-out infinite; }
+.bug.golden .shadow { background: rgba(110, 70, 0, 0.3); }
+@keyframes glint { 0%, 100% { filter: sepia(1) saturate(2.6) hue-rotate(-8deg) brightness(1.25) drop-shadow(0 0 0.6px var(--rim)) drop-shadow(0 0 6px rgba(255, 200, 80, 0.7)); } 50% { filter: sepia(1) saturate(2.6) hue-rotate(-8deg) brightness(1.55) drop-shadow(0 0 0.6px var(--rim)) drop-shadow(0 0 11px rgba(255, 220, 120, 0.9)); } }
 .bug .shadow { position: absolute; left: 22%; top: 28%; width: 56%; height: 50%; border-radius: 50%; background: rgba(0, 0, 0, 0.26); filter: blur(2px); transform: translate(calc(var(--z, 0) * 0.45px), calc(var(--z, 0) * 0.85px)) scale(calc(1 + var(--z, 0) / 70)); opacity: 0; transition: opacity 120ms; }
 .bug[data-airborne="true"] .shadow { opacity: 1; }
 .leg, .hind, .wing, .ghost, .antenna, .body, .palp { transform-box: view-box; }
@@ -124,13 +128,13 @@ body.shake .glass { animation: shake 120ms linear; }
 @keyframes puff { 0% { transform: translate(0, 0); } 20% { transform: translate(-1px, 2px) rotate(-3deg); } 100% { transform: translate(0, 0); } }
 @keyframes press { 0% { transform: translate(0, -6px); } 40% { transform: translate(0, 1px); } 100% { transform: translate(0, 1px); } }
 
-/* The whip's lash lies along the path the hand took, thick at the grip and a hair at the tip; on a press it straightens from the tip back along its lie and snaps on the pointer. The squeegee drags a wet band while it is down. */
+/* The whip's lash: its tip is the pointer, the leather lies back along the path the pointer took, a hair at the tip and thick at the grip, where the hand stands at its far end; on a press it straightens from the tip back to the hand and snaps on the pointer. The squeegee drags a wet band while it is down. */
 .lash-under { fill: #1a0e06; stroke: #1a0e06; stroke-width: 0.6; stroke-linejoin: round; opacity: 0.6; }
 .lash-over { fill: #6a4322; stroke: #6a4322; stroke-width: 0.4; stroke-linejoin: round; }
 .lash-hi, .lash-crack, .wet-band, .wet-edge, .wet-streak, .wet-bead { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .lash-hi { stroke: rgba(255, 255, 255, 0.3); }
 .trail:not(.whip.on) .lash-under, .trail:not(.whip.on) .lash-over, .trail:not(.whip.on) .lash-hi { visibility: hidden; }
-/* The snap: a streak of light that runs the lash's bite, tail to tip, over the leather, gone in a blink. */
+/* The snap: a streak of light that runs the lash from the hand to the tip, over the leather, gone in a blink. */
 .lash-crack { stroke: rgba(255, 248, 236, 0.9); stroke-width: 2; stroke-dashoffset: var(--len); filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.85)); animation: lash-out 90ms linear forwards, lash-fade 200ms 90ms linear forwards; }
 @keyframes lash-out { to { stroke-dashoffset: 0; } }
 @keyframes lash-fade { to { opacity: 0; } }
@@ -147,6 +151,9 @@ body.shake .glass { animation: shake 120ms linear; }
 .fx > * { position: absolute; left: 0; top: 0; }
 .ring { width: var(--w); height: var(--h); margin: calc(var(--h) / -2) 0 0 calc(var(--w) / -2); border: 2px solid rgba(255, 255, 255, 0.7); border-radius: var(--r); box-shadow: 0 0 8px rgba(255, 255, 255, 0.35), inset 0 0 10px rgba(255, 255, 255, 0.25); animation: ring 320ms ease-out forwards; }
 @keyframes ring { from { opacity: 0.9; transform: var(--pose) scale(0.72); } to { opacity: 0; transform: var(--pose) scale(1.25); } }
+/* The whip's shockwave: a ring that spreads from the tip the moment the leather cracks, its halo the air it moved. */
+.shock { width: 90px; height: 90px; margin: -45px 0 0 -45px; border-radius: 50%; border: 2px solid rgba(255, 250, 240, 0.85); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16), 0 0 14px rgba(255, 255, 255, 0.45); animation: shock 260ms cubic-bezier(0.1, 0.8, 0.3, 1) forwards; }
+@keyframes shock { from { opacity: 0.95; transform: var(--pose) scale(0.3); } to { opacity: 0; transform: var(--pose) scale(1.4); } }
 .flash { width: var(--size, 140px); height: var(--size, 140px); margin: calc(var(--size, 140px) / -2) 0 0 calc(var(--size, 140px) / -2); border-radius: 50%; background: radial-gradient(rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.2) 35%, rgba(255, 255, 255, 0) 70%); animation: flash 220ms ease-out forwards; }
 @keyframes flash { from { opacity: 1; transform: var(--pose) scale(0.5); } to { opacity: 0; transform: var(--pose) scale(1.1); } }
 .cone { width: 300px; height: 300px; margin: -150px 0 0 -150px; border-radius: 50%; background: conic-gradient(from calc(var(--a) - 34deg), rgba(222, 232, 242, 0) 0deg, rgba(222, 232, 242, 0.5) 14deg 54deg, rgba(222, 232, 242, 0) 68deg 360deg); -webkit-mask: radial-gradient(closest-side, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0) 74%); mask: radial-gradient(closest-side, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.6) 40%, rgba(0, 0, 0, 0) 74%); filter: blur(5px); animation: cone 520ms ease-out forwards; }
@@ -159,6 +166,14 @@ body.shake .glass { animation: shake 120ms linear; }
 @keyframes spark { from { opacity: 1; transform: var(--pose) rotate(var(--a)) translateX(2px) scaleX(0.4); } to { opacity: 0; transform: var(--pose) rotate(var(--a)) translateX(16px) scaleX(1); } }
 .float { margin: -9px 0 0 -16px; white-space: nowrap; font: 700 16px/1 system-ui, sans-serif; color: var(--ink); text-shadow: 0 0 2px var(--surface), 0 0 6px var(--surface), 0 1px 2px var(--surface); animation: rise 800ms ease-out forwards; }
 .float i { margin-left: 3px; font-style: normal; font-size: 12px; color: var(--accent); }
+/* A streak reached grows the float and gives it its word; the golden one's ten times reads in gold; a record moved past is a pill rising from the kill (`record`, never `best`: that word is the strip's). */
+.float.big { font-size: 20px; margin: -11px 0 0 -20px; animation-duration: 1100ms; }
+.float i.gold { color: #b8860b; }
+.float .word { display: block; margin-top: 3px; font-size: 12px; letter-spacing: 0.02em; color: var(--accent); }
+.float.record { margin: -11px 0 0 -44px; padding: 4px 10px; border-radius: 999px; font-size: 12px; line-height: 1.2; color: var(--surface); background: var(--accent); text-shadow: none; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); animation: rise 1600ms ease-out forwards; }
+/* A blow that left no mark: a puff of air on the glass, gone at once. */
+.puff-ring { width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; border: 1.5px solid rgba(255, 255, 255, 0.55); box-shadow: 0 0 6px rgba(255, 255, 255, 0.25); animation: puff-ring 220ms ease-out forwards; }
+@keyframes puff-ring { from { opacity: 0.8; transform: var(--pose) scale(0.6); } to { opacity: 0; transform: var(--pose) scale(1.3); } }
 @keyframes rise { 0% { opacity: 1; transform: var(--pose) translateY(0); } 70% { opacity: 1; } 100% { opacity: 0; transform: var(--pose) translateY(-30px); } }
 
 /* --- the strip ----------------------------------------------------------- */
@@ -208,7 +223,8 @@ body[data-mode="work"] .glass { cursor: default; }
   .mark, .mark-splat, .mark-mist ellipse { transition: none; animation: none; }
   .hand svg, .hand .shadow { animation: none !important; }
   .fling, .shard, .spark { display: none; }
-  .ring, .flash, .cone { animation-duration: 120ms; }
+  .ring, .flash, .cone, .shock, .puff-ring { animation-duration: 120ms; }
+  .bug.golden svg { animation: none; }
   .float { animation-duration: 300ms; }
   .lash-crack { animation-duration: 1ms, 120ms; }
   .tool, .icon, .switch, .pace { transition: none; }

@@ -45,6 +45,13 @@
   var SPECIES_NAMES = Object.keys(SPECIES);
   /** An insect lives this long (s) before it heads for an edge and leaves. */
   var LIFETIME = [25, 60];
+  /**
+   * The golden one: rare, never two at once, faster and more skittish than
+   * its species, worth ten times its points, and gone sooner.
+   */
+  var GOLDEN = { chance: 0.06, points: 10, speed: 1.35, scare: 1.4, life: [9, 15], color: "#d9a92c", splat: "#8a6a1a" };
+  /** A blow scares what is near it for this long (s). */
+  var SCARE_TTL = 0.7;
   /** A cricket's hop takes this long (s) and rises this high (px). */
   var HOP_TIME = 0.55, HOP_HEIGHT = 44;
   /** A fly hangs this high (px) in the air; a mosquito this high. */
@@ -83,8 +90,22 @@
     return null;
   }
 
-  /** A new insect at an edge of the glass, headed in, never inside a tab's box. */
-  function spawn(species, bounds, obstacles, r, now, id) {
+  /**
+   * Whether the next arrival is the golden one — never while one lives — and
+   * which species it is: one that walks alone and can be scared, so the
+   * chase is a chase.
+   */
+  function goldenTurn(r, insects) {
+    for (var i = 0; i < (insects || []).length; i++) {
+      var b = insects[i];
+      if (b.golden && b.state !== "dead" && !b.gone) return null;
+    }
+    if (!r.chance(GOLDEN.chance)) return null;
+    return r.pick(SPECIES_NAMES.filter(function (name) { return !SPECIES[name].file && SPECIES[name].scare > 0; }));
+  }
+
+  /** A new insect at an edge of the glass, headed in, never inside a tab's box — the golden one faster and shorter-lived, its extra draws after the usual ones. */
+  function spawn(species, bounds, obstacles, r, now, id, golden) {
     var sp = SPECIES[species] || SPECIES.ant;
     var half = sp.size / 2, x = 0, y = 0, heading = 0;
     for (var tries = 0; tries < 16; tries++) {
@@ -96,7 +117,7 @@
       if (!inObstacle({ x: x, y: y }, obstacles, half + 4)) break;
     }
     heading += r.range(-0.5, 0.5);
-    return {
+    var out = {
       id: id, species: species, x: x, y: y, z: sp.gait === "fly" ? FLY_HEIGHT : sp.gait === "hover" ? HOVER_HEIGHT : 0,
       heading: heading, speed: r.range(sp.speed[0], sp.speed[1]),
       state: sp.gait === "fly" ? "fly" : sp.gait === "hover" ? "hover" : "walk",
@@ -104,6 +125,8 @@
       born: now, life: r.range(LIFETIME[0], LIFETIME[1]), leaving: false, slow: 0, sprayed: false,
       hop: null, leader: null, gone: false, entered: false,
     };
+    if (golden) { out.golden = true; out.speed *= GOLDEN.speed; out.life = r.range(GOLDEN.life[0], GOLDEN.life[1]); }
+    return out;
   }
 
   function wrapAngle(a) {
@@ -129,8 +152,10 @@
 
   /**
    * One tick of one insect: a new object, never the old one changed. `env`
-   * is `{bounds, obstacles, pointer, rng, now, scale, leaderOf}` — the
-   * pointer may be null; `leaderOf(id)` answers an ant's leader or null.
+   * is `{bounds, obstacles, pointer, scares, rng, now, scale, leaderOf}` —
+   * the pointer may be null, `scares` the blows that just landed
+   * (`{x, y, until}`, absent for none); `leaderOf(id)` answers an ant's
+   * leader or null.
    */
   function step(insect, dt, env) {
     var sp = SPECIES[insect.species] || SPECIES.ant;
@@ -152,11 +177,25 @@
     // One that dawdles at the edge is turned toward the middle of the glass.
     if (!n.entered && n.t > 4 && n.state !== "jump") n.heading = turnToward(n.heading, Math.atan2(bounds.height / 2 - n.y, bounds.width / 2 - n.x), 3 * dt);
 
-    // Fear: a pointer too near turns the insect away — a cockroach darts.
-    var pointer = env.pointer;
-    var scared = pointer && sp.scare > 0 && dist(pointer, n) < sp.scare;
-    if (scared && n.state !== "jump" && n.state !== "dart") {
-      var away = Math.atan2(n.y - pointer.y, n.x - pointer.x) + r.range(-0.4, 0.4);
+    // Fear: a pointer too near turns the insect away, and so does a blow that
+    // just landed near — louder than a hovering hand, so it reaches farther;
+    // the nearest fright wins — and a cockroach darts. The golden one is
+    // more skittish than its kind.
+    var scare = sp.scare * (n.golden ? GOLDEN.scare : 1);
+    var pointer = env.pointer, fear = null, nearest = Infinity;
+    if (pointer && scare > 0) {
+      var dp = dist(pointer, n);
+      if (dp < scare) { nearest = dp; fear = pointer; }
+    }
+    var scares = env.scares || [];
+    for (var si = 0; si < scares.length && scare > 0; si++) {
+      var blow = scares[si];
+      if (!(blow.until > env.now)) continue;
+      var db = dist(blow, n);
+      if (db < scare * 1.3 + 30 && db < nearest) { nearest = db; fear = blow; }
+    }
+    if (fear && n.state !== "jump" && n.state !== "dart") {
+      var away = Math.atan2(n.y - fear.y, n.x - fear.x) + r.range(-0.4, 0.4);
       n.heading = away;
       if (sp.darts) { n.state = "dart"; n.until = n.t + 0.45; }
       else if (n.state === "pause") { n.state = sp.gait === "fly" ? "fly" : "walk"; n.until = n.t + r.range(0.6, 1.6); }
@@ -337,7 +376,7 @@
     } else if (hits.length) {
       for (var h = 0; h < hits.length; h++) {
         var ins = insects.filter(function (x) { return x.id === hits[h]; })[0];
-        marks.push(splat(ins.x, ins.y, ins.species, seed + h, now, g.angle));
+        marks.push(splat(ins.x, ins.y, ins.species, seed + h, now, g.angle, !!ins.golden));
       }
     } else if (tool.miss === "crack") {
       marks.push(crack(g.x, g.y, seed, g.bounds, now));
@@ -440,7 +479,7 @@
    * blob with a darker heart, droplets that stretch along the swing, a few
    * streaks, and what is left of the legs.
    */
-  function splat(x, y, species, seed, now, angle) {
+  function splat(x, y, species, seed, now, angle, golden) {
     var sp = SPECIES[species] || SPECIES.ant, r = rng(seed), dir = typeof angle === "number" ? angle : r.range(0, 6.283);
     var drops = [{ dx: 0, dy: 0, r: sp.size * 0.42, ex: 1, rot: 0 }];
     var n = r.int(6, 11);
@@ -458,7 +497,7 @@
       var la = r.range(0, 6.283), ll = r.range(sp.size * 0.3, sp.size * 0.55);
       legs.push({ x1: x + Math.cos(la) * sp.size * 0.25, y1: y + Math.sin(la) * sp.size * 0.25, x2: x + Math.cos(la) * ll, y2: y + Math.sin(la) * ll });
     }
-    return { id: nextMarkId(), kind: "splat", x: x, y: y, seed: seed, drops: drops, streaks: streaks, legs: legs, color: sp.splat, body: sp.color, born: now, ttl: TTL.splat };
+    return { id: nextMarkId(), kind: "splat", x: x, y: y, seed: seed, drops: drops, streaks: streaks, legs: legs, color: golden ? GOLDEN.splat : sp.splat, body: golden ? GOLDEN.color : sp.color, born: now, ttl: TTL.splat };
   }
   /** A spray's mist: droplets through the sector. */
   function mist(x, y, angle, shape, seed, now) {
@@ -475,6 +514,12 @@
     return { id: nextMarkId(), kind: "smear", x: x, y: y, seed: seed, path: pts, width: width || 60, born: now, ttl: TTL.smear };
   }
 
+  /** The marks the glass keeps when glass marks are off: a blow's crack and a whip's scratch are let go, what an insect left stays. */
+  function keepMarks(marks, marksOn) {
+    var list = marks || [];
+    if (marksOn) return list;
+    return list.filter(function (m) { return m.kind !== "crack" && m.kind !== "scratch"; });
+  }
   /** The marks still on the glass. */
   function aliveMarks(marks, now) {
     return marks.filter(function (m) { return m.ttl === null || now - m.born < m.ttl; });
@@ -517,13 +562,21 @@
   function scoreHit(score, insect, now) {
     var sp = SPECIES[insect.species] || SPECIES.ant;
     var streak = now - (score.lastHitAt || -1e9) <= 2 ? (score.streak || 0) + 1 : 1;
-    var points = sp.points * Math.min(5, streak);
+    var points = sp.points * (insect.golden ? GOLDEN.points : 1) * Math.min(5, streak);
     var total = (score.score || 0) + points;
     return { score: total, streak: streak, best: Math.max(score.best || 0, total), lastHitAt: now, lastPoints: points };
   }
   /** A miss ends the streak. */
   function scoreMiss(score) {
     return { score: score.score || 0, streak: 0, best: score.best || 0, lastHitAt: score.lastHitAt || 0, lastPoints: 0 };
+  }
+  /** The word a streak earns the moment it is reached — once, at three and at five — or none. */
+  function comboWord(streak) {
+    return streak === 3 ? "Combo!" : streak === 5 ? "On a roll!" : null;
+  }
+  /** Whether a best moved past one that was already there: the first best is no news. */
+  function newBest(prev, next) {
+    return prev > 0 && next > prev;
   }
   /** The strip's line about the workspace. */
   function waitWords(working) {
@@ -558,12 +611,13 @@
   // --- the store ----------------------------------------------------------------------------
   /** What the store kept, read only as far as its shape allows. */
   function readSaved(raw) {
-    var out = { best: 0, muted: false, tool: "swatter", difficulty: "busy" };
+    var out = { best: 0, muted: false, tool: "swatter", difficulty: "busy", marks: false };
     var parsed;
     try { parsed = JSON.parse(raw); } catch (e) { return out; }
     if (!parsed || typeof parsed !== "object") return out;
     if (typeof parsed.best === "number" && parsed.best >= 0 && parsed.best < 1e9) out.best = Math.floor(parsed.best);
     if (parsed.muted === true) out.muted = true;
+    if (parsed.marks === true) out.marks = true;
     if (isTool(parsed.tool)) out.tool = parsed.tool;
     if (typeof parsed.difficulty === "string" && DIFFICULTIES[parsed.difficulty]) out.difficulty = parsed.difficulty;
     return out;
@@ -578,6 +632,9 @@
     DIFFICULTIES: DIFFICULTIES,
     DIFFICULTY_NAMES: DIFFICULTY_NAMES,
     HOP_TIME: HOP_TIME,
+    GOLDEN: GOLDEN,
+    SCARE_TTL: SCARE_TTL,
+    goldenTurn: goldenTurn,
     isTool: isTool,
     maxInsects: maxInsects,
     spawnInterval: spawnInterval,
@@ -592,12 +649,15 @@
     splat: splat,
     mist: mist,
     smear: smear,
+    keepMarks: keepMarks,
     aliveMarks: aliveMarks,
     markOpacity: markOpacity,
     wipe: wipe,
     clipOutside: clipOutside,
     scoreHit: scoreHit,
     scoreMiss: scoreMiss,
+    comboWord: comboWord,
+    newBest: newBest,
     waitWords: waitWords,
     stripPlacement: stripPlacement,
     solidRects: solidRects,
