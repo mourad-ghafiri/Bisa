@@ -186,6 +186,11 @@ pub fn start_detail(ws: &Workspace, run: &WorkflowRun) -> Option<String> {
         SignalSource::Signal | SignalSource::Platform => event.name.clone(),
         SignalSource::Message => author_name(ws, said("author")?, said("author_kind")?),
         SignalSource::Run => run_title(ws, said("run")?),
+        // A goal's title, a workflow's name, an agent's name — as the
+        // occurrence carried them, never looked up again.
+        SignalSource::Goal => said("title").map(str::to_string),
+        SignalSource::Workflow => said("name").map(str::to_string),
+        SignalSource::Agent => said("agent").map(str::to_string),
         SignalSource::Schedule
         | SignalSource::Hook
         | SignalSource::Project

@@ -181,20 +181,56 @@
     "stringOrInput": {
       "$ref": "#/definitions/stringOrInput"
     },
+    "stringOrMany": {
+      "$ref": "#/definitions/stringOrMany"
+    },
+    "MessageFromOrMany": {
+      "$ref": "#/definitions/MessageFromOrMany"
+    },
     "MessageFrom": {
       "$ref": "#/definitions/MessageFrom"
     },
     "AssigneeOrInput": {
       "$ref": "#/definitions/AssigneeOrInput"
     },
+    "AssigneeOrInputOrMany": {
+      "$ref": "#/definitions/AssigneeOrInputOrMany"
+    },
+    "MessagePlaceOrMany": {
+      "$ref": "#/definitions/MessagePlaceOrMany"
+    },
+    "MessagePlace": {
+      "$ref": "#/definitions/MessagePlace"
+    },
+    "ProjectIdOrInputOrMany": {
+      "$ref": "#/definitions/ProjectIdOrInputOrMany"
+    },
     "ProjectIdOrInput": {
       "$ref": "#/definitions/ProjectIdOrInput"
+    },
+    "ProjectChangeOrMany": {
+      "$ref": "#/definitions/ProjectChangeOrMany"
     },
     "ProjectChange": {
       "$ref": "#/definitions/ProjectChange"
     },
+    "WorkflowIdOrMany": {
+      "$ref": "#/definitions/WorkflowIdOrMany"
+    },
+    "RunChangeOrMany": {
+      "$ref": "#/definitions/RunChangeOrMany"
+    },
+    "RunChange": {
+      "$ref": "#/definitions/RunChange"
+    },
+    "RunEndOrMany": {
+      "$ref": "#/definitions/RunEndOrMany"
+    },
     "RunEnd": {
       "$ref": "#/definitions/RunEnd"
+    },
+    "StepIdOrMany": {
+      "$ref": "#/definitions/StepIdOrMany"
     },
     "OperationId": {
       "$ref": "#/definitions/OperationId"
@@ -207,6 +243,24 @@
     },
     "FireOn": {
       "$ref": "#/definitions/FireOn"
+    },
+    "GoalChangeOrMany": {
+      "$ref": "#/definitions/GoalChangeOrMany"
+    },
+    "GoalChange": {
+      "$ref": "#/definitions/GoalChange"
+    },
+    "WorkflowChangeOrMany": {
+      "$ref": "#/definitions/WorkflowChangeOrMany"
+    },
+    "WorkflowChange": {
+      "$ref": "#/definitions/WorkflowChange"
+    },
+    "AgentChangeOrMany": {
+      "$ref": "#/definitions/AgentChangeOrMany"
+    },
+    "AgentChange": {
+      "$ref": "#/definitions/AgentChange"
     },
     "Guard": {
       "$ref": "#/definitions/Guard"
@@ -4532,9 +4586,13 @@
           "description": "A message posted into a conversation.",
           "properties": {
             "in": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
               ],
               "description": "The conversation it lands in — a channel id, a direct channel's, a\nconversation's or a goal's thread (a template); absent, anywhere."
             },
@@ -4542,14 +4600,14 @@
               "default": "you",
               "allOf": [
                 {
-                  "$ref": "#/definitions/MessageFrom"
+                  "$ref": "#/definitions/MessageFromOrMany"
                 }
               ]
             },
             "mentions": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/AssigneeOrInput"
+                  "$ref": "#/definitions/AssigneeOrInputOrMany"
                 },
                 {
                   "type": "null"
@@ -4563,6 +4621,17 @@
                 "null"
               ],
               "description": "Its text contains this, case-insensitively (a template)."
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/MessagePlaceOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The kind of place it lands in — a direct channel, a standing one, a\ngoal's thread…; absent, any kind."
             },
             "event": {
               "type": "string",
@@ -4604,7 +4673,7 @@
             "project": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/ProjectIdOrInput"
+                  "$ref": "#/definitions/ProjectIdOrInputOrMany"
                 },
                 {
                   "type": "null"
@@ -4616,23 +4685,31 @@
               "default": "commit",
               "allOf": [
                 {
-                  "$ref": "#/definitions/ProjectChange"
+                  "$ref": "#/definitions/ProjectChangeOrMany"
                 }
               ]
             },
             "branch": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "description": "Only this branch (a template)."
+              "description": "Only this branch, or any of these (templates)."
             },
             "glob": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "description": "Only files matching this (`*` and `?`), for `files` (a template)."
+              "description": "Only files matching this (`*` and `?`), or any of these, for `files`\n(templates)."
             },
             "event": {
               "type": "string",
@@ -4650,22 +4727,59 @@
             "workflow": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/WorkflowId"
+                  "$ref": "#/definitions/WorkflowIdOrMany"
                 },
                 {
                   "type": "null"
                 }
               ]
             },
+            "change": {
+              "$ref": "#/definitions/RunChangeOrMany"
+            },
             "outcome": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/RunEnd"
+                  "$ref": "#/definitions/RunEndOrMany"
                 },
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "description": "How it ended, for `ended`."
+            },
+            "step": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/StepIdOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which step, for `step`."
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which state the step moved into, for `step` — the words of\n`step.changed`."
+            },
+            "goal": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only a run of this goal, or of any of these (templates: an id, or an\ninput)."
             },
             "event": {
               "type": "string",
@@ -4681,7 +4795,7 @@
           "description": "One of the engine's own bus events, by topic — the advanced door.",
           "properties": {
             "topic": {
-              "type": "string"
+              "$ref": "#/definitions/stringOrMany"
             },
             "fields": {
               "type": "object",
@@ -4842,6 +4956,109 @@
             "command"
           ],
           "description": "A shell command on a cadence — `sh -c {inputs.command}` — judged by the\ncommand guard like a `check` step, run in its project's tree or in its\nown scratch folder; `fire_on` says which results begin a run."
+        },
+        {
+          "type": "object",
+          "description": "A goal that moved — created, updated, closed, decided… — the\nworkspace's news about it, narrowed to one goal or a list.",
+          "properties": {
+            "goal": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The goal, or any of these (templates: an id, or `{inputs.<name>}`);\nabsent, any goal."
+            },
+            "change": {
+              "$ref": "#/definitions/GoalChangeOrMany"
+            },
+            "event": {
+              "type": "string",
+              "const": "goal"
+            }
+          },
+          "required": [
+            "event",
+            "change"
+          ]
+        },
+        {
+          "type": "object",
+          "description": "A workflow definition that moved in the library: saved, proposed,\nput away, deleted.",
+          "properties": {
+            "workflow": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/WorkflowIdOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "change": {
+              "$ref": "#/definitions/WorkflowChangeOrMany"
+            },
+            "event": {
+              "type": "string",
+              "const": "workflow"
+            }
+          },
+          "required": [
+            "event",
+            "change"
+          ]
+        },
+        {
+          "type": "object",
+          "description": "A harness session that moved: started, waiting on a person, replied,\ndone, failed, aborted — by agent, project, harness.",
+          "properties": {
+            "agent": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AssigneeOrInputOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "project": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProjectIdOrInputOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "harness": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The harness id it runs on (`claude-code`, `codex`, …)."
+            },
+            "change": {
+              "$ref": "#/definitions/AgentChangeOrMany"
+            },
+            "event": {
+              "type": "string",
+              "const": "agent"
+            }
+          },
+          "required": [
+            "event",
+            "change"
+          ]
         }
       ],
       "description": "What begins a run at a `start` step. Its fields are fixed values,\n`{inputs.<name>}` templates or `{ input = … }` references over the inputs\nthe host listens with — resolved when the start is armed\n([`StartOn::resolve`]), so one template serves every workspace."
@@ -4886,14 +5103,44 @@
       ],
       "description": "Either a fixed value or the name of an input that carries it.\n\nThe schema is named after what it carries (`AssigneeOrInput`,\n`uint64OrInput`): one name for every instantiation would leave the\ngenerator to number them, and a number moves when the schema's order does."
     },
+    "stringOrMany": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "MessageFromOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MessageFrom"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MessageFrom"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
     "MessageFrom": {
-      "description": "who wrote a message: `you`, `agents`, or one agent, person or team — or an input of kind `assignee` naming one",
+      "description": "who wrote a message: `you`, `agents`, `people`, `anyone`, or one agent, person or team — or an input of kind `assignee` naming one",
       "anyOf": [
         {
           "type": "string",
           "enum": [
             "you",
-            "agents"
+            "agents",
+            "people",
+            "anyone"
           ]
         },
         {
@@ -4920,6 +5167,59 @@
       ],
       "description": "Either a fixed value or the name of an input that carries it.\n\nThe schema is named after what it carries (`AssigneeOrInput`,\n`uint64OrInput`): one name for every instantiation would leave the\ngenerator to number them, and a number moves when the schema's order does."
     },
+    "AssigneeOrInputOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AssigneeOrInput"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AssigneeOrInput"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "MessagePlaceOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MessagePlace"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MessagePlace"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "MessagePlace": {
+      "type": "string",
+      "enum": [
+        "channel",
+        "direct",
+        "goal",
+        "workstream",
+        "conversation"
+      ],
+      "description": "The kind of place a message lands in: a standing channel, a direct\nchannel, a goal's thread, a conversation in a checkout (`workstream`),\nany other conversation."
+    },
+    "ProjectIdOrInputOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ProjectIdOrInput"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectIdOrInput"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
     "ProjectIdOrInput": {
       "anyOf": [
         {
@@ -4938,6 +5238,20 @@
         }
       ],
       "description": "Either a fixed value or the name of an input that carries it.\n\nThe schema is named after what it carries (`AssigneeOrInput`,\n`uint64OrInput`): one name for every instantiation would leave the\ngenerator to number them, and a number moves when the schema's order does."
+    },
+    "ProjectChangeOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ProjectChange"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectChange"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
     },
     "ProjectChange": {
       "oneOf": [
@@ -4965,9 +5279,76 @@
           "type": "string",
           "const": "files",
           "description": "Files in the tree changed."
+        },
+        {
+          "type": "string",
+          "const": "branch",
+          "description": "A branch appeared or went."
+        },
+        {
+          "type": "string",
+          "const": "pull",
+          "description": "A local branch caught up with its remote-tracking branch: pulled —\nfetched and merged, or fast-forwarded."
+        },
+        {
+          "type": "string",
+          "const": "workstream",
+          "description": "A checkout of the project moved: opened, committed, pushed, its pull\nrequest opened or merged, closed."
         }
       ],
       "description": "What changed in a project."
+    },
+    "WorkflowIdOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WorkflowId"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkflowId"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "RunChangeOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RunChange"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RunChange"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "RunChange": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "started",
+        "ended",
+        "step"
+      ],
+      "description": "What a run did, as a run event hears it: it was made behind a live one,\nit started, it ended — the one a `run` event meant before the others\nwere named, so a filter that says nothing hears ends alone — or one of\nits steps moved."
+    },
+    "RunEndOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RunEnd"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RunEnd"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
     },
     "RunEnd": {
       "type": "string",
@@ -4977,6 +5358,20 @@
         "cancelled"
       ],
       "description": "How a run ended, as a run event hears it."
+    },
+    "StepIdOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/StepId"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/StepId"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
     },
     "OperationId": {
       "type": "string",
@@ -5031,6 +5426,168 @@
         }
       ],
       "description": "Which results of a check start begin a run."
+    },
+    "GoalChangeOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/GoalChange"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GoalChange"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "GoalChange": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "deleted"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "created",
+          "description": "Captured by a person, spawned by a step or an agent."
+        },
+        {
+          "type": "string",
+          "const": "updated",
+          "description": "Its statement, title, assignees, tags or budget changed."
+        },
+        {
+          "type": "string",
+          "const": "closed",
+          "description": "Abandoned, or superseded by another."
+        },
+        {
+          "type": "string",
+          "const": "archived",
+          "description": "Put away."
+        },
+        {
+          "type": "string",
+          "const": "restored",
+          "description": "Taken back out."
+        },
+        {
+          "type": "string",
+          "const": "attached",
+          "description": "A project was attached to it."
+        },
+        {
+          "type": "string",
+          "const": "detached",
+          "description": "A project was detached from it."
+        },
+        {
+          "type": "string",
+          "const": "proposed",
+          "description": "The Workflow Agent proposed a design for it."
+        },
+        {
+          "type": "string",
+          "const": "asked",
+          "description": "A gate opened on it: a question, an approval, an adoption."
+        },
+        {
+          "type": "string",
+          "const": "decided",
+          "description": "A gate on it was decided."
+        }
+      ],
+      "description": "What moved about a goal, as a goal event hears it: its record, its\nprojects, its design, its decisions."
+    },
+    "WorkflowChangeOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WorkflowChange"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkflowChange"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "WorkflowChange": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "deleted"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "saved",
+          "description": "Created or saved at a revision — by a person, or by the Workflow\nAgent's hand (`designed`)."
+        },
+        {
+          "type": "string",
+          "const": "proposed",
+          "description": "Proposed for a goal by the Workflow Agent."
+        },
+        {
+          "type": "string",
+          "const": "archived",
+          "description": "Put away."
+        },
+        {
+          "type": "string",
+          "const": "restored",
+          "description": "Taken back out."
+        }
+      ],
+      "description": "What moved about a workflow definition in the library."
+    },
+    "AgentChangeOrMany": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AgentChange"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentChange"
+          }
+        }
+      ],
+      "description": "One value or a list of them, as a filter field takes it: `project = \"…\"`\nor `project = [\"…\", \"…\"]`, `change = \"commit\"` or `change = [\"commit\",\n\"push\"]`. A field that takes it hears **any** of the list, each entry\nmatched exactly as a single value is. A single value reads as `One` and\nwrites as the bare value, so a definition written before lists existed\nreads and re-serializes as it was; a list writes as a list, as written.\nAn empty list is refused by name on a required field — a filter that\nhears nothing is a mistake its author should see — and reads as absent\non an optional one ([`none_when_empty`]), which is how a designer clears\nit."
+    },
+    "AgentChange": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "done",
+            "failed",
+            "aborted"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "started",
+          "description": "Launched."
+        },
+        {
+          "type": "string",
+          "const": "waiting",
+          "description": "Stopped until a person acts."
+        },
+        {
+          "type": "string",
+          "const": "replied",
+          "description": "Replied in a conversation."
+        }
+      ],
+      "description": "What a harness session did, as an agent event hears it. Churn between\nturns — thinking, a tool running, idle — is never an occurrence."
     },
     "Guard": {
       "type": "object",
@@ -5573,9 +6130,13 @@
           "description": "A message posted into a conversation.",
           "properties": {
             "in": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
               ],
               "description": "The conversation it lands in — a channel id, a direct channel's, a\nconversation's or a goal's thread (a template); absent, anywhere."
             },
@@ -5583,14 +6144,14 @@
               "default": "you",
               "allOf": [
                 {
-                  "$ref": "#/definitions/MessageFrom"
+                  "$ref": "#/definitions/MessageFromOrMany"
                 }
               ]
             },
             "mentions": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/AssigneeOrInput"
+                  "$ref": "#/definitions/AssigneeOrInputOrMany"
                 },
                 {
                   "type": "null"
@@ -5604,6 +6165,17 @@
                 "null"
               ],
               "description": "Its text contains this, case-insensitively (a template)."
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/MessagePlaceOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The kind of place it lands in — a direct channel, a standing one, a\ngoal's thread…; absent, any kind."
             },
             "until": {
               "type": "string",
@@ -5621,7 +6193,7 @@
             "project": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/ProjectIdOrInput"
+                  "$ref": "#/definitions/ProjectIdOrInputOrMany"
                 },
                 {
                   "type": "null"
@@ -5633,23 +6205,31 @@
               "default": "commit",
               "allOf": [
                 {
-                  "$ref": "#/definitions/ProjectChange"
+                  "$ref": "#/definitions/ProjectChangeOrMany"
                 }
               ]
             },
             "branch": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "description": "Only this branch (a template)."
+              "description": "Only this branch, or any of these (templates)."
             },
             "glob": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "description": "Only files matching this (`*` and `?`), for `files` (a template)."
+              "description": "Only files matching this (`*` and `?`), or any of these, for `files`\n(templates)."
             },
             "until": {
               "type": "string",
@@ -5667,22 +6247,59 @@
             "workflow": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/WorkflowId"
+                  "$ref": "#/definitions/WorkflowIdOrMany"
                 },
                 {
                   "type": "null"
                 }
               ]
             },
+            "change": {
+              "$ref": "#/definitions/RunChangeOrMany"
+            },
             "outcome": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/RunEnd"
+                  "$ref": "#/definitions/RunEndOrMany"
                 },
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "description": "How it ended, for `ended`."
+            },
+            "step": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/StepIdOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which step, for `step`."
+            },
+            "state": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which state the step moved into, for `step` — the words of\n`step.changed`."
+            },
+            "goal": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only a run of this goal, or of any of these (templates: an id, or an\ninput)."
             },
             "until": {
               "type": "string",
@@ -5698,7 +6315,7 @@
           "description": "One of the engine's own bus events.",
           "properties": {
             "topic": {
-              "type": "string"
+              "$ref": "#/definitions/stringOrMany"
             },
             "fields": {
               "type": "object",
@@ -5729,6 +6346,109 @@
             "until"
           ],
           "description": "A person releases it — or a call does (`POST …/release`), with a\npayload that becomes the step's output."
+        },
+        {
+          "type": "object",
+          "description": "A goal that moved: the workspace's news about it, narrowed by the\nfilter.",
+          "properties": {
+            "goal": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The goal, or any of these (templates: an id, or `{inputs.<name>}`);\nabsent, any goal."
+            },
+            "change": {
+              "$ref": "#/definitions/GoalChangeOrMany"
+            },
+            "until": {
+              "type": "string",
+              "const": "goal"
+            }
+          },
+          "required": [
+            "until",
+            "change"
+          ]
+        },
+        {
+          "type": "object",
+          "description": "A workflow definition that moved in the library.",
+          "properties": {
+            "workflow": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/WorkflowIdOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "change": {
+              "$ref": "#/definitions/WorkflowChangeOrMany"
+            },
+            "until": {
+              "type": "string",
+              "const": "workflow"
+            }
+          },
+          "required": [
+            "until",
+            "change"
+          ]
+        },
+        {
+          "type": "object",
+          "description": "A harness session that moved.",
+          "properties": {
+            "agent": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AssigneeOrInputOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "project": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProjectIdOrInputOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "harness": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The harness id it runs on (`claude-code`, `codex`, …)."
+            },
+            "change": {
+              "$ref": "#/definitions/AgentChangeOrMany"
+            },
+            "until": {
+              "type": "string",
+              "const": "agent"
+            }
+          },
+          "required": [
+            "until",
+            "change"
+          ]
         }
       ],
       "description": "What a `wait` holds for — a catch event. Its filters are the start\nevents' types ([`crate::listen`]), their fields rendered against the run."
@@ -5920,9 +6640,13 @@
           "description": "A message posted into a conversation, filtered as a message start is —\nits fields render against the run.",
           "properties": {
             "in": {
-              "type": [
-                "string",
-                "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/stringOrMany"
+                },
+                {
+                  "type": "null"
+                }
               ],
               "description": "The conversation it lands in — a channel id, a direct channel's, a\nconversation's or a goal's thread (a template); absent, anywhere."
             },
@@ -5930,14 +6654,14 @@
               "default": "you",
               "allOf": [
                 {
-                  "$ref": "#/definitions/MessageFrom"
+                  "$ref": "#/definitions/MessageFromOrMany"
                 }
               ]
             },
             "mentions": {
               "anyOf": [
                 {
-                  "$ref": "#/definitions/AssigneeOrInput"
+                  "$ref": "#/definitions/AssigneeOrInputOrMany"
                 },
                 {
                   "type": "null"
@@ -5951,6 +6675,17 @@
                 "null"
               ],
               "description": "Its text contains this, case-insensitively (a template)."
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/MessagePlaceOrMany"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The kind of place it lands in — a direct channel, a standing one, a\ngoal's thread…; absent, any kind."
             },
             "event": {
               "type": "string",
@@ -6972,6 +7707,16 @@
           "type": "string",
           "const": "spawn_input",
           "description": "A `spawn` that gives its workflow an input it does not declare, or\nleaves out one it requires and no default fills: the child's run\ncould never start."
+        },
+        {
+          "type": "string",
+          "const": "bad_goal_ref",
+          "description": "A `goal` start or wait names a goal that is no goal id — a literal\nthat is not a ULID. Syntax alone: whether the goal is still there is\nnever asked, so a start on its closing hears it."
+        },
+        {
+          "type": "string",
+          "const": "idle_filter_field",
+          "description": "A `run` start or wait narrows by `step` or `state` without hearing a\nstep's move (`change` lacks `step`): the field would never read."
         }
       ]
     },
@@ -7275,6 +8020,9 @@
         "platform",
         "connector",
         "check",
+        "goal",
+        "workflow",
+        "agent",
         "test"
       ],
       "description": "What kind of event a signal records — the start events' words, and\n`test` for a run a person started as if an event had happened."
@@ -20429,9 +21177,13 @@
       "additionalProperties": false,
       "properties": {
         "in": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/stringOrMany"
+            },
+            {
+              "type": "null"
+            }
           ],
           "description": "The conversation it lands in — a channel id, a direct channel's, a\nconversation's or a goal's thread (a template); absent, anywhere."
         },
@@ -20439,14 +21191,14 @@
           "default": "you",
           "allOf": [
             {
-              "$ref": "#/definitions/MessageFrom"
+              "$ref": "#/definitions/MessageFromOrMany"
             }
           ]
         },
         "mentions": {
           "anyOf": [
             {
-              "$ref": "#/definitions/AssigneeOrInput"
+              "$ref": "#/definitions/AssigneeOrInputOrMany"
             },
             {
               "type": "null"
@@ -20460,9 +21212,20 @@
             "null"
           ],
           "description": "Its text contains this, case-insensitively (a template)."
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MessagePlaceOrMany"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The kind of place it lands in — a direct channel, a standing one, a\ngoal's thread…; absent, any kind."
         }
       },
-      "description": "A message posted into a conversation: where, by whom, mentioning whom,\nsaying what. Heard where conversation dispatch hears a message — after the\nhold a message from another node waits in — and never an announcement."
+      "description": "A message posted into a conversation: where, by whom, mentioning whom,\nsaying what. Heard where conversation dispatch hears a message — after the\nhold a message from another node waits in — and never an announcement.\nEvery field but `contains` takes one value or a list, heard as any of\nthem."
     },
     "SignalFilter": {
       "type": "object",
@@ -20491,7 +21254,7 @@
         "project": {
           "anyOf": [
             {
-              "$ref": "#/definitions/ProjectIdOrInput"
+              "$ref": "#/definitions/ProjectIdOrInputOrMany"
             },
             {
               "type": "null"
@@ -20503,26 +21266,34 @@
           "default": "commit",
           "allOf": [
             {
-              "$ref": "#/definitions/ProjectChange"
+              "$ref": "#/definitions/ProjectChangeOrMany"
             }
           ]
         },
         "branch": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/stringOrMany"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "description": "Only this branch (a template)."
+          "description": "Only this branch, or any of these (templates)."
         },
         "glob": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/stringOrMany"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "description": "Only files matching this (`*` and `?`), for `files` (a template)."
+          "description": "Only files matching this (`*` and `?`), or any of these, for `files`\n(templates)."
         }
       },
-      "description": "A change in one project — never a path on a disk, which would mean\nnothing on another machine."
+      "description": "A change in one project, or in any of a list — never a path on a disk,\nwhich would mean nothing on another machine."
     },
     "RunFilter": {
       "type": "object",
@@ -20531,32 +21302,69 @@
         "workflow": {
           "anyOf": [
             {
-              "$ref": "#/definitions/WorkflowId"
+              "$ref": "#/definitions/WorkflowIdOrMany"
             },
             {
               "type": "null"
             }
           ]
         },
+        "change": {
+          "$ref": "#/definitions/RunChangeOrMany"
+        },
         "outcome": {
           "anyOf": [
             {
-              "$ref": "#/definitions/RunEnd"
+              "$ref": "#/definitions/RunEndOrMany"
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "How it ended, for `ended`."
+        },
+        "step": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StepIdOrMany"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Which step, for `step`."
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/stringOrMany"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Which state the step moved into, for `step` — the words of\n`step.changed`."
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/stringOrMany"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Only a run of this goal, or of any of these (templates: an id, or an\ninput)."
         }
       },
-      "description": "A run that ended — of one workflow, or of any."
+      "description": "A run that moved — of one workflow or of any, on one goal or any, ending\nhow, which of its steps into which state. Every field takes one value or\na list; `change` says what of the run is heard and means `ended` when\nnothing is said."
     },
     "PlatformFilter": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "topic": {
-          "type": "string"
+          "$ref": "#/definitions/stringOrMany"
         },
         "fields": {
           "type": "object",
@@ -20569,7 +21377,7 @@
       "required": [
         "topic"
       ],
-      "description": "One of the engine's own bus events, by topic (`goal.closed`,\n`step.changed`) and exact fields — the advanced door, for what the other\nevents do not name."
+      "description": "One of the engine's own bus events, by topic (`goal.closed`,\n`step.changed`) — or any of a list — and exact fields: the advanced\ndoor, for what the other events do not name."
     },
     "BoundaryAct": {
       "oneOf": [
@@ -27332,7 +28140,10 @@
         "run",
         "platform",
         "connector",
-        "check"
+        "check",
+        "goal",
+        "workflow",
+        "agent"
       ],
       "description": "The kind of event that began a run: the start events' words, a person's\nstart and a test run apart."
     },

@@ -1,9 +1,10 @@
 /**
  * A wait step: what the outside world has to do before the run moves — a
  * catch event. A delay, a moment or a schedule the clock drives; a named
- * signal, a message, a project's change, a run's end or a platform event
- * the world raises — the filters the start events use, their fields
- * rendered against the run; or a person releasing it. A delay's seconds
+ * signal, a message, a project's change, a run's, a goal's, a workflow's or
+ * an agent's move or a platform event the world raises — the filters the
+ * start events use, their fields rendered against the run; or a person
+ * releasing it. A delay's seconds
  * and a schedule's cron are value references: fixed, or read from an input
  * of the right kind so one template serves many holds. What was heard is
  * the step's output.
@@ -12,11 +13,15 @@
 import type { InputDef, Step } from "../../../types";
 import { Field, Labelled, NumberInput, Select, TextInput } from "../../../ui";
 import { DEFAULT_CRON, DEFAULT_DELAY_SECS, TEMPLATE_HINT, WAITS, blankWait } from "../stepKinds.mjs";
+import { AgentFilterFields } from "./AgentFilterFields";
+import type { WaitForEx } from "./eventFilters";
+import { GoalFilterFields } from "./GoalFilterFields";
 import { MessageFilterFields } from "./MessageFilterFields";
 import { ProjectFilterFields } from "./ProjectFilterFields";
 import { RefSource, isInputRef } from "./RefSource";
 import { RunFilterFields } from "./RunFilterFields";
 import { PlatformFilterFields, SignalFilterFields } from "./SignalFilterFields";
+import { WorkflowFilterFields } from "./WorkflowFilterFields";
 import { t } from "../../../i18n/l10n.mjs";
 
 type Wait = Extract<Step, { kind: "wait" }>;
@@ -32,8 +37,9 @@ export function WaitStepForm({
   onChange: (next: Step) => void;
   disabled?: boolean;
 }) {
-  const u = step.until;
-  const set = (until: Wait["until"]) => onChange({ ...step, until });
+  // The catch as the wire will carry it once the types are regenerated (`eventFilters.ts`).
+  const u = step.until as WaitForEx;
+  const set = (until: WaitForEx) => onChange({ ...step, until: until as Wait["until"] });
   return (
     <div className="flex flex-col gap-3">
       <Field label={t("workflow-wait-step-form-wait")}>
@@ -81,7 +87,10 @@ export function WaitStepForm({
       {u.until === "message" && <MessageFilterFields value={u} inputs={inputs} disabled={disabled} templateHint={TEMPLATE_HINT} onChange={set} />}
       {u.until === "project" && <ProjectFilterFields value={u} inputs={inputs} disabled={disabled} onChange={set} />}
       {u.until === "run" && <RunFilterFields value={u} disabled={disabled} onChange={set} />}
-      {u.until === "platform" && <PlatformFilterFields topic={u.topic} fields={u.fields} disabled={disabled} onChange={(next) => set({ ...u, ...next })} />}
+      {u.until === "platform" && <PlatformFilterFields topic={u.topic} fields={u.fields} disabled={disabled} onChange={(next) => set({ ...u, ...next } as WaitForEx)} />}
+      {u.until === "goal" && <GoalFilterFields value={u} disabled={disabled} templateHint={TEMPLATE_HINT} onChange={set} />}
+      {u.until === "workflow" && <WorkflowFilterFields value={u} disabled={disabled} onChange={set} />}
+      {u.until === "agent" && <AgentFilterFields value={u} inputs={inputs} disabled={disabled} onChange={set} />}
       {u.until === "release" && <p className="text-2xs text-text-dim">{t("workflow-wait-step-form-run-holds-here-until-person-releases")}</p>}
       {u.until !== "release" && u.until !== "delay" && u.until !== "time" && u.until !== "schedule" && (
         <p className="text-2xs text-text-dim">{t("workflow-wait-step-form-heard-is-output", { step: step.id })}</p>

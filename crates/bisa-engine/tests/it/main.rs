@@ -48,6 +48,7 @@ mod ide_search;
 mod intake_edges;
 mod intake_scope;
 mod interactive;
+mod lifecycle;
 mod lock;
 mod logging;
 mod lsp;

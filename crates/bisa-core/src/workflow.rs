@@ -34,8 +34,8 @@ use crate::id::{
     WorkstreamId,
 };
 use crate::listen::{
-    valid_signal_name, MessageFilter, PlatformFilter, ProjectFilter, RunEnd, RunFilter,
-    SignalFilter,
+    valid_signal_name, AgentFilter, GoalFilter, MessageFilter, OneOrMany, PlatformFilter,
+    ProjectFilter, RunChange, RunFilter, SignalFilter, WorkflowFilter,
 };
 use crate::origin::WorkflowOrigin;
 use crate::run::{RunScope, StepRecord};
@@ -1132,30 +1132,57 @@ impl Step {
                     text!("step-summary-wait-signal", name = filter.name.clone())
                 }
                 WaitFor::Message { filter } => match &filter.r#in {
-                    Some(scope) => text!("step-summary-wait-message-in", scope = scope.clone()),
+                    Some(places) => text!(
+                        "step-summary-wait-message-in",
+                        scope = places.words(String::clone)
+                    ),
                     None => text!("step-summary-wait-message"),
                 },
                 WaitFor::Project { filter } => match &filter.project {
-                    Some(project) => text!(
+                    Some(projects) => text!(
                         "step-summary-wait-project",
-                        change = filter.change.as_str(),
-                        project = project.word()
+                        change = change_words(&filter.change, |c| c.as_str()),
+                        project = projects.words(ValueRef::word)
                     ),
                     None => text!("step-summary-wait-project-unchosen"),
                 },
-                WaitFor::Run { filter } => {
-                    let outcome = filter.outcome.map_or("any", RunEnd::as_str);
-                    match &filter.workflow {
-                        Some(w) => text!(
-                            "step-summary-wait-run-of",
-                            workflow = w.to_string(),
-                            outcome = outcome
+                WaitFor::Run { filter } => run_summary(filter, false),
+                WaitFor::Platform { filter } => text!(
+                    "step-summary-wait-platform",
+                    topic = filter.topic.words(String::clone)
+                ),
+                WaitFor::Goal { filter } => {
+                    let change = change_words(&filter.change, |c| c.as_str());
+                    match &filter.goal {
+                        Some(goals) => text!(
+                            "step-summary-wait-goal-of",
+                            goal = goals.words(String::clone),
+                            change = change
                         ),
-                        None => text!("step-summary-wait-run", outcome = outcome),
+                        None => text!("step-summary-wait-goal", change = change),
                     }
                 }
-                WaitFor::Platform { filter } => {
-                    text!("step-summary-wait-platform", topic = filter.topic.clone())
+                WaitFor::Workflow { filter } => {
+                    let change = change_words(&filter.change, |c| c.as_str());
+                    match &filter.workflow {
+                        Some(workflows) => text!(
+                            "step-summary-wait-workflow-of",
+                            workflow = workflows.words(ToString::to_string),
+                            change = change
+                        ),
+                        None => text!("step-summary-wait-workflow", change = change),
+                    }
+                }
+                WaitFor::Agent { filter } => {
+                    let change = change_words(&filter.change, |c| c.as_str());
+                    match &filter.agent {
+                        Some(agents) => text!(
+                            "step-summary-wait-agent-of",
+                            agent = agents.words(ValueRef::word),
+                            change = change
+                        ),
+                        None => text!("step-summary-wait-agent", change = change),
+                    }
                 }
                 WaitFor::Release => text!("step-summary-wait-release"),
             },
@@ -1227,33 +1254,60 @@ fn start_summary(on: &StartOn, max: usize) -> crate::text::Text {
         StartOn::Hook { public: false } => text!("step-summary-start-hook"),
         StartOn::Hook { public: true } => text!("step-summary-start-hook-public"),
         StartOn::Message { filter } => match &filter.r#in {
-            Some(scope) => text!("step-summary-start-message-in", scope = scope.clone()),
+            Some(places) => text!(
+                "step-summary-start-message-in",
+                scope = places.words(String::clone)
+            ),
             None => text!("step-summary-start-message"),
         },
         StartOn::Signal { filter } => {
             text!("step-summary-start-signal", name = filter.name.clone())
         }
         StartOn::Project { filter } => match &filter.project {
-            Some(project) => text!(
+            Some(projects) => text!(
                 "step-summary-start-project",
-                change = filter.change.as_str(),
-                project = project.word()
+                change = change_words(&filter.change, |c| c.as_str()),
+                project = projects.words(ValueRef::word)
             ),
             None => text!("step-summary-start-project-unchosen"),
         },
-        StartOn::Run { filter } => {
-            let outcome = filter.outcome.map_or("any", RunEnd::as_str);
-            match &filter.workflow {
-                Some(w) => text!(
-                    "step-summary-start-run-of",
-                    workflow = w.to_string(),
-                    outcome = outcome
+        StartOn::Run { filter } => run_summary(filter, true),
+        StartOn::Platform { filter } => text!(
+            "step-summary-start-platform",
+            topic = filter.topic.words(String::clone)
+        ),
+        StartOn::Goal { filter } => {
+            let change = change_words(&filter.change, |c| c.as_str());
+            match &filter.goal {
+                Some(goals) => text!(
+                    "step-summary-start-goal-of",
+                    goal = goals.words(String::clone),
+                    change = change
                 ),
-                None => text!("step-summary-start-run", outcome = outcome),
+                None => text!("step-summary-start-goal", change = change),
             }
         }
-        StartOn::Platform { filter } => {
-            text!("step-summary-start-platform", topic = filter.topic.clone())
+        StartOn::Workflow { filter } => {
+            let change = change_words(&filter.change, |c| c.as_str());
+            match &filter.workflow {
+                Some(workflows) => text!(
+                    "step-summary-start-workflow-of",
+                    workflow = workflows.words(ToString::to_string),
+                    change = change
+                ),
+                None => text!("step-summary-start-workflow", change = change),
+            }
+        }
+        StartOn::Agent { filter } => {
+            let change = change_words(&filter.change, |c| c.as_str());
+            match &filter.agent {
+                Some(agents) => text!(
+                    "step-summary-start-agent-of",
+                    agent = agents.words(ValueRef::word),
+                    change = change
+                ),
+                None => text!("step-summary-start-agent", change = change),
+            }
         }
         StartOn::Connector {
             connector: Some(c),
@@ -1268,6 +1322,51 @@ fn start_summary(on: &StartOn, max: usize) -> crate::text::Text {
             command = first_sentence(command, max),
             fire_on = fire_on.as_str()
         ),
+    }
+}
+
+/// A list of change words as a summary says it: one word as itself, which
+/// the sentence selects a phrase on; several joined, which it shows as they
+/// are.
+fn change_words<T>(changes: &OneOrMany<T>, word: impl Fn(&T) -> &'static str) -> String {
+    changes.words(|c| word(c).to_string())
+}
+
+/// A run event's line — a start's or a wait's: what the run did, of which
+/// workflow, ending how. A filter that hears ends alone says so in the words
+/// it always did.
+fn run_summary(filter: &RunFilter, start: bool) -> crate::text::Text {
+    use crate::text;
+    let workflow = filter
+        .workflow
+        .as_ref()
+        .map(|w| w.words(ToString::to_string));
+    if filter.change == OneOrMany::One(RunChange::Ended) {
+        let outcome = match &filter.outcome {
+            None => "any".to_string(),
+            Some(outcomes) => change_words(outcomes, |o| o.as_str()),
+        };
+        return match (start, workflow) {
+            (true, Some(w)) => text!("step-summary-start-run-of", workflow = w, outcome = outcome),
+            (true, None) => text!("step-summary-start-run", outcome = outcome),
+            (false, Some(w)) => text!("step-summary-wait-run-of", workflow = w, outcome = outcome),
+            (false, None) => text!("step-summary-wait-run", outcome = outcome),
+        };
+    }
+    let change = change_words(&filter.change, |c| c.as_str());
+    match (start, workflow) {
+        (true, Some(w)) => text!(
+            "step-summary-start-run-of-change",
+            workflow = w,
+            change = change
+        ),
+        (true, None) => text!("step-summary-start-run-change", change = change),
+        (false, Some(w)) => text!(
+            "step-summary-wait-run-of-change",
+            workflow = w,
+            change = change
+        ),
+        (false, None) => text!("step-summary-wait-run-change", change = change),
     }
 }
 
@@ -1764,6 +1863,22 @@ pub enum WaitFor {
     /// A person releases it — or a call does (`POST …/release`), with a
     /// payload that becomes the step's output.
     Release,
+    /// A goal that moved: the workspace's news about it, narrowed by the
+    /// filter.
+    Goal {
+        #[serde(flatten)]
+        filter: GoalFilter,
+    },
+    /// A workflow definition that moved in the library.
+    Workflow {
+        #[serde(flatten)]
+        filter: WorkflowFilter,
+    },
+    /// A harness session that moved.
+    Agent {
+        #[serde(flatten)]
+        filter: AgentFilter,
+    },
 }
 
 impl WaitFor {
@@ -1778,11 +1893,15 @@ impl WaitFor {
             WaitFor::Run { .. } => "run",
             WaitFor::Platform { .. } => "platform",
             WaitFor::Release => "release",
+            WaitFor::Goal { .. } => "goal",
+            WaitFor::Workflow { .. } => "workflow",
+            WaitFor::Agent { .. } => "agent",
         }
     }
 
-    pub const NAMES: [&'static str; 9] = [
+    pub const NAMES: [&'static str; 12] = [
         "delay", "time", "schedule", "signal", "message", "project", "run", "platform", "release",
+        "goal", "workflow", "agent",
     ];
 
     /// The fields a catch carries beside its `until` tag, by tag.
@@ -1797,6 +1916,9 @@ impl WaitFor {
             "run" => RunFilter::FIELDS,
             "platform" => PlatformFilter::FIELDS,
             "release" => &[],
+            "goal" => GoalFilter::FIELDS,
+            "workflow" => WorkflowFilter::FIELDS,
+            "agent" => AgentFilter::FIELDS,
             _ => return None,
         })
     }
@@ -1824,6 +1946,9 @@ impl WaitFor {
             | WaitFor::Project { .. }
             | WaitFor::Run { .. }
             | WaitFor::Platform { .. }
+            | WaitFor::Goal { .. }
+            | WaitFor::Workflow { .. }
+            | WaitFor::Agent { .. }
             | WaitFor::Release => true,
             WaitFor::Delay { .. } | WaitFor::Time { .. } | WaitFor::Schedule { .. } => false,
         }
@@ -1846,13 +1971,16 @@ impl WaitFor {
         match self {
             WaitFor::Delay { .. }
             | WaitFor::Schedule { .. }
-            | WaitFor::Run { .. }
+            | WaitFor::Workflow { .. }
+            | WaitFor::Agent { .. }
             | WaitFor::Release => vec![],
             WaitFor::Time { at } => vec![at.as_str()],
             WaitFor::Signal { filter } => filter.templates(),
             WaitFor::Message { filter } => filter.templates(),
             WaitFor::Project { filter } => filter.templates(),
+            WaitFor::Run { filter } => filter.templates(),
             WaitFor::Platform { filter } => filter.templates(),
+            WaitFor::Goal { filter } => filter.templates(),
         }
     }
 
@@ -1867,6 +1995,7 @@ impl WaitFor {
             } => vec![(input, "text")],
             WaitFor::Message { filter } => filter.input_refs(),
             WaitFor::Project { filter } => filter.input_refs(),
+            WaitFor::Agent { filter } => filter.input_refs(),
             _ => vec![],
         }
     }
@@ -1874,6 +2003,7 @@ impl WaitFor {
     pub fn assignee_refs(&self) -> Vec<&ValueRef<Assignee>> {
         match self {
             WaitFor::Message { filter } => filter.assignee_refs(),
+            WaitFor::Agent { filter } => filter.assignee_refs(),
             _ => vec![],
         }
     }
@@ -2449,6 +2579,13 @@ pub enum ProblemKind {
     /// leaves out one it requires and no default fills: the child's run
     /// could never start.
     SpawnInput,
+    /// A `goal` start or wait names a goal that is no goal id — a literal
+    /// that is not a ULID. Syntax alone: whether the goal is still there is
+    /// never asked, so a start on its closing hears it.
+    BadGoalRef,
+    /// A `run` start or wait narrows by `step` or `state` without hearing a
+    /// step's move (`change` lacks `step`): the field would never read.
+    IdleFilterField,
 }
 }
 
@@ -4376,46 +4513,123 @@ fn signal_name_problem(step: &StepId, name: &str, grammar: Grammar) -> Option<Pr
 
 /// A literal conversation a message filter listens in that no conversation
 /// could be.
-fn listens_in_problem(step: &StepId, filter: &MessageFilter, grammar: Grammar) -> Option<Problem> {
-    let place = filter.r#in.as_deref()?;
-    (literal(place, grammar) && !is_conversation_id(place)).then(|| Problem {
-        step: Some(step.clone()),
-        kind: ProblemKind::NotifyScopeUnknown,
-        text: crate::text!(
-            "problem-notify-scope-unknown-message-in",
-            a0 = step.to_string(),
-            scope = place.to_string()
-        ),
-    })
+fn listens_in_problem(step: &StepId, filter: &MessageFilter, grammar: Grammar) -> Vec<Problem> {
+    filter
+        .r#in
+        .iter()
+        .flat_map(OneOrMany::iter)
+        .filter(|place| literal(place, grammar) && !is_conversation_id(place))
+        .map(|place| Problem {
+            step: Some(step.clone()),
+            kind: ProblemKind::NotifyScopeUnknown,
+            text: crate::text!(
+                "problem-notify-scope-unknown-message-in",
+                a0 = step.to_string(),
+                scope = place.to_string()
+            ),
+        })
+        .collect()
 }
 
-/// A platform topic that is empty, or one the engine never emits.
-fn topic_problem(
-    step: &StepId,
-    filter: &PlatformFilter,
-    ctx: &ValidationCtx<'_>,
-) -> Option<Problem> {
-    let problem = |text| {
-        Some(Problem {
-            step: Some(step.clone()),
-            kind: ProblemKind::UnknownTopic,
-            text,
-        })
+/// A platform topic that is empty, or one the engine never emits — each of
+/// the list.
+fn topic_problem(step: &StepId, filter: &PlatformFilter, ctx: &ValidationCtx<'_>) -> Vec<Problem> {
+    let problem = |text| Problem {
+        step: Some(step.clone()),
+        kind: ProblemKind::UnknownTopic,
+        text,
     };
-    if filter.topic.trim().is_empty() {
-        return problem(crate::text!(
-            "problem-unknown-topic-empty",
-            a0 = step.to_string()
-        ));
+    filter
+        .topics()
+        .filter_map(|topic| {
+            if topic.trim().is_empty() {
+                Some(problem(crate::text!(
+                    "problem-unknown-topic-empty",
+                    a0 = step.to_string()
+                )))
+            } else if !ctx.topics.is_empty() && !ctx.topics.contains(&topic) {
+                Some(problem(crate::text!(
+                    "problem-unknown-topic",
+                    a0 = step.to_string(),
+                    topic = topic.to_string()
+                )))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// A goal named by a literal that is no goal id — a `goal` filter's, or a
+/// `run` filter's narrowing. A template is judged when it renders; whether
+/// the goal is still there is never asked (a start on its closing hears it).
+fn goal_ref_problems(
+    step: &StepId,
+    goals: Option<&OneOrMany<String>>,
+    grammar: Grammar,
+) -> Vec<Problem> {
+    goals
+        .into_iter()
+        .flat_map(OneOrMany::iter)
+        .filter(|goal| literal(goal, grammar) && goal.parse::<GoalId>().is_err())
+        .map(|goal| Problem {
+            step: Some(step.clone()),
+            kind: ProblemKind::BadGoalRef,
+            text: crate::text!(
+                "problem-bad-goal-ref",
+                a0 = step.to_string(),
+                goal = goal.to_string()
+            ),
+        })
+        .collect()
+}
+
+/// What a `run` filter has wrong: a workflow the workspace lacks, a goal
+/// that is no goal id, a `step` or `state` that nothing reads because the
+/// filter hears no step's move.
+fn run_filter_problems(
+    step: &StepId,
+    filter: &RunFilter,
+    ctx: &ValidationCtx<'_>,
+    grammar: Grammar,
+) -> Vec<Problem> {
+    let mut out = run_workflow_problem(step, filter, ctx);
+    out.extend(goal_ref_problems(step, filter.goal.as_ref(), grammar));
+    if (filter.step.is_some() || filter.state.is_some()) && !filter.hears_steps() {
+        out.push(Problem {
+            step: Some(step.clone()),
+            kind: ProblemKind::IdleFilterField,
+            text: crate::text!("problem-idle-filter-field-run-step", a0 = step.to_string()),
+        });
     }
-    if !ctx.topics.is_empty() && !ctx.topics.contains(&filter.topic.as_str()) {
-        return problem(crate::text!(
-            "problem-unknown-topic",
-            a0 = step.to_string(),
-            topic = filter.topic.clone()
-        ));
-    }
-    None
+    out
+}
+
+/// An agent filter naming a project the workspace lacks. Its agents are
+/// checked with every other assignee a step names.
+fn agent_project_problems(
+    step: &StepId,
+    filter: &AgentFilter,
+    ctx: &ValidationCtx<'_>,
+) -> Vec<Problem> {
+    filter
+        .project
+        .iter()
+        .flat_map(OneOrMany::iter)
+        .filter_map(|p| match p {
+            ValueRef::Fixed(id) if !ctx.projects.contains(id) => Some(id),
+            _ => None,
+        })
+        .map(|id| Problem {
+            step: Some(step.clone()),
+            kind: ProblemKind::UnknownProject,
+            text: crate::text!(
+                "problem-unknown-project-step-names-project-which-not-workspace",
+                a0 = step.to_string(),
+                id = id.to_string()
+            ),
+        })
+        .collect()
 }
 
 impl Workflow {
@@ -4695,13 +4909,15 @@ impl Workflow {
             let found = match &b.on {
                 BoundaryOn::Signal { filter } => {
                     signal_name_problem(&step.id, &filter.name, Grammar::Run)
+                        .into_iter()
+                        .collect()
                 }
                 BoundaryOn::Message { filter } => {
                     listens_in_problem(&step.id, filter, Grammar::Run)
                 }
-                BoundaryOn::After { .. } | BoundaryOn::Every { .. } => None,
+                BoundaryOn::After { .. } | BoundaryOn::Every { .. } => vec![],
             };
-            if let Some(p) = found {
+            for p in found {
                 push(p.kind, p.text);
             }
             match &b.act {
@@ -4858,9 +5074,12 @@ impl Workflow {
             }
         }
         match on {
-            StartOn::Manual | StartOn::Schedule { .. } | StartOn::Hook { .. } => {}
+            StartOn::Manual
+            | StartOn::Schedule { .. }
+            | StartOn::Hook { .. }
+            | StartOn::Workflow { .. } => {}
             StartOn::Message { filter } => {
-                if let Some(p) = listens_in_problem(&step.id, filter, Grammar::StartEvent) {
+                for p in listens_in_problem(&step.id, filter, Grammar::StartEvent) {
                     push(p.kind, p.text);
                 }
             }
@@ -4875,12 +5094,22 @@ impl Workflow {
                 }
             }
             StartOn::Run { filter } => {
-                if let Some(p) = run_workflow_problem(&step.id, filter, ctx) {
+                for p in run_filter_problems(&step.id, filter, ctx, Grammar::StartEvent) {
                     push(p.kind, p.text);
                 }
             }
             StartOn::Platform { filter } => {
-                if let Some(p) = topic_problem(&step.id, filter, ctx) {
+                for p in topic_problem(&step.id, filter, ctx) {
+                    push(p.kind, p.text);
+                }
+            }
+            StartOn::Goal { filter } => {
+                for p in goal_ref_problems(&step.id, filter.goal.as_ref(), Grammar::StartEvent) {
+                    push(p.kind, p.text);
+                }
+            }
+            StartOn::Agent { filter } => {
+                for p in agent_project_problems(&step.id, filter, ctx) {
                     push(p.kind, p.text);
                 }
             }
@@ -4980,19 +5209,18 @@ impl Workflow {
             WaitFor::Signal { filter } => signal_name_problem(&step.id, &filter.name, Grammar::Run)
                 .into_iter()
                 .collect(),
-            WaitFor::Message { filter } => listens_in_problem(&step.id, filter, Grammar::Run)
-                .into_iter()
-                .collect(),
+            WaitFor::Message { filter } => listens_in_problem(&step.id, filter, Grammar::Run),
             WaitFor::Project { filter } => project_problems(&step.id, filter, ctx),
-            WaitFor::Run { filter } => run_workflow_problem(&step.id, filter, ctx)
-                .into_iter()
-                .collect(),
-            WaitFor::Platform { filter } => {
-                topic_problem(&step.id, filter, ctx).into_iter().collect()
+            WaitFor::Run { filter } => run_filter_problems(&step.id, filter, ctx, Grammar::Run),
+            WaitFor::Platform { filter } => topic_problem(&step.id, filter, ctx),
+            WaitFor::Goal { filter } => {
+                goal_ref_problems(&step.id, filter.goal.as_ref(), Grammar::Run)
             }
+            WaitFor::Agent { filter } => agent_project_problems(&step.id, filter, ctx),
             WaitFor::Delay { .. }
             | WaitFor::Time { .. }
             | WaitFor::Schedule { .. }
+            | WaitFor::Workflow { .. }
             | WaitFor::Release => {
                 vec![]
             }
@@ -5053,34 +5281,44 @@ fn project_problems(
             ProblemKind::Unfilled,
             crate::text!("problem-unfilled-project-change", a0 = step.to_string()),
         )],
-        Some(ValueRef::Fixed(id)) if !ctx.projects.contains(id) => vec![problem(
-            ProblemKind::UnknownProject,
-            crate::text!(
-                "problem-unknown-project-step-names-project-which-not-workspace",
-                a0 = step.to_string(),
-                id = id.to_string()
-            ),
-        )],
-        Some(_) => vec![],
+        Some(projects) => projects
+            .iter()
+            .filter_map(|p| match p {
+                ValueRef::Fixed(id) if !ctx.projects.contains(id) => Some(problem(
+                    ProblemKind::UnknownProject,
+                    crate::text!(
+                        "problem-unknown-project-step-names-project-which-not-workspace",
+                        a0 = step.to_string(),
+                        id = id.to_string()
+                    ),
+                )),
+                _ => None,
+            })
+            .collect(),
     }
 }
 
-/// A run filter naming a workflow the workspace lacks.
+/// A run filter naming a workflow the workspace lacks — each of the list.
 fn run_workflow_problem(
     step: &StepId,
     filter: &RunFilter,
     ctx: &ValidationCtx<'_>,
-) -> Option<Problem> {
-    let w = filter.workflow.as_ref()?;
-    (!ctx.workflows.contains(w)).then(|| Problem {
-        step: Some(step.clone()),
-        kind: ProblemKind::UnknownWorkflow,
-        text: crate::text!(
-            "problem-unknown-workflow-run-event",
-            a0 = step.to_string(),
-            w = w.to_string()
-        ),
-    })
+) -> Vec<Problem> {
+    filter
+        .workflow
+        .iter()
+        .flat_map(OneOrMany::iter)
+        .filter(|w| !ctx.workflows.contains(w))
+        .map(|w| Problem {
+            step: Some(step.clone()),
+            kind: ProblemKind::UnknownWorkflow,
+            text: crate::text!(
+                "problem-unknown-workflow-run-event",
+                a0 = step.to_string(),
+                w = w.to_string()
+            ),
+        })
+        .collect()
 }
 
 /// Does following `spawns` from `from` reach `target`? A depth-first walk
@@ -5382,10 +5620,11 @@ impl Workflow {
                     }
                 }
                 if let StartOn::Message { filter } = on {
-                    if let Some(place) = filter
+                    for place in filter
                         .r#in
-                        .as_deref()
-                        .and_then(|t| from_inputs(t, Grammar::StartEvent))
+                        .iter()
+                        .flat_map(OneOrMany::iter)
+                        .filter_map(|t| from_inputs(t, Grammar::StartEvent))
                     {
                         if !is_conversation_id(&place) {
                             out.push(Problem {
@@ -6616,7 +6855,7 @@ pub(crate) mod tests {
         assert!(InputKind::Project.accepts(&json!("01ARZ3NDEKTSV4RRFFQ69G5FAV")));
         assert!(!InputKind::Project.accepts(&json!("web-app")));
         assert_eq!(StepKind::NAMES.len(), 18);
-        assert_eq!(ProblemKind::ALL.len(), 61);
+        assert_eq!(ProblemKind::ALL.len(), 63);
     }
 
     fn input(name: &str, kind: InputKind) -> InputDef {
@@ -7752,6 +7991,8 @@ pub(crate) mod tests {
                 ProblemKind::SpawnNeedsManualEntry => 58,
                 ProblemKind::UnsupportedEffort => 59,
                 ProblemKind::SpawnInput => 60,
+                ProblemKind::BadGoalRef => 61,
+                ProblemKind::IdleFilterField => 62,
             }
         };
         let seen: BTreeSet<usize> = ProblemKind::ALL.iter().map(|k| ordinal(*k)).collect();
@@ -7767,7 +8008,11 @@ pub(crate) mod tests {
             json!("needs_goal")
         );
         // The newest kind is the last one, under its own word.
-        assert_eq!(ProblemKind::ALL.last(), Some(&ProblemKind::SpawnInput));
+        assert_eq!(ProblemKind::ALL.last(), Some(&ProblemKind::IdleFilterField));
+        assert_eq!(
+            serde_json::to_value(ProblemKind::BadGoalRef).unwrap(),
+            json!("bad_goal_ref")
+        );
         assert_eq!(
             serde_json::to_value(ProblemKind::SpawnInput).unwrap(),
             json!("spawn_input")
@@ -10211,7 +10456,7 @@ pub(crate) mod tests {
             problems(
                 StartOn::Project {
                     filter: ProjectFilter {
-                        project: Some(ValueRef::Fixed(ghost)),
+                        project: Some(ValueRef::Fixed(ghost).into()),
                         ..ProjectFilter::default()
                     },
                 },
@@ -10224,8 +10469,9 @@ pub(crate) mod tests {
             problems(
                 StartOn::Run {
                     filter: RunFilter {
-                        workflow: Some(elsewhere),
+                        workflow: Some(elsewhere.into()),
                         outcome: None,
+                        ..RunFilter::default()
                     },
                 },
                 &ctx
@@ -10306,7 +10552,8 @@ pub(crate) mod tests {
                     filter: MessageFilter {
                         from: crate::listen::MessageFrom::Someone(ValueRef::Fixed(
                             Assignee::Agent("nobody".into())
-                        )),
+                        ))
+                        .into(),
                         ..MessageFilter::default()
                     },
                 },
@@ -10860,7 +11107,7 @@ pub(crate) mod tests {
             (
                 WaitFor::Project {
                     filter: ProjectFilter {
-                        project: Some(ValueRef::Fixed(project)),
+                        project: Some(ValueRef::Fixed(project).into()),
                         ..ProjectFilter::default()
                     },
                 },
@@ -10875,8 +11122,9 @@ pub(crate) mod tests {
             (
                 WaitFor::Run {
                     filter: RunFilter {
-                        workflow: Some(workflow_id),
+                        workflow: Some(workflow_id.into()),
                         outcome: None,
+                        ..RunFilter::default()
                     },
                 },
                 "step-summary-wait-run-of",
@@ -10942,7 +11190,7 @@ pub(crate) mod tests {
         assert_eq!(
             start(StartOn::Project {
                 filter: ProjectFilter {
-                    project: Some(ValueRef::Fixed(project)),
+                    project: Some(ValueRef::Fixed(project).into()),
                     ..ProjectFilter::default()
                 }
             }),
@@ -10957,8 +11205,9 @@ pub(crate) mod tests {
         assert_eq!(
             start(StartOn::Run {
                 filter: RunFilter {
-                    workflow: Some(workflow_id),
+                    workflow: Some(workflow_id.into()),
                     outcome: None,
+                    ..RunFilter::default()
                 }
             }),
             "step-summary-start-run-of"
@@ -11304,9 +11553,42 @@ pub(crate) mod tests {
                 },
             },
             WaitFor::Release,
+            WaitFor::Goal {
+                filter: GoalFilter {
+                    goal: None,
+                    change: crate::listen::GoalChange::Closed.into(),
+                },
+            },
+            WaitFor::Workflow {
+                filter: WorkflowFilter {
+                    workflow: None,
+                    change: crate::listen::WorkflowChange::Deleted.into(),
+                },
+            },
+            WaitFor::Agent {
+                filter: AgentFilter {
+                    agent: None,
+                    project: None,
+                    harness: None,
+                    change: crate::listen::AgentChange::Failed.into(),
+                },
+            },
         ];
+        assert_eq!(every_wait.len(), WaitFor::NAMES.len());
         for (until, name) in every_wait.iter().zip(WaitFor::NAMES) {
             assert_eq!(until.as_str(), name);
+            let json = serde_json::to_value(until).unwrap();
+            assert_eq!(
+                serde_json::from_value::<WaitFor>(json.clone()).unwrap(),
+                *until
+            );
+            let own = WaitFor::fields_of(name).expect("a tag");
+            for key in json.as_object().unwrap().keys() {
+                assert!(
+                    key == "until" || own.contains(&key.as_str()),
+                    "{name} writes `{key}`, which its field table does not list"
+                );
+            }
         }
         assert_eq!(
             (RunOutcome::Done.as_str(), RunOutcome::Failed.as_str()),
@@ -11355,7 +11637,7 @@ pub(crate) mod tests {
         );
         let project = WaitFor::Project {
             filter: ProjectFilter {
-                project: Some(ValueRef::Input { input: n.clone() }),
+                project: Some(ValueRef::Input { input: n.clone() }.into()),
                 branch: Some("{inputs.b}".into()),
                 ..ProjectFilter::default()
             },
@@ -11388,7 +11670,7 @@ pub(crate) mod tests {
         let who = ValueRef::Fixed(Assignee::Agent("a".into()));
         let message = WaitFor::Message {
             filter: MessageFilter {
-                mentions: Some(who.clone()),
+                mentions: Some(who.clone().into()),
                 ..MessageFilter::default()
             },
         };
@@ -11570,7 +11852,7 @@ pub(crate) mod tests {
         let message = WaitFor::Message {
             filter: MessageFilter {
                 r#in: Some("{inputs.room}".into()),
-                mentions: Some(ValueRef::Input { input: m.clone() }),
+                mentions: Some(ValueRef::Input { input: m.clone() }.into()),
                 ..MessageFilter::default()
             },
         };
@@ -11774,7 +12056,7 @@ pub(crate) mod tests {
                 "w",
                 WaitFor::Project {
                     filter: ProjectFilter {
-                        project: Some(ValueRef::Input { input: p }),
+                        project: Some(ValueRef::Input { input: p }.into()),
                         ..ProjectFilter::default()
                     },
                 },
@@ -11920,6 +12202,595 @@ pub(crate) mod tests {
         ]);
         let found = kinds(&wf.validate(&ctx()));
         assert!(!found.contains(&ProblemKind::NotUpstream), "{found:?}");
+    }
+
+    // added for the events programme: lists, the new kinds, what is named by
+    // syntax alone
+
+    #[test]
+    fn a_list_is_checked_entry_by_entry_and_a_lifecycle_subject_is_named_by_syntax_alone() {
+        use crate::listen::{
+            AgentChange, AgentFilter, GoalChange, GoalFilter, MessageFrom, ProjectChange,
+            RunChange, WorkflowChange, WorkflowFilter,
+        };
+        let one = |on: StartOn| workflow(vec![start("s", on, &["a"]), agent("a", &[])]);
+        let problems = |on: StartOn, rt: &ValidationCtx<'_>| kinds(&one(on).validate(rt));
+        let base = ctx();
+        let known = ProjectId::from_ulid(ulid::Ulid::from_parts(5, 5));
+        let ghost = ProjectId::from_ulid(ulid::Ulid::from_parts(8, 8));
+        let other_ghost = ProjectId::from_ulid(ulid::Ulid::from_parts(8, 9));
+        let here = WorkflowId::from_ulid(ulid::Ulid::from_parts(6, 6));
+        let elsewhere = WorkflowId::from_ulid(ulid::Ulid::from_parts(8, 9));
+        let projects = [known];
+        let workflows = [here];
+        let topics = ["goal.closed", "run.finished"];
+        let ctx = ValidationCtx {
+            projects: &projects,
+            workflows: &workflows,
+            topics: &topics,
+            ..base
+        };
+        // A project list: one problem per project the workspace lacks.
+        assert_eq!(
+            problems(
+                StartOn::Project {
+                    filter: ProjectFilter {
+                        project: Some(
+                            vec![
+                                ValueRef::Fixed(known),
+                                ValueRef::Fixed(ghost),
+                                ValueRef::Fixed(other_ghost)
+                            ]
+                            .into()
+                        ),
+                        change: vec![ProjectChange::Commit, ProjectChange::Branch].into(),
+                        ..ProjectFilter::default()
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::UnknownProject, ProblemKind::UnknownProject]
+        );
+        // A run filter: its workflows, its goal's syntax, a narrowing nothing reads.
+        assert_eq!(
+            problems(
+                StartOn::Run {
+                    filter: RunFilter {
+                        workflow: Some(vec![here, elsewhere].into()),
+                        ..RunFilter::default()
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::UnknownWorkflow]
+        );
+        assert_eq!(
+            problems(
+                StartOn::Run {
+                    filter: RunFilter {
+                        step: Some(sid("build").into()),
+                        ..RunFilter::default()
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::IdleFilterField],
+            "a step with no step change"
+        );
+        assert_eq!(
+            problems(
+                StartOn::Run {
+                    filter: RunFilter {
+                        change: vec![RunChange::Step, RunChange::Ended].into(),
+                        state: Some("failed".into()),
+                        goal: Some(
+                            vec![
+                                "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
+                                "not-a-goal".to_string()
+                            ]
+                            .into()
+                        ),
+                        ..RunFilter::default()
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::BadGoalRef]
+        );
+        // Topics: each of the list, the empty one included.
+        assert_eq!(
+            problems(
+                StartOn::Platform {
+                    filter: PlatformFilter {
+                        topic: vec![
+                            "goal.closed".to_string(),
+                            "goal.exploded".to_string(),
+                            String::new()
+                        ]
+                        .into(),
+                        fields: BTreeMap::new(),
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::UnknownTopic, ProblemKind::UnknownTopic]
+        );
+        // Places: each of the list.
+        assert_eq!(
+            problems(
+                StartOn::Message {
+                    filter: MessageFilter {
+                        r#in: Some(
+                            vec!["general".to_string(), "no such channel!".to_string()].into()
+                        ),
+                        from: MessageFrom::Anyone.into(),
+                        ..MessageFilter::default()
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::NotifyScopeUnknown]
+        );
+        // A goal start: a literal that is no goal id, never whether the goal
+        // exists — a start on its closing must hear it.
+        assert_eq!(
+            problems(
+                StartOn::Goal {
+                    filter: GoalFilter {
+                        goal: Some(
+                            vec!["01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(), "nope".to_string()]
+                                .into()
+                        ),
+                        change: GoalChange::Closed.into(),
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::BadGoalRef]
+        );
+        assert_eq!(
+            problems(
+                StartOn::Goal {
+                    filter: GoalFilter {
+                        goal: None,
+                        change: vec![GoalChange::Created, GoalChange::Deleted].into(),
+                    },
+                },
+                &ctx
+            ),
+            vec![]
+        );
+        // A workflow start names a workflow by id alone: one the library
+        // lacks — deleted, say — is no problem, or a start on `deleted`
+        // could never be armed when it matters.
+        assert_eq!(
+            problems(
+                StartOn::Workflow {
+                    filter: WorkflowFilter {
+                        workflow: Some(elsewhere.into()),
+                        change: WorkflowChange::Deleted.into(),
+                    },
+                },
+                &ctx
+            ),
+            vec![]
+        );
+        // An agent start: its projects must exist, its agents as every
+        // assignee a step names must.
+        assert_eq!(
+            problems(
+                StartOn::Agent {
+                    filter: AgentFilter {
+                        agent: Some(ValueRef::Fixed(Assignee::Agent("nobody-here".into())).into()),
+                        project: Some(vec![ValueRef::Fixed(known), ValueRef::Fixed(ghost)].into()),
+                        harness: None,
+                        change: AgentChange::Done.into(),
+                    },
+                },
+                &ctx
+            ),
+            vec![ProblemKind::UnknownProject, ProblemKind::UnknownAssignee]
+        );
+    }
+
+    #[test]
+    fn a_summary_says_a_list_as_written_and_the_new_kinds_in_their_words() {
+        use crate::listen::{
+            AgentChange, AgentFilter, GoalChange, GoalFilter, ProjectChange, RunChange,
+        };
+        use crate::text::Arg;
+        let a = ProjectId::from_ulid(ulid::Ulid::from_parts(5, 5));
+        let b = ProjectId::from_ulid(ulid::Ulid::from_parts(5, 6));
+        let said = |on: StartOn| start("s", on, &[]).summary();
+        let project = said(StartOn::Project {
+            filter: ProjectFilter {
+                project: Some(vec![ValueRef::Fixed(a), ValueRef::Fixed(b)].into()),
+                change: vec![ProjectChange::Commit, ProjectChange::Push].into(),
+                ..ProjectFilter::default()
+            },
+        });
+        assert_eq!(project.id, "step-summary-start-project");
+        assert_eq!(
+            project.args.get("change"),
+            Some(&Arg::Str("commit · push".into()))
+        );
+        assert_eq!(
+            project.args.get("project"),
+            Some(&Arg::Str(format!("{a} · {b}")))
+        );
+        let one = said(StartOn::Project {
+            filter: ProjectFilter {
+                project: Some(ValueRef::Fixed(a).into()),
+                ..ProjectFilter::default()
+            },
+        });
+        assert_eq!(one.args.get("change"), Some(&Arg::Str("commit".into())));
+        let ends = said(StartOn::Run {
+            filter: RunFilter::default(),
+        });
+        assert_eq!(ends.id, "step-summary-start-run");
+        assert_eq!(ends.args.get("outcome"), Some(&Arg::Str("any".into())));
+        let moves = said(StartOn::Run {
+            filter: RunFilter {
+                change: vec![RunChange::Started, RunChange::Step].into(),
+                ..RunFilter::default()
+            },
+        });
+        assert_eq!(moves.id, "step-summary-start-run-change");
+        assert_eq!(
+            moves.args.get("change"),
+            Some(&Arg::Str("started · step".into()))
+        );
+        let goal = said(StartOn::Goal {
+            filter: GoalFilter {
+                goal: Some("{inputs.goal}".into()),
+                change: vec![GoalChange::Closed, GoalChange::Decided].into(),
+            },
+        });
+        assert_eq!(goal.id, "step-summary-start-goal-of");
+        assert_eq!(
+            goal.args.get("goal"),
+            Some(&Arg::Str("{inputs.goal}".into()))
+        );
+        assert_eq!(
+            goal.args.get("change"),
+            Some(&Arg::Str("closed · decided".into()))
+        );
+        let agent = said(StartOn::Agent {
+            filter: AgentFilter {
+                agent: None,
+                project: None,
+                harness: None,
+                change: AgentChange::Failed.into(),
+            },
+        });
+        assert_eq!(agent.id, "step-summary-start-agent");
+        assert_eq!(agent.args.get("change"), Some(&Arg::Str("failed".into())));
+        let wait = step(
+            "w",
+            StepKind::Wait {
+                until: WaitFor::Goal {
+                    filter: GoalFilter {
+                        goal: None,
+                        change: GoalChange::Closed.into(),
+                    },
+                },
+            },
+            vec![],
+        )
+        .summary();
+        assert_eq!(wait.id, "step-summary-wait-goal");
+    }
+
+    #[test]
+    fn listening_needs_reads_the_inputs_a_list_entry_names() {
+        use crate::listen::{AgentChange, AgentFilter, GoalChange, GoalFilter};
+        let mut wf = workflow(vec![
+            manual("by_hand", &["a"]),
+            start(
+                "on_goal",
+                StartOn::Goal {
+                    filter: GoalFilter {
+                        goal: Some(
+                            vec!["{inputs.which}".to_string(), "{inputs.other}".to_string()].into(),
+                        ),
+                        change: GoalChange::Closed.into(),
+                    },
+                },
+                &["a"],
+            ),
+            start(
+                "on_agent",
+                StartOn::Agent {
+                    filter: AgentFilter {
+                        agent: None,
+                        project: Some(
+                            ValueRef::Input {
+                                input: InputName::new("repo").unwrap(),
+                            }
+                            .into(),
+                        ),
+                        harness: None,
+                        change: AgentChange::Done.into(),
+                    },
+                },
+                &["a"],
+            ),
+            agent("a", &[]),
+        ]);
+        let mut other = input("other", InputKind::Text);
+        other.default = Some(json!("01ARZ3NDEKTSV4RRFFQ69G5FAV"));
+        wf.inputs = vec![
+            input("which", InputKind::Text),
+            other,
+            input("repo", InputKind::Project),
+        ];
+        assert_eq!(wf.validate(&ctx()), vec![]);
+        let needs: Vec<String> = wf.listening_needs().iter().map(|n| n.to_string()).collect();
+        assert_eq!(needs, ["repo", "which"], "`other` has its default");
+    }
+
+    #[test]
+    fn every_wait_summary_and_run_summary_says_its_words_with_and_without_a_subject() {
+        use crate::listen::{
+            AgentChange, AgentFilter, GoalChange, GoalFilter, RunChange, WorkflowChange,
+            WorkflowFilter,
+        };
+        use crate::text::Arg;
+        let wf_id = WorkflowId::from_ulid(ulid::Ulid::from_parts(4, 4));
+        let said = |until: WaitFor| step("w", StepKind::Wait { until }, vec![]).summary();
+        let goal_of = said(WaitFor::Goal {
+            filter: GoalFilter {
+                goal: Some(vec!["a".to_string(), "b".to_string()].into()),
+                change: GoalChange::Closed.into(),
+            },
+        });
+        assert_eq!(goal_of.id, "step-summary-wait-goal-of");
+        assert_eq!(goal_of.args.get("goal"), Some(&Arg::Str("a · b".into())));
+        let workflow = said(WaitFor::Workflow {
+            filter: WorkflowFilter {
+                workflow: None,
+                change: WorkflowChange::Deleted.into(),
+            },
+        });
+        assert_eq!(workflow.id, "step-summary-wait-workflow");
+        let workflow_of = said(WaitFor::Workflow {
+            filter: WorkflowFilter {
+                workflow: Some(wf_id.into()),
+                change: WorkflowChange::Saved.into(),
+            },
+        });
+        assert_eq!(workflow_of.id, "step-summary-wait-workflow-of");
+        assert_eq!(
+            workflow_of.args.get("workflow"),
+            Some(&Arg::Str(wf_id.to_string()))
+        );
+        let agent = said(WaitFor::Agent {
+            filter: AgentFilter {
+                agent: None,
+                project: None,
+                harness: None,
+                change: AgentChange::Done.into(),
+            },
+        });
+        assert_eq!(agent.id, "step-summary-wait-agent");
+        let agent_of = said(WaitFor::Agent {
+            filter: AgentFilter {
+                agent: Some(ValueRef::Fixed(Assignee::Agent("dev".into())).into()),
+                project: None,
+                harness: None,
+                change: vec![AgentChange::Done, AgentChange::Failed].into(),
+            },
+        });
+        assert_eq!(agent_of.id, "step-summary-wait-agent-of");
+        assert_eq!(
+            agent_of.args.get("agent"),
+            Some(&Arg::Str("agent:dev".into()))
+        );
+        assert_eq!(
+            agent_of.args.get("change"),
+            Some(&Arg::Str("done · failed".into()))
+        );
+        // The run summaries, every branch: ends alone with and without a
+        // workflow, a move with and without one — as a start and as a wait.
+        let ends = RunFilter {
+            workflow: Some(wf_id.into()),
+            outcome: Some(
+                vec![
+                    crate::listen::RunEnd::Failed,
+                    crate::listen::RunEnd::Cancelled,
+                ]
+                .into(),
+            ),
+            ..RunFilter::default()
+        };
+        let moves = RunFilter {
+            workflow: Some(wf_id.into()),
+            change: RunChange::Queued.into(),
+            ..RunFilter::default()
+        };
+        let plain = RunFilter {
+            change: RunChange::Step.into(),
+            ..RunFilter::default()
+        };
+        let start_of = |filter: &RunFilter| {
+            start(
+                "s",
+                StartOn::Run {
+                    filter: filter.clone(),
+                },
+                &[],
+            )
+            .summary()
+        };
+        let wait_of = |filter: &RunFilter| {
+            said(WaitFor::Run {
+                filter: filter.clone(),
+            })
+        };
+        assert_eq!(start_of(&ends).id, "step-summary-start-run-of");
+        assert_eq!(
+            start_of(&ends).args.get("outcome"),
+            Some(&Arg::Str("failed · cancelled".into()))
+        );
+        assert_eq!(start_of(&moves).id, "step-summary-start-run-of-change");
+        assert_eq!(start_of(&plain).id, "step-summary-start-run-change");
+        assert_eq!(wait_of(&ends).id, "step-summary-wait-run-of");
+        assert_eq!(wait_of(&RunFilter::default()).id, "step-summary-wait-run");
+        assert_eq!(wait_of(&moves).id, "step-summary-wait-run-of-change");
+        assert_eq!(wait_of(&plain).id, "step-summary-wait-run-change");
+        // The start summaries' subject arms the other test leaves.
+        let workflow_start = start(
+            "s",
+            StartOn::Workflow {
+                filter: WorkflowFilter {
+                    workflow: Some(vec![wf_id, wf_id].into()),
+                    change: WorkflowChange::Proposed.into(),
+                },
+            },
+            &[],
+        )
+        .summary();
+        assert_eq!(workflow_start.id, "step-summary-start-workflow-of");
+        let workflow_any = start(
+            "s",
+            StartOn::Workflow {
+                filter: WorkflowFilter {
+                    workflow: None,
+                    change: WorkflowChange::Archived.into(),
+                },
+            },
+            &[],
+        )
+        .summary();
+        assert_eq!(workflow_any.id, "step-summary-start-workflow");
+        let agent_start = start(
+            "s",
+            StartOn::Agent {
+                filter: AgentFilter {
+                    agent: Some(ValueRef::Fixed(Assignee::Team("ops".into())).into()),
+                    project: None,
+                    harness: None,
+                    change: AgentChange::Replied.into(),
+                },
+            },
+            &[],
+        )
+        .summary();
+        assert_eq!(agent_start.id, "step-summary-start-agent-of");
+        let goal_any = start(
+            "s",
+            StartOn::Goal {
+                filter: GoalFilter {
+                    goal: None,
+                    change: GoalChange::Asked.into(),
+                },
+            },
+            &[],
+        )
+        .summary();
+        assert_eq!(goal_any.id, "step-summary-start-goal");
+    }
+
+    #[test]
+    fn a_wait_on_a_goal_an_agent_or_a_run_says_its_templates_inputs_and_assignees() {
+        use crate::listen::{AgentChange, AgentFilter, GoalChange, GoalFilter, RunChange};
+        let who = InputName::new("who").unwrap();
+        let repo = InputName::new("repo").unwrap();
+        let agent = WaitFor::Agent {
+            filter: AgentFilter {
+                agent: Some(ValueRef::Input { input: who.clone() }.into()),
+                project: Some(
+                    ValueRef::Input {
+                        input: repo.clone(),
+                    }
+                    .into(),
+                ),
+                harness: Some("codex".into()),
+                change: AgentChange::Started.into(),
+            },
+        };
+        assert_eq!(
+            agent.input_refs(),
+            vec![(&who, "assignee"), (&repo, "project")]
+        );
+        assert_eq!(agent.assignee_refs().len(), 1);
+        assert!(agent.templates().is_empty());
+        assert!(agent.hears_the_world() && agent.is_catch());
+        let goal = WaitFor::Goal {
+            filter: GoalFilter {
+                goal: Some("{inputs.goal}".into()),
+                change: GoalChange::Updated.into(),
+            },
+        };
+        assert_eq!(goal.templates(), vec!["{inputs.goal}"]);
+        assert!(goal.input_refs().is_empty());
+        let run = WaitFor::Run {
+            filter: RunFilter {
+                goal: Some(vec!["{inputs.goal}".to_string(), "x".to_string()].into()),
+                change: RunChange::Started.into(),
+                ..RunFilter::default()
+            },
+        };
+        assert_eq!(run.templates(), vec!["{inputs.goal}", "x"]);
+        let workflow = WaitFor::Workflow {
+            filter: crate::listen::WorkflowFilter {
+                workflow: None,
+                change: crate::listen::WorkflowChange::Restored.into(),
+            },
+        };
+        assert!(workflow.templates().is_empty() && workflow.hears_the_world());
+    }
+    #[test]
+    fn a_wait_on_a_goal_or_an_agent_is_checked_as_its_start_is() {
+        use crate::listen::{AgentChange, AgentFilter, GoalChange, GoalFilter};
+        let ghost = ProjectId::from_ulid(ulid::Ulid::from_parts(8, 8));
+        let one = |until: WaitFor| {
+            workflow(vec![
+                manual("by_hand", &["w"]),
+                step("w", StepKind::Wait { until }, vec![]),
+            ])
+        };
+        let ctx = ctx();
+        assert_eq!(
+            kinds(
+                &one(WaitFor::Goal {
+                    filter: GoalFilter {
+                        goal: Some("nope".into()),
+                        change: GoalChange::Closed.into(),
+                    },
+                })
+                .validate(&ctx)
+            ),
+            vec![ProblemKind::BadGoalRef]
+        );
+        assert_eq!(
+            kinds(
+                &one(WaitFor::Agent {
+                    filter: AgentFilter {
+                        agent: None,
+                        project: Some(ValueRef::Fixed(ghost).into()),
+                        harness: None,
+                        change: AgentChange::Done.into(),
+                    },
+                })
+                .validate(&ctx)
+            ),
+            vec![ProblemKind::UnknownProject]
+        );
+        assert_eq!(
+            kinds(
+                &one(WaitFor::Goal {
+                    filter: GoalFilter {
+                        goal: Some("{inputs.goal}".into()),
+                        change: GoalChange::Closed.into(),
+                    },
+                })
+                .validate(&ctx)
+            ),
+            vec![ProblemKind::UnknownInput],
+            "a template is judged by its grammar, not as a goal id"
+        );
     }
 }
 

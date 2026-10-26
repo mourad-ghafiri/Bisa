@@ -297,9 +297,10 @@ async fn a_message_diverts_a_human_step_and_its_question_is_withdrawn() {
         on: BoundaryOn::Message {
             filter: MessageFilter {
                 r#in: None,
-                from: MessageFrom::You,
+                from: MessageFrom::You.into(),
                 mentions: None,
                 contains: Some("never mind".into()),
+                ..MessageFilter::default()
             },
         },
         act: BoundaryAct::Divert,

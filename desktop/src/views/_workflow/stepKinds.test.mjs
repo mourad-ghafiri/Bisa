@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { BOUNDARY_ACTS, BOUNDARY_EVENTS, CHECKS, COMBINATORS, CONDITIONS, DECIDE_PICKS, DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_VISITS, END_FINISHES, FAMILIES, FAMILY_LABEL, FIRE_ON, FIXED_BRANCHES, JOINS, MAX_CONDITION_DEPTH, MESSAGE_FROM, ON_FAILS, OVERLAPS, PROBLEM_KIND_LABEL, PROJECT_CHANGES, RUN_ENDS, START_EVENTS, START_STEP_ID, STEP_KINDS, STEP_MIME, WAITS, BRANCH_HANDLE_PREFIX, blankCondition, blankStep, blankWait, blankWorkflow, branchHandle, branchOfHandle, branchesOf, divertNamesOf, familyOf, freshOptionId, isBranching, kindBranchesOf, kindLabel, mayCarryBoundaries, DEFAULT_CRON, DEFAULT_DELAY_SECS, TEMPLATE_HINT } from "./stepKinds.mjs";
+import { AGENT_CHANGES, BOUNDARY_ACTS, BOUNDARY_EVENTS, CHECKS, COMBINATORS, CONDITIONS, DECIDE_PICKS, DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_VISITS, END_FINISHES, FAMILIES, FAMILY_LABEL, FIRE_ON, FIXED_BRANCHES, GOAL_CHANGES, JOINS, MAX_CONDITION_DEPTH, MESSAGE_FROM, MESSAGE_PLACES, ON_FAILS, OVERLAPS, PROBLEM_KIND_LABEL, PROJECT_CHANGES, RUN_CHANGES, RUN_ENDS, START_EVENTS, WORKFLOW_CHANGES, START_STEP_ID, STEP_KINDS, STEP_MIME, WAITS, BRANCH_HANDLE_PREFIX, blankCondition, blankStep, blankWait, blankWorkflow, branchHandle, branchOfHandle, branchesOf, divertNamesOf, familyOf, freshOptionId, isBranching, kindBranchesOf, kindLabel, mayCarryBoundaries, DEFAULT_CRON, DEFAULT_DELAY_SECS, TEMPLATE_HINT } from "./stepKinds.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORE = join(HERE, "../../../../crates/bisa-core/src");
@@ -137,10 +137,19 @@ test("a message's author, a project's change and a run's end are the filters' wo
   assert.deepEqual(MESSAGE_FROM.map((m) => m.from), variants("listen.rs", "MessageFrom"));
   assert.deepEqual(PROJECT_CHANGES.map((c) => c.change), variants("listen.rs", "ProjectChange"));
   assert.deepEqual(RUN_ENDS.map((r) => r.outcome), variants("listen.rs", "RunEnd"));
+  // The words added with the goal, workflow and agent events: what a run,
+  // a goal, a workflow definition and a harness session did, and the kind
+  // of place a message lands in — each the core's closed set, in its order.
+  assert.deepEqual(MESSAGE_PLACES.map((p) => p.kind), variants("listen.rs", "MessagePlace"));
+  assert.deepEqual(RUN_CHANGES.map((c) => c.change), variants("listen.rs", "RunChange"));
+  assert.deepEqual(GOAL_CHANGES.map((c) => c.change), variants("listen.rs", "GoalChange"));
+  assert.deepEqual(WORKFLOW_CHANGES.map((c) => c.change), variants("listen.rs", "WorkflowChange"));
+  assert.deepEqual(AGENT_CHANGES.map((c) => c.change), variants("listen.rs", "AgentChange"));
+  assert.equal(RUN_CHANGES.find((c) => c.change === "ended")?.label, "ended", "what a run event meant before the others were named");
 });
 
 test("every closed set's words are words, not tags", () => {
-  const sets = [START_EVENTS, WAITS, BOUNDARY_EVENTS, BOUNDARY_ACTS, END_FINISHES, DECIDE_PICKS, OVERLAPS, MESSAGE_FROM, PROJECT_CHANGES, RUN_ENDS, FIRE_ON];
+  const sets = [START_EVENTS, WAITS, BOUNDARY_EVENTS, BOUNDARY_ACTS, END_FINISHES, DECIDE_PICKS, OVERLAPS, MESSAGE_FROM, MESSAGE_PLACES, PROJECT_CHANGES, RUN_ENDS, RUN_CHANGES, GOAL_CHANGES, WORKFLOW_CHANGES, AGENT_CHANGES, FIRE_ON];
   for (const set of sets) {
     for (const item of set) {
       assert.ok(item.label.length > 1, `${JSON.stringify(item)} has a label`);

@@ -10,6 +10,38 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **More of what happens can begin a workflow, or hold one.** Three start events and catches
+  beside the ten: a **goal**'s move (`created` · `updated` · `closed` · `archived` · `restored` ·
+  `deleted` · `attached` · `detached` · `proposed` · `asked` · `decided`, one goal or a list or
+  any), a **workflow** definition's move in the library (`saved` · `proposed` · `archived` ·
+  `restored` · `deleted`) and an **agent**'s move (a harness session `started` · `waiting` on a
+  person · `replied` · `done` · `failed` · `aborted`, by agent, project and harness). The `run`
+  event hears the run's lifecycle — `change` is `queued` · `started` · `ended` · `step`, `ended`
+  when nothing is said, which is what it always meant — narrowed by `outcome` for an end, by
+  `step` and `state` for a step's move, by `goal`. A `project` event hears three more changes:
+  `branch` (a branch made or deleted), `pull` (a local branch caught up with its remote) and
+  `workstream` (a checkout opened or moved). A `message` event hears `people` (any person) and
+  `anyone`, and narrows by the place's `kind` (`channel` · `direct` · `goal` · `workstream` ·
+  `conversation`). A goal's or a workflow's move is the workspace's news about it — every host
+  hears it, narrowed by the filter — so a goal may depend on another goal; a goal or a workflow is
+  named by its id's syntax, never by whether it is still there, so a start on `closed` or
+  `deleted` hears it. An auto goal arms a goal's, a workflow's or an agent's start alone, as it
+  does a schedule's or a message's. The desktop's forms, the command line's words and the Workflow
+  Agent's catalog follow in their own entries.
+- **One value or a list, on every filter field that names a thing** — `project = ["api",
+  "web"]`, `change = ["commit", "push"]`, a message's `in`, `from` and `mentions`, a run's
+  `workflow`, `outcome`, `step`, `state` and `goal`, a platform start's `topic`, a goal's `goal`
+  and `change`, an agent's `agent`, `project` and `harness` — heard as any of the list, each entry
+  matched exactly as a single value is (`OneOrMany<T>`). A single value reads and writes as it
+  always did, so every definition from before reads and re-saves as it was; an empty list is
+  refused by name on a required field and reads as absent on an optional one. A `project` start
+  naming several projects keeps one memory per project (`ListenerRuntime.projects`, read both
+  ways beside the flat fields), so one project's refs never stand in for another's; a step or a
+  state on a `run` filter that hears no step's move is a problem of the definition
+  (`idle_filter_field`), a goal literal that is no goal id too (`bad_goal_ref`). The index's
+  signals table lists the source words, so its schema version moves to 27: the next open rebuilds
+  the index from the records, as every schema bump does.
+
 - **Muse Code** is a harness. Meta's terminal coding agent (`muse`) is found by its own version,
   installed and signed in as its page says (`curl -fsSL https://dev.meta.ai/install.sh | sh`; run
   `muse` to sign in, or `muse auth set`), and driven over the Muse Session Protocol — its host
@@ -33,9 +65,21 @@ notes (`docs/contributing/release.md`).
   (`GoalOrigin::Spawned { parent, step }`, `step` optional and absent for a sub-goal an agent
   captured): a restart pairs each waiting `spawn` step with its own child rather than every child
   with the first waiting step. The field is additive; a record without it reads as before.
+- **The designer draws every event's lists.** A start's or a wait's filter takes one value or a
+  list wherever the engine does: a closed set — a project's changes, a run's, a goal's, a
+  workflow's, an agent's, the sender words, the kinds of place — as checkboxes any of which
+  matches, free words — branches, globs, topics, step ids, states, goal ids — as chips with a
+  line to add the next, projects and workflows as chips added from a picker, named senders and
+  mentions through the assignee picker beside the words. The three new events have forms of
+  their own. One value is written bare, so a saved design's digest moves only when its words do.
 
 ### Changed
 
+- **The Workflow Agent knows the whole event vocabulary.** Its method names every start
+  event and every catch with their fields and change words, the lists a field takes, and when
+  to reach for a goal's, a run's, a workflow's or an agent's move; its brief lists each of the
+  goal's projects with its id, so a `project` start can name it; the `propose_workflow` tool
+  says the same. A guard holds the prose and the tool to the core's enums.
 - The workflow panel — the designer's Properties pane and the goal's Workflow tab column — is one
   component over one model (`desktop/src/views/_workflow/inspectorModel.mjs`): the workflow's own
   view (Identity · Runs · Inputs · Problems), a step's page (*This run* while a run is shown — its
@@ -67,6 +111,10 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **Renaming an input follows it into a filter's lists.** The designer's rename rewrote one
+  reference per filter field; a sender, a mention, an agent or a project named through an input
+  inside a list kept the old name and became an unknown input. Every reference in a list is
+  renamed now, its shape kept.
 - The workflow designer and the goal's Workflow tab, at their edges: a blur-committed field —
   a step's id, a branch name, a JSON schema — committed on its way out the body it had been
   rendered with, so a step deleted meanwhile, or another writer's copy just taken, was written

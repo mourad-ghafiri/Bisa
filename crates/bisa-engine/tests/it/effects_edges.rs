@@ -696,9 +696,10 @@ async fn every_kind_of_wait_shows_its_definition_before_and_after_a_restart() {
             WaitFor::Message {
                 filter: bisa_core::MessageFilter {
                     r#in: None,
-                    from: bisa_core::MessageFrom::You,
+                    from: bisa_core::MessageFrom::You.into(),
                     mentions: None,
                     contains: Some("go".into()),
+                    ..bisa_core::MessageFilter::default()
                 },
             },
         ),
@@ -706,8 +707,9 @@ async fn every_kind_of_wait_shows_its_definition_before_and_after_a_restart() {
             "ended",
             WaitFor::Run {
                 filter: bisa_core::RunFilter {
-                    workflow: Some(watched.id),
+                    workflow: Some(watched.id.into()),
                     outcome: None,
+                    ..bisa_core::RunFilter::default()
                 },
             },
         ),
@@ -754,10 +756,10 @@ async fn every_kind_of_wait_shows_its_definition_before_and_after_a_restart() {
             matches!(&armed["word"], WaitFor::Message { filter } if filter.contains.as_deref() == Some("go"))
         );
         assert!(
-            matches!(&armed["ended"], WaitFor::Run { filter } if filter.workflow == Some(watched.id))
+            matches!(&armed["ended"], WaitFor::Run { filter } if filter.workflow == Some(watched.id.into()))
         );
         assert!(
-            matches!(&armed["topic"], WaitFor::Platform { filter } if filter.topic == "run.finished")
+            matches!(&armed["topic"], WaitFor::Platform { filter } if filter.topic == "run.finished".into())
         );
         assert!(matches!(armed["hold"], WaitFor::Release));
     };

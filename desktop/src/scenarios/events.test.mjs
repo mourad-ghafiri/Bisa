@@ -261,7 +261,7 @@ test("a goal whose design begins on events listens on its page, then a failed ru
 });
 
 test("the start's form, event by event: each begins with its own fields, maps what its occurrence carries, and guards its runs", () => {
-  // Ten ways in, in the words the form's select draws.
+  // Thirteen ways in, in the words the form's select draws.
   assert.deepEqual(START_EVENTS.map((e) => e.label), [
     "By hand",
     "On a schedule",
@@ -269,10 +269,13 @@ test("the start's form, event by event: each begins with its own fields, maps wh
     "When a message arrives",
     "When a signal is raised",
     "When a project changes",
-    "When a run finishes",
+    "When a run moves",
     "When the platform says",
     "When an outside platform lists something new",
     "When a check starts failing",
+    "When a goal moves",
+    "When a workflow moves",
+    "When an agent moves",
   ]);
   // Picking an event writes a fresh `on` of it — and no blank reference: what is not chosen yet is `null`.
   let start = blankStep("start", "ticket");

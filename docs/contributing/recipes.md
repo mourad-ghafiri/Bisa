@@ -55,13 +55,27 @@ not take.
   `crates/bisa-core/src/workflow.rs` (what it names must exist; a `ProblemKind` if a new rule needs
   one). In the engine, `listen/registry.rs` arms it and one door observes it — the ticker
   (`listen/sources.rs`) for what is only seen by looking, the ear (`listen/ear.rs`) for what the bus
-  or a conversation says — and every occurrence sets a `dedupe_key`. On the desktop:
-  `START_EVENTS` in `desktop/src/views/_workflow/stepKinds.mjs`, its fields in
-  `desktop/src/views/_workflow/forms/startForm.mjs` and `StartStepForm.tsx`, its words in
-  `listeningModel.mjs` and `workflowRunsModel.mjs`. Then its row in
+  or a conversation says, `listen/lifecycle.rs` for a reading of a bus payload — and every
+  occurrence sets a `dedupe_key`. A new source is a `SignalSource` word too: its arms in
+  `as_str`/`parse`/`NAMES`, the index's `signals.source` CHECK (`crates/bisa-store/src/index.rs`,
+  with a `SCHEMA_VERSION` bump and the persistence page's `sql` block), the node's `dto::EventKind`
+  and `runs::start_detail`, the CLI's `run.rs::source_of` and `activity.rs::wait_label` (+
+  `locales/en/cli.ftl`), the summaries' keys in `locales/en/engine.ftl`, the `arms_unattended`
+  sentence in `guided.rs::AUTO_ADDENDUM` and the `propose_workflow` tool's description
+  (`crates/bisa-mcp/src/server.rs`), the Workflow Agent's catalog
+  (`library/core/workflow-agent.toml`). On the desktop: `START_EVENTS` and `WAITS` in
+  `desktop/src/views/_workflow/stepKinds.mjs` (held equal to the Rust by `stepKinds.test.mjs`), its
+  blank, payload fields, phrase and sample in `desktop/src/views/_workflow/forms/startForm.mjs`
+  (`PAYLOAD_FIELDS` held equal to the guide's table and the ear's `json!` block) and its form in
+  `StartStepForm.tsx` and `WaitStepForm.tsx` (a filter's fields in `forms/<Kind>FilterFields.tsx`,
+  its shape in `forms/eventFilters.ts`, a list through `ManyFields.tsx` over `manyModel.mjs`),
+  its words in `listeningModel.mjs`, `workflowRunsModel.mjs` (`EVENT_WORDS`)
+  and `workflowGraph.mjs` (the template rewrites), the label pin in
+  `desktop/src/scenarios/events.test.mjs`, the keys in `locales/en/desktop/workflow.ftl`,
+  `desktop/api-schema.json` regenerated. Then its row in
   [guide/events.md](../guide/events.md#start-events) and
-  [03 — Workflows](../architecture/03-workflows.md#start-events), and the Workflow Agent's prompt
-  (`library/core/workflow-agent.toml`) if it should reach for it.
+  [03 — Workflows](../architecture/03-workflows.md#start-events), the feature-status row, the
+  catalog-docs prose (`crates/bisa-node/src/bin/catalog-docs.rs`) and the changelog.
 - A **catch** is the same filter under `WaitFor` (`workflow.rs`), armed by
   `crates/bisa-engine/src/waits.rs`; a **boundary event** or **act** is a `BoundaryOn` or
   `BoundaryAct` variant in `crates/bisa-core/src/boundary.rs`, armed by `waits::sync_boundaries` and

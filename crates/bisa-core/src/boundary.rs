@@ -506,7 +506,7 @@ mod tests {
             name: Branch::new("ping").unwrap(),
             on: BoundaryOn::Message {
                 filter: MessageFilter {
-                    mentions: Some(who.clone()),
+                    mentions: Some(who.clone().into()),
                     ..MessageFilter::default()
                 },
             },
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(
             BoundaryOn::Message {
                 filter: MessageFilter {
-                    mentions: Some(ValueRef::Input { input: m.clone() }),
+                    mentions: Some(ValueRef::Input { input: m.clone() }.into()),
                     ..MessageFilter::default()
                 },
             }

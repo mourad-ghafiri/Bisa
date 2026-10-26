@@ -320,14 +320,22 @@ function mapValues(m, f) {
   return m && typeof m === "object" ? Object.fromEntries(Object.entries(m).map(([k, v]) => [k, f(v)])) : m;
 }
 
-/** A filter's templates rewritten — a message's place and words, a signal's name and fields, a project's branch and glob, a topic's fields. */
+/** One value or a list of them rewritten by `f`, its shape kept: a string, or a list of strings. */
+function mapOneOrMany(v, f) {
+  if (typeof v === "string") return f(v);
+  if (Array.isArray(v)) return v.map((x) => (typeof x === "string" ? f(x) : x));
+  return v;
+}
+
+/** A filter's templates rewritten — a message's places and words, a signal's name and fields, a project's branches and globs, a goal's names, a topic's fields. */
 function mapFilterTemplates(filter, f) {
   const next = { ...filter };
-  if (typeof filter.in === "string") next.in = f(filter.in);
+  if (filter.in !== undefined) next.in = mapOneOrMany(filter.in, f);
   if (typeof filter.contains === "string") next.contains = f(filter.contains);
   if (typeof filter.name === "string") next.name = f(filter.name);
-  if (typeof filter.branch === "string") next.branch = f(filter.branch);
-  if (typeof filter.glob === "string") next.glob = f(filter.glob);
+  if (filter.branch !== undefined) next.branch = mapOneOrMany(filter.branch, f);
+  if (filter.glob !== undefined) next.glob = mapOneOrMany(filter.glob, f);
+  if (filter.goal !== undefined) next.goal = mapOneOrMany(filter.goal, f);
   if (filter.fields) next.fields = mapValues(filter.fields, f);
   return next;
 }
@@ -336,7 +344,7 @@ function mapFilterTemplates(filter, f) {
 function mapWaitTemplates(until, f) {
   if (!until) return until;
   if (until.until === "time") return { ...until, at: f(until.at) };
-  if (["signal", "message", "project", "platform"].includes(until.until)) return mapFilterTemplates(until, f);
+  if (["signal", "message", "project", "run", "platform", "goal"].includes(until.until)) return mapFilterTemplates(until, f);
   return until;
 }
 
@@ -347,7 +355,9 @@ function mapStartTemplates(on, f) {
     case "message":
     case "signal":
     case "project":
+    case "run":
     case "platform":
+    case "goal":
       return mapFilterTemplates(on, f);
     case "connector":
       return { ...on, params: mapValues(on.params, f) };
@@ -469,11 +479,16 @@ function renameRef(ref, from, to) {
   return ref && typeof ref === "object" && "input" in ref && ref.input === from ? { input: to } : ref;
 }
 
-/** A filter's or a cadence's references renamed: who wrote it or is mentioned, a project, an account, the seconds or the cron. */
+/** One reference or a list of them renamed, the shape kept. */
+function renameRefs(v, from, to) {
+  return Array.isArray(v) ? v.map((x) => renameRef(x, from, to)) : renameRef(v, from, to);
+}
+
+/** A filter's or a cadence's references renamed: who wrote it or is mentioned, an agent, a project — one or a list — an account, the seconds or the cron. */
 function renameFilterRefs(filter, from, to) {
   const next = { ...filter };
-  for (const key of ["from", "mentions", "project", "account", "every", "cron", "secs"]) {
-    if (key in filter) next[key] = renameRef(filter[key], from, to);
+  for (const key of ["from", "mentions", "agent", "project", "account", "every", "cron", "secs"]) {
+    if (key in filter) next[key] = renameRefs(filter[key], from, to);
   }
   return next;
 }

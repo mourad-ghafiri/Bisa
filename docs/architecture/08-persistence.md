@@ -206,7 +206,7 @@ compiler refuses a `String`.
 ```rust
 /// Bump when SCHEMA changes. The next open discards the file and rebuilds
 /// from truth. This is a cache-invalidation marker, not a migration ladder.
-const SCHEMA_VERSION: i32 = 26;
+const SCHEMA_VERSION: i32 = 27;
 ```
 
 There is no ladder to preserve and nothing to migrate from — a mismatch discards the file and the
@@ -705,7 +705,7 @@ CREATE TABLE signals (
     step         TEXT,
     source       TEXT NOT NULL CHECK (source IN
                    ('schedule','hook','message','signal','project','run','platform','connector',
-                    'check','test')),
+                    'check','goal','workflow','agent','test')),
     name         TEXT,
     scope_kind   TEXT NOT NULL CHECK (scope_kind IN ('workspace','goal')),
     scope_id     TEXT,

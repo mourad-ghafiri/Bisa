@@ -39,6 +39,8 @@ export declare function guardOf(step: Step | null | undefined): GuardForm;
 export declare function setGuard<S extends Start>(step: S, guard: GuardForm): S;
 export declare function guardWords(step: Step | null | undefined): string;
 export declare function eventPhrase(on: StartOn | null | undefined): string;
+/** A field that takes one value or a list, as a list: nothing for none. */
+export declare function asList<T>(v: T | T[] | null | undefined): T[];
 export declare function localHookPath(host: { workflow?: string | null; goal?: string | null } | null | undefined, step: string): string;
 export declare function samplePayload(on: StartOn | null | undefined, now?: number): Record<string, unknown> | null;
 export declare function inputPlaceholders(tmpl: string | null | undefined): string[];

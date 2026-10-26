@@ -17,7 +17,7 @@
 //! its argument ([`Node::tick`]) — nothing waits for a timer.
 
 use bisa_core::activity::{ActivityConcept, ActivityFact, ActivitySource, ActivitySourceKind};
-use bisa_engine::{Engine, EngineConfig};
+use bisa_engine::{Engine, EngineConfig, EngineEvent, EnginePayload};
 use bisa_harness::HarnessCatalog;
 use bisa_node::{serve, NodeConfig};
 use bisa_store::{FileKeyStore, Workspace};
@@ -2195,5 +2195,235 @@ async fn a_goal_with_no_workflow_lists_no_listeners_and_a_local_hook_takes_no_pu
         )
         .await;
     assert_eq!(r.status, 401, "{}", r.raw);
+    node.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// A goal's close and a list of projects, over the wire
+// ---------------------------------------------------------------------------
+
+/// A workflow that begins when `goal` closes, and holds.
+fn on_goal_closed(name: &str, goal: &str) -> Value {
+    json!({
+        "name": name,
+        "steps": [
+            {"id": "closed", "name": "The goal closes", "kind": "start",
+             "on": {"event": "goal", "goal": goal, "change": "closed"}, "then": ["hold"]},
+            hold(),
+        ]
+    })
+}
+
+/// A library workflow on a goal's close lists its listener and begins a run
+/// when the goal is closed through the API — the run saying who began it by
+/// the goal's title, over the list and the run's own page. A `project` start
+/// naming two projects is one listener whose lists round-trip as written. A
+/// goal named by no goal id is refused at the door, by syntax; a goal nobody
+/// has is still a listener.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goals_close_through_the_api_begins_a_run_said_by_its_title() {
+    let node = Node::start().await;
+    let made = node
+        .ok(
+            "POST",
+            "/goals",
+            Some(json!({"statement": "ship the storefront", "title": "Ship it", "mode": "manual"})),
+        )
+        .await;
+    let goal = made["goal"]["id"].as_str().expect("goal id").to_string();
+    let wf = node.workflow(on_goal_closed("After shipping", &goal)).await;
+
+    // Its row names the start by its event and writes a single value bare;
+    // On lists one listener.
+    let shown = node.ok("GET", &format!("/workflows/{wf}"), None).await;
+    assert_eq!(shown["starts"][0]["event"], json!("goal"), "{shown}");
+    assert_eq!(
+        shown["workflow"]["steps"][0]["on"]["goal"],
+        json!(goal),
+        "{shown}"
+    );
+    let on = node.turn_on(&wf, json!({})).await;
+    assert_eq!(on["listeners"][0]["event"], json!("goal"), "{on}");
+    let host = format!("workspace:{wf}");
+    assert_eq!(
+        node.ok("GET", "/listeners", None).await[0]["listener"],
+        json!(format!("{host}/closed"))
+    );
+
+    // Another goal closing is nobody's event; the named goal closing is
+    // heard from the engine's own announcement.
+    let other = node
+        .ok(
+            "POST",
+            "/goals",
+            Some(json!({"statement": "something else", "mode": "manual"})),
+        )
+        .await["goal"]["id"]
+        .as_str()
+        .expect("goal id")
+        .to_string();
+    node.ok("POST", &format!("/goals/{other}/close"), Some(json!({})))
+        .await;
+    node.ok(
+        "POST",
+        &format!("/goals/{goal}/close"),
+        Some(json!({"rationale": "shipped"})),
+    )
+    .await;
+    let queued = node
+        .until(
+            "the close heard",
+            &format!("/signals?host={host}&limit=200"),
+            |v| v.as_array().filter(|a| !a.is_empty()).cloned(),
+        )
+        .await;
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert_eq!(queued[0]["source"], json!("goal"));
+    assert_eq!(queued[0]["scope"], json!({"scope": "workspace"}));
+    assert_eq!(node.drain().await, 1);
+    let runs = runs_of(&node, &wf, 1).await;
+    assert_eq!(
+        runs[0]["started_by"],
+        json!({"by": "event", "event": "goal", "detail": "Ship it"}),
+        "{runs:?}"
+    );
+    let rid = runs[0]["id"].as_str().expect("a run's id");
+    let page = node.ok("GET", &format!("/runs/{rid}"), None).await;
+    assert_eq!(page["summary"]["started_by"], runs[0]["started_by"]);
+    let event = &page["run"]["event"];
+    assert_eq!(event["source"], json!("goal"));
+    assert_eq!(event["payload"]["goal"], json!(goal));
+    assert_eq!(event["payload"]["change"], json!("closed"));
+    assert_eq!(event["payload"]["title"], json!("Ship it"));
+    assert_eq!(event["payload"]["status"], json!("closed"));
+    assert_eq!(event["payload"]["reason"], json!("abandoned"));
+
+    // A project start naming two projects is one listener, its lists kept.
+    let ws = Arc::clone(&node.ws);
+    let api = ws
+        .create_project(bisa_store::NewProject::managed("api").unwrap())
+        .unwrap();
+    let web = ws
+        .create_project(bisa_store::NewProject::managed("web").unwrap())
+        .unwrap();
+    let projects = json!([api.id.to_string(), web.id.to_string()]);
+    let either = node
+        .workflow(json!({
+            "name": "On either",
+            "steps": [
+                {"id": "changed", "name": "Either changes", "kind": "start",
+                 "on": {"event": "project", "project": projects, "change": ["commit", "branch"]},
+                 "then": ["hold"]},
+                hold(),
+            ]
+        }))
+        .await;
+    let shown = node.ok("GET", &format!("/workflows/{either}"), None).await;
+    assert_eq!(
+        shown["workflow"]["steps"][0]["on"]["project"], projects,
+        "{shown}"
+    );
+    assert_eq!(
+        shown["workflow"]["steps"][0]["on"]["change"],
+        json!(["commit", "branch"])
+    );
+    node.turn_on(&either, json!({})).await;
+    let listeners = node
+        .ok("GET", &format!("/workflows/{either}/listeners"), None)
+        .await;
+    assert_eq!(listeners.as_array().map(Vec::len), Some(1), "{listeners}");
+    assert_eq!(listeners[0]["event"], json!("project"));
+    assert_eq!(
+        listeners[0]["listener"],
+        json!(format!("workspace:{either}/changed"))
+    );
+
+    // A goal that is no goal id is refused by syntax, never by existence.
+    let draft = node
+        .ok(
+            "POST",
+            "/workflows",
+            Some(on_goal_closed("On nobody", "not-a-goal")),
+        )
+        .await;
+    assert!(
+        draft["problems"]
+            .as_array()
+            .is_some_and(|ps| ps.iter().any(|p| p["kind"] == json!("bad_goal_ref"))),
+        "{draft}"
+    );
+    let gone = node
+        .workflow(on_goal_closed(
+            "On a goal nobody has",
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        ))
+        .await;
+    let on = node.turn_on(&gone, json!({})).await;
+    assert_eq!(
+        on["listeners"][0]["event"],
+        json!("goal"),
+        "a goal nobody has is still a listener: {on}"
+    );
+
+    // A workflow's save and an agent's reply begin runs said by the
+    // workflow's name and the agent's — the save through the API, the
+    // reply as the engine hears it.
+    let on_save = node
+        .workflow(json!({
+            "name": "On a save",
+            "steps": [
+                {"id": "saved", "name": "A workflow is saved", "kind": "start",
+                 "on": {"event": "workflow", "change": "saved"}, "then": ["hold"]},
+                hold(),
+            ]
+        }))
+        .await;
+    let on_reply = node
+        .workflow(json!({
+            "name": "On a reply",
+            "steps": [
+                {"id": "replied", "name": "An agent replies", "kind": "start",
+                 "on": {"event": "agent", "change": "replied"}, "then": ["hold"]},
+                hold(),
+            ]
+        }))
+        .await;
+    // Both on only once both exist: a workflow's creation is a save too.
+    node.turn_on(&on_save, json!({})).await;
+    node.turn_on(&on_reply, json!({})).await;
+    let mut edited = on_goal_closed("After shipping, renamed", &goal);
+    edited["revision"] = json!(1);
+    let saved = node
+        .ok("PUT", &format!("/workflows/{wf}"), Some(edited))
+        .await;
+    assert_eq!(saved["problems"], json!([]), "{saved}");
+    node.until(
+        "the save heard",
+        &format!("/signals?host=workspace:{on_save}&limit=200"),
+        |v| v.as_array().filter(|a| !a.is_empty()).cloned(),
+    )
+    .await;
+    bisa_engine::listen::ear::on_event(
+        &node.inner,
+        &EngineEvent::global(EnginePayload::AgentReplied {
+            scope: bisa_core::ChannelId::general().to_string(),
+            agent: "herald".into(),
+            posted: true,
+            message: Some("m1".into()),
+        }),
+    );
+    assert_eq!(node.drain().await, 2);
+    let runs = runs_of(&node, &on_save, 1).await;
+    assert_eq!(
+        runs[0]["started_by"],
+        json!({"by": "event", "event": "workflow", "detail": "After shipping, renamed"}),
+        "{runs:?}"
+    );
+    let runs = runs_of(&node, &on_reply, 1).await;
+    assert_eq!(
+        runs[0]["started_by"],
+        json!({"by": "event", "event": "agent", "detail": "herald"}),
+        "{runs:?}"
+    );
     node.shutdown().await;
 }

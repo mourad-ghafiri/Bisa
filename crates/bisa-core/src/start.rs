@@ -16,7 +16,8 @@
 use crate::assignee::Assignee;
 use crate::id::{AccountId, ConnectorId, OperationId, ProjectId};
 use crate::listen::{
-    MessageFilter, PlatformFilter, ProjectFilter, RunFilter, SignalFilter, SignalSource,
+    AgentFilter, GoalFilter, MessageFilter, PlatformFilter, ProjectFilter, RunFilter, SignalFilter,
+    SignalSource, WorkflowFilter,
 };
 use crate::template::{self, Grammar, RenderContext, TemplateCtx, TemplateError};
 use crate::workflow::{refuse_unknown_keys, InputDef, InputKind, InputName, ValueRef};
@@ -107,6 +108,24 @@ pub enum StartOn {
         #[serde(flatten)]
         schedule: Schedule,
     },
+    /// A goal that moved — created, updated, closed, decided… — the
+    /// workspace's news about it, narrowed to one goal or a list.
+    Goal {
+        #[serde(flatten)]
+        filter: GoalFilter,
+    },
+    /// A workflow definition that moved in the library: saved, proposed,
+    /// put away, deleted.
+    Workflow {
+        #[serde(flatten)]
+        filter: WorkflowFilter,
+    },
+    /// A harness session that moved: started, waiting on a person, replied,
+    /// done, failed, aborted — by agent, project, harness.
+    Agent {
+        #[serde(flatten)]
+        filter: AgentFilter,
+    },
 }
 
 impl StartOn {
@@ -123,11 +142,14 @@ impl StartOn {
             StartOn::Platform { .. } => "platform",
             StartOn::Connector { .. } => "connector",
             StartOn::Check { .. } => "check",
+            StartOn::Goal { .. } => "goal",
+            StartOn::Workflow { .. } => "workflow",
+            StartOn::Agent { .. } => "agent",
         }
     }
 
     /// Every event's tag, in the designer's order.
-    pub const NAMES: [&'static str; 10] = [
+    pub const NAMES: [&'static str; 13] = [
         "manual",
         "schedule",
         "hook",
@@ -138,6 +160,9 @@ impl StartOn {
         "platform",
         "connector",
         "check",
+        "goal",
+        "workflow",
+        "agent",
     ];
 
     /// The fields an event carries beside its `event` tag, by tag; `None` for
@@ -164,6 +189,9 @@ impl StartOn {
                 "tz",
             ],
             "check" => &["command", "project", "fire_on", "every", "cron", "tz"],
+            "goal" => GoalFilter::FIELDS,
+            "workflow" => WorkflowFilter::FIELDS,
+            "agent" => AgentFilter::FIELDS,
             _ => return None,
         })
     }
@@ -202,14 +230,18 @@ impl StartOn {
             StartOn::Platform { .. } => SignalSource::Platform,
             StartOn::Connector { .. } => SignalSource::Connector,
             StartOn::Check { .. } => SignalSource::Check,
+            StartOn::Goal { .. } => SignalSource::Goal,
+            StartOn::Workflow { .. } => SignalSource::Workflow,
+            StartOn::Agent { .. } => SignalSource::Agent,
         })
     }
 
     /// Whether auto adoption may arm this start with nobody looking: a time,
-    /// a signal, a run, a platform topic or a message only reacts to what the
-    /// workspace already does. A hook opens a door to the outside, a check
-    /// runs a command, a poll spends an account, a project start reads a
-    /// repository — each a person arms.
+    /// a signal, a run, a platform topic, a message, a goal's, a workflow's
+    /// or an agent's move only reacts to what the workspace already does. A
+    /// hook opens a door to the outside, a check runs a command, a poll
+    /// spends an account, a project start reads a repository — each a person
+    /// arms.
     pub fn arms_unattended(&self) -> bool {
         match self {
             StartOn::Manual
@@ -217,7 +249,10 @@ impl StartOn {
             | StartOn::Signal { .. }
             | StartOn::Run { .. }
             | StartOn::Platform { .. }
-            | StartOn::Message { .. } => true,
+            | StartOn::Message { .. }
+            | StartOn::Goal { .. }
+            | StartOn::Workflow { .. }
+            | StartOn::Agent { .. } => true,
             StartOn::Hook { .. }
             | StartOn::Check { .. }
             | StartOn::Connector { .. }
@@ -252,11 +287,14 @@ impl StartOn {
             StartOn::Manual
             | StartOn::Schedule { .. }
             | StartOn::Hook { .. }
-            | StartOn::Run { .. } => vec![],
+            | StartOn::Workflow { .. }
+            | StartOn::Agent { .. } => vec![],
             StartOn::Message { filter } => filter.templates(),
             StartOn::Signal { filter } => filter.templates(),
             StartOn::Project { filter } => filter.templates(),
+            StartOn::Run { filter } => filter.templates(),
             StartOn::Platform { filter } => filter.templates(),
+            StartOn::Goal { filter } => filter.templates(),
             StartOn::Connector { params, .. } => params.values().map(String::as_str).collect(),
             StartOn::Check { command, .. } => vec![command.as_str()],
         }
@@ -272,6 +310,7 @@ impl StartOn {
         match self {
             StartOn::Message { filter } => out.extend(filter.input_refs()),
             StartOn::Project { filter } => out.extend(filter.input_refs()),
+            StartOn::Agent { filter } => out.extend(filter.input_refs()),
             StartOn::Connector {
                 account: Some(ValueRef::Input { input }),
                 ..
@@ -289,6 +328,7 @@ impl StartOn {
     pub fn assignee_refs(&self) -> Vec<&ValueRef<Assignee>> {
         match self {
             StartOn::Message { filter } => filter.assignee_refs(),
+            StartOn::Agent { filter } => filter.assignee_refs(),
             _ => vec![],
         }
     }
@@ -336,10 +376,40 @@ impl StartOn {
                 })?,
             },
             StartOn::Run { filter } => StartOn::Run {
-                filter: filter.clone(),
+                filter: filter.resolve(&render)?,
             },
             StartOn::Platform { filter } => StartOn::Platform {
                 filter: filter.resolve(&render)?,
+            },
+            StartOn::Goal { filter } => StartOn::Goal {
+                filter: filter.resolve(&render)?,
+            },
+            StartOn::Workflow { filter } => StartOn::Workflow {
+                filter: filter.clone(),
+            },
+            StartOn::Agent { filter } => StartOn::Agent {
+                filter: filter.resolve(
+                    &|name: &InputName| {
+                        read(
+                            &ValueRef::Input {
+                                input: name.clone(),
+                            },
+                            inputs,
+                            "an assignee",
+                            |v| v.as_str()?.parse::<Assignee>().ok(),
+                        )
+                    },
+                    &|name: &InputName| {
+                        read(
+                            &ValueRef::Input {
+                                input: name.clone(),
+                            },
+                            inputs,
+                            "a project id",
+                            |v| v.as_str()?.parse::<ProjectId>().ok(),
+                        )
+                    },
+                )?,
             },
             StartOn::Connector {
                 connector,
@@ -816,9 +886,10 @@ mod tests {
             StartOn::Message {
                 filter: MessageFilter {
                     r#in: Some("support".into()),
-                    from: crate::listen::MessageFrom::Agents,
-                    mentions: Some(ValueRef::Fixed(Assignee::Agent("triager".into()))),
+                    from: crate::listen::MessageFrom::Agents.into(),
+                    mentions: Some(ValueRef::Fixed(Assignee::Agent("triager".into())).into()),
                     contains: Some("refund".into()),
+                    ..MessageFilter::default()
                 },
             },
             StartOn::Signal {
@@ -829,10 +900,13 @@ mod tests {
             },
             StartOn::Project {
                 filter: ProjectFilter {
-                    project: Some(ValueRef::Input {
-                        input: InputName::new("repo").unwrap(),
-                    }),
-                    change: crate::listen::ProjectChange::Files,
+                    project: Some(
+                        ValueRef::Input {
+                            input: InputName::new("repo").unwrap(),
+                        }
+                        .into(),
+                    ),
+                    change: crate::listen::ProjectChange::Files.into(),
                     branch: Some("main".into()),
                     glob: Some("*.csv".into()),
                 },
@@ -840,7 +914,8 @@ mod tests {
             StartOn::Run {
                 filter: RunFilter {
                     workflow: None,
-                    outcome: Some(crate::listen::RunEnd::Failed),
+                    outcome: Some(crate::listen::RunEnd::Failed.into()),
+                    ..RunFilter::default()
                 },
             },
             StartOn::Platform {
@@ -866,6 +941,35 @@ mod tests {
                         input: InputName::new("interval").unwrap(),
                     }),
                     ..Schedule::default()
+                },
+            },
+            StartOn::Goal {
+                filter: GoalFilter {
+                    goal: Some(vec!["{inputs.goal}".to_string()].into()),
+                    change: vec![
+                        crate::listen::GoalChange::Closed,
+                        crate::listen::GoalChange::Decided,
+                    ]
+                    .into(),
+                },
+            },
+            StartOn::Workflow {
+                filter: WorkflowFilter {
+                    workflow: None,
+                    change: crate::listen::WorkflowChange::Saved.into(),
+                },
+            },
+            StartOn::Agent {
+                filter: AgentFilter {
+                    agent: Some(ValueRef::Fixed(Assignee::Agent("triager".into())).into()),
+                    project: Some(
+                        ValueRef::Input {
+                            input: InputName::new("repo").unwrap(),
+                        }
+                        .into(),
+                    ),
+                    harness: Some(vec!["claude-code".to_string(), "codex".to_string()].into()),
+                    change: crate::listen::AgentChange::Done.into(),
                 },
             },
         ]
@@ -913,7 +1017,10 @@ mod tests {
             .collect();
         assert_eq!(
             unattended,
-            ["manual", "schedule", "message", "signal", "run", "platform"]
+            [
+                "manual", "schedule", "message", "signal", "run", "platform", "goal", "workflow",
+                "agent"
+            ]
         );
         let limited: Vec<&str> = every_event()
             .iter()
@@ -929,7 +1036,10 @@ mod tests {
                 "run",
                 "platform",
                 "connector",
-                "check"
+                "check",
+                "goal",
+                "workflow",
+                "agent"
             ]
         );
         assert_eq!(StartOn::Manual.source(), None);
@@ -952,7 +1062,7 @@ mod tests {
                 json!(ProjectId::from_ulid(ulid::Ulid::from_parts(4, 4)).to_string()),
             ),
         ]);
-        let check = every_event().pop().unwrap();
+        let check = every_event()[9].clone();
         let StartOn::Check {
             command, schedule, ..
         } = check.resolve(&inputs).unwrap()
@@ -966,7 +1076,7 @@ mod tests {
         let StartOn::Project { filter } = project.resolve(&inputs).unwrap() else {
             panic!("a project start stays one")
         };
-        assert!(filter.project_id().is_some());
+        assert!(!filter.project_ids().is_empty());
 
         let missing = BTreeMap::new();
         let err = check.resolve(&missing).unwrap_err();
@@ -1150,6 +1260,9 @@ mod tests {
                 Some(SignalSource::Platform),
                 Some(SignalSource::Connector),
                 Some(SignalSource::Check),
+                Some(SignalSource::Goal),
+                Some(SignalSource::Workflow),
+                Some(SignalSource::Agent),
             ]
         );
         let account = InputName::new("acct").unwrap();
@@ -1205,9 +1318,11 @@ mod tests {
                 r#in: None,
                 from: crate::listen::MessageFrom::Someone(ValueRef::Input {
                     input: InputName::new("who").unwrap(),
-                }),
+                })
+                .into(),
                 mentions: None,
                 contains: None,
+                ..MessageFilter::default()
             },
         };
         let StartOn::Message { filter } = message.resolve(&inputs).unwrap() else {
@@ -1216,6 +1331,7 @@ mod tests {
         assert_eq!(
             filter.from,
             crate::listen::MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("triager".into())))
+                .into()
         );
         let connector = StartOn::Connector {
             connector: None,
@@ -1276,13 +1392,78 @@ mod tests {
         assert!(StartOn::refuse_unknown::<serde_json::Error>(&json!("manual")).is_ok());
     }
 
+    #[test]
+    fn an_agent_start_reads_its_agent_and_its_project_from_the_listening_inputs() {
+        let pid = ProjectId::from_ulid(ulid::Ulid::from_parts(7, 7));
+        let agent = StartOn::Agent {
+            filter: AgentFilter {
+                agent: Some(
+                    ValueRef::Input {
+                        input: InputName::new("who").unwrap(),
+                    }
+                    .into(),
+                ),
+                project: Some(
+                    vec![
+                        ValueRef::Fixed(pid),
+                        ValueRef::Input {
+                            input: InputName::new("repo").unwrap(),
+                        },
+                    ]
+                    .into(),
+                ),
+                harness: None,
+                change: crate::listen::AgentChange::Waiting.into(),
+            },
+        };
+        let inputs = BTreeMap::from([
+            ("who".to_string(), json!("team:ops")),
+            ("repo".to_string(), json!(pid.to_string())),
+        ]);
+        let StartOn::Agent { filter } = agent.resolve(&inputs).unwrap() else {
+            panic!("an agent start stays one")
+        };
+        assert_eq!(
+            filter.agent,
+            Some(ValueRef::Fixed(Assignee::Team("ops".into())).into())
+        );
+        assert_eq!(
+            filter.project,
+            Some(vec![ValueRef::Fixed(pid), ValueRef::Fixed(pid)].into())
+        );
+        let wrong = BTreeMap::from([
+            ("who".to_string(), json!("nobody")),
+            ("repo".to_string(), json!(pid.to_string())),
+        ]);
+        assert!(matches!(
+            agent.resolve(&wrong).unwrap_err(),
+            ResolveError::Input {
+                want: "an assignee",
+                ..
+            }
+        ));
+        let no_repo = BTreeMap::from([("who".to_string(), json!("agent:dev"))]);
+        assert!(matches!(
+            agent.resolve(&no_repo).unwrap_err(),
+            ResolveError::Input {
+                want: "a project id",
+                ..
+            }
+        ));
+        assert_eq!(agent.input_refs().len(), 2);
+        assert_eq!(agent.assignee_refs().len(), 1);
+    }
+
     // added by the coverage pass: b4-start.rs
     #[test]
     fn every_event_resolves_against_nothing_unless_it_reads_an_input_and_a_schedule_reads_its_cron_from_one(
     ) {
         let nothing = BTreeMap::new();
         for (i, event) in every_event().into_iter().enumerate() {
-            let reads_an_input = matches!(i, 5 | 8 | 9);
+            // The project start, the connector's `every`, the check's
+            // `every`, the goal start's goal and the agent start's project
+            // read an input.
+            let reads_an_input = matches!(i, 5 | 8 | 9 | 10 | 12);
             assert_eq!(
                 event.resolve(&nothing).is_ok(),
                 !reads_an_input,

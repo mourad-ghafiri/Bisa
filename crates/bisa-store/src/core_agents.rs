@@ -96,6 +96,45 @@ mod tests {
         }
     }
 
+    /// The Workflow Agent's method names every start event and every catch
+    /// the core knows, every change word of the events that have them, the
+    /// sender words and the kinds of place a message lands in: the prose
+    /// moves with the enums, or this says so.
+    #[test]
+    fn the_workflow_agent_names_every_event_its_changes_and_the_lists() {
+        let prompt = parse_agent(AgentId::WORKFLOW, WORKFLOW_AGENT_TOML)
+            .unwrap()
+            .system_prompt;
+        let said = |word: &str| {
+            prompt.contains(&format!("`{word}`")) || prompt.contains(&format!("\"{word}\""))
+        };
+        for name in bisa_core::StartOn::NAMES {
+            assert!(said(name), "start `{name}`: {prompt}");
+        }
+        for name in bisa_core::WaitFor::NAMES {
+            assert!(said(name), "catch `{name}`: {prompt}");
+        }
+        for name in bisa_core::ProjectChange::NAMES
+            .iter()
+            .chain(bisa_core::RunChange::NAMES.iter())
+            .chain(bisa_core::GoalChange::NAMES.iter())
+            .chain(bisa_core::WorkflowChange::NAMES.iter())
+            .chain(bisa_core::AgentChange::NAMES.iter())
+            .chain(bisa_core::MessagePlace::NAMES.iter())
+            .chain(bisa_core::MessageFrom::WORDS.iter())
+        {
+            assert!(said(name), "change or word `{name}`: {prompt}");
+        }
+        for rule in [
+            "takes a list instead",
+            "any of the list matches",
+            "schedule, message, signal, run, goal, workflow, agent or platform",
+            "hook, check, connector or project start waits",
+        ] {
+            assert!(prompt.contains(rule), "{rule}: {prompt}");
+        }
+    }
+
     /// The General Agent makes a project only for files, never for an answer.
     #[test]
     fn the_general_agent_never_makes_a_project_for_an_answer() {

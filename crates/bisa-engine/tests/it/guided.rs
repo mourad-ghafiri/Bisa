@@ -14,7 +14,7 @@ use bisa_core::{
     AgentId, Answer, Gate, GoalStatus, GuidancePhase, GuidanceStatus, MemberRole, PrincipalId,
     RunOutcome, StepKind, WorkItemState,
 };
-use bisa_engine::{Engine, EngineConfig, EnginePayload, SubmitRequest};
+use bisa_engine::{Engine, EngineConfig, EngineEvent, EnginePayload, SubmitRequest};
 use bisa_harness::mock::{IntakeScript, MockAdapter};
 use bisa_harness::{HarnessCatalog, LifecycleEvent, SessionEvent};
 use bisa_store::{CatalogKind, MemoryKeyStore, Workspace};
@@ -1704,8 +1704,12 @@ async fn a_design_wake_carries_the_goal_the_staff_the_connectors_and_the_templat
     let second = until("the second prompt", || adapter.prompts().get(1).cloned()).await;
     let path = engine.workspace().project_root_path(&project);
     assert!(
-        second.contains(&format!("- reports ({})", path.display())),
-        "{second}"
+        second.contains(&format!("- reports ({}) ({})", project.id, path.display())),
+        "a project is listed by its slug, its id and its path: {second}"
+    );
+    assert!(
+        second.contains("Events name things by id"),
+        "and the brief says what an event names: {second}"
     );
     assert!(!second.contains("Projects: none"), "{second}");
     engine.shutdown().await;
@@ -2303,6 +2307,128 @@ async fn an_auto_design_that_begins_on_a_hook_waits_for_a_person_to_arm_it() {
     // Later it is read by rotating it: a new one, shown once.
     let rotated = engine.rotate_hook_secret(&ticket).unwrap();
     assert_ne!(rotated.secret, shown.secret);
+    engine.shutdown().await;
+}
+
+/// Auto, and the design begins on a goal's close and on a change in the
+/// goal's two projects, named by id as the brief lists them: the goal start
+/// is armed alone, the project start is a person's — so the Adopt gate opens
+/// naming the project start and nothing else; adopted, the goal listens on
+/// both, and another goal's close begins the run.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_auto_design_on_a_goals_close_arms_alone_and_its_project_start_waits_for_a_person() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = workspace(&dir);
+    drive_on(&ws, &AgentId::workflow(), "guided-harness");
+    let api = ws
+        .create_project(bisa_store::NewProject::managed("api").unwrap())
+        .unwrap();
+    let web = ws
+        .create_project(bisa_store::NewProject::managed("web").unwrap())
+        .unwrap();
+    let proposal = json!({
+        "name": "After a close or a change",
+        "description": "begins when any goal closes, or when api or web moves",
+        "steps": [
+            {"id": "closed", "name": "A goal closes", "kind": "start",
+             "on": {"event": "goal", "change": ["closed", "deleted"]}, "then": ["do"]},
+            {"id": "changed", "name": "A project moves", "kind": "start",
+             "on": {"event": "project",
+                    "project": [api.id.to_string(), web.id.to_string()],
+                    "change": ["commit", "push"]},
+             "then": ["do"]},
+            // Two projects on the goal: the step says which it works in.
+            {"id": "do", "name": "Do it", "kind": "agent", "project": api.id.to_string(),
+             "instructions": "do {goal.statement}", "harness": ["worker-harness"]}
+        ]
+    });
+    let script = IntakeScript::new(vec![
+        json!({"op": "propose_workflow", "agent": DRIVER, "goal": "{{goal}}", "workflow": proposal}),
+    ]);
+    let engine = Engine::start(
+        ws,
+        catalog(Some(script), Some(worker_yields())),
+        guided_config(),
+    )
+    .unwrap();
+    let mut rx = engine.events();
+    let goal = engine
+        .submit_goal(SubmitRequest::captured(
+            "after a goal closes or the code moves, tidy up",
+        ))
+        .unwrap();
+    engine.attach_project(goal.id, api.id).unwrap();
+    engine.attach_project(goal.id, web.id).unwrap();
+    let proposed = wait_for(&mut rx, "the proposal", |e| {
+        matches!(&e.payload, EnginePayload::WorkflowProposed { .. })
+    })
+    .await;
+    let EnginePayload::WorkflowProposed { gate_id, .. } = proposed.payload else {
+        unreachable!()
+    };
+    let gate_id = gate_id.expect("a project start is a person's to arm");
+    let gate = engine.gate(&gate_id).unwrap();
+    assert!(
+        gate.question.contains("`changed` starts on a project"),
+        "{}",
+        gate.question
+    );
+    assert!(
+        !gate.question.contains("`closed`"),
+        "a goal start is nobody's to arm: {}",
+        gate.question
+    );
+    let host = bisa_core::ListenerHost::Goal { goal: goal.id };
+    assert_eq!(engine.workspace().listening(&host).unwrap(), None);
+
+    // Adopted: both starts listen.
+    engine
+        .decide_durable(
+            &bisa_core::Home::Goal { goal: goal.id },
+            true,
+            None,
+            None,
+            None,
+            Some(&gate_id),
+            None,
+        )
+        .unwrap();
+    assert!(engine.workspace().get_goal(goal.id).unwrap().is_listening());
+    let mut armed: Vec<&'static str> = engine
+        .armed_listeners()
+        .armed
+        .iter()
+        .filter(|a| a.key.host == host)
+        .map(|a| a.on.as_str())
+        .collect();
+    armed.sort_unstable();
+    assert_eq!(armed, vec!["goal", "project"]);
+
+    // Another goal closes: the goal start begins the run the goal was
+    // captured for.
+    let other = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..SubmitRequest::captured("something else")
+        })
+        .unwrap();
+    engine
+        .close_goal(
+            other.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
+    engine.hear(&EngineEvent::scoped(
+        other.id,
+        None,
+        EnginePayload::GoalClosed {
+            reason: bisa_core::ClosureReason::Abandoned { rationale: None },
+        },
+    ));
+    assert_eq!(engine.drain_signals().await, 1);
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
+    assert_eq!(done.start, Some(sid("closed")));
     engine.shutdown().await;
 }
 

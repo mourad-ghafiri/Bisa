@@ -9,9 +9,12 @@
 //!
 //! Two doors feed it besides the ticker, the hooks and `emit`:
 //!
-//! - **the bus** ([`spawn`]): a run's end is a `run` event, and every payload
-//!   is a `platform` event of its topic. The listening runtime's own topics
-//!   are never heard back, so a listener can never feed on its own news.
+//! - **the bus** ([`spawn`]): a run's end is a `run` event, a goal's, a
+//!   workflow's, a run's and a session's move are the `goal`, `workflow`,
+//!   `run` and `agent` events and a checkout's a `project` change
+//!   ([`super::lifecycle`]), and every payload is a `platform` event of its
+//!   topic. The listening runtime's own topics are never heard back, so a
+//!   listener can never feed on its own news.
 //! - **a message** ([`on_message`]), heard where conversation dispatch hears
 //!   it — after the hold a message from another node waits in — and never an
 //!   announcement (a workflow's `notify`).
@@ -222,6 +225,11 @@ pub fn on_event(inner: &Arc<Inner>, event: &EngineEvent) {
         };
         hear(inner, heard, event.run, dedupe.as_deref());
     }
+    // A goal's, a workflow's, a run's or a session's move, and a checkout's
+    // — each read once, for the sources somebody hears.
+    for reading in super::lifecycle::readings(inner, event) {
+        hear(inner, reading.heard, reading.run, reading.dedupe.as_deref());
+    }
     let platform = Heard {
         source: SignalSource::Platform,
         name: Some(topic.to_string()),
@@ -261,8 +269,54 @@ fn scope_of(event: &EngineEvent) -> SignalScope {
     }
 }
 
-/// A run that ended, as a `run` start, wait or boundary hears it:
-/// `{ run, workflow, outcome, goal? }`.
+/// What a run event carries, whatever the run did: every key, `null` where
+/// the change lacks it, built in one place — the table the guide and the
+/// designer's form copy. `change` says what happened (`queued`, `started`,
+/// `ended`, `step`); an occurrence written before the word existed is an
+/// end, as `RunFilter::hears` reads it.
+pub(crate) struct RunMove<'a> {
+    pub run: RunId,
+    pub workflow: bisa_core::WorkflowId,
+    pub change: &'static str,
+    pub outcome: Option<&'static str>,
+    pub position: Option<usize>,
+    pub start: Option<&'a str>,
+    pub step: Option<&'a str>,
+    pub state: Option<&'a str>,
+    pub kind: Option<&'a str>,
+    pub goal: Option<bisa_core::GoalId>,
+}
+
+pub(crate) fn run_payload(m: &RunMove<'_>) -> Value {
+    let RunMove {
+        run,
+        workflow,
+        change,
+        outcome,
+        position,
+        start,
+        step,
+        state,
+        kind,
+        goal,
+    } = m;
+    json!({
+        "run": run.to_string(),
+        "workflow": workflow.to_string(),
+        "change": change,
+        "outcome": outcome,
+        "position": position,
+        "start": start,
+        "step": step,
+        "state": state,
+        "kind": kind,
+        "goal": goal.map(|g| g.to_string()),
+    })
+}
+
+/// A run that ended, as a `run` start, wait or boundary hears it — the one
+/// run event there was before the others were named: its payload says
+/// `change: ended` beside what it always said.
 fn run_end(event: &EngineEvent) -> Option<Heard> {
     let (run, workflow, outcome) = match &event.payload {
         EnginePayload::RunFinished {
@@ -294,11 +348,17 @@ fn run_end(event: &EngineEvent) -> Option<Heard> {
         source: SignalSource::Run,
         name: None,
         scope: scope_of(event),
-        payload: json!({
-            "run": run.to_string(),
-            "workflow": workflow.to_string(),
-            "outcome": outcome,
-            "goal": event.goal.map(|g| g.to_string()),
+        payload: run_payload(&RunMove {
+            run: *run,
+            workflow: *workflow,
+            change: "ended",
+            outcome: Some(outcome),
+            position: None,
+            start: None,
+            step: None,
+            state: None,
+            kind: None,
+            goal: event.goal,
         }),
         chain: bisa_core::Chain::default(),
     })
@@ -442,6 +502,7 @@ pub(crate) fn on_message(
         payload: json!({
             "message": message,
             "scope": scope,
+            "scope_kind": place_kind(inner, scope, &facts),
             "author": author,
             "author_kind": author_kind,
             "teams": teams,
@@ -451,6 +512,32 @@ pub(crate) fn on_message(
         chain,
     };
     offer(inner, &heard, Some(&format!("message:{message}")));
+}
+
+/// The kind of place a message landed in, as `MessageFilter.kind` reads it:
+/// a standing channel, a direct channel, a conversation — one in a checkout
+/// reading as `workstream` — or a goal's thread; `other` for a scope none of
+/// those is any more.
+fn place_kind(inner: &Inner, scope: &str, facts: &crate::conversation::ScopeFacts) -> &'static str {
+    if let Some(channel) = bisa_core::ChannelId::new(scope)
+        .ok()
+        .and_then(|id| inner.ws.get_channel(&id).ok())
+    {
+        return match channel.kind {
+            bisa_core::ChannelKind::Direct => "direct",
+            bisa_core::ChannelKind::Standing => "channel",
+        };
+    }
+    if let Some(conversation) = &facts.conversation {
+        return match conversation.origin {
+            bisa_core::ConversationOrigin::Workstream { .. } => "workstream",
+            _ => "conversation",
+        };
+    }
+    match facts.goal {
+        Some(_) => "goal",
+        None => "other", // LCOV_EXCL_LINE a place deleted under its message before the ear heard it; a race
+    }
 }
 
 /// A listener's occurrence the ticker or a door produced itself — a

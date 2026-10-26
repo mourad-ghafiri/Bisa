@@ -639,7 +639,7 @@ workflow-step-kinds-when-called = When called
 workflow-step-kinds-when-message-arrives = When a message arrives
 workflow-step-kinds-when-signal-raised = When a signal is raised
 workflow-step-kinds-when-project-changes = When a project changes
-workflow-step-kinds-when-run-finishes = When a run finishes
+workflow-step-kinds-when-run-moves = When a run moves
 workflow-step-kinds-when-platform-says = When the platform says
 workflow-step-kinds-when-outside-platform-lists-something-new = When an outside platform lists something new
 workflow-step-kinds-when-check-starts-failing = When a check starts failing
@@ -706,7 +706,11 @@ workflow-start-form-project-change = { $change ->
     [push] a push or a fetch
     [pull_request] a pull request's change
     [merge] a merge
-   *[files] a change of files
+    [files] a change of files
+    [branch] a branch made or deleted
+    [pull] a pull
+    [workstream] a checkout's move
+   *[other] { $change }
   }
 workflow-start-form-run-ends = { $outcome ->
     [done] a run that is done
@@ -764,31 +768,26 @@ workflow-start-step-form-fire-on = Begins a run
 
 ## The filters the events share — a start's, a wait's, a boundary event's (`forms/MessageFilterFields.tsx`, `ProjectFilterFields.tsx`, `RunFilterFields.tsx`, `SignalFilterFields.tsx`, `ScheduleFields.tsx`, `ExactFieldsEditor.tsx`).
 workflow-message-filter-fields-where = Where
-workflow-message-filter-fields-where-hint = The conversation it lands in — a channel, or one an input names. Anywhere when left so.
+workflow-message-filter-fields-where-hint = The places it may land in — channels, a goal's thread or a conversation by id, or ones the inputs name — any of them. Anywhere when none.
 workflow-message-filter-fields-anywhere = Anywhere
 workflow-message-filter-fields-from = From
-workflow-message-filter-fields-from-hint = Who wrote it. A team counts every member's message; an announcement is never heard.
-workflow-message-filter-fields-who = Who
+workflow-message-filter-fields-from-hint = Who wrote it — any of the checked, or anyone named below. An announcement is never heard.
 workflow-message-filter-fields-mentions = Mentions
-workflow-message-filter-fields-mentions-hint = Only a message that mentions this agent, team or person. Blank: any message.
+workflow-message-filter-fields-mentions-hint = Only a message that mentions one of these agents, teams or people. None: any message.
 workflow-message-filter-fields-contains = Contains
 workflow-message-filter-fields-contains-hint = Text the message must contain, whatever its case. { $hint }
-workflow-project-filter-fields-project-hint = The project whose change is heard — never a path on a disk. Fixed, or an input of kind project.
 workflow-project-filter-fields-change = Change
 workflow-project-filter-fields-branch = Branch
-workflow-project-filter-fields-branch-hint = Only this branch; blank for any. A template.
+workflow-project-filter-fields-branch-hint = Only these branches, any of them; none for any. Templates.
 workflow-project-filter-fields-files = Files
-workflow-project-filter-fields-files-hint = Only files matching this — * and ? — blank for any. A template.
+workflow-project-filter-fields-files-hint = Only files matching one of these — * and ? — none for any. Templates.
 workflow-project-filter-fields-pull-requests-note = Heard for the pull requests the platform's workstreams opened or adopted.
-workflow-run-filter-fields-workflow-hint = A run of this workflow — of any workflow when left so.
-workflow-run-filter-fields-any-workflow = Any workflow
-workflow-run-filter-fields-ending = Ending
-workflow-run-filter-fields-any-end = however it ends
+workflow-run-filter-fields-ending = Ending how
 workflow-signal-filter-fields-name = Signal
 workflow-signal-filter-fields-name-hint = Its name, dotted lowercase words — report.ready. { $hint }
 workflow-signal-filter-fields-name-not-dotted-words = A signal's name is dotted lowercase words — report.ready.
 workflow-signal-filter-fields-exact-matches = Exact matches on what it carries, by dotted path; all must hold. Values are templates.
-workflow-signal-filter-fields-topic-hint = One of the engine's own events, by topic — goal.closed, step.changed. The advanced door, for what the other events do not name.
+workflow-signal-filter-fields-topic-hint = The engine's own events, by topic — goal.closed, step.changed — any of them. The advanced door, for what the other events do not name.
 workflow-schedule-fields-cadence = Cadence
 workflow-schedule-fields-every-seconds = every so many seconds
 workflow-schedule-fields-on-cron = at each occurrence of a cron expression
@@ -1064,3 +1063,100 @@ workflow-inspector-flow-to = To
 workflow-goal-workflow-tab-properties-nothing-yet = Nothing to inspect yet: the goal has no workflow.
 workflow-goal-workflow-tab-properties-agent-designing = Nothing to inspect yet: the Workflow Agent is designing the workflow. Its steps show here once there is one.
 workflow-goal-workflow-tab-draw-steps = Draw the steps
+
+## The events added in October 2026: goals, workflows and agents as starts and catches, lists on every filter.
+workflow-step-kinds-when-goal-moves = When a goal moves
+workflow-step-kinds-when-workflow-moves = When a workflow moves
+workflow-step-kinds-when-agent-moves = When an agent moves
+workflow-step-kinds-goal-s-move = a goal's move
+workflow-step-kinds-workflow-s-move = a workflow's move
+workflow-step-kinds-agent-s-move = an agent's move
+workflow-step-kinds-from-any-person = any person
+workflow-step-kinds-from-anyone = anyone
+workflow-step-kinds-place-channel = a channel
+workflow-step-kinds-place-direct = a direct channel
+workflow-step-kinds-place-goal = a goal's thread
+workflow-step-kinds-place-workstream = a workstream's thread
+workflow-step-kinds-place-conversation = a conversation
+workflow-step-kinds-branch-made-deleted = a branch made or deleted
+workflow-step-kinds-pull = a pull
+workflow-step-kinds-checkout-s-move = a checkout's move
+workflow-step-kinds-run-queued = queued behind a live one
+workflow-step-kinds-run-started = started
+workflow-step-kinds-run-ended = ended
+workflow-step-kinds-run-step-moved = a step moved
+workflow-step-kinds-goal-created = created
+workflow-step-kinds-goal-updated = updated
+workflow-step-kinds-goal-closed = closed
+workflow-step-kinds-goal-archived = put away
+workflow-step-kinds-goal-restored = taken back out
+workflow-step-kinds-goal-deleted = deleted
+workflow-step-kinds-goal-attached = given a project
+workflow-step-kinds-goal-detached = parted from a project
+workflow-step-kinds-goal-proposed = proposed a design
+workflow-step-kinds-goal-asked = asked something
+workflow-step-kinds-goal-decided = decided
+workflow-step-kinds-workflow-saved = saved
+workflow-step-kinds-workflow-proposed = proposed
+workflow-step-kinds-workflow-archived = put away
+workflow-step-kinds-workflow-restored = taken back out
+workflow-step-kinds-workflow-deleted = deleted
+workflow-step-kinds-agent-started = started
+workflow-step-kinds-agent-waiting = waiting on a person
+workflow-step-kinds-agent-replied = replied
+workflow-step-kinds-agent-done = done
+workflow-step-kinds-agent-failed = failed
+workflow-step-kinds-agent-aborted = aborted
+workflow-step-kinds-names-goal-no-goal-id = names a goal that is no goal id
+workflow-step-kinds-narrows-step-hears-no-step-move = narrows by a step or a state but hears no step's move
+workflow-runs-started-by-goal = by a goal's move
+workflow-runs-started-by-goal-named = by goal { $detail }
+workflow-runs-started-by-workflow = by a workflow's move
+workflow-runs-started-by-workflow-named = by workflow { $detail }
+workflow-runs-started-by-agent = by an agent's move
+workflow-runs-started-by-agent-named = by agent { $detail }
+workflow-start-form-run-moves = a run { $change }
+workflow-start-form-goal-moves = a goal { $change }
+workflow-start-form-workflow-moves = a workflow { $change }
+workflow-start-form-agent-moves = an agent { $change }
+
+## The fields that take one value or a list, and the three filters the designer gained
+workflow-many-fields-add = Add…
+workflow-many-fields-add-word = Add { $word }
+workflow-many-fields-remove = Remove { $word }
+workflow-many-fields-any-of-checked = Any of the checked.
+workflow-project-filter-fields-projects = Projects
+workflow-project-filter-fields-projects-hint = One or several — heard for a change in any of them. Named, never a path on a disk; fixed, or an input of kind project.
+workflow-project-filter-fields-add-project = Add a project…
+workflow-project-filter-fields-change-hint = Any of the checked. A branch made or deleted, a pull and a checkout's move are read as the repository and the platform see them.
+workflow-message-filter-fields-named = Named senders
+workflow-message-filter-fields-named-hint = Agents, people or teams whose messages count beside the words above; a team counts every member's.
+workflow-message-filter-fields-from-input = the input { $name }
+workflow-message-filter-fields-kind = Kind of place
+workflow-message-filter-fields-kind-hint = Only a message landing in one of these kinds of place; none for any.
+workflow-run-filter-fields-change = What the run does
+workflow-run-filter-fields-change-hint = Any of the checked. A run that ends is what a run event always meant.
+workflow-run-filter-fields-workflows = Workflows
+workflow-run-filter-fields-workflows-hint = Runs of these workflows, any of them; none for any.
+workflow-run-filter-fields-add-workflow = Add a workflow…
+workflow-run-filter-fields-ending-hint = For a run that ends: any of the checked, or however it ends when none.
+workflow-run-filter-fields-steps = Steps
+workflow-run-filter-fields-steps-hint = For a step's move: only these step ids; none for any.
+workflow-run-filter-fields-states = States
+workflow-run-filter-fields-states-hint = Only these states — running, waiting, done, failed, skipped, diverted; none for any.
+workflow-run-filter-fields-goal = Goal
+workflow-run-filter-fields-goal-hint = Only runs of these goals — ids, or templates over the listening inputs; none for any run.
+workflow-goal-filter-fields-goal = Goal
+workflow-goal-filter-fields-goal-hint = Which goal's move — an id, or a template; any goal's when none. Named by its id's shape, never by whether it is still here. { $hint }
+workflow-goal-filter-fields-change = What moved
+workflow-workflow-filter-fields-workflows = Workflows
+workflow-workflow-filter-fields-workflows-hint = Which definitions' moves — any in the library when none.
+workflow-workflow-filter-fields-change = What moved
+workflow-agent-filter-fields-agent = Agent
+workflow-agent-filter-fields-agent-hint = Whose session — an agent, or a team for any member; any agent's when none.
+workflow-agent-filter-fields-project = Project
+workflow-agent-filter-fields-project-hint = Only a session placed in one of these projects — a worker in a checkout, a turn in one. A worker in a goal's scratch folder is in no project.
+workflow-agent-filter-fields-harness = Harness
+workflow-agent-filter-fields-harness-hint = Only sessions on one of these harnesses; none for any.
+workflow-agent-filter-fields-change = What the session does
+workflow-agent-filter-fields-change-hint = Any of the checked. A worker whose result landed ends as aborted; done is a session whose turn ended on its own.

@@ -44,8 +44,7 @@ import {
   startSteps,
   startTemplates,
   strayMappings,
-  validSignalName,
-} from "./startForm.mjs";
+  validSignalName, asList } from "./startForm.mjs";
 import { START_EVENTS } from "../stepKinds.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -297,10 +296,10 @@ test("a test run's sample carries every field a mapping may read, so a mapping p
     for (const field of PAYLOAD_FIELDS[event]) assert.ok(field in sample, `${event}: the sample carries \`${field}\``);
   }
   assert.deepEqual(samplePayload({ event: "check", command: "curl -f x" }), { exit_code: 1, passed: false, output: "", command: "curl -f x" }, "a check that fails");
-  assert.deepEqual(samplePayload({ event: "message", in: "support", contains: "refund", from: "agents" }), { message: "", scope: "support", author: "", author_kind: "agent", teams: [], mentions: [], text: "refund" });
-  assert.deepEqual(samplePayload({ event: "run", workflow: "01WF", outcome: "done" }), { run: "", workflow: "01WF", outcome: "done", goal: null });
+  assert.deepEqual(samplePayload({ event: "message", in: "support", contains: "refund", from: "agents" }), { message: "", scope: "support", scope_kind: "channel", author: "", author_kind: "agent", teams: [], mentions: [], text: "refund" });
+  assert.deepEqual(samplePayload({ event: "run", workflow: "01WF", outcome: "done" }), { run: "", workflow: "01WF", change: "ended", outcome: "done", position: null, start: null, step: null, state: null, kind: null, goal: null });
   assert.deepEqual(samplePayload({ event: "platform", topic: "goal.closed", fields: { reason: "done" } }), { event: "goal.closed", fields: { reason: "done" }, goal: null, workflow: null, run: null });
-  assert.deepEqual(samplePayload({ event: "project", project: "01P", change: "push", branch: "main" }), { project: "01P", slug: "", change: "push", branch: "main", before: "", after: "", forced: false, commits: [], paths: [], pull_request: null });
+  assert.deepEqual(samplePayload({ event: "project", project: "01P", change: "push", branch: "main" }), { project: "01P", slug: "", change: "push", branch: "main", before: "", after: "", forced: false, commits: [], paths: [], pull_request: null, action: null, head: null, remote: null, workstream: null, state: null });
 });
 
 test("what a host is asked when it begins listening: what its events do not supply, each required, and never an input a default fills", () => {
@@ -336,7 +335,29 @@ test("an unknown event reads as its own word, samples nothing, and each event's 
   assert.deepEqual(startTemplates({ event: "message", in: "support", contains: "{inputs.word}" }), ["support", "{inputs.word}"]);
   assert.deepEqual(startTemplates({ event: "message" }), []);
   assert.deepEqual(startTemplates({ event: "project", branch: "main", glob: "src/**" }), ["main", "src/**"]);
+  assert.deepEqual(startTemplates({ event: "project", branch: ["main", "{inputs.branch}"], glob: ["*.md", "*.csv"] }), ["main", "{inputs.branch}", "*.md", "*.csv"], "a list's every word");
+  assert.deepEqual(startTemplates({ event: "goal", goal: ["{inputs.child}", "01ARZ3NDEKTSV4RRFFQ69G5FAV"], change: "closed" }), ["{inputs.child}", "01ARZ3NDEKTSV4RRFFQ69G5FAV"], "a goal's names are templates");
+  assert.deepEqual(startTemplates({ event: "run", goal: "{inputs.goal}", change: ["step"] }), ["{inputs.goal}"], "and so is a run's goal");
+  assert.deepEqual(startTemplates({ event: "goal", change: "closed" }), []);
   assert.deepEqual(startTemplates({ event: "platform", topic: "goal.closed", fields: { goal: "{inputs.goal}", n: 3 } }), ["{inputs.goal}"]);
   assert.deepEqual(startTemplates({ event: "connector", params: { channel: "{inputs.channel}" } }), ["{inputs.channel}"]);
   assert.deepEqual(startTemplates({ event: "connector" }), []);
+});
+
+test("a field that takes one value or a list reads as a list either way, and nothing for none", () => {
+  assert.deepEqual(asList("a"), ["a"]);
+  assert.deepEqual(asList(["a", "b"]), ["a", "b"]);
+  assert.deepEqual(asList(null), []);
+  assert.deepEqual(asList(undefined), []);
+  assert.deepEqual(asList({ input: "repo" }), [{ input: "repo" }], "a reference is one value");
+  // The phrase and the sample read a list the same way a value: the first, or all of them.
+  assert.equal(eventPhrase({ event: "project", change: ["commit", "push"] }), "commit · push");
+  assert.equal(eventPhrase({ event: "project", change: "branch" }), "a branch made or deleted");
+  assert.equal(eventPhrase({ event: "message", in: ["support", "ops"] }), "a message in support · ops");
+  assert.equal(eventPhrase({ event: "run", change: ["started", "step"] }), "a run started · step");
+  assert.equal(eventPhrase({ event: "run" }), eventPhrase({ event: "run", change: "ended" }), "ends alone is what a run event always said");
+  assert.equal(eventPhrase({ event: "goal", change: "closed" }), "a goal closed");
+  assert.equal(samplePayload({ event: "project", project: ["01P", "01Q"], change: ["push", "commit"] }).project, "01P");
+  assert.equal(samplePayload({ event: "run", change: ["step"], step: ["build"], state: ["failed"] }).step, "build");
+  assert.equal(samplePayload({ event: "message", from: ["people"] }).author_kind, "person");
 });

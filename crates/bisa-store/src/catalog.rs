@@ -3336,7 +3336,8 @@ suited_for = "quick edits"
     /// Short by construction — a prompt is prose, and the only `snake_case` in
     /// it should be something the agent can call. `system_prompt` and
     /// `owner_only` reach here from the TOML around the text; `output_schema`
-    /// and `max_visits` are the workflow fields the Workflow Agent is taught.
+    /// and `max_visits` are the workflow fields the Workflow Agent is taught,
+    /// and `pull_request` a project change it names.
     const NOT_TOOLS: &[&str] = &[
         "system_prompt",
         "owner_only",
@@ -3346,6 +3347,7 @@ suited_for = "quick edits"
         "max_visits",
         "for_each",
         "max_iterations",
+        "pull_request",
     ];
 
     /// No prompt names a tool that does not exist — and no core agent names

@@ -1,12 +1,15 @@
 /**
  * A named signal's filter — its name, dotted lowercase words, and exact
- * fields on its payload — and a platform topic's — the bus event's topic and
- * exact fields. Shared by the starts that begin on one, the waits that hold
- * for one and, for a signal, the boundary events that hear one.
+ * fields on its payload — and a platform topic's — the bus events' topics,
+ * one or several, and exact fields. Shared by the starts that begin on one,
+ * the waits that hold for one and, for a signal, the boundary events that
+ * hear one.
  */
 
 import { Field, Labelled, TextInput } from "../../../ui";
+import type { OneOrMany } from "./eventFilters";
 import { ExactFieldsEditor } from "./ExactFieldsEditor";
+import { WordsInput } from "./ManyFields";
 import { validSignalName } from "./startForm.mjs";
 import { t } from "../../../i18n/l10n.mjs";
 
@@ -47,18 +50,19 @@ export function PlatformFilterFields({
   onChange,
   disabled,
 }: {
-  topic: string;
+  topic: OneOrMany<string> | null | undefined;
   fields: Fields;
-  onChange: (next: { topic: string; fields: Record<string, string> }) => void;
+  /** A topic is required on the wire: none chosen is written as `""`, which the validator names. */
+  onChange: (next: { topic: OneOrMany<string>; fields: Record<string, string> }) => void;
   disabled?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <Field label={t("workflow-wait-step-form-topic")} hint={t("workflow-signal-filter-fields-topic-hint")}>
-        <TextInput className="font-mono" value={topic} disabled={disabled} /* for the machine */ placeholder="goal.closed" onChange={(e) => onChange({ topic: e.target.value, fields: fields ?? {} })} />
-      </Field>
+      <Labelled label={t("workflow-wait-step-form-topic")} hint={t("workflow-signal-filter-fields-topic-hint")}>
+        <WordsInput mono value={topic} disabled={disabled} /* for the machine */ placeholder="goal.closed" aria-label={t("workflow-wait-step-form-topic")} onChange={(next) => onChange({ topic: next ?? "", fields: fields ?? {} })} />
+      </Labelled>
       <Labelled label={t("workflow-wait-step-form-fields")} hint={t("workflow-signal-filter-fields-exact-matches")}>
-        <ExactFieldsEditor value={fields} disabled={disabled} onChange={(next) => onChange({ topic, fields: next })} />
+        <ExactFieldsEditor value={fields} disabled={disabled} onChange={(next) => onChange({ topic: topic ?? "", fields: next })} />
       </Labelled>
     </div>
   );

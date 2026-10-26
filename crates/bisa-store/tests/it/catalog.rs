@@ -408,6 +408,7 @@ const WIRE_WORDS: &[&str] = &[
     "for_each",           // the loop step kind
     "max_iterations",     // a loop step's bound
     "mobile_development", // a settings group, quoted as `mobile_development.agents`
+    "pull_request",       // a project change the Workflow Agent names
 ];
 
 fn snake_tokens(text: &str) -> Vec<String> {

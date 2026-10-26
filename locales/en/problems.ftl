@@ -116,6 +116,8 @@ problem-unknown-input-start-maps = step `{ $a0 }` maps the event onto `{ $name }
 problem-unknown-topic = step `{ $a0 }` listens for the platform event `{ $topic }`, which this platform never emits
 problem-unknown-topic-empty = step `{ $a0 }` listens for a platform event but names no topic
 problem-unknown-workflow-run-event = step `{ $a0 }` listens for a run of workflow `{ $w }`, which is not in this workspace
+problem-bad-goal-ref = step `{ $a0 }` names goal `{ $goal }`, which is not a goal id
+problem-idle-filter-field-run-step = step `{ $a0 }` narrows by a step or a state but hears no step's move; add `step` to its `change`, or drop the field
 
 ## A connector definition's rules (`Connector::validate`, `ConnectorAccount::validate`), by field.
 problem-connector-account-not = the account is for { $a0 }, not { $a1 }

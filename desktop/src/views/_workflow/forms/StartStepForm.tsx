@@ -1,9 +1,11 @@
 /**
  * A start step: one way a run begins, in words (03-workflows §Start events)
  * — *By hand · On a schedule · When called · When a message arrives · When a
- * signal is raised · When a project changes · When a run finishes · When the
+ * signal is raised · When a project changes · When a run moves · When the
  * platform says · When an outside platform lists something new · When a
- * check starts failing* — and that event's own fields.
+ * check starts failing · When a goal moves · When a workflow moves · When an
+ * agent moves* — and that event's own fields, each taking one value or a
+ * list where the wire does.
  *
  * An event start then says two more things. *Inputs from the event*: one row
  * per input, the template that maps the occurrence onto it
@@ -26,12 +28,16 @@ import { useConnectorDetail, useConnectors } from "../useConnectors";
 import { HookSecretNote } from "../HookSecretNote";
 import { shownFor } from "../hookSecretsModel.mjs";
 import { DEFAULT_ACCOUNT, accountFromValue, accountValue, fixedValue, inputValue, strayConnector, strayOperation, withConnector, withOperation, withParam } from "./connectorStepModel.mjs";
+import { AgentFilterFields } from "./AgentFilterFields";
+import type { StartOnEx } from "./eventFilters";
+import { GoalFilterFields } from "./GoalFilterFields";
 import { MessageFilterFields } from "./MessageFilterFields";
 import { ProjectFilterFields } from "./ProjectFilterFields";
 import { RunFilterFields } from "./RunFilterFields";
 import { ScheduleFields } from "./ScheduleFields";
 import { PlatformFilterFields, SignalFilterFields } from "./SignalFilterFields";
 import { ValueRefField } from "./AgentStepForm";
+import { WorkflowFilterFields } from "./WorkflowFilterFields";
 import { MANUAL, eventOf, guardOf, guardWords, localHookPath, mappingRows, mappingSuggestions, setGuard, setMapping, setStartEvent, strayMappings } from "./startForm.mjs";
 import { t } from "../../../i18n/l10n.mjs";
 
@@ -248,9 +254,9 @@ function HookFields({ step, on, host, listener, onChange, disabled }: { step: St
   );
 }
 
-/** The event's own fields, by event. */
-function EventFields({ step, inputs, host, listener, onChange, disabled }: { step: Start; inputs: InputDef[]; host: StartHost | null; listener: ListenerView | null; onChange: (next: StartOn) => void; disabled?: boolean }) {
-  const on = step.on;
+/** The event's own fields, by event. The event is read as the wire will carry it once the types are regenerated (`eventFilters.ts`). */
+function EventFields({ step, inputs, host, listener, onChange, disabled }: { step: Start; inputs: InputDef[]; host: StartHost | null; listener: ListenerView | null; onChange: (next: StartOnEx) => void; disabled?: boolean }) {
+  const on = step.on as StartOnEx;
   const listens = t("workflow-start-step-form-listening-inputs-hint");
   switch (on.event) {
     case "manual":
@@ -268,11 +274,17 @@ function EventFields({ step, inputs, host, listener, onChange, disabled }: { ste
     case "run":
       return <RunFilterFields value={on} disabled={disabled} onChange={onChange} />;
     case "platform":
-      return <PlatformFilterFields topic={on.topic} fields={on.fields} disabled={disabled} onChange={(next) => onChange({ ...on, ...next })} />;
+      return <PlatformFilterFields topic={on.topic} fields={on.fields} disabled={disabled} onChange={(next) => onChange({ ...on, ...next } as StartOnEx)} />;
     case "connector":
       return <ConnectorPollFields on={on} inputs={inputs} disabled={disabled} onChange={onChange} />;
     case "check":
       return <CheckFields on={on} inputs={inputs} disabled={disabled} onChange={onChange} />;
+    case "goal":
+      return <GoalFilterFields value={on} disabled={disabled} templateHint={listens} onChange={onChange} />;
+    case "workflow":
+      return <WorkflowFilterFields value={on} disabled={disabled} onChange={onChange} />;
+    case "agent":
+      return <AgentFilterFields value={on} inputs={inputs} disabled={disabled} onChange={onChange} />;
     default:
       return null;
   }
@@ -313,7 +325,7 @@ export function StartStepForm({
           ))}
         </Select>
       </Field>
-      <EventFields step={step} inputs={inputs} host={host} listener={listener} disabled={disabled} onChange={(on) => onChange({ ...step, on })} />
+      <EventFields step={step} inputs={inputs} host={host} listener={listener} disabled={disabled} onChange={(on) => onChange({ ...step, on: on as StartOn })} />
       {listener?.failed && (
         <p className="flex items-start gap-1.5 rounded-control border border-danger/40 bg-danger-soft px-2 py-1.5 text-2xs text-danger">
           <ICON.warn size={12} aria-hidden className="mt-0.5 shrink-0" />

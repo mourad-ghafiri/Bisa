@@ -57,6 +57,12 @@ export function blankStartOn(event) {
       return { event, connector: null, operation: null, every: DEFAULT_POLL_SECS };
     case "check":
       return { event, command: "", fire_on: "starts_failing", every: DEFAULT_POLL_SECS };
+    case "goal":
+      return { event, change: "closed" };
+    case "workflow":
+      return { event, change: "saved" };
+    case "agent":
+      return { event, change: "done" };
     default:
       throw new Error(`not a start event: ${event}`);
   }
@@ -100,13 +106,16 @@ export const PAYLOAD_FIELDS = Object.freeze({
   manual: [],
   schedule: ["at"],
   hook: [],
-  message: ["message", "scope", "author", "author_kind", "teams", "mentions", "text"],
+  message: ["message", "scope", "scope_kind", "author", "author_kind", "teams", "mentions", "text"],
   signal: [],
-  project: ["project", "slug", "change", "branch", "before", "after", "forced", "commits", "paths", "pull_request"],
-  run: ["run", "workflow", "outcome", "goal"],
+  project: ["project", "slug", "change", "branch", "before", "after", "forced", "commits", "paths", "pull_request", "action", "head", "remote", "workstream", "state"],
+  run: ["run", "workflow", "change", "outcome", "position", "start", "step", "state", "kind", "goal"],
   platform: ["event", "fields", "goal", "workflow", "run"],
   connector: ["id", "item"],
   check: ["exit_code", "passed", "output", "command"],
+  goal: ["goal", "change", "title", "status", "origin", "parent", "reason", "by", "project", "workflow", "revision", "gate", "gate_id", "question", "approve"],
+  workflow: ["workflow", "change", "name", "revision", "designed", "goal"],
+  agent: ["agent", "teams", "harness", "kind", "change", "state", "live_run", "project", "workstream", "goal", "run", "work_item", "scope", "message"],
 });
 
 /** A payload field as the template a mapping writes: `{event.payload.text}`. */
@@ -193,6 +202,17 @@ function refWords(v) {
   return v && typeof v === "object" && "input" in v ? `{inputs.${v.input}}` : String(v ?? "");
 }
 
+/** A field that takes one value or a list, as a list: nothing for none. */
+export function asList(v) {
+  if (v === undefined || v === null) return [];
+  return Array.isArray(v) ? v : [v];
+}
+
+/** A list of words joined as a summary says them. */
+function listWords(v, word = (x) => String(x)) {
+  return asList(v).map(word).join(" · ");
+}
+
 /** Seconds in words: an input by its placeholder, a fixed span as a person reads it. */
 function secsWords(v) {
   return v && typeof v === "object" && "input" in v ? `{inputs.${v.input}}` : duration(Number(v) || 0);
@@ -215,15 +235,24 @@ export function eventPhrase(on) {
     case "hook":
       return on.public ? t("workflow-start-form-called-from-outside") : t("workflow-start-form-when-called");
     case "message":
-      return on.in ? t("workflow-start-form-message-in", { scope: on.in }) : t("workflow-start-form-message");
+      return asList(on.in).length > 0 ? t("workflow-start-form-message-in", { scope: listWords(on.in) }) : t("workflow-start-form-message");
     case "signal":
       return on.name ? t("workflow-start-form-signal-named", { name: on.name }) : t("workflow-start-form-signal");
     case "project":
-      return t("workflow-start-form-project-change", { change: on.change ?? "commit" });
-    case "run":
-      return t("workflow-start-form-run-ends", { outcome: on.outcome ?? "any" });
+      return t("workflow-start-form-project-change", { change: listWords(on.change ?? "commit") });
+    case "run": {
+      const changes = asList(on.change ?? "ended");
+      if (changes.length === 1 && changes[0] === "ended") return t("workflow-start-form-run-ends", { outcome: on.outcome ? listWords(on.outcome) : "any" });
+      return t("workflow-start-form-run-moves", { change: listWords(changes) });
+    }
     case "platform":
-      return on.topic ? t("workflow-start-form-platform-topic", { topic: on.topic }) : t("workflow-start-form-platform");
+      return asList(on.topic).length > 0 && asList(on.topic).some((x) => x) ? t("workflow-start-form-platform-topic", { topic: listWords(on.topic) }) : t("workflow-start-form-platform");
+    case "goal":
+      return t("workflow-start-form-goal-moves", { change: listWords(on.change ?? "closed") });
+    case "workflow":
+      return t("workflow-start-form-workflow-moves", { change: listWords(on.change ?? "saved") });
+    case "agent":
+      return t("workflow-start-form-agent-moves", { change: listWords(on.change ?? "done") });
     case "connector":
       return on.connector && on.operation ? t("workflow-start-form-poll-call", { call: `${on.connector}.${on.operation}` }) : t("workflow-start-form-poll");
     case "check":
@@ -267,20 +296,30 @@ export function samplePayload(on, now = Math.floor(Date.now() / 1000)) {
       return { at: now };
     case "hook":
       return {};
-    case "message":
-      return { message: "", scope: fixed(on.in, ""), author: "", author_kind: on.from === "agents" ? "agent" : "you", teams: [], mentions: [], text: on.contains ?? "" };
+    case "message": {
+      const from = asList(on.from)[0] ?? "you";
+      return { message: "", scope: fixed(asList(on.in)[0], ""), scope_kind: asList(on.kind)[0] ?? "channel", author: "", author_kind: from === "agents" ? "agent" : from === "people" ? "person" : "you", teams: [], mentions: [], text: on.contains ?? "" };
+    }
     case "signal":
       return { ...(on.fields ?? {}) };
     case "project":
-      return { project: fixed(on.project, ""), slug: "", change: on.change ?? "commit", branch: fixed(on.branch, ""), before: "", after: "", forced: false, commits: [], paths: [], pull_request: null };
-    case "run":
-      return { run: "", workflow: fixed(on.workflow, ""), outcome: on.outcome ?? "failed", goal: null };
+      return { project: fixed(asList(on.project)[0], ""), slug: "", change: asList(on.change ?? "commit")[0], branch: fixed(asList(on.branch)[0], ""), before: "", after: "", forced: false, commits: [], paths: [], pull_request: null, action: null, head: null, remote: null, workstream: null, state: null };
+    case "run": {
+      const change = asList(on.change ?? "ended")[0];
+      return { run: "", workflow: fixed(asList(on.workflow)[0], ""), change, outcome: change === "ended" ? (asList(on.outcome)[0] ?? "failed") : null, position: null, start: null, step: change === "step" ? (asList(on.step)[0] ?? "") : null, state: change === "step" ? (asList(on.state)[0] ?? "failed") : null, kind: null, goal: fixed(asList(on.goal)[0], null) };
+    }
     case "platform":
-      return { event: on.topic ?? "", fields: { ...(on.fields ?? {}) }, goal: null, workflow: null, run: null };
+      return { event: asList(on.topic)[0] ?? "", fields: { ...(on.fields ?? {}) }, goal: null, workflow: null, run: null };
     case "connector":
       return { id: "", item: {} };
     case "check":
       return { exit_code: 1, passed: false, output: "", command: on.command ?? "" };
+    case "goal":
+      return { goal: fixed(asList(on.goal)[0], ""), change: asList(on.change ?? "closed")[0], title: "", status: "open", origin: null, parent: null, reason: null, by: null, project: null, workflow: null, revision: null, gate: null, gate_id: null, question: null, approve: null };
+    case "workflow":
+      return { workflow: fixed(asList(on.workflow)[0], ""), change: asList(on.change ?? "saved")[0], name: "", revision: null, designed: null, goal: null };
+    case "agent":
+      return { agent: fixed(asList(on.agent)[0], ""), teams: [], harness: fixed(asList(on.harness)[0], ""), kind: "worker", change: asList(on.change ?? "done")[0], state: asList(on.change ?? "done")[0], live_run: "", project: fixed(asList(on.project)[0], null), workstream: null, goal: null, run: null, work_item: null, scope: null, message: null };
     default:
       return {};
   }
@@ -302,9 +341,10 @@ export function startInputRefs(on) {
   if (!on) return out;
   ref(on.every);
   ref(on.cron);
-  ref(on.from);
-  ref(on.mentions);
-  ref(on.project);
+  for (const v of asList(on.from)) ref(v);
+  for (const v of asList(on.mentions)) ref(v);
+  for (const v of asList(on.project)) ref(v);
+  for (const v of asList(on.agent)) ref(v);
   ref(on.account);
   return [...new Set(out)];
 }
@@ -315,11 +355,14 @@ export function startTemplates(on) {
   const values = (m) => Object.values(m ?? {}).filter((v) => typeof v === "string");
   switch (on.event) {
     case "message":
-      return [on.in, on.contains].filter((v) => typeof v === "string");
+      return [...asList(on.in), on.contains].filter((v) => typeof v === "string");
     case "signal":
       return [on.name, ...values(on.fields)].filter((v) => typeof v === "string");
     case "project":
-      return [on.branch, on.glob].filter((v) => typeof v === "string");
+      return [...asList(on.branch), ...asList(on.glob)].filter((v) => typeof v === "string");
+    case "run":
+    case "goal":
+      return asList(on.goal).filter((v) => typeof v === "string");
     case "platform":
       return values(on.fields);
     case "connector":

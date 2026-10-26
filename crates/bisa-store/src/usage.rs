@@ -16,8 +16,8 @@ use crate::error::StoreError;
 use crate::governance::GatePolicy;
 use crate::workspace::Workspace;
 use bisa_core::{
-    AgentId, Assignee, BoundaryAct, BoundaryOn, Gate, StartOn, Step, StepKind, ValueRef, WaitFor,
-    Workflow, WorkflowId,
+    AgentId, Assignee, BoundaryAct, BoundaryOn, Gate, OneOrMany, StartOn, Step, StepKind, ValueRef,
+    WaitFor, Workflow, WorkflowId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -284,12 +284,24 @@ fn step_conversations(step: &Step) -> Vec<&str> {
         }
         | StepKind::Wait {
             until: WaitFor::Message { filter },
-        } => out.extend(filter.r#in.as_deref()),
+        } => out.extend(
+            filter
+                .r#in
+                .iter()
+                .flat_map(OneOrMany::iter)
+                .map(String::as_str),
+        ),
         _ => {}
     }
     for b in &step.boundaries {
         if let BoundaryOn::Message { filter } = &b.on {
-            out.extend(filter.r#in.as_deref());
+            out.extend(
+                filter
+                    .r#in
+                    .iter()
+                    .flat_map(OneOrMany::iter)
+                    .map(String::as_str),
+            );
         }
         if let BoundaryAct::Notify {
             scope: Some(target),
@@ -316,7 +328,10 @@ fn workflow_spawns(wf: &Workflow, target: WorkflowId) -> bool {
         .any(|s| matches!(&s.kind, StepKind::Spawn { workflow: Some(w), .. } if *w == target))
 }
 
-/// Does a start or a wait of this workflow hear the runs of `target` end?
+/// Does a start or a wait of this workflow hear the runs of `target` move —
+/// one of a list among them? A `workflow` start that names `target` is not
+/// a reference: it hears the definition's own life, its deletion included,
+/// and must never refuse it.
 fn workflow_hears_runs_of(wf: &Workflow, target: WorkflowId) -> bool {
     wf.steps.iter().any(|s| match &s.kind {
         StepKind::Start {
@@ -325,7 +340,7 @@ fn workflow_hears_runs_of(wf: &Workflow, target: WorkflowId) -> bool {
         }
         | StepKind::Wait {
             until: WaitFor::Run { filter },
-        } => filter.workflow == Some(target),
+        } => filter.workflow.as_ref().is_some_and(|w| w.has(&target)),
         _ => false,
     })
 }
@@ -665,8 +680,9 @@ mod tests {
             start(
                 StartOn::Run {
                     filter: RunFilter {
-                        workflow: Some(other),
+                        workflow: Some(other.into()),
                         outcome: None,
+                        ..RunFilter::default()
                     },
                 },
                 &["end"],
@@ -683,7 +699,8 @@ mod tests {
                         r#in: Some("support".into()),
                         from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent(
                             "triager".into(),
-                        ))),
+                        )))
+                        .into(),
                         ..MessageFilter::default()
                     },
                 },
@@ -802,8 +819,9 @@ mod tests {
                     StepKind::Wait {
                         until: WaitFor::Run {
                             filter: RunFilter {
-                                workflow: Some(other),
+                                workflow: Some(other.into()),
                                 outcome: None,
+                                ..RunFilter::default()
                             },
                         },
                     },

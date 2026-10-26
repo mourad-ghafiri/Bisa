@@ -1868,8 +1868,9 @@ fn open_adopt_gate(
 /// Whether an auto goal may adopt its proposal without a person: its inputs
 /// bind on their defaults, it has not failed past `goals.auto.repair_limit`
 /// in a row, and every event it would listen for is one nobody needs to see
-/// armed — a schedule, a signal, a run's end, a platform topic, a message. A
-/// hook, a check, a poll or a project start is a person's to arm. The reason
+/// armed — a schedule, a signal, a run's move, a platform topic, a message, a
+/// goal's, a workflow's or an agent's move. A hook, a check, a poll or a
+/// project start is a person's to arm. The reason
 /// it may not is what the Adopt gate then says.
 ///
 /// What is judged is `proposal` — the workflow being adopted — never the

@@ -67,6 +67,9 @@ impl Armed {
             StartOn::Project { filter } => filter.hears(heard),
             StartOn::Run { filter } => filter.hears(heard),
             StartOn::Platform { filter } => filter.hears(heard),
+            StartOn::Goal { filter } => filter.hears(heard),
+            StartOn::Workflow { filter } => filter.hears(heard),
+            StartOn::Agent { filter } => filter.hears(heard),
             StartOn::Manual
             | StartOn::Schedule { .. }
             | StartOn::Hook { .. }
@@ -107,7 +110,7 @@ impl Registry {
         self.armed.iter().any(|a| {
             matches!(
                 &a.on,
-                StartOn::Platform { filter } if filter.topic == topic
+                StartOn::Platform { filter } if filter.topics().any(|t| t == topic)
             )
         })
     }
@@ -264,12 +267,41 @@ pub fn runtime_of(inner: &Inner, armed: &Armed) -> ListenerRuntime {
     if rt.armed.as_deref() == Some(armed.digest.as_str()) {
         return rt;
     }
-    ListenerRuntime {
+    // What a person's start already paced survives a change of the start,
+    // and so does what was seen of each project the start still names: the
+    // memory is the project's, not the start's, so editing a list is not a
+    // fresh first look at every project. A record from before the per-project
+    // map, naming one project, carries its flat memory over the same way.
+    let projects = match &armed.on {
+        StartOn::Project { filter } => {
+            let ids = filter.project_ids();
+            let mut kept: BTreeMap<_, _> = rt
+                .projects
+                .iter()
+                .filter(|(p, _)| ids.contains(p))
+                .map(|(p, m)| (*p, m.clone()))
+                .collect();
+            if kept.is_empty() && rt.projects.is_empty() {
+                if let [only] = ids.as_slice() {
+                    let flat = rt.project_memory(*only);
+                    if flat != bisa_store::ProjectMemory::default() {
+                        kept.insert(*only, flat);
+                    }
+                }
+            }
+            kept
+        }
+        _ => BTreeMap::new(),
+    };
+    let mut fresh = ListenerRuntime {
         armed: Some(armed.digest.clone()),
-        // What a person's start already paced survives a change of the start.
         last_dispatch_at: rt.last_dispatch_at,
         ..ListenerRuntime::default()
+    };
+    for (project, memory) in projects {
+        fresh.remember_project(project, memory);
     }
+    fresh
 }
 
 /// Keep a listener's memory, said when it cannot be. What is wrong with the

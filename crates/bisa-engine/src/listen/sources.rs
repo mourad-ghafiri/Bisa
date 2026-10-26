@@ -79,7 +79,10 @@ pub async fn tick(inner: &Arc<Inner>, now: u64) {
             | StartOn::Signal { .. }
             | StartOn::Project { .. }
             | StartOn::Run { .. }
-            | StartOn::Platform { .. } => {}
+            | StartOn::Platform { .. }
+            | StartOn::Goal { .. }
+            | StartOn::Workflow { .. }
+            | StartOn::Agent { .. } => {}
         }
     }
     projects(inner, &registry.armed, now).await;
@@ -452,7 +455,30 @@ impl Needs {
                 prs: true,
                 ..Needs::default()
             },
+            ProjectChange::Branch => Needs {
+                heads: true,
+                ..Needs::default()
+            },
+            ProjectChange::Pull => Needs {
+                heads: true,
+                remotes: true,
+                ..Needs::default()
+            },
+            // Heard from the bus: nothing to look at.
+            ProjectChange::Workstream => Needs::default(),
         }
+    }
+
+    /// Everything a filter's changes need of a look, together.
+    fn of_filter(filter: &ProjectFilter) -> Needs {
+        filter.changes().fold(Needs::default(), |needs, change| {
+            needs.with(Needs::of(change))
+        })
+    }
+
+    /// Nothing to look at: every change named is heard from the bus.
+    fn is_none(self) -> bool {
+        self == Needs::default()
     }
 
     fn with(self, other: Needs) -> Needs {
@@ -490,9 +516,9 @@ async fn projects(inner: &Arc<Inner>, listeners: &[Armed], now: u64) {
     let mut wanted: BTreeMap<ProjectId, Needs> = BTreeMap::new();
     for listener in listeners {
         if let StartOn::Project { filter } = &listener.on {
-            if let Some(p) = filter.project_id() {
+            for p in filter.project_ids() {
                 let needs = wanted.entry(p).or_default();
-                *needs = needs.with(Needs::of(filter.change));
+                *needs = needs.with(Needs::of_filter(filter));
             }
         }
     }
@@ -508,6 +534,9 @@ async fn projects(inner: &Arc<Inner>, listeners: &[Armed], now: u64) {
         .prs_due
         .swap(false, std::sync::atomic::Ordering::Relaxed);
     for (project, needs) in wanted {
+        if needs.is_none() {
+            continue;
+        }
         let Ok(record) = inner.ws.get_project(project) else {
             continue; // LCOV_EXCL_LINE a project deleted under its listener; a race
         };
@@ -525,7 +554,7 @@ async fn projects(inner: &Arc<Inner>, listeners: &[Armed], now: u64) {
             let StartOn::Project { filter } = &listener.on else {
                 continue;
             };
-            if filter.project_id() != Some(project) {
+            if !filter.project_ids().contains(&project) {
                 continue;
             }
             project_listener(inner, listener, filter, &record, &view).await;
@@ -713,6 +742,39 @@ fn moved(
         .collect()
 }
 
+/// The refs under `prefix` that went between `before` and `now`, with the
+/// commit each last stood on.
+fn gone(
+    before: &BTreeMap<String, String>,
+    now: &BTreeMap<String, String>,
+    prefix: &str,
+) -> Vec<(String, String)> {
+    before
+        .iter()
+        .filter(|(r, _)| r.starts_with(prefix) && !now.contains_key(*r))
+        .map(|(r, sha)| (r.clone(), sha.clone()))
+        .collect()
+}
+
+/// The remote whose tracking branch of the same name already stood on `to`
+/// before this look — a head that moved there caught up with it: a pull,
+/// never a commit of this machine's own. A fetch and a merge landing inside
+/// one look read as a push and a commit alone.
+fn caught_up(before: &BTreeMap<String, String>, branch: &str, to: &str) -> Option<String> {
+    let suffix = format!("/{branch}");
+    before
+        .iter()
+        .filter(|(r, sha)| {
+            r.starts_with("refs/remotes/") && r.ends_with(&suffix) && sha.as_str() == to
+        })
+        .map(|(r, _)| {
+            r.trim_start_matches("refs/remotes/")
+                .trim_end_matches(&suffix)
+                .to_string()
+        })
+        .next()
+}
+
 /// The paths whose status or mtime changed between two looks — appeared,
 /// changed or went.
 fn changed_files(before: &BTreeMap<String, String>, now: &BTreeMap<String, String>) -> Vec<String> {
@@ -812,7 +874,46 @@ async fn changes(
             let chain = super::run_of_commit(inner, &to)
                 .map(|run| super::chain_of_run(inner, run))
                 .unwrap_or_default();
-            out.push((heard(payload, chain), format!("commit:{branch}@{to}")));
+            out.push((
+                heard(payload, chain.clone()),
+                format!("commit:{branch}@{to}"),
+            ));
+            // A head that was not there before is a branch made — and a
+            // commit still, as it always read.
+            if from.is_none() {
+                let mut payload = base("branch");
+                payload["branch"] = json!(branch);
+                payload["action"] = json!("created");
+                payload["head"] = json!(to);
+                out.push((
+                    heard(payload, chain.clone()),
+                    format!("branch:{branch}:created@{to}"),
+                ));
+            }
+            // A head that moved to where its remote-tracking branch already
+            // stood caught up with it: a pull.
+            if let Some(remote) = caught_up(before, &branch, &to) {
+                let mut payload = base("pull");
+                payload["remote"] = json!(remote);
+                payload["branch"] = json!(branch);
+                payload["before"] = json!(from);
+                payload["after"] = json!(to);
+                payload["forced"] = json!(forced);
+                payload["commits"] = json!(commits);
+                payload["paths"] = json!(paths);
+                out.push((heard(payload, chain), format!("pull:{branch}@{to}")));
+            }
+        }
+        for (r, last) in gone(before, &view.refs, "refs/heads/") {
+            let branch = r.trim_start_matches("refs/heads/").to_string();
+            let mut payload = base("branch");
+            payload["branch"] = json!(branch);
+            payload["action"] = json!("deleted");
+            payload["head"] = json!(last);
+            out.push((
+                heard(payload, bisa_core::Chain::default()),
+                format!("branch:{branch}:deleted@{last}"),
+            ));
         }
         for (r, from, to) in moved(before, &view.refs, "refs/remotes/") {
             let rest = r.trim_start_matches("refs/remotes/");
@@ -887,10 +988,13 @@ async fn project_listener(
     view: &ProjectView,
 ) {
     let mut rt = runtime_of(inner, listener);
-    let wants = Needs::of(filter.change);
-    let refs_before = rt.heads.clone();
-    let files_before = rt.files.clone();
-    let prs_before = rt.pr_states.clone();
+    let wants = Needs::of_filter(filter);
+    // One memory per project: a list of projects never reads one project's
+    // refs as another's.
+    let mut memory = rt.project_memory(project.id);
+    let refs_before = memory.heads.clone();
+    let files_before = memory.files.clone();
+    let prs_before = memory.pr_states.clone();
     let found = changes(
         inner,
         project,
@@ -912,20 +1016,21 @@ async fn project_listener(
     // crash between the two sees the same changes again and their dedupe keys
     // make them the same signals.
     if wants.heads || wants.remotes {
-        rt.heads = Some(view.refs.clone());
+        memory.heads = Some(view.refs.clone());
     }
     if wants.files {
-        rt.files = view.files.clone().or(rt.files);
+        memory.files = view.files.clone().or(memory.files);
     }
     if wants.prs {
         if let Some(prs) = &view.prs {
-            rt.pr_states = Some(
+            memory.pr_states = Some(
                 prs.iter()
                     .map(|(n, pr)| (n.clone(), pr.state.clone()))
                     .collect(),
             );
         } // LCOV_EXCL_LINE the other edge of the branch; by construction
     }
+    rt.remember_project(project.id, memory);
     put_runtime(inner, &listener.key, &rt);
 }
 
@@ -998,6 +1103,44 @@ mod tests {
     }
 
     #[test]
+    fn a_ref_that_went_is_a_branch_deleted_and_a_head_on_its_remotes_old_tip_is_a_pull() {
+        let before = refs(&[
+            ("refs/heads/main", "a1"),
+            ("refs/heads/feature", "f1"),
+            ("refs/remotes/origin/main", "a2"),
+            ("refs/remotes/origin/other", "o1"),
+        ]);
+        let now = refs(&[
+            ("refs/heads/main", "a2"),
+            ("refs/remotes/origin/main", "a2"),
+        ]);
+        assert_eq!(
+            gone(&before, &now, "refs/heads/"),
+            vec![("refs/heads/feature".to_string(), "f1".to_string())]
+        );
+        assert_eq!(
+            gone(&before, &now, "refs/remotes/"),
+            vec![("refs/remotes/origin/other".to_string(), "o1".to_string())]
+        );
+        assert_eq!(caught_up(&before, "main", "a2").as_deref(), Some("origin"));
+        assert_eq!(
+            caught_up(&before, "main", "a3"),
+            None,
+            "a tip the remote did not already hold is this machine's own commit"
+        );
+        assert_eq!(
+            caught_up(&before, "main", "o1"),
+            None,
+            "another branch's remote tip is not main's"
+        );
+        assert_eq!(
+            caught_up(&before, "feature", "f1"),
+            None,
+            "no remote of that name"
+        );
+    }
+
+    #[test]
     fn a_file_that_appeared_changed_or_went_is_a_change() {
         let before = refs(&[("a.csv", "1"), ("b.csv", "1"), ("gone.csv", "1")]);
         let now = refs(&[("a.csv", "1"), ("b.csv", "2"), ("new.csv", "1")]);
@@ -1046,6 +1189,19 @@ mod tests {
         assert!(Needs::of(ProjectChange::Merge).prs);
         let both = Needs::of(ProjectChange::Commit).with(Needs::of(ProjectChange::Files));
         assert!(both.heads && both.files && !both.prs);
+        assert!(Needs::of(ProjectChange::Branch).heads);
+        let pull = Needs::of(ProjectChange::Pull);
+        assert!(pull.heads && pull.remotes);
+        assert!(
+            Needs::of(ProjectChange::Workstream).is_none(),
+            "heard from the bus"
+        );
+        let filter = ProjectFilter {
+            change: vec![ProjectChange::Workstream, ProjectChange::Push].into(),
+            ..ProjectFilter::default()
+        };
+        let needs = Needs::of_filter(&filter);
+        assert!(needs.remotes && !needs.heads && !needs.is_none());
     }
 
     #[test]

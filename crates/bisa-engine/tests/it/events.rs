@@ -1701,10 +1701,11 @@ fn listening_for_messages(
                 "said",
                 StartOn::Message {
                     filter: MessageFilter {
-                        r#in: Some(bisa_core::ChannelId::general().to_string()),
-                        from,
+                        r#in: Some(bisa_core::ChannelId::general().to_string().into()),
+                        from: from.into(),
                         mentions: None,
                         contains: Some("deploy".into()),
+                        ..MessageFilter::default()
                     },
                 },
                 &[("text", "{event.payload.text}")],
@@ -2122,10 +2123,11 @@ async fn a_start_that_is_no_signals_drops_what_comes_over_its_rate_and_says_so_o
                     "said",
                     StartOn::Message {
                         filter: MessageFilter {
-                            r#in: Some(general.clone()),
-                            from: MessageFrom::You,
+                            r#in: Some(general.clone().into()),
+                            from: MessageFrom::You.into(),
                             mentions: None,
                             contains: Some("that is all".into()),
+                            ..MessageFilter::default()
                         },
                     },
                     "hold",
@@ -2314,8 +2316,9 @@ async fn a_run_that_failed_starts_a_run_start() {
                 "failed",
                 StartOn::Run {
                     filter: RunFilter {
-                        workflow: Some(failing.id),
-                        outcome: Some(RunEnd::Failed),
+                        workflow: Some(failing.id.into()),
+                        outcome: Some(RunEnd::Failed.into()),
+                        ..RunFilter::default()
                     },
                 },
                 &[("run", "{event.payload.run}")],
@@ -3329,8 +3332,8 @@ fn on_project(name: &str, project: &bisa_core::Project, change: ProjectChange) -
                 "changed",
                 StartOn::Project {
                     filter: ProjectFilter {
-                        project: Some(ValueRef::Fixed(project.id)),
-                        change,
+                        project: Some(ValueRef::Fixed(project.id).into()),
+                        change: change.into(),
                         branch: None,
                         glob: None,
                     },
@@ -4304,9 +4307,10 @@ async fn a_message_in_a_goals_thread_is_heard_in_its_scope_with_its_mentions() {
                 StartOn::Message {
                     filter: MessageFilter {
                         r#in: None,
-                        from: MessageFrom::You,
+                        from: MessageFrom::You.into(),
                         mentions: None,
                         contains: Some("ship".into()),
+                        ..MessageFilter::default()
                     },
                 },
                 &[("text", "{event.payload.text}")],
@@ -4485,8 +4489,8 @@ async fn a_wait_on_a_managed_projects_files_hears_the_next_matching_change() {
                 StepKind::Wait {
                     until: WaitFor::Project {
                         filter: ProjectFilter {
-                            project: Some(ValueRef::Fixed(project.id)),
-                            change: ProjectChange::Files,
+                            project: Some(ValueRef::Fixed(project.id).into()),
+                            change: ProjectChange::Files.into(),
                             branch: None,
                             glob: Some("*.md".into()),
                         },
@@ -4819,5 +4823,267 @@ async fn a_goal_pointed_elsewhere_listens_as_its_new_workflow_does() {
         Err(HookRefusal::NotListening(host.to_string()))
     );
     assert!(engine.armed_listeners().get(&order).is_none());
+    engine.shutdown().await;
+}
+
+/// A project start naming two projects and two changes hears each project's
+/// commit and a branch made or deleted in either — with one memory per
+/// project, so a tick in which nothing moved fires nothing, and a branch
+/// that appeared is a commit with no `before` as it always read, and a
+/// branch made besides.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_start_on_two_projects_hears_each_and_a_branch_made_or_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (api, api_root) = repository(&engine, "api").await;
+    let (web, web_root) = repository(&engine, "web").await;
+    let mut draft = on_project("on either", &api, ProjectChange::Commit);
+    if let StepKind::Start {
+        on: StartOn::Project { filter },
+        ..
+    } = &mut draft.steps[0].kind
+    {
+        filter.project = Some(vec![ValueRef::Fixed(api.id), ValueRef::Fixed(web.id)].into());
+        filter.change = vec![ProjectChange::Commit, ProjectChange::Branch].into();
+    }
+    let (_, host) = library(&engine, draft);
+    turn_on(&engine, host);
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    assert!(
+        signals(&engine, &host).is_empty(),
+        "the first look learns both"
+    );
+    engine.tick_listeners_at(t0 + 5).await;
+    assert!(
+        signals(&engine, &host).is_empty(),
+        "nothing moved: one memory per project, never one project's refs read as the other's"
+    );
+
+    let in_api = commit(&api_root, "a.rs", "fn a() {}\n", "api commit");
+    engine.tick_listeners_at(t0 + 10).await;
+    let queued = signals(&engine, &host);
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert_eq!(
+        queued[0].signal.payload["project"],
+        json!(api.id.to_string())
+    );
+    assert_eq!(queued[0].signal.payload["slug"], json!("api"));
+    assert_eq!(queued[0].signal.payload["after"], json!(in_api));
+    let in_web = commit(&web_root, "w.rs", "fn w() {}\n", "web commit");
+    engine.tick_listeners_at(t0 + 15).await;
+    let queued = signals(&engine, &host);
+    assert_eq!(queued.len(), 2, "{queued:?}");
+    assert_eq!(
+        queued[1].signal.payload["project"],
+        json!(web.id.to_string())
+    );
+    assert_eq!(queued[1].signal.payload["after"], json!(in_web));
+    engine.tick_listeners_at(t0 + 20).await;
+    engine.tick_listeners_at(t0 + 25).await;
+    assert_eq!(signals(&engine, &host).len(), 2, "two quiet ticks: nothing");
+
+    raw_git(&api_root, &["branch", "feature"]);
+    engine.tick_listeners_at(t0 + 30).await;
+    let queued = signals(&engine, &host);
+    let made: Vec<_> = queued
+        .iter()
+        .filter(|q| q.signal.payload["change"] == json!("branch"))
+        .collect();
+    assert_eq!(made.len(), 1, "{queued:?}");
+    assert_eq!(made[0].signal.payload["project"], json!(api.id.to_string()));
+    assert_eq!(made[0].signal.payload["branch"], json!("feature"));
+    assert_eq!(made[0].signal.payload["action"], json!("created"));
+    assert_eq!(made[0].signal.payload["head"], json!(in_api));
+    assert_eq!(
+        made[0].signal.dedupe_key,
+        Some(format!("branch:feature:created@{in_api}"))
+    );
+    let appeared: Vec<_> = queued
+        .iter()
+        .filter(|q| {
+            q.signal.payload["change"] == json!("commit")
+                && q.signal.payload["branch"] == json!("feature")
+        })
+        .collect();
+    assert_eq!(appeared.len(), 1, "a branch that appeared is a commit too");
+    assert_eq!(appeared[0].signal.payload["before"], json!(null));
+
+    raw_git(&api_root, &["branch", "-D", "feature"]);
+    engine.tick_listeners_at(t0 + 35).await;
+    let queued = signals(&engine, &host);
+    let deleted: Vec<_> = queued
+        .iter()
+        .filter(|q| q.signal.payload["action"] == json!("deleted"))
+        .collect();
+    assert_eq!(deleted.len(), 1, "{queued:?}");
+    assert_eq!(deleted[0].signal.payload["branch"], json!("feature"));
+    assert_eq!(deleted[0].signal.payload["head"], json!(in_api));
+    assert_eq!(
+        deleted[0].signal.dedupe_key,
+        Some(format!("branch:feature:deleted@{in_api}"))
+    );
+    engine.tick_listeners_at(t0 + 40).await;
+    assert_eq!(signals(&engine, &host).len(), queued.len(), "quiet again");
+    engine.shutdown().await;
+}
+
+/// Editing a project start keeps what was seen of each project it still
+/// names: the memory is the project's, not the start's, so a changed list is
+/// no silent first look — the next commit is heard. A record from before the
+/// per-project memory, naming one project, carries its flat memory over the
+/// same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn editing_a_project_start_keeps_what_was_seen_of_the_projects_it_still_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let (api, api_root) = repository(&engine, "api").await;
+    let (web, web_root) = repository(&engine, "web").await;
+    let baseline = raw_git(&api_root, &["rev-parse", "HEAD"]);
+    let (wf, host) = library(&engine, on_project("on api", &api, ProjectChange::Commit));
+    turn_on(&engine, host);
+    let listener = key(host, "changed");
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    assert!(signals(&engine, &host).is_empty(), "the first look learns");
+
+    // A record from before the per-project memory: the flat fields alone,
+    // under the digest of some earlier start. Naming one project, the
+    // start reads them as that project's — no first look again.
+    let mut before = ws.listener_runtime(&listener);
+    assert_eq!(before.projects.len(), 1);
+    assert!(
+        before.heads.is_some(),
+        "the flat fields mirror the one project"
+    );
+    before.projects.clear();
+    before.armed = Some("from before".into());
+    ws.put_listener_runtime(&listener, &before).unwrap();
+    let first = commit(&api_root, "a.rs", "fn a() {}\n", "api commit");
+    engine.tick_listeners_at(t0 + 5).await;
+    let queued = signals(&engine, &host);
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert_eq!(queued[0].signal.payload["before"], json!(baseline));
+    assert_eq!(queued[0].signal.payload["after"], json!(first));
+    assert_eq!(ws.listener_runtime(&listener).projects.len(), 1);
+
+    // The start grows a second project: api's memory survives the edit,
+    // and web's begins with the next look.
+    let mut draft = on_project("on api and web", &api, ProjectChange::Commit);
+    if let StepKind::Start {
+        on: StartOn::Project { filter },
+        ..
+    } = &mut draft.steps[0].kind
+    {
+        filter.project = Some(vec![ValueRef::Fixed(api.id), ValueRef::Fixed(web.id)].into());
+    }
+    let (_, problems) = engine.save_workflow(wf.id, draft, wf.revision).unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    let second = commit(&api_root, "b.rs", "fn b() {}\n", "api again");
+    engine.tick_listeners_at(t0 + 10).await;
+    let queued = signals(&engine, &host);
+    assert_eq!(
+        queued.len(),
+        2,
+        "api's memory survived the edit — no silent first look: {queued:?}"
+    );
+    assert_eq!(queued[1].signal.payload["before"], json!(first));
+    assert_eq!(queued[1].signal.payload["after"], json!(second));
+    let rt = ws.listener_runtime(&listener);
+    assert_eq!(rt.projects.len(), 2, "both remembered: {rt:?}");
+    let in_web = commit(&web_root, "w.rs", "fn w() {}\n", "web commit");
+    engine.tick_listeners_at(t0 + 15).await;
+    let queued = signals(&engine, &host);
+    assert_eq!(queued.len(), 3, "{queued:?}");
+    assert_eq!(
+        queued[2].signal.payload["project"],
+        json!(web.id.to_string())
+    );
+    assert_eq!(queued[2].signal.payload["after"], json!(in_web));
+    engine.shutdown().await;
+}
+
+/// A pull — a local branch caught up with its remote-tracking branch — is
+/// its own change: the remote already held the tip on an earlier look. A
+/// fetch and a merge landing inside one look read as a push and a commit
+/// alone, as they always did, and this machine's own commit is no pull.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pull_is_a_head_that_caught_up_with_its_remote() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let (project, root) = repository(&engine, "storefront").await;
+    let branch = raw_git(&root, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    raw_git(dir.path(), &["init", "--quiet", "--bare", "origin.git"]);
+    let origin = dir.path().join("origin.git");
+    raw_git(
+        &root,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
+    raw_git(&root, &["push", "--quiet", "-u", "origin", &branch]);
+    // Somebody else's clone, where the commits come from.
+    raw_git(
+        dir.path(),
+        &["clone", "--quiet", origin.to_str().unwrap(), "theirs"],
+    );
+    let theirs = dir.path().join("theirs");
+    raw_git(&theirs, &["config", "user.name", "Someone Else"]);
+    raw_git(&theirs, &["config", "user.email", "else@example.invalid"]);
+    let (_, host) = library(
+        &engine,
+        on_project("on a pull", &project, ProjectChange::Pull),
+    );
+    turn_on(&engine, host);
+    let t0 = now();
+    engine.tick_listeners_at(t0).await;
+    assert!(signals(&engine, &host).is_empty(), "the first look learns");
+
+    // Fetched and merged inside one look: a push and a commit, no pull.
+    let first = commit(&theirs, "a.rs", "fn a() {}\n", "theirs 1");
+    raw_git(&theirs, &["push", "--quiet", "origin", &branch]);
+    raw_git(&root, &["pull", "--quiet", "--ff-only", "origin", &branch]);
+    assert_eq!(raw_git(&root, &["rev-parse", "HEAD"]), first);
+    engine.tick_listeners_at(t0 + 5).await;
+    assert!(
+        signals(&engine, &host).is_empty(),
+        "a fetch and a merge inside one look: no pull"
+    );
+
+    // Fetched on one look, merged by the next: the head caught up with what
+    // the remote already held — a pull.
+    let second = commit(&theirs, "b.rs", "fn b() {}\n", "theirs 2");
+    raw_git(&theirs, &["push", "--quiet", "origin", &branch]);
+    raw_git(&root, &["fetch", "--quiet", "origin"]);
+    engine.tick_listeners_at(t0 + 10).await;
+    assert!(
+        signals(&engine, &host).is_empty(),
+        "a fetch alone moves no head"
+    );
+    raw_git(
+        &root,
+        &["merge", "--quiet", "--ff-only", &format!("origin/{branch}")],
+    );
+    engine.tick_listeners_at(t0 + 15).await;
+    let queued = signals(&engine, &host);
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    let pulled = &queued[0].signal;
+    assert_eq!(pulled.source, SignalSource::Project);
+    assert_eq!(pulled.payload["change"], json!("pull"));
+    assert_eq!(pulled.payload["remote"], json!("origin"));
+    assert_eq!(pulled.payload["branch"], json!(branch));
+    assert_eq!(pulled.payload["before"], json!(first));
+    assert_eq!(pulled.payload["after"], json!(second));
+    assert_eq!(pulled.payload["forced"], json!(false));
+    assert_eq!(pulled.payload["commits"][0]["subject"], json!("theirs 2"));
+    assert_eq!(pulled.payload["paths"], json!(["b.rs"]));
+    assert_eq!(pulled.dedupe_key, Some(format!("pull:{branch}@{second}")));
+
+    commit(&root, "c.rs", "fn c() {}\n", "mine");
+    engine.tick_listeners_at(t0 + 20).await;
+    assert_eq!(
+        signals(&engine, &host).len(),
+        1,
+        "this machine's own commit is no pull"
+    );
     engine.shutdown().await;
 }

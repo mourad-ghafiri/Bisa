@@ -301,11 +301,14 @@ pub enum SignalSource {
     Platform,
     Connector,
     Check,
+    Goal,
+    Workflow,
+    Agent,
     Test,
 }
 
 impl SignalSource {
-    pub const NAMES: [&'static str; 10] = [
+    pub const NAMES: [&'static str; 13] = [
         "schedule",
         "hook",
         "message",
@@ -315,6 +318,9 @@ impl SignalSource {
         "platform",
         "connector",
         "check",
+        "goal",
+        "workflow",
+        "agent",
         "test",
     ];
 
@@ -329,6 +335,9 @@ impl SignalSource {
             SignalSource::Platform => "platform",
             SignalSource::Connector => "connector",
             SignalSource::Check => "check",
+            SignalSource::Goal => "goal",
+            SignalSource::Workflow => "workflow",
+            SignalSource::Agent => "agent",
             SignalSource::Test => "test",
         }
     }
@@ -344,6 +353,9 @@ impl SignalSource {
             "platform" => SignalSource::Platform,
             "connector" => SignalSource::Connector,
             "check" => SignalSource::Check,
+            "goal" => SignalSource::Goal,
+            "workflow" => SignalSource::Workflow,
+            "agent" => SignalSource::Agent,
             "test" => SignalSource::Test,
             _ => return None,
         })
@@ -477,29 +489,215 @@ fn text_contains(haystack: Option<&serde_json::Value>, needle: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// One or many
+// ---------------------------------------------------------------------------
+
+/// One value or a list of them, as a filter field takes it: `project = "…"`
+/// or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit",
+/// "push"]`. A field that takes it hears **any** of the list, each entry
+/// matched exactly as a single value is. A single value reads as `One` and
+/// writes as the bare value, so a definition written before lists existed
+/// reads and re-serializes as it was; a list writes as a list, as written.
+/// An empty list is refused by name on a required field — a filter that
+/// hears nothing is a mistake its author should see — and reads as absent
+/// on an optional one ([`none_when_empty`]), which is how a designer clears
+/// it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+#[schemars(rename = "{T}OrMany")]
+pub enum OneOrMany<T> {
+    One(T),
+    Many(Vec<T>),
+}
+
+impl<T> OneOrMany<T> {
+    /// Every entry, a single value being one.
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        match self {
+            OneOrMany::One(one) => std::slice::from_ref(one).iter(),
+            OneOrMany::Many(many) => many.iter(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.iter().len()
+    }
+
+    /// Only a list built empty in code: the reader refuses one.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn first(&self) -> Option<&T> {
+        self.iter().next()
+    }
+
+    /// Whether any entry is `want`.
+    pub fn has(&self, want: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        self.iter().any(|t| t == want)
+    }
+
+    /// The same shape with every entry mapped, the first failure answered.
+    pub fn try_map<U, E>(&self, mut f: impl FnMut(&T) -> Result<U, E>) -> Result<OneOrMany<U>, E> {
+        Ok(match self {
+            OneOrMany::One(one) => OneOrMany::One(f(one)?),
+            OneOrMany::Many(many) => OneOrMany::Many(many.iter().map(f).collect::<Result<_, E>>()?),
+        })
+    }
+
+    /// The entries in words, joined — what a summary says of a list.
+    pub fn words(&self, word: impl Fn(&T) -> String) -> String {
+        self.iter().map(word).collect::<Vec<_>>().join(" · ")
+    }
+}
+
+impl<T: Default> Default for OneOrMany<T> {
+    fn default() -> Self {
+        OneOrMany::One(T::default())
+    }
+}
+
+impl<T> From<T> for OneOrMany<T> {
+    fn from(one: T) -> Self {
+        OneOrMany::One(one)
+    }
+}
+
+impl From<&str> for OneOrMany<String> {
+    fn from(one: &str) -> Self {
+        OneOrMany::One(one.to_string())
+    }
+}
+
+impl<T> From<Vec<T>> for OneOrMany<T> {
+    fn from(many: Vec<T>) -> Self {
+        OneOrMany::Many(many)
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for OneOrMany<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        match serde_json::Value::deserialize(d)? {
+            serde_json::Value::Array(items) => {
+                if items.is_empty() {
+                    return Err(D::Error::custom("a list needs at least one entry"));
+                }
+                items
+                    .into_iter()
+                    .map(|item| T::deserialize(item).map_err(D::Error::custom))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(OneOrMany::Many)
+            }
+            one => T::deserialize(one)
+                .map(OneOrMany::One)
+                .map_err(D::Error::custom),
+        }
+    }
+}
+
+/// An optional list field: absent, `null` and `[]` all read as nothing —
+/// the designer clears a list by emptying it — while a value or a list with
+/// entries reads as [`OneOrMany`] does.
+pub fn none_when_empty<'de, D, T>(d: D) -> Result<Option<OneOrMany<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Array(items) if items.is_empty() => Ok(None),
+        raw => OneOrMany::<T>::deserialize(raw)
+            .map(Some)
+            .map_err(D::Error::custom),
+    }
+}
+
+/// `any` of a list of filter words against one payload word.
+fn word_in<T>(list: &OneOrMany<T>, found: Option<&str>, word: impl Fn(&T) -> &str) -> bool {
+    found.is_some_and(|f| list.iter().any(|t| word(t) == f))
+}
+
+/// `any` of an optional list against one payload word: absent hears every.
+fn word_in_opt<T>(
+    list: Option<&OneOrMany<T>>,
+    found: Option<&str>,
+    word: impl Fn(&T) -> String,
+) -> bool {
+    match list {
+        None => true,
+        Some(list) => found.is_some_and(|f| list.iter().any(|t| word(t) == f)),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The filters
 // ---------------------------------------------------------------------------
 
 /// Who wrote a message a message event waits for.
 ///
-/// `you` is this node's person; `agents` any agent; an assignee names one
-/// agent, one person — a person hosted from another node only this way — or
-/// a team, whose members' messages all count; `{ input = … }` reads an input
-/// of kind `assignee`.
+/// `you` is this node's person; `agents` any agent; `people` any person —
+/// you, or one hosted from another node; `anyone` anybody at all; an
+/// assignee names one agent, one person — a person hosted from another node
+/// only this way — or a team, whose members' messages all count; `{ input =
+/// … }` reads an input of kind `assignee`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum MessageFrom {
     #[default]
     You,
     Agents,
+    People,
+    Anyone,
     Someone(ValueRef<Assignee>),
 }
 
 impl MessageFrom {
+    /// The words a sender is written as, beside an assignee.
+    pub const WORDS: [&'static str; 4] = ["you", "agents", "people", "anyone"];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             MessageFrom::You => "you",
             MessageFrom::Agents => "agents",
+            MessageFrom::People => "people",
+            MessageFrom::Anyone => "anyone",
             MessageFrom::Someone(_) => "someone",
+        }
+    }
+
+    fn from_word(word: &str) -> Option<Self> {
+        Some(match word {
+            "you" => MessageFrom::You,
+            "agents" => MessageFrom::Agents,
+            "people" => MessageFrom::People,
+            "anyone" => MessageFrom::Anyone,
+            _ => return None,
+        })
+    }
+
+    /// Whether a message by `author` (`author_kind` as the ear says it: `you`
+    /// · `agent` · `person`, in `teams`) is from this sender.
+    fn hears(
+        &self,
+        kind: Option<&str>,
+        author: Option<&str>,
+        teams: Option<&[serde_json::Value]>,
+    ) -> bool {
+        match self {
+            MessageFrom::You => kind == Some("you"),
+            MessageFrom::Agents => kind == Some("agent"),
+            MessageFrom::People => matches!(kind, Some("you") | Some("person")),
+            MessageFrom::Anyone => true,
+            MessageFrom::Someone(ValueRef::Fixed(who)) => match who {
+                Assignee::Agent(id) => kind == Some("agent") && author == Some(id.as_str()),
+                Assignee::Human(pk) => author == Some(pk.as_hex()),
+                Assignee::Team(team) => {
+                    teams.is_some_and(|ts| ts.iter().any(|t| t.as_str() == Some(team.as_str())))
+                }
+            },
+            MessageFrom::Someone(ValueRef::Input { .. }) => false,
         }
     }
 }
@@ -507,9 +705,8 @@ impl MessageFrom {
 impl Serialize for MessageFrom {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         match self {
-            MessageFrom::You => s.serialize_str("you"),
-            MessageFrom::Agents => s.serialize_str("agents"),
             MessageFrom::Someone(who) => who.serialize(s),
+            word => s.serialize_str(word.as_str()),
         }
     }
 }
@@ -523,9 +720,9 @@ impl schemars::JsonSchema for MessageFrom {
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         let someone = generator.subschema_for::<ValueRef<Assignee>>();
         schemars::json_schema!({
-            "description": "who wrote a message: `you`, `agents`, or one agent, person or team — or an input of kind `assignee` naming one",
+            "description": "who wrote a message: `you`, `agents`, `people`, `anyone`, or one agent, person or team — or an input of kind `assignee` naming one",
             "anyOf": [
-                { "type": "string", "enum": ["you", "agents"] },
+                { "type": "string", "enum": MessageFrom::WORDS },
                 someone
             ]
         })
@@ -535,17 +732,44 @@ impl schemars::JsonSchema for MessageFrom {
 impl<'de> Deserialize<'de> for MessageFrom {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let raw = serde_json::Value::deserialize(d)?;
-        match &raw {
-            serde_json::Value::String(s) if s == "you" => Ok(MessageFrom::You),
-            serde_json::Value::String(s) if s == "agents" => Ok(MessageFrom::Agents),
-            _ => serde_json::from_value::<ValueRef<Assignee>>(raw)
-                .map(MessageFrom::Someone)
-                .map_err(|_| {
-                    D::Error::custom(
-                        "`from` is `you`, `agents`, an assignee ({ agent = … }, { human = … }, \
-                         { team = … }) or { input = … }",
-                    )
-                }),
+        if let Some(word) = raw.as_str().and_then(MessageFrom::from_word) {
+            return Ok(word);
+        }
+        serde_json::from_value::<ValueRef<Assignee>>(raw)
+            .map(MessageFrom::Someone)
+            .map_err(|_| {
+                D::Error::custom(
+                    "`from` is `you`, `agents`, `people`, `anyone`, an assignee ({ agent = … }, \
+                     { human = … }, { team = … }) or { input = … }",
+                )
+            })
+    }
+}
+
+/// The kind of place a message lands in: a standing channel, a direct
+/// channel, a goal's thread, a conversation in a checkout (`workstream`),
+/// any other conversation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MessagePlace {
+    Channel,
+    Direct,
+    Goal,
+    Workstream,
+    Conversation,
+}
+
+impl MessagePlace {
+    pub const NAMES: [&'static str; 5] =
+        ["channel", "direct", "goal", "workstream", "conversation"];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MessagePlace::Channel => "channel",
+            MessagePlace::Direct => "direct",
+            MessagePlace::Goal => "goal",
+            MessagePlace::Workstream => "workstream",
+            MessagePlace::Conversation => "conversation",
         }
     }
 }
@@ -553,30 +777,49 @@ impl<'de> Deserialize<'de> for MessageFrom {
 /// A message posted into a conversation: where, by whom, mentioning whom,
 /// saying what. Heard where conversation dispatch hears a message — after the
 /// hold a message from another node waits in — and never an announcement.
+/// Every field but `contains` takes one value or a list, heard as any of
+/// them.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MessageFilter {
     /// The conversation it lands in — a channel id, a direct channel's, a
     /// conversation's or a goal's thread (a template); absent, anywhere.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub r#in: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub r#in: Option<OneOrMany<String>>,
     #[serde(default)]
-    pub from: MessageFrom,
+    pub from: OneOrMany<MessageFrom>,
     /// It mentions this agent, team or person.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mentions: Option<ValueRef<Assignee>>,
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mentions: Option<OneOrMany<ValueRef<Assignee>>>,
     /// Its text contains this, case-insensitively (a template).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contains: Option<String>,
+    /// The kind of place it lands in — a direct channel, a standing one, a
+    /// goal's thread…; absent, any kind.
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub kind: Option<OneOrMany<MessagePlace>>,
 }
 
 impl MessageFilter {
-    pub const FIELDS: &'static [&'static str] = &["in", "from", "mentions", "contains"];
+    pub const FIELDS: &'static [&'static str] = &["in", "from", "mentions", "contains", "kind"];
 
     /// The strings this filter renders.
     pub fn templates(&self) -> Vec<&str> {
         self.r#in
             .iter()
+            .flat_map(OneOrMany::iter)
             .chain(self.contains.iter())
             .map(String::as_str)
             .collect()
@@ -584,23 +827,25 @@ impl MessageFilter {
 
     /// The assignees this filter names: who wrote it, whom it mentions.
     pub fn assignee_refs(&self) -> Vec<&ValueRef<Assignee>> {
-        let from = match &self.from {
-            MessageFrom::Someone(who) => Some(who),
-            MessageFrom::You | MessageFrom::Agents => None,
-        };
-        from.into_iter().chain(self.mentions.iter()).collect()
+        self.from
+            .iter()
+            .filter_map(|from| match from {
+                MessageFrom::Someone(who) => Some(who),
+                _ => None,
+            })
+            .chain(self.mentions.iter().flat_map(OneOrMany::iter))
+            .collect()
     }
 
     /// Every input this filter reads through a reference.
     pub fn input_refs(&self) -> Vec<(&InputName, &'static str)> {
-        let mut out = Vec::new();
-        if let MessageFrom::Someone(ValueRef::Input { input }) = &self.from {
-            out.push((input, "assignee"));
-        }
-        if let Some(ValueRef::Input { input }) = &self.mentions {
-            out.push((input, "assignee"));
-        }
-        out
+        self.assignee_refs()
+            .into_iter()
+            .filter_map(|r| match r {
+                ValueRef::Input { input } => Some((input, "assignee")),
+                ValueRef::Fixed(_) => None,
+            })
+            .collect()
     }
 
     /// This filter with every template rendered and every input read.
@@ -616,56 +861,68 @@ impl MessageFilter {
             }))
         };
         Ok(MessageFilter {
-            r#in: self.r#in.as_deref().map(render).transpose()?,
-            from: match &self.from {
-                MessageFrom::Someone(who) => MessageFrom::Someone(fixed(who)?),
-                other => other.clone(),
-            },
-            mentions: self.mentions.as_ref().map(fixed).transpose()?,
+            r#in: self
+                .r#in
+                .as_ref()
+                .map(|places| places.try_map(|place| render(place)))
+                .transpose()?,
+            from: self.from.try_map(|from| {
+                Ok(match from {
+                    MessageFrom::Someone(who) => MessageFrom::Someone(fixed(who)?),
+                    other => other.clone(),
+                })
+            })?,
+            mentions: self
+                .mentions
+                .as_ref()
+                .map(|who| who.try_map(fixed))
+                .transpose()?,
             contains: self.contains.as_deref().map(render).transpose()?,
+            kind: self.kind.clone(),
         })
     }
 
     /// Whether a heard message is the one this (resolved) filter waits for.
-    /// The payload the engine builds: `{ scope, author, author_kind: you |
-    /// agent | person, teams: [..], mentions: [..], text }`.
+    /// The payload the engine builds: `{ scope, scope_kind, author,
+    /// author_kind: you | agent | person, teams: [..], mentions: [..], text }`.
     pub fn hears(&self, heard: &Heard) -> bool {
         if heard.source != SignalSource::Message {
             return false;
         }
         let p = &heard.payload;
         let get = |k: &str| p.get(k);
-        if let Some(place) = &self.r#in {
-            if get("scope").and_then(serde_json::Value::as_str) != Some(place.as_str()) {
-                return false;
-            }
-        }
-        let kind = get("author_kind").and_then(serde_json::Value::as_str);
-        let author = get("author").and_then(serde_json::Value::as_str);
-        let from = match &self.from {
-            MessageFrom::You => kind == Some("you"),
-            MessageFrom::Agents => kind == Some("agent"),
-            MessageFrom::Someone(ValueRef::Fixed(who)) => match who {
-                Assignee::Agent(id) => kind == Some("agent") && author == Some(id.as_str()),
-                Assignee::Human(pk) => author == Some(pk.as_hex()),
-                Assignee::Team(team) => get("teams")
-                    .and_then(serde_json::Value::as_array)
-                    .is_some_and(|ts| ts.iter().any(|t| t.as_str() == Some(team.as_str()))),
-            },
-            MessageFrom::Someone(ValueRef::Input { .. }) => false,
-        };
-        if !from {
+        let said = |k: &str| get(k).and_then(serde_json::Value::as_str);
+        if !word_in_opt(self.r#in.as_ref(), said("scope"), String::clone) {
             return false;
         }
-        if let Some(ValueRef::Fixed(who)) = &self.mentions {
-            let want = match who {
-                Assignee::Agent(id) | Assignee::Team(id) => id.clone(),
-                Assignee::Human(pk) => pk.as_hex().to_string(),
-            };
-            let named = get("mentions")
-                .and_then(serde_json::Value::as_array)
-                .is_some_and(|ms| ms.iter().any(|m| m.as_str() == Some(want.as_str())));
-            if !named {
+        if !word_in_opt(self.kind.as_ref(), said("scope_kind"), |k| {
+            k.as_str().to_string()
+        }) {
+            return false;
+        }
+        let kind = said("author_kind");
+        let author = said("author");
+        let teams = get("teams").and_then(serde_json::Value::as_array);
+        if !self
+            .from
+            .iter()
+            .any(|from| from.hears(kind, author, teams.map(Vec::as_slice)))
+        {
+            return false;
+        }
+        if let Some(mentions) = &self.mentions {
+            let named = get("mentions").and_then(serde_json::Value::as_array);
+            let any = mentions.iter().any(|who| match who {
+                ValueRef::Fixed(who) => {
+                    let want = match who {
+                        Assignee::Agent(id) | Assignee::Team(id) => id.clone(),
+                        Assignee::Human(pk) => pk.as_hex().to_string(),
+                    };
+                    named.is_some_and(|ms| ms.iter().any(|m| m.as_str() == Some(want.as_str())))
+                }
+                ValueRef::Input { .. } => false,
+            });
+            if !any {
                 return false;
             }
         }
@@ -693,9 +950,28 @@ pub enum ProjectChange {
     Merge,
     /// Files in the tree changed.
     Files,
+    /// A branch appeared or went.
+    Branch,
+    /// A local branch caught up with its remote-tracking branch: pulled —
+    /// fetched and merged, or fast-forwarded.
+    Pull,
+    /// A checkout of the project moved: opened, committed, pushed, its pull
+    /// request opened or merged, closed.
+    Workstream,
 }
 
 impl ProjectChange {
+    pub const NAMES: [&'static str; 8] = [
+        "commit",
+        "push",
+        "pull_request",
+        "merge",
+        "files",
+        "branch",
+        "pull",
+        "workstream",
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             ProjectChange::Commit => "commit",
@@ -703,26 +979,42 @@ impl ProjectChange {
             ProjectChange::PullRequest => "pull_request",
             ProjectChange::Merge => "merge",
             ProjectChange::Files => "files",
+            ProjectChange::Branch => "branch",
+            ProjectChange::Pull => "pull",
+            ProjectChange::Workstream => "workstream",
         }
     }
 }
 
-/// A change in one project — never a path on a disk, which would mean
-/// nothing on another machine.
+/// A change in one project, or in any of a list — never a path on a disk,
+/// which would mean nothing on another machine.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectFilter {
     /// Absent while the designer has not chosen one: a problem, never `""`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<ValueRef<ProjectId>>,
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub project: Option<OneOrMany<ValueRef<ProjectId>>>,
     #[serde(default)]
-    pub change: ProjectChange,
-    /// Only this branch (a template).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
-    /// Only files matching this (`*` and `?`), for `files` (a template).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub glob: Option<String>,
+    pub change: OneOrMany<ProjectChange>,
+    /// Only this branch, or any of these (templates).
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub branch: Option<OneOrMany<String>>,
+    /// Only files matching this (`*` and `?`), or any of these, for `files`
+    /// (templates).
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub glob: Option<OneOrMany<String>>,
 }
 
 impl ProjectFilter {
@@ -732,15 +1024,20 @@ impl ProjectFilter {
         self.branch
             .iter()
             .chain(self.glob.iter())
+            .flat_map(OneOrMany::iter)
             .map(String::as_str)
             .collect()
     }
 
     pub fn input_refs(&self) -> Vec<(&InputName, &'static str)> {
-        match &self.project {
-            Some(ValueRef::Input { input }) => vec![(input, "project")],
-            _ => vec![],
-        }
+        self.project
+            .iter()
+            .flat_map(OneOrMany::iter)
+            .filter_map(|p| match p {
+                ValueRef::Input { input } => Some((input, "project")),
+                ValueRef::Fixed(_) => None,
+            })
+            .collect()
     }
 
     pub fn resolve<E>(
@@ -749,22 +1046,48 @@ impl ProjectFilter {
         input: &dyn Fn(&InputName) -> Result<ProjectId, E>,
     ) -> Result<Self, E> {
         Ok(ProjectFilter {
-            project: match &self.project {
-                Some(ValueRef::Input { input: name }) => Some(ValueRef::Fixed(input(name)?)),
-                other => other.clone(),
-            },
-            change: self.change,
-            branch: self.branch.as_deref().map(render).transpose()?,
-            glob: self.glob.as_deref().map(render).transpose()?,
+            project: self
+                .project
+                .as_ref()
+                .map(|projects| {
+                    projects.try_map(|p| {
+                        Ok(match p {
+                            ValueRef::Input { input: name } => ValueRef::Fixed(input(name)?),
+                            other => other.clone(),
+                        })
+                    })
+                })
+                .transpose()?,
+            change: self.change.clone(),
+            branch: self
+                .branch
+                .as_ref()
+                .map(|b| b.try_map(|t| render(t)))
+                .transpose()?,
+            glob: self
+                .glob
+                .as_ref()
+                .map(|g| g.try_map(|t| render(t)))
+                .transpose()?,
         })
     }
 
-    /// The project this (resolved) filter names, when it names one.
-    pub fn project_id(&self) -> Option<ProjectId> {
-        match &self.project {
-            Some(ValueRef::Fixed(p)) => Some(*p),
-            _ => None,
-        }
+    /// The projects this (resolved) filter names — the fixed ones; an
+    /// unresolved reference names none.
+    pub fn project_ids(&self) -> Vec<ProjectId> {
+        self.project
+            .iter()
+            .flat_map(OneOrMany::iter)
+            .filter_map(|p| match p {
+                ValueRef::Fixed(p) => Some(*p),
+                ValueRef::Input { .. } => None,
+            })
+            .collect()
+    }
+
+    /// The changes it hears.
+    pub fn changes(&self) -> impl Iterator<Item = ProjectChange> + '_ {
+        self.change.iter().copied()
     }
 
     /// The payload the engine builds: `{ project, change, branch?, paths? }`.
@@ -773,30 +1096,28 @@ impl ProjectFilter {
             return false;
         }
         let p = &heard.payload;
-        let Some(project) = self.project_id() else {
-            return false;
-        };
-        if p.get("project").and_then(serde_json::Value::as_str)
-            != Some(project.to_string().as_str())
-        {
+        let said = |k: &str| p.get(k).and_then(serde_json::Value::as_str);
+        let projects = self.project_ids();
+        if projects.is_empty() {
             return false;
         }
-        if p.get("change").and_then(serde_json::Value::as_str) != Some(self.change.as_str()) {
+        if !said("project").is_some_and(|found| projects.iter().any(|p| p.to_string() == found)) {
             return false;
         }
-        if let Some(branch) = &self.branch {
-            if p.get("branch").and_then(serde_json::Value::as_str) != Some(branch.as_str()) {
-                return false;
-            }
+        if !word_in(&self.change, said("change"), |c| c.as_str()) {
+            return false;
+        }
+        if !word_in_opt(self.branch.as_ref(), said("branch"), String::clone) {
+            return false;
         }
         match &self.glob {
-            Some(glob) => p
+            Some(globs) => p
                 .get("paths")
                 .and_then(serde_json::Value::as_array)
                 .is_some_and(|ps| {
                     ps.iter()
                         .filter_map(serde_json::Value::as_str)
-                        .any(|path| glob_match(glob, path))
+                        .any(|path| globs.iter().any(|glob| glob_match(glob, path)))
                 }),
             None => true,
         }
@@ -822,46 +1143,154 @@ impl RunEnd {
     }
 }
 
-/// A run that ended — of one workflow, or of any.
+/// What a run did, as a run event hears it: it was made behind a live one,
+/// it started, it ended — the one a `run` event meant before the others
+/// were named, so a filter that says nothing hears ends alone — or one of
+/// its steps moved.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum RunChange {
+    Queued,
+    Started,
+    #[default]
+    Ended,
+    Step,
+}
+
+impl RunChange {
+    pub const NAMES: [&'static str; 4] = ["queued", "started", "ended", "step"];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunChange::Queued => "queued",
+            RunChange::Started => "started",
+            RunChange::Ended => "ended",
+            RunChange::Step => "step",
+        }
+    }
+}
+
+/// A run that moved — of one workflow or of any, on one goal or any, ending
+/// how, which of its steps into which state. Every field takes one value or
+/// a list; `change` says what of the run is heard and means `ended` when
+/// nothing is said.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RunFilter {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workflow: Option<WorkflowId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outcome: Option<RunEnd>,
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub workflow: Option<OneOrMany<WorkflowId>>,
+    #[serde(default, skip_serializing_if = "RunFilter::ended_alone")]
+    pub change: OneOrMany<RunChange>,
+    /// How it ended, for `ended`.
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub outcome: Option<OneOrMany<RunEnd>>,
+    /// Which step, for `step`.
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub step: Option<OneOrMany<StepId>>,
+    /// Which state the step moved into, for `step` — the words of
+    /// `step.changed`.
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub state: Option<OneOrMany<String>>,
+    /// Only a run of this goal, or of any of these (templates: an id, or an
+    /// input).
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub goal: Option<OneOrMany<String>>,
 }
 
 impl RunFilter {
-    pub const FIELDS: &'static [&'static str] = &["workflow", "outcome"];
+    pub const FIELDS: &'static [&'static str] =
+        &["workflow", "change", "outcome", "step", "state", "goal"];
 
-    /// The payload the engine builds: `{ run, workflow, outcome, goal? }`.
+    /// What a `run` event said before `change` was written: ends alone —
+    /// left unwritten, so a definition from before reads back as it was.
+    fn ended_alone(change: &OneOrMany<RunChange>) -> bool {
+        *change == OneOrMany::One(RunChange::Ended)
+    }
+
+    /// Whether this filter hears a step's move: what `step` and `state`
+    /// narrow.
+    pub fn hears_steps(&self) -> bool {
+        self.change.has(&RunChange::Step)
+    }
+
+    pub fn templates(&self) -> Vec<&str> {
+        self.goal
+            .iter()
+            .flat_map(OneOrMany::iter)
+            .map(String::as_str)
+            .collect()
+    }
+
+    pub fn resolve<E>(&self, render: &dyn Fn(&str) -> Result<String, E>) -> Result<Self, E> {
+        Ok(RunFilter {
+            goal: self
+                .goal
+                .as_ref()
+                .map(|g| g.try_map(|t| render(t)))
+                .transpose()?,
+            ..self.clone()
+        })
+    }
+
+    /// The payload the engine builds: `{ run, workflow, change, outcome,
+    /// position, start, step, state, kind, goal }` — a payload with no
+    /// `change` (written before it was) is an end.
     pub fn hears(&self, heard: &Heard) -> bool {
         if heard.source != SignalSource::Run {
             return false;
         }
         let p = &heard.payload;
-        if let Some(wf) = &self.workflow {
-            if p.get("workflow").and_then(serde_json::Value::as_str)
-                != Some(wf.to_string().as_str())
-            {
-                return false;
-            }
+        let said = |k: &str| p.get(k).and_then(serde_json::Value::as_str);
+        let change = said("change").unwrap_or("ended");
+        if !self.change.iter().any(|c| c.as_str() == change) {
+            return false;
         }
-        match self.outcome {
-            Some(end) => p.get("outcome").and_then(serde_json::Value::as_str) == Some(end.as_str()),
-            None => true,
-        }
+        // `outcome` narrows an end and `step`/`state` a step's move: a filter
+        // hearing several changes reads each narrowing on the occurrences it
+        // is about, never against one that carries no such field.
+        let outcome = change != "ended"
+            || word_in_opt(self.outcome.as_ref(), said("outcome"), |o| {
+                o.as_str().to_string()
+            });
+        let step = change != "step"
+            || (word_in_opt(self.step.as_ref(), said("step"), |s| s.to_string())
+                && word_in_opt(self.state.as_ref(), said("state"), String::clone));
+        outcome
+            && step
+            && word_in_opt(self.workflow.as_ref(), said("workflow"), |w| w.to_string())
+            && word_in_opt(self.goal.as_ref(), said("goal"), String::clone)
     }
 }
 
 /// One of the engine's own bus events, by topic (`goal.closed`,
-/// `step.changed`) and exact fields — the advanced door, for what the other
-/// events do not name.
+/// `step.changed`) — or any of a list — and exact fields: the advanced
+/// door, for what the other events do not name.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlatformFilter {
-    pub topic: String,
+    pub topic: OneOrMany<String>,
     /// Exact matches on the event's own fields (templates).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, String>,
@@ -872,6 +1301,11 @@ impl PlatformFilter {
 
     pub fn templates(&self) -> Vec<&str> {
         self.fields.values().map(String::as_str).collect()
+    }
+
+    /// The topics it names.
+    pub fn topics(&self) -> impl Iterator<Item = &str> {
+        self.topic.iter().map(String::as_str)
     }
 
     pub fn resolve<E>(&self, render: &dyn Fn(&str) -> Result<String, E>) -> Result<Self, E> {
@@ -888,7 +1322,7 @@ impl PlatformFilter {
     /// The payload the engine builds: `{ event, fields: { … }, goal?, workflow? }`.
     pub fn hears(&self, heard: &Heard) -> bool {
         heard.source == SignalSource::Platform
-            && heard.name.as_deref() == Some(self.topic.as_str())
+            && word_in(&self.topic, heard.name.as_deref(), String::as_str)
             && heard
                 .payload
                 .get("fields")
@@ -932,6 +1366,330 @@ impl SignalFilter {
         heard.source == SignalSource::Signal
             && heard.name.as_deref() == Some(self.name.as_str())
             && fields_match(&heard.payload, &self.fields)
+    }
+}
+
+/// What moved about a goal, as a goal event hears it: its record, its
+/// projects, its design, its decisions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalChange {
+    /// Captured by a person, spawned by a step or an agent.
+    Created,
+    /// Its statement, title, assignees, tags or budget changed.
+    Updated,
+    /// Abandoned, or superseded by another.
+    Closed,
+    /// Put away.
+    Archived,
+    /// Taken back out.
+    Restored,
+    Deleted,
+    /// A project was attached to it.
+    Attached,
+    /// A project was detached from it.
+    Detached,
+    /// The Workflow Agent proposed a design for it.
+    Proposed,
+    /// A gate opened on it: a question, an approval, an adoption.
+    Asked,
+    /// A gate on it was decided.
+    Decided,
+}
+
+impl GoalChange {
+    pub const NAMES: [&'static str; 11] = [
+        "created", "updated", "closed", "archived", "restored", "deleted", "attached", "detached",
+        "proposed", "asked", "decided",
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GoalChange::Created => "created",
+            GoalChange::Updated => "updated",
+            GoalChange::Closed => "closed",
+            GoalChange::Archived => "archived",
+            GoalChange::Restored => "restored",
+            GoalChange::Deleted => "deleted",
+            GoalChange::Attached => "attached",
+            GoalChange::Detached => "detached",
+            GoalChange::Proposed => "proposed",
+            GoalChange::Asked => "asked",
+            GoalChange::Decided => "decided",
+        }
+    }
+}
+
+/// A goal that moved — one named by id or by an input (templates), or any
+/// goal of the workspace — in one of the ways `change` names. A goal's
+/// lifecycle is the workspace's news about it: every host hears it, narrowed
+/// here, so a goal may depend on another.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GoalFilter {
+    /// The goal, or any of these (templates: an id, or `{inputs.<name>}`);
+    /// absent, any goal.
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub goal: Option<OneOrMany<String>>,
+    pub change: OneOrMany<GoalChange>,
+}
+
+impl GoalFilter {
+    pub const FIELDS: &'static [&'static str] = &["goal", "change"];
+
+    pub fn templates(&self) -> Vec<&str> {
+        self.goal
+            .iter()
+            .flat_map(OneOrMany::iter)
+            .map(String::as_str)
+            .collect()
+    }
+
+    pub fn resolve<E>(&self, render: &dyn Fn(&str) -> Result<String, E>) -> Result<Self, E> {
+        Ok(GoalFilter {
+            goal: self
+                .goal
+                .as_ref()
+                .map(|g| g.try_map(|t| render(t)))
+                .transpose()?,
+            change: self.change.clone(),
+        })
+    }
+
+    /// The payload the engine builds: `{ goal, change, title, status, … }`.
+    pub fn hears(&self, heard: &Heard) -> bool {
+        if heard.source != SignalSource::Goal {
+            return false;
+        }
+        let said = |k: &str| heard.payload.get(k).and_then(serde_json::Value::as_str);
+        word_in(&self.change, said("change"), |c| c.as_str())
+            && word_in_opt(self.goal.as_ref(), said("goal"), String::clone)
+    }
+}
+
+/// What moved about a workflow definition in the library.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowChange {
+    /// Created or saved at a revision — by a person, or by the Workflow
+    /// Agent's hand (`designed`).
+    Saved,
+    /// Proposed for a goal by the Workflow Agent.
+    Proposed,
+    /// Put away.
+    Archived,
+    /// Taken back out.
+    Restored,
+    Deleted,
+}
+
+impl WorkflowChange {
+    pub const NAMES: [&'static str; 5] = ["saved", "proposed", "archived", "restored", "deleted"];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WorkflowChange::Saved => "saved",
+            WorkflowChange::Proposed => "proposed",
+            WorkflowChange::Archived => "archived",
+            WorkflowChange::Restored => "restored",
+            WorkflowChange::Deleted => "deleted",
+        }
+    }
+}
+
+/// A workflow definition that moved — one, any of a list, or any of the
+/// library — in one of the ways `change` names. Named by id alone, never by
+/// whether it is still there: a start on `deleted` must hear the deletion.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowFilter {
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub workflow: Option<OneOrMany<WorkflowId>>,
+    pub change: OneOrMany<WorkflowChange>,
+}
+
+impl WorkflowFilter {
+    pub const FIELDS: &'static [&'static str] = &["workflow", "change"];
+
+    /// The payload the engine builds: `{ workflow, change, name, revision?, designed?, goal? }`.
+    pub fn hears(&self, heard: &Heard) -> bool {
+        if heard.source != SignalSource::Workflow {
+            return false;
+        }
+        let said = |k: &str| heard.payload.get(k).and_then(serde_json::Value::as_str);
+        word_in(&self.change, said("change"), |c| c.as_str())
+            && word_in_opt(self.workflow.as_ref(), said("workflow"), |w| w.to_string())
+    }
+}
+
+/// What a harness session did, as an agent event hears it. Churn between
+/// turns — thinking, a tool running, idle — is never an occurrence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentChange {
+    /// Launched.
+    Started,
+    /// Stopped until a person acts.
+    Waiting,
+    /// Replied in a conversation.
+    Replied,
+    Done,
+    Failed,
+    Aborted,
+}
+
+impl AgentChange {
+    pub const NAMES: [&'static str; 6] =
+        ["started", "waiting", "replied", "done", "failed", "aborted"];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentChange::Started => "started",
+            AgentChange::Waiting => "waiting",
+            AgentChange::Replied => "replied",
+            AgentChange::Done => "done",
+            AgentChange::Failed => "failed",
+            AgentChange::Aborted => "aborted",
+        }
+    }
+}
+
+/// A harness session that moved — of one agent or any of a list (a team
+/// counts its members), in one project or any of a list, on one harness or
+/// any of a list — in one of the ways `change` names. A session on a goal is
+/// the goal's; one with no goal is the workspace's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AgentFilter {
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent: Option<OneOrMany<ValueRef<Assignee>>>,
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub project: Option<OneOrMany<ValueRef<ProjectId>>>,
+    /// The harness id it runs on (`claude-code`, `codex`, …).
+    #[serde(
+        default,
+        deserialize_with = "none_when_empty",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub harness: Option<OneOrMany<String>>,
+    pub change: OneOrMany<AgentChange>,
+}
+
+impl AgentFilter {
+    pub const FIELDS: &'static [&'static str] = &["agent", "project", "harness", "change"];
+
+    pub fn assignee_refs(&self) -> Vec<&ValueRef<Assignee>> {
+        self.agent.iter().flat_map(OneOrMany::iter).collect()
+    }
+
+    pub fn input_refs(&self) -> Vec<(&InputName, &'static str)> {
+        let mut out: Vec<(&InputName, &'static str)> = self
+            .assignee_refs()
+            .into_iter()
+            .filter_map(|r| match r {
+                ValueRef::Input { input } => Some((input, "assignee")),
+                ValueRef::Fixed(_) => None,
+            })
+            .collect();
+        out.extend(
+            self.project
+                .iter()
+                .flat_map(OneOrMany::iter)
+                .filter_map(|p| match p {
+                    ValueRef::Input { input } => Some((input, "project")),
+                    ValueRef::Fixed(_) => None,
+                }),
+        );
+        out
+    }
+
+    pub fn resolve<E>(
+        &self,
+        assignee: &dyn Fn(&InputName) -> Result<Assignee, E>,
+        project: &dyn Fn(&InputName) -> Result<ProjectId, E>,
+    ) -> Result<Self, E> {
+        Ok(AgentFilter {
+            agent: self
+                .agent
+                .as_ref()
+                .map(|who| {
+                    who.try_map(|r| {
+                        Ok(ValueRef::Fixed(match r {
+                            ValueRef::Fixed(a) => a.clone(),
+                            ValueRef::Input { input } => assignee(input)?,
+                        }))
+                    })
+                })
+                .transpose()?,
+            project: self
+                .project
+                .as_ref()
+                .map(|ps| {
+                    ps.try_map(|r| {
+                        Ok(ValueRef::Fixed(match r {
+                            ValueRef::Fixed(p) => *p,
+                            ValueRef::Input { input } => project(input)?,
+                        }))
+                    })
+                })
+                .transpose()?,
+            harness: self.harness.clone(),
+            change: self.change.clone(),
+        })
+    }
+
+    /// The payload the engine builds: `{ agent?, teams, harness, kind,
+    /// change, state, live_run, project?, workstream?, goal?, run?, … }`.
+    pub fn hears(&self, heard: &Heard) -> bool {
+        if heard.source != SignalSource::Agent {
+            return false;
+        }
+        let p = &heard.payload;
+        let said = |k: &str| p.get(k).and_then(serde_json::Value::as_str);
+        if !word_in(&self.change, said("change"), |c| c.as_str()) {
+            return false;
+        }
+        if let Some(who) = &self.agent {
+            let agent = said("agent");
+            let teams = p.get("teams").and_then(serde_json::Value::as_array);
+            let any = who.iter().any(|r| match r {
+                ValueRef::Fixed(Assignee::Agent(id)) => agent == Some(id.as_str()),
+                ValueRef::Fixed(Assignee::Team(team)) => {
+                    teams.is_some_and(|ts| ts.iter().any(|t| t.as_str() == Some(team.as_str())))
+                }
+                ValueRef::Fixed(Assignee::Human(_)) | ValueRef::Input { .. } => false,
+            });
+            if !any {
+                return false;
+            }
+        }
+        if let Some(projects) = &self.project {
+            let project = said("project");
+            let any = projects.iter().any(|r| match r {
+                ValueRef::Fixed(p) => project == Some(p.to_string().as_str()),
+                ValueRef::Input { .. } => false,
+            });
+            if !any {
+                return false;
+            }
+        }
+        word_in_opt(self.harness.as_ref(), said("harness"), String::clone)
     }
 }
 
@@ -1076,7 +1834,7 @@ mod tests {
             "a person hosted from another node is heard only when named"
         );
         let agents = MessageFilter {
-            from: MessageFrom::Agents,
+            from: MessageFrom::Agents.into(),
             ..MessageFilter::default()
         };
         assert!(agents.hears(&msg("agent", "triager", "hi")));
@@ -1085,7 +1843,8 @@ mod tests {
                 "human:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                     .parse()
                     .unwrap(),
-            )),
+            ))
+            .into(),
             ..MessageFilter::default()
         };
         assert!(named.hears(&msg(
@@ -1094,13 +1853,13 @@ mod tests {
             "hi"
         )));
         let team = MessageFilter {
-            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Team("ops".into()))),
+            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Team("ops".into()))).into(),
             ..MessageFilter::default()
         };
         assert!(team.hears(&msg("agent", "anyone", "hi")));
         let precise = MessageFilter {
             r#in: Some("support".into()),
-            mentions: Some(ValueRef::Fixed(Assignee::Agent("triager".into()))),
+            mentions: Some(ValueRef::Fixed(Assignee::Agent("triager".into())).into()),
             contains: Some("refund".into()),
             ..MessageFilter::default()
         };
@@ -1156,8 +1915,8 @@ mod tests {
             )
         };
         let commits = ProjectFilter {
-            project: Some(ValueRef::Fixed(project)),
-            change: ProjectChange::Commit,
+            project: Some(ValueRef::Fixed(project).into()),
+            change: ProjectChange::Commit.into(),
             branch: Some("main".into()),
             glob: None,
         };
@@ -1165,8 +1924,8 @@ mod tests {
         assert!(!commits.hears(&change("commit", "dev", json!([]))));
         assert!(!commits.hears(&change("merge", "main", json!([]))));
         let csv = ProjectFilter {
-            project: Some(ValueRef::Fixed(project)),
-            change: ProjectChange::Files,
+            project: Some(ValueRef::Fixed(project).into()),
+            change: ProjectChange::Files.into(),
             branch: None,
             glob: Some("*.csv".into()),
         };
@@ -1179,7 +1938,7 @@ mod tests {
         );
         let other = ProjectId::from_ulid(ulid::Ulid::from_parts(6, 6));
         assert!(!ProjectFilter {
-            project: Some(ValueRef::Fixed(other)),
+            project: Some(ValueRef::Fixed(other).into()),
             ..commits
         }
         .hears(&change("commit", "main", json!([]))));
@@ -1205,13 +1964,15 @@ mod tests {
         };
         let any_failure = RunFilter {
             workflow: None,
-            outcome: Some(RunEnd::Failed),
+            outcome: Some(RunEnd::Failed.into()),
+            ..RunFilter::default()
         };
         assert!(any_failure.hears(&ended(wf(1), "failed")));
         assert!(!any_failure.hears(&ended(wf(1), "done")));
         let of_one = RunFilter {
-            workflow: Some(wf(2)),
+            workflow: Some(wf(2).into()),
             outcome: None,
+            ..RunFilter::default()
         };
         assert!(of_one.hears(&ended(wf(2), "cancelled")));
         assert!(!of_one.hears(&ended(wf(1), "done")));
@@ -1279,16 +2040,25 @@ mod tests {
             r#in: Some("{inputs.chan}".into()),
             from: MessageFrom::Someone(ValueRef::Input {
                 input: InputName::new("who").unwrap(),
-            }),
+            })
+            .into(),
             mentions: None,
             contains: None,
+            ..MessageFilter::default()
         };
         assert_eq!(filter.input_refs().len(), 1);
         let resolved = filter.resolve(&render, &who).unwrap();
-        assert_eq!(resolved.r#in.as_deref(), Some("support"));
+        assert_eq!(
+            resolved
+                .r#in
+                .as_ref()
+                .and_then(OneOrMany::first)
+                .map(String::as_str),
+            Some("support")
+        );
         assert_eq!(
             resolved.from,
-            MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("sre".into())))
+            MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("sre".into()))).into()
         );
         let failing = |_: &str| -> Result<String, String> { Err("no".into()) };
         assert!(SignalFilter {
@@ -1393,9 +2163,12 @@ mod tests {
     ) {
         let input = InputName::new("who").unwrap();
         let filter = MessageFilter {
-            mentions: Some(ValueRef::Input {
-                input: input.clone(),
-            }),
+            mentions: Some(
+                ValueRef::Input {
+                    input: input.clone(),
+                }
+                .into(),
+            ),
             ..MessageFilter::default()
         };
         assert_eq!(filter.input_refs(), vec![(&input, "assignee")]);
@@ -1405,7 +2178,7 @@ mod tests {
             json!({"scope": "s", "author": "aa", "author_kind": "you", "mentions": [], "text": "hi"}),
         );
         let unresolved = MessageFilter {
-            from: MessageFrom::Someone(ValueRef::Input { input }),
+            from: MessageFrom::Someone(ValueRef::Input { input }).into(),
             ..MessageFilter::default()
         };
         assert!(
@@ -1415,7 +2188,7 @@ mod tests {
         let hex = "bb".repeat(32);
         let person: Assignee = format!("human:{hex}").parse().unwrap();
         let mentions_a_person = MessageFilter {
-            mentions: Some(ValueRef::Fixed(person)),
+            mentions: Some(ValueRef::Fixed(person).into()),
             ..MessageFilter::default()
         };
         assert!(
@@ -1435,13 +2208,16 @@ mod tests {
         assert_eq!(SignalScope::Workspace.goal(), None);
         let repo = InputName::new("repo").unwrap();
         let filter = ProjectFilter {
-            project: Some(ValueRef::Input {
-                input: repo.clone(),
-            }),
+            project: Some(
+                ValueRef::Input {
+                    input: repo.clone(),
+                }
+                .into(),
+            ),
             ..ProjectFilter::default()
         };
         assert_eq!(filter.input_refs(), vec![(&repo, "project")]);
-        assert_eq!(filter.project_id(), None);
+        assert!(filter.project_ids().is_empty());
         assert!(
             !RunFilter::default().hears(&heard(SignalSource::Signal, Some("x"), json!({}))),
             "a run filter hears runs alone"
@@ -1453,7 +2229,7 @@ mod tests {
         let hex = "bb".repeat(32);
         let person: Assignee = format!("human:{hex}").parse().unwrap();
         let from_them = MessageFilter {
-            from: MessageFrom::Someone(ValueRef::Fixed(person)),
+            from: MessageFrom::Someone(ValueRef::Fixed(person)).into(),
             ..MessageFilter::default()
         };
         let theirs = heard(
@@ -1469,8 +2245,8 @@ mod tests {
         let render = |t: &str| -> Result<String, String> { Ok(t.replace("{x}", "X")) };
         let input = |n: &InputName| -> Result<Assignee, String> { Err(format!("{n} is not read")) };
         let fixed = MessageFilter {
-            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("a".into()))),
-            mentions: Some(ValueRef::Fixed(Assignee::Agent("b".into()))),
+            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("a".into()))).into(),
+            mentions: Some(ValueRef::Fixed(Assignee::Agent("b".into())).into()),
             ..MessageFilter::default()
         };
         assert_eq!(fixed.resolve(&render, &input).unwrap(), fixed);
@@ -1514,7 +2290,7 @@ mod tests {
     #[test]
     fn a_message_from_one_agent_is_heard_by_its_id_and_a_fixed_project_resolves_as_itself() {
         let from_agent = MessageFilter {
-            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("dev".into()))),
+            from: MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("dev".into()))).into(),
             ..MessageFilter::default()
         };
         let theirs = |author: &str| {
@@ -1527,14 +2303,661 @@ mod tests {
         assert!(from_agent.hears(&theirs("dev")));
         assert!(!from_agent.hears(&theirs("ops")));
         let fixed = ProjectFilter {
-            project: Some(ValueRef::Fixed(ProjectId::from_ulid(
-                ulid::Ulid::from_parts(3, 1),
-            ))),
+            project: Some(
+                ValueRef::Fixed(ProjectId::from_ulid(ulid::Ulid::from_parts(3, 1))).into(),
+            ),
             ..ProjectFilter::default()
         };
         let render = |t: &str| -> Result<String, String> { Ok(t.to_string()) };
         let input =
             |n: &InputName| -> Result<ProjectId, String> { Err(format!("{n} is not read")) };
         assert_eq!(fixed.resolve(&render, &input).unwrap(), fixed);
+    }
+    // added for the events programme: lists, the new words, the new filters
+
+    #[test]
+    fn one_or_many_reads_a_value_or_a_list_writes_it_as_written_and_refuses_an_empty_list() {
+        let one: OneOrMany<String> = serde_json::from_value(json!("a")).unwrap();
+        assert_eq!(one, OneOrMany::One("a".into()));
+        assert_eq!(serde_json::to_value(&one).unwrap(), json!("a"));
+        let many: OneOrMany<String> = serde_json::from_value(json!(["a", "b"])).unwrap();
+        assert_eq!(many, OneOrMany::Many(vec!["a".into(), "b".into()]));
+        assert_eq!(serde_json::to_value(&many).unwrap(), json!(["a", "b"]));
+        let listed: OneOrMany<String> = serde_json::from_value(json!(["a"])).unwrap();
+        assert_eq!(
+            serde_json::to_value(&listed).unwrap(),
+            json!(["a"]),
+            "a one-entry list stays a list, as written"
+        );
+        let err = serde_json::from_value::<OneOrMany<String>>(json!([])).unwrap_err();
+        assert!(err.to_string().contains("at least one"), "{err}");
+        assert!(
+            serde_json::from_value::<OneOrMany<ProjectChange>>(json!(["commit", "nope"])).is_err()
+        );
+        assert_eq!(many.len(), 2);
+        assert_eq!(many.first().map(String::as_str), Some("a"));
+        assert!(many.has(&"b".to_string()) && !many.has(&"c".to_string()));
+        assert_eq!(many.words(String::clone), "a · b");
+        assert_eq!(
+            OneOrMany::<ProjectChange>::default(),
+            OneOrMany::One(ProjectChange::Commit)
+        );
+        let mapped: Result<OneOrMany<usize>, String> = many.try_map(|s| Ok(s.len()));
+        assert_eq!(mapped.unwrap(), OneOrMany::Many(vec![1, 1]));
+        let failed: Result<OneOrMany<usize>, String> = many.try_map(|s| Err(s.clone()));
+        assert_eq!(failed, Err("a".to_string()), "the first failure answers");
+        assert!(OneOrMany::<u8>::Many(vec![]).is_empty());
+        assert_eq!(OneOrMany::from(vec![1u8, 2]), OneOrMany::Many(vec![1, 2]));
+    }
+
+    #[test]
+    fn an_optional_list_reads_null_and_an_empty_list_as_absent() {
+        let filter: MessageFilter =
+            serde_json::from_value(json!({"in": [], "mentions": null, "kind": []})).unwrap();
+        assert_eq!(filter, MessageFilter::default());
+        assert_eq!(
+            serde_json::to_value(&filter).unwrap(),
+            json!({"from": "you"})
+        );
+        let filter: ProjectFilter = serde_json::from_value(json!({"project": []})).unwrap();
+        assert!(filter.project.is_none(), "cleared by the designer");
+        let filter: RunFilter = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(filter.change, OneOrMany::One(RunChange::Ended));
+        assert_eq!(
+            serde_json::to_value(&filter).unwrap(),
+            json!({}),
+            "ends alone is left unwritten, as it always was"
+        );
+        let steps: RunFilter =
+            serde_json::from_value(json!({"change": ["started", "step"], "step": "build"}))
+                .unwrap();
+        assert!(steps.hears_steps());
+        assert_eq!(
+            serde_json::to_value(&steps).unwrap(),
+            json!({"change": ["started", "step"], "step": "build"})
+        );
+    }
+
+    #[test]
+    fn a_sender_reads_its_new_words_and_a_filter_hears_people_anyone_and_a_place_by_kind() {
+        let parse = |v: serde_json::Value| serde_json::from_value::<MessageFrom>(v);
+        assert_eq!(parse(json!("people")).unwrap(), MessageFrom::People);
+        assert_eq!(parse(json!("anyone")).unwrap(), MessageFrom::Anyone);
+        assert_eq!(MessageFrom::People.as_str(), "people");
+        assert_eq!(MessageFrom::Anyone.as_str(), "anyone");
+        for word in MessageFrom::WORDS {
+            assert_eq!(parse(json!(word)).unwrap().as_str(), word);
+        }
+        let msg = |kind: &str, scope_kind: &str| {
+            heard(
+                SignalSource::Message,
+                None,
+                json!({
+                    "scope": "s", "scope_kind": scope_kind, "author": "aa", "author_kind": kind,
+                    "teams": [], "mentions": [], "text": "hi"
+                }),
+            )
+        };
+        let people = MessageFilter {
+            from: MessageFrom::People.into(),
+            ..MessageFilter::default()
+        };
+        assert!(people.hears(&msg("you", "channel")));
+        assert!(people.hears(&msg("person", "channel")));
+        assert!(
+            !people.hears(&msg("agent", "channel")),
+            "an agent is nobody's person"
+        );
+        let anyone = MessageFilter {
+            from: MessageFrom::Anyone.into(),
+            kind: Some(MessagePlace::Direct.into()),
+            ..MessageFilter::default()
+        };
+        assert!(anyone.hears(&msg("agent", "direct")));
+        assert!(
+            !anyone.hears(&msg("agent", "channel")),
+            "a standing channel is no direct one"
+        );
+        let several = MessageFilter {
+            from: vec![MessageFrom::Agents, MessageFrom::You].into(),
+            kind: Some(vec![MessagePlace::Goal, MessagePlace::Direct].into()),
+            ..MessageFilter::default()
+        };
+        assert!(several.hears(&msg("agent", "goal")));
+        assert!(several.hears(&msg("you", "direct")));
+        assert!(
+            !several.hears(&msg("person", "direct")),
+            "a person is neither an agent nor you"
+        );
+        for place in MessagePlace::NAMES {
+            let read: MessagePlace = serde_json::from_value(json!(place)).unwrap();
+            assert_eq!(read.as_str(), place);
+        }
+    }
+
+    #[test]
+    fn a_message_filter_with_lists_hears_any_place_any_sender_and_any_mention() {
+        let msg = |scope: &str, author: &str, mentions: serde_json::Value| {
+            heard(
+                SignalSource::Message,
+                None,
+                json!({
+                    "scope": scope, "scope_kind": "channel", "author": author, "author_kind": "agent",
+                    "teams": ["ops"], "mentions": mentions, "text": "refund please"
+                }),
+            )
+        };
+        let filter = MessageFilter {
+            r#in: Some(vec!["support".to_string(), "ops".to_string()].into()),
+            from: vec![
+                MessageFrom::Someone(ValueRef::Fixed(Assignee::Agent("triager".into()))),
+                MessageFrom::Someone(ValueRef::Fixed(Assignee::Team("ops".into()))),
+            ]
+            .into(),
+            mentions: Some(
+                vec![
+                    ValueRef::Fixed(Assignee::Agent("a".into())),
+                    ValueRef::Fixed(Assignee::Agent("b".into())),
+                ]
+                .into(),
+            ),
+            contains: Some("refund".into()),
+            kind: None,
+        };
+        assert!(filter.hears(&msg("ops", "anyone-in-ops", json!(["b"]))));
+        assert!(filter.hears(&msg("support", "triager", json!(["a", "x"]))));
+        assert!(
+            !filter.hears(&msg("general", "triager", json!(["a"]))),
+            "elsewhere"
+        );
+        assert!(
+            !filter.hears(&msg("support", "triager", json!(["x"]))),
+            "mentions neither"
+        );
+        assert_eq!(filter.templates(), vec!["support", "ops", "refund"]);
+        assert_eq!(filter.assignee_refs().len(), 4);
+        let unresolved = MessageFilter {
+            mentions: Some(
+                ValueRef::Input {
+                    input: InputName::new("who").unwrap(),
+                }
+                .into(),
+            ),
+            from: MessageFrom::Anyone.into(),
+            ..MessageFilter::default()
+        };
+        assert!(
+            !unresolved.hears(&msg("support", "triager", json!(["a"]))),
+            "an unresolved mention hears nobody"
+        );
+        let render = |t: &str| -> Result<String, String> { Ok(t.to_uppercase()) };
+        let input =
+            |_: &InputName| -> Result<Assignee, String> { Ok(Assignee::Agent("sre".into())) };
+        let resolved = unresolved.resolve(&render, &input).unwrap();
+        assert_eq!(
+            resolved.mentions,
+            Some(ValueRef::Fixed(Assignee::Agent("sre".into())).into())
+        );
+        let places = MessageFilter {
+            r#in: Some(vec!["{inputs.a}".to_string(), "b".to_string()].into()),
+            ..MessageFilter::default()
+        };
+        let resolved = places.resolve(&render, &input).unwrap();
+        assert_eq!(
+            resolved.r#in,
+            Some(vec!["{INPUTS.A}".to_string(), "B".to_string()].into()),
+            "every place renders"
+        );
+    }
+
+    #[test]
+    fn a_project_filter_with_lists_hears_any_project_any_change_any_branch_and_any_glob() {
+        let a = ProjectId::from_ulid(ulid::Ulid::from_parts(7, 1));
+        let b = ProjectId::from_ulid(ulid::Ulid::from_parts(7, 2));
+        let c = ProjectId::from_ulid(ulid::Ulid::from_parts(7, 3));
+        let change = |p: ProjectId, c: &str, branch: &str, paths: serde_json::Value| {
+            heard(
+                SignalSource::Project,
+                None,
+                json!({"project": p.to_string(), "change": c, "branch": branch, "paths": paths}),
+            )
+        };
+        let filter = ProjectFilter {
+            project: Some(vec![ValueRef::Fixed(a), ValueRef::Fixed(b)].into()),
+            change: vec![
+                ProjectChange::Commit,
+                ProjectChange::Branch,
+                ProjectChange::Files,
+            ]
+            .into(),
+            branch: Some(vec!["main".to_string(), "dev".to_string()].into()),
+            glob: Some(vec!["*.csv".to_string(), "docs/*.md".to_string()].into()),
+        };
+        assert_eq!(filter.project_ids(), vec![a, b]);
+        assert_eq!(filter.changes().count(), 3);
+        assert!(filter.hears(&change(a, "commit", "main", json!(["x.csv"]))));
+        assert!(filter.hears(&change(b, "branch", "dev", json!(["docs/a.md"]))));
+        assert!(
+            !filter.hears(&change(c, "commit", "main", json!(["x.csv"]))),
+            "a third project"
+        );
+        assert!(
+            !filter.hears(&change(a, "push", "main", json!(["x.csv"]))),
+            "a change it lacks"
+        );
+        assert!(
+            !filter.hears(&change(a, "commit", "feature", json!(["x.csv"]))),
+            "a branch it lacks"
+        );
+        assert!(
+            !filter.hears(&change(a, "files", "main", json!(["x.txt"]))),
+            "no glob fits"
+        );
+        for (change, word) in [
+            (ProjectChange::Branch, "branch"),
+            (ProjectChange::Pull, "pull"),
+            (ProjectChange::Workstream, "workstream"),
+        ] {
+            assert_eq!(change.as_str(), word);
+            assert_eq!(serde_json::to_value(change).unwrap(), json!(word));
+        }
+        assert_eq!(ProjectChange::NAMES.len(), 8);
+        let one_input = ProjectFilter {
+            project: Some(
+                vec![
+                    ValueRef::Fixed(a),
+                    ValueRef::Input {
+                        input: InputName::new("repo").unwrap(),
+                    },
+                ]
+                .into(),
+            ),
+            ..ProjectFilter::default()
+        };
+        assert_eq!(one_input.input_refs().len(), 1);
+        assert_eq!(
+            one_input.project_ids(),
+            vec![a],
+            "an unresolved entry names nothing"
+        );
+        let render = |t: &str| -> Result<String, String> { Ok(t.to_string()) };
+        let input = |_: &InputName| -> Result<ProjectId, String> { Ok(b) };
+        assert_eq!(
+            one_input.resolve(&render, &input).unwrap().project_ids(),
+            vec![a, b]
+        );
+    }
+
+    #[test]
+    fn a_run_filter_hears_what_the_run_did_and_an_occurrence_with_no_change_is_an_end() {
+        let moved = |payload: serde_json::Value| heard(SignalSource::Run, None, payload);
+        let w = wf(3);
+        let g = goal(4);
+        let ends = RunFilter::default();
+        assert!(
+            ends.hears(&moved(
+                json!({"run": "r", "workflow": w.to_string(), "outcome": "done"})
+            )),
+            "written before `change` existed"
+        );
+        assert!(ends.hears(&moved(
+            json!({"run": "r", "workflow": w.to_string(), "change": "ended", "outcome": "failed"})
+        )));
+        assert!(
+            !ends.hears(&moved(
+                json!({"run": "r", "workflow": w.to_string(), "change": "started"})
+            )),
+            "ends alone"
+        );
+        let steps = RunFilter {
+            workflow: Some(vec![w, wf(5)].into()),
+            change: vec![RunChange::Step, RunChange::Started].into(),
+            step: Some(vec![StepId::new("build").unwrap()].into()),
+            state: Some(vec!["failed".to_string(), "done".to_string()].into()),
+            goal: Some(g.to_string().into()),
+            outcome: None,
+        };
+        let step = |state: &str, step: &str, goal: GoalId| {
+            moved(json!({
+                "run": "r", "workflow": w.to_string(), "change": "step", "step": step,
+                "state": state, "kind": "check", "goal": goal.to_string()
+            }))
+        };
+        assert!(steps.hears(&step("failed", "build", g)));
+        assert!(!steps.hears(&step("failed", "test", g)), "another step");
+        assert!(
+            !steps.hears(&step("running", "build", g)),
+            "a state it lacks"
+        );
+        assert!(
+            !steps.hears(&step("failed", "build", goal(9))),
+            "another goal"
+        );
+        assert!(
+            steps.hears(&moved(json!({"run": "r", "workflow": wf(5).to_string(), "change": "started", "goal": g.to_string()}))),
+            "a start carries no step, and the step narrowing reads nothing of it"
+        );
+        let outcomes = RunFilter {
+            outcome: Some(vec![RunEnd::Failed, RunEnd::Cancelled].into()),
+            ..RunFilter::default()
+        };
+        assert!(outcomes.hears(&moved(
+            json!({"run": "r", "workflow": "w", "outcome": "cancelled"})
+        )));
+        assert!(!outcomes.hears(&moved(
+            json!({"run": "r", "workflow": "w", "outcome": "done"})
+        )));
+        assert_eq!(steps.templates(), vec![g.to_string().as_str()]);
+        let render = |t: &str| -> Result<String, String> { Ok(format!("{t}!")) };
+        assert_eq!(
+            steps.resolve(&render).unwrap().goal,
+            Some(format!("{g}!").into())
+        );
+        for (change, word) in [
+            (RunChange::Queued, "queued"),
+            (RunChange::Started, "started"),
+            (RunChange::Ended, "ended"),
+            (RunChange::Step, "step"),
+        ] {
+            assert_eq!(change.as_str(), word);
+        }
+        assert_eq!(RunChange::NAMES.len(), 4);
+    }
+
+    #[test]
+    fn a_platform_filter_hears_any_topic_of_its_list() {
+        let bus = |topic: &str| {
+            heard(
+                SignalSource::Platform,
+                Some(topic),
+                json!({"event": topic, "fields": {"state": "failed"}}),
+            )
+        };
+        let filter = PlatformFilter {
+            topic: vec!["step.changed".to_string(), "run.finished".to_string()].into(),
+            fields: BTreeMap::from([("state".to_string(), "failed".to_string())]),
+        };
+        assert!(filter.hears(&bus("step.changed")));
+        assert!(filter.hears(&bus("run.finished")));
+        assert!(!filter.hears(&bus("goal.closed")));
+        assert_eq!(
+            filter.topics().collect::<Vec<_>>(),
+            vec!["step.changed", "run.finished"]
+        );
+    }
+
+    #[test]
+    fn a_goal_filter_hears_a_goals_change_narrowed_to_the_goals_it_names() {
+        let g = goal(1);
+        let other = goal(2);
+        let moved = |goal: GoalId, change: &str| {
+            heard(
+                SignalSource::Goal,
+                None,
+                json!({"goal": goal.to_string(), "change": change, "title": "Ship it", "status": "open"}),
+            )
+        };
+        let any = GoalFilter {
+            goal: None,
+            change: vec![GoalChange::Closed, GoalChange::Decided].into(),
+        };
+        assert!(any.hears(&moved(g, "closed")));
+        assert!(any.hears(&moved(other, "decided")));
+        assert!(!any.hears(&moved(g, "updated")));
+        let named = GoalFilter {
+            goal: Some(vec![g.to_string(), "{inputs.goal}".to_string()].into()),
+            change: GoalChange::Closed.into(),
+        };
+        assert!(named.hears(&moved(g, "closed")));
+        assert!(!named.hears(&moved(other, "closed")), "another goal");
+        assert!(
+            !named.hears(&heard(
+                SignalSource::Run,
+                None,
+                json!({"goal": g.to_string(), "change": "closed"})
+            )),
+            "goals alone"
+        );
+        assert_eq!(
+            named.templates(),
+            vec![g.to_string().as_str(), "{inputs.goal}"]
+        );
+        let render = |t: &str| -> Result<String, String> {
+            Ok(t.replace("{inputs.goal}", &other.to_string()))
+        };
+        let resolved = named.resolve(&render).unwrap();
+        assert!(
+            resolved.hears(&moved(other, "closed")),
+            "the input read names the other goal"
+        );
+        for word in GoalChange::NAMES {
+            let read: GoalChange = serde_json::from_value(json!(word)).unwrap();
+            assert_eq!(read.as_str(), word);
+        }
+        assert_eq!(GoalChange::NAMES.len(), 11);
+        let json = serde_json::to_value(&any).unwrap();
+        assert_eq!(json, json!({"change": ["closed", "decided"]}));
+        assert_eq!(serde_json::from_value::<GoalFilter>(json).unwrap(), any);
+        assert!(
+            serde_json::from_value::<GoalFilter>(json!({"goal": "x"})).is_err(),
+            "the change is the filter's one required word"
+        );
+    }
+
+    #[test]
+    fn a_workflow_filter_hears_a_definitions_change_narrowed_to_the_ones_it_names() {
+        let moved = |workflow: WorkflowId, change: &str| {
+            heard(
+                SignalSource::Workflow,
+                None,
+                json!({"workflow": workflow.to_string(), "change": change, "name": "Weekly review"}),
+            )
+        };
+        let any = WorkflowFilter {
+            workflow: None,
+            change: WorkflowChange::Saved.into(),
+        };
+        assert!(any.hears(&moved(wf(1), "saved")));
+        assert!(!any.hears(&moved(wf(1), "deleted")));
+        let named = WorkflowFilter {
+            workflow: Some(vec![wf(1), wf(2)].into()),
+            change: vec![WorkflowChange::Deleted, WorkflowChange::Archived].into(),
+        };
+        assert!(named.hears(&moved(wf(2), "deleted")));
+        assert!(named.hears(&moved(wf(1), "archived")));
+        assert!(!named.hears(&moved(wf(3), "deleted")));
+        assert!(
+            !named.hears(&heard(
+                SignalSource::Goal,
+                None,
+                json!({"change": "deleted"})
+            )),
+            "workflows alone"
+        );
+        for word in WorkflowChange::NAMES {
+            let read: WorkflowChange = serde_json::from_value(json!(word)).unwrap();
+            assert_eq!(read.as_str(), word);
+        }
+        assert_eq!(WorkflowChange::NAMES.len(), 5);
+    }
+
+    #[test]
+    fn an_agent_filter_hears_a_session_by_agent_team_project_harness_and_change() {
+        let p = ProjectId::from_ulid(ulid::Ulid::from_parts(8, 1));
+        let q = ProjectId::from_ulid(ulid::Ulid::from_parts(8, 2));
+        let session = |agent: &str, project: Option<ProjectId>, harness: &str, change: &str| {
+            let teams: Vec<&str> = if agent == "anyone-in-ops" {
+                vec!["ops"]
+            } else {
+                vec![]
+            };
+            heard(
+                SignalSource::Agent,
+                None,
+                json!({
+                    "agent": agent, "teams": teams, "harness": harness, "kind": "worker",
+                    "change": change, "state": change, "live_run": "lr",
+                    "project": project.map(|p| p.to_string())
+                }),
+            )
+        };
+        let filter = AgentFilter {
+            agent: Some(
+                vec![
+                    ValueRef::Fixed(Assignee::Agent("dev".into())),
+                    ValueRef::Fixed(Assignee::Team("ops".into())),
+                ]
+                .into(),
+            ),
+            project: Some(vec![ValueRef::Fixed(p)].into()),
+            harness: Some(vec!["claude-code".to_string(), "codex".to_string()].into()),
+            change: vec![AgentChange::Done, AgentChange::Failed].into(),
+        };
+        assert!(filter.hears(&session("dev", Some(p), "codex", "done")));
+        assert!(
+            filter.hears(&session("anyone-in-ops", Some(p), "claude-code", "failed")),
+            "a team counts its members"
+        );
+        assert!(
+            !filter.hears(&session("dev", Some(q), "codex", "done")),
+            "another project"
+        );
+        assert!(
+            !filter.hears(&session("dev", None, "codex", "done")),
+            "a session in a scratch folder names no project"
+        );
+        assert!(
+            !filter.hears(&session("dev", Some(p), "gemini", "done")),
+            "another harness"
+        );
+        assert!(
+            !filter.hears(&session("dev", Some(p), "codex", "started")),
+            "a change it lacks"
+        );
+        assert!(
+            !filter.hears(&session("other", Some(p), "codex", "done")),
+            "another agent, in no team of the list"
+        );
+        let any = AgentFilter {
+            agent: None,
+            project: None,
+            harness: None,
+            change: AgentChange::Replied.into(),
+        };
+        assert!(any.hears(&session("x", None, "pi", "replied")));
+        assert!(
+            !any.hears(&heard(
+                SignalSource::Message,
+                None,
+                json!({"change": "replied"})
+            )),
+            "agents alone"
+        );
+        let human = AgentFilter {
+            agent: Some(
+                ValueRef::Fixed(
+                    format!("human:{}", "ab".repeat(32))
+                        .parse::<Assignee>()
+                        .unwrap(),
+                )
+                .into(),
+            ),
+            ..any.clone()
+        };
+        assert!(
+            !human.hears(&session("x", None, "pi", "replied")),
+            "a person runs no session of an agent's"
+        );
+        let with_inputs = AgentFilter {
+            agent: Some(
+                ValueRef::Input {
+                    input: InputName::new("who").unwrap(),
+                }
+                .into(),
+            ),
+            project: Some(
+                ValueRef::Input {
+                    input: InputName::new("repo").unwrap(),
+                }
+                .into(),
+            ),
+            harness: None,
+            change: AgentChange::Done.into(),
+        };
+        assert_eq!(with_inputs.input_refs().len(), 2);
+        assert_eq!(with_inputs.assignee_refs().len(), 1);
+        assert!(
+            !with_inputs.hears(&session("dev", Some(p), "codex", "done")),
+            "unresolved, it hears nobody"
+        );
+        let who = |_: &InputName| -> Result<Assignee, String> { Ok(Assignee::Agent("dev".into())) };
+        let which = |_: &InputName| -> Result<ProjectId, String> { Ok(p) };
+        let resolved = with_inputs.resolve(&who, &which).unwrap();
+        assert!(resolved.hears(&session("dev", Some(p), "codex", "done")));
+        for word in AgentChange::NAMES {
+            let read: AgentChange = serde_json::from_value(json!(word)).unwrap();
+            assert_eq!(read.as_str(), word);
+        }
+        assert_eq!(AgentChange::NAMES.len(), 6);
+    }
+
+    #[test]
+    fn an_agent_filter_resolves_a_fixed_project_as_itself_and_an_unresolved_one_hears_nobody() {
+        let p = ProjectId::from_ulid(ulid::Ulid::from_parts(9, 1));
+        let fixed = AgentFilter {
+            agent: Some(
+                ValueRef::Input {
+                    input: InputName::new("who").unwrap(),
+                }
+                .into(),
+            ),
+            project: Some(ValueRef::Fixed(p).into()),
+            harness: None,
+            change: AgentChange::Started.into(),
+        };
+        let who = |_: &InputName| -> Result<Assignee, String> { Ok(Assignee::Agent("dev".into())) };
+        let which =
+            |n: &InputName| -> Result<ProjectId, String> { Err(format!("{n} is not read")) };
+        let resolved = fixed.resolve(&who, &which).unwrap();
+        assert_eq!(resolved.project, Some(ValueRef::Fixed(p).into()));
+        assert_eq!(
+            resolved.agent,
+            Some(ValueRef::Fixed(Assignee::Agent("dev".into())).into())
+        );
+        let unresolved = AgentFilter {
+            agent: None,
+            project: Some(
+                ValueRef::Input {
+                    input: InputName::new("repo").unwrap(),
+                }
+                .into(),
+            ),
+            harness: None,
+            change: AgentChange::Started.into(),
+        };
+        let session = heard(
+            SignalSource::Agent,
+            None,
+            json!({"agent": "dev", "teams": [], "harness": "codex", "change": "started", "project": p.to_string()}),
+        );
+        assert!(
+            !unresolved.hears(&session),
+            "a project nobody read names nothing"
+        );
+        assert!(resolved.hears(&session));
+    }
+
+    #[test]
+    fn the_new_sources_have_their_words() {
+        assert_eq!(SignalSource::NAMES.len(), 13);
+        for (source, word) in [
+            (SignalSource::Goal, "goal"),
+            (SignalSource::Workflow, "workflow"),
+            (SignalSource::Agent, "agent"),
+        ] {
+            assert_eq!(source.as_str(), word);
+            assert_eq!(SignalSource::parse(word), Some(source));
+            assert_eq!(serde_json::to_value(source).unwrap(), json!(word));
+        }
     }
 }

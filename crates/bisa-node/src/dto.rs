@@ -1170,6 +1170,9 @@ pub enum EventKind {
     Platform,
     Connector,
     Check,
+    Goal,
+    Workflow,
+    Agent,
 }
 
 impl EventKind {
@@ -1186,6 +1189,9 @@ impl EventKind {
             S::Platform => Some(Self::Platform),
             S::Connector => Some(Self::Connector),
             S::Check => Some(Self::Check),
+            S::Goal => Some(Self::Goal),
+            S::Workflow => Some(Self::Workflow),
+            S::Agent => Some(Self::Agent),
             S::Test => None,
         }
     }
@@ -3960,7 +3966,10 @@ impl ListenerView {
             | StartOn::Run { .. }
             | StartOn::Platform { .. }
             | StartOn::Connector { .. }
-            | StartOn::Check { .. } => (None, None),
+            | StartOn::Check { .. }
+            | StartOn::Goal { .. }
+            | StartOn::Workflow { .. }
+            | StartOn::Agent { .. } => (None, None),
         };
         Self {
             host: key.host,

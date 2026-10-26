@@ -27,10 +27,10 @@
 use crate::events::{EngineEvent, EnginePayload};
 use crate::{ops, Inner};
 use bisa_core::{
-    json_path, BoundaryOn, Branch, GoalId, GoalOrigin, Heard, Hearer, MessageFilter,
-    PlatformFilter, ProjectChange, ProjectFilter, ProjectId, RunEvent, RunFilter, RunId,
-    RunOutcome, SignalFilter, SignalSource, StepId, StepKind, StepState, ValueRef, WaitFor,
-    WorkflowRun,
+    json_path, AgentFilter, BoundaryOn, Branch, GoalFilter, GoalId, GoalOrigin, Heard, Hearer,
+    MessageFilter, PlatformFilter, ProjectChange, ProjectFilter, ProjectId, RunEvent, RunFilter,
+    RunId, RunOutcome, SignalFilter, SignalSource, StepId, StepKind, StepState, ValueRef, WaitFor,
+    WorkflowFilter, WorkflowRun,
 };
 use dashmap::DashMap;
 use serde_json::{json, Value};
@@ -58,6 +58,9 @@ pub enum ArmedUntil {
     Run { filter: RunFilter },
     Platform { filter: PlatformFilter },
     Release,
+    Goal { filter: GoalFilter },
+    Workflow { filter: WorkflowFilter },
+    Agent { filter: AgentFilter },
 }
 
 impl ArmedUntil {
@@ -89,6 +92,15 @@ impl ArmedUntil {
                 filter: filter.clone(),
             },
             ArmedUntil::Release => WaitFor::Release,
+            ArmedUntil::Goal { filter } => WaitFor::Goal {
+                filter: filter.clone(),
+            },
+            ArmedUntil::Workflow { filter } => WaitFor::Workflow {
+                filter: filter.clone(),
+            },
+            ArmedUntil::Agent { filter } => WaitFor::Agent {
+                filter: filter.clone(),
+            },
         }
     }
 
@@ -100,6 +112,9 @@ impl ArmedUntil {
             ArmedUntil::Project { filter } => filter.hears(heard),
             ArmedUntil::Run { filter } => filter.hears(heard),
             ArmedUntil::Platform { filter } => filter.hears(heard),
+            ArmedUntil::Goal { filter } => filter.hears(heard),
+            ArmedUntil::Workflow { filter } => filter.hears(heard),
+            ArmedUntil::Agent { filter } => filter.hears(heard),
             ArmedUntil::Delay { .. }
             | ArmedUntil::Time { .. }
             | ArmedUntil::Schedule { .. }
@@ -114,6 +129,9 @@ impl ArmedUntil {
             ArmedUntil::Project { .. } => SignalSource::Project,
             ArmedUntil::Run { .. } => SignalSource::Run,
             ArmedUntil::Platform { .. } => SignalSource::Platform,
+            ArmedUntil::Goal { .. } => SignalSource::Goal,
+            ArmedUntil::Workflow { .. } => SignalSource::Workflow,
+            ArmedUntil::Agent { .. } => SignalSource::Agent,
             _ => return None,
         })
     }
@@ -251,12 +269,23 @@ pub(crate) fn resolve(
             filter: filter.resolve(&text, &|name| project_input(run, name))?,
         },
         WaitFor::Run { filter } => ArmedUntil::Run {
-            filter: filter.clone(),
+            filter: filter.resolve(&text)?,
         },
         WaitFor::Platform { filter } => ArmedUntil::Platform {
             filter: filter.resolve(&text)?,
         },
         WaitFor::Release => ArmedUntil::Release,
+        WaitFor::Goal { filter } => ArmedUntil::Goal {
+            filter: filter.resolve(&text)?,
+        },
+        WaitFor::Workflow { filter } => ArmedUntil::Workflow {
+            filter: filter.clone(),
+        },
+        WaitFor::Agent { filter } => ArmedUntil::Agent {
+            filter: filter.resolve(&|name| assignee_input(run, name), &|name| {
+                project_input(run, name)
+            })?,
+        },
     })
 }
 
@@ -549,9 +578,13 @@ pub(crate) fn watched_projects(inner: &Arc<Inner>) -> Vec<(ProjectId, ProjectCha
         .waits
         .armed
         .iter()
-        .filter_map(|e| match &e.value().until {
-            ArmedUntil::Project { filter } => filter.project_id().map(|p| (p, filter.change)),
-            _ => None,
+        .flat_map(|e| match &e.value().until {
+            ArmedUntil::Project { filter } => filter
+                .project_ids()
+                .into_iter()
+                .flat_map(|p| filter.changes().map(move |c| (p, c)))
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
         })
         .collect()
 }

@@ -114,6 +114,9 @@ export const WAITS = [
   { until: "run", label: t("workflow-step-kinds-run-s-end") },
   { until: "platform", label: t("workflow-step-kinds-platform-event") },
   { until: "release", label: t("workflow-step-kinds-person-releasing") },
+  { until: "goal", label: t("workflow-step-kinds-goal-s-move") },
+  { until: "workflow", label: t("workflow-step-kinds-workflow-s-move") },
+  { until: "agent", label: t("workflow-step-kinds-agent-s-move") },
 ];
 
 /**
@@ -144,6 +147,12 @@ export function blankWait(until) {
       return { until, topic: "" };
     case "release":
       return { until };
+    case "goal":
+      return { until, change: "closed" };
+    case "workflow":
+      return { until, change: "saved" };
+    case "agent":
+      return { until, change: "done" };
     default:
       throw new Error(`not a catch: ${until}`);
   }
@@ -157,10 +166,13 @@ export const START_EVENTS = [
   { event: "message", label: t("workflow-step-kinds-when-message-arrives") },
   { event: "signal", label: t("workflow-step-kinds-when-signal-raised") },
   { event: "project", label: t("workflow-step-kinds-when-project-changes") },
-  { event: "run", label: t("workflow-step-kinds-when-run-finishes") },
+  { event: "run", label: t("workflow-step-kinds-when-run-moves") },
   { event: "platform", label: t("workflow-step-kinds-when-platform-says") },
   { event: "connector", label: t("workflow-step-kinds-when-outside-platform-lists-something-new") },
   { event: "check", label: t("workflow-step-kinds-when-check-starts-failing") },
+  { event: "goal", label: t("workflow-step-kinds-when-goal-moves") },
+  { event: "workflow", label: t("workflow-step-kinds-when-workflow-moves") },
+  { event: "agent", label: t("workflow-step-kinds-when-agent-moves") },
 ];
 
 /** What a boundary event listens for while its step is live. */
@@ -198,11 +210,22 @@ export const OVERLAPS = [
   { overlap: "parallel", label: t("workflow-step-kinds-several-at-once") },
 ];
 
-/** Who wrote a message a message event waits for. `someone` names one agent, person or team. */
+/** Who wrote a message a message event waits for, in the core's order. `someone` names one agent, person or team. */
 export const MESSAGE_FROM = [
   { from: "you", label: t("workflow-step-kinds-from-you") },
   { from: "agents", label: t("workflow-step-kinds-from-any-agent") },
+  { from: "people", label: t("workflow-step-kinds-from-any-person") },
+  { from: "anyone", label: t("workflow-step-kinds-from-anyone") },
   { from: "someone", label: t("workflow-step-kinds-from-someone-named") },
+];
+
+/** The kind of place a message lands in; absent, any. */
+export const MESSAGE_PLACES = [
+  { kind: "channel", label: t("workflow-step-kinds-place-channel") },
+  { kind: "direct", label: t("workflow-step-kinds-place-direct") },
+  { kind: "goal", label: t("workflow-step-kinds-place-goal") },
+  { kind: "workstream", label: t("workflow-step-kinds-place-workstream") },
+  { kind: "conversation", label: t("workflow-step-kinds-place-conversation") },
 ];
 
 /** What changed in a project. */
@@ -212,6 +235,51 @@ export const PROJECT_CHANGES = [
   { change: "pull_request", label: t("workflow-step-kinds-pull-request-s-change") },
   { change: "merge", label: t("workflow-step-kinds-merge") },
   { change: "files", label: t("workflow-step-kinds-change-files") },
+  { change: "branch", label: t("workflow-step-kinds-branch-made-deleted") },
+  { change: "pull", label: t("workflow-step-kinds-pull") },
+  { change: "workstream", label: t("workflow-step-kinds-checkout-s-move") },
+];
+
+/** What a run did, as a run event hears it; `ended` is what a `run` event meant before the others were named. */
+export const RUN_CHANGES = [
+  { change: "queued", label: t("workflow-step-kinds-run-queued") },
+  { change: "started", label: t("workflow-step-kinds-run-started") },
+  { change: "ended", label: t("workflow-step-kinds-run-ended") },
+  { change: "step", label: t("workflow-step-kinds-run-step-moved") },
+];
+
+/** What moved about a goal. */
+export const GOAL_CHANGES = [
+  { change: "created", label: t("workflow-step-kinds-goal-created") },
+  { change: "updated", label: t("workflow-step-kinds-goal-updated") },
+  { change: "closed", label: t("workflow-step-kinds-goal-closed") },
+  { change: "archived", label: t("workflow-step-kinds-goal-archived") },
+  { change: "restored", label: t("workflow-step-kinds-goal-restored") },
+  { change: "deleted", label: t("workflow-step-kinds-goal-deleted") },
+  { change: "attached", label: t("workflow-step-kinds-goal-attached") },
+  { change: "detached", label: t("workflow-step-kinds-goal-detached") },
+  { change: "proposed", label: t("workflow-step-kinds-goal-proposed") },
+  { change: "asked", label: t("workflow-step-kinds-goal-asked") },
+  { change: "decided", label: t("workflow-step-kinds-goal-decided") },
+];
+
+/** What moved about a workflow definition in the library. */
+export const WORKFLOW_CHANGES = [
+  { change: "saved", label: t("workflow-step-kinds-workflow-saved") },
+  { change: "proposed", label: t("workflow-step-kinds-workflow-proposed") },
+  { change: "archived", label: t("workflow-step-kinds-workflow-archived") },
+  { change: "restored", label: t("workflow-step-kinds-workflow-restored") },
+  { change: "deleted", label: t("workflow-step-kinds-workflow-deleted") },
+];
+
+/** What a harness session did. */
+export const AGENT_CHANGES = [
+  { change: "started", label: t("workflow-step-kinds-agent-started") },
+  { change: "waiting", label: t("workflow-step-kinds-agent-waiting") },
+  { change: "replied", label: t("workflow-step-kinds-agent-replied") },
+  { change: "done", label: t("workflow-step-kinds-agent-done") },
+  { change: "failed", label: t("workflow-step-kinds-agent-failed") },
+  { change: "aborted", label: t("workflow-step-kinds-agent-aborted") },
 ];
 
 /** How a run ended, as a run event hears it; absent, any end. */
@@ -318,6 +386,8 @@ export const PROBLEM_KIND_LABEL = {
   spawn_needs_manual_entry: t("workflow-step-kinds-spawns-workflow-only-events-start"),
   unsupported_effort: t("workflow-step-kinds-pins-effort-none-harnesses-can-set"),
   spawn_input: t("workflow-step-kinds-spawn-gives-not-what-workflow-asks"),
+  bad_goal_ref: t("workflow-step-kinds-names-goal-no-goal-id"),
+  idle_filter_field: t("workflow-step-kinds-narrows-step-hears-no-step-move"),
 };
 
 /** The MIME type a palette item carries when dragged onto the canvas. */

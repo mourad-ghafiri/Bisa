@@ -260,17 +260,51 @@ pub enum StartOn {                       // tagged `event`
     Manual,
     Schedule { schedule: Schedule },     // every | cron + tz
     Hook { public: bool },
-    Message { filter: MessageFilter },   // in?, from, mentions?, contains?
+    Message { filter: MessageFilter },   // in?, from, mentions?, contains?, kind?
     Signal { filter: SignalFilter },     // name, fields
     Project { filter: ProjectFilter },   // project?, change, branch?, glob?
-    Run { filter: RunFilter },           // workflow?, outcome?
+    Run { filter: RunFilter },           // workflow?, change, outcome?, step?, state?, goal?
     Platform { filter: PlatformFilter }, // topic, fields
     Connector { connector?, operation?, account?, params, key?, schedule },
     Check { command, project?, fire_on: FireOn, schedule },
+    Goal { filter: GoalFilter },         // goal?, change
+    Workflow { filter: WorkflowFilter }, // workflow?, change
+    Agent { filter: AgentFilter },       // agent?, project?, harness?, change
 }
 
+pub enum OneOrMany<T> { One(T), Many(Vec<T>) }   // `x` or `[x, y]` — any of the list
 pub struct Guard { debounce_secs: u64, overlap: Overlap }   // Queue (default) | Skip | Parallel(n)
 ```
+
+**One or many.** Every filter field that names a thing takes one value or a list of them
+(`OneOrMany<T>`, `core/listen.rs`): `project = "…"` or `project = ["…", "…"]`, `change =
+"commit"` or `change = ["commit", "push"]`, a message's `in`, `from` and `mentions`, a run's
+`workflow`, `outcome`, `step`, `state` and `goal`, a platform start's `topic`, a goal's `goal` and
+`change`, an agent's `agent`, `project` and `harness`. A list hears **any** of its entries, each
+matched exactly as a single value is. A single value reads and writes as the bare value, so a
+definition from before lists existed reads and re-serializes as it was; a list writes as written.
+An empty list is refused by name on a required field and reads as absent on an optional one.
+
+**What each subject's `change` names.** A `project`'s: `commit` · `push` · `pull_request` ·
+`merge` · `files`, and `branch` (a branch appeared or went), `pull` (a local branch caught up with
+its remote-tracking branch: fetched and merged, or fast-forwarded) and `workstream` (a checkout
+opened or moved: committed, pushed, its pull request opened or merged, closed — heard from the
+bus). A `run`'s: `queued` · `started` · `ended` · `step` — `ended` when nothing is said, which is
+what a `run` event always meant; `outcome` narrows an end, `step` and `state` a step's move. A
+`goal`'s: `created` · `updated` · `closed` · `archived` · `restored` · `deleted` · `attached` ·
+`detached` · `proposed` · `asked` · `decided`. A `workflow`'s (the definition in the library):
+`saved` · `proposed` · `archived` · `restored` · `deleted`. An `agent`'s (a harness session):
+`started` · `waiting` · `replied` · `done` · `failed` · `aborted`. A message's `from` is `you` ·
+`agents` · `people` (any person, you among them) · `anyone` · an assignee; its `kind` the place's
+— `channel` · `direct` · `goal` · `workstream` · `conversation`.
+
+**A lifecycle subject is named by syntax, never by existence.** A `goal` filter's literal must be
+a goal id (`ProblemKind::BadGoalRef`) and a `workflow` filter's a workflow id; neither is checked
+against what is still there — the registry is rebuilt, and every listening definition validated,
+*before* an occurrence is offered, so a start on a goal's `closed` or a workflow's `deleted` held
+to the subject's existence would be *not armed* at the very moment it should hear. A `run`
+filter's `workflow` keeps its check (a run of a gone workflow cannot happen); a `step` or `state`
+on a `run` filter that hears no step's move is `IdleFilterField`.
 
 A start's event fields are fixed values, `{inputs.<name>}` templates or `{ input }` references over
 the inputs its host listens with, resolved when the start is armed (`StartOn::resolve`), so a
@@ -285,7 +319,15 @@ A `project` start observes the repository, never the IDE: the watcher runs only 
 has open and the code host sends nothing, so the engine's ticker reads the branch heads, the
 remote-tracking branches, the tree's status (a plain folder: a bounded scan) and — at
 `events.pr_poll_secs`, sooner when a workstream moved — the state of the pull requests the
-platform's workstreams opened or adopted. The first look learns. A `connector` start polls one
+platform's workstreams opened or adopted. The first look learns. A branch that appeared or went
+is a `branch` change beside the `commit` an appearance always was; a head that moved to a tip its
+remote-tracking branch already held on an earlier look is a `pull`; a checkout's move is read off
+the bus (`workstream.opened`, `workstream.changed`) as a `workstream` change, with no look. A
+start naming several projects keeps one memory per project (`ListenerRuntime.projects`). The bus
+is read for the other subjects too (`listen/lifecycle.rs`): a goal's, a workflow definition's, a
+run's and a harness session's move become the `goal`, `workflow`, `run` and `agent` events — the
+session's from the roster's state frames, a transition at a time, the first frame counting only
+when it is `starting`. A `connector` start polls one
 **read** operation and an occurrence is one item whose `key` no earlier poll saw. A `check` start's
 command is judged by the guard when its host is turned on and again at every fire.
 
@@ -320,8 +362,9 @@ pub enum PauseReason { RunFailed { run }, BudgetSpent }
   pauses it too. An adopted repair, or *Listen again*, unpauses it. Stop, close, archive and delete
   end it.
 - **Auto adoption arms only what nobody needs to see** (`StartOn::arms_unattended`): a schedule, a
-  signal, a run's end, a platform topic, a message. A hook, a check, a connector or a project start
-  opens the Adopt gate, saying why.
+  signal, a run's move, a platform topic, a message, a goal's, a workflow's or an agent's move —
+  each reacts to what the workspace already does, spends nothing and opens no door. A hook, a
+  check, a connector or a project start opens the Adopt gate, saying why.
 - **The registry is a projection.** The armed listeners (`listen::registry`) are built from the
   listening hosts and the definitions as they stand, each start resolved against its host's inputs,
   and dropped whenever what they are built from may have moved — a host turned on or off, a
@@ -341,6 +384,7 @@ pub enum WaitFor {                       // tagged `until`
     Delay { secs }, Time { at }, Schedule { cron, tz },
     Signal { filter }, Message { filter }, Project { filter }, Run { filter }, Platform { filter },
     Release,
+    Goal { filter }, Workflow { filter }, Agent { filter },
 }
 ```
 
@@ -972,7 +1016,8 @@ carries the goal is an optional pick of agents and teams, and nobody picked leav
 enabled staff.
 
 A wake's prompt carries what the agent used to fetch — `GOAL` (the title, the statement, the mode,
-the projects attached with their paths, the thread's last posts), `STAFF`, `CONNECTORS` and
+the projects attached with their ids and paths — what a `project` start or a project input names —
+the thread's last posts), `STAFF`, `CONNECTORS` and
 `TEMPLATES` (the catalog's shapes and the workspace's own workflows) — built once per wake
 (`guided::wake_prompt`) and sent unchanged on every model attempt; the directive is the phase and
 the mode, and the method is the agent's definition, said once. A repair is a new proposal

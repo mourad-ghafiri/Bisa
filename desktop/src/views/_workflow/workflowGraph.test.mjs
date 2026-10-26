@@ -210,6 +210,11 @@ test("renaming an input rewrites every placeholder and reference that reads it",
         then: [],
       },
       { id: "nap", name: "n", kind: "wait", until: { until: "delay", secs: { input: "topic" } }, then: [] },
+      // A filter's lists: every word of a list is rewritten and the list stays a list; a field read as nothing stays nothing.
+      { id: "heard", name: "m", kind: "start", on: { event: "message", in: ["{inputs.topic}", "general"], contains: null, from: ["agents", { input: "topic" }] }, then: [] },
+      { id: "moved", name: "p", kind: "wait", until: { until: "project", project: { input: "topical" }, change: ["commit", "push"], branch: ["{inputs.topic}", "main"], glob: null }, then: [] },
+      { id: "closed", name: "g", kind: "wait", until: { until: "goal", goal: ["{inputs.topic}", "{inputs.topical}"], change: "closed" }, then: [] },
+      { id: "worked", name: "w", kind: "wait", until: { until: "agent", agent: [{ input: "topic" }, { agent: "x" }], project: [{ input: "topic" }, "01ARZ3NDEKTSV4RRFFQ69G5FAV"], change: "done" }, then: [] },
       { id: "tell", name: "t", kind: "notify", scope: "{inputs.topic}", template: "on {inputs.topic}", mentions: [{ input: "topic" }, { agent: "x" }], author: { input: "topic" }, then: [] },
       { id: "child", name: "c", kind: "spawn", statement_template: "{inputs.topic.deep}", assignees: [{ input: "topic" }], wait: true, then: [] },
       { ...decide("which"), rules: [{ when: { condition: "input_equals", input: "topic", value: "x" }, branch: "yes" }] },
@@ -217,7 +222,17 @@ test("renaming an input rewrites every placeholder and reference that reads it",
   };
   const next = renameInput(wf, "topic", "subject");
   assert.deepEqual(next.inputs.map((i) => i.name), ["subject", "topical"]);
-  const [write, ask, hold, nap, tell, child, which] = next.steps;
+  const [write, ask, hold, nap, heard, moved, closed, worked, tell, child, which] = next.steps;
+  assert.deepEqual(worked.until.agent, [{ input: "subject" }, { agent: "x" }], "an agent filter's list of who");
+  assert.deepEqual(worked.until.project, [{ input: "subject" }, "01ARZ3NDEKTSV4RRFFQ69G5FAV"], "and of where");
+  assert.deepEqual(heard.on.in, ["{inputs.subject}", "general"], "a list of places, each word rewritten, the list kept");
+  assert.equal(heard.on.contains, null, "nothing stays nothing");
+  assert.deepEqual(heard.on.from, ["agents", { input: "subject" }], "a sender word stays, a named input follows");
+  assert.deepEqual(moved.until.branch, ["{inputs.subject}", "main"]);
+  assert.equal(moved.until.glob, null);
+  assert.deepEqual(moved.until.project, { input: "topical" }, "another input is untouched");
+  assert.deepEqual(moved.until.change, ["commit", "push"], "a change word is no template");
+  assert.deepEqual(closed.until.goal, ["{inputs.subject}", "{inputs.topical}"]);
   assert.equal(
     write.instructions,
     "write on {inputs.subject}, not {inputs.topical}; literal {{inputs.topic}} stays; {{{inputs.subject}}} moves",

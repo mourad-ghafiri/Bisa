@@ -54,6 +54,9 @@ const EVENT_WORDS = Object.freeze({
   platform: () => t("workflow-runs-started-by-platform"),
   connector: () => t("workflow-runs-started-by-connector"),
   check: () => t("workflow-runs-started-by-check"),
+  goal: (detail) => (detail ? t("workflow-runs-started-by-goal-named", { detail }) : t("workflow-runs-started-by-goal")),
+  workflow: (detail) => (detail ? t("workflow-runs-started-by-workflow-named", { detail }) : t("workflow-runs-started-by-workflow")),
+  agent: (detail) => (detail ? t("workflow-runs-started-by-agent-named", { detail }) : t("workflow-runs-started-by-agent")),
 });
 
 /**

@@ -411,3 +411,64 @@ fn a_decision_nobody_makes_in_time_is_diverted_and_its_question_withdrawn() {
     );
     ws.stop();
 }
+
+/// A goal's close from the command line begins a workflow that listens for
+/// it: the run says it was begun by the goal, by its title — in the list and
+/// on its page — and the workflow's page names the start by its event, a
+/// list of changes written as a list.
+#[test]
+fn a_goal_closed_from_the_command_line_begins_a_workflow_on_it() {
+    let mut ws = Sealed::bare();
+    let tidy = json!({
+        "name": "Tidy",
+        "inputs": [{ "name": "title", "label": "Title", "kind": "text", "required": true }],
+        "steps": [
+            { "id": "closed", "name": "A goal closes", "kind": "start",
+              "on": { "event": "goal", "change": ["closed", "deleted"] },
+              "inputs": { "title": "{event.payload.title}" }, "then": ["tell"] },
+            { "id": "tell", "name": "Tell", "kind": "notify",
+              "template": "closed: {inputs.title}", "then": ["wrap"] },
+            { "id": "wrap", "name": "Wrap up", "kind": "end", "finish": "done" },
+        ],
+    });
+    let workflow = recorded(&ws, "tidy.json", &tidy);
+    ws.start();
+    let shown = ws.json(&["workflow", "show", &workflow]);
+    assert_eq!(shown["starts"][0]["event"], "goal", "{shown}");
+    assert_eq!(
+        shown["workflow"]["steps"][0]["on"]["change"],
+        json!(["closed", "deleted"]),
+        "a list is written as a list: {shown}"
+    );
+    ws.ok(&["workflow", "on", &workflow]);
+    let listeners = ws.json(&["workflow", "listeners", &workflow]);
+    assert_eq!(listeners["listeners"][0]["event"], "goal", "{listeners}");
+
+    // A goal captured by hand is no close; closing it is heard.
+    let captured = ws.json(&[
+        "new",
+        "ship the storefront",
+        "--title",
+        "Ship it",
+        "--mode",
+        "manual",
+    ]);
+    let goal = captured["goal"].as_str().expect("the goal").to_string();
+    assert_eq!(runs_of(&ws, &workflow), Vec::<Value>::new());
+    ws.ok(&["close", &goal, "--rationale", "shipped"]);
+    let runs = all_over(&ws, &workflow, 1);
+    assert_eq!(
+        runs[0]["started_by"],
+        json!({"by": "event", "event": "goal", "detail": "Ship it"}),
+        "{runs:?}"
+    );
+    let id = runs[0]["id"].as_str().expect("a run's id");
+    let page = String::from_utf8_lossy(&ws.ok(&["status", id]).stdout).to_string();
+    assert!(page.contains("by goal Ship it"), "{page}");
+    let status = ws.json(&["status", id]);
+    assert_eq!(status["run"]["event"]["source"], "goal");
+    assert_eq!(status["run"]["event"]["payload"]["goal"], json!(goal));
+    assert_eq!(status["run"]["event"]["payload"]["change"], "closed");
+    assert_eq!(said_in_general(&ws), vec!["closed: Ship it".to_string()]);
+    ws.stop();
+}

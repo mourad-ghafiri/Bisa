@@ -50,9 +50,19 @@ export declare const BOUNDARY_ACTS: readonly { act: Boundary["act"]; label: stri
 export declare const END_FINISHES: readonly { finish: Finish; label: string }[];
 export declare const DECIDE_PICKS: readonly { pick: "first" | "every"; label: string }[];
 export declare const OVERLAPS: readonly { overlap: "queue" | "skip" | "parallel"; label: string }[];
-export declare const MESSAGE_FROM: readonly { from: "you" | "agents" | "someone"; label: string }[];
+export declare const MESSAGE_FROM: readonly { from: "you" | "agents" | "people" | "anyone" | "someone"; label: string }[];
+/** The kind of place a message lands in; absent, any. */
+export declare const MESSAGE_PLACES: readonly { kind: "channel" | "direct" | "goal" | "workstream" | "conversation"; label: string }[];
 export declare const PROJECT_CHANGES: readonly { change: ProjectChange; label: string }[];
 export declare const RUN_ENDS: readonly { outcome: RunEnd; label: string }[];
+/** What a run did, as a run event hears it. */
+export declare const RUN_CHANGES: readonly { change: "queued" | "started" | "ended" | "step"; label: string }[];
+/** What moved about a goal. */
+export declare const GOAL_CHANGES: readonly { change: string; label: string }[];
+/** What moved about a workflow definition. */
+export declare const WORKFLOW_CHANGES: readonly { change: string; label: string }[];
+/** What a harness session did. */
+export declare const AGENT_CHANGES: readonly { change: string; label: string }[];
 export declare const FIRE_ON: readonly { fire_on: FireOn; label: string }[];
 export declare const CHECKS: readonly { check: CheckKind["check"]; label: string }[];
 export declare const JOINS: readonly { join: Join; label: string }[];

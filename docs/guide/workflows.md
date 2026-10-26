@@ -35,9 +35,10 @@ that diverts it down a path of its own or acts beside it
 ([Events and gateways](events.md#boundary-events)).
 
 **Starts.** A `start` step is one way a run may begin: `on = { event = "manual" }` by hand, or on an
-event — a schedule, a hook call, a message, a named signal, a project's change, a run's end, a
-platform topic, a connector poll, a check. A workflow may have several; a run enters the one it
-began at and the others are skipped. *New workflow* and every catalog template begin with an
+event — a schedule, a hook call, a message, a named signal, a project's change, a run's move, a
+platform topic, a connector poll, a check, a goal's move, a workflow definition's, an agent's — one
+thing or a list of them, on one change or a list. A workflow may have several; a run enters the one
+it began at and the others are skipped. *New workflow* and every catalog template begin with an
 explicit start by hand.
 
 **Gates.** A `decide` step takes a rule list and takes the first rule that holds — or, with
@@ -444,8 +445,9 @@ never installs anything, and when nobody fits it names the closest and says so, 
 `assignee` input to fill — wires every step forward so every path ends in an `end`, validates until
 clean and **proposes**. What happens next is the goal's mode: on an **auto** goal the platform
 adopts the proposal and begins its work at once — a run, or listening when the design begins on
-events nobody needs to see armed: a schedule, a signal, a run's end, a platform topic, a message; a
-design that begins on a hook, a check, a connector poll or a project's change waits for you to adopt
+events nobody needs to see armed: a schedule, a signal, a run's move, a platform topic, a message, a
+goal's, a workflow's or an agent's move; a design that begins on a hook, a check, a connector poll
+or a project's change waits for you to adopt
 it (the agent is told nobody adopts, so it gives every
 input a default and asks nothing); on a **guided** goal the goal opens on the proposal — every step,
 with *Adopt and start*, *Request changes…*, *Edit the steps* and *Decline* — and the same card waits
@@ -546,7 +548,8 @@ the goals running it, each a link. Beside the designer the embedded browser open
 ([the desktop](the-desktop.md#the-browser-pane)); the **Browser** button is the Project IDE's.
 
 A `wait` holds a run for something: a `delay`, a moment (`time`), a `schedule`, a named `signal`, a
-`message`, a `project`'s change, a `run`'s end, a `platform` topic, or a person's `release`
+`message`, a `project`'s change, a `run`'s move, a `platform` topic, a person's `release`, a `goal`'s
+move, a `workflow` definition's or an `agent`'s
 ([Events and gateways](events.md#catch-events--wait)). A `wait` on a `signal` hears every signal
 raised by that name — an `emit` step's, `emit_signal` from a session, `bisa signal emit`, an A2A
 task the content screen passed — matched by name and `fields` and only within the run's scope: a

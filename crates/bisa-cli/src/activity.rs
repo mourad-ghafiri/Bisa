@@ -4,8 +4,8 @@
 use bisa_core::event::{JournalEvent, JournalPayload, RunFact, StepFact};
 use bisa_core::workitem::WorkItemState;
 use bisa_core::{
-    Answer, AskKind, Boundary, BoundaryAct, BoundaryOn, MessageFilter, ProjectFilter, RunEnd,
-    RunFilter, SignalFilter, StepKind, ValueRef, WaitFor,
+    Answer, AskKind, Boundary, BoundaryAct, BoundaryOn, MessageFilter, ProjectFilter, RunFilter,
+    SignalFilter, StepKind, ValueRef, WaitFor,
 };
 use bisa_engine::{EngineEvent, EnginePayload, FiredOutcome};
 use bisa_harness::{LifecycleEvent, Outcome, ProgressEvent, SessionEvent};
@@ -156,9 +156,50 @@ pub fn wait_label(until: &WaitFor) -> String {
         WaitFor::Run { filter } => run_label(filter),
         WaitFor::Platform { filter } => bisa_i18n::say(&bisa_core::text!(
             "cli-activity-wait-platform",
-            topic = filter.topic.to_string()
+            topic = filter.topic.words(String::clone)
         )),
         WaitFor::Release => bisa_i18n::say(&bisa_core::text!("cli-activity-person-release")),
+        WaitFor::Goal { filter } => {
+            let change = filter.change.words(|c| c.as_str().to_string());
+            match &filter.goal {
+                Some(goals) => bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-wait-goal-of",
+                    goal = goals.words(String::clone),
+                    change = change
+                )),
+                None => {
+                    bisa_i18n::say(&bisa_core::text!("cli-activity-wait-goal", change = change))
+                }
+            }
+        }
+        WaitFor::Workflow { filter } => {
+            let change = filter.change.words(|c| c.as_str().to_string());
+            match &filter.workflow {
+                Some(workflows) => bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-wait-workflow-of",
+                    workflow = workflows.words(ToString::to_string),
+                    change = change
+                )),
+                None => bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-wait-workflow",
+                    change = change
+                )),
+            }
+        }
+        WaitFor::Agent { filter } => {
+            let change = filter.change.words(|c| c.as_str().to_string());
+            match &filter.agent {
+                Some(agents) => bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-wait-agent-of",
+                    agent = agents.words(ValueRef::word),
+                    change = change
+                )),
+                None => bisa_i18n::say(&bisa_core::text!(
+                    "cli-activity-wait-agent",
+                    change = change
+                )),
+            }
+        }
     }
 }
 
@@ -187,9 +228,9 @@ fn signal_label(filter: &SignalFilter) -> String {
 /// A message, and where it has to land when the filter says.
 fn message_label(filter: &MessageFilter) -> String {
     match &filter.r#in {
-        Some(scope) => bisa_i18n::say(&bisa_core::text!(
+        Some(places) => bisa_i18n::say(&bisa_core::text!(
             "cli-activity-wait-message-in",
-            scope = scope.to_string()
+            scope = places.words(String::clone)
         )),
         None => bisa_i18n::say(&bisa_core::text!("cli-activity-wait-message")),
     }
@@ -198,12 +239,12 @@ fn message_label(filter: &MessageFilter) -> String {
 /// A project's change: which change (the core's word, which the message
 /// selects on), in which project.
 fn project_label(filter: &ProjectFilter) -> String {
-    let change = filter.change.as_str();
+    let change = filter.change.words(|c| c.as_str().to_string());
     match &filter.project {
-        Some(project) => bisa_i18n::say(&bisa_core::text!(
+        Some(projects) => bisa_i18n::say(&bisa_core::text!(
             "cli-activity-wait-project",
             change = change,
-            project = project.word()
+            project = projects.words(ValueRef::word)
         )),
         None => bisa_i18n::say(&bisa_core::text!(
             "cli-activity-wait-project-unchosen",
@@ -212,19 +253,41 @@ fn project_label(filter: &ProjectFilter) -> String {
     }
 }
 
-/// A run's end: of which workflow, and how it has to end — `any` when the
-/// filter names no outcome.
+/// A run's move: of which workflow, and — for an end, the one a `run` wait
+/// meant before `change` was written — how it has to end, `any` when the
+/// filter names no outcome; for anything else, what the run did.
 fn run_label(filter: &RunFilter) -> String {
-    let outcome = filter.outcome.map_or("any", RunEnd::as_str);
-    match &filter.workflow {
+    let workflow = filter
+        .workflow
+        .as_ref()
+        .map(|w| w.words(ToString::to_string));
+    if filter.change == bisa_core::OneOrMany::One(bisa_core::RunChange::Ended) {
+        let outcome = match &filter.outcome {
+            None => "any".to_string(),
+            Some(outcomes) => outcomes.words(|o| o.as_str().to_string()),
+        };
+        return match workflow {
+            Some(workflow) => bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-wait-run-of",
+                workflow = workflow,
+                outcome = outcome
+            )),
+            None => bisa_i18n::say(&bisa_core::text!(
+                "cli-activity-wait-run",
+                outcome = outcome
+            )),
+        };
+    }
+    let change = filter.change.words(|c| c.as_str().to_string());
+    match workflow {
         Some(workflow) => bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-wait-run-of",
-            workflow = workflow.to_string(),
-            outcome = outcome
+            "cli-activity-wait-run-of-change",
+            workflow = workflow,
+            change = change
         )),
         None => bisa_i18n::say(&bisa_core::text!(
-            "cli-activity-wait-run",
-            outcome = outcome
+            "cli-activity-wait-run-change",
+            change = change
         )),
     }
 }
@@ -1474,7 +1537,9 @@ fn session_line_json(style: &Style, scope: &str, e: &serde_json::Value) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bisa_core::{Branch, PlatformFilter, PrincipalId, RunId, SignalSource, StepId, WorkflowId};
+    use bisa_core::{
+        Branch, PlatformFilter, PrincipalId, RunEnd, RunId, SignalSource, StepId, WorkflowId,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -1559,7 +1624,8 @@ mod tests {
             WaitFor::Run {
                 filter: RunFilter {
                     workflow: None,
-                    outcome: Some(RunEnd::Failed),
+                    outcome: Some(RunEnd::Failed.into()),
+                    ..RunFilter::default()
                 },
             },
             WaitFor::Platform {
@@ -1569,6 +1635,32 @@ mod tests {
                 },
             },
             WaitFor::Release,
+            WaitFor::Goal {
+                filter: bisa_core::GoalFilter {
+                    goal: Some("{inputs.goal}".into()),
+                    change: vec![
+                        bisa_core::GoalChange::Closed,
+                        bisa_core::GoalChange::Deleted,
+                    ]
+                    .into(),
+                },
+            },
+            WaitFor::Workflow {
+                filter: bisa_core::WorkflowFilter {
+                    workflow: None,
+                    change: bisa_core::WorkflowChange::Saved.into(),
+                },
+            },
+            WaitFor::Agent {
+                filter: bisa_core::AgentFilter {
+                    agent: Some(
+                        ValueRef::Fixed(bisa_core::Assignee::Agent("reviewer".into())).into(),
+                    ),
+                    project: None,
+                    harness: None,
+                    change: bisa_core::AgentChange::Done.into(),
+                },
+            },
         ];
         assert_eq!(waits.len(), WaitFor::NAMES.len());
         let labels: Vec<String> = waits
@@ -1588,6 +1680,9 @@ mod tests {
         assert!(labels[5].contains("not chosen yet"), "{}", labels[5]);
         assert_eq!(labels[6], "a run to fail");
         assert!(labels[7].contains("goal.closed"), "{}", labels[7]);
+        assert_eq!(labels[9], "goal {inputs.goal} to be closed · deleted");
+        assert_eq!(labels[10], "a workflow to be saved");
+        assert_eq!(labels[11], "agent:reviewer to be done");
         assert_eq!(
             wait_label(&WaitFor::Message {
                 filter: MessageFilter::default()
@@ -2019,6 +2114,48 @@ mod tests {
         assert!(
             run.contains("01DX5ZZKBKACTAV9WEVGEMMVRZ") && run.contains("done"),
             "{run}"
+        );
+        // A run's end with no outcome named is any end; a run's other moves
+        // say the change, with its workflows or without.
+        let any_end = wait_label(&wait(json!({"until": "run"})));
+        said(&any_end);
+        assert_eq!(any_end, "a run to end");
+        let moves = wait_label(&wait(json!({
+            "until": "run", "change": ["queued", "step"], "workflow": ["01DX5ZZKBKACTAV9WEVGEMMVRZ", "01EX5ZZKBKACTAV9WEVGEMMVRZ"]
+        })));
+        said(&moves);
+        assert!(
+            moves.contains("queued · step")
+                && moves.contains("01DX5ZZKBKACTAV9WEVGEMMVRZ · 01EX5ZZKBKACTAV9WEVGEMMVRZ"),
+            "{moves}"
+        );
+        let started = wait_label(&wait(json!({"until": "run", "change": "started"})));
+        said(&started);
+        assert_eq!(started, "a run to start");
+        // A goal's, a workflow's and an agent's move — any subject, or the ones named.
+        let any_goal = wait_label(&wait(
+            json!({"until": "goal", "change": ["closed", "deleted"]}),
+        ));
+        said(&any_goal);
+        assert!(any_goal.contains("closed · deleted"), "{any_goal}");
+        let workflows = wait_label(&wait(json!({
+            "until": "workflow", "workflow": ["01DX5ZZKBKACTAV9WEVGEMMVRZ", "01EX5ZZKBKACTAV9WEVGEMMVRZ"], "change": "saved"
+        })));
+        said(&workflows);
+        assert!(
+            workflows.contains("01DX5ZZKBKACTAV9WEVGEMMVRZ · 01EX5ZZKBKACTAV9WEVGEMMVRZ")
+                && workflows.contains("saved"),
+            "{workflows}"
+        );
+        let agents = wait_label(&wait(json!({
+            "until": "agent", "agent": [{"agent": "reviewer"}, {"team": "qa"}], "change": ["done", "failed"]
+        })));
+        said(&agents);
+        assert!(
+            agents.contains("reviewer")
+                && agents.contains("qa")
+                && agents.contains("done · failed"),
+            "{agents}"
         );
         let boundary: Boundary = serde_json::from_value(json!({
             "name": "heard", "on": {"event": "message", "in": "support"},

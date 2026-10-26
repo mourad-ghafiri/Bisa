@@ -23,7 +23,7 @@ use std::path::Path;
 /// Stamp for the shape below. Bump it whenever [`SCHEMA`] changes; the next
 /// open then throws the cache away and rebuilds from truth. A
 /// cache-invalidation marker, **not** a migration ladder.
-pub const SCHEMA_VERSION: i32 = 26;
+pub const SCHEMA_VERSION: i32 = 27;
 
 /// The row of a scope's last words — its newest live post: a retracted post
 /// and a membership event are nobody's. The one spelling of the rule, read
@@ -438,7 +438,7 @@ CREATE TABLE signals (
     step         TEXT,
     source       TEXT NOT NULL CHECK (source IN
                    ('schedule','hook','message','signal','project','run','platform','connector',
-                    'check','test')),
+                    'check','goal','workflow','agent','test')),
     name         TEXT,
     scope_kind   TEXT NOT NULL CHECK (scope_kind IN ('workspace','goal')),
     scope_id     TEXT,
@@ -4441,8 +4441,8 @@ mod tests {
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
         assert_eq!(
-            SCHEMA_VERSION, 26,
-            "the schema grew; still no ladder — 08-persistence.md says twenty-six too"
+            SCHEMA_VERSION, 27,
+            "the schema grew; still no ladder — 08-persistence.md says twenty-seven too"
         );
     }
 

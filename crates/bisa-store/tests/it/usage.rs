@@ -489,7 +489,7 @@ fn a_channel_a_message_start_listens_in_cannot_be_removed() {
                 "Answers support",
                 StartOn::Message {
                     filter: MessageFilter {
-                        r#in: Some(c.id.as_str().to_string()),
+                        r#in: Some(c.id.as_str().to_string().into()),
                         ..MessageFilter::default()
                     },
                 },
@@ -520,8 +520,9 @@ fn a_workflow_a_goal_a_run_start_or_a_spawn_step_uses_cannot_be_removed() {
                 "Hears it fail",
                 StartOn::Run {
                     filter: RunFilter {
-                        workflow: Some(wf.id),
-                        outcome: Some(RunEnd::Failed),
+                        workflow: Some(wf.id.into()),
+                        outcome: Some(RunEnd::Failed.into()),
+                        ..RunFilter::default()
                     },
                 },
             ),

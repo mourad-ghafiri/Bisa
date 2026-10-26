@@ -91,7 +91,7 @@ pub use index::{
 pub use ingest::{remote_goal_admissible, run_snapshot_admissible, IngestOutcome};
 pub use invites::Claimed;
 pub use journal::{EventLog, JournalAddr, JsonlEventLog};
-pub use listening::ListenerRuntime;
+pub use listening::{ListenerRuntime, ProjectMemory};
 pub use mcp::NewMcp;
 pub use members::Admission;
 pub use notes::{body_hash, NewNote, NotePatch};

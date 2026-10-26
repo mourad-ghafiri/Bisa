@@ -56,17 +56,30 @@ then = ["classify"]
 | `manual` | a person says so: *Run…*, a goal's *Start*, `bisa workflow run` | — | — |
 | `schedule` | a cadence comes due | `every` seconds, or `cron` + `tz` | `{ at }` |
 | `hook` | the node is called | `public` | the body |
-| `message` | a message is posted | `in`, `from`, `mentions`, `contains` | `{ message, scope, author, author_kind, teams, mentions, text }` |
+| `message` | a message is posted | `in`, `from`, `mentions`, `contains`, `kind` | `{ message, scope, scope_kind, author, author_kind, teams, mentions, text }` |
 | `signal` | a named signal is raised | `name`, `fields` | what the signal carries |
-| `project` | a project changes | `project`, `change`, `branch`, `glob` | `{ project, slug, change, branch, before, after, forced, commits, paths, pull_request }` |
-| `run` | a run ends | `workflow`, `outcome` | `{ run, workflow, outcome, goal }` |
+| `project` | a project changes | `project`, `change`, `branch`, `glob` | `{ project, slug, change, branch, before, after, forced, commits, paths, pull_request, action, head, remote, workstream, state }` |
+| `run` | a run moves — ends, unless `change` says otherwise | `workflow`, `change`, `outcome`, `step`, `state`, `goal` | `{ run, workflow, change, outcome, position, start, step, state, kind, goal }` |
 | `platform` | the engine says one of its own topics | `topic`, `fields` | `{ event, fields, goal, workflow, run }` |
 | `connector` | an outside platform lists something new | `connector`, `operation`, `account`, `params`, `key`, a cadence | `{ id, item }` |
 | `check` | a command's result says so | `command`, `project`, `fire_on`, a cadence | `{ exit_code, passed, output, command }` |
+| `goal` | a goal moves | `goal`, `change` | `{ goal, change, title, status, origin, parent, reason, by, project, workflow, revision, gate, gate_id, question, approve }` |
+| `workflow` | a workflow definition moves in the library | `workflow`, `change` | `{ workflow, change, name, revision, designed, goal }` |
+| `agent` | a harness session moves | `agent`, `project`, `harness`, `change` | `{ agent, teams, harness, kind, change, state, live_run, project, workstream, goal, run, work_item, scope, message }` |
 
 An event's own fields are fixed values, `{inputs.<name>}` templates or `{ input = "<name>" }`
 references over **the inputs the host listens with** — read when the start is armed, so one
 template serves every workspace: `cron = { input = "when" }`.
+
+### One or many
+
+Every field that names a thing takes one value or a list of them, heard as **any** of the list:
+`project = "…"` or `project = ["…", "…"]`, `change = "commit"` or `change = ["commit", "push"]`, a
+message's `in`, `from` and `mentions`, a run's `workflow`, `outcome`, `step`, `state` and `goal`, a
+platform start's `topic`, a goal's `goal` and `change`, an agent's `agent`, `project` and `harness`.
+Each entry matches exactly as a single value does. A single value reads and writes as it always
+did; an empty list is refused on a field that needs one and reads as nothing on one that is
+optional — how the designer clears it.
 
 A workflow that names no `start` step begins by hand at its one root. *New workflow* and every
 catalog template carry an explicit `manual` start.
@@ -133,10 +146,11 @@ came, text as `{ text }`, anything else as `{ value }`.
 
 | Field | Meaning |
 |---|---|
-| `in` | the conversation it lands in — a channel, a direct channel, a conversation, a goal's thread; absent, anywhere |
-| `from` | `you` (the default) · `agents` · one agent, one person or one team (`{ agent = "…" }`, `{ human = "…" }`, `{ team = "…" }`) · `{ input = "…" }` |
-| `mentions` | it mentions this agent, team or person |
+| `in` | the conversation it lands in — a channel, a direct channel, a conversation, a goal's thread — or any of a list; absent, anywhere |
+| `from` | `you` (the default) · `agents` · `people` (any person, you among them) · `anyone` · one agent, one person or one team (`{ agent = "…" }`, `{ human = "…" }`, `{ team = "…" }`) · `{ input = "…" }` — or any of a list |
+| `mentions` | it mentions this agent, team or person, or any of a list |
 | `contains` | its text contains this, case-insensitively |
+| `kind` | the kind of place it lands in — `channel` · `direct` · `goal` (a goal's thread) · `workstream` (a conversation in a checkout) · `conversation` (any other) — or any of a list; absent, any; the payload's `scope_kind` says which |
 
 A message is heard where the conversation responder hears it — after the hold a message from
 another node waits in — and once. `from = "you"` is this node's person; a person hosted from
@@ -159,6 +173,13 @@ goal's listener hears its goal's signals and the workspace's; a library workflow
 | `pull_request` | a pull request one of the platform's workstreams opened or adopted changed state | asking the code host every `events.pr_poll_secs`, sooner when a workstream moved |
 | `merge` | one of those pull requests was merged | the same |
 | `files` | files in the tree changed | a git project's status between ticks; a plain folder's bounded scan |
+| `branch` | a branch was made or deleted (`action`: `created` · `deleted`, `head` its tip) — a branch made is a `commit` with no `before` too, as it always read | reading the branch heads each tick |
+| `pull` | a local branch caught up with its remote-tracking branch: fetched and merged, or fast-forwarded, to a tip the remote already held on an earlier look (`remote`, `before`, `after`, `commits`, `paths`); a fetch and a merge landing inside one tick read as `push` and `commit` alone | reading both each tick |
+| `workstream` | a checkout of the project opened or moved — `state`: `open` · `dirty` · `committed` · `pushed` · `pr_open` · `merged` · `closed`, with `workstream`, `branch` and its `pull_request` | the engine's own bus (`workstream.opened`, `workstream.changed`): nothing is looked at |
+
+`project` and `change` take one value or a list — *this project or that one, on a commit or a
+push*. A start that names several projects keeps one memory per project, so one project's refs are
+never read as another's.
 
 **A project is looked at, never listened to.** The IDE's watcher runs only for the roots a person
 has open and the code host sends nothing, so the ticker reads what each listener needs. The first
@@ -172,9 +193,16 @@ called by the code host is how that is heard.
 
 ### Run
 
-`workflow` narrows to one workflow's runs; `outcome` is `done`, `failed` or `cancelled`. A restart
-is not an end. A goal's run ends for its goal and for the workspace's listeners; a run of the
-workspace ends for everybody.
+| Field | Meaning |
+|---|---|
+| `change` | what the run did: `queued` (made behind a live one, with its `position`) · `started` (at `start`) · `ended` · `step` (one of its steps moved: `step`, `state`, `kind`) — or any of a list; absent, `ended`, which is what a run event always meant |
+| `workflow` | one workflow's runs, or any of a list; absent, every workflow's |
+| `outcome` | an end that is `done`, `failed` or `cancelled`, or any of a list — read on an end alone |
+| `step`, `state` | which step moved, into which state — read on a step's move alone; written with no `step` in `change`, a problem of the definition (`idle_filter_field`) |
+| `goal` | a run of this goal, or of any of a list (a goal id, or an input) |
+
+A restart is not an end. A goal's run moves for its goal and for the workspace's listeners; a run
+of the workspace moves for everybody.
 
 ### Platform
 
@@ -238,6 +266,52 @@ Tool & Commands Guard ([11 — Security](../architecture/11-security.md)) when i
 on — a refused command refuses the turn-on — and again at every fire, where a refusal is a result
 that did not pass, its `output` saying why.
 
+### Goal
+
+A goal's move, as the workspace's news about it — every host hears it, narrowed here, so a goal
+may depend on another goal.
+
+| Field | Meaning |
+|---|---|
+| `goal` | the goal, or any of a list — an id, or `{inputs.<name>}`; absent, any goal |
+| `change` | `created` · `updated` (its statement, title, assignees, tags or budget) · `closed` (`reason`: `abandoned` · `superseded`, `by`) · `archived` · `restored` · `deleted` · `attached` · `detached` (`project`) · `proposed` (the Workflow Agent proposed a design: `workflow`, `revision`) · `asked` (a gate opened: `gate`, `gate_id`, `question`) · `decided` (`gate`, `gate_id`, `approve`) — or any of a list |
+
+The payload carries the goal's `title` and `status` as they stand, its `origin` and `parent` when
+it was made, and the change's own fields; a deleted goal has no title left to say. A goal is named
+by its id's syntax, never by whether it is still open: a start on a goal's `closed` hears it, and
+a literal that is no goal id is a problem of the definition (`bad_goal_ref`).
+
+### Workflow
+
+A workflow definition's move in the library.
+
+| Field | Meaning |
+|---|---|
+| `workflow` | the workflow, or any of a list; absent, any |
+| `change` | `saved` (created or saved at a `revision`; `designed` when the Workflow Agent's hand wrote it) · `proposed` (for a goal: `goal`) · `archived` · `restored` · `deleted` — or any of a list |
+
+A workflow is named by its id alone, never by whether it is still in the library, so a start on
+its `deleted` hears it. A `workflow` start naming a workflow is no reference to it: deleting the
+workflow is never refused for one.
+
+### Agent
+
+A harness session's move — a worker on a step, the Workflow Agent, a turn of a conversation, a
+harness a person opened in a terminal.
+
+| Field | Meaning |
+|---|---|
+| `agent` | the agent, or any of a list — `{ agent = "…" }`, `{ team = "…" }` (any member), `{ input = "…" }`; absent, any |
+| `project` | the project the session works in, or any of a list; absent, any — a worker in a goal's own scratch folder names none |
+| `harness` | the harness it runs on (`claude-code`, `codex`, …), or any of a list; absent, any |
+| `change` | `started` · `waiting` (on a person) · `replied` (in a conversation: `scope`, `message`) · `done` · `failed` · `aborted` — or any of a list |
+
+The ends are the roster's own words: a worker whose result has landed is ended by the engine and
+reads `aborted`; `done` is a session whose turn ended on its own. What a session does between —
+thinking, a tool running, idle — is nobody's event, and a session first seen mid-turn (the roster
+rebuilt after a restart) is remembered and not announced. A session on a goal is the goal's; a
+turn's reply is heard once it was posted.
+
 ## Listening
 
 A start event is heard once its **host** listens. A host is a library workflow — its events begin
@@ -275,9 +349,10 @@ say *Listen again* — it then listens with the inputs it had, unless you give i
 budget is spent pauses too. Stop, close, archive and delete end its listening.
 
 A design with event starts that an **auto** goal proposes is adopted with nobody asked only when
-every event is one nobody needs to see armed — a schedule, a signal, a run's end, a platform topic,
-a message. A hook opens a door to the outside, a check runs a command, a connector start spends an
-account and a project start reads a repository: each of those opens the Adopt gate, saying why.
+every event is one nobody needs to see armed — a schedule, a signal, a run's move, a platform
+topic, a message, a goal's, a workflow's or an agent's move. A hook opens a door to the outside, a
+check runs a command, a connector start spends an account and a project start reads a repository:
+each of those opens the Adopt gate, saying why.
 
 One-shot work that waits for something — *when the report is ready, publish it* — is a manual start
 and a `wait` step, not a start event.
@@ -302,12 +377,17 @@ then = ["ship"]
 | `signal` | a named signal | `name`, `fields` | the signal's payload |
 | `message` | a message | `in`, `from`, `mentions`, `contains` | the message |
 | `project` | a change in a project | `project`, `change`, `branch`, `glob` | the change |
-| `run` | a run's end | `workflow`, `outcome` | the run's end |
+| `run` | a run's move — its end, unless `change` says otherwise | `workflow`, `change`, `outcome`, `step`, `state`, `goal` | the run's move |
 | `platform` | one of the engine's topics | `topic`, `fields` | the event |
 | `release` | a person — or a call, which may carry a payload | — | the payload, when one came |
+| `goal` | a goal's move | `goal`, `change` | the move |
+| `workflow` | a workflow definition's move | `workflow`, `change` | the move |
+| `agent` | a harness session's move | `agent`, `project`, `harness`, `change` | the move |
 
 The filters are the start events' own, their templates rendered against the run. A goal's run
-hears its goal's events and the workspace's; a run of the workspace never hears a goal's. A delay,
+hears its goal's events and the workspace's; a run of the workspace never hears a goal's; a goal's
+and a workflow's move are the workspace's news, heard by any run and narrowed by the filter — a
+parent's run waits on the child it named closing. A delay,
 a moment and a schedule count from when the step was entered: a restart buys none a fresh clock,
 and one that fell due while the node was stopped is due at once. After a restart a `signal` wait
 reads back the signals raised since it was entered — every named signal is kept once, heard or not

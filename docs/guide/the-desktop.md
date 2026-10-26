@@ -328,16 +328,19 @@ palette of the eighteen step kinds on the left, under four headings — *Events*
 *Tasks* — dragged onto the canvas; the graph in the middle; the
 right panel's **Properties** pane with one form per kind — what a `start` begins on, in words (*By hand ·
 On a schedule · When called · When a message arrives · When a signal is raised · When a project
-changes · When a run finishes · When the platform says · When an outside platform lists something
-new · When a check starts failing*), the inputs it fills from the event and how many of its runs
-may go at once; instructions and references for `agent`, the
+changes · When a run moves · When the platform says · When an outside platform lists something
+new · When a check starts failing · When a goal moves · When a workflow moves · When an agent
+moves*) — each event's fields taking one value or a list where the engine does, a closed set as
+checkboxes any of which matches and free words as chips — the inputs it fills from the event and
+how many of its runs may go at once; instructions and references for `agent`, the
 question and its options for `human`, the rules and `otherwise` for `decide`, one condition for
 `if` (with `all` · `any` · `one` · `not` groups that nest), the subject and its cases for `switch`,
 the state, the question, its options and `otherwise` for `judge` — the Decision-Making Agent's, asked
 either way the moment the step exists — the items and the bound for `for_each`, the condition and the bound for `while`, the connector, the
 operation, the account and one field per parameter for `connector` (an operation that writes says
 so, and asks for an approval before it), what a `wait` holds for — a delay, a moment, a schedule, a
-signal, a message, a project's change, a run's end, a platform topic, a person's release — the
+signal, a message, a project's change, a run's, a goal's, a workflow's or an agent's move, a
+platform topic, a person's release — the
 signal an `emit` raises, what an `end` ends (*End this path · Finish the run · Fail the run*), how a
 `decide` picks (*the first rule that holds · every rule that holds*), and the common `then` · `join` (`all` ·
 `any` · `one`) · `on_fail` · `retries` · `max_visits` — with **boundary events** on a step that can be

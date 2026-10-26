@@ -295,8 +295,9 @@ async fn a_run_wait_and_a_platform_wait_hear_a_run_that_ended() {
         "watch the workflow",
         WaitFor::Run {
             filter: RunFilter {
-                workflow: Some(worker.id),
-                outcome: Some(RunEnd::Done),
+                workflow: Some(worker.id.into()),
+                outcome: Some(RunEnd::Done.into()),
+                ..RunFilter::default()
             },
         },
     );
@@ -316,8 +317,9 @@ async fn a_run_wait_and_a_platform_wait_hear_a_run_that_ended() {
         "watch for a failure",
         WaitFor::Run {
             filter: RunFilter {
-                workflow: Some(worker.id),
-                outcome: Some(RunEnd::Failed),
+                workflow: Some(worker.id.into()),
+                outcome: Some(RunEnd::Failed.into()),
+                ..RunFilter::default()
             },
         },
     );
@@ -386,10 +388,11 @@ async fn a_message_wait_hears_what_the_person_says_and_never_an_announcement() {
                 "word",
                 WaitFor::Message {
                     filter: MessageFilter {
-                        r#in: Some(general.clone()),
-                        from: MessageFrom::You,
+                        r#in: Some(general.clone().into()),
+                        from: MessageFrom::You.into(),
                         mentions: None,
                         contains: Some("Go Ahead".into()),
+                        ..MessageFilter::default()
                     },
                 },
             )],
@@ -1102,5 +1105,316 @@ async fn a_wait_whose_record_fails_stays_armed_and_fires_once_repaired() {
         Some(bisa_core::RunOutcome::Done),
         "the next tick fires the wait the first could not record"
     );
+    engine.shutdown().await;
+}
+
+/// A `wait` on a goal's move completes when that goal moves — another goal's
+/// close, as a parent waits on a child it named: the move, with the goal's
+/// title, is the step's output; another goal's close moves nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_on_a_goals_close_completes_when_that_goal_closes() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let child = engine
+        .submit_goal(bisa_engine::SubmitRequest {
+            title: Some("The child".into()),
+            ..bisa_engine::SubmitRequest::captured("a child goal")
+        })
+        .unwrap();
+    let other = engine
+        .submit_goal(bisa_engine::SubmitRequest::captured("another"))
+        .unwrap();
+    let mut draft = new_workflow(
+        "waits on a goal",
+        vec![wait(
+            "for-it",
+            WaitFor::Goal {
+                filter: bisa_core::GoalFilter {
+                    goal: Some("{inputs.which}".into()),
+                    change: bisa_core::GoalChange::Closed.into(),
+                },
+            },
+        )],
+    );
+    draft.inputs = vec![text_input("which")];
+    let (goal, _) = goal_on(&engine, "watch the child", draft);
+    let run = engine
+        .start_run(
+            goal.id,
+            BTreeMap::from([("which".to_string(), json!(child.id.to_string()))]),
+        )
+        .unwrap();
+    assert_eq!(run.status(), RunStatus::Waiting);
+    assert!(
+        engine
+            .armed_waits()
+            .iter()
+            .any(|(r, _, w)| *r == run.id && matches!(w, WaitFor::Goal { .. })),
+        "the wait is listed by what it holds for"
+    );
+    let closed = |id: bisa_core::GoalId| {
+        bisa_engine::EngineEvent::scoped(
+            id,
+            None,
+            EnginePayload::GoalClosed {
+                reason: bisa_core::ClosureReason::Abandoned { rationale: None },
+            },
+        )
+    };
+    engine.hear(&closed(other.id));
+    assert_eq!(
+        current_run(&engine, goal.id).status(),
+        RunStatus::Waiting,
+        "another goal's close moves nothing"
+    );
+    engine
+        .close_goal(
+            child.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
+    engine.hear(&closed(child.id));
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
+    let output = done.steps[&sid("for-it")].output.clone().unwrap();
+    assert_eq!(output["goal"], json!(child.id.to_string()));
+    assert_eq!(output["change"], json!("closed"));
+    assert_eq!(output["title"], json!("The child"));
+    assert_eq!(output["reason"], json!("abandoned"));
+    assert!(engine.armed_waits().is_empty());
+    engine.shutdown().await;
+}
+
+/// A `wait` on a workflow definition's save and one on an agent's reply
+/// complete when they happen — each the step's output — and both are listed
+/// as armed, by what they hold for, until then. Another workflow's save and
+/// another agent's reply move nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_on_a_workflows_save_and_on_an_agents_reply_complete_when_they_happen() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    let herald = ws
+        .add_agent(bisa_store::NewAgent {
+            name: "Herald".into(),
+            harness: "mock".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let watched = engine
+        .create_workflow(new_workflow(
+            "watched",
+            vec![wait("held", WaitFor::Release)],
+        ))
+        .unwrap();
+    let (save_goal, _) = goal_on(
+        &engine,
+        "watch a save",
+        new_workflow(
+            "waits on a save",
+            vec![wait(
+                "for-save",
+                WaitFor::Workflow {
+                    filter: bisa_core::WorkflowFilter {
+                        workflow: Some(watched.id.into()),
+                        change: bisa_core::WorkflowChange::Saved.into(),
+                    },
+                },
+            )],
+        ),
+    );
+    let (reply_goal, _) = goal_on(
+        &engine,
+        "watch a reply",
+        new_workflow(
+            "waits on a reply",
+            vec![wait(
+                "for-reply",
+                WaitFor::Agent {
+                    filter: bisa_core::AgentFilter {
+                        agent: Some(
+                            ValueRef::Fixed(bisa_core::Assignee::Agent(herald.id.to_string()))
+                                .into(),
+                        ),
+                        project: None,
+                        harness: None,
+                        change: bisa_core::AgentChange::Replied.into(),
+                    },
+                },
+            )],
+        ),
+    );
+    // A wait on a session starting in the project an input names.
+    let project = ws
+        .create_project(bisa_store::NewProject::managed("api").unwrap())
+        .unwrap();
+    let mut in_project = new_workflow(
+        "waits on a start",
+        vec![wait(
+            "for-start",
+            WaitFor::Agent {
+                filter: bisa_core::AgentFilter {
+                    agent: None,
+                    project: Some(
+                        ValueRef::Input {
+                            input: bisa_core::InputName::new("where").unwrap(),
+                        }
+                        .into(),
+                    ),
+                    harness: None,
+                    change: bisa_core::AgentChange::Started.into(),
+                },
+            },
+        )],
+    );
+    in_project.inputs = vec![bisa_core::InputDef {
+        kind: bisa_core::InputKind::Project,
+        ..text_input("where")
+    }];
+    let (start_goal, start_run) = start_with_inputs(
+        &engine,
+        "watch a start",
+        in_project,
+        BTreeMap::from([("where".to_string(), json!(project.id.to_string()))]),
+    );
+    let save_run = engine.start_run(save_goal.id, BTreeMap::new()).unwrap();
+    let reply_run = engine.start_run(reply_goal.id, BTreeMap::new()).unwrap();
+    assert_eq!(save_run.status(), RunStatus::Waiting);
+    assert_eq!(reply_run.status(), RunStatus::Waiting);
+    assert_eq!(start_run.status(), RunStatus::Waiting);
+    let armed = engine.armed_waits();
+    assert!(
+        armed.iter().any(|(r, s, w)| *r == save_run.id
+            && *s == sid("for-save")
+            && matches!(w, WaitFor::Workflow { .. })),
+        "{armed:?}"
+    );
+    assert!(
+        armed
+            .iter()
+            .any(|(r, _, w)| *r == reply_run.id && matches!(w, WaitFor::Agent { .. })),
+        "{armed:?}"
+    );
+
+    // Another workflow's save, another agent's reply: nothing moves.
+    let general = bisa_core::ChannelId::general().to_string();
+    engine.hear(&bisa_engine::EngineEvent::global(
+        EnginePayload::WorkflowChanged {
+            workflow: bisa_core::WorkflowId::from_ulid(ulid::Ulid::from_parts(7, 7)),
+            revision: 2,
+            designed: false,
+        },
+    ));
+    engine.hear(&bisa_engine::EngineEvent::global(
+        EnginePayload::AgentReplied {
+            scope: general.clone(),
+            agent: "scribe".into(),
+            posted: true,
+            message: Some("m1".into()),
+        },
+    ));
+    assert_eq!(
+        current_run(&engine, save_goal.id).status(),
+        RunStatus::Waiting
+    );
+    assert_eq!(
+        current_run(&engine, reply_goal.id).status(),
+        RunStatus::Waiting
+    );
+
+    // The watched workflow is saved — the engine says so, and the test says
+    // it again: the wait completes once.
+    let (saved, problems) = engine
+        .save_workflow(
+            watched.id,
+            new_workflow("watched, renamed", vec![wait("held", WaitFor::Release)]),
+            watched.revision,
+        )
+        .unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    engine.hear(&bisa_engine::EngineEvent::global(
+        EnginePayload::WorkflowChanged {
+            workflow: watched.id,
+            revision: saved.revision,
+            designed: false,
+        },
+    ));
+    let done = finished_run(&engine, save_goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
+    let output = done.steps[&sid("for-save")].output.clone().unwrap();
+    assert_eq!(output["workflow"], json!(watched.id.to_string()));
+    assert_eq!(output["change"], json!("saved"));
+    assert_eq!(output["name"], json!("watched, renamed"));
+    assert_eq!(output["revision"], json!(saved.revision));
+    assert_eq!(
+        current_run(&engine, reply_goal.id).status(),
+        RunStatus::Waiting
+    );
+
+    // Herald replies.
+    engine.hear(&bisa_engine::EngineEvent::global(
+        EnginePayload::AgentReplied {
+            scope: general,
+            agent: herald.id.to_string(),
+            posted: true,
+            message: Some("m2".into()),
+        },
+    ));
+    let done = finished_run(&engine, reply_goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
+    let output = done.steps[&sid("for-reply")].output.clone().unwrap();
+    assert_eq!(output["agent"], json!(herald.id.to_string()));
+    assert_eq!(output["change"], json!("replied"));
+    assert_eq!(output["message"], json!("m2"));
+
+    // A session starts elsewhere, then in the project the input names.
+    let frame = |live_run: bisa_engine::LiveRunId, at: Option<bisa_core::ProjectId>| {
+        bisa_engine::EngineEvent::global(EnginePayload::SessionState {
+            live_run,
+            presence: Box::new(bisa_engine::SessionPresence {
+                id: live_run,
+                kind: bisa_engine::registry::SessionKind::Worker,
+                origin: bisa_core::SessionOrigin::Step {
+                    step: None,
+                    name: None,
+                    resumed: false,
+                },
+                state: bisa_engine::SessionState::Starting,
+                since: 1,
+                harness: "mock".into(),
+                model: None,
+                effort: None,
+                agent: None,
+                session_id: None,
+                work_item: None,
+                conversation: None,
+                goal: None,
+                run: None,
+                workstream: None,
+                project: at,
+                cwd: None,
+                transcript_path: None,
+                started: 1,
+                pid: None,
+                cost: Default::default(),
+                children: vec![],
+                last_activity: 1,
+                revision: 1,
+            }),
+        })
+    };
+    engine.hear(&frame(bisa_engine::LiveRunId::mint(), None));
+    assert_eq!(
+        current_run(&engine, start_goal.id).status(),
+        RunStatus::Waiting,
+        "a session in no project is not one in the named project"
+    );
+    engine.hear(&frame(bisa_engine::LiveRunId::mint(), Some(project.id)));
+    let done = finished_run(&engine, start_goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done));
+    let output = done.steps[&sid("for-start")].output.clone().unwrap();
+    assert_eq!(output["change"], json!("started"));
+    assert_eq!(output["project"], json!(project.id.to_string()));
+    assert!(engine.armed_waits().is_empty());
     engine.shutdown().await;
 }

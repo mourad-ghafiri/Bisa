@@ -25,6 +25,9 @@
 //! - [`sources`] — the ticker: schedules, polls, checks, projects.
 //! - [`ear`] — the one ear: the engine's bus and the conversation door, heard
 //!   once and offered to waits, boundaries and listeners alike.
+//! - [`lifecycle`] — what the bus says of a goal, a workflow, a run and a
+//!   session, read as the `goal`, `workflow`, `run` and `agent` events, and a
+//!   checkout's move as a `project` change.
 //! - [`emit`] — the one door a named signal is raised through.
 //! - [`hooks`] — a hook call: local, or public with its secret.
 //! - [`dispatch`] — the worker: claim, guard, start, settle.
@@ -39,6 +42,7 @@ pub mod dispatch;
 pub mod ear;
 pub mod emit;
 pub mod hooks;
+pub mod lifecycle;
 pub mod registry;
 pub mod schedule;
 pub mod sources;
@@ -102,6 +106,11 @@ pub struct ListenState {
     /// The ticker's own last look at each project a wait holds for: what the
     /// next look is compared with. Memory only — a restart looks afresh.
     pub(crate) project_views: DashMap<ProjectId, sources::ProjectView>,
+    /// The last state word each live session was heard in, so an `agent`
+    /// event counts a transition and never the churn; dropped when the
+    /// session leaves the roster. Memory only — a session first heard after
+    /// a restart in any state but `starting` is remembered, not announced.
+    pub(crate) session_states: DashMap<crate::registry::LiveRunId, String>,
 }
 
 impl Default for ListenState {
@@ -126,6 +135,7 @@ impl ListenState {
             prs_polled: DashMap::new(),
             prs_seen: DashMap::new(),
             project_views: DashMap::new(),
+            session_states: DashMap::new(),
         }
     }
 

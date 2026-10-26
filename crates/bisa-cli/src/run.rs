@@ -565,6 +565,9 @@ fn source_of(kind: bisa_node::dto::EventKind) -> SignalSource {
         K::Platform => SignalSource::Platform,
         K::Connector => SignalSource::Connector,
         K::Check => SignalSource::Check,
+        K::Goal => SignalSource::Goal,
+        K::Workflow => SignalSource::Workflow,
+        K::Agent => SignalSource::Agent,
     }
 }
 
@@ -1484,6 +1487,9 @@ mod tests {
             K::Platform,
             K::Connector,
             K::Check,
+            K::Goal,
+            K::Workflow,
+            K::Agent,
         ] {
             let said = bisa_node::dto::StartedBy::Event {
                 event: kind,

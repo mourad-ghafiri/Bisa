@@ -96,7 +96,7 @@ back to the earlier release, the backup is the only way: see [Not promised in 0.
 
 - **Promised:** a workflow or connector definition a release accepts is accepted, and means the same,
   by every later release of the line.
-- **May grow:** new optional keys; new step kinds, start events and conditions.
+- **May grow:** new optional keys; new step kinds, start events, catch events and conditions; a filter field that took one value may take a list of them too, a single value reading and writing as before.
 - **Not promised:** that an earlier release reads a definition using something added later — a key it
   does not know is refused by name, never dropped.
 - **The catalog's content** — which agents, skills, teams, templates, connectors, addons and pets ship —

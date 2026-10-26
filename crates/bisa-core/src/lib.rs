@@ -164,10 +164,11 @@ pub use invite::{
     INVITE_TTL_HOURS_MIN,
 };
 pub use listen::{
-    field_matches, fields_match, glob_match, valid_signal_name, Chain, ChainRefusal, Heard, Hearer,
-    ListenerHost, ListenerKey, Listening, MessageFilter, MessageFrom, PauseReason, Paused,
-    PlatformFilter, ProjectChange, ProjectFilter, RunEnd, RunFilter, SignalFilter, SignalScope,
-    SignalSource,
+    field_matches, fields_match, glob_match, none_when_empty, valid_signal_name, AgentChange,
+    AgentFilter, Chain, ChainRefusal, GoalChange, GoalFilter, Heard, Hearer, ListenerHost,
+    ListenerKey, Listening, MessageFilter, MessageFrom, MessagePlace, OneOrMany, PauseReason,
+    Paused, PlatformFilter, ProjectChange, ProjectFilter, RunChange, RunEnd, RunFilter,
+    SignalFilter, SignalScope, SignalSource, WorkflowChange, WorkflowFilter,
 };
 pub use mcp::{
     McpError, McpMount, McpProvenance, McpServer, McpServerConfig, MASK as MCP_MASK,

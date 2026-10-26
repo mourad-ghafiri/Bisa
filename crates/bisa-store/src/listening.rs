@@ -24,7 +24,7 @@
 use crate::error::StoreError;
 use crate::paths::Paths;
 use crate::workspace::{now_secs, Workspace};
-use bisa_core::{GoalId, ListenerHost, ListenerKey, Listening, WorkflowId};
+use bisa_core::{GoalId, ListenerHost, ListenerKey, Listening, ProjectId, WorkflowId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -70,6 +70,61 @@ pub struct ListenerRuntime {
     /// once, not every tick.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
+    /// A project start's memory **per project** it names — a list of
+    /// projects keeps one memory each, so one project's refs never stand in
+    /// for another's. The flat `heads`/`files`/`pr_states` above are the
+    /// memory of a single project as it was always kept, read when this map
+    /// lacks the project (a record from before) and written beside it while
+    /// one project alone is named (a record an earlier release still reads).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<ProjectId, ProjectMemory>,
+}
+
+/// What a project start's last look at one project saw: its refs (a branch
+/// or a remote branch → its commit), its files (a path → what the status or
+/// the scan said), its pull requests' states (number → state word). Each
+/// `None` until a look needing it learns.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectMemory {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heads: Option<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_states: Option<BTreeMap<String, String>>,
+}
+
+impl ListenerRuntime {
+    /// The memory of one project: its own entry; with no entry at all, the
+    /// flat fields a single-project record kept before the map existed;
+    /// with entries for other projects alone, nothing — the flat fields are
+    /// the first project's and never another's.
+    pub fn project_memory(&self, project: ProjectId) -> ProjectMemory {
+        if let Some(memory) = self.projects.get(&project) {
+            return memory.clone();
+        }
+        if !self.projects.is_empty() {
+            return ProjectMemory::default();
+        }
+        ProjectMemory {
+            heads: self.heads.clone(),
+            files: self.files.clone(),
+            pr_states: self.pr_states.clone(),
+        }
+    }
+
+    /// Keep what a look at `project` saw. While it is the only project
+    /// remembered, the flat fields say the same, so a record written here
+    /// reads on a release that knows no map.
+    pub fn remember_project(&mut self, project: ProjectId, memory: ProjectMemory) {
+        self.projects.insert(project, memory.clone());
+        if self.projects.len() == 1 {
+            self.heads = memory.heads;
+            self.files = memory.files;
+            self.pr_states = memory.pr_states;
+        }
+    }
 }
 
 impl Workspace {
@@ -656,6 +711,61 @@ mod tests {
         assert!(
             matches!(unlisted, Err(StoreError::Io { .. })),
             "{unlisted:?}"
+        );
+    }
+    #[test]
+    fn a_project_starts_memory_is_kept_per_project_and_a_record_from_before_reads_as_the_only_one()
+    {
+        let a = bisa_core::ProjectId::from_ulid(ulid::Ulid::from_parts(1, 1));
+        let b = bisa_core::ProjectId::from_ulid(ulid::Ulid::from_parts(1, 2));
+        let heads = |sha: &str| {
+            Some(BTreeMap::from([(
+                "refs/heads/main".to_string(),
+                sha.to_string(),
+            )]))
+        };
+        // A record written before the map: its flat fields are the one
+        // project's memory, whichever project asks.
+        let before: ListenerRuntime =
+            serde_json::from_value(serde_json::json!({"heads": {"refs/heads/main": "a1"}}))
+                .unwrap();
+        assert_eq!(before.project_memory(a).heads, heads("a1"));
+        assert_eq!(before.project_memory(b).heads, heads("a1"));
+        // One project remembered: the flat fields say the same, so an
+        // earlier release reads the record.
+        let mut rt = ListenerRuntime::default();
+        rt.remember_project(
+            a,
+            ProjectMemory {
+                heads: heads("a2"),
+                ..ProjectMemory::default()
+            },
+        );
+        assert_eq!(rt.heads, heads("a2"));
+        let json = serde_json::to_value(&rt).unwrap();
+        assert_eq!(json["heads"]["refs/heads/main"], "a2");
+        assert_eq!(
+            json["projects"][a.to_string()]["heads"]["refs/heads/main"],
+            "a2"
+        );
+        assert_eq!(serde_json::from_value::<ListenerRuntime>(json).unwrap(), rt);
+        // Two projects: each keeps its own, and the flat fields stay the
+        // first's — never one project's refs read as another's.
+        rt.remember_project(
+            b,
+            ProjectMemory {
+                heads: heads("b1"),
+                ..ProjectMemory::default()
+            },
+        );
+        assert_eq!(rt.project_memory(a).heads, heads("a2"));
+        assert_eq!(rt.project_memory(b).heads, heads("b1"));
+        assert_eq!(rt.heads, heads("a2"));
+        let c = bisa_core::ProjectId::from_ulid(ulid::Ulid::from_parts(1, 3));
+        assert_eq!(
+            rt.project_memory(c),
+            ProjectMemory::default(),
+            "a project the map lacks, beside others it has, has no memory yet: the flat fields are the first project's, never its"
         );
     }
 }

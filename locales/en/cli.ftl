@@ -707,7 +707,11 @@ cli-activity-wait-project =
         [push] a push or a fetch
         [pull_request] a pull request's change
         [merge] a merge
-       *[files] a change of files
+        [files] a change of files
+        [branch] a branch made or deleted
+        [pull] a pull
+        [workstream] a checkout's move
+       *[other] { $change }
     } in project { $project }
 cli-activity-wait-project-unchosen =
     { $change ->
@@ -715,7 +719,11 @@ cli-activity-wait-project-unchosen =
         [push] a push or a fetch
         [pull_request] a pull request's change
         [merge] a merge
-       *[files] a change of files
+        [files] a change of files
+        [branch] a branch made or deleted
+        [pull] a pull
+        [workstream] a checkout's move
+       *[other] { $change }
     } in a project (not chosen yet)
 cli-activity-wait-run =
     { $outcome ->
@@ -730,6 +738,88 @@ cli-activity-wait-run-of =
         [failed] to fail
         [cancelled] to be cancelled
        *[any] to end
+    }
+cli-activity-wait-run-change =
+    a run { $change ->
+        [queued] to be queued
+        [started] to start
+        [step] to move a step
+       *[other] to be { $change }
+    }
+cli-activity-wait-run-of-change =
+    a run of { $workflow } { $change ->
+        [queued] to be queued
+        [started] to start
+        [step] to move a step
+       *[other] to be { $change }
+    }
+cli-activity-wait-goal =
+    a goal to be { $change ->
+        [created] created
+        [updated] updated
+        [closed] closed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+        [attached] given a project
+        [detached] parted from a project
+        [proposed] proposed a design
+        [asked] asked something
+        [decided] decided
+       *[other] { $change }
+    }
+cli-activity-wait-goal-of =
+    goal { $goal } to be { $change ->
+        [created] created
+        [updated] updated
+        [closed] closed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+        [attached] given a project
+        [detached] parted from a project
+        [proposed] proposed a design
+        [asked] asked something
+        [decided] decided
+       *[other] { $change }
+    }
+cli-activity-wait-workflow =
+    a workflow to be { $change ->
+        [saved] saved
+        [proposed] proposed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+       *[other] { $change }
+    }
+cli-activity-wait-workflow-of =
+    workflow { $workflow } to be { $change ->
+        [saved] saved
+        [proposed] proposed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+       *[other] { $change }
+    }
+cli-activity-wait-agent =
+    an agent to { $change ->
+        [started] start
+        [waiting] wait on a person
+        [replied] reply
+        [done] be done
+        [failed] fail
+        [aborted] be aborted
+       *[other] be { $change }
+    }
+cli-activity-wait-agent-of =
+    { $agent } to { $change ->
+        [started] start
+        [waiting] wait on a person
+        [replied] reply
+        [done] be done
+        [failed] fail
+        [aborted] be aborted
+       *[other] be { $change }
     }
 cli-activity-wait-signal = the signal `{ $name }`
 cli-activity-wait-time = the moment { $at }

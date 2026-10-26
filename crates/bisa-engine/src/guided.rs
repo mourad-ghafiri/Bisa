@@ -73,8 +73,9 @@ Mode: AUTO. Nobody adopts this design and nobody answers for it — the \
 platform adopts what you propose and begins at once on the inputs' \
 defaults: it runs a design that begins by hand, and listens for the events \
 of one that begins on them. It arms alone only what nobody needs to see — a \
-schedule, a signal, a run's end, a platform topic, a message; a hook, a \
-check, a poll or a project start waits for a person's Adopt. Ask nothing: \
+schedule, a signal, a run's move, a platform topic, a message, a goal's, a \
+workflow's or an agent's move; a hook, a check, a poll or a project start \
+waits for a person's Adopt. Ask nothing: \
 decide with sensible defaults and say your assumptions in the description. \
 Give every input a default; put an `approval` step \
 before a connector operation that writes — the validator refuses a write \
@@ -1105,10 +1106,12 @@ fn goal_brief(inner: &Arc<Inner>, goal: &Goal) -> String {
             "Projects: none — a step whose outcome is files needs one; create_project makes it.\n",
         ),
         Ok(projects) => {
-            out.push_str("Projects:\n");
+            // Each by its slug, its id and its path: a `project` start or a
+            // project input names one by the id.
+            out.push_str("Projects (slug, id, path):\n");
             for p in projects {
                 let path = inner.ws.project_root_path(&p);
-                out.push_str(&format!("- {} ({})\n", p.slug, path.display()));
+                out.push_str(&format!("- {} ({}) ({})\n", p.slug, p.id, path.display()));
             }
         }
         // LCOV_EXCL_START the goal's projects are unreadable only with the store gone (disk-only)
@@ -1118,6 +1121,10 @@ fn goal_brief(inner: &Arc<Inner>, goal: &Goal) -> String {
             // LCOV_EXCL_STOP
         }
     }
+    out.push_str(
+        "Events name things by id: a project from the list above, an agent or a team from \
+         STAFF, a goal by its id, a channel by its name (workspace_overview lists them).\n",
+    );
     let names: std::collections::HashMap<String, String> = inner
         .ws
         .list_agents()

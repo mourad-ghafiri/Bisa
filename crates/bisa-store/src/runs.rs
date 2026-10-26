@@ -1300,10 +1300,16 @@ fn wait_word(kind: &StepKind, state: &StepState) -> Option<String> {
     };
     Some(match until {
         WaitFor::Signal { filter } => format!("signal:{}", filter.name),
-        WaitFor::Platform { filter } => format!("platform:{}", filter.topic),
+        // A list of topics is one word: the column holds one per row.
+        WaitFor::Platform { filter } => {
+            format!("platform:{}", filter.topics().collect::<Vec<_>>().join(","))
+        }
         WaitFor::Message { .. }
         | WaitFor::Project { .. }
         | WaitFor::Run { .. }
+        | WaitFor::Goal { .. }
+        | WaitFor::Workflow { .. }
+        | WaitFor::Agent { .. }
         | WaitFor::Release => until.as_str().to_string(),
         WaitFor::Delay { .. } | WaitFor::Time { .. } | WaitFor::Schedule { .. } => return None,
     })

@@ -2169,10 +2169,10 @@ pub struct WorkflowDraftParam {
     /// Typed inputs a run is started with (`{inputs.<name>}` in templates).
     #[serde(default)]
     pub inputs: Vec<InputDef>,
-    /// The steps. Each has `id`, `name`, `kind` (agent | human | approval |
-    /// check | decide | if | switch | judge | for_each | while | connector |
-    /// wait | notify | spawn | end) with that kind's fields beside it, and `then`:
-    /// the step ids that follow.
+    /// The steps. Each has `id`, `name`, `kind` (start | wait | emit | end |
+    /// decide | if | switch | judge | parallel | for_each | while | agent |
+    /// human | approval | check | connector | notify | spawn) with that kind's
+    /// fields beside it, and `then`: the step ids that follow.
     pub steps: Vec<Step>,
     /// Tags from the vocabulary.
     #[serde(default)]
@@ -3557,7 +3557,7 @@ impl BisaServer {
 
     #[tool(
         name = "propose_workflow",
-        description = "Propose the workflow this goal will run: its inputs and steps, as a complete definition. It is validated before it is recorded — every problem comes back to you, nothing is written — and installs nothing: an agent step must name an agent that is already here. On success the goal points at your proposal; what follows is the goal's mode — an Adopt gate opens for the person (guided), the platform adopts it and begins at once (auto: it runs a design that begins by hand, and listens for the events of one that begins on them), or it is recorded as the person's draft (manual). You never adopt it yourself. Steps are events (`start`, `wait`, `emit`, `end`), gateways (`decide`, `if`, `switch`, `judge`, `parallel`), loops (`for_each`, `while`) and tasks (`agent`, `human`, `approval`, `check`, `connector`, `notify`, `spawn`). A `start` step says one way a run begins — `on = { event = \"manual\" }` always, and an event (`schedule`, `hook`, `message`, `signal`, `project`, `run`, `platform`, `connector`, `check`) when the work recurs or waits for something; the event is read only in that start's `inputs` mapping, as {event.payload.<path>}. Step text may hold the placeholders {inputs.<name>}, {steps.<id>.output.<field>}, {steps.<id>.answer}, {goal.statement} and {goal.title}; a literal brace is doubled ({{ and }}). A step's result shape is its output_schema, never JSON in the instructions. An `if`, a `switch`, a `judge`, a `for_each` and a `while` step branch and loop by labelled flows (yes/no, cases and otherwise, options and otherwise, each/done, loop/done); a `decide` with `pick = \"every\"` takes every rule that holds; a `parallel` takes every flow out of it and the step its branches flow into joins them. A step whose work can be stopped (`agent`, `human`, `approval`, `wait`, a `spawn` that waits) may carry `boundaries`: a timeout (`after`), a reminder (`every`), a message or a signal that either diverts the step to the flows labelled with the boundary's name or acts beside it (`notify`, `emit`). A `connector` step calls an installed outside platform by connector slug and operation id, with an approval step before any operation that writes. Only the Workflow Agent may call it."
+        description = "Propose the workflow this goal will run: its inputs and steps, as a complete definition. It is validated before it is recorded — every problem comes back to you, nothing is written — and installs nothing: an agent step must name an agent that is already here. On success the goal points at your proposal; what follows is the goal's mode — an Adopt gate opens for the person (guided), the platform adopts it and begins at once (auto: it runs a design that begins by hand, and listens for the events of one that begins on them), or it is recorded as the person's draft (manual). You never adopt it yourself. Steps are events (`start`, `wait`, `emit`, `end`), gateways (`decide`, `if`, `switch`, `judge`, `parallel`), loops (`for_each`, `while`) and tasks (`agent`, `human`, `approval`, `check`, `connector`, `notify`, `spawn`). A `start` step says one way a run begins — `on = { event = \"manual\" }` always, and an event (`schedule`, `hook`, `message`, `signal`, `project`, `run`, `platform`, `connector`, `check`, `goal`, `workflow`, `agent`) when the work recurs or waits for something — a field that names one thing (a project, a change, a channel, a sender) takes a list instead, any of which matches; the event is read only in that start's `inputs` mapping, as {event.payload.<path>}. Step text may hold the placeholders {inputs.<name>}, {steps.<id>.output.<field>}, {steps.<id>.answer}, {goal.statement} and {goal.title}; a literal brace is doubled ({{ and }}). A step's result shape is its output_schema, never JSON in the instructions. An `if`, a `switch`, a `judge`, a `for_each` and a `while` step branch and loop by labelled flows (yes/no, cases and otherwise, options and otherwise, each/done, loop/done); a `decide` with `pick = \"every\"` takes every rule that holds; a `parallel` takes every flow out of it and the step its branches flow into joins them. A step whose work can be stopped (`agent`, `human`, `approval`, `wait`, a `spawn` that waits) may carry `boundaries`: a timeout (`after`), a reminder (`every`), a message or a signal that either diverts the step to the flows labelled with the boundary's name or acts beside it (`notify`, `emit`). A `connector` step calls an installed outside platform by connector slug and operation id, with an approval step before any operation that writes. Only the Workflow Agent may call it."
     )]
     async fn propose_workflow(
         &self,
@@ -4027,6 +4027,37 @@ mod tests {
             scope: "01GOAL".to_string(),
             agent: agent.to_string(),
             goal: Some("01GOAL".to_string()),
+        }
+    }
+
+    /// `propose_workflow` names every start event the core knows, and the
+    /// draft's `steps` every step kind: the tool's words move with the enums.
+    #[test]
+    fn propose_workflow_names_every_start_event_and_the_draft_every_step_kind() {
+        let router = router_for(goal_as(Some(bisa_core::AgentId::WORKFLOW)));
+        let tool = router
+            .list_all()
+            .into_iter()
+            .find(|t| t.name == "propose_workflow")
+            .expect("the Workflow Agent's goal menu holds propose_workflow");
+        let description = tool.description.clone().unwrap_or_default();
+        for name in bisa_core::StartOn::NAMES {
+            assert!(
+                description.contains(&format!("`{name}`"))
+                    || description.contains(&format!("\"{name}\"")),
+                "{name} is not in the tool's description: {description}"
+            );
+        }
+        let schema = serde_json::to_value(schemars::schema_for!(WorkflowDraftParam)).unwrap();
+        let steps = schema["properties"]["steps"]["description"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        for name in bisa_core::StepKind::NAMES {
+            assert!(
+                steps.contains(name),
+                "{name} is not in the draft's steps doc: {steps}"
+            );
         }
     }
 

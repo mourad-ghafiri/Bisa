@@ -18,7 +18,11 @@ step-summary-start-project =
         [push] a push or a fetch
         [pull_request] a pull request's change
         [merge] a merge
-       *[files] a change of files
+        [files] a change of files
+        [branch] a branch made or deleted
+        [pull] a pull
+        [workstream] a checkout's move
+       *[other] { $change }
     } in { $project }
 step-summary-start-project-unchosen = begins when a project (not chosen yet) changes
 step-summary-start-run =
@@ -35,7 +39,89 @@ step-summary-start-run-of =
         [cancelled] is cancelled
        *[any] ends
     }
+step-summary-start-run-change =
+    begins when a run { $change ->
+        [queued] is queued
+        [started] starts
+        [step] moves a step
+       *[other] is { $change }
+    }
+step-summary-start-run-of-change =
+    begins when a run of { $workflow } { $change ->
+        [queued] is queued
+        [started] starts
+        [step] moves a step
+       *[other] is { $change }
+    }
 step-summary-start-platform = begins on the platform event `{ $topic }`
+step-summary-start-goal =
+    begins when a goal is { $change ->
+        [created] created
+        [updated] updated
+        [closed] closed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+        [attached] given a project
+        [detached] parted from a project
+        [proposed] proposed a design
+        [asked] asked something
+        [decided] decided
+       *[other] { $change }
+    }
+step-summary-start-goal-of =
+    begins when goal { $goal } is { $change ->
+        [created] created
+        [updated] updated
+        [closed] closed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+        [attached] given a project
+        [detached] parted from a project
+        [proposed] proposed a design
+        [asked] asked something
+        [decided] decided
+       *[other] { $change }
+    }
+step-summary-start-workflow =
+    begins when a workflow is { $change ->
+        [saved] saved
+        [proposed] proposed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+       *[other] { $change }
+    }
+step-summary-start-workflow-of =
+    begins when workflow { $workflow } is { $change ->
+        [saved] saved
+        [proposed] proposed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+       *[other] { $change }
+    }
+step-summary-start-agent =
+    begins when an agent { $change ->
+        [started] starts
+        [waiting] waits on a person
+        [replied] replies
+        [done] is done
+        [failed] fails
+        [aborted] is aborted
+       *[other] is { $change }
+    }
+step-summary-start-agent-of =
+    begins when { $agent } { $change ->
+        [started] starts
+        [waiting] waits on a person
+        [replied] replies
+        [done] is done
+        [failed] fails
+        [aborted] is aborted
+       *[other] is { $change }
+    }
 step-summary-start-connector = begins on each new item from { $call }
 step-summary-start-connector-unchosen = begins on each new item from an outside platform (not chosen yet)
 step-summary-start-check =
@@ -100,7 +186,11 @@ step-summary-wait-project =
         [push] a push or a fetch
         [pull_request] a pull request's change
         [merge] a merge
-       *[files] a change of files
+        [files] a change of files
+        [branch] a branch made or deleted
+        [pull] a pull
+        [workstream] a checkout's move
+       *[other] { $change }
     } in { $project }
 step-summary-wait-project-unchosen = waits for a project (not chosen yet) to change
 step-summary-wait-run =
@@ -117,7 +207,89 @@ step-summary-wait-run-of =
         [cancelled] is cancelled
        *[any] ends
     }
+step-summary-wait-run-change =
+    waits until a run { $change ->
+        [queued] is queued
+        [started] starts
+        [step] moves a step
+       *[other] is { $change }
+    }
+step-summary-wait-run-of-change =
+    waits until a run of { $workflow } { $change ->
+        [queued] is queued
+        [started] starts
+        [step] moves a step
+       *[other] is { $change }
+    }
 step-summary-wait-platform = waits for the platform event `{ $topic }`
+step-summary-wait-goal =
+    waits until a goal is { $change ->
+        [created] created
+        [updated] updated
+        [closed] closed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+        [attached] given a project
+        [detached] parted from a project
+        [proposed] proposed a design
+        [asked] asked something
+        [decided] decided
+       *[other] { $change }
+    }
+step-summary-wait-goal-of =
+    waits until goal { $goal } is { $change ->
+        [created] created
+        [updated] updated
+        [closed] closed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+        [attached] given a project
+        [detached] parted from a project
+        [proposed] proposed a design
+        [asked] asked something
+        [decided] decided
+       *[other] { $change }
+    }
+step-summary-wait-workflow =
+    waits until a workflow is { $change ->
+        [saved] saved
+        [proposed] proposed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+       *[other] { $change }
+    }
+step-summary-wait-workflow-of =
+    waits until workflow { $workflow } is { $change ->
+        [saved] saved
+        [proposed] proposed
+        [archived] put away
+        [restored] taken back out
+        [deleted] deleted
+       *[other] { $change }
+    }
+step-summary-wait-agent =
+    waits until an agent { $change ->
+        [started] starts
+        [waiting] waits on a person
+        [replied] replies
+        [done] is done
+        [failed] fails
+        [aborted] is aborted
+       *[other] is { $change }
+    }
+step-summary-wait-agent-of =
+    waits until { $agent } { $change ->
+        [started] starts
+        [waiting] waits on a person
+        [replied] replies
+        [done] is done
+        [failed] fails
+        [aborted] is aborted
+       *[other] is { $change }
+    }
 step-summary-wait-release = waits for a person to release it
 step-summary-notify = posts: { $what }
 step-summary-notify-scope = posts to { $scope }: { $what }
