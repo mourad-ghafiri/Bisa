@@ -16,6 +16,12 @@
  * words go first and the nudge is dropped. Whether to do it at all is the
  * `terminal.resume_start` switch, machine-scoped like the other terminal
  * switches. Pure, so every one of those rules is assertable without a PTY.
+ *
+ * The same machine carries a request into a harness (ide/06 §Start words):
+ * into a fresh tab by these rules, and into a live one that listens with the
+ * prompt taken as drawn (`armedDrawn`) — quiet for a beat is enough. What
+ * counts as the person typing is `isTyping`: the emulator's own replies to
+ * the program ride the same wire and are not their words.
  */
 
 import { boolOf } from "../shell/settingsModel.mjs";
@@ -49,6 +55,15 @@ export function armed(now) {
   return { armedAt: now, firstOutputAt: null, lastOutputAt: null, spent: false };
 }
 
+/**
+ * Words armed at a prompt already on screen — a live harness the roster says
+ * listens: there is no first byte to wait for, so quiet for a beat from now
+ * is enough; any output restarts the quiet, and the window runs from now.
+ */
+export function armedDrawn(now) {
+  return onOutput(armed(now), now);
+}
+
 /** The PTY wrote something. */
 export function onOutput(state, now) {
   if (state.spent) return state;
@@ -58,6 +73,25 @@ export function onOutput(state, now) {
 /** The person typed: their words go first, the nudge is dropped for good. */
 export function onInput(state) {
   return state.spent ? state : { ...state, spent: true };
+}
+
+/**
+ * The emulator's own replies to the program, which `onData` carries beside
+ * the person's keys: a focus report (`ESC[I` / `ESC[O`, DECSET 1004 — sent
+ * on `term.focus()`, so showing a tab would otherwise read as typing), a
+ * cursor-position report (`ESC[<row>;<col>R`), a device-attributes reply
+ * (`ESC[?…c`, `ESC[>…c`), an SGR mouse report (`ESC[<…M` / `…m`).
+ */
+// for the machine
+const REPLIES = /^\x1b\[(?:I|O|\d+;\d+R|[?>][\d;]*c|<[\d;]+[Mm])$/;
+
+/**
+ * Whether bytes the emulator emitted are the person's words — a key, a paste,
+ * a dropped path — and not one of its own replies, which drop nothing.
+ * @param {string} data
+ */
+export function isTyping(data) {
+  return typeof data === "string" && data.length > 0 && !REPLIES.test(data);
 }
 
 /** The shell exited: nothing to say to. */

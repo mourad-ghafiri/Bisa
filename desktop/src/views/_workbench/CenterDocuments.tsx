@@ -129,7 +129,7 @@ export function CenterDocuments({
   /** The body when nothing is active. */
   landing: React.ReactNode;
 }) {
-  const { sessions, active: activeTerminal } = useTerminals();
+  const { sessions, active: activeTerminal, shown } = useTerminals();
   const labels = useHarnessLabels();
   const toast = useToast();
   const dirty = useDirtyEditors();
@@ -164,15 +164,17 @@ export function CenterDocuments({
     // On the address alone; the store's side is the mirror below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
-  // Terminal store → URL: a shell opened or focused here becomes the active tab.
+  // Terminal store → URL: a shell opened or focused here becomes the active
+  // tab — and one shown again while it already was the focused session
+  // (`showTerminal`, the hand-off's door): `shown` moves when `active` does not.
   useEffect(() => {
     if (!activeTerminal) return;
     if (!here.some((s) => s.key === activeTerminal)) return;
     const want = `terminal:${activeTerminal}`;
     if (activeId !== want) onSelect(want);
-    // On the focused session alone; the address's side is the mirror above.
+    // On the focused session and its show alone; the address's side is the mirror above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTerminal]);
+  }, [activeTerminal, shown]);
   // The same two ways for the browser tabs.
   useEffect(() => {
     if (active?.kind === "browser" && activeBrowser !== active.key && browsersHere.some((s) => s.key === active.key)) focusBrowserTab(active.key);

@@ -848,6 +848,7 @@ shell-pet-overlay-px-tall = { $px } px tall — the pet on screen is the preview
 shell-omnibox-url-open-in-browser = Open { $url } in the browser
 shell-use-browsers-did-not-load = { $url } did not load.
 shell-use-terminals-terminal-not-on-screen = That terminal is not on screen — show it, then try again.
+shell-use-terminals-terminal-not-live = That terminal is not live — its shell has ended.
 shell-about-version-line = { $product } { $app } · node { $node }
 shell-about-version-line-unreachable = { $product } { $app } · node unreachable
 shell-footer-sessions-goal-tail = goal ·{ $tail }

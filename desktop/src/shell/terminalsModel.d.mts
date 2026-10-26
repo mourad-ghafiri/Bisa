@@ -1,4 +1,5 @@
 import type { TerminalScope } from "../terminal/session";
+import type { SessionState } from "../types";
 import type { Direction, PaneNode } from "./paneTreeModel.mjs";
 
 /**
@@ -37,6 +38,13 @@ export interface TerminalSessionState {
    * never persisted.
    */
   readonly start: string | null;
+  /**
+   * Whether the harness in it listens, by the roster's word (`listensNow`) —
+   * what decides when words handed to a live tab are typed. Meaningful only
+   * while `start` holds words; `true` for a tab that does not report; never
+   * persisted.
+   */
+  readonly listening: boolean;
   /** The project's run command runs in it (ide/18): labelled *run*, never resumed. */
   readonly run: boolean;
   /** The checkout's Flutter app runs in it on that device (ide/19): labelled *flutter*. */
@@ -91,6 +99,8 @@ export interface TerminalsState {
   /** Monotonic; mints pane and split ids. */
   readonly paneSeq: number;
   readonly focusedPane: string;
+  /** Bumped by `showTerminal`, so a mirror of the active tab follows a show of the tab that already is. Never persisted. */
+  readonly shown: number;
 }
 
 /** A code host sign-in a terminal is opened for: which kind, at which host. */
@@ -183,6 +193,8 @@ export declare function mobileDevelopmentRunSessions(sessions: readonly Terminal
 export declare function openTerminal(state: TerminalsState, target: TerminalTarget, at?: number): TerminalsState;
 export declare function revealTerminal(state: TerminalsState, target: TerminalTarget): TerminalsState;
 export declare function focusTerminal(state: TerminalsState, key: string): TerminalsState;
+/** Focus a tab and bump `shown`, even when it already is the active one. */
+export declare function showTerminal(state: TerminalsState, key: string): TerminalsState;
 export declare function closeTerminal(state: TerminalsState, key: string): TerminalsState;
 export declare function closeTerminals(state: TerminalsState, keys: readonly string[]): TerminalsState;
 export declare function restartTerminal(state: TerminalsState, key: string, at?: number): TerminalsState;
@@ -195,8 +207,17 @@ export declare function noteExit(
 ): TerminalsState;
 export declare function noteLive(state: TerminalsState, key: string, generation: number, terminalId?: string | null, sessionId?: string | null, at?: number): TerminalsState;
 export declare function noteRunning(state: TerminalsState, key: string, generation: number, harness: string | null): TerminalsState;
-/** The tab typed its start words: `start` is `null` from here. */
+/** The tab's start words are spent — typed, or dropped and said so: `start` is `null` from here. */
 export declare function noteStarted(state: TerminalsState, key: string, generation: number): TerminalsState;
+/** Hand a request to a live tab: the words ride it as its start words, the latest winning; blank, not open or not live → the same state. */
+export declare function handToTerminal(state: TerminalsState, key: string, words: string): TerminalsState;
+/** Whether the harness in a tab listens by the roster's word: idle with nothing on its row waiting; a tab that claims no session, or has no row, listens. */
+export declare function listensNow(
+  tab: TerminalSessionState | null | undefined,
+  row: { state: SessionState; since: number; children?: readonly { state: SessionState; since: number }[] } | null | undefined,
+): boolean;
+/** The roster's word noted on a tab holding words; the same state when nothing changed or nothing is held. */
+export declare function noteListening(state: TerminalsState, key: string, listening: boolean): TerminalsState;
 /** The harness a tab is about: the one it was opened with, else the one running in it. */
 export declare function harnessOf(session: { harness?: string | null; running?: string | null } | null | undefined): string | null;
 export declare function noteUnverifiable(

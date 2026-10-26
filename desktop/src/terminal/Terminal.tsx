@@ -33,7 +33,7 @@ import { forgetScrollback, openTerminal, readScrollback, terminalAvailable, writ
 import { linksAt } from "./terminalLinksModel.mjs";
 import { typedFor } from "./typedKeysModel.mjs";
 import { attachPathInput } from "./pathInput";
-import { armed as armStart, due as startDue, nudgeText, onExit as startOnExit, onInput as startOnInput, onOutput as startOnOutput, pending as startPending, said as startSaid } from "./resumeStartModel.mjs";
+import { armed as armStart, armedDrawn as armStartDrawn, due as startDue, isTyping, nudgeText, onExit as startOnExit, onInput as startOnInput, onOutput as startOnOutput, pending as startPending } from "./resumeStartModel.mjs";
 import { failureTally } from "./checkpointModel.mjs";
 import type { StartState } from "./resumeStartModel.mjs";
 import { RELEASE_AFTER_MS, acquire, emptyPool, release as releaseSlot, wants } from "./webglPoolModel.mjs";
@@ -74,16 +74,26 @@ export interface TerminalProps {
    */
   startOnResume?: boolean;
   /**
-   * Words to type once the harness has drawn its prompt (ide/06 §Start
-   * words) — a request handed to this harness by the person. Typed the way
-   * the resume nudge is, through the PTY and never as their keystrokes, as a
-   * bracketed paste when the program asked for one; said once, then
-   * `onStarted`. Dropped — and said so in the tab — once the person types
-   * first or the harness never draws its prompt. Read at mount, like `resume`.
+   * Words to type into the harness (ide/06 §Start words) — a request handed
+   * to it by the person. Typed the way the resume nudge is, through the PTY
+   * and never as their keystrokes, as a bracketed paste when the program
+   * asked for one; said once, then `onStarted`. Words present at mount are
+   * typed once the fresh harness has drawn its prompt; words set on a live
+   * tab are typed once the harness `listening` and its output is quiet, and
+   * held while it works. Dropped — and said so in the tab — once the person
+   * types first or the prompt never comes; then `onDropped`.
    */
   start?: string | null;
+  /**
+   * Whether the harness in this tab listens, by the roster's word (the panel
+   * reads it: `terminalsModel.listensNow`) — what gates words handed to a
+   * live tab. Means nothing to a fresh shell's own start words.
+   */
+  listening?: boolean;
   /** The start words were typed: the tab has nothing left to say. */
   onStarted?: () => void;
+  /** The start words were dropped — typed over, no prompt in time, the shell gone: the tab has nothing left to say. */
+  onDropped?: () => void;
   /**
    * This is the visible pane.
    *
@@ -182,11 +192,17 @@ interface Live {
   unregisterModes: (() => void) | null;
   /** Takes a pasted or dropped file as its path (`pathInput.ts`); its teardown. */
   pathInput: (() => void) | null;
-  /** The resume nudge or the start words in flight, and its tick — `resumeStartModel`. */
+  /** The resume nudge or the start words in flight, and its tick — `resumeStartModel`. `null` once said, dropped, or held. */
   start: StartState | null;
   startTimer: number | null;
   /** The Enter that follows typed start words, one beat later. */
   enterTimer: number | null;
+  /** Start words owed to the harness — armed, or held while it works; `null` once typed or dropped. */
+  words: string | null;
+  /** How the words are armed: `fresh` at mount, for the first prompt; `drawn` on a live tab, by the roster's word. */
+  mode: "fresh" | "drawn" | null;
+  /** The last `start` prop taken as a hand-off, so a prop still standing while its words are typed is not taken twice. */
+  handed: string | null;
 }
 
 /** What the find bar shows: the kit's query, and where the addon stands. */
@@ -224,6 +240,7 @@ export function Terminal({
   mobileDevelopment = null,
   startOnResume = false,
   start = null,
+  listening = true,
   active,
   onExit,
   onInput,
@@ -231,6 +248,7 @@ export function Terminal({
   onUnverifiable,
   onProcess,
   onStarted,
+  onDropped,
   sessionKey = null,
   replayCheckpoint = false,
   scrollback = 5000,
@@ -259,6 +277,8 @@ export function Terminal({
   onProcessRef.current = onProcess;
   const onStartedRef = useRef(onStarted);
   onStartedRef.current = onStarted;
+  const onDroppedRef = useRef(onDropped);
+  onDroppedRef.current = onDropped;
   const findRef = useRef<((open: boolean) => void) | null>(null);
   // Read every render so a click in a long-lived shell reaches the current
   // provider; the boot effect must not re-run for it.
@@ -270,6 +290,8 @@ export function Terminal({
   activeRef.current = active;
   /** What this mount owns, reachable from the visibility effect below. */
   const liveRef = useRef<Live | null>(null);
+  /** The host's doors, read through refs so none of them re-runs the boot effect. The refs are stable; the record is cheap. */
+  const refs: BootRefs = { onExit: onExitRef, onInput: onInputRef, onOpened: onOpenedRef, onUnverifiable: onUnverifiableRef, onProcess: onProcessRef, onStarted: onStartedRef, onDropped: onDroppedRef, find: findRef, reserveKey: reserveKeyRef, link: linkRef };
 
   // A setting that changed under a running shell reaches it: the options are
   // the emulator's to take live, and the boot effect must not re-run for
@@ -311,6 +333,9 @@ export function Terminal({
       start: null,
       startTimer: null,
       enterTimer: null,
+      words: null,
+      mode: null,
+      handed: null,
       unregisterTail: null,
       unregisterModes: null,
       pathInput: null,
@@ -332,7 +357,7 @@ export function Terminal({
       { scope, id, harness: harness ?? null, login: login ?? null, resume, run, mobileDevelopment: mobileDevelopment ?? null, startOnResume, start: start ?? null, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle },
       activeRef,
       live,
-      { onExit: onExitRef, onInput: onInputRef, onOpened: onOpenedRef, onUnverifiable: onUnverifiableRef, onProcess: onProcessRef, onStarted: onStartedRef, find: findRef, reserveKey: reserveKeyRef, link: linkRef },
+      refs,
       setError,
       () => setBooted((n) => n + 1),
     );
@@ -403,6 +428,51 @@ export function Terminal({
     safeFit(live.fit);
     live.term.focus();
   }, [active]);
+
+  // A request handed to this tab while its shell lives (ide/06 §Start
+  // words): the words ride the tab's `start`, and the mount types them once
+  // the harness listens — the roster's word, from the panel — and its output
+  // has been quiet for a beat; held, with no tick running, while it works.
+  // Words present at mount are the fresh shell's, armed by `boot` for its
+  // first prompt and never gated by the roster: the row it registers says
+  // *starting* the moment the PTY reports, which would hold them.
+  useEffect(() => {
+    const live = liveRef.current;
+    if (!live?.term || !live.session || live.exited) return;
+    const words = typeof start === "string" && start.trim() ? start : null;
+    if (live.mode === "fresh") {
+      // The fresh shell's own words are still owed: a request handed
+      // meanwhile takes their place — the latest wins — and goes when they
+      // would have, by the first prompt's rules.
+      if (words !== null && live.words !== null && words !== live.words) {
+        live.words = words;
+        live.handed = words;
+      }
+      return;
+    }
+    if (words === null) {
+      // Nothing to say — typed, dropped — so the same words handed again are a new request.
+      live.handed = null;
+      return;
+    }
+    if (words !== live.handed) {
+      live.handed = words;
+      live.words = words;
+      live.mode = "drawn";
+    }
+    if (live.words === null) return;
+    if (listening && !live.start) {
+      armWords(live, live.term, live.session, refs, armStartDrawn(Date.now()));
+    } else if (!listening && live.start) {
+      // Held: the tick stops, the words stay. A pending Enter is never
+      // cancelled — a request half-typed is worse than one typed.
+      if (live.startTimer !== null) window.clearInterval(live.startTimer);
+      live.startTimer = null;
+      live.start = null;
+    }
+    // On the words and the roster's word alone: `refs` holds stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, listening]);
 
   // The WebGL lease: on screen → take a slot (when one is free); out of sight
   // for a moment → hand it back and draw with the DOM renderer. `booted`
@@ -511,6 +581,8 @@ interface BootRefs {
   onProcess: { current: ((harness: string | null) => void) | undefined };
   /** The start words were typed. */
   onStarted: { current: (() => void) | undefined };
+  /** The start words were dropped unsaid. */
+  onDropped: { current: (() => void) | undefined };
   find: { current: ((open: boolean) => void) | null };
   reserveKey: { current: ((e: KeyboardEvent) => boolean) | undefined };
   /** The door a path or a URL in the output opens through (ide/17); null outside the provider. */
@@ -567,6 +639,68 @@ function scheduleCheckpoint(live: Live, key: string | null) {
     live.checkpointTimer = null;
     if (!live.disposed) checkpoint(live, key);
   }, CHECKPOINT_DEBOUNCE_MS);
+}
+
+/**
+ * Arm the nudge machine over this mount (`resumeStartModel`): a tick asks the
+ * model whether it is due and, when it is, says the one thing — the resume
+ * nudge when no words are owed, else the words owed *now* (`live.words`,
+ * the latest handed) as a paste when the program asked for one, Enter a beat
+ * later (`typedWordsModel`), then `onStarted`. Through the PTY like a
+ * keystroke and never as the person's. The machine is `live.start`, `null`
+ * again once the tick ends — said, or dropped: the person typed first, or no
+ * prompt inside the window — so the next request can arm anew. Dropped words
+ * say so in the tab and `onDropped` tells the host.
+ */
+function armWords(live: Live, term: XTerminal, session: TerminalSession, refs: BootRefs, state0: StartState) {
+  if (live.startTimer !== null) window.clearInterval(live.startTimer);
+  live.start = state0;
+  live.startTimer = window.setInterval(() => {
+    const now = Date.now();
+    const start = live.start;
+    if (!start || live.disposed || !startPending(start, now)) {
+      if (live.startTimer !== null) window.clearInterval(live.startTimer);
+      live.startTimer = null;
+      live.start = null;
+      // The words were dropped — the person typed first, or the harness
+      // never drew its prompt: say so in the tab, where the rows above
+      // show why. The request is still in the tray.
+      if (live.words !== null && !live.disposed) dropWords(live, term, refs);
+      return;
+    }
+    if (!startDue(start, now)) return;
+    // Said once: the tick ends here, whatever follows.
+    if (live.startTimer !== null) window.clearInterval(live.startTimer);
+    live.startTimer = null;
+    live.start = null;
+    const words = live.words;
+    if (words === null) {
+      void session.write(nudgeText()).catch((e: unknown) => log.debug("terminal", "the resume nudge could not be typed", errorFields(e)));
+      return;
+    }
+    // Taken before the bytes go: a keystroke between the paste and its Enter drops nothing.
+    live.words = null;
+    live.mode = null;
+    const typed = typedWords(words, term.modes.bracketedPasteMode);
+    void session.write(typed.text).catch((e: unknown) => log.debug("terminal", "the start words could not be typed", errorFields(e)));
+    live.enterTimer = window.setTimeout(() => {
+      live.enterTimer = null;
+      if (live.disposed || live.exited) return;
+      void session.write(typed.enter).catch((e: unknown) => log.debug("terminal", "the Enter after the start words could not be typed", errorFields(e)));
+      refs.onStarted.current?.();
+    }, ENTER_AFTER_MS);
+  }, START_TICK_MS);
+}
+
+/** Words owed and not said: the tick ends, the words go, the tab says so while its shell lives, the host is told. */
+function dropWords(live: Live, term: XTerminal, refs: BootRefs) {
+  if (live.startTimer !== null) window.clearInterval(live.startTimer);
+  live.startTimer = null;
+  live.start = null;
+  live.words = null;
+  live.mode = null;
+  if (!live.exited) term.write(`\r\n\x1b[2m[${t("terminal-terminal-request-not-typed-still-tray")}]\x1b[0m\r\n`);
+  refs.onDropped.current?.();
 }
 
 async function boot(
@@ -740,6 +874,9 @@ async function boot(
       term.write(`\r\n\x1b[2m[${what} exited${event.code === null ? "" : ` (${event.code})`}]\x1b[0m\r\n`);
       live.exited = true;
       if (live.start) live.start = startOnExit(live.start);
+      // Words owed go with the shell: nothing to type into, and the tab's
+      // own exit line says why.
+      if (live.words !== null) dropWords(live, term, refs);
       if (live.checkpointTimer !== null) window.clearTimeout(live.checkpointTimer);
       live.checkpointTimer = null;
       checkpoint(live, sessionKey);
@@ -771,42 +908,20 @@ async function boot(
   // two. A sign-in shell is a form, not a session — never.
   const startWords = typeof start === "string" && start.trim() ? start : null;
   if (harness && !login && (startWords || (resume && startOnResume))) {
-    let said = false;
-    live.start = armStart(Date.now());
-    live.startTimer = window.setInterval(() => {
-      const now = Date.now();
-      const start = live.start;
-      if (!start || live.disposed || !startPending(start, now)) {
-        if (live.startTimer !== null) window.clearInterval(live.startTimer);
-        live.startTimer = null;
-        // The words were dropped — the person typed first, or the harness
-        // never drew its prompt: say so in the tab, where the rows above
-        // show why. The request is still in the tray.
-        if (startWords && !said && !live.disposed && !live.exited) term.write(`\r\n\x1b[2m[${t("terminal-terminal-request-not-typed-still-tray")}]\x1b[0m\r\n`);
-        return;
-      }
-      if (!startDue(start, now)) return;
-      live.start = startSaid(start);
-      said = true;
-      if (!startWords) {
-        void session.write(nudgeText()).catch((e: unknown) => log.debug("terminal", "the resume nudge could not be typed", errorFields(e)));
-        return;
-      }
-      const typed = typedWords(startWords, term.modes.bracketedPasteMode);
-      void session.write(typed.text).catch((e: unknown) => log.debug("terminal", "the start words could not be typed", errorFields(e)));
-      live.enterTimer = window.setTimeout(() => {
-        live.enterTimer = null;
-        if (live.disposed || live.exited) return;
-        void session.write(typed.enter).catch((e: unknown) => log.debug("terminal", "the Enter after the start words could not be typed", errorFields(e)));
-        refs.onStarted.current?.();
-      }, ENTER_AFTER_MS);
-    }, START_TICK_MS);
+    live.words = startWords;
+    live.mode = startWords ? "fresh" : null;
+    armWords(live, term, session, refs, armStart(Date.now()));
   }
 
   term.onData((data) => {
     if (live.exited) return;
-    // The person's words go first: a nudge not yet said is dropped for good.
-    if (live.start) live.start = startOnInput(live.start);
+    // The person's words go first: a request owed and not yet said is dropped
+    // for good, a nudge not yet said too. The emulator's own replies — a
+    // focus report when the tab is shown — are not their words (`isTyping`).
+    if (isTyping(data)) {
+      if (live.words !== null) dropWords(live, term, refs);
+      else if (live.start) live.start = startOnInput(live.start);
+    }
     void session.write(data).catch((e: unknown) => {
       // The shell is gone; its exit event is on its way up the channel and
       // says so properly.

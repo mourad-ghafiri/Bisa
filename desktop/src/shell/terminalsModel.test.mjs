@@ -28,16 +28,19 @@ import {
   emptyTerminals,
   exitNote,
   focusTerminal,
+  handToTerminal,
   harnessOf,
   hasLaunched,
   isLive,
   launchKey,
+  listensNow,
   livenessWord,
   mobileDevelopmentOf,
   mobileDevelopmentRunSession,
   mobileDevelopmentRunSessions,
   mountKey,
   noteExit,
+  noteListening,
   noteRunning,
   openTerminal,
   ranWords,
@@ -48,6 +51,7 @@ import {
   revealTerminal,
   runningWord,
   sessionsRootedAt,
+  showTerminal,
   settledByTab,
   settledRoster,
   answerDue,
@@ -959,6 +963,64 @@ test("start words ride the tab that opened with them, are typed once, and never 
   assert.equal(noteStarted(typed, s().key, 0), typed, "already said: the same state");
   assert.equal(noteStarted(state, "ghost", 0), state);
   assert.equal(restartTerminal(state, s().key).sessions[0].start, null, "a restart is a fresh shell with nothing to say");
+});
+
+test("a request handed to a live tab rides it as start words — the latest wins, never into storage; typed or dropped, nothing is left; the roster's word is noted only while words are held (ide/06 §Start words)", () => {
+  let state = openTerminal(emptyTerminals(), { ...PLACE, harness: "claude-code" });
+  const key = state.sessions[0].key;
+  assert.equal(handToTerminal(state, key, "Edit it."), state, "not live yet: nothing to type into");
+  state = noteLive(state, key, 0, "pty-1", "s1");
+  assert.equal(handToTerminal(state, key, "   "), state, "blank words are none");
+  assert.equal(handToTerminal(state, "ghost", "Edit it."), state);
+  state = handToTerminal(state, key, "Edit it.");
+  assert.equal(state.sessions[0].start, "Edit it.");
+  assert.equal(state.sessions[0].listening, true, "true until the roster says otherwise");
+  assert.equal(handToTerminal(state, key, "Edit it."), state, "the same words: the same state");
+  const replaced = handToTerminal(state, key, "Edit that instead.");
+  assert.equal(replaced.sessions[0].start, "Edit that instead.", "the latest request wins");
+  assert.equal(JSON.parse(JSON.stringify(serializeTerminals(replaced))).sessions[0].start, undefined, "never persisted");
+  assert.equal(JSON.parse(JSON.stringify(serializeTerminals(replaced))).sessions[0].listening, undefined);
+  // The roster's word on whether the harness listens.
+  const row = (st, children = []) => ({ state: st, since: 5, children });
+  assert.equal(listensNow(state.sessions[0], row("idle")), true);
+  assert.equal(listensNow(state.sessions[0], row("thinking")), false);
+  assert.equal(listensNow(state.sessions[0], row({ state: "running", tool: "Bash" })), false);
+  assert.equal(listensNow(state.sessions[0], row("starting")), false);
+  assert.equal(listensNow(state.sessions[0], row({ state: "waiting", on: { on: "permission", tool: "Bash" } })), false);
+  assert.equal(listensNow(state.sessions[0], row("idle", [{ state: { state: "waiting", on: { on: "question", text: "Which?" } }, since: 6 }])), false, "a sub-agent's dialog holds it");
+  assert.equal(listensNow(state.sessions[0], row("idle", [{ state: "running", since: 6 }])), true, "a sub-agent at work does not");
+  assert.equal(listensNow(state.sessions[0], null), true, "a row gone from the roster: typed as it stands");
+  assert.equal(listensNow({ ...state.sessions[0], sessionId: null }, row("thinking")), true, "a harness that does not report: typed as it stands");
+  assert.equal(listensNow(null, row("idle")), true);
+  const held = noteListening(state, key, false);
+  assert.equal(held.sessions[0].listening, false);
+  assert.equal(noteListening(held, key, false), held, "the same word: the same state");
+  assert.equal(noteListening(held, "ghost", true), held);
+  const typed = noteStarted(held, key, 0);
+  assert.equal(typed.sessions[0].start, null, "typed, or dropped and said so: nothing left");
+  assert.equal(noteListening(typed, key, true), typed, "nothing held: the word is not noted");
+  assert.equal(restartTerminal(held, key).sessions[0].listening, true, "a restart is a fresh shell");
+  assert.equal(restartTerminal(held, key).sessions[0].start, null);
+  const exited = noteExit(typed, key, 0, 0);
+  assert.equal(handToTerminal(exited, key, "Edit it."), exited, "an exited tab takes nothing");
+});
+
+test("showing a tab bumps `shown` even when it already is the active one, which focusing alone leaves still; a key not open shows nothing; never persisted", () => {
+  let state = openTerminal(emptyTerminals(), PLACE);
+  state = openTerminal(state, PLACE);
+  const [a, b] = state.sessions.map((s) => s.key);
+  assert.equal(state.active, b);
+  assert.equal(state.shown, 0);
+  assert.equal(focusTerminal(state, b), state, "already active: the same state");
+  const shownB = showTerminal(state, b);
+  assert.equal(shownB.active, b);
+  assert.equal(shownB.shown, 1, "said anyway");
+  const shownA = showTerminal(shownB, a);
+  assert.equal(shownA.active, a);
+  assert.equal(shownA.shown, 2);
+  assert.equal(showTerminal(shownA, "ghost"), shownA);
+  assert.equal(JSON.parse(JSON.stringify(serializeTerminals(shownA))).shown, undefined, "never persisted");
+  assert.equal(restoreTerminals(JSON.parse(JSON.stringify(serializeTerminals(shownA)))).shown, 0);
 });
 
 test("the tabs a change closed are read from the two states — one, a burst, the others, the exited ones — never from the door's own reading; a key not open closes nothing", () => {

@@ -467,10 +467,27 @@ an answer to a dialog (§Reporting above). Once typed, the tab says so and the w
 gone (`noteStarted`): they are **never persisted** — `serializeTerminals` leaves them out, a
 restore and a restart start with nothing to say — so a restart never retypes a request. Dropped
 — the person typed first, or no prompt within the window — the tab prints a dimmed line, *the
-request was not typed — it is still in the tray*, and the request is still in the tray. A live
-harness tab is typed into the same way, now (`useTerminals.pasteIntoTerminalTab`): the words
-through `writeToTerminalTab`, Enter a beat later, the tab shown; a tab with no emulator on
-screen says so rather than guess.
+request was not typed — it is still in the tray*, and the request is still in the tray
+(`onDropped` clears the words as `onStarted` does). What counts as the person typing is the
+model's `isTyping`: the emulator's own replies ride the same wire — a focus report (DECSET 1004,
+sent when the tab is shown and focused), a cursor position, device attributes, a mouse report —
+and drop nothing.
+
+A **live** harness tab takes a request the same way, never at the click
+(`useTerminals.handToTerminalTab`): the words ride the tab as its `start`, the tab is shown
+(`showTerminal`, which the centre's mirror follows through `shown` even when the tab already was
+the active one), and the mount types them once the harness **listens** and its output is quiet.
+Listening is the roster's word (`terminalsModel.listensNow`): the session the tab claims is
+*idle* with nothing on its row waiting — its own dialog or a sub-agent's — or the tab claims no
+session, or the row has left. The store keeps it on the tab (`listening`, `noteListening`) from
+every commit of the roster (`sessionsStore.onSessionsChange` — a row's own move, a sub-agent's
+dialog answered, a row gone): the roster is the clock, nothing polls. While the harness works
+the words are **held** — no tick runs — and a hand-off that arrives meanwhile replaces them (the
+latest request wins); once it listens, the machine is armed with the prompt taken as drawn
+(`armedDrawn`: quiet for `START_QUIET_MS` from then is enough, output restarts the quiet, the
+window runs from then) and the words go as a fresh tab's do. A fresh tab's own start words are
+never gated by the roster: the row it registers says *starting* the moment the PTY reports. A
+tab with no emulator on screen, or no live shell, cannot take a request and says so.
 
 ---
 

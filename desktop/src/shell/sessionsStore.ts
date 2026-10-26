@@ -204,6 +204,16 @@ export function onSessionTransition(l: TransitionListener): () => void {
   };
 }
 
+/**
+ * Hear every commit of the roster while subscribed — a row's own move, a
+ * sub-agent's, a row gone — for non-render code that keeps something in step
+ * with it (the terminals store's word on whether a harness listens). The
+ * transitions door above says only what moved; this says that something did.
+ */
+export function onSessionsChange(l: () => void): () => void {
+  return subscribe(l);
+}
+
 /** The roster as it stands — a read for non-render code (a close counting what it ends), not for render. */
 export function sessionRows(): readonly SessionRow[] {
   return state.sessions;

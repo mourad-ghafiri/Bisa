@@ -10,7 +10,8 @@
  * order and door are `harnessHandoffModel.mjs`'s; this file draws and asks.
  *
  * A new terminal opens with the words to type once its harness listens; a
- * live one is typed into now, then shown. Neither empties the tray: a fresh
+ * live one takes them the same way — typed once its harness listens and is
+ * quiet, held while it works — and is shown. Neither empties the tray: a
  * tab has not typed yet, and a terminal has no keep or undo — the toast
  * says the rows stay until *Clear*.
  */
@@ -21,8 +22,8 @@ import type { MenuChoice } from "../../ui/ChoiceMenu";
 import { harnessMark } from "../../ui/harnessMarks";
 import { useSessions } from "../../shell/sessionsStore";
 import { useLaunchableHarnesses } from "../../shell/useHarnesses";
-import { canOpenTerminal, openTerminalIn, pasteIntoTerminalTab, useTerminals } from "../../shell/useTerminals";
-import { attempt } from "../_work/useAsync";
+import { canOpenTerminal, handToTerminalTab, openTerminalIn, useTerminals } from "../../shell/useTerminals";
+import { failureText } from "../../ui/failure";
 import { handOffTarget, harnessDoor, harnessTargets, sentToWords, targetRows } from "./harnessHandoffModel.mjs";
 import type { HarnessTarget } from "./harnessHandoffModel.mjs";
 import { t } from "../../i18n/l10n.mjs";
@@ -78,11 +79,13 @@ export function HarnessHandoffMenu({
       toast.ok(sentToWords(target, labels, noun));
       return;
     }
-    void attempt(
-      () => pasteIntoTerminalTab(target.key, words()),
-      (why) => toast.error(why),
-      () => toast.ok(sentToWords(target, labels, noun)),
-    );
+    try {
+      handToTerminalTab(target.key, words());
+    } catch (e) {
+      toast.error(failureText("view", "the request could not be handed to the terminal", e)); // for the log
+      return;
+    }
+    toast.ok(sentToWords(target, labels, noun));
   };
 
   return (

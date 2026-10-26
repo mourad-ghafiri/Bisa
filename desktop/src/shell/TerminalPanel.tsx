@@ -366,6 +366,7 @@ export function TerminalPanel() {
                   mobileDevelopment={s.mobileDevelopment}
                   startOnResume={settings.resumeStart}
                   start={s.start}
+                  listening={s.listening}
                   visible={showing}
                   reserveKey={reserveKey}
                   active={showing && (!manyPanes || leaf?.id === focusedPane)}
@@ -381,6 +382,7 @@ export function TerminalPanel() {
                   onUnverifiable={(reason) => terminalUnverifiable(s.key, s.generation, reason)}
                   onProcess={(h) => terminalRunning(s.key, s.generation, h)}
                   onStarted={() => terminalStarted(s.key, s.generation)}
+                  onDropped={() => terminalStarted(s.key, s.generation)}
                   className="rounded-none border-0"
                 />
               </div>

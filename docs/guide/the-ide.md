@@ -1143,7 +1143,8 @@ same request into a harness of yours instead — the words the agent would get, 
 with its change the way the agent sees it: pick a harness for a **new terminal**, which opens and
 types the request once the harness has drawn its prompt (type first and it stays in the tray, and
 the tab says so), or one of the workstream's **live terminals** — *listening* takes it now,
-*working* takes it after its turn, one *waiting on you* is held until you answer it. The
+*working* holds it and types it once its turn ends (nothing is typed into a turn), one *waiting
+on you* is held until you answer it. The
 annotations stay in the tray until you *Clear* them; nothing goes to an agent. `Esc` leaves the
 inspector; the badges stay until you send, attach or clear. Editing the source in *Split* keeps
 them — an element the page no longer has says so in the tray, and its chip keeps the element as it

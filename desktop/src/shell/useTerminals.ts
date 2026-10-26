@@ -29,11 +29,10 @@ import { jsonPref, readPref, webStorage, writePref } from "./storedPrefModel.mjs
 import { useSyncExternalStore } from "react";
 import { answeredInTerminal, terminalAvailable, writeTerminal } from "../terminal/session";
 import { terminalBracketed } from "../terminal/modes";
-import { ENTER_AFTER_MS, typedWords } from "../terminal/typedWordsModel.mjs";
 import { t } from "../i18n/l10n.mjs";
 import type { TerminalScope } from "../terminal/session";
 import { dropScrollback } from "../terminal/Terminal";
-import { onSessionTransition, sessionRows } from "./sessionsStore";
+import { onSessionTransition, onSessionsChange, sessionRows } from "./sessionsStore";
 import {
   answerDue,
   closedKeys,
@@ -47,8 +46,12 @@ import {
   parseLaunched,
   focusPane,
   focusTerminal,
+  handToTerminal,
+  isExited,
+  listensNow,
   moveTabToPane,
   noteExit,
+  noteListening,
   noteLive,
   noteStarted,
   noteUnverifiable,
@@ -58,6 +61,7 @@ import {
   restartTerminal,
   restoreTerminals,
   revealTerminal,
+  showTerminal,
   serializeTerminals,
   setPaneRatio,
   splitPane,
@@ -141,6 +145,26 @@ function watchAborts(): void {
       gathered = [];
       closeTerminalTabs(keys);
     });
+  });
+}
+
+/**
+ * A tab holding words for its harness (ide/06 §Start words) types them when
+ * the harness listens, and the roster is the one voice on that: every commit
+ * of the roster — a row's own move, a sub-agent's dialog answered, a row
+ * gone — is read for every tab with words, and the word is noted on the tab
+ * (`listensNow`, `noteListening`), the same state when nothing moved. Armed
+ * with the store, for the life of the app; nothing polls.
+ */
+function watchListening(): void {
+  onSessionsChange(() => {
+    let next = state;
+    for (const tab of state.sessions) {
+      if (tab.start === null) continue;
+      const row = tab.sessionId ? (sessionRows().find((r) => r.id === tab.sessionId) ?? null) : null;
+      next = noteListening(next, tab.key, listensNow(tab, row));
+    }
+    set(next);
   });
 }
 
@@ -264,29 +288,29 @@ export function focusTerminalTab(key: string): void {
 export function writeToTerminalTab(key: string, data: string): Promise<void> {
   const session = state.sessions.find((s) => s.key === key);
   if (!session || session.terminalId === null) {
-    return Promise.reject(new Error("that terminal is not live"));
+    return Promise.reject(new Error(t("shell-use-terminals-terminal-not-live")));
   }
   return writeTerminal(session.terminalId, data);
 }
 
 /**
- * Type a request into a live harness tab — what the annotation tray's
- * harness door does (ide/18 §Annotating a page, ide/06 §Start words): the
- * words as a paste when the program asked for bracketed paste, one line
- * otherwise (`typedWordsModel`), then Enter a beat later, and the tab shown.
- * Raw bytes, like the resume nudge, never xterm's own paste: that would pass
- * for the person's keystrokes and answer a dialog by accident. A tab with no
- * emulator on screen cannot say which it is, and says so.
+ * Hand a request to a live harness tab — what the annotation tray's harness
+ * door does (ide/18 §Annotating a page, ide/06 §Start words). The words ride
+ * the tab as its start words, and the mount types them the way a fresh tab's
+ * are typed — through the PTY, as a paste when the program asked for one,
+ * Enter a beat later, never as the person's keystrokes — once the harness
+ * **listens**: the roster's word, read now and kept by `watchListening`, and
+ * its output quiet for a beat. Held while it works; the tab is shown either
+ * way. A tab with no emulator on screen, or no live shell, cannot take them
+ * and says so.
  */
-export async function pasteIntoTerminalTab(key: string, text: string): Promise<void> {
-  const bracketed = terminalBracketed(key);
-  if (bracketed === null) throw new Error(t("shell-use-terminals-terminal-not-on-screen"));
-  const typed = typedWords(text, bracketed);
-  if (!typed.text) return;
-  await writeToTerminalTab(key, typed.text);
-  await new Promise((resolve) => setTimeout(resolve, ENTER_AFTER_MS));
-  await writeToTerminalTab(key, typed.enter);
-  set(focusTerminal(state, key));
+export function handToTerminalTab(key: string, words: string): void {
+  if (terminalBracketed(key) === null) throw new Error(t("shell-use-terminals-terminal-not-on-screen"));
+  const tab = state.sessions.find((s) => s.key === key);
+  if (!tab || tab.terminalId === null || isExited(tab)) throw new Error(t("shell-use-terminals-terminal-not-live"));
+  const handed = handToTerminal(state, key, words);
+  const row = tab.sessionId ? (sessionRows().find((r) => r.id === tab.sessionId) ?? null) : null;
+  set(showTerminal(noteListening(handed, key, listensNow(tab, row)), key));
 }
 
 /**
@@ -406,3 +430,4 @@ export function setTerminalPaneRatio(splitId: string, ratio: number): void {
 }
 
 watchAborts();
+watchListening();

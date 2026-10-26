@@ -125,6 +125,20 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **To a harness, into a live terminal.** The annotation tray's third door wrote the request into
+  a live harness terminal at the click, whatever the harness was doing — Claude Code mid-turn
+  swallowed it and nothing arrived, while the door's own words promised a wait. A live tab now
+  takes the words the way a new one does: they ride the tab, the tab is shown, and the mount
+  types them once the harness listens by the roster's word (idle, nothing on its row waiting) and
+  its output has been quiet for a beat — held, with no tick running, while it works; the toast
+  says so (*handed … typed once its turn ends*), the latest request wins, and the words are typed
+  through the PTY as before. A sub-agent's dialog holds the row like the session's own; the
+  emulator's focus report on showing the tab no longer counts as the person typing (which dropped
+  start words); a terminal that already was the active one is brought back to the centre; a
+  second request to the same tab arms anew (`desktop/src/shell/terminalsModel.mjs`
+  `handToTerminal`/`listensNow`/`noteListening`/`showTerminal`, `useTerminals.ts`
+  `handToTerminalTab`/`watchListening`, `sessionsStore.ts` `onSessionsChange`,
+  `desktop/src/terminal/resumeStartModel.mjs` `armedDrawn`/`isTyping`, `Terminal.tsx`).
 - **Renaming an input follows it into a filter's lists.** The designer's rename rewrote one
   reference per filter field; a sender, a mention, an agent or a project named through an input
   inside a list kept the old name and became an unknown input. Every reference in a list is

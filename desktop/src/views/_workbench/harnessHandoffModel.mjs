@@ -9,15 +9,16 @@
  * sentence, the same block the engine would print, byte for byte (a test
  * reads the Rust) — and the tab types them: into a **new** terminal once
  * the harness has drawn its prompt, or into a **live** one of the workstream
- * that is listening. Which terminals there are, whether one may take the
- * words right now, and what the toast says are decided here; the tray draws.
+ * once its harness listens — held while it works, never typed into a turn.
+ * Which terminals there are, whether one may take the words right now, and
+ * what the toast says are decided here; the tray draws.
  *
  * Never to a session the engine runs — only to the person's own terminal, by
  * their choice (the hand-off rule's one exception, ide/09).
  */
 
 import { t } from "../../i18n/l10n.mjs";
-import { stateOf, waitWords } from "../../ui/sessionState.mjs";
+import { liveChildren, stateOf, waitWords } from "../../ui/sessionState.mjs";
 import { annotationChips, annotationsContent, annotationsTarget } from "./annotationModel.mjs";
 import { pageWords } from "./contextChips.mjs";
 import { standingHarnesses } from "./railHarnessesModel.mjs";
@@ -58,11 +59,20 @@ export function harnessWords({ message, count, page, annotations }) {
   return block ? `${words}\n\n${block.trimEnd()}` : words;
 }
 
+/** A sub-agent's dialog, when the session itself is not waiting but one of its live children is: the row's wait is that child's. */
+function childWait(sessions, sessionId) {
+  const row = sessionId ? (sessions ?? []).find((s) => s.id === sessionId) : null;
+  if (!row || stateOf(row.state) === "waiting") return null;
+  return liveChildren(row).find((c) => stateOf(c.state) === "waiting")?.state ?? null;
+}
+
 /**
  * The terminals the words can go to, in the menu's order: a new one per
  * harness with an interactive form — installed first, the rest kept and
- * disabled — then the workstream's live harness tabs. `null` while the
- * harness list is unknown: the door waits, as every picker does.
+ * disabled — then the workstream's live harness tabs, each read with its
+ * sub-agents' dialogs as its own (a child's question is still a dialog the
+ * Enter would answer). `null` while the harness list is unknown: the door
+ * waits, as every picker does.
  * @param {readonly import("../../types").HarnessRow[] | null} harnesses
  * @param {readonly import("../../types").SessionRow[]} sessions
  * @param {readonly import("../../shell/terminalsModel.mjs").TerminalSessionState[]} terminals
@@ -78,7 +88,7 @@ export function harnessTargets(harnesses, sessions, terminals, wid) {
     .map((h) => ({ kind: "new", harness: h.id, label: h.label, installed: h.installed === true, detail: typeof h.detail === "string" && h.detail ? h.detail : null }));
   const live = standingHarnesses(sessions, terminals, wid)
     .filter((s) => s.terminalKey)
-    .map((s) => ({ kind: "tab", key: s.terminalKey, harness: s.harness, state: s.state, sessionId: s.sessionId }));
+    .map((s) => ({ kind: "tab", key: s.terminalKey, harness: s.harness, state: childWait(sessions, s.sessionId) ?? s.state, sessionId: s.sessionId }));
   return [...fresh, ...live];
 }
 
@@ -89,10 +99,11 @@ function nameOf(target, labels) {
 
 /**
  * Whether a target may take the words now, and the words beside it: a
- * harness not installed cannot (its label says so, and where to get it); a live tab can while it listens (idle), with
- * a word of caution while it works (the request waits at its prompt) or when
- * it does not report; never while it is still starting or waiting on the
- * person — a dialog typed over is a dialog answered by accident.
+ * harness not installed cannot (its label says so, and where to get it); a
+ * live tab can while it listens (idle), with a word while it works (the
+ * request rides the tab and is typed once its turn ends) or when it does not
+ * report (typed as it stands); never while it is still starting or waiting
+ * on the person — a dialog typed over is a dialog answered by accident.
  * @param {import("./harnessHandoffModel.d.mts").HarnessTarget} target
  * @returns {{ok: boolean, words: string | null}}
  */
@@ -102,7 +113,7 @@ export function harnessDoor(target) {
   if (target.state === null || target.state === undefined) return { ok: true, words: t("workbench-harness-handoff-does-not-report-typed-as-stands") };
   const word = stateOf(target.state);
   if (word === "idle") return { ok: true, words: null };
-  if (word === "thinking" || word === "running") return { ok: true, words: t("workbench-harness-handoff-working-request-waits-prompt") };
+  if (word === "thinking" || word === "running") return { ok: true, words: t("workbench-harness-handoff-working-typed-after-turn") };
   if (word === "starting") return { ok: false, words: t("workbench-harness-handoff-still-starting-no-prompt-yet") };
   if (word === "waiting") {
     const on = waitWords(target.state);
@@ -164,8 +175,16 @@ export function handOffTarget(wid, harness, words) {
   return { scope: "workstream", id: wid, harness, resume: false, start: words };
 }
 
-/** The toast once the words are on their way, naming the harness and where the rows stay. */
+/**
+ * The toast once the words are on their way, naming the harness and where
+ * the rows stay: a new terminal types them once it listens; a live tab at
+ * work holds them until its turn ends; one listening, or not reporting, has
+ * them typed now.
+ */
 export function sentToWords(target, labels, noun) {
   const h = nameOf(target, labels);
-  return target.kind === "new" ? t("workbench-harness-handoff-opening-new-terminal-typed-once-listens", { h, noun }) : t("workbench-harness-handoff-typed-into-terminal-stay-until-clear", { h, noun });
+  if (target.kind === "new") return t("workbench-harness-handoff-opening-new-terminal-typed-once-listens", { h, noun });
+  const word = target.state === null || target.state === undefined ? "idle" : stateOf(target.state);
+  if (word === "thinking" || word === "running") return t("workbench-harness-handoff-handed-typed-after-turn", { h, noun });
+  return t("workbench-harness-handoff-typed-into-terminal-stay-until-clear", { h, noun });
 }

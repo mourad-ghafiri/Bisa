@@ -2,9 +2,9 @@
  * Annotations typed into a harness of the person's own (ide/18 §Annotating a
  * page, ide/06 §Start words), driven through the models — the words from a
  * draft, the terminals they can go to, a new tab that carries them until it
- * has typed them, the nudge machine that decides when, a live tab typed into
- * — reading after each step what the screen would say; the wiring is read
- * off the sources, no DOM.
+ * has typed them, the nudge machine that decides when, a live tab handed
+ * them and typing them once its harness listens — reading after each step
+ * what the screen would say; the wiring is read off the sources, no DOM.
  *
  * Run with `node --test --import ./src/i18n/preload.mjs src/scenarios/harnessHandoff.test.mjs`.
  */
@@ -14,8 +14,8 @@ import { readFileSync } from "node:fs";
 import { EMPTY_DRAFT, addAnnotation } from "../views/_workbench/annotationModel.mjs";
 import { filePage } from "../views/_workbench/contextChips.mjs";
 import { handOffTarget, harnessDoor, harnessTargets, harnessWords, sentToWords, targetRows } from "../views/_workbench/harnessHandoffModel.mjs";
-import { emptyTerminals, noteLive, noteStarted, openTerminal, restoreTerminals, serializeTerminals } from "../shell/terminalsModel.mjs";
-import { START_QUIET_MS, armed, due, onInput, onOutput, pending, said } from "../terminal/resumeStartModel.mjs";
+import { emptyTerminals, handToTerminal, listensNow, noteListening, noteLive, noteStarted, openTerminal, restoreTerminals, serializeTerminals, showTerminal } from "../shell/terminalsModel.mjs";
+import { START_QUIET_MS, armed, armedDrawn, due, isTyping, onInput, onOutput, pending, said } from "../terminal/resumeStartModel.mjs";
 import { ENTER, typedWords } from "../terminal/typedWordsModel.mjs";
 
 const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
@@ -82,7 +82,48 @@ test("the menu lists a new terminal per harness and the workstream's live tabs; 
     ],
   );
   assert.equal(harnessDoor(rows[3].target).ok, false, "read again at the click: still held");
-  assert.equal(harnessDoor({ ...rows[2].target, state: "running" }).words, "It is working — the request waits at its prompt and is read after its turn.");
+  assert.equal(harnessDoor({ ...rows[2].target, state: "running" }).words, "It is working — the request is typed into it once its turn ends and it listens again.");
+});
+
+test("a request handed to a live tab at work is held on the tab and typed once its harness listens and is quiet — never into its turn; the person typing first drops it, the emulator's focus report does not", () => {
+  const words = harnessWords({ message: "", count: draft.annotations.length, page, annotations: draft.annotations });
+  let terminals = openTerminal(emptyTerminals(), { scope: "workstream", id: "w1", harness: "claude-code" });
+  terminals = noteLive(terminals, "t1", 0, "pty-1", "s1");
+  const working = S("s1", "claude-code", { state: "running", tool: "Edit" });
+  const target = harnessTargets([H("claude-code", "Claude Code")], [working], terminals.sessions, "w1").find((x) => x.kind === "tab");
+  assert.deepEqual(harnessDoor(target), { ok: true, words: "It is working — the request is typed into it once its turn ends and it listens again." }, "a tab at work takes the request, with a word");
+  // The store: the words ride the tab, the roster's word is noted, and the
+  // tab is shown even though it already was the store's active one — the
+  // browser tab took the centre since, and the centre follows `shown`.
+  let state = handToTerminal(terminals, "t1", words);
+  state = noteListening(state, "t1", listensNow(state.sessions[0], working));
+  state = showTerminal(state, "t1");
+  assert.equal(state.sessions[0].start, words);
+  assert.equal(state.sessions[0].listening, false, "held: the harness is at work, no tick runs");
+  assert.equal(state.shown, terminals.shown + 1, "shown anyway");
+  assert.equal(sentToWords(target, LABELS, "annotations"), "Handed to Claude Code's terminal — the annotations are typed once its turn ends. They stay here until Clear.");
+  // The roster moves: a sub-agent asks — still held — then the turn ends.
+  const asking = { ...working, children: [{ id: "c1", name: "writer", state: { state: "waiting", on: { on: "question", text: "Which?" } }, since: 2, started: 2 }] };
+  assert.equal(listensNow(state.sessions[0], asking), false, "a sub-agent's dialog holds it");
+  state = noteListening(state, "t1", listensNow(state.sessions[0], S("s1", "claude-code", "idle")));
+  assert.equal(state.sessions[0].listening, true, "the turn ended: the mount arms, the prompt taken as drawn");
+  let start = armedDrawn(5000);
+  assert.equal(due(start, 5000), false, "not at once: a beat of quiet first");
+  start = onOutput(start, 5300);
+  assert.equal(due(start, 5300 + START_QUIET_MS - 1), false, "the harness still drawing restarts the beat");
+  assert.equal(due(start, 5300 + START_QUIET_MS), true, "quiet: typed now, as a paste, Enter apart");
+  const typed = typedWords(state.sessions[0].start, true);
+  assert.ok(typed.text.startsWith("\u001b[200~") && typed.enter === ENTER);
+  state = noteStarted(state, "t1", 0);
+  assert.equal(state.sessions[0].start, null, "nothing left to say");
+  assert.equal(noteListening(state, "t1", false), state, "and the roster's word is no longer noted");
+  // The person's words go first — but the emulator's own focus report, sent
+  // when the tab is shown, is not their words.
+  assert.equal(isTyping("\u001b[I"), false);
+  assert.equal(isTyping("\r"), true);
+  assert.equal(pending(onInput(armedDrawn(1000)), 1100), false, "dropped for good; the tab says so and the request is still in the tray");
+  // A harness that does not report is typed into as it stands.
+  assert.equal(listensNow({ ...state.sessions[0], sessionId: null }, working), true);
 });
 
 test("a new terminal carries the words until it has typed them: never into storage, never into a restart; typed as a paste once the prompt is drawn", () => {
@@ -125,21 +166,26 @@ test("the wiring: the tray draws the door only when its rows read as words, the 
   assert.ok(src("../views/_workbench/AnnotationTray.tsx").includes("harness={{ words: () => harnessWords("), "the annotation tray says how its rows read");
   assert.ok(!src("../views/_workbench/CaptureTray.tsx").includes("harness="), "a capture's picture cannot be typed");
   const menu = src("../views/_workbench/HarnessHandoffMenu.tsx");
-  assert.ok(menu.includes("harnessDoor(target)") && menu.includes("pasteIntoTerminalTab(target.key, words())") && menu.includes("openTerminalIn(handOffTarget(wid, target.harness, words()))"), "the door, then one of the two ways");
+  assert.ok(menu.includes("harnessDoor(target)") && menu.includes("handToTerminalTab(target.key, words())") && menu.includes("openTerminalIn(handOffTarget(wid, target.harness, words()))"), "the door, then one of the two ways");
   assert.ok(!menu.includes("onDone"), "the draft stays: a terminal has no keep or undo");
   const terminal = src("../terminal/Terminal.tsx");
   assert.ok(terminal.includes("registerTerminalModes(sessionKey, () => ({ bracketed: term.modes.bracketedPasteMode }))"), "the mount says whether the program asked for bracketed paste");
-  assert.ok(terminal.includes("typedWords(startWords, term.modes.bracketedPasteMode)") && terminal.includes("void session.write(typed.text)"), "start words go through the PTY");
-  assert.ok(!terminal.includes("term.paste(startWords") && !terminal.includes("onInput.current?.(typed"), "never as the person's keystrokes, which would answer a dialog");
-  assert.ok(terminal.includes("refs.onStarted.current?.();"), "and the host hears they were typed");
+  assert.ok(terminal.includes("typedWords(words, term.modes.bracketedPasteMode)") && terminal.includes("void session.write(typed.text)"), "start words go through the PTY");
+  assert.ok(!terminal.includes("term.paste(") && !terminal.includes("onInput.current?.(typed"), "never as the person's keystrokes, which would answer a dialog");
+  assert.ok(terminal.includes("refs.onStarted.current?.();") && terminal.includes("refs.onDropped.current?.();"), "and the host hears they were typed, or dropped");
+  assert.ok(terminal.includes("}, [start, listening]);") && terminal.includes("armStartDrawn(Date.now())") && terminal.includes('live.mode === "fresh"'), "words handed to a live tab arm the machine by the roster's word, the prompt taken as drawn; a fresh shell's own words are never gated");
+  assert.ok(terminal.includes("if (isTyping(data)) {") && terminal.includes("if (live.words !== null) dropWords(live, term, refs);"), "the person's words drop a request owed; the emulator's own replies drop nothing");
+  const panel = src("../shell/TerminalPanel.tsx");
   assert.ok(
-    src("../shell/TerminalPanel.tsx").includes("start={s.start}") && src("../shell/TerminalPanel.tsx").includes("onStarted={() => terminalStarted(s.key, s.generation)}"),
-    "the panel carries the tab's words and clears them once typed",
+    panel.includes("start={s.start}") && panel.includes("listening={s.listening}") && panel.includes("onStarted={() => terminalStarted(s.key, s.generation)}") && panel.includes("onDropped={() => terminalStarted(s.key, s.generation)}"),
+    "the panel carries the tab's words and the roster's word, and clears the words once typed or dropped",
   );
   const store = src("../shell/useTerminals.ts");
   assert.ok(
-    store.includes("export async function pasteIntoTerminalTab(") && store.includes("await writeToTerminalTab(key, typed.text);") && store.includes("await writeToTerminalTab(key, typed.enter);"),
-    "a live tab is typed into through its bytes, Enter a beat later",
+    store.includes("export function handToTerminalTab(") && store.includes("set(showTerminal(noteListening(handed, key, listensNow(tab, row)), key));") && !store.includes("pasteIntoTerminalTab") && !store.includes("writeToTerminalTab(key, typed"),
+    "a live tab is handed the words, the roster's word noted, the tab shown — never written into at the click",
   );
-  assert.ok(store.includes('throw new Error(t("shell-use-terminals-terminal-not-on-screen"))'), "a tab with no emulator on screen says so");
+  assert.ok(store.includes("onSessionsChange(() => {") && store.includes("next = noteListening(next, tab.key, listensNow(tab, row));"), "the roster's every commit is the word on whether a held tab's harness listens");
+  assert.ok(store.includes('throw new Error(t("shell-use-terminals-terminal-not-on-screen"))') && store.includes('throw new Error(t("shell-use-terminals-terminal-not-live"))'), "a tab with no emulator on screen, or no live shell, says so");
+  assert.ok(src("../views/_workbench/CenterDocuments.tsx").includes("}, [activeTerminal, shown]);"), "the centre follows a show of the tab that already was the active one");
 });

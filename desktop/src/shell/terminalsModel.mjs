@@ -106,6 +106,9 @@ export function emptyTerminals() {
     panes: singleLeaf("p1"),
     paneSeq: 1,
     focusedPane: "p1",
+    // Bumped by `showTerminal`, so a surface that mirrors the active tab can
+    // follow a show of the tab that already is. Never persisted.
+    shown: 0,
   };
 }
 
@@ -339,6 +342,10 @@ export function openTerminal(state, target, at = nowSecs()) {
     // §Start words) — a request handed to a harness of the person's own.
     // Not persisted and cleared once typed: a restart has nothing to say.
     start: typeof start === "string" && start.trim() ? start : null,
+    // Whether the harness in it listens, by the roster's word — what decides
+    // when words handed to a live tab are typed (`listensNow`). Meaningful
+    // only while `start` holds words; true for a tab that does not report.
+    listening: true,
     generation: 0,
     liveness: LIVE,
     restoring: false,
@@ -413,6 +420,17 @@ export function focusTerminal(state, key) {
   return { ...state, active: key, panes, focusedPane };
 }
 
+/**
+ * Show a tab: focus it, and say so even when it already is the active one —
+ * a surface that mirrors the active tab (the centre's strip) follows `shown`,
+ * which `focusTerminal` alone leaves still when nothing moved. A key not open
+ * shows nothing.
+ */
+export function showTerminal(state, key) {
+  if (indexOfKey(state, key) === -1) return state;
+  return { ...focusTerminal(state, key), shown: (state.shown ?? 0) + 1 };
+}
+
 
 /**
  * Close one tab. Unmounting its terminal is what ends the shell.
@@ -481,6 +499,7 @@ export function restartTerminal(state, key, at = nowSecs()) {
     running: null,
     // Words meant for the first shell are not typed into its restart.
     start: null,
+    listening: true,
     // A fresh clock: the old run's spans do not carry into the new shell.
     openedAt: at,
     exitedAt: null,
@@ -488,7 +507,7 @@ export function restartTerminal(state, key, at = nowSecs()) {
   return { ...state, sessions };
 }
 
-/** The tab typed its start words: nothing left to say. A stale generation says nothing. */
+/** The tab's start words are spent — typed, or dropped and said so: nothing left to say. A stale generation says nothing. */
 export function noteStarted(state, key, generation) {
   const idx = indexOfKey(state, key);
   if (idx === -1) return state;
@@ -496,6 +515,58 @@ export function noteStarted(state, key, generation) {
   if (s.generation !== generation || s.start === null) return state;
   const sessions = state.sessions.slice();
   sessions[idx] = { ...s, start: null };
+  return { ...state, sessions };
+}
+
+/**
+ * Hand a request to a live tab (ide/06 §Start words): the words ride it as
+ * its start words, and the mount types them once the harness listens and its
+ * output is quiet — held while it works. The latest request wins over one
+ * still pending. Blank words, a key not open, a tab not live or whose PTY has
+ * not reported yet (nothing to type into): the same state.
+ * @param {TerminalsState} state
+ * @param {string} key
+ * @param {string} words
+ */
+export function handToTerminal(state, key, words) {
+  const idx = indexOfKey(state, key);
+  if (idx === -1) return state;
+  const s = state.sessions[idx];
+  const start = typeof words === "string" && words.trim() ? words : null;
+  if (start === null || !isLive(s) || s.terminalId === null || s.start === start) return state;
+  const sessions = state.sessions.slice();
+  sessions[idx] = { ...s, start };
+  return { ...state, sessions };
+}
+
+/**
+ * Whether the harness in a tab listens right now, by the roster's word: idle,
+ * with nothing on its row waiting — its own dialog or a sub-agent's. A tab
+ * that claims no session, or whose row has left the roster, is a harness that
+ * does not report: typed into as it stands.
+ * @param {TerminalSessionState | null | undefined} tab
+ * @param {{state: object, since: number, children?: readonly {state: object, since: number}[]} | null | undefined} row the roster row the tab claims
+ */
+export function listensNow(tab, row) {
+  if (!tab?.sessionId || !row) return true;
+  return stateOf(row.state) === "idle" && waitSince(row) === null;
+}
+
+/**
+ * The roster's word on a tab's harness, noted on the tab — only while it
+ * holds words to type, since that is the one thing the word decides. The same
+ * state when nothing changed.
+ * @param {TerminalsState} state
+ * @param {string} key
+ * @param {boolean} listening
+ */
+export function noteListening(state, key, listening) {
+  const idx = indexOfKey(state, key);
+  if (idx === -1) return state;
+  const s = state.sessions[idx];
+  if (s.start === null || s.listening === listening) return state;
+  const sessions = state.sessions.slice();
+  sessions[idx] = { ...s, listening };
   return { ...state, sessions };
 }
 
@@ -783,6 +854,7 @@ export function restoreTerminals(json, launched = []) {
       sessionId: null,
       running: null,
       start: null,
+      listening: true,
       openedAt: null,
       exitedAt: null,
     });
