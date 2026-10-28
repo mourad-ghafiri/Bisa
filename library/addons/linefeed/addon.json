@@ -2,7 +2,7 @@
   "id": "linefeed",
   "name": "Linefeed",
   "description": "A terminal worm that is the code it eats: every token becomes its neck, so your body reads as a line of code; a closing bracket that balances pays, a semicolon banks the statement — and the workspace's line tells you when an agent needs you.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": "Bisa",
   "homepage": "https://bisa.dev",
   "repo": "https://github.com/mourad-ghafiri/Bisa",

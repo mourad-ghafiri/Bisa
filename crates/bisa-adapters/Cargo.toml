@@ -55,7 +55,7 @@ base64 = { workspace = true }
 bisa-http = { workspace = true }
 ulid = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
-bisa-deps = { version = "0.5", path = "../bisa-deps" }
+bisa-deps = { version = "0.6", path = "../bisa-deps" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

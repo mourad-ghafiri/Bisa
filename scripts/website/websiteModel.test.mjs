@@ -139,7 +139,8 @@ test("the step kinds and the ways a run begins are read off the designer's palet
   assert.deepEqual(kinds[0], { kind: "start", family: "event", label: "Start", explain: ftl.get("workflow-step-kinds-one-way-run-begins-hand-event") });
   for (const k of kinds) assert.ok(k.label && k.explain && !k.explain.startsWith("workflow-"), `${k.kind} has words`);
   const starts = parseStartEvents(source, ftl);
-  assert.equal(starts.length, 10);
+  // By hand, a schedule, a webhook, a message, a signal, a project's, a run's, the platform's, a connector's, a check's, a goal's, a workflow's and an agent's event.
+  assert.equal(starts.length, 13);
   assert.deepEqual(starts[0], { event: "manual", label: "By hand" });
   const without = new Map(ftl);
   without.delete("workflow-step-kinds-judge");
