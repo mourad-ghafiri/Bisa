@@ -899,6 +899,7 @@ async fn a_check_step_whose_command_a_rule_refuses_fails_with_the_reason() {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "fake-tool verify".into(),
+                        project: None,
                     },
                 },
             )],
@@ -933,6 +934,7 @@ async fn a_check_step_that_runs_journals_the_redacted_command() {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: format!("echo {FAKE_TOKEN} >/dev/null"),
+                        project: None,
                     },
                 },
             )],

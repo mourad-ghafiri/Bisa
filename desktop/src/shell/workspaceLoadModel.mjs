@@ -219,6 +219,7 @@ export const RELOADS_WORKSPACE = Object.freeze([
   "invite_changed",
   "message_held",
   "message_released",
+  "message_refused",
   // Projects and workstreams are part of the one index.
   "project_created",
   "project_changed",

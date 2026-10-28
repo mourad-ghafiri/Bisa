@@ -12,13 +12,23 @@ vocabulary with room for *I do not know* are below.
 ## What does not change
 
 - **The PTY is a desktop-shell command and never a node route.** See [01](01-trust-boundary.md).
-- **The webview names a scope, an id and a harness id** — never a path, never a program. The shell
-  asks the node `GET /placement` and `GET /harnesses`, now with the bearer token. One path is
-  *read back*, none handed in: `terminal_cwd` answers where a shell stands — its process's current
-  directory through `sysinfo`, one pid refreshed, else the directory it was started in — so a
-  relative path it printed is read from there ([17 §The terminal](17-links-and-paths.md#the-terminal)).
+- **The webview names a scope, an id and a harness id** — never an absolute path, never a program. The
+  shell asks the node `GET /placement` and `GET /harnesses`, now with the bearer token. The one name
+  it may add is a folder *relative to that placement* — the Files tree's **Open in terminal here** on
+  a folder (`sub` on `terminal_open`, kept on the tab so a restart opens there again and the title
+  reads *Workstream · fix-total / src/app*) — which the shell holds under the placement by
+  `sub_dir`: no absolute path, no `..`, resolved and required to stay under the resolved root so a
+  symlink out is refused as a `..` is, and a directory; anything else refuses the open with its
+  reason. One path is *read back*, none handed in: `terminal_cwd` answers where a shell stands — its
+  process's current directory through `sysinfo`, one pid refreshed, else the directory it was
+  started in — so a relative path it printed is read from there
+  ([17 §The terminal](17-links-and-paths.md#the-terminal)).
 - **A harness runs inside the login shell** (`$SHELL -l -c 'exec …'`), so it sees the same `PATH`
-  and environment the person's own terminal does. The node is started with that shell's `PATH` too
+  and environment the person's own terminal does. `terminal.shell` (machine scope) may name another
+  shell — by absolute path, or by its bare name on the login `PATH` — and every tab and every
+  harness then opens in it, run with `-l` for the same profile; the shell checks the name itself
+  (`shell_program`: a file this process may execute, never a relative path), and a name that does
+  not check out opens the login shell with the reason in the log. The node is started with that shell's `PATH` too
   (`login_env`): asked at launch under a budget, remembered in the app's config folder for the
   launch after, so a profile slow on a cold start does not leave the node — and every harness it
   probes — looking uninstalled for the app's whole life.

@@ -102,7 +102,7 @@ Four families (`StepKind::family`), which are the designer's palette groups: **e
 | `agent` | a work item is created from `instructions`, placed in a workstream of the project `project` names or the goal's only one (a workspace run: the one it names) — or in its home's scratch folder when there is none, where its result is its deliverable — and run by an installed agent; `assignee`, `project`, `harness`, `model` (a pin, never substituted), `effort` (a pin — a level or `auto` — that wins over the agent's and is fitted to what the model takes, [06 § Effort](06-agents-and-teams.md#effort)), `output_schema`, `tier_ceiling` | the session's result | `StartAgent` |
 | `human` | a question with `options` (and `multi`) is asked of a person | a person answers — free text and *not sure* always valid | `Ask` |
 | `approval` | a yes/no a person signs; a decline **fails the step** | a person decides the `Approval` gate | `OpenGate` |
-| `check` | a `command` exits 0 **where the run's work landed** — the checkout of the work item the run's latest agent step ran on (a project's workstream is a worktree beside the root, which would not see the file), else the run's project root, else its home's scratch folder — or an upstream step's output satisfies a JSON `schema` | the engine, bounded by `check_timeout_secs` | `RunCheck` |
+| `check` | a `command` exits 0 **where the run's work landed** — the checkout of the work item the run's latest agent step ran on (a project's workstream is a worktree beside the root, which would not see the file), else the run's project root, else its home's scratch folder — or, when `project` names one (an id, or an input of kind project; attached to the goal, as an agent step's), in that project: the checkout of the run's latest item that worked there, else its root — or an upstream step's output satisfies a JSON `schema` | the engine, bounded by `check_timeout_secs` | `RunCheck` |
 | `decide` | `rules` are evaluated in order; with `pick: first` (the default) the first that holds names the branch, with `pick: every` every one that holds names one and their flows are all taken; `otherwise` when none holds | nobody — pure, done at once | — |
 | `if` | one condition, `when`; the flow labelled `yes` is taken when it holds, `no` otherwise | nobody — done at once | — |
 | `switch` | `on` — a template — is rendered as text and compared, byte for byte, to each of `cases` (`{ value, branch }`); the first match names the branch, else `otherwise`; the output is `{ value }` | nobody — done at once; a subject that cannot render fails the step | — |
@@ -411,8 +411,11 @@ A boundary event sits on a step whose work can be stopped — `agent`, `human`, 
 `Diverted { by }` — terminal — and returns `CancelWork`: the session ended and its item cancelled,
 the gate withdrawn, the wait disarmed, a `spawn` no longer waited for while its child goes on; only
 the flows labelled with the boundary's name are taken. An **act** returns
-`RunEffect::BoundaryAct { step, boundary }` — a post as a `notify` step makes, or a named signal —
-and the step goes on; an act has no flows. A reminder (`every`) never diverts.
+`RunEffect::BoundaryAct { step, boundary }` — a post as a `notify` step makes (its `scope` and
+`author` the step's, offered by the same place-and-author fields in the designer:
+`forms/NotifyWhereFields.tsx`, a channel, a goal's or a workstream's conversation, or a text
+input; blank, the run's own), or a named signal — and the step goes on; an act has no flows. A
+reminder (`every`) never diverts.
 
 `RunEvent::BoundaryFired { step, boundary, entered, payload, chain }` names the visit it fires for:
 one whose `entered` is not the step's is `RunError::StaleBoundary`, an unknown name

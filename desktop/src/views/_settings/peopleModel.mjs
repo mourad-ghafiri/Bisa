@@ -8,6 +8,7 @@
  * restated it would drift. What lives here is the wording around it.
  */
 
+import { ago } from "../../i18n/format.mjs";
 import { t } from "../../i18n/l10n.mjs";
 
 /** The roles a person on another node may hold, in the order a picker offers them. */
@@ -166,4 +167,41 @@ export function admitKey(raw, people, me) {
   if (String(me ?? "").toLowerCase() === key) return { key, problem: t("settings-people-own-key") };
   if ((people ?? []).some((p) => String(p.pubkey).toLowerCase() === key)) return { key, problem: t("settings-people-already-member") };
   return { key, problem: null };
+}
+
+/**
+ * The held messages as rows for Settings › People, oldest first: who said
+ * it (the people list's label, else the key's first letters), where, since
+ * when, where the classifier stands — still reading, or held — the reason
+ * it gave, and whether a release may be offered: not while it is still
+ * reading, since that verdict lands on its own.
+ * @param {readonly import("../../types").HeldMessage[] | null | undefined} held
+ * @param {readonly { pubkey: string, label?: string | null }[] | null | undefined} people
+ * @param {number} now unix seconds
+ */
+export function heldRows(held, people, now) {
+  const named = new Map((people ?? []).map((p) => [p.pubkey, p]));
+  return [...(held ?? [])]
+    .sort((a, b) => a.held_at - b.held_at)
+    .map((h) => {
+      const reason = h.reason?.reason ?? "no_verdict";
+      const why = typeof h.reason?.why === "string" ? h.reason.why.trim() : "";
+      const pending = reason === "pending";
+      return {
+        id: h.event_id,
+        person: personName(named.get(h.author) ?? { pubkey: h.author }),
+        scope: h.scope,
+        since: ago(h.held_at, now),
+        state: pending
+          ? { word: t("settings-people-held-being-read"), tone: "quiet" }
+          : { word: t("settings-people-held-held"), tone: "danger" },
+        why: pending ? "" : why || t("settings-people-held-no-verdict"),
+        releasable: !pending,
+      };
+    });
+}
+
+/** What refusing a held message means, said before it is done — it cannot be undone. */
+export function refuseHeldWords(row) {
+  return t("settings-people-held-refuse-words", { person: row.person, scope: row.scope });
 }

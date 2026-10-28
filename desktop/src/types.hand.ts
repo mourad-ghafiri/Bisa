@@ -663,6 +663,8 @@ export type EnginePayload =
   /** A person's message is held from agents, and why; the owner may release it. */
   | { type: "message_held"; scope: string; event: string; author: string; reason: import("./types.gen").HeldReason }
   | { type: "message_released"; scope: string; event: string }
+  /** A held message was refused by the owner: the row is gone, no agent hears it, the message stays in its scope's log. */
+  | { type: "message_refused"; scope: string; event: string; author: string }
   /** The content screen read what an agent was about to read from outside — the source and the verdict, never the words (11 — Security). */
   | { type: "content_screened"; scope?: string | null; agent: string; source: string; verdict: import("./types.gen").ContentVerdict }
   /** What this node holds of a workspace it is a guest of moved. */
@@ -1168,6 +1170,28 @@ export interface SearchParams {
   limit?: number;
 }
 
+/**
+ * `POST /ide/replace`'s answer (`bisa_node::dto::IdeReplace*`): held here
+ * until `just gen-types` runs — a node DTO, generated from then on.
+ */
+export interface IdeReplaceChange {
+  /** 1-based. */
+  line: number;
+  before: string;
+  after: string;
+}
+export interface IdeReplacePreview {
+  path: string;
+  /** The file's content hash as the preview read it — `files[].base_hash` on the apply. */
+  base_hash: string;
+  changes: IdeReplaceChange[];
+}
+export type IdeReplaceOutcome =
+  | { outcome: "applied"; path: string; changes: number; hash: string }
+  | { outcome: "skipped_changed"; path: string; current_hash: string }
+  | { outcome: "failed"; path: string; error: string };
+export type IdeReplaceAnswer = { applied: false; files: IdeReplacePreview[] } | { applied: true; files: IdeReplaceOutcome[] };
+
 /** One file of a commit, against its first parent. */
 interface CommitFileChange {
   path: string;
@@ -1543,7 +1567,14 @@ export type TeamPatchBody = import("./types.gen").TeamPatch;
 /** `POST /goals/{id}/close`: a rationale, or the goal that replaces this one. */
 export type CloseGoalBody = import("./types.gen").CloseBody;
 
-export type AnswerAskBody = import("./types.gen").ConversationAskAnswer;
+/** An allow or a deny (generated), or — for a question the agent asked in words — the person's answer; the third shape is held here until `just gen-types` runs. */
+export type AnswerAskBody = import("./types.gen").ConversationAskAnswer | { answer: "answer"; text: string };
+/**
+ * The two subjects the asks desk gained for a conversation with no goal —
+ * a question in words, a sign-in — held here until `just gen-types` runs
+ * (`bisa_engine::changes::asks::AskSubject`).
+ */
+export type AskSubjectAsked = { kind: "question"; options?: string[] } | { kind: "auth"; provider: string; url?: string | null };
 export type SettleTarget = import("./types.gen").Target;
 export type Settled = import("./types.gen").ChangesSettled;
 

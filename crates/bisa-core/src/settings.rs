@@ -710,6 +710,10 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
             S::WP
         ),
         def!("workstreams.script.trusted", Structured, json!([]), S::M),
+        // The text each approval was of, per project and phase, so a script
+        // that arrived by sync can be read as a diff against what was
+        // approved here — this machine's, like the trust it belongs to.
+        def!("workstreams.script.approved", Structured, json!({}), S::M),
         def!("workstreams.board.enabled", Bool, json!(true), S::MW),
         def!(
             "workstreams.board.due_soon_days",
@@ -1020,6 +1024,9 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
         def!("keymap.overrides", Structured, json!({}), S::M),
         // --- lsp ---
         def!("lsp.enabled", Bool, json!(true), S::MW),
+        // Suggestions from the server as you type: a slow server can be
+        // spared this one request without losing its diagnostics and hover.
+        def!("lsp.completion", Bool, json!(true), S::MW),
         def!("lsp.servers", Structured, json!([]), S::M),
         def!(
             "lsp.idle_ttl_secs",

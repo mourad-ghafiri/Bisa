@@ -502,6 +502,8 @@ shell-omnibox-url-browser-tab-beside-screen-ide-s = In a browser tab beside this
 shell-omnibox-work-items = Work items
 shell-omnibox-workstream-branch-checkout-new-open = workstream branch checkout new open
 shell-omnibox-workstream-open-one-project = Workstream: open one on this project
+shell-omnibox-workflow-on = On
+shell-omnibox-workflows = Workflows
 shell-omnibox-workstreams = Workstreams
 shell-pet-overlay-corner = In its corner.
 shell-pet-overlay-dragged-from-corner = Dragged from its corner.
@@ -1045,6 +1047,7 @@ shell-keymap-override-names-no-command = keymap.overrides.{ $id }: no command of
 ## A terminal tab's title when a device run or a run command is in it (`shell/terminalsModel.mjs`) — words moved out of the model.
 shell-terminals-title-flutter-where = flutter · { $where }
 shell-terminals-title-run-where = run · { $where }
+shell-terminals-title-sub-where = { $where } / { $sub }
 
 ## The setup gate's door into Settings: the path is the rail's own (`shell/setupModel.mjs`, `views/_settings/settingsLink.mjs`).
 shell-setup-open-settings-path = Open { $path }

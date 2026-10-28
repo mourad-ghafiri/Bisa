@@ -753,6 +753,313 @@ async fn manual_asks_a_command_in_the_conversation_and_the_person_answers_there(
     bench.engine.shutdown().await;
 }
 
+/// A question from a turn outside any goal — a conversation about the
+/// workspace — is asked in the conversation itself: the desk parks it with
+/// the choices the agent offered, the person answers in words, and the
+/// harness hears them. An allow is not an answer to a question.
+#[tokio::test]
+async fn a_question_outside_any_goal_is_asked_in_the_conversation_and_answered_in_words() {
+    let adapter = guarded(
+        "curious",
+        InputRequest::question("q1", "Which colour?", vec!["red".into(), "blue".into()]),
+    );
+    let answered = Arc::clone(&adapter.answered);
+    let bench = bench(vec![adapter], false);
+    let inner = bench.engine.inner();
+    let c = bench
+        .engine
+        .workspace()
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Workspace,
+            title: None,
+            mode: ConversationMode::Manual,
+        })
+        .unwrap()
+        .id;
+    say(&bench, c, "pick one");
+    let ask = common::until("the question is asked in the conversation", || {
+        asks::open(inner, c).into_iter().next()
+    })
+    .await;
+    assert_eq!(
+        ask.subject,
+        AskSubject::Question {
+            options: vec!["red".into(), "blue".into()]
+        }
+    );
+    assert_eq!(ask.question, "Which colour?");
+    assert!(
+        !ask.grantable,
+        "a question is never allowed for the conversation"
+    );
+    let refused = asks::answer(
+        inner,
+        c,
+        &ask.id,
+        AskAnswer::Allow {
+            scope: AskScope::Once,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("takes another answer"),
+        "{refused}"
+    );
+    assert_eq!(asks::open(inner, c).len(), 1, "the question stays waiting");
+    asks::answer(
+        inner,
+        c,
+        &ask.id,
+        AskAnswer::Answer {
+            text: "blue".into(),
+        },
+    )
+    .unwrap();
+    common::until("the harness hears the words", || {
+        answered
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(id, a)| id == "q1" && matches!(a, InputAnswer::Text { text } if text == "blue"))
+            .then_some(())
+    })
+    .await;
+    assert!(asks::open(inner, c).is_empty());
+    // Declined, in another conversation about the workspace: the harness
+    // hears the refusal with the person's note.
+    let other = bench
+        .engine
+        .workspace()
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Workspace,
+            title: None,
+            mode: ConversationMode::Manual,
+        })
+        .unwrap()
+        .id;
+    say(&bench, other, "pick again");
+    let ask = common::until("the second question is asked", || {
+        asks::open(inner, other).into_iter().next()
+    })
+    .await;
+    asks::answer(
+        inner,
+        other,
+        &ask.id,
+        AskAnswer::Deny {
+            note: Some("neither".into()),
+        },
+    )
+    .unwrap();
+    common::until("the harness hears the refusal", || {
+        answered
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(id, a)| {
+                id == "q1"
+                    && matches!(a, InputAnswer::Deny { reason } if reason.ends_with(": neither"))
+            })
+            .then_some(())
+    })
+    .await;
+    bench.engine.shutdown().await;
+}
+
+/// A sign-in a turn outside any goal needs is asked the same way: the
+/// person says it is done — an allow — and words are not an answer to it.
+#[tokio::test]
+async fn a_sign_in_outside_any_goal_is_asked_in_the_conversation_and_a_yes_lets_the_agent_on() {
+    let adapter = guarded(
+        "signing",
+        InputRequest::auth(
+            "a1",
+            "github",
+            Some("https://github.com/login/device".into()),
+        ),
+    );
+    let answered = Arc::clone(&adapter.answered);
+    let bench = bench(vec![adapter], false);
+    let inner = bench.engine.inner();
+    let c = bench
+        .engine
+        .workspace()
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Workspace,
+            title: None,
+            mode: ConversationMode::Manual,
+        })
+        .unwrap()
+        .id;
+    say(&bench, c, "publish it");
+    let ask = common::until("the sign-in is asked in the conversation", || {
+        asks::open(inner, c).into_iter().next()
+    })
+    .await;
+    assert_eq!(
+        ask.subject,
+        AskSubject::Auth {
+            provider: "github".into(),
+            url: Some("https://github.com/login/device".into())
+        }
+    );
+    assert!(
+        ask.question.contains("github") && ask.question.contains("login/device"),
+        "{}",
+        ask.question
+    );
+    assert!(!ask.grantable);
+    let refused = asks::answer(
+        inner,
+        c,
+        &ask.id,
+        AskAnswer::Answer {
+            text: "done".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(
+        refused.to_string().contains("takes another answer"),
+        "{refused}"
+    );
+    asks::answer(
+        inner,
+        c,
+        &ask.id,
+        AskAnswer::Allow {
+            scope: AskScope::Conversation,
+        },
+    )
+    .unwrap();
+    common::until("the harness hears the yes", || {
+        answered
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(id, a)| id == "a1" && matches!(a, InputAnswer::Allow { .. }))
+            .then_some(())
+    })
+    .await;
+    assert!(asks::open(inner, c).is_empty());
+    // Not now, in another conversation: the harness hears the refusal.
+    let other = bench
+        .engine
+        .workspace()
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Workspace,
+            title: None,
+            mode: ConversationMode::Manual,
+        })
+        .unwrap()
+        .id;
+    say(&bench, other, "publish again");
+    let ask = common::until("the second sign-in is asked", || {
+        asks::open(inner, other).into_iter().next()
+    })
+    .await;
+    asks::answer(inner, other, &ask.id, AskAnswer::Deny { note: None }).unwrap();
+    common::until("the harness hears the no", || {
+        answered
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(id, a)| id == "a1" && matches!(a, InputAnswer::Deny { reason } if reason.contains("refused by the person")))
+            .then_some(())
+    })
+    .await;
+    bench.engine.shutdown().await;
+}
+
+/// Declined, a question and a sign-in are what the agent hears — the
+/// refusal with the person's note — and the desk hands the words of an
+/// answer back to the turn that asked.
+#[tokio::test]
+async fn a_question_declined_and_a_sign_in_refused_are_what_the_agent_hears() {
+    let bench = bench(vec![], false);
+    let inner = Arc::clone(bench.engine.inner());
+    let c = bench.conversation(ConversationMode::Manual);
+    let asking = {
+        let inner = Arc::clone(&inner);
+        tokio::spawn(async move {
+            asks::ask(
+                &inner,
+                c,
+                "coder",
+                AskSubject::Question { options: vec![] },
+                "Which?".into(),
+                false,
+            )
+            .await
+        })
+    };
+    let ask = common::until("the question is open", || {
+        asks::open(&inner, c).into_iter().next()
+    })
+    .await;
+    asks::answer(
+        &inner,
+        c,
+        &ask.id,
+        AskAnswer::Deny {
+            note: Some("ask me tomorrow".into()),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        asking.await.unwrap(),
+        asks::Said::Deny("refused by the person in the conversation: ask me tomorrow".into())
+    );
+    let signing = {
+        let inner = Arc::clone(&inner);
+        tokio::spawn(async move {
+            asks::ask(
+                &inner,
+                c,
+                "coder",
+                AskSubject::Auth {
+                    provider: "npm".into(),
+                    url: None,
+                },
+                "Sign in to npm. Done?".into(),
+                false,
+            )
+            .await
+        })
+    };
+    let ask = common::until("the sign-in is open", || {
+        asks::open(&inner, c).into_iter().next()
+    })
+    .await;
+    asks::answer(&inner, c, &ask.id, AskAnswer::Deny { note: None }).unwrap();
+    assert_eq!(
+        signing.await.unwrap(),
+        asks::Said::Deny("refused by the person in the conversation".into())
+    );
+    let answering = {
+        let inner = Arc::clone(&inner);
+        tokio::spawn(async move {
+            asks::ask(
+                &inner,
+                c,
+                "coder",
+                AskSubject::Question {
+                    options: vec!["a".into()],
+                },
+                "a or b?".into(),
+                false,
+            )
+            .await
+        })
+    };
+    let ask = common::until("the second question is open", || {
+        asks::open(&inner, c).into_iter().next()
+    })
+    .await;
+    asks::answer(&inner, c, &ask.id, AskAnswer::Answer { text: "b".into() }).unwrap();
+    assert_eq!(answering.await.unwrap(), asks::Said::Answer("b".into()));
+    bench.engine.shutdown().await;
+}
+
 #[tokio::test]
 async fn an_answer_nobody_is_left_to_hear_is_refused_in_a_sentence() {
     let bench = bench(vec![guarded("idle", command("req-1", "true"))], false);
@@ -1583,7 +1890,9 @@ async fn allowed_for_the_conversation_ends_when_the_mode_changes() {
             reason, "refused by the person in the conversation",
             "a blank note adds nothing"
         ),
-        asks::Said::Allow => panic!("the grant outlived the mode it was given in"),
+        asks::Said::Allow | asks::Said::Answer(_) => {
+            panic!("the grant outlived the mode it was given in")
+        }
     }
     bench.engine.shutdown().await;
 }

@@ -24,6 +24,31 @@ export function toWorkspaceSymbols(result: unknown): { name: string; kind: strin
 export function toDocumentSymbols(result: unknown): unknown[];
 export function toLocations(result: unknown): { path: string; line: number; column: number }[];
 export function hoverMarkdown(contents: unknown): string;
+/** LSP's `CompletionItemKind` → Monaco's; a kind LSP does not name is text. */
+export function toCompletionKind(lsp: unknown): number;
+export interface MonacoRange {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+}
+export interface CompletionSuggestion {
+  label: string;
+  kind: number;
+  insertText: string;
+  range: MonacoRange;
+  detail?: string;
+  documentation?: string | { value: string };
+  sortText?: string;
+  filterText?: string;
+  preselect: boolean;
+  tags?: number[];
+  additionalTextEdits?: { range: MonacoRange; text: string }[];
+}
+/** A completion answer — a list or a bare array — as Monaco's suggestions over `range`, the word under the caret. */
+export function toCompletionItems(result: unknown, range: MonacoRange): { suggestions: CompletionSuggestion[]; incomplete: boolean };
+/** Whether a running server follows the document: Monaco's word-based suggestions go quiet then. */
+export function followedByServer(language: string | null | undefined, server: { state: { state: string } } | null | undefined): boolean;
 export function applyTextEdits(text: string, edits: Array<{ range: unknown; newText: string }> | undefined): string;
 
 /** A server's own lifecycle, as an engine frame says it. */

@@ -364,6 +364,7 @@ export function TerminalPanel() {
                   resume={s.resume}
                   run={s.run}
                   mobileDevelopment={s.mobileDevelopment}
+                  sub={s.sub}
                   startOnResume={settings.resumeStart}
                   start={s.start}
                   listening={s.listening}

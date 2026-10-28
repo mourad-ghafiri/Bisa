@@ -125,6 +125,7 @@ export const FACT_CONCEPT = Object.freeze({
   invite_changed: "channels",
   message_held: "channels",
   message_released: "channels",
+  message_refused: "channels",
   hosted_changed: "channels",
   settings_changed: "node",
   git_setup_changed: "node",

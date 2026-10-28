@@ -103,6 +103,7 @@ pub fn concept_of(payload: &EnginePayload) -> Option<ActivityConcept> {
         | EnginePayload::InviteChanged { .. }
         | EnginePayload::MessageHeld { .. }
         | EnginePayload::MessageReleased { .. }
+        | EnginePayload::MessageRefused { .. }
         | EnginePayload::HostedChanged { .. } => C::Channels,
         EnginePayload::SettingsChanged { .. }
         | EnginePayload::GitSetupChanged { .. }
@@ -210,7 +211,8 @@ pub fn source_of(event: &EngineEvent) -> ActivitySource {
         EnginePayload::InviteChanged { invite } => {
             ActivitySource::new(K::Workspace, invite.id.to_string())
         }
-        EnginePayload::MessageReleased { scope, .. } => {
+        EnginePayload::MessageReleased { scope, .. }
+        | EnginePayload::MessageRefused { scope, .. } => {
             ActivitySource::new(K::Conversation, scope.clone())
         }
         EnginePayload::HostedChanged { host, .. } => {

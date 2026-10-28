@@ -56,6 +56,7 @@ import {
   settledRoster,
   answerDue,
   shellWord,
+  subOf,
   tabOfSession,
   terminalTabLabel,
   terminalTitle,
@@ -318,6 +319,47 @@ test("a tab always names the place, and says what is running in it", () => {
   const bare = { scope: "work_item", id: "01JZZZZZZ", harness: null, label: null };
   assert.equal(terminalTitle(bare), "Work item ZZZZZZ");
   assert.equal(terminalTitle(null), "");
+  // A shell opened in a folder under the place names the folder too, under every prefix.
+  assert.equal(terminalTitle({ ...withLabel, sub: "src/app" }), "Workstream · fix-total / src/app");
+  assert.equal(terminalTitle({ ...harnessed, sub: "src" }), "claude-code · Workstream · fix-total / src");
+  assert.equal(terminalTitle({ ...bare, sub: "pkg" }), "Work item ZZZZZZ / pkg");
+});
+
+test("a shell opened in a folder under the place keeps the folder: trimmed, on the session, across a restart and a restore, and a place of its own to reveal", () => {
+  assert.equal(subOf("src/app"), "src/app");
+  assert.equal(subOf(" /src/app/ "), "src/app", "slashes at the ends and blanks are not part of the name");
+  assert.equal(subOf(""), null);
+  assert.equal(subOf("///"), null);
+  assert.equal(subOf(null), null);
+  assert.equal(subOf(42), null);
+
+  let state = openTerminal(emptyTerminals(), shell("workstream", "w1", { sub: "src/app/" }));
+  assert.equal(state.sessions[0].sub, "src/app");
+  state = openTerminal(state, shell("workstream", "w1"));
+  assert.equal(state.sessions[1].sub, null, "no folder is the place itself");
+  const restarted = restartTerminal(state, state.sessions[0].key);
+  assert.equal(restarted.sessions[0].sub, "src/app", "a restart opens where the tab opened");
+
+  const back = restoreTerminals(serializeTerminals(state));
+  assert.deepEqual(
+    back.sessions.map((s) => s.sub),
+    ["src/app", null],
+    "the folder is persisted and read back; a stored name is trimmed like a typed one",
+  );
+  const loose = restoreTerminals({ version: SESSIONS_VERSION, sessions: [{ key: "t1", scope: "workstream", id: "w1", generation: 0, sub: "/lib/" }, { key: "t2", scope: "workstream", id: "w1", generation: 0 }] });
+  assert.deepEqual(
+    loose.sessions.map((s) => s.sub),
+    ["lib", null],
+  );
+
+  // A sub-folder is another place: revealing the root's shell never lands on it, nor the other way round.
+  let live = noteLive(state, state.sessions[0].key, 0);
+  live = noteLive(live, live.sessions[1].key, 0);
+  assert.equal(revealTerminal(live, shell("workstream", "w1", { sub: "src/app" })).active, live.sessions[0].key);
+  assert.equal(revealTerminal(live, shell("workstream", "w1")).active, live.sessions[1].key);
+  const third = revealTerminal(live, shell("workstream", "w1", { sub: "lib" }));
+  assert.equal(third.sessions.length, 3, "no live shell in that folder: a new one");
+  assert.equal(third.sessions[2].sub, "lib");
 });
 
 // --- resuming a harness where it last ran --------------------------------

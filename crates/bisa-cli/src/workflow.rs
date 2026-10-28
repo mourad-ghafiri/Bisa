@@ -40,6 +40,7 @@
 //! hook's standing and, with `--rotate`, mints its secret anew. A toggle is
 //! never a revision of the definition.
 
+use crate::budget::BudgetArgs;
 use crate::ctx::Ctx;
 use crate::listening::{self, rows, HookHost};
 use crate::output::Out;
@@ -55,44 +56,10 @@ use bisa_core::{
 use bisa_engine::Engine;
 use bisa_node::dto::{RunSummary, StartSummary};
 use bisa_store::{CatalogKind, NewWorkflow, Workspace};
-use clap::{Args, Subcommand};
+use clap::Subcommand;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::str::FromStr;
-
-/// The ceiling each run the workflow's events start is given. None of the
-/// three leaves the workspace default (`budget.default.*`) in force; any of
-/// them makes the listening's own budget, the others unlimited — and a zero
-/// lifts a ceiling, as it does in the settings.
-#[derive(Args, Default)]
-pub struct BudgetArgs {
-    /// Token ceiling for each run its events start; 0 lifts it
-    #[arg(long = "budget-tokens")]
-    budget_tokens: Option<u64>,
-    /// Cost ceiling in US cents for each run its events start; 0 lifts it
-    #[arg(long = "budget-usd-cents")]
-    budget_usd_cents: Option<u64>,
-    /// Wall-clock ceiling in seconds for each run its events start; 0 lifts it
-    #[arg(long = "budget-secs")]
-    budget_secs: Option<u64>,
-}
-
-impl BudgetArgs {
-    /// The budget these flags say: none when no flag was given, so the
-    /// workspace default applies.
-    fn budget(&self) -> Option<Budget> {
-        let given = [self.budget_tokens, self.budget_usd_cents, self.budget_secs];
-        if given.iter().all(Option::is_none) {
-            return None;
-        }
-        let lifted = |ceiling: Option<u64>| ceiling.filter(|n| *n > 0);
-        Some(Budget {
-            max_tokens: lifted(self.budget_tokens),
-            max_usd_cents: lifted(self.budget_usd_cents),
-            max_wall_clock_secs: lifted(self.budget_secs),
-        })
-    }
-}
 
 #[derive(Subcommand)]
 pub enum WorkflowCmd {
@@ -803,7 +770,7 @@ async fn promote(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
     Ok(())
 }
 
-fn workflow_id(id: &str) -> Result<WorkflowId> {
+pub(crate) fn workflow_id(id: &str) -> Result<WorkflowId> {
     id.parse().map_err(|_| {
         anyhow!(bisa_core::text!(
             "cli-workflow-not-workflow-id",
@@ -1409,33 +1376,6 @@ mod tests {
         assert!(
             !line.is_empty() && !line.contains("cli-workflow") && !line.contains("cli-listening"),
             "a line the catalog does not say: {line:?}"
-        );
-    }
-
-    #[test]
-    fn a_budget_is_none_the_workspace_s_or_the_flags() {
-        assert_eq!(BudgetArgs::default().budget(), None);
-        let tokens = BudgetArgs {
-            budget_tokens: Some(10_000),
-            ..BudgetArgs::default()
-        };
-        assert_eq!(
-            tokens.budget(),
-            Some(Budget {
-                max_tokens: Some(10_000),
-                ..Budget::default()
-            })
-        );
-        // A zero lifts the ceiling: alone, it is a listening with none at all.
-        let lifted = BudgetArgs {
-            budget_usd_cents: Some(0),
-            ..BudgetArgs::default()
-        };
-        assert_eq!(lifted.budget(), Some(Budget::default()));
-        assert_eq!(
-            serde_json::to_value(lifted.budget()).ok(),
-            Some(json!({})),
-            "`{{}}` is no ceiling, whatever the default says"
         );
     }
 

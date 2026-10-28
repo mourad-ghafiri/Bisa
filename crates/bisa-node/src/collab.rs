@@ -131,6 +131,7 @@ pub(crate) fn routes() -> Router<Shared> {
         .route("/workspace/invites/{id}/refuse", post(refuse_invite))
         .route("/messages/held", get(held))
         .route("/messages/{id}/release", post(release))
+        .route("/messages/{id}/refuse", post(refuse))
         .route("/hosts", get(hosts))
         .route("/hosts/join", post(join))
         .route("/hosts/{host}", delete(leave))
@@ -353,6 +354,14 @@ async fn release(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     bisa_engine::collab::release_message(state.engine.inner(), &id)?;
     Ok(Json(json!({"released": id})))
+}
+
+async fn refuse(
+    State(state): State<Shared>,
+    AxPath(id): AxPath<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    bisa_engine::collab::refuse_message(state.engine.inner(), &id)?;
+    Ok(Json(json!({"refused": id})))
 }
 
 // -- hosted memberships ---------------------------------------------------------
@@ -626,6 +635,11 @@ pub const ROUTES: &[RouteDoc] = &[
         method: "POST",
         path: "/messages/{id}/release",
         summary: "Let a held message through: the agents it addresses are woken as if it had just arrived.",
+    },
+    RouteDoc {
+        method: "POST",
+        path: "/messages/{id}/refuse",
+        summary: "Refuse a held message: the row is gone and no agent ever hears it; the message stays in its scope's log. `message.refused` on the bus; 400 when nothing is held under that id.",
     },
     RouteDoc {
         method: "GET",

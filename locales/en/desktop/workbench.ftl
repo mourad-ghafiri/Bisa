@@ -203,6 +203,12 @@ workbench-editor-doc-change = Change { $i } of { $hunks }
 workbench-editor-doc-changed-disk = changed on disk
 workbench-editor-doc-changed-disk-since-read = Changed on disk since you read it.
 workbench-editor-doc-copy-path = Copy the path
+workbench-editor-doc-diff-head = HEAD
+workbench-editor-doc-diff-head-title = Your text against HEAD, unsaved changes included
+workbench-editor-doc-head-binary = HEAD's side of this file is not text, so there is nothing to diff
+workbench-editor-doc-head-new = Not in HEAD — every line is yours
+workbench-editor-doc-head-truncated = HEAD's side was cut at the cap — the diff is not whole
+workbench-editor-doc-head-yours = HEAD · yours (editable)
 workbench-editor-doc-could-not-save = Could not save { $chosen }: { $msg }
 workbench-editor-doc-could-not-save-2 = Could not save { $path }: { $message }
 workbench-editor-doc-elsewhere-machine = Elsewhere on this machine…
@@ -273,6 +279,32 @@ workbench-files-search-search-file-names = Search file names
 workbench-files-search-search-files = Search files
 workbench-files-search-text-files-src-lock = Text in files…  in:src/** -in:*.lock
 workbench-files-search-whole-word = Whole word
+workbench-files-replace-all = Replace all
+workbench-files-replace-failed-files = { $failed } failed
+workbench-files-replace-hint-literal = The text as typed — a $ is a dollar sign; empty deletes the match
+workbench-files-replace-hint-regex = $1 and $name name a group, $$ is a dollar sign; empty deletes the match
+workbench-files-replace-in-file = Replace in { $path }
+workbench-files-replace-needs-a-preview = Preview first — Replace all writes what the preview shows
+workbench-files-replace-needs-a-question = Type what to find first
+workbench-files-replace-nothing-would-change = Nothing would change — no writable file holds a match
+workbench-files-replace-preview = Preview
+workbench-files-replace-previewing = Previewing…
+workbench-files-replace-replace = Replace
+workbench-files-replace-replace-with = Replace with…
+workbench-files-replace-replacement = Replacement
+workbench-files-replace-replacing = Replacing…
+workbench-files-replace-skipped-files = { $skipped } skipped — changed since the preview
+workbench-files-replace-toggle-title = Replace in files
+workbench-files-replace-working = Working…
+workbench-problems-close = Close the problems
+workbench-problems-more-file = +{ $more } more in this file
+workbench-problems-none = No problems reported
+workbench-problems-none-hint = A language server reports problems as you type, for the documents it follows; nothing stands right now.
+workbench-problems-severity-error = error
+workbench-problems-severity-hint = hint
+workbench-problems-severity-info = info
+workbench-problems-severity-warning = warning
+workbench-problems-title = Problems
 workbench-git-context-attached = Attached { $what }{ $from }{ $cut }.
 workbench-git-context-left-out-over-64-kib-context = — { $leftOut } left out: over the 64 KiB context budget
 workbench-git-context-nothing-attach-checkout-has-no-changes = Nothing to attach — the checkout has no changes.
@@ -580,6 +612,27 @@ workbench-files-search-file-files-index-stops-cap = { $names } { $names ->
   }{ $flag ->
     [yes] {" "}· the index stops at its cap
    *[no] {""}
+  }
+workbench-files-replace-changed-files = { $applied } { $applied ->
+    [one] file
+   *[other] files
+  } changed
+workbench-files-replace-would-change = { $lines } { $lines ->
+    [one] line
+   *[other] lines
+  } in { $files } { $files ->
+    [one] file
+   *[other] files
+  } would change
+workbench-problems-counts = { $errors } { $errors ->
+    [one] error
+   *[other] errors
+  } · { $warnings } { $warnings ->
+    [one] warning
+   *[other] warnings
+  } in { $files } { $files ->
+    [one] file
+   *[other] files
   }
 workbench-git-context-from-file-files = from { $files } { $files ->
     [one] file

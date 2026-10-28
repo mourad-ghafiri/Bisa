@@ -97,3 +97,34 @@ test("a key admitted by hand is 64 hex characters and nobody already here", () =
   assert.ok(panel.includes('{phase(invites) === "failed" && invites.error ? (') && panel.includes("<ErrorNote error={invites.error} retry={invites.reload} />"));
   assert.ok(panel.includes('{phase(hosts) === "failed" && hosts.error ? (') && panel.includes("<ErrorNote error={hosts.error} retry={hosts.reload} />"));
 });
+
+test("held messages are rows oldest first, named by the people list, with the classifier's standing and whether a release may be offered", async () => {
+  const { heldRows, refuseHeldWords } = await import("./peopleModel.mjs");
+  const bob = "b".repeat(64);
+  const nobody = "c".repeat(64);
+  const now = 1_700_000_000;
+  const rows = heldRows(
+    [
+      { event_id: "e2", scope: "design", author: nobody, held_at: now - 120, reason: { reason: "no_verdict", why: "" } },
+      { event_id: "e1", scope: "general", author: bob, held_at: now - 3600, reason: { reason: "harmful", why: " asks for a token " } },
+      { event_id: "e3", scope: "general", author: bob, held_at: now - 10, reason: { reason: "pending" } },
+    ],
+    [{ pubkey: bob, label: "Bob" }],
+    now,
+  );
+  assert.deepEqual(rows.map((r) => r.id), ["e1", "e2", "e3"], "oldest first");
+  assert.equal(rows[0].person, "Bob");
+  assert.equal(rows[1].person, `${nobody.slice(0, 8)}…`, "a key nobody labels reads by its first letters");
+  assert.equal(rows[0].scope, "general");
+  assert.match(rows[0].since, /ago/);
+  assert.deepEqual(rows[0].state, { word: "held", tone: "danger" });
+  assert.equal(rows[0].why, "asks for a token", "the classifier's reason, trimmed");
+  assert.equal(rows[0].releasable, true);
+  assert.equal(rows[1].why, "no verdict from the classifier", "no reason given reads as no verdict");
+  assert.deepEqual(rows[2].state, { word: "being read", tone: "quiet" });
+  assert.equal(rows[2].why, "", "nothing to say while it is being read");
+  assert.equal(rows[2].releasable, false, "a release waits for the verdict");
+  assert.deepEqual(heldRows(null, null, now), []);
+  assert.match(refuseHeldWords(rows[0]), /No agent will ever hear it/);
+  assert.match(refuseHeldWords(rows[0]), /general's log, where Bob said it/);
+});

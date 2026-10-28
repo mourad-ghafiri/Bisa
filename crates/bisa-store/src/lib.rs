@@ -97,8 +97,8 @@ pub use members::Admission;
 pub use notes::{body_hash, NewNote, NotePatch};
 pub use owner::OwnerFilter;
 pub use paths::{
-    append_line, resolve_within, resolve_within_new, sanitise_file_name, write_atomic, AgentPaths,
-    GoalPaths, HomePaths, Paths, ProjectPaths,
+    append_line, resolve_within, resolve_within_new, sanitise_file_name, write_atomic,
+    write_private, AgentPaths, GoalPaths, HomePaths, Paths, ProjectPaths,
 };
 pub use problems::{ProblemKind, WorkspaceProblem};
 pub use projects::NewProject;

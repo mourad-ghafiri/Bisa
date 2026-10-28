@@ -747,6 +747,28 @@ function progressLine(ev, parent) {
 /** The words for each part of the git setup a `git_setup_changed` names. */
 const GIT_SETUP_WORDS = Object.freeze({ profiles: "profiles", keys: t("app-activity-ssh-keys"), accounts: t("app-activity-code-host-accounts"), identity: t("app-activity-global-git-identity") });
 
+/**
+ * What an ask in a conversation is about, in a word for the feed: the tool's
+ * name, content from outside, the agent's question, or a sign-in to its
+ * provider — the subject on the wire, never a flat `tool` the view never had.
+ * @param {{subject?: {kind?: string, tool?: string, provider?: string}} | null | undefined} ask
+ */
+function askWords(ask) {
+  const s = ask?.subject;
+  switch (s?.kind) {
+    case "tool":
+      return s.tool || t("app-activity-call");
+    case "content":
+      return t("app-activity-ask-content");
+    case "question":
+      return t("app-activity-ask-question");
+    case "auth":
+      return t("app-activity-ask-sign-in", { provider: s.provider ?? "" });
+    default:
+      return t("app-activity-call");
+  }
+}
+
 export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
   const base = { at, goal: e.goal ?? undefined };
   const key = `e:${at}:${liveSeq++}`;
@@ -1100,7 +1122,7 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
         key,
         tone: "wait",
         icon: "icon:guard",
-        text: t("app-activity-waits-conversation", { tool: p.ask?.tool ?? t("app-activity-call") }),
+        text: t("app-activity-waits-conversation", { tool: askWords(p.ask) }),
       };
     case "ask_settled":
       return {
@@ -1252,6 +1274,8 @@ export function engineLine(e, at = Math.floor(Date.now() / 1000)) {
       };
     case "message_released":
       return { ...base, key, tone: "dim", icon: "icon:guard", text: t("app-activity-held-message-let-through", { scope: p.scope }) };
+    case "message_refused":
+      return { ...base, key, tone: "dim", icon: "icon:guard", text: t("app-activity-held-message-refused", { scope: p.scope }) };
     case "content_screened":
       return {
         ...base,

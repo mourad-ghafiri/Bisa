@@ -9,6 +9,7 @@
 import { Field, Labelled, TextInput } from "../../../ui";
 import type { OneOrMany } from "./eventFilters";
 import { ExactFieldsEditor } from "./ExactFieldsEditor";
+import { PLATFORM_TOPICS } from "../platformTopics.mjs";
 import { WordsInput } from "./ManyFields";
 import { validSignalName } from "./startForm.mjs";
 import { t } from "../../../i18n/l10n.mjs";
@@ -59,7 +60,7 @@ export function PlatformFilterFields({
   return (
     <div className="flex flex-col gap-3">
       <Labelled label={t("workflow-wait-step-form-topic")} hint={t("workflow-signal-filter-fields-topic-hint")}>
-        <WordsInput mono value={topic} disabled={disabled} /* for the machine */ placeholder="goal.closed" aria-label={t("workflow-wait-step-form-topic")} onChange={(next) => onChange({ topic: next ?? "", fields: fields ?? {} })} />
+        <WordsInput mono value={topic} disabled={disabled} /* for the machine */ placeholder="goal.closed" aria-label={t("workflow-wait-step-form-topic")} suggestions={PLATFORM_TOPICS} suggest="typed" onChange={(next) => onChange({ topic: next ?? "", fields: fields ?? {} })} />
       </Labelled>
       <Labelled label={t("workflow-wait-step-form-fields")} hint={t("workflow-signal-filter-fields-exact-matches")}>
         <ExactFieldsEditor value={fields} disabled={disabled} onChange={(next) => onChange({ topic: topic ?? "", fields: next })} />

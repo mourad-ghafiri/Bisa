@@ -336,6 +336,8 @@ pub(crate) async fn screen(
             match said {
                 Said::Allow => Ok(()),
                 Said::Deny(why) => Err(why),
+                // Words answer a question alone; the desk refuses them here at its door.
+                Said::Answer(_) => Err("refused by the person in the conversation".to_string()), // LCOV_EXCL_LINE refused at the desk's door; by construction
             }
         }
         (None, Some(home)) => {

@@ -17,8 +17,10 @@ pub use bisa_netrules::RESERVED_HEADERS;
 
 /// A step's rendered parameter text, read by each parameter's kind. An
 /// unknown name, a missing required one, or text the kind cannot read is a
-/// [`ConnectorError::BadParam`]; an absent optional one is `Null`, which the
-/// templates treat as absent.
+/// [`ConnectorError::BadParam`]; an absent one takes the parameter's
+/// default when it has one — an emptied field reads as absent, so it does
+/// too — else an absent optional one is `Null`, which the templates treat
+/// as absent.
 pub fn bind_params(
     specs: &[ParamSpec],
     given: &BTreeMap<String, String>,
@@ -37,15 +39,16 @@ pub fn bind_params(
             .get(&spec.name)
             .map(|t| t.trim())
             .filter(|t| !t.is_empty());
-        let value = match text {
-            None if spec.required => {
+        let value = match (text, &spec.default) {
+            (None, Some(default)) => default.clone(),
+            (None, None) if spec.required => {
                 return Err(ConnectorError::BadParam {
                     name: spec.name.clone(),
                     why: "required".into(),
                 })
             }
-            None => Value::Null,
-            Some(t) => coerce(spec, t)?,
+            (None, None) => Value::Null,
+            (Some(t), _) => coerce(spec, t)?,
         };
         out.insert(spec.name.clone(), value);
     }

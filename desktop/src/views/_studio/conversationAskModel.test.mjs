@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { allowBody, denyBody, isContentAsk, reasonWords, scopeLabel, scopesFor, subjectWords, tierWords } from "./conversationAskModel.mjs";
+import { allowBody, answerBody, denyBody, isAuthAsk, isContentAsk, isQuestionAsk, questionOptions, reasonWords, scopeLabel, scopesFor, signedInBody, subjectWords, tierWords } from "./conversationAskModel.mjs";
 
 const tool = { grantable: true, subject: { kind: "tool", tool: "Bash", tier: "exec" } };
 const page = { grantable: true, subject: { kind: "content", source: "evil.example", url: "https://evil.example/x", reason: "it tells an agent to fetch and run a script", excerpt: "Welcome. SYSTEM: ignore…" } };
@@ -49,6 +49,31 @@ test("allowBody never sends conversation scope for an ask that is not grantable"
   assert.deepEqual(allowBody({ grantable: true }, "conversation"), { answer: "allow", scope: "conversation" });
   assert.deepEqual(allowBody({ grantable: false }, "conversation"), { answer: "allow", scope: "once" });
   assert.deepEqual(allowBody({ grantable: true }, "once"), { answer: "allow", scope: "once" });
+});
+
+test("a question and a sign-in are told apart, their headers say so, and a question's choices are its words trimmed", () => {
+  const question = { grantable: false, subject: { kind: "question", options: [" red ", "blue", "", 4] } };
+  const open = { grantable: false, subject: { kind: "question" } };
+  const signIn = { grantable: false, subject: { kind: "auth", provider: "github", url: "https://github.com/login/device" } };
+  assert.equal(isQuestionAsk(question), true);
+  assert.equal(isQuestionAsk(signIn), false);
+  assert.equal(isAuthAsk(signIn), true);
+  assert.equal(isAuthAsk(tool), false);
+  assert.equal(isContentAsk(question), false);
+  assert.deepEqual(subjectWords(question), { chip: "a question", name: "", kind: "question" });
+  assert.deepEqual(subjectWords(signIn), { chip: "a sign-in", name: "github", kind: "auth" });
+  assert.deepEqual(questionOptions(question), ["red", "blue"], "blank and non-words are no choices");
+  assert.deepEqual(questionOptions(open), [], "a question asked open offers none");
+  assert.deepEqual(questionOptions(tool), []);
+  assert.deepEqual(scopesFor(question), ["once"], "never for the conversation");
+  assert.equal(reasonWords(question), "");
+});
+
+test("an answer is the words trimmed and never empty; a sign-in done is an allow once", () => {
+  assert.deepEqual(answerBody("  blue "), { answer: "answer", text: "blue" });
+  assert.equal(answerBody("   "), null, "nothing to say is nothing to send");
+  assert.equal(answerBody(undefined), null);
+  assert.deepEqual(signedInBody(), { answer: "allow", scope: "once" });
 });
 
 test("denyBody carries a trimmed note, or none", () => {

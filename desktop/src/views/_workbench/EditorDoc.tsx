@@ -35,8 +35,10 @@ import { useEngineEvents } from "../../bus";
 import type { WorkbenchScope } from "../../routeModel.mjs";
 import type { BlameLine } from "../../types";
 import { gutterFor } from "../_work/blameModel.mjs";
+import { canDiffHead, headDiffWords, headSides } from "./headDiffModel.mjs";
+import type { HeadText } from "./headDiffModel.mjs";
 import { lspRestarted, useLspDocument } from "./lspClient";
-import { applyTextEdits, sameServer, serverChange, serverChip } from "./lspModel.mjs";
+import { applyTextEdits, followedByServer, sameServer, serverChange, serverChip } from "./lspModel.mjs";
 import type { LspServerStatus } from "../../types";
 import {
   Button,
@@ -265,6 +267,13 @@ export function EditorDoc({
   const [blameOn, setBlameOn] = useState(false);
   const [blame, setBlame] = useState<BlameLine[] | null>(null);
   const [blameNote, setBlameNote] = useState<string | null>(null);
+  // The diff against HEAD (ide/04 §Blame and history): the buffer as typed,
+  // unsaved changes included, against the text HEAD holds. Blame's rule,
+  // plus on disk; the node is asked for HEAD's side alone.
+  const canHead = canDiffHead({ scope, isFile, onDisk });
+  const [headOn, setHeadOn] = useState(false);
+  const [head, setHead] = useState<HeadText | null>(null);
+  const [headNote, setHeadNote] = useState<string | null>(null);
   // Language intelligence (ide/10): which server, if any, follows this document.
   const [lspLanguage, setLspLanguage] = useState<string | null>(null);
   const lspStatus = useAsync(
@@ -484,6 +493,39 @@ export function EditorDoc({
     };
   }, [blameOn, canBlame, id, path, savedHash]);
   const gutter = useMemo(() => (blame ? gutterFor(blame, absolute) : null), [blame]);
+  // HEAD's side follows the saved file as blame does: a save reads it again
+  // (HEAD may have moved under a commit meanwhile), a keystroke never does —
+  // the modified side is the buffer itself. A side that is not text is a
+  // note in the strip and no diff; a file HEAD lacks, or a side cut at the
+  // cap, is drawn with its note on the bar.
+  useEffect(() => {
+    if (!headOn || !canHead) {
+      setHead(null);
+      setHeadNote(null);
+      return;
+    }
+    if (savedHash === undefined) return;
+    let alive = true;
+    api
+      .gitSides(id, path, true)
+      .then((r) => {
+        if (!alive) return;
+        const verdict = headSides(r);
+        setHead(verdict.kind === "binary" ? null : verdict);
+        setHeadNote(verdict.kind === "binary" ? headDiffWords(verdict.kind) : null);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setHead(null);
+        setHeadNote(failureText("workbench", "editor-doc-failed", e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [headOn, canHead, id, path, savedHash]);
+  // The lens is the fourth view and keeps its precedence; the HEAD diff shows
+  // under the same conditions — the source, no conflict on screen.
+  const showHead = headOn && head !== null && mode === "source" && buffer.status !== "conflict" && !showLens;
 
   /**
    * Ask for the path an untitled document is saved under. Resolves with the
@@ -1042,6 +1084,7 @@ export function EditorDoc({
         {/* Why it cannot be typed into, or is drawn plain: the node's word on the file, in the model's words. */}
         {sizeNote(buffer) && <span className="text-text-dim">{sizeNote(buffer)}</span>}
         {blameNote && <span className="text-warn">{blameNote}</span>}
+        {headNote && <span className="text-warn">{headNote}</span>}
         {lspLanguage && chip && (
           <span className={cn("inline-flex items-center gap-1", chip.tone === "ok" ? "text-ok" : chip.tone === "danger" ? "text-danger" : "text-text-dim")} title={chip.title}>
             <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
@@ -1073,6 +1116,20 @@ export function EditorDoc({
             <Button size="sm" variant="ghost" className={cn(lensOn && "bg-selected text-text")} aria-pressed={lensOn} onClick={() => setLensOn((v) => !v)}>
               <ICON.inspect size={12} aria-hidden />{tr("workbench-editor-doc-review")}</Button>
           </Tooltip>
+        )}
+        {canHead && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className={cn(headOn && "bg-selected text-text")}
+            aria-pressed={headOn}
+            title={tr("workbench-editor-doc-diff-head-title")}
+            onClick={() => {
+              // The diff is of the source: a rendered or split document goes to its text.
+              if (!headOn) setMode("source");
+              setHeadOn((v) => !v);
+            }}
+          >{tr("workbench-editor-doc-diff-head")}</Button>
         )}
         {canBlame && (
           <Button
@@ -1195,6 +1252,24 @@ export function EditorDoc({
             className="min-h-0 flex-1"
           />
         </div>
+      ) : showHead && head ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center gap-2 border-b border-hairline px-3 py-1 text-2xs text-text-dim">
+            <span>{headDiffWords(head.kind)}</span>
+            <span className="flex-1" />
+            <Button size="sm" variant="ghost" onClick={() => setHeadOn(false)}>{tr("workbench-editor-doc-back")}</Button>
+          </div>
+          {/* The modified side is the tab's own model: typing here is typing in the buffer, undo history and all. */}
+          <DiffEditor
+            original={head.original}
+            modified={buffer.text}
+            keep={registryKey}
+            path={path}
+            readOnly={buffer.readOnly}
+            onModifiedChange={onChange}
+            className="min-h-0 flex-1"
+          />
+        </div>
       ) : (
         <div ref={editorBox} className={cn("relative flex min-h-0 flex-1", mode === "split" && "divide-x divide-border")}>
           <CodeEditor
@@ -1203,6 +1278,7 @@ export function EditorDoc({
             path={path}
             readOnly={buffer.readOnly}
             plain={buffer.plain}
+            wordSuggestions={!followedByServer(lspLanguage, server)}
             onChange={onChange}
             onSelectionChange={(next) => {
               setSel(next);

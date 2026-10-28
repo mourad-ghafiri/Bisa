@@ -54,6 +54,7 @@ import {
   frameDuration,
   petHeight,
   petStateOfSession,
+  restingState,
   routeFor,
   spriteBox,
   standingState,
@@ -139,7 +140,9 @@ export function PetCompanion() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const summary = useMemo(() => workSummary(ws, sessionCounts(sessions), sessions), [ws.inbox, ws.waiting, ws.working, sessions]);
   const busyScope = summary.busyScope;
-  const standing: PetState = followed ? petStateOfSession(followed.state) : standingState(summary);
+  // The row this pack rests on when nothing is happening (`defaultAnimation`); idle for a pack that names none.
+  const rest = restingState(pets.find((p) => p.id === active) ?? null);
+  const standing: PetState = followed ? petStateOfSession(followed.state, rest) : standingState(summary, rest);
 
   // How big this pet actually is, measured from its own sheet. The reference
   // size stands in until it has loaded, so the first paint is already close.

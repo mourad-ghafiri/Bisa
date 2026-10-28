@@ -15,7 +15,8 @@ import type { Boundary, InputDef, Step } from "../../../types";
 import { AssigneePicker } from "../../_work/AssigneePicker";
 import { BOUNDARY_ON_ICON, Button, Field, ICON, Labelled, NumberInput, Select, TextArea, TextInput, useCommitOnUnmount } from "../../../ui";
 import { BOUNDARY_ACTS, BOUNDARY_EVENTS, TEMPLATE_HINT, mayCarryBoundaries } from "../stepKinds.mjs";
-import { DEFAULT_REMINDERS, actsFor, addBoundary, consequence, removeBoundaryOn, renameBoundaryOn, replaceBoundary, setAct, setEvent, type BoundaryActName, type BoundaryEvent } from "./boundaryModel.mjs";
+import { DEFAULT_REMINDERS, actsFor, addBoundary, consequence, removeBoundaryOn, renameBoundaryOn, replaceBoundary, setAct, setEvent, withNotifyWhere, type BoundaryActName, type BoundaryEvent } from "./boundaryModel.mjs";
+import { NotifyAuthorField, NotifyScopeSelect } from "./NotifyWhereFields";
 import { ExactFieldsEditor } from "./ExactFieldsEditor";
 import { MessageFilterFields } from "./MessageFilterFields";
 import { RefSource, isInputRef } from "./RefSource";
@@ -125,6 +126,8 @@ function BoundaryRow({ step, boundary, inputs, disabled, onChange }: { step: Ste
       {on.event === "signal" && <SignalFilterFields name={on.name} fields={on.fields} disabled={disabled} templateHint={TEMPLATE_HINT} onChange={(next) => put({ ...boundary, on: { ...on, ...next } })} />}
       {boundary.act === "notify" && (
         <>
+          <NotifyScopeSelect value={boundary.scope} inputs={inputs} disabled={disabled} hint={t("workflow-boundary-events-editor-where-hint")} onChange={(scope) => put(withNotifyWhere(boundary, { scope }))} />
+          <NotifyAuthorField value={boundary.author} inputs={inputs} disabled={disabled} hint={t("workflow-boundary-events-editor-speaks-hint")} onChange={(author) => put(withNotifyWhere(boundary, { author }))} />
           <Field label={t("workflow-notify-step-form-message")} hint={t("workflow-boundary-events-editor-post-hint", { TEMPLATE_HINT })}>
             <TextArea rows={2} value={boundary.template} disabled={disabled} onChange={(e) => put({ ...boundary, template: e.target.value })} />
           </Field>

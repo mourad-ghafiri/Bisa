@@ -492,6 +492,7 @@ async fn stopping_a_goal_aborts_its_running_check_command() {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "sleep 30".into(),
+                        project: None,
                     },
                 },
             )],
@@ -506,6 +507,14 @@ async fn stopping_a_goal_aborts_its_running_check_command() {
             .then_some(())
     })
     .await;
+    // A task that never leaves the map on its own stands beside the check's,
+    // so what the test pins is the end's abort and not the command's own
+    // cancel racing it to the map.
+    let ghost = tokio::spawn(std::future::pending::<()>());
+    engine
+        .inner()
+        .step_tasks
+        .insert((run.id, sid("ghost")), ghost.abort_handle());
 
     let started = std::time::Instant::now();
     engine.stop_goal(goal.id, None).await.unwrap();
@@ -520,6 +529,20 @@ async fn stopping_a_goal_aborts_its_running_check_command() {
             .step_tasks
             .contains_key(&(run.id, sid("slow"))),
         "the check's task went with the run"
+    );
+    assert!(
+        !engine
+            .inner()
+            .step_tasks
+            .contains_key(&(run.id, sid("ghost"))),
+        "every task of the run went with it"
+    );
+    assert!(
+        ghost
+            .await
+            .expect_err("aborted, not finished")
+            .is_cancelled(),
+        "the end aborted the task it found"
     );
     assert_eq!(run_of(&engine, run.id).status(), RunStatus::Cancelled);
     engine.shutdown().await;

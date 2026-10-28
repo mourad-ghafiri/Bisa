@@ -85,6 +85,16 @@ test("the row menu offers the verbs in order; Reveal only where a file manager i
   assert.deepEqual(ids({ mutable: false }), ["copy-path", "copy-absolute", "reveal"]);
   assert.deepEqual(ids({ serve: true, targets: [{ path: "public", dir: true }] }), ["new-file", "new-dir", "rename", "duplicate", "cut", "copy", "paste", "copy-path", "copy-absolute", "reveal", "serve", "delete"], "a folder of a checkout can be served (ide/18)");
   assert.ok(!ids({ serve: true, targets: [{ path: "a.txt", dir: false }] }).includes("serve"), "a file is not served");
+  // A shell in a folder (ide/06): one folder, in the desktop app; grouped with Serve under one rule.
+  assert.deepEqual(ids({ openTerminal: true, serve: true, targets: [{ path: "src", dir: true }] }), ["new-file", "new-dir", "rename", "duplicate", "cut", "copy", "paste", "copy-path", "copy-absolute", "reveal", "open-terminal", "serve", "delete"]);
+  const doors = menuSpec({ ...base, openTerminal: true, serve: true, targets: [{ path: "src", dir: true }] });
+  assert.ok(doors.find((i) => i.id === "open-terminal").separatorBefore, "the folder's doors start a group");
+  assert.ok(!doors.find((i) => i.id === "serve").separatorBefore, "and share it");
+  assert.ok(menuSpec({ ...base, openTerminal: true, targets: [{ path: "src", dir: true }] }).find((i) => i.id === "open-terminal").separatorBefore, "alone, the shell starts the group");
+  assert.equal(doors.find((i) => i.id === "open-terminal").label, "Open in terminal here");
+  assert.ok(!ids({ openTerminal: true, targets: [{ path: "a.txt", dir: false }] }).includes("open-terminal"), "a file has no folder to open a shell in");
+  assert.ok(!ids({ openTerminal: true, targets: [{ path: "a", dir: true }, { path: "b", dir: true }] }).includes("open-terminal"), "two folders are two places: no shell");
+  assert.ok(!ids({ targets: [{ path: "src", dir: true }] }).includes("open-terminal"), "outside the desktop app there is no shell to open");
   const items = menuSpec({ ...base, targets: [{ path: "src", dir: true }] });
   assert.equal(items.at(-1).label, "Delete folder…");
   assert.ok(items.at(-1).danger);
@@ -157,7 +167,7 @@ test("every verb the menu can offer is run by the mutations hook — a verb with
   const hook = readFileSync(new URL("./useTreeMutations.tsx", import.meta.url), "utf8");
   const run = hook.slice(hook.indexOf("const run = (menuId: MenuId"), hook.indexOf("\n  };", hook.indexOf("const run = (menuId: MenuId")));
   const ids = new Set();
-  const every = { desktop: true, mutable: true, clipboard: "image", reveal: "Reveal in Finder", serve: true };
+  const every = { desktop: true, mutable: true, clipboard: "image", reveal: "Reveal in Finder", serve: true, openTerminal: true };
   for (const targets of [[{ path: "a.txt", dir: false }], [{ path: "src", dir: true }], [{ path: "a", dir: false }, { path: "b", dir: false }]]) {
     for (const item of menuSpec({ ...every, targets })) ids.add(item.id);
   }

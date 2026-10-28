@@ -199,7 +199,8 @@ you, words when there is nothing to offer, a toast naming both ends (`attachGoal
 
 Branch, ahead/behind of its base, dirty counts, and running agents — on the workbench header,
 About › Settings and the Workstreams occupant (`GET /workstreams/{wid}/git/status`,
-`GET /projects/{pid}/workstreams/status`). The rail's rows carry the ahead/behind counts alone
+`GET /workstreams/status`; the per-project `GET /projects/{pid}/workstreams/status` is kept for
+compatibility and read by nothing in the desktop). The rail's rows carry the ahead/behind counts alone
 (`railFactsModel.workstreamFacts`, tested: `+3 · −1`, the sentence on hover) — never a word for
 the tree's state, which on a working checkout is nearly always on and would say nothing on every
 row; that is the Git tab's mark on the right panel's rail (`railBadgesModel.gitBadge`).
@@ -442,7 +443,13 @@ shell. It runs on a machine only when the SHA-256 of its text is in that machine
 text that arrived by sync reads *changed since anyone here approved it* until somebody here reads it
 and approves it, and until then the engine refuses it (pre-create and clean) or skips it with a note
 (post-create). `GET /projects/{pid}/workstream-scripts` answers the four texts with `trusted` per
-phase, so the desktop hashes nothing. This is the approval this section once said did not exist.
+phase, so the desktop hashes nothing. An approval also keeps the text it was of —
+`workstreams.script.approved`, machine scope, `"<project>:<phase>"` → `{digest, text}`, an emptied
+phase forgetting its entry — and a script whose text has since moved answers `approved_text` beside
+`trusted: false`, which the card draws as a read-only inline diff under the field (what this machine
+approved against what the text reads now, `workstreamScripts.approvedDiff`), so what changed is what
+is read before approving again; a trusted script, an empty one or one never approved here carries
+none, and the whole text is read as before. This is the approval this section once said did not exist.
 
 ## Not in this design
 

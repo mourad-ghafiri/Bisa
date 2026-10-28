@@ -113,7 +113,11 @@ Three things read what crosses the wire:
 - **The classifier** reads every message from outside before an agent hears it
   (`security.collaboration.classify`, on by default). A message it judges harmful — a prompt
   injection, a secret asked for, a link to run — is **held**: you see it with a caution, in the
-  Inbox under People and at `GET /messages/held`, and it reaches no agent until you release it.
+  Inbox under People and at `GET /messages/held`, and it reaches no agent until you decide. Settings
+  › People lists every held message — who, where, since when, and the classifier's reason — with
+  **Let through** (the agents it addresses hear it now) and **Refuse** (no agent ever hears it; the
+  message stays in its channel's log, and the refusal cannot be undone); `bisa workspace held`,
+  `bisa workspace release <id>` and `bisa workspace refuse <id>` are the same from the terminal.
 - **An agent woken by an outsider** puts every tool beyond reading to you first
   (`security.collaboration.agent_tools = ask`, the default); `as_owner` runs it as your own message
   would.

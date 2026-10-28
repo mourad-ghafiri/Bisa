@@ -237,7 +237,7 @@ nest one level under their session:
 | `idle` | between turns; a `Started`, a `TurnEnded` | dim |
 | `thinking` | `TurnStarted`; a wait or a tool that ended, when no sub-agent is the work | a sparkle that breathes |
 | `running <tool>` | `ToolStarted` (the innermost open tool) — or `running sub-agent · explore, plan` while the session's sub-agents are the work (`presence.rs` `DELEGATION_TOOL`: a session that would otherwise read *thinking* or *idle* reads its live children instead, and returns to its own word when the last one leaves) | the tool's name, and the loader turning |
-| **`waiting on you`** | an `InputRequested` the engine escalated, a step's gate, a question through the intake | **the accent** — the one state allowed to interrupt; *Answer* opens the Inbox when the wait has a gate (a goal-thread session's does, and a turn of a conversation about a goal; a turn of a conversation about a checkout has no goal to escalate to, so its agent asks in words instead — which reach the Inbox all the same: a conversation earns a row of its own kind when it names you or moves unread — and reads itself as the pane shows it, so an answer read here never waits in the Inbox (13-conversations §Lists, search, coming back) — and the checkout's scripts and lifecycle land there as notices — see *What the pane is not*) |
+| **`waiting on you`** | an `InputRequested` the engine escalated, a step's gate, a question through the intake | **the accent** — the one state allowed to interrupt; *Answer* opens the Inbox when the wait has a gate (a goal-thread session's does, and a turn of a conversation about a goal; a turn of a conversation about a checkout, a workflow, the workspace or the node has no goal to escalate to, so its question or sign-in — and, in a checkout's, its tool call — is asked in the conversation itself as an ask card, answered where it is read and never in the Inbox (13-conversations §Lists, search, coming back; ide/20 §The asks desk) — and the checkout's scripts and lifecycle land there as notices — see *What the pane is not*) |
 | `done` | the item completed; a proposal made | a tick, kept a minute then gone |
 | `aborted` | a person stopped it | the danger tone, kept a minute |
 | `failed` | the item failed, the session died, a wall | the danger tone, kept a minute, the reason |
@@ -301,7 +301,9 @@ leaves it on.
 **The transcript.** A session's transcript is the harness's own file as the node tails it
 (`GET /sessions/{id}/transcript?from_byte=`, `admin.rs`), read by `SessionTranscript`
 (`views/_work/SessionTranscript.tsx`: the byte cursor, a 2 s poll while the session `isLive` and the
-window is visible, `LinkedText`) — the one reader the work item's pane on a goal, the transcript
+window is visible, `LinkedText`) — the one reader the work item's pane on a goal, a step's row on
+the goal's Progress (open, the row shows the item's transcript inline and bounded, live while the
+step runs or waits — `progressModel.transcriptOf` — above *Open the work item*), the transcript
 pane and the transcript tab share. The **aux pane's `transcript` occupant** (`shell/TranscriptPane.tsx`,
 `?aux=transcript&auxId=<session id>`) is drawn by the shell from the URL like the artifact's, so it
 opens beside any screen and survives Back and a reload: the session's mark and title (the agent,
@@ -560,7 +562,11 @@ handles work here as everywhere, kept by the picker too.
   decided — and any guard rule's own `ask` — opens an ask card at the foot of the timeline instead of
   an Inbox gate: *Allow once*, *Allow for this conversation* (the mode's own ceiling ask alone; a
   rule's own `ask` asks every time), or *Deny* with a note the agent hears as the reason. A plan
-  refuses an edit outright, with a sentence, and asks nothing. A *waiting* row elsewhere still offers
+  refuses an edit outright, with a sentence, and asks nothing. A question the agent asks in words,
+  and a sign-in it needs, take the same card in any conversation that has no goal — a checkout's,
+  a workflow's, the workspace's, the node's: *Answer* with the words typed or one of the choices
+  offered, *Decline* with a note; *Signed in* or *Not now* for a sign-in, its URL shown as text.
+  A *waiting* row elsewhere still offers
   *Answer* only when it has a gate id — this pane's own asks are answered here, never in the Inbox
   ([20 — Reviewing agent changes](20-reviewing-agent-changes.md#the-asks-desk)).
 - **Not a row of the rail.** A conversation's turn is never drawn as a session of the checkout — not

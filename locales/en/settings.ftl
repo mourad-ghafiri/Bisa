@@ -61,7 +61,7 @@ setting-ide-default_mode = Open the Project IDE in
     .choice-board = Board
 
 setting-editor-theme = Editor theme
-    .help = `follow_app`, or a Monaco theme id.
+    .help = `follow_app` — the app's own theme, drawn from its colours in light and dark — or one of Monaco's own: `vs`, `vs-dark`, `hc-light`, `hc-black`. Anything else follows the app.
 
 setting-editor-font_family = Font family
     .help = Empty means the theme's monospace stack.
@@ -102,7 +102,7 @@ setting-editor-delete-trash = Delete to trash
     .help = Move a deleted file to the OS trash instead of unlinking it.
 
 setting-terminal-shell = Shell
-    .help = `login`, or a path.
+    .help = `login` — the shell this machine's account logs in with — or another by its absolute path or its bare name on the login PATH (`fish`, `/opt/homebrew/bin/nu`), run as a login shell; every tab and every harness opens in it. A name this machine cannot run opens the login shell instead, with the reason in the log.
 
 setting-terminal-font_family = Font family
 
@@ -293,6 +293,9 @@ setting-workstreams-script-timeout_secs = Script timeout
 
 setting-workstreams-script-trusted = Scripts approved on this machine
     .help = The digests of the workstream scripts this machine will run. Written by Approve under About › Settings › Workstream scripts, never by hand: a project's scripts sync, and a script nobody here approved never runs here.
+
+setting-workstreams-script-approved = The texts approved on this machine
+    .help = What each script read when it was approved here, per project and phase, so a text that arrived by sync is shown as a diff against it under About › Settings › Workstream scripts. Written by Approve, never by hand.
 
 setting-workstreams-board-enabled = The Board
     .help = Every workstream as a card in five columns — Backlog, Todo, Doing, Done, Archived — reached from the Project IDE's header. Off hides the Board and its doors; nothing about the workstreams changes.
@@ -530,6 +533,9 @@ setting-keymap-overrides = Key overrides
     .help = Command id to chord.
 
 setting-lsp-enabled = Language servers
+
+setting-lsp-completion = Completion
+    .help = Suggestions from the language server as you type — the editor's own word-based ones go quiet while a server follows the document. Off keeps the servers' diagnostics and hover and leaves suggestions to the editor's words; a slow server can be spared this one request.
 
 setting-lsp-servers = Server descriptors
     .help = Language, command, args.

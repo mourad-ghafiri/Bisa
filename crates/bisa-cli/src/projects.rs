@@ -221,6 +221,16 @@ pub enum ProjectCmd {
     },
     /// Show a project: root, git status, assignees, workstreams
     Show { project: String },
+    /// Change a project's name or its publishing policy; nothing else moves
+    Edit {
+        project: String,
+        /// A new name
+        #[arg(long)]
+        name: Option<String>,
+        /// How pushes leave the machine: auto | gated | manual
+        #[arg(long)]
+        publish: Option<String>,
+    },
     /// Forget a project. The folder stays on disk unless `--tree`.
     Rm {
         project: String,
@@ -408,16 +418,30 @@ fn parse_workstream(s: &str) -> Result<WorkstreamId> {
 fn parse_publish(s: Option<&str>) -> Result<PublishPolicy> {
     // Omitted → the core default (`auto`), read from one place so it
     // never drifts from the domain.
-    match s {
-        None => Ok(PublishPolicy::default()),
-        Some("gated") => Ok(PublishPolicy::Gated),
-        Some("manual") => Ok(PublishPolicy::Manual),
-        Some("auto") => Ok(PublishPolicy::Auto),
-        Some(other) => bail!(bisa_core::text!(
+    s.map_or(Ok(PublishPolicy::default()), parse_publish_word)
+}
+
+/// One of the three policy words; anything else is refused by name. An edit
+/// reads this alone: a flag left out keeps the policy, never the default.
+fn parse_publish_word(word: &str) -> Result<PublishPolicy> {
+    match word {
+        "gated" => Ok(PublishPolicy::Gated),
+        "manual" => Ok(PublishPolicy::Manual),
+        "auto" => Ok(PublishPolicy::Auto),
+        other => bail!(bisa_core::text!(
             "cli-projects-unknown-publish-policy-use-gated-manual",
             other = format!("{other:?}")
         )),
     }
+}
+
+/// The policy's wire word — `auto`, `gated`, `manual` — the one `--publish`
+/// takes and the record carries.
+fn publish_word(policy: PublishPolicy) -> String {
+    serde_json::to_value(policy)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
 }
 
 /// Turn a URL tail or a folder name into something [`validate_slug`] accepts.
@@ -836,6 +860,53 @@ pub async fn project(ctx: &Ctx, out: &Out, cmd: ProjectCmd) -> Result<()> {
                 ));
             }
             out.json_value(json!({"project": p, "path": path, "workstreams": workstreams}));
+            Ok(())
+        }
+        ProjectCmd::Edit {
+            project,
+            name,
+            publish,
+        } => {
+            let pid = parse_project(&project)?;
+            let name = match name {
+                Some(name) if name.trim().is_empty() => {
+                    bail!(bisa_core::text!("cli-projects-edit-name-blank"))
+                }
+                other => other.map(|n| n.trim().to_string()),
+            };
+            let publish = publish.as_deref().map(parse_publish_word).transpose()?;
+            if name.is_none() && publish.is_none() {
+                bail!(bisa_core::text!("cli-projects-edit-names-nothing"));
+            }
+            let p = if let Some(client) = ctx.node_client().await {
+                let mut body = json!({});
+                if let Some(name) = &name {
+                    body["name"] = json!(name);
+                }
+                if let Some(publish) = publish {
+                    body["publish"] = json!(publish);
+                }
+                project_in(&client.patch(&format!("/projects/{pid}"), body).await?)?
+            } else {
+                let mut p = ctx.workspace()?.get_project(pid)?;
+                if let Some(name) = name {
+                    p.name = name;
+                }
+                if let Some(publish) = publish {
+                    p.publish = publish;
+                }
+                let (engine, _) = ctx.engine().await?;
+                let edited = eng::update(engine.inner(), p);
+                engine.shutdown().await;
+                edited?
+            };
+            out.say(&bisa_core::text!(
+                "cli-projects-edited",
+                id = p.id.to_string(),
+                name = p.name.clone(),
+                publish = publish_word(p.publish)
+            ));
+            out.json_value(json!({"project": p}));
             Ok(())
         }
         ProjectCmd::Rm { project, tree } => {

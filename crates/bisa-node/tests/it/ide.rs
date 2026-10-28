@@ -638,10 +638,24 @@ async fn search_streams_hits_then_a_summary_and_replace_is_a_preview_then_a_guar
             .contains("needle"),
         "a preview writes nothing"
     );
+    // The preview names every line as it stands, under the file's hash.
+    let a = files
+        .iter()
+        .find(|f| f["path"] == json!("src/a.rs"))
+        .expect("a.rs is previewed");
+    assert_eq!(
+        a["changes"],
+        json!([{"line": 1, "before": "let x = needle;", "after": "let x = pin;"}])
+    );
+    let a_hash = a["base_hash"].as_str().expect("a hash").to_string();
+    assert!(!a_hash.is_empty());
     let apply_files: Vec<Value> = files
         .iter()
         .map(|f| json!({"path": f["path"], "base_hash": f["base_hash"]}))
         .collect();
+    // A file that moves on between the preview and the apply is skipped and
+    // the others written: one answer per file, typed by its outcome.
+    std::fs::write(root.join("src/b.rs"), "needle\nneedle\nmore\n").unwrap();
     let (status, applied) = request(
         &socket,
         "POST",
@@ -651,17 +665,79 @@ async fn search_streams_hits_then_a_summary_and_replace_is_a_preview_then_a_guar
     .await;
     assert_eq!(status, 200, "{applied}");
     assert_eq!(applied["applied"], json!(true));
-    assert!(
-        applied["files"]
-            .as_array()
-            .unwrap()
+    let outcomes = applied["files"].as_array().unwrap().clone();
+    let of = |path: &str| {
+        outcomes
             .iter()
-            .all(|o| o["outcome"] == json!("applied")),
+            .find(|o| o["path"] == json!(path))
+            .unwrap_or_else(|| panic!("{path} has an outcome: {applied}"))
+            .clone()
+    };
+    assert_eq!(of("src/a.rs")["outcome"], json!("applied"));
+    assert_eq!(of("src/a.rs")["changes"], json!(1));
+    assert!(
+        of("src/a.rs")["hash"]
+            .as_str()
+            .is_some_and(|h| !h.is_empty() && h != a_hash),
+        "the hash is the file's now: {applied}"
+    );
+    assert_eq!(of("src/b.rs")["outcome"], json!("skipped_changed"));
+    assert!(
+        of("src/b.rs")["current_hash"]
+            .as_str()
+            .is_some_and(|h| !h.is_empty()),
+        "{applied}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/a.rs")).unwrap(),
+        "let x = pin;\nlet y = 2;\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("src/b.rs")).unwrap(),
+        "needle\nneedle\nmore\n",
+        "a skipped file is left as it is"
+    );
+    // A fresh preview carries the hash the file has now; a path that leaves
+    // the root is failed unread, beside the file that was written.
+    let (status, preview) = request(
+        &socket,
+        "POST",
+        &format!("/ide/replace/workstream/{pid}"),
+        Some(json!({"q": "needle", "case": "sensitive", "replacement": "pin"})),
+    )
+    .await;
+    assert_eq!(status, 200, "{preview}");
+    let b = preview["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["path"] == json!("src/b.rs"))
+        .expect("b.rs is previewed again")
+        .clone();
+    assert_eq!(b["changes"].as_array().unwrap().len(), 2);
+    let (status, applied) = request(
+        &socket,
+        "POST",
+        &format!("/ide/replace/workstream/{pid}"),
+        Some(json!({"q": "needle", "case": "sensitive", "replacement": "pin", "apply": true, "files": [
+            {"path": b["path"], "base_hash": b["base_hash"]},
+            {"path": "../outside.rs", "base_hash": "0"},
+        ]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{applied}");
+    let outcomes = applied["files"].as_array().unwrap();
+    assert_eq!(outcomes[0]["outcome"], json!("applied"));
+    assert_eq!(outcomes[0]["changes"], json!(2));
+    assert_eq!(outcomes[1]["outcome"], json!("failed"));
+    assert_eq!(outcomes[1]["path"], json!("../outside.rs"));
+    assert!(
+        outcomes[1]["error"].as_str().is_some_and(|e| !e.is_empty()),
         "{applied}"
     );
     assert_eq!(
         std::fs::read_to_string(root.join("src/b.rs")).unwrap(),
-        "pin\npin\n"
+        "pin\npin\nmore\n"
     );
     // Apply without the preview's files is refused.
     let (status, _) = request(
@@ -1763,6 +1839,38 @@ async fn language_servers_are_reported_honestly_and_never_started_for_prose() {
         status, 400,
         "a method off the allow list is refused before any server is asked"
     );
+    // Completion is on the list — refused here only for want of a server;
+    // rename is not, and is refused as a method before anything is looked up.
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/ide/lsp/workstream/{pid}/request"),
+        Some(json!({"path": "src/main.rs", "method": "textDocument/completion", "params": {}})),
+    )
+    .await;
+    assert_eq!(status, 400, "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap()
+            .contains("no language server is configured"),
+        "completion passes the allow list and meets no server: {v}"
+    );
+    let (status, v) = request(
+        &socket,
+        "POST",
+        &format!("/ide/lsp/workstream/{pid}/request"),
+        Some(json!({"path": "src/main.rs", "method": "textDocument/rename", "params": {}})),
+    )
+    .await;
+    assert_eq!(status, 400, "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap()
+            .contains("not a request the editor may proxy"),
+        "{v}"
+    );
     let (status, _) = request(
         &socket,
         "POST",
@@ -2860,6 +2968,28 @@ async fn workstream_scripts_are_read_approved_and_refuse() {
         bisa_vcs::git::worktree_list(&root).unwrap().len(),
         1,
         "nothing was created"
+    );
+
+    // A text that moves after its approval — as a sync moves it — reads
+    // against the text approved here, so the card can show the diff.
+    set("workstreams.script.pre_create", "echo changed >&2; exit 3").await;
+    let (status, v) = request(
+        &socket,
+        "GET",
+        &format!("/projects/{pid}/workstream-scripts"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["scripts"][0]["trusted"], json!(false));
+    assert_eq!(
+        v["scripts"][0]["approved_text"],
+        json!("echo nope >&2; exit 3"),
+        "{v}"
+    );
+    assert!(
+        v["scripts"][1].get("approved_text").is_none(),
+        "a script never approved carries no text to read against: {v}"
     );
 
     // A clean script that fails keeps the checkout; emptied and approved, the delete goes through.

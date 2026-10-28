@@ -27,6 +27,7 @@ pub const MAX_STARTS_PER_MINUTE: usize = 3;
 /// Requests the editor may proxy. A method not here is a 400, not a guess.
 pub const ALLOWED_METHODS: &[&str] = &[
     "textDocument/hover",
+    "textDocument/completion",
     "textDocument/definition",
     "textDocument/references",
     "textDocument/documentSymbol",

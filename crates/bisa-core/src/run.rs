@@ -2306,6 +2306,7 @@ mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "true".into(),
+                    project: None,
                 },
             },
             then.iter().map(|t| Flow::to(sid(t))).collect(),
@@ -6030,7 +6031,8 @@ mod tests {
                 Just(StepKind::Approval { prompt: "?".into() }),
                 Just(StepKind::Check {
                     check: CheckKind::Command {
-                        command: "true".into()
+                        command: "true".into(),
+                        project: None,
                     }
                 }),
                 // A gate and a loop with unlabelled successors: their flows

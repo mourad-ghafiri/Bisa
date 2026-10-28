@@ -1000,7 +1000,7 @@ impl Step {
                 text!("step-summary-approval", what = first_sentence(prompt, MAX))
             }
             StepKind::Check { check } => match check {
-                CheckKind::Command { command } => text!(
+                CheckKind::Command { command, .. } => text!(
                     "step-summary-check-command",
                     command = first_sentence(command, MAX)
                 ),
@@ -1691,7 +1691,7 @@ impl StepKind {
                 vec![prompt.as_str()]
             }
             StepKind::Check {
-                check: CheckKind::Command { command },
+                check: CheckKind::Command { command, .. },
             } => vec![command.as_str()],
             StepKind::Check { .. }
             | StepKind::Decide { .. }
@@ -1763,6 +1763,13 @@ impl StepKind {
             StepKind::Agent {
                 project: Some(ValueRef::Input { input }),
                 ..
+            }
+            | StepKind::Check {
+                check:
+                    CheckKind::Command {
+                        project: Some(ValueRef::Input { input }),
+                        ..
+                    },
             } => out.push((input, "project")),
             StepKind::Connector {
                 account: Some(ValueRef::Input { input }),
@@ -1798,8 +1805,18 @@ impl Family {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "check")]
 pub enum CheckKind {
-    /// Exit 0 in the goal's placement is a pass.
-    Command { command: String },
+    /// Exit 0 is a pass. It runs where the run's work landed — the checkout
+    /// of the run's latest agent item, else the goal's one project's root,
+    /// else its home's scratch — unless `project` names where: a project
+    /// attached to the goal (or one the workspace has, for a run of the
+    /// workspace), held as an agent step's is, by id or from an input of kind
+    /// project; then the checkout of the run's latest item that worked in
+    /// that project, else its root.
+    Command {
+        command: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<ValueRef<ProjectId>>,
+    },
     /// An upstream step's output must satisfy this JSON Schema. The step is
     /// absent while the designer has not chosen one (`ProblemKind::Unfilled`).
     Schema {
@@ -4116,11 +4133,23 @@ impl Workflow {
                     }
                 }
             }
-            if let StepKind::Agent {
-                project: Some(ValueRef::Fixed(id)),
-                ..
-            } = &step.kind
-            {
+            // A step that names where it runs — an agent step, a check
+            // command — names a project the workspace has.
+            let named_project = match &step.kind {
+                StepKind::Agent {
+                    project: Some(ValueRef::Fixed(id)),
+                    ..
+                }
+                | StepKind::Check {
+                    check:
+                        CheckKind::Command {
+                            project: Some(ValueRef::Fixed(id)),
+                            ..
+                        },
+                } => Some(id),
+                _ => None,
+            };
+            if let Some(id) = named_project {
                 if !ctx.projects.contains(id) {
                     push(
                         Some(&step.id),
@@ -4728,7 +4757,12 @@ impl Workflow {
                 );
             }
         }
-        for p in op.params.iter().filter(|p| p.required) {
+        // A required parameter with a default is filled by the call itself.
+        for p in op
+            .params
+            .iter()
+            .filter(|p| p.required && p.default.is_none())
+        {
             let given = call
                 .params
                 .get(p.name.as_str())
@@ -6204,6 +6238,7 @@ pub(crate) mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "true".into(),
+                    project: None,
                 },
             },
             vec![Flow::to(sid("d"))],
@@ -6432,6 +6467,103 @@ pub(crate) mod tests {
         assert!(k.contains(&ProblemKind::UnknownProject), "{k:?}");
     }
 
+    /// A `check` that names a project is held as an agent step is: an id the
+    /// workspace lacks is `UnknownProject`, a known one passes, the project
+    /// may come from an input of kind project — read, so never unused — and
+    /// an input of another kind is refused by name. A check that names none
+    /// is the record it was: no key on the wire.
+    #[test]
+    fn a_check_names_its_project_as_an_agent_step_does() {
+        let known = ProjectId::from_ulid(ulid::Ulid::from_parts(5, 5));
+        let ghost = ProjectId::from_ulid(ulid::Ulid::from_parts(8, 8));
+        let projects = [known];
+        let rt = ValidationCtx {
+            projects: &projects,
+            ..ctx()
+        };
+        let check = |project: Option<ValueRef<ProjectId>>| {
+            step(
+                "tests",
+                StepKind::Check {
+                    check: CheckKind::Command {
+                        command: "cargo test".into(),
+                        project,
+                    },
+                },
+                vec![],
+            )
+        };
+        let k = kinds(&workflow(vec![check(Some(ValueRef::Fixed(ghost)))]).validate(&rt));
+        assert!(k.contains(&ProblemKind::UnknownProject), "{k:?}");
+        let k = kinds(&workflow(vec![check(Some(ValueRef::Fixed(known)))]).validate(&rt));
+        assert!(!k.contains(&ProblemKind::UnknownProject), "{k:?}");
+
+        let from_input = || {
+            check(Some(ValueRef::Input {
+                input: InputName::new("where").unwrap(),
+            }))
+        };
+        let mut wf = workflow(vec![from_input()]);
+        wf.inputs = vec![InputDef {
+            name: InputName::new("where").unwrap(),
+            label: "Where".into(),
+            kind: InputKind::Project,
+            default: None,
+            required: true,
+        }];
+        let said: Vec<String> = wf
+            .validate(&rt)
+            .iter()
+            .map(|p| format!("{p:?}"))
+            .filter(|p| p.contains("where"))
+            .collect();
+        assert!(
+            said.is_empty(),
+            "the input is read, and by its kind: {said:?}"
+        );
+        wf.inputs[0].kind = InputKind::Text;
+        assert!(
+            wf.validate(&rt)
+                .iter()
+                .any(|p| format!("{p:?}").contains("where")),
+            "an input of another kind is refused by name"
+        );
+
+        let bare = serde_json::to_value(check(None)).unwrap();
+        assert!(
+            bare["check"].get("project").is_none(),
+            "no project, no key: {bare}"
+        );
+        let named: StepKind = serde_json::from_value(serde_json::json!({
+            "kind": "check",
+            "check": {"check": "command", "command": "x", "project": {"input": "where"}},
+        }))
+        .unwrap();
+        assert!(matches!(
+            named,
+            StepKind::Check {
+                check: CheckKind::Command {
+                    project: Some(ValueRef::Input { .. }),
+                    ..
+                }
+            }
+        ));
+        let fixed: StepKind = serde_json::from_value(serde_json::json!({
+            "kind": "check",
+            "check": {"check": "command", "command": "x", "project": known.to_string()},
+        }))
+        .unwrap();
+        assert!(matches!(
+            fixed,
+            StepKind::Check {
+                check: CheckKind::Command {
+                    project: Some(ValueRef::Fixed(p)),
+                    ..
+                }
+            } if p == known
+        ));
+    }
+
     #[test]
     fn ends_visits_and_questions_are_checked() {
         let mut wf = workflow(vec![
@@ -6469,6 +6601,7 @@ pub(crate) mod tests {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "test".into(),
+                        project: None,
                     },
                 },
                 vec![Flow::to(sid("d"))],
@@ -6540,6 +6673,7 @@ pub(crate) mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "test".into(),
+                    project: None,
                 },
             },
             vec![Flow::to(sid("ship"))],
@@ -6562,6 +6696,7 @@ pub(crate) mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "test".into(),
+                    project: None,
                 },
             },
             vec![Flow::to(sid("healthy"))],
@@ -7048,6 +7183,7 @@ pub(crate) mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "echo ok".into(),
+                    project: None,
                 },
             },
             StepKind::Decide {
@@ -7288,6 +7424,7 @@ pub(crate) mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "true".into(),
+                    project: None,
                 },
             },
             then.iter().map(|t| Flow::to(sid(t))).collect(),
@@ -8313,6 +8450,7 @@ pub(crate) mod tests {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "true".into(),
+                        project: None,
                     },
                 },
                 vec![],
@@ -9025,6 +9163,7 @@ pub(crate) mod tests {
                         kind: ParamKind::Text,
                         required: true,
                         doc: "The message.".into(),
+                        default: None,
                     },
                     ParamDef {
                         name: InputName::new("thread").unwrap(),
@@ -9032,6 +9171,7 @@ pub(crate) mod tests {
                         kind: ParamKind::Text,
                         required: false,
                         doc: "A thread.".into(),
+                        default: None,
                     },
                 ],
                 output: OutputSpec::default(),
@@ -9210,6 +9350,26 @@ pub(crate) mod tests {
                 ProblemKind::MissingConnectorParam,
                 ProblemKind::MissingConnectorParam
             ]
+        );
+        // A required parameter with a default is filled by the call: the step
+        // may leave it unset.
+        let mut defaulted = slack();
+        for p in &mut defaulted.operations[0].params {
+            if p.required {
+                p.default = Some(serde_json::json!("hello"));
+            }
+        }
+        let defaulted = vec![defaulted];
+        let dctx = ValidationCtx {
+            connectors: &defaulted,
+            accounts: &accounts,
+            ..ctx()
+        };
+        let unset = workflow(vec![connector_step("post", &[], None)]);
+        assert!(
+            !kinds(&unset.validate(&dctx)).contains(&ProblemKind::MissingConnectorParam),
+            "{:?}",
+            unset.validate(&dctx)
         );
 
         // A fixed account that is not here.
@@ -10225,6 +10385,7 @@ pub(crate) mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "true".into(),
+                    project: None,
                 },
             },
             vec![Flow::to(sid("a")), labelled("a", "late")],
@@ -11452,6 +11613,7 @@ pub(crate) mod tests {
             kind: crate::connector::ParamKind::File,
             required: true,
             doc: String::new(),
+            default: None,
         });
         slack.operations.push(upload);
         let connectors = vec![slack];
@@ -12863,6 +13025,7 @@ mod summary_tests {
         let check = step(StepKind::Check {
             check: CheckKind::Command {
                 command: "cargo test".into(),
+                project: None,
             },
         });
         assert_eq!(

@@ -14,12 +14,15 @@ export function TemplateField({
   rows,
   disabled,
   ariaLabel,
+  placeholder,
   onCommit,
 }: {
   value: string;
   rows?: number;
   disabled?: boolean;
   ariaLabel: string;
+  /** What an empty field would send — a parameter's default. */
+  placeholder?: string;
   onCommit: (next: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
@@ -29,13 +32,14 @@ export function TemplateField({
   };
   useCommitOnUnmount(draft !== value ? draft : null, onCommit);
   if (rows && rows > 1) {
-    return <TextArea rows={rows} className="font-mono" value={draft} aria-label={ariaLabel} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />;
+    return <TextArea rows={rows} className="font-mono" value={draft} aria-label={ariaLabel} placeholder={placeholder} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />;
   }
   return (
     <TextInput
       className="font-mono"
       value={draft}
       aria-label={ariaLabel}
+      placeholder={placeholder}
       disabled={disabled}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}

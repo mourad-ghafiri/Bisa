@@ -232,6 +232,11 @@ pub struct ParamSpec {
     pub kind: ParamKind,
     #[serde(default)]
     pub required: bool,
+    /// What the call sends when the step leaves the parameter unset — a
+    /// value of its kind, judged by the core at the definition's door and
+    /// inserted untouched here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<serde_json::Value>,
 }
 
 /// A header the client fills with the caller's key, so the platform can tell

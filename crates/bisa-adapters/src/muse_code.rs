@@ -322,13 +322,7 @@ mod tests {
         ] {
             assert!(caps.contains(held), "{held:?}");
         }
-        for absent in [
-            HarnessCaps::INPUT_REWRITE,
-            HarnessCaps::FORK,
-            HarnessCaps::STRUCTURED_OUTPUT,
-        ] {
-            assert!(!caps.contains(absent), "{absent:?}");
-        }
+        assert!(!caps.contains(HarnessCaps::INPUT_REWRITE));
         assert!(adapter.recommended_plan().is_none());
         assert!(adapter.recommended_judge().is_none());
     }

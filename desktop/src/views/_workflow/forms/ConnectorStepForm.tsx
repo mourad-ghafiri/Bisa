@@ -24,7 +24,7 @@ import type { ConnectorOperationDef, ConnectorParamDef, InputDef, Step } from ".
 import { Button, Chip, Field, ICON, Labelled, Select, Switch } from "../../../ui";
 import { TEMPLATE_HINT } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
-import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
+import { DEFAULT_ACCOUNT, UNATTENDED_HINT, UNATTENDED_LABEL, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, paramHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam, writeWords } from "./connectorStepModel.mjs";
 import { JsonField } from "./JsonField";
 import { TemplateField } from "./TemplateField";
 import { t } from "../../../i18n/l10n.mjs";
@@ -135,6 +135,7 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
                 <code className="font-mono text-2xs">{p.name}</code>
                 <Chip tone="quiet">{p.kind ?? "text"}</Chip>{/* for the machine: the parameter kind's wire word, drawn as p.kind is */}
                 {p.required && <Chip tone="warn">{t("workflow-connector-step-form-required")}</Chip>}
+                {paramHint(p) && <Chip tone="quiet">{t("workflow-connector-step-form-default", { value: paramHint(p) })}</Chip>}
                 <span className="truncate text-2xs text-text-dim">{p.label}</span>
               </div>
               <TemplateField
@@ -142,6 +143,7 @@ export function ConnectorStepForm({ step, inputs, onChange, disabled }: { step: 
                 rows={p.kind === "json" ? 3 : 1}
                 disabled={disabled}
                 ariaLabel={t("workflow-connector-step-form-parameter-named", { name: p.name })}
+                placeholder={paramHint(p) || undefined}
                 onCommit={(v) => setParam(p.name, v)}
               />
               {p.kind === "file" && <span className="text-2xs text-text-dim">{t("workflow-connector-step-form-file-path-inside-checkout")}</span>}

@@ -19,6 +19,7 @@ mod activity;
 mod addons;
 mod agent_context;
 mod agents;
+mod budget;
 mod catalog;
 mod check;
 mod client;
@@ -28,11 +29,13 @@ mod ctx;
 mod decisions;
 mod files;
 mod gitsetup;
+mod identity;
 mod inputs;
 mod listening;
 mod localize;
 mod mcp;
 mod net;
+mod notes;
 mod output;
 mod projects;
 mod reindex;
@@ -133,6 +136,9 @@ enum Command {
         documents: Vec<std::path::PathBuf>,
         #[command(flatten)]
         tags: tags::TagSetArgs,
+        /// The goal's own ceiling; none named takes `budget.default.*`
+        #[command(flatten)]
+        budget: budget::BudgetArgs,
     },
     /// Answer a question the General Agent (or a working agent) asked you
     Answer {
@@ -205,6 +211,9 @@ enum Command {
         /// Why, in a sentence — kept on the run
         #[arg(long)]
         rationale: Option<String>,
+        /// Stop only the listening: a live run goes on and the queue stays
+        #[arg(long, conflicts_with = "rationale")]
+        listening: bool,
     },
     /// Restart a goal: a new run of its last run's workflow and inputs,
     /// started at once; a live run is cancelled first
@@ -457,6 +466,17 @@ enum Command {
         #[command(subcommand)]
         command: RelayCmd,
     },
+    /// The owner key: exported as a NIP-49 `ncryptsec`, or imported from one
+    Identity {
+        #[command(subcommand)]
+        command: identity::IdentityCmd,
+    },
+    /// Notes — markdown scratchpads about the workspace, the node, a goal, a
+    /// project, a workflow or a channel — listed, read, made, edited, removed
+    Note {
+        #[command(subcommand)]
+        command: notes::NoteCmd,
+    },
     /// People, invitations and the workspaces you are a guest of
     Workspace {
         #[command(subcommand)]
@@ -600,6 +620,12 @@ enum WorkspaceCmd {
     Role { pubkey: String, role: String },
     /// Remove a person. What they already received cannot be un-sent.
     Remove { pubkey: String },
+    /// The messages from people on other nodes that no agent may hear yet: being read, or held with the reason
+    Held,
+    /// Let a held message through: the agents it addresses hear it now (needs a running node)
+    Release { id: String },
+    /// Refuse a held message: no agent ever hears it, and it stays in its channel's log
+    Refuse { id: String },
     /// Throw the index away and rebuild it from the truth files — for a
     /// cache you have reason to doubt. Refused while a node holds the workspace.
     Reindex,
@@ -793,6 +819,7 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
             assignees,
             documents,
             tags,
+            budget,
         } => {
             new_goal(
                 ctx,
@@ -807,6 +834,7 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
                     assignees: projects::parse_assignees(&assignees)?,
                     tags: tags.parse()?,
                     documents,
+                    budget: budget.budget(),
                 },
             )
             .await
@@ -865,7 +893,11 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
             let inputs = inputs::Typed::parse(&inputs)?;
             run::run(ctx, out, &id, inputs, begin, watch, new).await
         }
-        Command::Stop { id, rationale } => run::stop(ctx, out, &id, rationale).await,
+        Command::Stop {
+            id,
+            rationale,
+            listening,
+        } => run::stop(ctx, out, &id, rationale, listening).await,
         Command::Restart { id, watch } => run::restart(ctx, out, &id, watch).await,
         Command::Runs { id } => run::runs(ctx, out, &id).await,
         Command::Status { id } => status(ctx, out, &id).await,
@@ -993,6 +1025,9 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
             WorkspaceCmd::People => net::people(ctx, out).await,
             WorkspaceCmd::Role { pubkey, role } => net::set_role(ctx, out, &pubkey, &role).await,
             WorkspaceCmd::Remove { pubkey } => net::remove_person(ctx, out, &pubkey).await,
+            WorkspaceCmd::Held => net::held(ctx, out).await,
+            WorkspaceCmd::Release { id } => net::release_message(ctx, out, &id).await,
+            WorkspaceCmd::Refuse { id } => net::refuse_message(ctx, out, &id).await,
             WorkspaceCmd::Reindex => reindex::reindex(ctx, out),
             WorkspaceCmd::Check => check::check(ctx, out),
         },
@@ -1008,6 +1043,8 @@ async fn dispatch(cmd: Command, ctx: &Ctx, out: &Out) -> Result<()> {
         Command::Archive { kind, id, undo } => archive(ctx, out, &kind, &id, !undo).await,
         Command::Rm { id, projects, tree } => rm_goal(ctx, out, &id, &projects, tree).await,
         Command::Signal { command } => signals::signal(ctx, out, command).await,
+        Command::Identity { command } => identity::identity(ctx, out, command).await,
+        Command::Note { command } => notes::note(ctx, out, command).await,
         Command::Governance { command } => governance(ctx, out, command).await,
         Command::Settings { command } => settings::settings(ctx, out, command).await,
         Command::AgentContext => agent_context::run(out),
@@ -1091,6 +1128,8 @@ struct NewGoalInput {
     tags: bisa_core::Tags,
     /// Files to give the goal as context, read from disk here.
     documents: Vec<std::path::PathBuf>,
+    /// The goal's own ceiling; none takes the workspace default.
+    budget: Option<bisa_core::Budget>,
 }
 
 /// Read each file into the workspace's content-addressed store and answer
@@ -1138,6 +1177,7 @@ async fn new_goal(ctx: &Ctx, out: &Out, input: NewGoalInput) -> Result<()> {
         assignees,
         tags,
         documents,
+        budget,
     } = input;
     let start = workflow.is_some() && !no_start;
     let ws = ctx.workspace()?;
@@ -1163,6 +1203,7 @@ async fn new_goal(ctx: &Ctx, out: &Out, input: NewGoalInput) -> Result<()> {
             "assignees": assignees.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
             "tags": tags,
             "documents": documents,
+            "budget": budget,
         });
         let v = client.post("/goals", body).await?;
         let goal: bisa_core::Goal = serde_json::from_value(v["goal"].clone()).context(
@@ -1197,7 +1238,7 @@ async fn new_goal(ctx: &Ctx, out: &Out, input: NewGoalInput) -> Result<()> {
     let result = engine.submit_goal_showing(SubmitRequest {
         statement,
         title,
-        budget: Default::default(),
+        budget,
         mode,
         origin: bisa_core::GoalOrigin::Captured,
         workflow,

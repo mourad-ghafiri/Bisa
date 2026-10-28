@@ -28,6 +28,7 @@ use bisa_core::{
 };
 use bisa_security::classify::MessageSubject;
 use bisa_security::ClassifierVerdict;
+use bisa_store::HeldMessage;
 use bisa_store::{Admission, HeldReason, PostOrigin, StoreEvent};
 use std::sync::Arc;
 
@@ -270,6 +271,25 @@ pub fn release_message(inner: &Arc<Inner>, event_id: &str) -> Result<(), EngineE
         );
     }
     Ok(())
+}
+
+/// The owner refuses a held message: the row is gone and no agent ever
+/// hears it — the message stays in its scope's log, as every message does.
+/// Nothing is dispatched; the fact is said so the Pulse and the People panel
+/// move. A message nobody holds is refused by name.
+pub fn refuse_message(inner: &Arc<Inner>, event_id: &str) -> Result<HeldMessage, EngineError> {
+    let Some(held) = inner.ws.remove_held(event_id)? else {
+        return Err(EngineError::Invalid(bisa_core::text!(
+            "error-engine-invalid-no-held-message",
+            event_id = event_id.to_string()
+        )));
+    };
+    inner.emit(EngineEvent::global(EnginePayload::MessageRefused {
+        scope: held.scope.clone(),
+        event: event_id.to_string(),
+        author: held.author.clone(),
+    }));
+    Ok(held)
 }
 
 // -- invitations ---------------------------------------------------------

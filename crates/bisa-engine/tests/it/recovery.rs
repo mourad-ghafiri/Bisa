@@ -275,6 +275,7 @@ async fn an_interrupted_check_runs_again_and_a_notify_fails_once_with_no_retry_c
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "true".into(),
+                        project: None,
                     },
                 },
             )],

@@ -720,3 +720,21 @@ test("a duplicate of a placeless card takes the place the picture draws it at; a
   assert.deepEqual(duplicateFrom(placed, "a", pictured).wf.steps[0].position, { x: 7, y: 7 }, "a placed card keeps its place");
   assert.equal(duplicateFrom(placeless, "nobody", pictured).id, null);
 });
+
+test("renaming an input follows a command check's project reference, and leaves a fixed id and a schema check alone", async () => {
+  const { renameInput } = await import("./workflowGraph.mjs");
+  const wf = {
+    inputs: [{ name: "where", kind: "project" }],
+    steps: [
+      { id: "a", kind: "check", check: { check: "command", command: "test -f x", project: { input: "where" } } },
+      { id: "b", kind: "check", check: { check: "command", command: "ls", project: "01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
+      { id: "c", kind: "check", check: { check: "schema", schema: {}, of: "a" } },
+      { id: "d", kind: "check", check: { check: "command", command: "true" } },
+    ],
+  };
+  const renamed = renameInput(wf, "where", "project");
+  assert.deepEqual(renamed.steps[0].check.project, { input: "project" });
+  assert.equal(renamed.steps[1].check.project, "01ARZ3NDEKTSV4RRFFQ69G5FAV");
+  assert.deepEqual(renamed.steps[2].check, { check: "schema", schema: {}, of: "a" });
+  assert.deepEqual(renamed.steps[3].check, { check: "command", command: "true" }, "no project, no key");
+});

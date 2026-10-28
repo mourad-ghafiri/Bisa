@@ -169,7 +169,8 @@ test("the canvas removes and duplicates through the graph's doors, the forms thr
   assert.ok(designer.includes("removeMany(value, { nodes: nodeIds, edges }, (id) => mayEdit(gate, id))") && designer.includes("duplicateFrom(value, id, positions)"), "one door each, past the gate");
   assert.ok(!designer.includes("let refused = 0") && !designer.includes("duplicateStep(base, id)"), "no counting or placing by hand");
   assert.ok(src("views/_workflow/forms/HumanStepForm.tsx").includes("set({ options: pickRecommended(options, i) })"), "the recommended mark is the model's rule");
-  assert.ok(src("views/_workflow/forms/NotifyStepForm.tsx").includes("isScopeListed("), "whether a scope is listed is the model's");
+  assert.ok(src("views/_workflow/forms/NotifyWhereFields.tsx").includes("scopeListed(") && src("views/_workflow/forms/NotifyWhereFields.tsx").includes("scopeOptions({"), "whether a scope is listed, and what the select offers, is the model's");
+  assert.ok(src("views/_workflow/forms/NotifyStepForm.tsx").includes("<NotifyScopeSelect") && src("views/_workflow/forms/BoundaryEventsEditor.tsx").includes("<NotifyScopeSelect"), "a notify step and a boundary's post share the one place-and-author piece");
   const wait = src("views/_workflow/forms/WaitStepForm.tsx");
   assert.ok(!wait.includes("3600") && !wait.includes('"0 9 * * 1-5"') && wait.includes("DEFAULT_DELAY_SECS") && wait.includes("DEFAULT_CRON"), "a wait's defaults are the blank step's");
   assert.ok(src("views/_workflow/useDesignerSettings.ts").includes("designerSettingsOf(") && !src("views/_workflow/useLiveValidation.ts").includes("const VALIDATE_DELAY_MS"), "the settings and the validator's delay are the model's");

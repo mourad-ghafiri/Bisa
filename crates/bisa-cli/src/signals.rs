@@ -23,7 +23,7 @@ use crate::ctx::Ctx;
 use crate::listening::rows;
 use crate::output::Out;
 use anyhow::Result;
-use bisa_core::{GoalId, SignalScope};
+use bisa_core::{GoalId, ListenerHost, SignalScope};
 use bisa_node::dto::SignalView;
 use clap::Subcommand;
 use serde_json::{json, Value};
@@ -51,6 +51,12 @@ pub enum SignalCmd {
         /// How many to list, newest first
         #[arg(long, default_value_t = 50)]
         limit: usize,
+        /// One goal's signals: those written for its listeners
+        #[arg(long, conflicts_with = "workflow")]
+        goal: Option<String>,
+        /// One workflow's signals: those written for its listening in the workspace
+        #[arg(long)]
+        workflow: Option<String>,
     },
     /// Let a held signal through: an outside payload the content screen
     /// would not pass, read by a person
@@ -62,7 +68,19 @@ pub async fn signal(ctx: &Ctx, out: &Out, cmd: SignalCmd) -> Result<()> {
         SignalCmd::Emit { name, data, goal } => {
             emit(ctx, out, &name, data.as_deref(), goal.as_deref()).await
         }
-        SignalCmd::List { limit } => list(ctx, out, limit).await,
+        SignalCmd::List {
+            limit,
+            goal,
+            workflow,
+        } => {
+            list(
+                ctx,
+                out,
+                host_of(goal.as_deref(), workflow.as_deref())?,
+                limit,
+            )
+            .await
+        }
         SignalCmd::Release { id } => release(ctx, out, &id).await,
     }
 }
@@ -153,8 +171,23 @@ fn raised_line(name: &str, raised: &Value) -> String {
 // list
 // ---------------------------------------------------------------------------
 
-async fn list(ctx: &Ctx, out: &Out, limit: usize) -> Result<()> {
-    let signals = newest(ctx, limit).await?;
+/// The host a flag names — a goal's listeners, or a workflow's listening in
+/// the workspace — as the node spells it (`goal:<id>`, `workspace:<id>`); an
+/// id that is no id is refused in the words of the verb it belongs to.
+fn host_of(goal: Option<&str>, workflow: Option<&str>) -> Result<Option<ListenerHost>> {
+    Ok(match (goal, workflow) {
+        (Some(goal), _) => Some(ListenerHost::Goal {
+            goal: crate::parse_goal_id(goal)?,
+        }),
+        (None, Some(workflow)) => Some(ListenerHost::Workspace {
+            workflow: crate::workflow::workflow_id(workflow)?,
+        }),
+        (None, None) => None,
+    })
+}
+
+async fn list(ctx: &Ctx, out: &Out, host: Option<ListenerHost>, limit: usize) -> Result<()> {
+    let signals = newest(ctx, host.as_ref(), limit).await?;
     if signals.is_empty() {
         out.say(&bisa_core::text!("cli-signals-none"));
     }
@@ -165,15 +198,19 @@ async fn list(ctx: &Ctx, out: &Out, limit: usize) -> Result<()> {
     Ok(())
 }
 
-/// The newest signals as `GET /signals` lists them (`SignalView`): from the
+/// The newest signals as `GET /signals` lists them (`SignalView`) — one
+/// host's when one is named, as `?host=` narrows the node's list — from the
 /// node, or read off the workspace's own queue.
-async fn newest(ctx: &Ctx, limit: usize) -> Result<Vec<Value>> {
+async fn newest(ctx: &Ctx, host: Option<&ListenerHost>, limit: usize) -> Result<Vec<Value>> {
     if let Some(client) = ctx.node_client().await {
-        let listed = client.get(&format!("/signals?limit={limit}")).await?;
+        let of_host = host.map(|host| format!("&host={host}")).unwrap_or_default();
+        let listed = client
+            .get(&format!("/signals?limit={limit}{of_host}"))
+            .await?;
         return Ok(rows(&listed).to_vec());
     }
     let mut views = Vec::new();
-    for queued in ctx.workspace()?.list_signals(None, limit)? {
+    for queued in ctx.workspace()?.list_signals(host, limit)? {
         views.push(serde_json::to_value(SignalView::from(queued))?);
     }
     Ok(views)

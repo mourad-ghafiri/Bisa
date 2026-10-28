@@ -10,12 +10,15 @@
  * Save writes them and approves them in one act — you wrote it, you approved
  * it. A text that arrived by sync is untrusted until somebody here reads it
  * and presses *Approve on this machine* on the toolbar; until then the engine
- * refuses to run it. The words and the rules are `workstreamScripts.mjs`'s.
+ * refuses to run it — and, when this machine approved an earlier text of the
+ * same script, the card reads the two as a diff under the field, so what
+ * changed is what is read before approving again. The words and the rules
+ * are `workstreamScripts.mjs`'s.
  */
 
-import { Chip, Field, NumberInput, SectionHeader, Skeleton, TextArea, useCollapsed } from "../../ui";
+import { Chip, DiffEditor, Field, NumberInput, SectionHeader, Skeleton, TextArea, useCollapsed } from "../../ui";
 import type { ProjectSettingsDraft } from "./useProjectSettingsDraft";
-import { ENV_VARS, PHASES, isDirty, trustLine } from "./workstreamScripts.mjs";
+import { ENV_VARS, PHASES, approvedDiff, isDirty, trustLine } from "./workstreamScripts.mjs";
 import { t } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
 
@@ -35,6 +38,8 @@ export function WorkstreamScriptsCard({ draft }: { draft: ProjectSettingsDraft }
       {PHASES.map((p) => {
         const script = view.scripts.find((s) => s.phase === p.id);
         const trust = dirty ? null : trustLine(script);
+        // What changed since this machine approved it — drawn while the draft is clean, so the diff is of the node's text, not of a keystroke.
+        const diff = dirty ? null : approvedDiff(script);
         const problem = draft.problems[`script:${p.id}`] ?? null;
         return (
           <Field
@@ -64,6 +69,12 @@ export function WorkstreamScriptsCard({ draft }: { draft: ProjectSettingsDraft }
               value={edits.texts[p.id] ?? ""}
               onChange={(e) => draft.editScripts({ ...edits, texts: { ...edits.texts, [p.id]: e.target.value } })}
             />
+            {diff && (
+              <div className="mt-1.5 flex flex-col gap-1">
+                <span className="text-2xs text-text-dim">{t("work-workstream-scripts-card-approved-here-now")}</span>
+                <DiffEditor original={diff.approved} modified={diff.current} language="shell" readOnly inline foldUnchanged className="h-28 overflow-hidden rounded-control border border-border" />
+              </div>
+            )}
           </Field>
         );
       })}

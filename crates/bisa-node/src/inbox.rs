@@ -1684,6 +1684,7 @@ mod tests {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "true".into(),
+                    project: None,
                 },
             },
             &["ask"],

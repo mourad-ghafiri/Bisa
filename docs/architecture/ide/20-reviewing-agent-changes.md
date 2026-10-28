@@ -248,6 +248,20 @@ once*, *Allow for this conversation*, or *Deny* with a note the agent hears as t
 mode's edits are never a question here: a `Write`-tier call above the `Read` ceiling is the
 `PLAN_REFUSAL` sentence outright, not an ask.
 
+The same desk takes what an agent asks of a person when its turn has no goal — in a conversation
+about a checkout, a workflow, the workspace or the node alike (`InputContext.asks_at`, the
+conversation the session is a turn of): its own **question** in words (`{kind: question, options?}`,
+the choices it offered) and a **sign-in** it needs (`{kind: auth, provider, url?}`, the URL shown as
+text and never followed). A question is answered in words — `{answer: answer, text}`, one of the
+choices or anything typed, which the harness hears as the text — or declined, which it hears as the
+refusal with the note; a sign-in is *Signed in* (`allow`) or *Not now* (`deny`). The desk refuses the
+other pairing at its door — words to a tool call, an allow to a question — and the ask stays
+waiting (`AskSubject::takes`). Neither is ever `grantable`. A conversation about a goal keeps its
+Inbox gate for both, as before; a goal's thread and a channel still have nobody to ask (`no_goal`).
+The session's row waits on the question or the sign-in meanwhile (`WaitingOn::Question` ·
+`Auth`, no gate id: the pane answers it, never the Inbox), and a session that ends takes its open
+asks with it whatever the conversation is about.
+
 An ask lives exactly as long as its session: nothing is stored (`AskDesk` is in-memory, per
 conversation), a restart leaves none behind, and a session that goes away answers its own open asks
 *no* by dropping the sender. **`grantable`** is true only for the mode's own ceiling ask (the

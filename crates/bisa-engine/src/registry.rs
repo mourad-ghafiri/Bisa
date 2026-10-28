@@ -136,15 +136,11 @@ impl AgentRegistry {
         Self::default()
     }
 
-    /// Compare-and-swap registration. `expected == None` means "only if
-    /// absent"; `Some(prev)` means "only replacing exactly this ref" (used by
-    /// revival: only the parked ref a revival was authorized for can be
-    /// claimed).
-    pub fn register_if(
-        &self,
-        agent: AgentRef,
-        expected: Option<&AgentRef>,
-    ) -> Result<(), RegistryError> {
+    /// Register a live session — only if its id is absent: an id already
+    /// live is refused (`CasFailed`), never replaced. (The compare-and-swap
+    /// arm that replaced a parked ref went with the revival door: nothing
+    /// revives a parked session, the next wake starts afresh.)
+    pub fn register(&self, agent: AgentRef) -> Result<(), RegistryError> {
         // A tombstoned transcript can never be (re)registered as live.
         if let Some(t) = &agent.transcript_path {
             if is_tombstoned(t) && agent.status != AgentStatus::Aborted {
@@ -153,19 +149,10 @@ impl AgentRegistry {
         }
         match self.agents.entry(agent.id) {
             dashmap::mapref::entry::Entry::Vacant(v) => {
-                if expected.is_some() {
-                    return Err(RegistryError::CasFailed);
-                }
                 v.insert(agent);
                 Ok(())
             }
-            dashmap::mapref::entry::Entry::Occupied(mut o) => match expected {
-                Some(prev) if o.get() == prev => {
-                    o.insert(agent);
-                    Ok(())
-                }
-                _ => Err(RegistryError::CasFailed),
-            },
+            dashmap::mapref::entry::Entry::Occupied(_) => Err(RegistryError::CasFailed),
         }
     }
 
@@ -283,33 +270,25 @@ mod tests {
         LiveRunId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()))
     }
 
+    /// A live id registers once: a second registration under it is refused
+    /// and the first ref stands as it was.
     #[test]
-    fn cas_registration() {
+    fn a_live_id_registers_once() {
         let reg = AgentRegistry::new();
         let id = new_id();
         let a = aref(id);
-        reg.register_if(a.clone(), None).unwrap();
-        // Re-register without expectation fails.
-        assert_eq!(
-            reg.register_if(a.clone(), None),
-            Err(RegistryError::CasFailed)
-        );
-        // Replace with the exact current ref succeeds.
+        reg.register(a.clone()).unwrap();
         let mut b = a.clone();
         b.status = AgentStatus::Idle;
-        reg.register_if(b, Some(&a)).unwrap();
-        // Replace with a stale expectation fails.
-        assert_eq!(
-            reg.register_if(a.clone(), Some(&a)),
-            Err(RegistryError::CasFailed)
-        );
+        assert_eq!(reg.register(b), Err(RegistryError::CasFailed));
+        assert_eq!(reg.get(id).unwrap().status, a.status, "the first stands");
     }
 
     #[test]
     fn stale_mutation_rejected() {
         let reg = AgentRegistry::new();
         let id = new_id();
-        reg.register_if(aref(id), None).unwrap();
+        reg.register(aref(id)).unwrap();
         let updated = reg.mutate(id, 1, |a| a.status = AgentStatus::Idle).unwrap();
         assert_eq!(updated.generation, 2);
         // A writer that still holds generation 1 is stale.
@@ -326,7 +305,7 @@ mod tests {
     fn only_a_finished_run_can_be_forgotten() {
         let reg = AgentRegistry::new();
         let id = new_id();
-        reg.register_if(aref(id), None).unwrap();
+        reg.register(aref(id)).unwrap();
         assert_eq!(
             reg.remove(id),
             Err(RegistryError::CasFailed),
@@ -348,7 +327,7 @@ mod tests {
         let id = new_id();
         let mut a = aref(id);
         a.transcript_path = Some(transcript.clone());
-        reg.register_if(a, None).unwrap();
+        reg.register(a).unwrap();
 
         reg.abort(id).unwrap();
         assert!(is_tombstoned(&transcript));
@@ -363,32 +342,23 @@ mod tests {
         let reg2 = AgentRegistry::new();
         let mut b = aref(new_id());
         b.transcript_path = Some(transcript);
-        assert!(matches!(
-            reg2.register_if(b, None),
-            Err(RegistryError::Aborted(_))
-        ));
+        assert!(matches!(reg2.register(b), Err(RegistryError::Aborted(_))));
     }
 
     // added by the coverage pass: registry.rs
 
-    /// A vacant entry takes no expectation; an abort repeats quietly; a
-    /// tombstone already there stands, and one that cannot be written is a
-    /// line in the log while the abort stands too.
+    /// An abort repeats quietly; a tombstone already there stands, and one
+    /// that cannot be written is a line in the log while the abort stands too.
     #[test]
-    fn a_vacant_entry_takes_no_expectation_and_an_abort_stands_whatever_the_tombstone_did() {
+    fn an_abort_stands_whatever_the_tombstone_did() {
         let reg = AgentRegistry::new();
         let id = new_id();
-        assert_eq!(
-            reg.register_if(aref(id), Some(&aref(id))),
-            Err(RegistryError::CasFailed),
-            "nothing to replace"
-        );
         let dir = tempfile::tempdir().unwrap();
         let transcript = dir.path().join("t.jsonl");
         std::fs::write(&transcript, "x").unwrap();
         let mut a = aref(id);
         a.transcript_path = Some(transcript.clone());
-        reg.register_if(a, None).unwrap();
+        reg.register(a).unwrap();
         // The tombstone was written by somebody else first.
         std::fs::write(tombstone_path(&transcript), "").unwrap();
         reg.abort(id).unwrap();
@@ -405,7 +375,7 @@ mod tests {
         let orphan = new_id();
         let mut b = aref(orphan);
         b.transcript_path = Some(dir.path().join("gone").join("t.jsonl"));
-        reg.register_if(b, None).unwrap();
+        reg.register(b).unwrap();
         reg.abort(orphan).unwrap();
         assert_eq!(reg.get(orphan).unwrap().status, AgentStatus::Aborted);
     }

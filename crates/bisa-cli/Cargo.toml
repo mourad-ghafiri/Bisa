@@ -65,6 +65,8 @@ dirs = { workspace = true }
 ulid = { workspace = true }
 nostr = { workspace = true }
 hex = { workspace = true }
+# The no-echo passphrase prompt of `bisa identity export|import` (termios over /dev/tty).
+libc = { workspace = true }
 
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }

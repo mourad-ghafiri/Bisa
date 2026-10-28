@@ -43,3 +43,16 @@ test("an absent closed-set field reads as its default, and a mixed list splits i
   assert.equal(joinWords(["you"], null), "you");
   assert.deepEqual(joinWords("agents", [{ agent: "herald" }]), ["agents", { agent: "herald" }]);
 });
+
+test("the suggestions offered leave the chosen out; a typed list is empty until the line holds something, then the matches, folded and capped", async () => {
+  const { offeredSuggestions } = await import("./manyModel.mjs");
+  const all = ["goal.closed", "goal.created", "run.finished", "session", "step.changed", "goal.updated", "goal.deleted", "goal.archived", "goal.restored", "goal.attached"].map((word) => ({ word, label: word }));
+  assert.deepEqual(offeredSuggestions(all, ["session"], "", {}).map((s) => s.word), all.map((s) => s.word).filter((w) => w !== "session"), "all of them, the chosen left out");
+  assert.deepEqual(offeredSuggestions(all, [], "zzz", { typed: false }).length, all.length, "not typed: the draft is ignored");
+  assert.deepEqual(offeredSuggestions(all, [], "", { typed: true }), [], "typed: nothing until something is typed");
+  assert.deepEqual(offeredSuggestions(all, [], "  ", { typed: true }), [], "spaces are nothing");
+  assert.deepEqual(offeredSuggestions(all, [], "RUN.", { typed: true }).map((s) => s.word), ["run.finished"], "case-folded, a substring");
+  assert.deepEqual(offeredSuggestions(all, ["goal.closed"], "goal", { typed: true, cap: 3 }).map((s) => s.word), ["goal.created", "goal.updated", "goal.deleted"], "capped, the chosen left out first");
+  assert.deepEqual(offeredSuggestions(all, [], "goal", { typed: true }).length, 7, "the cap is eight by default");
+  assert.deepEqual(offeredSuggestions(null, null, "x", { typed: true }), []);
+});

@@ -8,11 +8,18 @@
  * **Allow this site for this conversation** (only when the ask is
  * `grantable`) or **Deny**, with an optional note.
  *
+ * In a conversation that has no goal to escalate to — about a checkout, a
+ * workflow, the workspace or the node — the agent's own **question** in
+ * words and a **sign-in** it needs are asked on the same desk: a question is
+ * answered with the words typed or one of the choices offered (`answerBody`)
+ * or declined; a sign-in is *Signed in* (`signedInBody`, an allow once —
+ * never for the conversation) or *Not now*.
+ *
  * This is not `askModel.mjs`: that module is the goal's decision/answer
- * gates (`api.decide`), a person answering a question an agent asked in
- * words. This one is a tool call waiting on a verdict
- * (`api.answerAsk`) — a different protocol, a different shape, and it is
- * never the agent's own to settle (no MCP tool answers it).
+ * gates (`api.decide`), where a question goes when the conversation is
+ * about a goal. This one is the desk's (`api.answerAsk`) — a different
+ * protocol, a different shape, and never the agent's own to settle (no MCP
+ * tool answers it).
  *
  * Plain `.mjs` with a `.d.mts` beside it.
  */
@@ -43,6 +50,42 @@ export function isContentAsk(ask) {
   return ask?.subject?.kind === "content";
 }
 
+/** Whether an ask is the agent's own question in words. */
+export function isQuestionAsk(ask) {
+  return ask?.subject?.kind === "question";
+}
+
+/** Whether an ask is a sign-in the agent needs. */
+export function isAuthAsk(ask) {
+  return ask?.subject?.kind === "auth";
+}
+
+/**
+ * The choices a question offers, each a non-empty word; none for any other
+ * ask, or for a question asked open.
+ * @param {{subject?: {kind: string, options?: unknown}} | null | undefined} ask
+ * @returns {string[]}
+ */
+export function questionOptions(ask) {
+  const options = isQuestionAsk(ask) ? ask.subject.options : null;
+  return Array.isArray(options) ? options.filter((o) => typeof o === "string" && o.trim()).map((o) => o.trim()) : [];
+}
+
+/**
+ * The body `api.answerAsk` sends for a question's answer — the words, trimmed;
+ * `null` for nothing to say, which the card never sends.
+ * @param {unknown} text
+ */
+export function answerBody(text) {
+  const words = typeof text === "string" ? text.trim() : "";
+  return words ? { answer: "answer", text: words } : null;
+}
+
+/** The body that says a sign-in is done: an allow, once — a sign-in is never granted for a conversation. */
+export function signedInBody() {
+  return { answer: "allow", scope: "once" };
+}
+
 /** The word a scope reads as on its button — a site's, for content. */
 export function scopeLabel(scope, ask = null) {
   if (scope !== "conversation") return tr("studio-conversation-ask-allow-once");
@@ -50,14 +93,17 @@ export function scopeLabel(scope, ask = null) {
 }
 
 /**
- * The ask's header: what it is about, in words — *a command · Bash*, or
- * *content · example.com* — and the chip's word.
- * @param {{subject?: {kind: string, tool?: string, tier?: string, source?: string}} | null | undefined} ask
+ * The ask's header: what it is about, in words — *a command · Bash*,
+ * *content · example.com*, *a question*, *a sign-in · github* — and the
+ * chip's word.
+ * @param {{subject?: {kind: string, tool?: string, tier?: string, source?: string, provider?: string}} | null | undefined} ask
  */
 export function subjectWords(ask) {
   const s = ask?.subject;
   if (!s) return { chip: tierWords(null), name: "", kind: "tool" };
   if (s.kind === "content") return { chip: tr("studio-conversation-ask-content"), name: s.source ?? "", kind: "content" };
+  if (s.kind === "question") return { chip: tr("studio-conversation-ask-question"), name: "", kind: "question" };
+  if (s.kind === "auth") return { chip: tr("studio-conversation-ask-sign-in"), name: s.provider ?? "", kind: "auth" };
   return { chip: tierWords(s.tier), name: s.tool ?? "", kind: "tool" };
 }
 

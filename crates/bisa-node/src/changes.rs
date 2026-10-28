@@ -161,11 +161,11 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/conversations/{id}/asks",
-        summary: "The asks a turn of this conversation waits on, oldest first: `{asks: [{id, agent, subject, question, grantable, opened_at}]}` — `subject` is what is asked about: `{kind: tool, tool, tier}`, a call the guard put to the person, or `{kind: content, source, url?, reason, excerpt}`, what an agent was about to read from outside. The question is redacted. Empty when nothing waits; an ask lives as long as its session.",
+        summary: "The asks a turn of this conversation waits on, oldest first: `{asks: [{id, agent, subject, question, grantable, opened_at}]}` — `subject` is what is asked about: `{kind: tool, tool, tier}`, a call the guard put to the person; `{kind: content, source, url?, reason, excerpt}`, what an agent was about to read from outside; `{kind: question, options?}`, the agent's own question in words, asked here when the conversation has no goal to escalate to; or `{kind: auth, provider, url?}`, a sign-in it needs, the URL shown and never followed. The question is redacted. Empty when nothing waits; an ask lives as long as its session.",
     },
     RouteDoc {
         method: "POST",
         path: "/conversations/{id}/asks/{ask}",
-        summary: "Answer one: `{answer: allow, scope?: once|conversation}` or `{answer: deny, note?}` → the asks still waiting. `conversation` allows that tool for the rest of the conversation when the ask is `grantable` — the mode's own ask, never a guard rule's. A `note` is what the agent hears as the reason. 400 when the ask is no longer waiting.",
+        summary: "Answer one: `{answer: allow, scope?: once|conversation}` or `{answer: deny, note?}` for a tool call, content or a sign-in (`allow` says the sign-in is done); `{answer: answer, text}` or `{answer: deny, note?}` for a question → the asks still waiting. `conversation` allows that tool for the rest of the conversation when the ask is `grantable` — the mode's own ask, never a guard rule's. A `note` is what the agent hears as the reason. 400 when the ask is no longer waiting, or when the answer is not one the subject takes (words to a tool call, an allow to a question) — the ask then stays waiting.",
     },
 ];

@@ -3,5 +3,6 @@
 //! Run one module with `just test-module core <module>`.
 
 mod docs;
+mod gep_docs;
 mod layering;
 mod shapes;

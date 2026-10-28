@@ -1051,22 +1051,19 @@ pub async fn run_work_item(inner: Arc<Inner>, mut spec: WorkItemSpec) {
         let session_id = SessionId::from_ulid(new_ulid());
         let transcript = session.resume_token().and_then(|t| t.transcript_path);
         debug_on_err(
-            inner.registry.register_if(
-                AgentRef {
-                    id: agent_id,
-                    kind: SessionKind::Worker,
-                    status: AgentStatus::Running,
-                    generation: 1,
-                    session_id: Some(session_id),
-                    work_item: Some(item_id),
-                    conversation: None,
-                    goal: None,
-                    workstream: placement.workstream().map(|w| w.id),
-                    transcript_path: transcript.clone(),
-                    last_activity: now_secs(),
-                },
-                None,
-            ),
+            inner.registry.register(AgentRef {
+                id: agent_id,
+                kind: SessionKind::Worker,
+                status: AgentStatus::Running,
+                generation: 1,
+                session_id: Some(session_id),
+                work_item: Some(item_id),
+                conversation: None,
+                goal: None,
+                workstream: placement.workstream().map(|w| w.id),
+                transcript_path: transcript.clone(),
+                last_activity: now_secs(),
+            }),
             "registering a worker run",
         );
         last_run = Some(agent_id);
@@ -1600,6 +1597,7 @@ async fn drive_session(
                         on_behalf_of: None,
                         above: reach.above,
                         conversation: None,
+                        asks_at: None,
                     },
                     session,
                     request,

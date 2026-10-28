@@ -49,6 +49,8 @@ export interface TerminalSessionState {
   readonly run: boolean;
   /** The checkout's Flutter app runs in it on that device (ide/19): labelled *flutter*. */
   readonly mobileDevelopment: TerminalMobileDevelopment | null;
+  /** The folder under the placement it opened in (ide/06 — *Open in terminal here*), or `null` for the placement itself. */
+  readonly sub: string | null;
   /** Bumped by a restart, so React remounts. Only ever increases. */
   readonly generation: number;
   readonly liveness: Liveness;
@@ -130,6 +132,8 @@ export interface TerminalTarget {
   run?: boolean;
   /** Run the checkout's Flutter app on that device (ide/19) — the node's line for it. */
   mobileDevelopment?: TerminalMobileDevelopment | null;
+  /** Open in this folder under the placement (ide/06 — *Open in terminal here*); the shell holds it under the placement. */
+  sub?: string | null;
   /** Words to type once the harness has drawn its prompt (ide/06 §Start words); never persisted. */
   start?: string | null;
   /** The pane to open in; the focused one when absent or gone. */
@@ -188,6 +192,8 @@ export declare function answerDue(
 export declare function nowSecs(): number;
 export declare function loginOf(login: unknown): TerminalLogin | null;
 export declare function mobileDevelopmentOf(mobileDevelopment: unknown): TerminalMobileDevelopment | null;
+/** A folder relative to the placement, trimmed of its slashes, or `null` for the placement itself. */
+export declare function subOf(sub: unknown): string | null;
 export declare function mobileDevelopmentRunSession(sessions: readonly TerminalSessionState[], wid: string, device: string): TerminalSessionState | null;
 export declare function mobileDevelopmentRunSessions(sessions: readonly TerminalSessionState[], wid: string): TerminalSessionState[];
 export declare function openTerminal(state: TerminalsState, target: TerminalTarget, at?: number): TerminalsState;

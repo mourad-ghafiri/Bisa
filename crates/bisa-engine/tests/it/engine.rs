@@ -551,22 +551,19 @@ async fn park_then_nothing_revives_and_tombstone() {
     let agent_id = LiveRunId::mint();
     inner
         .registry
-        .register_if(
-            AgentRef {
-                id: agent_id,
-                kind: SessionKind::Worker,
-                status: AgentStatus::Idle,
-                generation: 1,
-                session_id: None,
-                work_item: None,
-                conversation: None,
-                goal: None,
-                workstream: None,
-                transcript_path: Some(transcript.clone()),
-                last_activity: 0,
-            },
-            None,
-        )
+        .register(AgentRef {
+            id: agent_id,
+            kind: SessionKind::Worker,
+            status: AgentStatus::Idle,
+            generation: 1,
+            session_id: None,
+            work_item: None,
+            conversation: None,
+            goal: None,
+            workstream: None,
+            transcript_path: Some(transcript.clone()),
+            last_activity: 0,
+        })
         .unwrap();
     inner
         .ws
@@ -656,22 +653,19 @@ async fn a_follow_up_re_arms_the_idle_clock_and_the_session_still_parks() {
     let agent_id = LiveRunId::mint();
     inner
         .registry
-        .register_if(
-            AgentRef {
-                id: agent_id,
-                kind: SessionKind::Worker,
-                status: AgentStatus::Idle,
-                generation: 1,
-                session_id: None,
-                work_item: None,
-                conversation: None,
-                goal: None,
-                workstream: None,
-                transcript_path: None,
-                last_activity: 0,
-            },
-            None,
-        )
+        .register(AgentRef {
+            id: agent_id,
+            kind: SessionKind::Worker,
+            status: AgentStatus::Idle,
+            generation: 1,
+            session_id: None,
+            work_item: None,
+            conversation: None,
+            goal: None,
+            workstream: None,
+            transcript_path: None,
+            last_activity: 0,
+        })
         .unwrap();
     inner
         .ws

@@ -5846,6 +5846,25 @@ fn the_listening_verbs_route_through_a_running_node() {
                 && s["listener"] == format!("workspace:{wf}/raised").as_str()),
         "{signals}"
     );
+    // Narrowed to one host through the node: the workflow's, and the goal's
+    // (which has heard nothing yet).
+    let of_workflow = json(&bisa(
+        dir.path(),
+        &["--json", "signal", "list", "--workflow", &wf],
+    ));
+    let of_workflow = of_workflow["signals"].as_array().expect("signals");
+    assert!(
+        !of_workflow.is_empty()
+            && of_workflow
+                .iter()
+                .all(|s| s["listener"] == format!("workspace:{wf}/raised").as_str()),
+        "{of_workflow:?}"
+    );
+    let of_goal = json(&bisa(
+        dir.path(),
+        &["--json", "signal", "list", "--goal", &goal],
+    ));
+    assert_eq!(of_goal["signals"], serde_json::json!([]), "{of_goal}");
     let listeners = until(
         dir.path(),
         &["--json", "workflow", "listeners", &wf],
@@ -5896,6 +5915,26 @@ fn the_listening_verbs_route_through_a_running_node() {
         page.contains("listening since") && !page.contains("bisa node"),
         "{page}"
     );
+    // Its listening alone, through the node — twice, the second time told
+    // it was not listening — then armed again for the stop that follows.
+    let alone = json(&bisa(dir.path(), &["--json", "stop", &goal, "--listening"]));
+    assert_eq!(alone["listening_stopped"], true, "{alone}");
+    assert_eq!(alone["stopped"], serde_json::Value::Null, "{alone}");
+    assert_eq!(
+        json(&bisa(
+            dir.path(),
+            &["--json", "workflow", "listeners", "--goal", &goal]
+        ))["listeners"],
+        serde_json::json!([])
+    );
+    let again = bisa(dir.path(), &["stop", &goal, "--listening"]);
+    assert_ok(&again, "stop --listening via node, not listening");
+    assert!(
+        stdout(&again).contains("was not listening"),
+        "{}",
+        stdout(&again)
+    );
+    assert_ok(&bisa(dir.path(), &["run", &goal]), "armed again via node");
     let stopped = json(&bisa(dir.path(), &["--json", "stop", &goal]));
     assert_eq!(stopped["listening_stopped"], true, "{stopped}");
     assert_eq!(
@@ -6367,4 +6406,905 @@ fn mcp_and_skill_verbs_at_their_edges() {
         "{}",
         stdout(&from_catalog)
     );
+}
+
+/// `bisa new --budget-*` names the goal's own ceiling: without the flags the
+/// workspace default (`budget.default.*`) stands, with them the goal keeps
+/// what was said — a zero lifting that ceiling, every flag at zero no ceiling
+/// at all — and `bisa status` reads it back.
+#[test]
+fn a_goal_captured_with_a_budget_keeps_it_and_one_without_takes_the_default() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    assert_ok(
+        &bisa(
+            dir.path(),
+            &[
+                "settings",
+                "set",
+                "workspace",
+                "budget.default.max_tokens",
+                "1000",
+            ],
+        ),
+        "settings set",
+    );
+    let budget_of = |args: &[&str]| {
+        let out = bisa(dir.path(), args);
+        assert_ok(&out, "new");
+        let goal = json(&out)["goal"].as_str().unwrap().to_string();
+        json(&bisa(dir.path(), &["--json", "status", &goal]))["goal"]["budget"].clone()
+    };
+    assert_eq!(
+        budget_of(&["--json", "new", "as usual", "--mode", "manual"]),
+        serde_json::json!({"max_tokens": 1000}),
+        "no flag: the workspace default"
+    );
+    assert_eq!(
+        budget_of(&[
+            "--json",
+            "new",
+            "a little",
+            "--mode",
+            "manual",
+            "--budget-tokens",
+            "7",
+            "--budget-usd-cents",
+            "50",
+            "--budget-secs",
+            "0",
+        ]),
+        serde_json::json!({"max_tokens": 7, "max_usd_cents": 50}),
+        "the flags, a zero lifted"
+    );
+    assert_eq!(
+        budget_of(&[
+            "--json",
+            "new",
+            "freely",
+            "--mode",
+            "manual",
+            "--budget-tokens",
+            "0",
+        ]),
+        serde_json::json!({}),
+        "every ceiling lifted: none at all, whatever the default says"
+    );
+    // The help names the flags on `new` as it does on `workflow on`.
+    let help = stdout(&bisa(dir.path(), &["new", "--help"]));
+    for flag in ["--budget-tokens", "--budget-usd-cents", "--budget-secs"] {
+        assert!(help.contains(flag), "{flag}: {help}");
+    }
+}
+
+/// `bisa stop <goal> --listening` stops the listening alone: the live run
+/// goes on and the queue stays, the goal says it no longer listens, and the
+/// answer keeps the stop's five keys with nothing stopped. A goal that was
+/// not listening is told so and nothing moves; the flag with a rationale is
+/// a usage error (nothing records it); a ghost is refused.
+#[test]
+fn stop_listening_leaves_a_live_run_going() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let wf = workflow_of(dir.path(), two_ways_in("Two ways in"));
+    let goal = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "new",
+            "answer every ticket",
+            "--workflow",
+            &wf,
+            "--no-start",
+        ],
+    ))["goal"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let listeners_of = ["--json", "workflow", "listeners", "--goal", goal.as_str()];
+    assert_ok(&bisa(dir.path(), &["run", &goal]), "run arms the goal");
+    let now = json(&bisa(
+        dir.path(),
+        &["--json", "run", &goal, "--start", "by-hand"],
+    ));
+    let run = now["run"]["id"].as_str().expect("a live run").to_string();
+    assert_eq!(now["run"]["steps"]["hold"]["state"]["state"], "waiting");
+    assert_eq!(
+        json(&bisa(dir.path(), &listeners_of))["listeners"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+
+    let both = bisa(
+        dir.path(),
+        &["stop", &goal, "--listening", "--rationale", "why"],
+    );
+    assert_eq!(both.status.code(), Some(2), "{}", stderr(&both));
+
+    let stopped = bisa(dir.path(), &["--json", "stop", &goal, "--listening"]);
+    assert_ok(&stopped, "stop --listening");
+    let s = json(&stopped);
+    assert_eq!(s["goal"], goal.as_str(), "{s}");
+    assert_eq!(s["listening_stopped"], true, "{s}");
+    assert_eq!(
+        s["stopped"],
+        serde_json::Value::Null,
+        "nothing stopped: {s}"
+    );
+    assert_eq!(s["withdrawn"], serde_json::json!([]), "{s}");
+    assert_eq!(s["ended"], serde_json::Value::Null, "{s}");
+    let page = json(&bisa(dir.path(), &["--json", "status", &goal]));
+    assert!(page["goal"].get("listening").is_none(), "{page}");
+    assert_eq!(
+        page["run"]["id"],
+        run.as_str(),
+        "the live run goes on: {page}"
+    );
+    assert_eq!(page["run"]["steps"]["hold"]["state"]["state"], "waiting");
+    assert_eq!(
+        json(&bisa(dir.path(), &listeners_of))["listeners"],
+        serde_json::json!([])
+    );
+
+    // Said once more, it was not listening — and still nothing moves.
+    let said = bisa(dir.path(), &["stop", &goal, "--listening"]);
+    assert_ok(&said, "stop --listening on a goal that does not listen");
+    assert!(
+        stdout(&said).contains("was not listening"),
+        "{}",
+        stdout(&said)
+    );
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "stop", &goal, "--listening"]))["listening_stopped"],
+        false
+    );
+    let page = json(&bisa(dir.path(), &["--json", "status", &goal]));
+    assert_eq!(page["run"]["id"], run.as_str(), "{page}");
+
+    let ghost = bisa(
+        dir.path(),
+        &["stop", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--listening"],
+    );
+    assert_eq!(ghost.status.code(), Some(1), "{}", stderr(&ghost));
+}
+
+/// `bisa signal list --goal` and `--workflow` narrow the queue to the signals
+/// written for one host's listeners; without a flag every host's are listed;
+/// both flags at once is a usage error, and an id that is no id is refused.
+#[test]
+fn signal_list_narrows_to_one_hosts_signals() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let wf = workflow_of(dir.path(), on_signal("report.ready"));
+    let goal = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "new",
+            "hear it too",
+            "--workflow",
+            &wf,
+            "--no-start",
+        ],
+    ))["goal"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ok(&bisa(dir.path(), &["workflow", "on", &wf]), "workflow on");
+    assert_ok(&bisa(dir.path(), &["run", &goal]), "the goal listens");
+    let raised = json(&bisa(
+        dir.path(),
+        &["--json", "signal", "emit", "report.ready"],
+    ));
+    assert_eq!(
+        raised["listeners"].as_array().map(Vec::len),
+        Some(2),
+        "the workflow's listening and the goal's both heard it: {raised}"
+    );
+    let listeners = |args: &[&str]| -> Vec<String> {
+        let out = bisa(dir.path(), args);
+        assert_ok(&out, "signal list");
+        json(&out)["signals"]
+            .as_array()
+            .expect("signals")
+            .iter()
+            .filter_map(|s| s["listener"].as_str().map(str::to_string))
+            .collect()
+    };
+    let of_workflow = listeners(&["--json", "signal", "list", "--workflow", &wf]);
+    assert_eq!(of_workflow, vec![format!("workspace:{wf}/raised")]);
+    let of_goal = listeners(&["--json", "signal", "list", "--goal", &goal]);
+    assert_eq!(of_goal, vec![format!("goal:{goal}/raised")]);
+    let every = listeners(&["--json", "signal", "list"]);
+    assert!(
+        every.contains(&of_workflow[0]) && every.contains(&of_goal[0]),
+        "{every:?}"
+    );
+    let said = stdout(&bisa(dir.path(), &["signal", "list", "--goal", &goal]));
+    assert!(
+        said.contains(&format!("goal:{goal}/raised")) && !said.contains("workspace:"),
+        "{said}"
+    );
+
+    let both = bisa(
+        dir.path(),
+        &["signal", "list", "--goal", &goal, "--workflow", &wf],
+    );
+    assert_eq!(both.status.code(), Some(2), "{}", stderr(&both));
+    let bad = bisa(dir.path(), &["signal", "list", "--goal", "not-an-id"]);
+    assert_eq!(bad.status.code(), Some(1), "{}", stderr(&bad));
+    assert!(stderr(&bad).contains("not-an-id"), "{}", stderr(&bad));
+    let bad = bisa(dir.path(), &["signal", "list", "--workflow", "nope"]);
+    assert_eq!(bad.status.code(), Some(1), "{}", stderr(&bad));
+}
+
+/// `bisa project edit` changes a project's name or its publishing policy
+/// after creation — a flag left out keeps what the record says — and refuses
+/// an edit that names nothing, a policy word nobody has, and a blank name.
+#[test]
+fn project_edit_changes_the_policy_and_the_name_and_refuses_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let made = bisa(
+        dir.path(),
+        &["--json", "project", "new", "shelf", "--name", "Shelf"],
+    );
+    assert_ok(&made, "project new");
+    let made = json(&made);
+    let pid = made["project"]["id"].as_str().unwrap().to_string();
+    assert_eq!(made["project"]["publish"], "auto", "{made}");
+
+    let edited = bisa(
+        dir.path(),
+        &["--json", "project", "edit", &pid, "--publish", "gated"],
+    );
+    assert_ok(&edited, "project edit --publish");
+    let edited = json(&edited);
+    assert_eq!(edited["project"]["publish"], "gated", "{edited}");
+    assert_eq!(
+        edited["project"]["name"], "Shelf",
+        "the name kept: {edited}"
+    );
+    let shown = json(&bisa(dir.path(), &["--json", "project", "show", &pid]));
+    assert_eq!(shown["project"]["publish"], "gated", "{shown}");
+
+    let renamed = bisa(
+        dir.path(),
+        &["project", "edit", &pid, "--name", " Bookshelf "],
+    );
+    assert_ok(&renamed, "project edit --name");
+    let said = stdout(&renamed);
+    assert!(
+        said.contains("Bookshelf") && said.contains("gated"),
+        "the line names what the record now says: {said}"
+    );
+    let shown = json(&bisa(dir.path(), &["--json", "project", "show", &pid]));
+    assert_eq!(shown["project"]["name"], "Bookshelf", "trimmed: {shown}");
+    assert_eq!(
+        shown["project"]["publish"], "gated",
+        "the policy kept: {shown}"
+    );
+
+    let nothing = bisa(dir.path(), &["project", "edit", &pid]);
+    assert_eq!(nothing.status.code(), Some(1), "{}", stderr(&nothing));
+    assert!(stderr(&nothing).contains("--name"), "{}", stderr(&nothing));
+    let sideways = bisa(
+        dir.path(),
+        &["project", "edit", &pid, "--publish", "sideways"],
+    );
+    assert_eq!(sideways.status.code(), Some(1), "{}", stderr(&sideways));
+    assert!(
+        stderr(&sideways).contains("sideways"),
+        "{}",
+        stderr(&sideways)
+    );
+    let blank = bisa(dir.path(), &["project", "edit", &pid, "--name", "  "]);
+    assert_eq!(blank.status.code(), Some(1), "{}", stderr(&blank));
+    assert!(stderr(&blank).contains("blank"), "{}", stderr(&blank));
+    let shown = json(&bisa(dir.path(), &["--json", "project", "show", &pid]));
+    assert_eq!(
+        shown["project"]["name"], "Bookshelf",
+        "a refusal writes nothing: {shown}"
+    );
+    assert_eq!(shown["project"]["publish"], "gated", "{shown}");
+    let ghost = bisa(
+        dir.path(),
+        &[
+            "project",
+            "edit",
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "--publish",
+            "auto",
+        ],
+    );
+    assert_eq!(ghost.status.code(), Some(1), "{}", stderr(&ghost));
+}
+
+/// `bisa workspace held|release|refuse`: the held messages are listed with
+/// their reason, a refusal drops one and wakes nobody — with or without a
+/// node — a release needs the node that wakes the agents, and a message
+/// nobody holds is refused by name.
+#[test]
+fn held_messages_are_listed_and_refused_from_the_terminal_and_a_release_needs_the_node() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let hold = |id: &str, why: &str| {
+        let ws = bisa_store::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(bisa_store::FileKeyStore::new(
+                bisa_store::Paths::new(dir.path()).identity_dir(),
+            )),
+        )
+        .unwrap();
+        ws.hold_message(
+            id,
+            "general",
+            bisa_core::PrincipalId::new("ab".repeat(32)).unwrap(),
+            bisa_store::HeldReason::Harmful {
+                why: why.to_string(),
+            },
+        )
+        .unwrap();
+    };
+    hold("e-held", "asks for a token");
+
+    let listed = json(&bisa(dir.path(), &["--json", "workspace", "held"]));
+    assert_eq!(listed["held"].as_array().map(Vec::len), Some(1), "{listed}");
+    assert_eq!(listed["held"][0]["event_id"], "e-held", "{listed}");
+    let said = stdout(&bisa(dir.path(), &["workspace", "held"]));
+    assert!(
+        said.contains("e-held") && said.contains("asks for a token") && said.contains("general"),
+        "{said}"
+    );
+
+    // A release wakes the agents the message addresses: it needs the node.
+    let needs = bisa(dir.path(), &["workspace", "release", "e-held"]);
+    assert_eq!(needs.status.code(), Some(1), "{}", stderr(&needs));
+    assert!(stderr(&needs).contains("bisa node"), "{}", stderr(&needs));
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "workspace", "held"]))["held"]
+            .as_array()
+            .map(Vec::len),
+        Some(1),
+        "still held"
+    );
+
+    let refused = bisa(dir.path(), &["--json", "workspace", "refuse", "e-held"]);
+    assert_ok(&refused, "workspace refuse");
+    assert_eq!(json(&refused)["refused"], "e-held");
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "workspace", "held"]))["held"],
+        serde_json::json!([])
+    );
+    assert!(stdout(&bisa(dir.path(), &["workspace", "held"])).contains("no held messages"));
+    let twice = bisa(dir.path(), &["workspace", "refuse", "e-held"]);
+    assert_eq!(twice.status.code(), Some(1), "{}", stderr(&twice));
+
+    // Through a node: listed and refused there too; a release of a message
+    // whose author is no member is the engine's refusal, in words, and one
+    // whose author is a member goes through (its event, held by hand here,
+    // is in no log, so nothing is woken — the verb's answer is the same).
+    hold("e-node", "a link to run");
+    let member = bisa_core::PrincipalId::new("cd".repeat(32)).unwrap();
+    {
+        let ws = bisa_store::Workspace::open_with_keystore(
+            dir.path(),
+            Box::new(bisa_store::FileKeyStore::new(
+                bisa_store::Paths::new(dir.path()).identity_dir(),
+            )),
+        )
+        .unwrap();
+        ws.add_member(
+            member.clone(),
+            bisa_core::MemberRole::Member,
+            bisa_store::Admission::default(),
+        )
+        .unwrap();
+        ws.hold_message(
+            "e-member",
+            "general",
+            member,
+            bisa_store::HeldReason::NoVerdict {
+                why: "timed out".into(),
+            },
+        )
+        .unwrap();
+    }
+    let node = spawn_daemon(dir.path());
+    let listed = json(&bisa(dir.path(), &["--json", "workspace", "held"]));
+    assert_eq!(listed["held"][0]["event_id"], "e-node", "{listed}");
+    assert_eq!(listed["held"][1]["event_id"], "e-member", "{listed}");
+    let released = bisa(dir.path(), &["--json", "workspace", "release", "e-member"]);
+    assert_ok(&released, "workspace release via node");
+    assert_eq!(json(&released)["released"], "e-member");
+    let said = stdout(&bisa(dir.path(), &["workspace", "held"]));
+    assert!(
+        said.contains("e-node") && !said.contains("e-member"),
+        "the released row is gone, the other stands: {said}"
+    );
+    let no_member = bisa(dir.path(), &["workspace", "release", "e-node"]);
+    assert_eq!(no_member.status.code(), Some(1), "{}", stderr(&no_member));
+    assert!(
+        stderr(&no_member).contains("no longer a member"),
+        "{}",
+        stderr(&no_member)
+    );
+    hold("e-node-2", "a secret asked for");
+    let refused = json(&bisa(
+        dir.path(),
+        &["--json", "workspace", "refuse", "e-node-2"],
+    ));
+    assert_eq!(refused["refused"], "e-node-2");
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "workspace", "held"]))["held"],
+        serde_json::json!([]),
+        "the release's refusal took its row, the refusal its own"
+    );
+    drop(node);
+}
+
+/// `bisa` with words on stdin — a passphrase, an `ncryptsec` — never on the line.
+pub(crate) fn bisa_stdin(data_dir: &Path, args: &[&str], input: &str) -> Output {
+    use std::io::Write as _;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_bisa"))
+        .env_remove("BISA_API_TOKEN")
+        .arg("--data-dir")
+        .arg(data_dir)
+        .arg("--file-keys")
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("binary runs");
+    child
+        .stdin
+        .take()
+        .expect("stdin piped")
+        .write_all(input.as_bytes())
+        .expect("stdin written");
+    child.wait_with_output().expect("binary ends")
+}
+
+/// The owner key leaves as a NIP-49 `ncryptsec` and lands in another
+/// workspace, the passphrase never on the command line: piped, it is the
+/// first line of stdin (the `ncryptsec` the line before it when no argument
+/// names it); an empty one is refused; an export to a file is private and
+/// never over one that exists; a wrong passphrase lands nothing; a
+/// workspace with an owner key already needs `--replace`, and `init` after
+/// an import keeps the imported key; a node holding the workspace refuses
+/// the import.
+#[test]
+fn the_owner_key_is_exported_and_imported_behind_a_passphrase() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let npub_of = |dir: &Path| -> String {
+        use nostr::nips::nip19::ToBech32;
+        let ws = bisa_store::Workspace::open_with_keystore(
+            dir,
+            Box::new(bisa_store::FileKeyStore::new(
+                bisa_store::Paths::new(dir).identity_dir(),
+            )),
+        )
+        .unwrap();
+        ws.owner_keys().public_key().to_bech32().unwrap()
+    };
+    let npub = npub_of(dir.path());
+
+    let exported = bisa_stdin(dir.path(), &["--json", "identity", "export"], "hunter2\n");
+    assert_ok(&exported, "identity export");
+    let v = json(&exported);
+    assert_eq!(v["npub"], npub);
+    let ncryptsec = v["ncryptsec"].as_str().unwrap().to_string();
+    assert!(ncryptsec.starts_with("ncryptsec"), "{ncryptsec}");
+    assert!(
+        stdout(&bisa_stdin(
+            dir.path(),
+            &["identity", "export"],
+            "hunter2\n"
+        ))
+        .trim()
+        .starts_with("ncryptsec"),
+        "plain: the ncryptsec alone"
+    );
+    let empty = bisa_stdin(dir.path(), &["identity", "export"], "\n");
+    assert_eq!(empty.status.code(), Some(1), "{}", stderr(&empty));
+    assert!(
+        stderr(&empty).contains("passphrase is empty"),
+        "{}",
+        stderr(&empty)
+    );
+
+    // To a file: private, and never over one that exists.
+    let file = dir.path().join("owner.ncryptsec");
+    let to_file = bisa_stdin(
+        dir.path(),
+        &[
+            "--json",
+            "identity",
+            "export",
+            "--out",
+            file.to_str().unwrap(),
+        ],
+        "hunter2\n",
+    );
+    assert_ok(&to_file, "identity export --out");
+    assert_eq!(json(&to_file)["written"], file.to_str().unwrap());
+    assert!(std::fs::read_to_string(&file)
+        .unwrap()
+        .starts_with("ncryptsec"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "private to the person"
+        );
+    }
+    let again = bisa_stdin(
+        dir.path(),
+        &["identity", "export", "--out", file.to_str().unwrap()],
+        "hunter2\n",
+    );
+    assert_eq!(again.status.code(), Some(1), "{}", stderr(&again));
+    assert!(
+        stderr(&again).contains("exists already"),
+        "{}",
+        stderr(&again)
+    );
+
+    // Into a workspace nobody opened: the key lands before any open would
+    // mint one; a wrong passphrase lands nothing.
+    let other = tempfile::tempdir().unwrap();
+    let wrong = bisa_stdin(
+        other.path(),
+        &["identity", "import"],
+        &format!("{ncryptsec}\nnope\n"),
+    );
+    assert_eq!(wrong.status.code(), Some(1), "{}", stderr(&wrong));
+    let none = bisa_stdin(other.path(), &["identity", "import"], "\n");
+    assert_eq!(none.status.code(), Some(1), "{}", stderr(&none));
+    assert!(
+        stderr(&none).contains("no `ncryptsec`"),
+        "{}",
+        stderr(&none)
+    );
+    let imported = bisa_stdin(
+        other.path(),
+        &["--json", "identity", "import"],
+        &format!("{ncryptsec}\nhunter2\n"),
+    );
+    assert_ok(&imported, "identity import");
+    assert_eq!(json(&imported)["npub"], npub);
+    assert_eq!(json(&imported)["replaced"], false);
+    assert_ok(&bisa(other.path(), &["init"]), "init after import");
+    assert_eq!(npub_of(other.path()), npub, "init keeps the imported key");
+
+    // From a file, the passphrase alone on stdin: refused without --replace now.
+    let needs = bisa_stdin(
+        other.path(),
+        &["identity", "import", file.to_str().unwrap()],
+        "hunter2\n",
+    );
+    assert_eq!(needs.status.code(), Some(1), "{}", stderr(&needs));
+    assert!(stderr(&needs).contains("--replace"), "{}", stderr(&needs));
+
+    // A third workspace's key replaces the first's.
+    let third = tempfile::tempdir().unwrap();
+    assert_ok(&bisa(third.path(), &["init"]), "init third");
+    let third_key = json(&bisa_stdin(
+        third.path(),
+        &["--json", "identity", "export"],
+        "pw3\n",
+    ));
+    let replaced = bisa_stdin(
+        dir.path(),
+        &[
+            "--json",
+            "identity",
+            "import",
+            "--replace",
+            third_key["ncryptsec"].as_str().unwrap(),
+        ],
+        "pw3\n",
+    );
+    assert_ok(&replaced, "identity import --replace");
+    assert_eq!(json(&replaced)["npub"], third_key["npub"]);
+    assert_eq!(json(&replaced)["replaced"], true);
+    assert_eq!(npub_of(dir.path()), third_key["npub"].as_str().unwrap());
+
+    // A node holding the workspace refuses the import; the export still reads.
+    let node = spawn_daemon(dir.path());
+    let held = bisa_stdin(
+        dir.path(),
+        &["identity", "import", "--replace", &ncryptsec],
+        "hunter2\n",
+    );
+    assert_eq!(held.status.code(), Some(1), "{}", stderr(&held));
+    assert!(stderr(&held).contains("needs no node"), "{}", stderr(&held));
+    assert_ok(
+        &bisa_stdin(dir.path(), &["identity", "export"], "pw3\n"),
+        "export beside a node",
+    );
+    drop(node);
+}
+
+/// Notes from the terminal, with and without a node: made under a scope,
+/// listed by scope, read with the hash an edit carries, edited by title,
+/// pin and body — a body that moved since the hash was read refused in the
+/// store's words, a body from a file, the hash read as the edit begins when
+/// none is given — and removed; a scope off the list, a kind without its id,
+/// an id on a kind that takes none and an id that names no note are each
+/// one sentence.
+#[test]
+fn notes_are_made_edited_and_removed_with_and_without_a_node() {
+    let dir = tempfile::tempdir().unwrap();
+    init(dir.path());
+    let made = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "note",
+            "new",
+            "--title",
+            "Why the cache",
+            "--body",
+            "one\n",
+        ],
+    ));
+    let id = made["note"]["id"].as_str().unwrap().to_string();
+    assert_eq!(made["note"]["scope"], "workspace", "{made}");
+    assert_eq!(made["note"]["body"], "one\n");
+    let hash = made["note"]["hash"].as_str().unwrap().to_string();
+    assert_eq!(hash.len(), 64);
+    let listed = json(&bisa(dir.path(), &["--json", "note", "list"]));
+    assert_eq!(
+        listed["notes"].as_array().map(Vec::len),
+        Some(1),
+        "{listed}"
+    );
+    assert!(stdout(&bisa(dir.path(), &["note", "list"])).contains("Why the cache"));
+    assert_eq!(
+        json(&bisa(
+            dir.path(),
+            &["--json", "note", "list", "--scope", "goal"]
+        ))["notes"],
+        serde_json::json!([])
+    );
+    let goal = "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string();
+    assert!(stdout(&bisa(
+        dir.path(),
+        &["note", "list", "--scope", "goal", "--id", &goal]
+    ))
+    .contains("no notes"));
+    let shown = bisa(dir.path(), &["note", "show", &id]);
+    assert_ok(&shown, "note show");
+    assert!(
+        stdout(&shown).contains(&hash) && stdout(&shown).contains("one"),
+        "{}",
+        stdout(&shown)
+    );
+
+    // A stale hash is refused in the store's words; the body stands.
+    let stale = bisa(
+        dir.path(),
+        &[
+            "note",
+            "edit",
+            &id,
+            "--body",
+            "two\n",
+            "--base-hash",
+            "0000",
+        ],
+    );
+    assert_eq!(stale.status.code(), Some(1), "{}", stderr(&stale));
+    assert!(
+        stderr(&stale).contains("changed since"),
+        "{}",
+        stderr(&stale)
+    );
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "note", "show", &id]))["note"]["body"],
+        "one\n"
+    );
+    let edited = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "note",
+            "edit",
+            &id,
+            "--body",
+            "two\n",
+            "--base-hash",
+            &hash,
+            "--pinned",
+            "true",
+            "--title",
+            "Why",
+        ],
+    ));
+    assert_eq!(edited["note"]["body"], "two\n", "{edited}");
+    assert_eq!(edited["note"]["pinned"], true);
+    assert_eq!(edited["note"]["title"], "Why");
+    assert!(stdout(&bisa(dir.path(), &["note", "list"])).contains("pinned"));
+    // Left out, the hash is the body's as the edit begins; a file is a body too.
+    let body_file = dir.path().join("body.md");
+    std::fs::write(&body_file, "# three\n").unwrap();
+    let from_file = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "note",
+            "edit",
+            &id,
+            "--body-file",
+            body_file.to_str().unwrap(),
+        ],
+    ));
+    assert_eq!(from_file["note"]["body"], "# three\n", "{from_file}");
+    let nothing = bisa(dir.path(), &["note", "edit", &id]);
+    assert_eq!(nothing.status.code(), Some(1), "{}", stderr(&nothing));
+    assert!(
+        stderr(&nothing).contains("nothing to edit"),
+        "{}",
+        stderr(&nothing)
+    );
+    for (args, said) in [
+        (
+            vec!["note", "new", "--scope", "pet", "--title", "x"],
+            "no scope",
+        ),
+        (
+            vec!["note", "new", "--scope", "goal", "--title", "x"],
+            "needs the record's id",
+        ),
+        (
+            vec![
+                "note",
+                "new",
+                "--scope",
+                "workspace",
+                "--id",
+                "x",
+                "--title",
+                "x",
+            ],
+            "drop --id",
+        ),
+        (
+            vec!["note", "list", "--scope", "goal", "--id", "nonsense"],
+            "no id of a goal",
+        ),
+        (vec!["note", "show", "nonsense"], "no note id"),
+    ] {
+        let out = bisa(dir.path(), &args);
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {}", stderr(&out));
+        assert!(stderr(&out).contains(said), "{args:?}: {}", stderr(&out));
+    }
+    let removed = json(&bisa(dir.path(), &["--json", "note", "rm", &id]));
+    assert_eq!(removed["ok"], true);
+    assert_eq!(removed["id"], id);
+    assert_eq!(
+        bisa(dir.path(), &["note", "show", &id]).status.code(),
+        Some(1)
+    );
+
+    // Through a node: the same verbs, the same rows.
+    let node = spawn_daemon(dir.path());
+    let made = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "note",
+            "new",
+            "--scope",
+            "node",
+            "--title",
+            "On this node",
+            "--body",
+            "n\n",
+        ],
+    ));
+    let id = made["note"]["id"].as_str().unwrap().to_string();
+    assert_eq!(made["note"]["scope"], "node", "{made}");
+    assert_eq!(
+        json(&bisa(
+            dir.path(),
+            &["--json", "note", "list", "--scope", "node"]
+        ))["notes"][0]["id"],
+        id
+    );
+    assert!(stdout(&bisa(dir.path(), &["note", "list"])).contains("On this node"));
+    let hash = made["note"]["hash"].as_str().unwrap().to_string();
+    let stale = bisa(
+        dir.path(),
+        &["note", "edit", &id, "--body", "x", "--base-hash", "0000"],
+    );
+    assert_eq!(stale.status.code(), Some(1), "{}", stderr(&stale));
+    assert!(
+        stderr(&stale).contains("changed since"),
+        "{}",
+        stderr(&stale)
+    );
+    let edited = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "note",
+            "edit",
+            &id,
+            "--body",
+            "nn\n",
+            "--base-hash",
+            &hash,
+        ],
+    ));
+    assert_eq!(edited["note"]["body"], "nn\n", "{edited}");
+    let by_read = json(&bisa(
+        dir.path(),
+        &[
+            "--json", "note", "edit", &id, "--body", "nnn\n", "--pinned", "false",
+        ],
+    ));
+    assert_eq!(
+        by_read["note"]["body"], "nnn\n",
+        "the hash read as the edit begins: {by_read}"
+    );
+    assert!(stdout(&bisa(dir.path(), &["note", "show", &id])).contains("nnn"));
+    let renamed = json(&bisa(
+        dir.path(),
+        &["--json", "note", "edit", &id, "--title", "Renamed"],
+    ));
+    assert_eq!(renamed["note"]["title"], "Renamed", "{renamed}");
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "note", "rm", &id]))["ok"],
+        true
+    );
+    assert_eq!(
+        json(&bisa(dir.path(), &["--json", "note", "list"]))["notes"],
+        serde_json::json!([])
+    );
+    let missing = bisa(dir.path(), &["note", "rm", &id]);
+    assert_eq!(missing.status.code(), Some(1), "{}", stderr(&missing));
+    // A record's own note, through the node: filed under the goal, listed by it.
+    let goal = json(&bisa(
+        dir.path(),
+        &["--json", "new", "A goal with notes", "--mode", "manual"],
+    ))["goal"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let on_goal = json(&bisa(
+        dir.path(),
+        &[
+            "--json",
+            "note",
+            "new",
+            "--scope",
+            "goal",
+            "--id",
+            &goal,
+            "--title",
+            "On the goal",
+        ],
+    ));
+    assert_eq!(on_goal["note"]["scope"], "goal", "{on_goal}");
+    assert_eq!(on_goal["note"]["scope_id"], goal);
+    let of_goal = json(&bisa(
+        dir.path(),
+        &["--json", "note", "list", "--scope", "goal", "--id", &goal],
+    ));
+    assert_eq!(
+        of_goal["notes"][0]["id"], on_goal["note"]["id"],
+        "{of_goal}"
+    );
+    assert!(
+        stdout(&bisa(dir.path(), &["note", "list", "--scope", "goal"]))
+            .contains(&format!("goal:{goal}"))
+    );
+    drop(node);
 }

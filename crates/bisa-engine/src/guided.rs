@@ -11,8 +11,9 @@
 //! fetches nothing it was handed and starts designing on its first turn.
 //! This works on every harness — no resume-fidelity dependency. When the
 //! previous wake's session is still live and supports follow-up, the answer
-//! is delivered into it instead of a fresh wake (a transparent optimization
-//! via the park/revive lifecycle).
+//! is delivered into it instead of a fresh wake (a transparent optimization:
+//! the live session's `follow_up`; a parked session is never revived — the
+//! next wake starts afresh and reads the truth again).
 //!
 //! The driver **proposes**; who adopts is the goal's mode, decided in
 //! `ops`. Nothing here records a decision or starts a run.
@@ -1476,22 +1477,19 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
         let driving = crate::sessions::Driving::begin(&inner.driving, agent_id);
         let session_id = SessionId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
         debug_on_err(
-            inner.registry.register_if(
-                AgentRef {
-                    id: agent_id,
-                    kind: SessionKind::Guided,
-                    status: AgentStatus::Running,
-                    generation: 1,
-                    session_id: Some(session_id),
-                    work_item: None,
-                    conversation: None,
-                    goal: Some(goal_id),
-                    workstream: None,
-                    transcript_path: None,
-                    last_activity: now_secs(),
-                },
-                None,
-            ),
+            inner.registry.register(AgentRef {
+                id: agent_id,
+                kind: SessionKind::Guided,
+                status: AgentStatus::Running,
+                generation: 1,
+                session_id: Some(session_id),
+                work_item: None,
+                conversation: None,
+                goal: Some(goal_id),
+                workstream: None,
+                transcript_path: None,
+                last_activity: now_secs(),
+            }),
             "registering a guided run",
         );
         inner.presence.register(
@@ -1740,6 +1738,7 @@ async fn run_wake(inner: &Arc<Inner>, goal_id: GoalId, phase: &GuidedPhase) -> W
                         on_behalf_of: None,
                         above: crate::inputs::above_ceiling(inner, Some(goal_id)),
                         conversation: None,
+                        asks_at: None,
                     },
                     session.as_ref(),
                     request,

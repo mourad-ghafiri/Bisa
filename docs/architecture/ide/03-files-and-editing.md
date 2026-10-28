@@ -227,8 +227,8 @@ both (`modeGlyph`, `SegmentedControl`'s `iconOnly`) — with the word as the too
 and the mode a document is in is remembered per document in the checkout's session (`docModeKey`,
 `useSessionDraft`), never in the layout. The control sits at the right end of the bar in every
 mode: both of `EditorDoc`'s bars draw one right-hand cluster after the one spacer — the find bar,
-the mode glyphs, the wand, then Blame and Save where those are — so it keeps its place whether the
-crumbs stand on the left or nothing does.
+the mode glyphs, the wand, then HEAD, Blame and Save where those are — so it keeps its place whether
+the crumbs stand on the left or nothing does.
 
 **A fourth thing the editor can show.** A file with a pending change from a conversation's agent can
 show a **review lens** beside Rendered, Split and Source — the hunks of
@@ -776,7 +776,12 @@ exclude globs (`parseQuery`). Hits fold into their files in arrival order, twent
 and the rest counted (`groupHits`, `resultRows`); a hit opens the document at its line and reveals
 the path in the tree; `Enter` and `Shift+Enter` step through them (`nextOpenable`); the footer says
 *12 matches in 4 files · 1 203 scanned* or *stopped at the cap; narrow it* (`searchStatus`).
-`Escape` clears, then closes. Facts in `fileSearchModel.mjs`.
+`Escape` clears, then closes. Facts in `fileSearchModel.mjs`. **Replace** beside the toggles opens a
+row under the box — the replacement, *Preview*, *Replace all* — over the same question
+([12](12-search-and-quick-open.md)): the preview's rows take the hits' place, a changed line
+showing the text as it is and as it would be in the diff's colours and opening the document at its
+line like a hit, a file row carrying its own *Replace*; the row's switch and the replacement are
+the root's view like the box's text, the preview never (`fileReplaceModel.mjs`).
 
 The engine does the disposing through one `Remover` — `TrashRemover` or `UnlinkRemover`, chosen by
 the `Disposal` the node resolved from the setting; the engine never reads the setting
@@ -820,7 +825,7 @@ The CLI has the same verbs: `bisa files new|mv|cp|rm`, which say how a delete we
 | replace in a rendering | into the **buffer** — the rendering is drawn from it — through `edited`, so the page follows, the tab dirties and autosave and the on-disk conflict work as for any edit |
 | find/replace across files | [12 — search](12-search-and-quick-open.md), through the CAS write per file |
 | go-to-symbol, go-to-definition, hover, diagnostics | [10 — language intelligence](10-language-intelligence.md) |
-| theme | derived from the token roles ([`editorTheme.mjs`](02-component-model.md#desktop-side)); a test asserts every role the theme contract requires maps to a Monaco colour |
+| theme | derived from the token roles ([`editorTheme.mjs`](02-component-model.md#desktop-side)); a test asserts every role the theme contract requires maps to a Monaco colour. `editor.theme` (machine scope) may name one of Monaco's own instead — `vs`, `vs-dark`, `hc-light`, `hc-black` (`MONACO_BUILTIN_THEMES`, `monacoThemeFor`); `follow_app`, the default, and anything unknown keep the app's. Monaco's theme is one for every editor, so the choice goes to the loader once (`setEditorThemeChoice`) as the editors read their settings (`useEditorTypography`) |
 | rendered documents | §Rendered documents: Markdown with **Rendered · Split · Source** — three glyphs, the mode remembered per document — Mermaid blocks through [11](11-mermaid.md), a relative link (`./notes.md`) resolving against the document by `docLink.mjs` — inside the root or inert — and opening as another document, a relative image drawn through the byte route; a csv and an svg with **Rendered · Source**; a page with **Rendered · Split · Source** and **Annotate** — elements pointed at in the rendering, each with the change wanted, sent to an agent as chips or attached to the Agent pane ([09](09-agents-in-the-ide.md)); a PDF, a picture, a recording, a sheet, a document and a deck as documents with no editor; every path and URL in the text a door through [17](17-links-and-paths.md) |
 | word wrap | `editor.word_wrap` (`off` · `on` · `bounded`), read by `useEditorTypography` and applied to a mounted editor without a remount; `Alt+Z` (`toggle_word_wrap`) flips it at machine scope |
 | breadcrumbs | the path above the editor as crumbs (`breadcrumbsOf`): a folder reveals itself in Files, the file copies its path |

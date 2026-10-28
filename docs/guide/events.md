@@ -209,7 +209,8 @@ of the workspace moves for everybody.
 The advanced door: one of the engine's own bus topics, with exact matches on the event's own
 fields — `run.finished` has `run`, `workflow` and `outcome`; `step.changed` has `run`, `workflow`,
 `step`, `state` and `kind`; `goal.closed` has `reason`. The topics are one per engine payload, and
-`crates/bisa-engine/tests/it/docs.rs` holds this page to the list:
+`crates/bisa-engine/tests/it/docs.rs` holds this page to the list; the designer's topic field offers
+it as you type (`platformTopics.mjs`, held to the same list):
 
 `session`, `work_item.scheduled`, `work_item.execution_ended`, `session.state`, `session.gone`,
 `gate.opened`, `question.asked`, `guided.status`, `agent.thinking`, `agent.streamed`,
@@ -222,7 +223,7 @@ fields — `run.finished` has `run`, `workflow` and `outcome`; `step.changed` ha
 `workstream.changed`, `workstream.committed`, `workstream.script_ran`,
 `workstream.publish_failed`, `workstream.server_changed`, `browser.request`, `mobile_development.changed`, `mcp.probed`,
 `connectors.checked`,
-`people.changed`, `invite.changed`, `message.held`, `message.released`, `content.screened`,
+`people.changed`, `invite.changed`, `message.held`, `message.released`, `message.refused`, `content.screened`,
 `hosted.changed`, `relays.changed`, `guard.decided`, `decision.judged`, `security.redacted`,
 `changes.moved`, `changes.settled`, `conversation.ask_opened`, `conversation.ask_settled`,
 `model.switched`, `signal.received`, `listener.fired`, `listener.failed`, `listening.changed`,

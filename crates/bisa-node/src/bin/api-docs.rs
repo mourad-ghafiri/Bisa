@@ -82,7 +82,10 @@ not have, a string that is not the id it stands for — is a **400** with the sa
 carrying the extractor's own sentence and no `problems`: the body was not read, so nothing was
 judged; a body that is not JSON by its `Content-Type` is the **415** above, one over the route's
 limit the **413**. A query string the node cannot read — a cursor that is no number, a field the
-route needs and the address lacks — is the same **400**, in the same shape. A definition the node *can* read is never refused for what it says — a half-connected
+route needs and the address lacks — is the same **400**, in the same shape. Both are coded, so a
+client tells the body it sent from a refusal of what it asked: `code` is `body_unreadable` or
+`query_unreadable`, and `detail.reason` carries the reader's own sentence — never a field name
+parsed out of it. The **413** and the **415** carry no code: each status stands alone. A definition the node *can* read is never refused for what it says — a half-connected
 graph, a connector not chosen yet — but stored with its `problems`; only a start refuses those.
 
 ## Conventions

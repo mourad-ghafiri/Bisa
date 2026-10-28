@@ -38,9 +38,11 @@ export interface Activity {
   working?: number;
 }
 
-export declare function standingState(activity?: Activity): PetState;
+/** The row a pack rests on: its `defaultAnimation` when it names one of the nine, else `idle`. */
+export declare function restingState(def: { defaultAnimation?: unknown } | null | undefined): PetState;
+export declare function standingState(activity?: Activity, rest?: PetState): PetState;
 /** A roster session's state, in the pet's rows — the standing state while following. */
-export declare function petStateOfSession(state: SessionState | string): PetState;
+export declare function petStateOfSession(state: SessionState | string, rest?: PetState): PetState;
 /** The once-through state a followed session's edge earns. */
 export declare function transientForTransition(prev: SessionState | string | null, next: SessionState | string): PetState | null;
 export declare function transientFor(payload: string | { type: string; [k: string]: unknown }): PetState | null;

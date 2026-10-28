@@ -167,3 +167,15 @@ export function progressCount(strip) {
   const total = strip?.total ?? 0;
   return { reached, total, label: total === 0 ? t("goal-progress-no-steps-yet") : t("goal-progress-steps", { reached, total }) };
 }
+
+/**
+ * The transcript a step's row can show inline: its work item, and whether
+ * the item is still being written — running or waiting — so the row tails
+ * it; `null` for a row that became no item (a wait, a gate, a check).
+ * @param {Pick<import("./progressModel.d.mts").ProgressRow, "workItem" | "state">} row
+ */
+export function transcriptOf(row) {
+  if (!row?.workItem) return null;
+  const live = row.state?.state === "running" || row.state?.state === "waiting";
+  return { item: row.workItem, live };
+}

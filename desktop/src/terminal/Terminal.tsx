@@ -68,6 +68,8 @@ export interface TerminalProps {
   run?: boolean;
   /** This checkout's Flutter app runs here on that device (ide/19). */
   mobileDevelopment?: { device: string } | null;
+  /** A folder relative to the placement the shell opens in (ide/06 — *Open in terminal here*); the placement itself when absent. */
+  sub?: string | null;
   /**
    * A resumed harness is nudged into motion once it has drawn its prompt
    * (`terminal.resume_start`, read by the panel). Meaningless without `resume`.
@@ -238,6 +240,7 @@ export function Terminal({
   resume = false,
   run = false,
   mobileDevelopment = null,
+  sub = null,
   startOnResume = false,
   start = null,
   listening = true,
@@ -354,7 +357,7 @@ export function Terminal({
 
     void boot(
       host,
-      { scope, id, harness: harness ?? null, login: login ?? null, resume, run, mobileDevelopment: mobileDevelopment ?? null, startOnResume, start: start ?? null, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle },
+      { scope, id, harness: harness ?? null, login: login ?? null, resume, run, mobileDevelopment: mobileDevelopment ?? null, sub: sub ?? null, startOnResume, start: start ?? null, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle },
       activeRef,
       live,
       refs,
@@ -402,7 +405,7 @@ export function Terminal({
     // carried on the session, so it cannot change under a live shell. Listing
     // it would only add a way to end one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, id, harness, login?.kind, login?.host, run, mobileDevelopment?.device]);
+  }, [scope, id, harness, login?.kind, login?.host, run, mobileDevelopment?.device, sub]);
 
   // Search results arrive from the addon; mirror the ones for this mount into
   // the find bar when it is open.
@@ -561,6 +564,8 @@ interface BootWhat {
   run: boolean;
   /** The checkout's Flutter app runs here on that device (ide/19). */
   mobileDevelopment: { device: string } | null;
+  /** A folder relative to the placement to open in (ide/06), or the placement itself. */
+  sub: string | null;
   startOnResume: boolean;
   /** Words to type once the prompt is drawn (ide/06 §Start words), or none. */
   start: string | null;
@@ -712,7 +717,7 @@ async function boot(
   setError: (message: string | null) => void,
   onBooted: () => void,
 ) {
-  const { scope, id, harness, login, resume, run, mobileDevelopment, startOnResume, start, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle } = what;
+  const { scope, id, harness, login, resume, run, mobileDevelopment, sub, startOnResume, start, sessionKey, replayCheckpoint, scrollback, fontFamily, fontSize, cursorStyle } = what;
   if (!terminalAvailable()) {
     setError(t("terminal-terminal-shell-needs-desktop-app-running-browser"));
     return;
@@ -881,7 +886,7 @@ async function boot(
       live.checkpointTimer = null;
       checkpoint(live, sessionKey);
       refs.onExit.current?.(event.code);
-    }, run, mobileDevelopment);
+    }, run, mobileDevelopment, sub);
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     setError(reason);

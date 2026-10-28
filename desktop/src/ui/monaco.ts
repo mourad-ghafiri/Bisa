@@ -30,7 +30,7 @@ import CssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import HtmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import TsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import { watchAppearance } from "../shell/theme";
-import { EDITOR_ROLE_MAP, editorThemeFor } from "./editorTheme.mjs";
+import { EDITOR_ROLE_MAP, editorThemeFor, monacoThemeFor } from "./editorTheme.mjs";
 
 export type { Monaco };
 
@@ -156,7 +156,23 @@ function applyEditorTheme(): void {
     log.warn("editor", "the editor theme has roles without a resolved colour", { roles: missing.join(", ") });
   }
   mod.editor.defineTheme(THEME_NAME, theme as Monaco.editor.IStandaloneThemeData);
-  mod.editor.setTheme(THEME_NAME);
+  mod.editor.setTheme(monacoThemeFor(themeChoice, THEME_NAME));
+}
+
+/** What `editor.theme` says: the app's theme, or one of Monaco's own. */
+let themeChoice = "follow_app";
+
+/**
+ * Apply a choice of `editor.theme` (ide/13): one of Monaco's own themes by
+ * name, anything else the app's. Monaco's theme is one for every editor, so
+ * the choice is kept here and the editors hand it over as their settings
+ * arrive (`useEditorTypography`); the app's theme stays defined underneath,
+ * so going back to `follow_app` is one call.
+ */
+export function setEditorThemeChoice(choice: string): void {
+  if (choice === themeChoice) return;
+  themeChoice = choice;
+  mod?.editor.setTheme(monacoThemeFor(themeChoice, THEME_NAME));
 }
 
 let themeWatched = false;

@@ -37,7 +37,10 @@
 //! ambient authority back to whatever can reach the webview, and it would make
 //! "where did this shell open?" a question with no authoritative answer. A
 //! scope or id the node does not recognise is refused; it is never defaulted
-//! to the home directory or the workspace root.
+//! to the home directory or the workspace root. The one name it may add is a
+//! folder *relative to that directory* (*Open in terminal here* on the Files
+//! tree): never absolute, never a `..`, resolved and held under the placement
+//! by [`sub_dir`] so a symlink out is refused like a `..` is.
 //!
 //! **The same rule, applied to harnesses.** A terminal can run Claude Code,
 //! Codex, opencode or anything else the catalog knows — and the frontend names
@@ -600,6 +603,49 @@ fn mobile_development_cwd(root: &Path, cwd: Option<String>) -> Result<PathBuf, S
     Ok(cwd)
 }
 
+/// The folder a shell opens in under the placement, when the webview named
+/// one (*Open in terminal here*, ide/06): a path **relative** to the root —
+/// never absolute, never a `..`, never a NUL — joined, resolved and required
+/// to stay under the resolved root, so a symlink out is refused as a `..`
+/// is; and a directory. `None` or an empty name is the root itself. The
+/// answer is the joined path as the root spells it, not its canonical form,
+/// so the shell's prompt reads like the placement's.
+fn sub_dir(root: &Path, sub: Option<&str>) -> Result<PathBuf, String> {
+    let Some(sub) = sub.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(root.to_path_buf());
+    };
+    if sub.contains('\0') {
+        return Err("the folder's name holds a NUL byte".to_string());
+    }
+    let rel = Path::new(sub);
+    if rel.is_absolute()
+        || rel.components().any(|c| {
+            !matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err(format!(
+            "{sub} is not a folder under this place: a relative path, without `..`"
+        ));
+    }
+    let joined = root.join(rel);
+    let real_root = root
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", root.display()))?;
+    let real = joined
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", joined.display()))?;
+    if !real.starts_with(&real_root) {
+        return Err(format!("{sub} leaves this place"));
+    }
+    if !real.is_dir() {
+        return Err(format!("{sub} is not a folder"));
+    }
+    Ok(joined)
+}
+
 /// The absolute directory a shell for this scope and id should open in.
 ///
 /// `exists: false` is refused rather than created. A directory the workspace
@@ -631,6 +677,86 @@ fn resolve_dir(api_base: &str, token: &str, scope: Scope, id: &str) -> Result<Pa
         ));
     }
     Ok(PathBuf::from(placement.path))
+}
+
+/// What `terminal.shell` says on this machine (`GET /settings/resolved`,
+/// machine scope — never a peer's), or `None` when the node cannot be asked
+/// or does not say: the login shell then, as before the setting was read.
+fn terminal_shell_setting(api_base: &str, token: &str) -> Option<String> {
+    let (host, port) = authority(api_base).ok()?;
+    let raw = get(&host, port, token, "/settings/resolved").ok()?;
+    shell_setting_in(&raw)
+}
+
+/// The value of `terminal.shell` in a raw `GET /settings/resolved` answer —
+/// `None` for anything but a 200 holding a string under that key.
+fn shell_setting_in(raw: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Resolved {
+        settings: Vec<Row>,
+    }
+    #[derive(Deserialize)]
+    struct Row {
+        key: String,
+        value: serde_json::Value,
+    }
+    let (status, body) = parse_http_response(raw).ok()?;
+    if status != 200 {
+        return None;
+    }
+    let resolved: Resolved = serde_json::from_str(&body).ok()?;
+    resolved
+        .settings
+        .into_iter()
+        .find(|r| r.key == "terminal.shell")
+        .and_then(|r| r.value.as_str().map(str::to_string))
+}
+
+/// The program `terminal.shell` names, checked here and never taken on the
+/// setting's word: `login` or nothing is the login shell (`None`); a path
+/// must be absolute, a file and executable; a bare name is found on `path`
+/// — the login `PATH` — as a shell would find it. Anything else is refused
+/// with the reason, and the caller opens the login shell instead.
+fn shell_program(value: &str, path: Option<&str>) -> Result<Option<PathBuf>, String> {
+    let value = value.trim();
+    if value.is_empty() || value == "login" {
+        return Ok(None);
+    }
+    if value.contains('\0') {
+        return Err("the shell's name holds a NUL byte".to_string());
+    }
+    let candidate = Path::new(value);
+    if candidate.is_absolute() {
+        return executable(candidate)
+            .map(Some)
+            .ok_or_else(|| format!("{value} is not an executable file"));
+    }
+    if candidate.components().count() > 1 {
+        return Err(format!(
+            "{value} is a relative path: name the shell by its absolute path, or by its bare name to find it on the login PATH"
+        ));
+    }
+    std::env::split_paths(path.unwrap_or(""))
+        .map(|dir| dir.join(value))
+        .find_map(|p| executable(&p))
+        .map(Some)
+        .ok_or_else(|| format!("{value} is not on the login PATH"))
+}
+
+/// The path when it is a file this process may execute.
+fn executable(path: &Path) -> Option<PathBuf> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if meta.permissions().mode() & 0o111 == 0 {
+            return None;
+        }
+    }
+    Some(path.to_path_buf())
 }
 
 // ---------------------------------------------------------------------------
@@ -1285,7 +1411,7 @@ fn shell_command(launch: &Launch, resume: bool, extra: &[String]) -> String {
 /// `CommandBuilder::arg` **panics** on a builder from `new_default_prog` —
 /// `is_default_prog()` is just "argv is empty", and appending to it would leave
 /// the shell with no program to be. Production is the only caller that passes
-/// `program: None`, and every test passed `Some("/bin/sh")`, so the one
+/// no program (the login shell), and every test passed `/bin/sh`, so the one
 /// combination that shipped — the login shell *plus* a harness to run in it —
 /// was the one combination never constructed. Opening any harness panicked.
 ///
@@ -1315,12 +1441,54 @@ fn build_command(
     cmd
 }
 
+/// What runs in the PTY when no harness, sign-in or run command does — and
+/// the shell a harness runs inside.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Program<'a> {
+    /// The login shell `new_default_prog` finds — `$SHELL`, else the passwd
+    /// database — launched with `-` before argv[0] so it reads the login
+    /// profile. The production default.
+    Login,
+    /// The shell `terminal.shell` names, found and checked by
+    /// [`shell_program`]: run with `-l` for the same profile, under the login
+    /// `PATH`.
+    Named(&'a str),
+    /// A test's program (`/bin/sh`): the test's own environment, nobody's
+    /// profile — a test that depended on whatever a developer's `.zshrc`
+    /// prints would fail for reasons that have nothing to do with this code.
+    /// Constructed by tests alone; the app spawns the other two.
+    #[allow(dead_code)]
+    Test(&'a str),
+}
+
+impl<'a> Program<'a> {
+    /// The program `build_command` is handed: none for the login shell.
+    fn path(self) -> Option<&'a str> {
+        match self {
+            Program::Login => None,
+            Program::Named(p) | Program::Test(p) => Some(p),
+        }
+    }
+
+    /// Whether the tab runs under the `PATH` the app resolved for the node
+    /// (`login_env`): the person's shells do, a test's program does not.
+    fn under_login_path(self) -> bool {
+        !matches!(self, Program::Test(_))
+    }
+
+    /// Whether `-l` is added: a named shell with no launch loses
+    /// `new_default_prog`'s `-` before argv[0], and the flag asks for the
+    /// login profile the same way; a launch already carries it (`-l -c …`).
+    fn login_flag(self, launch: Option<&Launch>) -> bool {
+        matches!(self, Program::Named(_)) && launch.is_none()
+    }
+}
+
 /// Open a PTY in `dir` and start pumping it into `sink`.
 ///
-/// `program` is `None` everywhere except in tests, where it is `/bin/sh`: the
-/// production path must be the user's real login shell, and a test that
-/// depended on whatever a developer's `.zshrc` prints would fail for reasons
-/// that have nothing to do with this code.
+/// `program` is [`Program::Login`] in production — the user's real login
+/// shell — or the shell `terminal.shell` names; a test hands `/bin/sh` as
+/// [`Program::Test`], which runs nobody's profile.
 ///
 /// `launch`, when set, runs a harness **through that same login shell** rather
 /// than spawning its binary directly. That is not indirection for its own
@@ -1335,7 +1503,7 @@ fn build_command(
 fn spawn_session(
     registry: Arc<TerminalRegistry>,
     dir: &Path,
-    program: Option<&str>,
+    program: Program<'_>,
     launch: Option<&Launch>,
     harness_id: Option<&str>,
     resume: bool,
@@ -1370,15 +1538,18 @@ fn spawn_session(
     // `-l` because a non-login shell reads a different (often much smaller)
     // set of startup files, and the whole reason for going through a shell at
     // all is the environment the login files build. See [`build_command`].
-    let mut cmd = build_command(program, launch, resume, &extra);
+    let mut cmd = build_command(program.path(), launch, resume, &extra);
+    if program.login_flag(launch) {
+        cmd.arg("-l");
+    }
     cmd.cwd(dir);
     // The `PATH` the app resolved for the node (`login_env`): what the
     // Harnesses panel offered is what the tab must find, and the login shell
-    // adds its own on top. The production path only — a test's named
-    // program keeps the test's environment, and never runs anybody's
-    // profile to find out.
+    // — or the one `terminal.shell` names — adds its own on top. The
+    // production path only — a test's program keeps the test's environment,
+    // and never runs anybody's profile to find out.
     // LCOV_EXCL_START the person's login shell and profile; out by decision
-    if program.is_none() {
+    if program.under_login_path() {
         if let Some(path) = crate::login_env::login_path() {
             cmd.env("PATH", path);
         }
@@ -1589,6 +1760,7 @@ pub async fn terminal_open(
     login: Option<LoginSpec>,
     run: bool,
     mobile_development: Option<MobileDevelopmentSpec>,
+    sub: Option<String>,
     on_output: Channel<TerminalEvent>,
 ) -> Result<TerminalOpened, String> {
     // No node, no shell: the reason is the answer.
@@ -1611,6 +1783,12 @@ pub async fn terminal_open(
             }
             _ => None,
         };
+        // *Open in terminal here* (ide/06): a folder the webview named
+        // relative to the placement, held under it by `sub_dir`. A device
+        // run opens where the node said and names no folder of its own.
+        if mobile_development_run.is_none() {
+            dir = sub_dir(&dir, sub.as_deref())?;
+        }
         let (launch, interactive) = match (login, harness.as_deref(), run) {
             _ if mobile_development_run.is_some() => (mobile_development_run, None),
             // A code host sign-in: the CLI's own browser login, from the
@@ -1646,10 +1824,29 @@ pub async fn terminal_open(
         // A zero-sized pty makes programs that ask for the window size divide
         // by it. The frontend measures before it mounts, so zero here means the
         // panel had no layout yet, not that the user wants no terminal.
+        // The shell every tab opens (`terminal.shell`, this machine's): the
+        // login shell, or the one the setting names — found and checked here,
+        // never a program the webview named; a name that does not check out
+        // opens the login shell, with the reason in the log.
+        let named_shell = terminal_shell_setting(&api_base, &api_token).and_then(|value| {
+            let login_path =
+                crate::login_env::login_path().or_else(|| std::env::var("PATH").ok());
+            match shell_program(&value, login_path.as_deref()) {
+                Ok(found) => found.map(|p| p.to_string_lossy().into_owned()),
+                Err(e) => {
+                    tracing::warn!(target: "bisa_desktop", value = %value, "terminal.shell names no shell this machine can run; the login shell opens instead: {e}");
+                    None
+                }
+            }
+        });
+        let program = match named_shell.as_deref() {
+            Some(p) => Program::Named(p),
+            None => Program::Login,
+        };
         let spawned = spawn_session(
             registry,
             &dir,
-            None,
+            program,
             launch.as_ref(),
             harness.as_deref(),
             resume,
@@ -2609,7 +2806,7 @@ mod tests {
         let err = spawn_session(
             Arc::clone(&registry),
             &missing,
-            Some("/bin/sh"),
+            Program::Test("/bin/sh"),
             None,
             None,
             false,
@@ -2651,7 +2848,7 @@ mod tests {
         let id = spawn_session(
             Arc::clone(&registry),
             &want,
-            Some("/bin/sh"),
+            Program::Test("/bin/sh"),
             None,
             None,
             false,
@@ -2706,7 +2903,7 @@ mod tests {
         let id = spawn_session(
             Arc::clone(&registry),
             &want,
-            Some("/bin/sh"),
+            Program::Test("/bin/sh"),
             None,
             None,
             false,
@@ -2825,7 +3022,7 @@ mod tests {
         let id = spawn_session(
             Arc::clone(&registry),
             &want,
-            Some("/bin/sh"),
+            Program::Test("/bin/sh"),
             Some(&launch),
             Some("stub"),
             true,
@@ -2888,7 +3085,7 @@ mod tests {
             spawn_session(
                 Arc::clone(&registry),
                 dir.path(),
-                Some("/bin/sh"),
+                Program::Test("/bin/sh"),
                 None,
                 None,
                 false,
@@ -2932,7 +3129,7 @@ mod tests {
         let id = spawn_session(
             Arc::clone(&registry),
             dir.path(),
-            Some("/bin/sh"),
+            Program::Test("/bin/sh"),
             None,
             None,
             false,
@@ -3161,6 +3358,263 @@ mod scrollback_tests {
 }
 
 #[cfg(test)]
+mod shell_program_tests {
+    use super::*;
+
+    fn wait_gone(registry: &Arc<TerminalRegistry>) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while registry.len() > 0 {
+            assert!(
+                Instant::now() < deadline,
+                "the registry still holds {} shells",
+                registry.len()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn login_or_nothing_is_the_login_shell() {
+        assert_eq!(shell_program("", None).unwrap(), None);
+        assert_eq!(shell_program("login", None).unwrap(), None);
+        assert_eq!(shell_program("  login  ", None).unwrap(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_must_be_an_absolute_executable_file_and_a_bare_name_is_found_on_the_path() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let sh = dir.path().join("mysh");
+        std::fs::write(&sh, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&sh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let plain = dir.path().join("notes");
+        std::fs::write(&plain, "").unwrap();
+        std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            shell_program(sh.to_str().unwrap(), None).unwrap(),
+            Some(sh.clone())
+        );
+        let err = shell_program(plain.to_str().unwrap(), None).unwrap_err();
+        assert!(err.contains("not an executable file"), "{err}");
+        assert!(
+            shell_program(dir.path().to_str().unwrap(), None)
+                .unwrap_err()
+                .contains("not an executable file"),
+            "a folder is no shell"
+        );
+        assert!(shell_program(dir.path().join("missing").to_str().unwrap(), None).is_err());
+        assert!(shell_program("bin/mysh", None)
+            .unwrap_err()
+            .contains("relative path"));
+        assert!(shell_program("./mysh", None)
+            .unwrap_err()
+            .contains("relative path"));
+        // A bare name is found on the PATH it is handed — the login PATH in
+        // production — else refused; a file nobody may execute is not found.
+        let path =
+            std::env::join_paths([dir.path().join("elsewhere"), dir.path().to_path_buf()]).unwrap();
+        let path = path.to_str().unwrap();
+        assert_eq!(shell_program("mysh", Some(path)).unwrap(), Some(sh.clone()));
+        assert!(shell_program("mysh", None)
+            .unwrap_err()
+            .contains("not on the login PATH"));
+        assert!(shell_program("notes", Some(path))
+            .unwrap_err()
+            .contains("not on the login PATH"));
+        assert!(shell_program("my\0sh", Some(path)).is_err());
+    }
+
+    #[test]
+    fn the_setting_is_read_from_a_200_holding_a_string_and_from_nothing_else() {
+        let answer = |status: &str, body: &str| {
+            format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len())
+        };
+        let body = r#"{"project":null,"settings":[{"key":"terminal.font_size","value":13,"origin":"default"},{"key":"terminal.shell","value":"zsh","origin":"machine"}]}"#;
+        assert_eq!(
+            shell_setting_in(&answer("200 OK", body)).as_deref(),
+            Some("zsh")
+        );
+        assert_eq!(
+            shell_setting_in(&answer("200 OK", r#"{"project":null,"settings":[]}"#)),
+            None,
+            "no such key"
+        );
+        assert_eq!(
+            shell_setting_in(&answer(
+                "200 OK",
+                r#"{"settings":[{"key":"terminal.shell","value":3}]}"#
+            )),
+            None,
+            "not a string"
+        );
+        assert_eq!(shell_setting_in(&answer("500 Oops", body)), None);
+        assert_eq!(shell_setting_in(&answer("200 OK", "not json")), None);
+        assert_eq!(shell_setting_in("garbage"), None);
+        // A node that cannot be asked: the login shell, as before the setting.
+        assert_eq!(terminal_shell_setting("http://127.0.0.1:1", "t"), None);
+        // A node that answers: the setting's word, read over the wire the
+        // placement is read over — a loopback listener standing in for it.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let reply = answer("200 OK", body);
+        std::thread::spawn(move || {
+            if let Some(Ok(mut s)) = listener.incoming().next() {
+                let mut buf = [0u8; 1024];
+                let _request = s.read(&mut buf);
+                s.write_all(reply.as_bytes())
+                    .expect("the shell reads the reply");
+            }
+        });
+        assert_eq!(
+            terminal_shell_setting(&format!("http://127.0.0.1:{port}"), "t").as_deref(),
+            Some("zsh")
+        );
+    }
+
+    #[test]
+    fn a_named_shell_runs_as_a_login_shell_under_the_login_path_and_a_test_program_as_it_is() {
+        let launch = Launch {
+            program: "claude".to_string(),
+            args: Vec::new(),
+            resume_args: Vec::new(),
+        };
+        assert_eq!(Program::Login.path(), None);
+        assert_eq!(Program::Named("/bin/zsh").path(), Some("/bin/zsh"));
+        assert_eq!(Program::Test("/bin/sh").path(), Some("/bin/sh"));
+        assert!(Program::Login.under_login_path());
+        assert!(Program::Named("/bin/zsh").under_login_path());
+        assert!(!Program::Test("/bin/sh").under_login_path());
+        assert!(Program::Named("/bin/zsh").login_flag(None));
+        assert!(
+            !Program::Named("/bin/zsh").login_flag(Some(&launch)),
+            "a launch already carries -l"
+        );
+        assert!(
+            !Program::Login.login_flag(None),
+            "the login shell has its dash"
+        );
+        assert!(!Program::Test("/bin/sh").login_flag(None));
+    }
+
+    /// A named shell is started with `-l`: a stub shell that prints its
+    /// arguments stands in for the person's, so no profile runs here.
+    #[cfg(unix)]
+    #[test]
+    fn a_named_shell_is_started_with_the_login_flag() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let stub = dir.path().join("stubsh");
+        std::fs::write(&stub, "#!/bin/sh\nprintf 'ARGS=[%s]\\n' \"$*\"\nexit 0\n").unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let seen = Arc::new(Mutex::new(String::new()));
+        let sink_seen = Arc::clone(&seen);
+        let registry = Arc::new(TerminalRegistry::new());
+        let id = spawn_session(
+            Arc::clone(&registry),
+            dir.path(),
+            Program::Named(stub.to_str().unwrap()),
+            None,
+            None,
+            false,
+            None,
+            24,
+            80,
+            Arc::new(move |event| {
+                if let TerminalEvent::Output { data } = event {
+                    sink_seen.lock().unwrap().push_str(&data);
+                }
+                true
+            }),
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let got = seen.lock().unwrap().clone();
+            if got.contains("ARGS=[-l]") {
+                break;
+            }
+            if Instant::now() >= deadline {
+                registry.terminate(&id);
+                panic!("the named shell never printed its arguments; it said {got:?}");
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        registry.terminate(&id);
+        wait_gone(&registry);
+    }
+}
+
+#[cfg(test)]
+mod sub_dir_tests {
+    use super::*;
+
+    #[test]
+    fn a_sub_folder_is_relative_under_the_root_and_a_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src/app")).unwrap();
+        std::fs::write(root.join("src/a.rs"), "").unwrap();
+        assert_eq!(sub_dir(root, None).unwrap(), root);
+        assert_eq!(
+            sub_dir(root, Some("")).unwrap(),
+            root,
+            "no name is the root"
+        );
+        assert_eq!(sub_dir(root, Some("  ")).unwrap(), root);
+        assert_eq!(sub_dir(root, Some("src")).unwrap(), root.join("src"));
+        assert_eq!(
+            sub_dir(root, Some("src/")).unwrap(),
+            root.join("src"),
+            "a trailing slash names the same folder"
+        );
+        assert_eq!(
+            sub_dir(root, Some("./src/app")).unwrap(),
+            root.join("src/app"),
+            "a leading dot is the folder itself"
+        );
+        for refused in [
+            "../x",
+            "src/..",
+            "src/../src",
+            "/etc",
+            "src/a.rs",
+            "missing",
+            "src\0x",
+        ] {
+            let err = sub_dir(root, Some(refused)).unwrap_err();
+            assert!(!err.is_empty(), "{refused:?} is refused with a reason");
+        }
+        assert!(
+            sub_dir(root, Some("src/.."))
+                .unwrap_err()
+                .contains("without `..`"),
+            "a `..` is refused by its shape, before any path is resolved"
+        );
+        assert!(sub_dir(root, Some("src/a.rs"))
+            .unwrap_err()
+            .contains("not a folder"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_out_of_the_root_is_refused_and_one_inside_is_a_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("link")).unwrap();
+        let err = sub_dir(dir.path(), Some("link")).unwrap_err();
+        assert!(err.contains("leaves"), "{err}");
+        std::fs::create_dir_all(dir.path().join("real")).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("inside")).unwrap();
+        assert_eq!(
+            sub_dir(dir.path(), Some("inside")).unwrap(),
+            dir.path().join("inside"),
+            "a link that stays inside is answered as named"
+        );
+    }
+}
+
+#[cfg(test)]
 mod mobile_development_tests {
     use super::*;
 
@@ -3230,7 +3684,7 @@ mod node_wire_tests {
         spawn_session(
             Arc::clone(registry),
             dir,
-            Some("/bin/sh"),
+            Program::Test("/bin/sh"),
             None,
             None,
             false,
@@ -3684,7 +4138,7 @@ mod node_wire_tests {
         let refused = spawn_session(
             Arc::clone(&registry),
             dir.path(),
-            Some("/bin/sh"),
+            Program::Test("/bin/sh"),
             None,
             None,
             false,

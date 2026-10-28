@@ -454,12 +454,16 @@ fn show(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
         ));
         for p in &op.params {
             out.human(&format!(
-                "      {}{} ({}): {}",
+                "      {}{} ({}){}: {}",
                 p.name,
                 if p.required { "*" } else { "" },
                 serde_json::to_value(p.kind)
                     .ok()
                     .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default(),
+                p.default
+                    .as_ref()
+                    .map(|d| format!(" = {d}"))
                     .unwrap_or_default(),
                 p.doc
             ));

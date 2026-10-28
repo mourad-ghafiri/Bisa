@@ -209,7 +209,11 @@ you type. The rules a definition must pass: an `https` base URL (or `http` on lo
 is in `hosts`; hosts spelled `host[:port]` or `*.suffix`; every `{params.<name>}` declared on that
 operation and every `{account.<name>}` on the connector; no reserved header (`Authorization` is the
 scheme's to set); a `check` operation with no required parameter that writes nothing. A parameter's
-`kind` is `text`, `number`, `bool`, `json`, `path` or `file`; a JSON body leaf that is exactly one typed
+`kind` is `text`, `number`, `bool`, `json`, `path` or `file`; a parameter may carry a `default` — `default = 100`
+on a number, `true` on a bool, an object on `json`, a value of its own kind or the definition is refused
+— sent when the step leaves it unset (a required one with a default need not be set; an emptied
+field reads as unset), shown in the designer as the field's placeholder and printed by `bisa
+connector show`; an account's parameter takes none; a JSON body leaf that is exactly one typed
 placeholder becomes the typed value, and one naming an absent optional parameter is left out. A connector something uses — an account, a workflow step —
 cannot be removed until that goes first.
 

@@ -7,14 +7,15 @@
  * (`run` null) has no body to act on.
  */
 import type { Step, StepRecord } from "../../types";
-import { Button, ICON, RelativeTime, STEP_KIND_ICON, StepStateChip, cn } from "../../ui";
+import { Button, ICON, RelativeTime, STEP_KIND_ICON, SectionHeader, StepStateChip, cn } from "../../ui";
 import type { StepKind } from "../../types";
 import { answerSummary } from "../../askModel.mjs";
 import { StepRecordBody } from "../_workflow/StepRecordBody";
 import { HOLDER_LABEL } from "../_goals/goalStripModel.mjs";
 import { StepActions } from "../_workflow/StepActions";
 import { familyInk } from "../_workflow/familyInk";
-import type { ProgressRow } from "./progressModel.mjs";
+import { transcriptOf, type ProgressRow } from "./progressModel.mjs";
+import { SessionTranscript } from "../_work/SessionTranscript";
 import { navigate } from "../../router";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import { projectsMadeByStep } from "../_work/projectOriginModel.mjs";
@@ -48,6 +49,7 @@ export function StepRow({
   // own design's or a library workflow's; either way, the IDE opens on it.
   const ws = useWorkspace();
   const made = run ? projectsMadeByStep(ws.projects, run, row.id) : [];
+  const transcript = transcriptOf(row);
   const hasBody = row.error || row.output !== null || row.workItem || said || row.actions.length > 0 || made.length > 0;
   return (
     // The live step is told by its ground and its state chip, never a coloured stripe down its edge.
@@ -78,6 +80,13 @@ export function StepRow({
           {row.workItem && (
             <Button size="sm" variant="ghost" className="self-start" onClick={() => onOpenItem(row.workItem!)}>
               <ICON.workItem size={12} aria-hidden />{t("goal-step-row-open-work-item")}</Button>
+          )}
+          {transcript && (
+            // What the agent wrote, inline and bounded — tailed while the step is live, polled only while the row stands open. The panel above stays the whole thing's door.
+            <section className="flex flex-col gap-1.5">
+              <SectionHeader flush title={t("goal-step-row-transcript")} />
+              <SessionTranscript session={transcript.item} live={transcript.live} className="max-h-48" />
+            </section>
           )}
           {made.map((p) => (
             <Button key={p.project.id} size="sm" variant="ghost" className="self-start" onClick={() => navigate({ name: "workbench", scope: "workstream", id: p.project.id })}>

@@ -786,10 +786,18 @@ fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
     let work = async move {
         let timeout = Duration::from_secs(inner.config.check_timeout_secs.max(1));
         let (passed, evidence) = match &check {
-            CheckKind::Command { command } => {
-                match render_in(&inner, &run, command, RenderContext::ShellCommand) {
-                    Ok(command) => {
-                        let cwd = crate::projects::check_cwd(&inner, &run);
+            CheckKind::Command { command, project } => {
+                // Where it runs is decided before the guard reads it: the
+                // project the step names, held to the agent step's rule, else
+                // where the run's work landed. A project the goal lacks fails
+                // the step with the attach remedy as its evidence.
+                let placed = resolve_project(&run, project.as_ref())
+                    .and_then(|named| crate::projects::check_cwd_named(&inner, &run, named));
+                match (
+                    render_in(&inner, &run, command, RenderContext::ShellCommand),
+                    placed,
+                ) {
+                    (Ok(command), Ok(cwd)) => {
                         // The guard judges the command first; what runs has its
                         // placeholders restored, what is journaled never does.
                         let judge = crate::security::Judge::platform(Some(run.home()), Some(&cwd));
@@ -819,7 +827,7 @@ fn run_check(inner: &Arc<Inner>, run_id: RunId, step: &StepId) -> Result<(), Eng
                             }
                         }
                     }
-                    Err(e) => (false, vec![e.to_string()]),
+                    (Err(e), _) | (Ok(_), Err(e)) => (false, vec![e.to_string()]),
                 }
             }
             // LCOV_EXCL_START: the validator refuses a schema check that names no step (ProblemKind::Unfilled) before a run exists

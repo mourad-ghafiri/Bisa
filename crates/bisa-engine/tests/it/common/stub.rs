@@ -169,6 +169,7 @@ pub fn param(name: &str, kind: ParamKind, required: bool) -> ParamDef {
         kind,
         required,
         doc: format!("The {name}."),
+        default: None,
     }
 }
 

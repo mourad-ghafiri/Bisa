@@ -352,6 +352,7 @@ async fn a_run_of_the_workspace_that_fails_wakes_no_designer() {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "exit 1".into(),
+                        project: None,
                     },
                 },
             )],

@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { Checkbox, ICON, cn } from "../../../ui";
-import { addWord, removeWord, toggleWord, wordsOr, type OneOrMany } from "./manyModel.mjs";
+import { addWord, offeredSuggestions, removeWord, toggleWord, wordsOr, type OneOrMany } from "./manyModel.mjs";
 import { t } from "../../../i18n/l10n.mjs";
 
 /** A closed set, any checked word matching. `fallback` is what an absent field means and cannot be unchecked alone; `null` when absent means any. */
@@ -53,6 +53,7 @@ export function WordsInput({
   placeholder,
   mono,
   suggestions = [],
+  suggest = "all",
   labelOf = (word) => word,
   "aria-label": ariaLabel,
 }: {
@@ -64,6 +65,8 @@ export function WordsInput({
   mono?: boolean;
   /** Offered beside the line, each a click away, the chosen ones left out. */
   suggestions?: readonly { word: string; label: string }[];
+  /** `all`: every unchosen suggestion as a chip; `typed`: a list too long for chips, offered as the line is typed — the matches, a few at a time. */
+  suggest?: "all" | "typed";
   /** How a word reads on its chip when not as written — a channel's name for its id. */
   labelOf?: (word: string) => string;
   "aria-label"?: string;
@@ -75,7 +78,7 @@ export function WordsInput({
     const next = addWord(value, raw);
     if (next !== (value ?? null)) onChange(next);
   };
-  const offered = suggestions.filter((s) => !words.includes(s.word));
+  const offered = offeredSuggestions(suggestions, words, draft, { typed: suggest === "typed" });
   return (
     <div className="flex flex-col gap-1.5">
       <div className={cn("control-group anim flex flex-wrap items-center gap-1 rounded-control border border-border bg-surface px-1.5 py-1", !disabled && "hover:border-text-dim/40")}>

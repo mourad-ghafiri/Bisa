@@ -90,6 +90,7 @@ import type {
 } from "./types";
 import type {
   CommitSummary,
+  HeldMessage,
   GitMergeMode,
   GitRebasePlan,
   AgentDef,
@@ -207,6 +208,8 @@ import type {
   SearchHit,
   SearchParams,
   SearchSummary,
+  IdeReplace,
+  IdeReplaceAnswer,
   ProjectReviewNotes,
   ReviewNote,
   ReviewNotesSent,
@@ -1088,6 +1091,12 @@ export const api = {
   revokeInvite: (id: string, s?: AbortSignal) => del<{ invite: Invite }>(`/workspace/invites/${id}`, undefined, s),
   admitInvite: (id: string, s?: AbortSignal) => post<{ invite: Invite }>(`/workspace/invites/${id}/admit`, {}, s),
   refuseInvite: (id: string, s?: AbortSignal) => post<{ invite: Invite }>(`/workspace/invites/${id}/refuse`, {}, s),
+  /// The messages from people on other nodes that no agent may hear yet, each with why it is held.
+  heldMessages: (s?: AbortSignal) => get<{ held: HeldMessage[] }>("/messages/held", s),
+  /// Let a held message through: the agents it addresses hear it now.
+  releaseMessage: (id: string, s?: AbortSignal) => post<{ released: string }>(`/messages/${id}/release`, {}, s),
+  /// Refuse a held message: no agent ever hears it; it stays in its scope's log.
+  refuseMessage: (id: string, s?: AbortSignal) => post<{ refused: string }>(`/messages/${id}/refuse`, {}, s),
   /// The workspaces this node is a guest of.
   hosts: (s?: AbortSignal) => get<{ hosts: Hosted[] }>("/hosts", s),
   joinHost: (body: JoinHostBody, s?: AbortSignal) => post<{ host: Hosted }>("/hosts/join", body, s),
@@ -2566,6 +2575,10 @@ export const api = {
       s,
     );
   },
+  /// Replace across a root (ide/12): without `apply`, every line each file
+  /// would take with the hash an apply must carry back; with `apply` and
+  /// those files, one compare-and-swap write per file and what became of each.
+  ideReplace: (scope: FileScope, id: string, body: IdeReplace, s?: AbortSignal) => post<IdeReplaceAnswer>(`/ide/replace/${scope}/${id}`, body, s),
   /// Every file path under a root, for quick open. Cached by the client and patched by `file_changed`.
   ideIndex: (scope: FileScope, id: string, s?: AbortSignal) =>
     get<{ paths: string[]; truncated: boolean }>(`/ide/index/${scope}/${id}`, s),

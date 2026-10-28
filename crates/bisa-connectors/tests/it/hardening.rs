@@ -70,6 +70,7 @@ fn paged_spec() -> bisa_connectors::CallSpec {
         name: "cursor".into(),
         kind: ParamKind::Text,
         required: false,
+        default: None,
     }];
     spec.query = BTreeMap::from([("cursor".to_string(), "{params.cursor}".to_string())]);
     spec.select = Some("items".into());

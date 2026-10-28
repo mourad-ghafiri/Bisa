@@ -69,6 +69,7 @@ async fn an_ill_shaped_body_is_still_a_400_with_the_extractors_sentence() {
         v["error"].as_str().is_some_and(|s| s.contains("statement")),
         "the extractor names the field: {v}"
     );
+    assert_eq!(v["code"], json!("body_unreadable"), "{v}");
     // And a body that is not JSON at all is the same 400.
     let (status, v) = node
         .req_raw(
@@ -108,6 +109,11 @@ async fn a_body_that_does_not_fit_is_a_400_on_the_routes_that_may_go_without_one
             json!("error-node-body-unreadable"),
             "POST {path} {body}: {v}"
         );
+        assert_eq!(
+            v["code"],
+            json!("body_unreadable"),
+            "POST {path} {body}: {v}"
+        );
     }
     // Not JSON at all, under a JSON content type.
     let (status, v) = node
@@ -125,6 +131,68 @@ async fn a_body_that_does_not_fit_is_a_400_on_the_routes_that_may_go_without_one
         .req_raw("POST", &format!("/runs/{ghost}/stop"), None, Vec::new())
         .await;
     assert_eq!(status, 404, "{v}");
+    node.shutdown().await;
+}
+
+/// **A body or a query the node cannot read is a coded 400.** A client that
+/// switches on `code` (the compatibility promise: never on the status alone)
+/// tells the body it sent from a refusal of what it asked: `body_unreadable`
+/// for a body — JSON of another shape, a key the type lacks, no JSON at all —
+/// and `query_unreadable` for an address — a number that is no number — with
+/// the reader's own sentence as `detail.reason`, never a parsed field name.
+/// A body over the limit (413) and one that is not JSON by its content type
+/// (415) carry no code: their status is unambiguous on its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_body_or_query_carries_its_code_and_the_readers_sentence() {
+    let node = Node::start().await;
+    let ghost = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    // The route the feature-status page named: a key nobody knows on a run
+    // start. The goal is a ghost, but the body is read before anything is.
+    let (status, v) = node
+        .req(
+            "POST",
+            &format!("/goals/{ghost}/run"),
+            Some(json!({"nope": 1})),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    assert_eq!(v["code"], json!("body_unreadable"), "{v}");
+    assert_eq!(v["text"]["id"], json!("error-node-body-unreadable"), "{v}");
+    assert!(
+        v["detail"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("nope")),
+        "the reader's sentence names the key: {v}"
+    );
+    // Not JSON at all: the same code, the reader's sentence still the reason.
+    let (status, v) = node
+        .req_raw(
+            "POST",
+            &format!("/goals/{ghost}/run"),
+            Some("application/json"),
+            b"{ not json".to_vec(),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    assert_eq!(v["code"], json!("body_unreadable"), "{v}");
+    assert!(v["detail"]["reason"].is_string(), "{v}");
+    // A query the route cannot read is coded by its own producer.
+    let (status, v) = node.req("GET", "/signals?limit=abc", None).await;
+    assert_eq!(status, 400, "{v}");
+    assert_eq!(v["code"], json!("query_unreadable"), "{v}");
+    assert_eq!(v["text"]["id"], json!("error-node-query-unreadable"), "{v}");
+    assert!(
+        v["detail"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("limit")),
+        "the reader's sentence names the field: {v}"
+    );
+    // The two statuses that stand alone carry no code.
+    let (status, v) = node
+        .req_raw("POST", "/goals", Some("text/plain"), b"{}".to_vec())
+        .await;
+    assert_eq!(status, 415, "{v}");
+    assert!(v.get("code").is_none(), "{v}");
     node.shutdown().await;
 }
 

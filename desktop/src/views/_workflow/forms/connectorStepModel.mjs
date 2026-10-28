@@ -196,3 +196,18 @@ export function writeWords(unattended) {
 /** The switch's words. */
 export const UNATTENDED_LABEL = t("workflow-connector-step-runs-unattended");
 export const UNATTENDED_HINT = t("workflow-connector-step-say-write-runs-no-approval-human");
+
+/**
+ * What an empty parameter field would send — the definition's `default`,
+ * in the words the call sends: a string as itself, a number or a bool as
+ * its word, an object or a list as JSON — and nothing for a parameter with
+ * none. The input's placeholder and its quiet chip.
+ * @param {{ default?: unknown } | null | undefined} param
+ */
+export function paramHint(param) {
+  const d = param?.default;
+  if (d === undefined || d === null) return "";
+  if (typeof d === "string") return d;
+  if (typeof d === "number" || typeof d === "boolean") return String(d);
+  return JSON.stringify(d);
+}

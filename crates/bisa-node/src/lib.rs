@@ -720,12 +720,10 @@ where
             // The documented contract (`docs/reference/http-api.md` § Status
             // codes): JSON that is not this shape — an unknown key, a missing
             // field, a wrong type — and JSON that is not JSON are a 400 with
-            // the extractor's own sentence, never axum's 422.
+            // the extractor's own sentence, never axum's 422 — coded, so a
+            // client tells the body it sent from a refusal of what it asked.
             Err(r @ (JsonRejection::JsonDataError(_) | JsonRejection::JsonSyntaxError(_))) => {
-                Err(ApiError::text(
-                    StatusCode::BAD_REQUEST,
-                    bisa_core::text!("error-node-body-unreadable", detail = r.body_text()),
-                ))
+                Err(body_unreadable(StatusCode::BAD_REQUEST, r.body_text()))
             }
             Err(JsonRejection::MissingJsonContentType(_)) => Err(ApiError::text(
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -736,22 +734,33 @@ where
             Err(JsonRejection::BytesRejection(r)) => {
                 let status = r.status();
                 // LCOV_EXCL_START a body the node itself wrote is one it reads; by construction
-                let said = if status == StatusCode::PAYLOAD_TOO_LARGE {
-                    bisa_core::text!("error-node-body-too-large")
+                if status == StatusCode::PAYLOAD_TOO_LARGE {
+                    Err(ApiError::text(
+                        status,
+                        bisa_core::text!("error-node-body-too-large"),
+                    ))
                 } else {
-                    bisa_core::text!("error-node-body-unreadable", detail = r.body_text())
-                };
+                    Err(body_unreadable(status, r.body_text()))
+                }
                 // LCOV_EXCL_STOP
-                Err(ApiError::text(status, said))
             }
             // LCOV_EXCL_START: a body the node itself wrote is one it reads; by construction
-            Err(other) => Err(ApiError::text(
-                other.status(),
-                bisa_core::text!("error-node-body-unreadable", detail = other.body_text()),
-            )),
+            Err(other) => Err(body_unreadable(other.status(), other.body_text())),
             // LCOV_EXCL_STOP
         }
     }
+}
+
+/// A body that was not read: the status the reader gave, the one sentence,
+/// and the code a client switches on — with the reader's own words as the
+/// reason, never a field name parsed out of them.
+fn body_unreadable(status: StatusCode, reason: String) -> ApiError {
+    ApiError::coded(
+        status,
+        dto::ErrorCode::BodyUnreadable,
+        bisa_core::text!("error-node-body-unreadable", detail = reason.clone()),
+    )
+    .with_detail(serde_json::json!({ "reason": reason }))
 }
 
 /// A query string, refused as a **400 with the same error body every other
@@ -773,10 +782,15 @@ where
     ) -> Result<Self, ApiError> {
         match axum::extract::Query::<T>::from_request_parts(parts, state).await {
             Ok(axum::extract::Query(value)) => Ok(Query(value)),
-            Err(refused) => Err(ApiError::text(
-                StatusCode::BAD_REQUEST,
-                bisa_core::text!("error-node-query-unreadable", detail = refused.body_text()),
-            )),
+            Err(refused) => {
+                let reason = refused.body_text();
+                Err(ApiError::coded(
+                    StatusCode::BAD_REQUEST,
+                    dto::ErrorCode::QueryUnreadable,
+                    bisa_core::text!("error-node-query-unreadable", detail = reason.clone()),
+                )
+                .with_detail(serde_json::json!({ "reason": reason })))
+            }
         }
     }
 }

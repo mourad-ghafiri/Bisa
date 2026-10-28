@@ -1540,6 +1540,18 @@
     "IdeReplaceFile": {
       "$ref": "#/definitions/IdeReplaceFile"
     },
+    "IdeReplaceAnswer": {
+      "$ref": "#/definitions/IdeReplaceAnswer"
+    },
+    "IdeReplacePreview": {
+      "$ref": "#/definitions/IdeReplacePreview"
+    },
+    "IdeReplaceChange": {
+      "$ref": "#/definitions/IdeReplaceChange"
+    },
+    "IdeReplaceOutcome": {
+      "$ref": "#/definitions/IdeReplaceOutcome"
+    },
     "OpenInteractiveBody": {
       "$ref": "#/definitions/OpenInteractiveBody"
     },
@@ -5708,6 +5720,16 @@
             "command": {
               "type": "string"
             },
+            "project": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProjectIdOrInput"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "check": {
               "type": "string",
               "const": "command"
@@ -5717,7 +5739,7 @@
             "check",
             "command"
           ],
-          "description": "Exit 0 in the goal's placement is a pass."
+          "description": "Exit 0 is a pass. It runs where the run's work landed — the checkout\nof the run's latest agent item, else the goal's one project's root,\nelse its home's scratch — unless `project` names where: a project\nattached to the goal (or one the workspace has, for a run of the\nworkspace), held as an agent step's is, by id or from an input of kind\nproject; then the checkout of the run's latest item that worked in\nthat project, else its root."
         },
         {
           "type": "object",
@@ -11028,6 +11050,9 @@
           "type": "string",
           "description": "What goes in it — the designer's hint and the Workflow Agent's.",
           "default": ""
+        },
+        "default": {
+          "description": "What the call sends when the step leaves it unset — a value of the\nparameter's own kind (`default = 100` on a number, `true` on a bool,\nan object on `json`), refused at the door when it is not. A required\nparameter with a default need not be set by the step. An account's\nparameter takes none: its values are the account's own."
         }
       },
       "required": [
@@ -16882,6 +16907,48 @@
             "excerpt"
           ],
           "description": "Content from outside the screen held before the agent read it: where\nit came from in words, its URL when it is a page, why it was held\n(the classifier's sentence, or *no verdict*), and an excerpt — all\nredacted already."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "question"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "The agent asked the person something in words — the question is the\nask's own — with the choices it offered, when any. Answered in words\n(`AskAnswer::Answer`) or declined; never allowed for a conversation."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "auth"
+            }
+          },
+          "required": [
+            "kind",
+            "provider"
+          ],
+          "description": "The agent needs the person to sign in to a provider — at the URL when\nit names one, shown as text and never followed — and to say when it\nis done (`AskAnswer::Allow`) or that it is not now (`Deny`)."
         }
       ],
       "description": "What an ask is about."
@@ -17202,6 +17269,24 @@
           "required": [
             "answer"
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "answer": {
+              "type": "string",
+              "const": "answer"
+            }
+          },
+          "required": [
+            "answer",
+            "text"
+          ],
+          "description": "The person's words to a question (`AskSubject::Question`); refused\nfor every other subject."
         }
       ]
     },
@@ -18036,6 +18121,13 @@
         },
         "trusted": {
           "type": "boolean"
+        },
+        "approved_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The text this machine approved for the phase, when the current text is\nanother: what a diff is read against before approving again. Absent\nfor a trusted script, an empty one, or one never approved here."
         }
       },
       "required": [
@@ -21562,6 +21654,18 @@
           },
           "description": "Files given as the goal's initial context: the descriptors `POST\n/attachments` answered, materialised under the goal's `documents/`\nbefore anything runs. A hash this node does not hold refuses the\ncapture.",
           "default": []
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Budget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The goal's own ceiling — tokens, cost, wall time. Absent takes the\nworkspace default (`budget.default.*`); given, it is kept as given, an\nempty one included: no ceiling, whatever the default says.",
+          "default": null
         }
       },
       "required": [
@@ -21858,6 +21962,16 @@
           "type": "string",
           "const": "connector_store",
           "description": "The credential store refused (500)."
+        },
+        {
+          "type": "string",
+          "const": "body_unreadable",
+          "description": "The request body was not read (400): JSON of another shape, a key the\ntype does not have, a wrong type, or no JSON at all. Nothing was\njudged; `detail.reason` is the reader's own sentence."
+        },
+        {
+          "type": "string",
+          "const": "query_unreadable",
+          "description": "The query string was not read (400): a number that is no number, a\nfield the route needs and the address lacks. `detail.reason` is the\nreader's own sentence."
         }
       ],
       "description": "The refusals a client tells apart. Each names one producer that exists;\na message is still the words, the code is what a client switches on."
@@ -22233,6 +22347,168 @@
         "base_hash"
       ],
       "description": "One file a replace is applied to, as its preview read it."
+    },
+    "IdeReplaceAnswer": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "applied": {
+              "type": "boolean"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/IdeReplacePreview"
+              }
+            }
+          },
+          "required": [
+            "applied",
+            "files"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "applied": {
+              "type": "boolean"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/IdeReplaceOutcome"
+              }
+            }
+          },
+          "required": [
+            "applied",
+            "files"
+          ]
+        }
+      ],
+      "description": "`POST /ide/replace/{scope}/{id}`'s answer: the preview (`applied:\nfalse`), or what an apply did to each file it named (`applied: true`)."
+    },
+    "IdeReplacePreview": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "base_hash": {
+          "type": "string",
+          "description": "The file's content hash as the preview read it — `files[].base_hash`\non the apply, which skips the file when it has moved on."
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IdeReplaceChange"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "base_hash",
+        "changes"
+      ],
+      "description": "One file a preview would change, with the hash an apply carries back."
+    },
+    "IdeReplaceChange": {
+      "type": "object",
+      "properties": {
+        "line": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "1-based."
+        },
+        "before": {
+          "type": "string"
+        },
+        "after": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "before",
+        "after"
+      ],
+      "description": "One line a replace changes, as its preview read it."
+    },
+    "IdeReplaceOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "changes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "hash": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "applied"
+            }
+          },
+          "required": [
+            "outcome",
+            "path",
+            "changes",
+            "hash"
+          ],
+          "description": "Written: `changes` lines rewritten, `hash` the file's content hash now."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "current_hash": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "skipped_changed"
+            }
+          },
+          "required": [
+            "outcome",
+            "path",
+            "current_hash"
+          ],
+          "description": "The file changed between the preview and the apply; nothing was written."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "outcome",
+            "path",
+            "error"
+          ],
+          "description": "Not written: the path leaves the root, cannot be written from this\nscope, or is not text."
+        }
+      ],
+      "description": "What an apply did to one file."
     },
     "OpenInteractiveBody": {
       "type": "object",

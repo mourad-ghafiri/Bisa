@@ -336,6 +336,8 @@ while IFS= read -r line; do
       uri=${body#*\"uri\":\"}
       uri=${uri%%\"*}
       send '{"jsonrpc":"2.0","id":'"$id"',"result":{"contents":{"kind":"plaintext","value":"hovered"},"uri":"'"$uri"'"}}' ;;
+    *'"method":"textDocument/completion"'*)
+      send '{"jsonrpc":"2.0","id":'"$id"',"result":{"isIncomplete":false,"items":[{"label":"spoken_item","kind":3,"insertText":"spoken_item()"},{"label":"edited_item","kind":6,"textEdit":{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":2}},"newText":"edited"}}]}}' ;;
     *'"method":"shutdown"'*)
       send '{"jsonrpc":"2.0","id":'"$id"',"result":null}' ;;
     *'"method":"exit"'*) exit 0 ;;
@@ -447,6 +449,23 @@ async fn a_servers_notifications_ride_the_bus_with_their_uris_rewritten_and_a_re
         hover["uri"],
         json!("main.rs"),
         "what the server answered is rewritten back: {hover}"
+    );
+    // Completion is proxied as hover is: the server's list, as it answered it.
+    let completion = lsp::request(
+        inner,
+        FileScope::Workstream,
+        &lab,
+        "main.rs",
+        "textDocument/completion",
+        json!({"textDocument": {"uri": "main.rs"}, "position": {"line": 0, "character": 2}}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(completion["isIncomplete"], json!(false));
+    assert_eq!(completion["items"][0]["label"], json!("spoken_item"));
+    assert_eq!(
+        completion["items"][1]["textEdit"]["newText"],
+        json!("edited")
     );
     assert_eq!(starts_of(&server), 1);
 

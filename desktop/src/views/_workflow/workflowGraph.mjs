@@ -538,6 +538,10 @@ export function renameInput(wf, from, to) {
       case "connector":
         next.account = renameRef(s.account, from, to);
         break;
+      case "check":
+        // A command check names where it runs as an agent step does; a schema check names nothing.
+        if (s.check?.check === "command" && s.check.project) next.check = { ...s.check, project: renameRef(s.check.project, from, to) };
+        break;
       default:
         break;
     }

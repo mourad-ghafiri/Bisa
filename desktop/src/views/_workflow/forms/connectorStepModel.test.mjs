@@ -112,3 +112,14 @@ test("a read that failed is said as such — never nothing installed, never no a
   assert.ok(accountsNote({ loading: false, error: null, count: 0, inputs: 1 }).startsWith("The connector's default account"), "an input stands in");
   assert.ok(accountsNote({ loading: false, error: null, count: 2, inputs: 0 }).startsWith("The connector's default account"));
 });
+
+test("a parameter's default reads as the value the call would send, and a parameter with none says nothing", async () => {
+  const { paramHint } = await import("./connectorStepModel.mjs");
+  assert.equal(paramHint({ name: "q", default: "latest" }), "latest");
+  assert.equal(paramHint({ name: "max", default: 100 }), "100");
+  assert.equal(paramHint({ name: "all", default: false }), "false");
+  assert.equal(paramHint({ name: "body", default: { a: [1, 2] } }), '{"a":[1,2]}');
+  assert.equal(paramHint({ name: "q" }), "");
+  assert.equal(paramHint({ name: "q", default: null }), "");
+  assert.equal(paramHint(null), "");
+});

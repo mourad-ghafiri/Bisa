@@ -288,6 +288,21 @@ async fn validate_answers_problems_without_saving() {
         v["problems"][0]["text"]["id"].is_string(),
         "a problem is a message, not prose"
     );
+    // A parameter's default of another kind is named at the operation's params.
+    let mut wrong_default = bearer_definition(&host);
+    wrong_default["operations"][0]["params"] = json!([
+        {"name": "max", "label": "Max", "kind": "number", "default": "100"}
+    ]);
+    let v = node.post("/connectors/validate", wrong_default).await;
+    assert_eq!(v["ok"], false, "{v}");
+    assert!(
+        v["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["text"]["id"] == json!("problem-connector-parameter-default-not-of-kind")),
+        "{v}"
+    );
     assert_eq!(
         node.get("/connectors").await["connectors"],
         json!([]),

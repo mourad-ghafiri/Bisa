@@ -50,7 +50,7 @@ rebuilt from the files. The one place a workspace directory name is joined is `b
   drawings/                    the drawings repository — one git repository holding every drawing's .excalidraw file, made by the first drawing; pushed by hand, never pulled (19)
     state/33401-<DrawingId>.json   the record — the truth, synced like an addon's; excluded by the repository's own .git/info/exclude
     workspace/<DrawingId>.excalidraw   the export, laid out like notes/: goals/<GoalId>/, projects/<slug>/, workflows/<WorkflowId>/, channels/<ChannelId>/, node/
-  agents/<id>.json             definitions; agents/state/ snapshots; agents/<id>/scratch/ where a conversation's turn runs off a checkout — about a goal, a workflow, the workspace or the node; agents/<id>/recall/
+  agents/<id>.json             definitions; agents/state/ snapshots; agents/<id>/scratch/ where a conversation's turn runs off a checkout — about a goal, a workflow, the workspace or the node; agents/<id>/recall_index.json the agent's recall index
   teams/<id>.json
   skills/<id>.json
   workflows/listening/<WorkflowId>.json   a library workflow that is On: what it listens with and the budget of each run it starts — this machine's, kept apart from the definition; a goal's listening is a field of its own snapshot
@@ -61,18 +61,22 @@ rebuilt from the files. The one place a workspace directory name is joined is `b
     listeners/<host>-<step>.json   one listener's memory — when it next comes due, what a poll has seen, a project's last heads, why it could not be armed
     scratch/<host>-<step>/     where a check start with no project runs its command
   conversation/<scope>.jsonl         message history, append-only, one file per scope — a channel's, a goal's thread, a conversation's
-  attachments/<2 hex>/<62 hex> bytes, content-addressed — an attachment's and an artifact's alike
+  attachments/<2-hex>/<62-hex> bytes, content-addressed — an attachment's and an artifact's alike
   attachments/named/<sha256>/<name>  a blob under its maker's name, made on demand for the file manager and the default app
-  pets/<id>/                   installed pet packages
+  pets/<id>/pet.json           an installed pet package: its manifest, beside its sheets and sounds
   addons/<id>/addon.json       an addon's record — its manifest, origin, enabled, grants (kind 33407); addons/<id>/files/ its bundle, this machine's; addons/state/ the snapshots
   harnesses/*.json             your custom harness definitions
-  sessions/                    a session's record — its kind, its item, its workstream, the conversation it is a turn of — and harness transcripts
+  sessions/<adapter>/<SessionId>.json   a session's record — its kind, its item, its workstream, the conversation it is a turn of — under its harness's folder, beside the harness transcripts
   ide/layout/<scope>-<id>.json the workbench layout per root (IDE; never synced)
+  ide/changes/<ConversationId>/ a checkout conversation's change ledger ([ide/20](../architecture/ide/20-reviewing-agent-changes.md)) — this machine's, never synced
+    ledger.json                the turns and the edits each made
+    blobs/<sha256>             the bytes before and after an edit, content-addressed
+    index                      the private git index a command's tree is snapshotted through
   logs/                        the diagnostic log — this machine's, disposable, never indexed, never synced ([crates/log](../architecture/crates/log.md))
     <process>/<process>.<period>.jsonl   one folder per process family — node/, cli/, mcp/, desktop/ — their own words about themselves, one JSON line each (errors only by default; `logging.*`); the oldest past `logging.keep_files` removed
     crashes/<process>.<stamp>.<pid>.json one report per abnormal end — a panic with its backtrace, a run that ended without a goodbye, the desktop's node exiting — with the last lines before it; fifty kept
     runs/<process>.<pid>.json            a run's marker while it runs, gone with its goodbye; one left by a dead process is the next start's crash report
-  quarantine/<stamp>/<relative path>  a file an open could not read, moved aside whole with its path — the member file, a settings layer, a snapshot — never deleted; named in Settings › Node and by `bisa workspace check`, restored by hand
+  quarantine/<stamp>/<relative-path>  a file an open could not read, moved aside whole with its path — the member file, a settings layer, a snapshot — never deleted; named in Settings › Node and by `bisa workspace check`, restored by hand
   run/
     node.sock                  the daemon's unix socket, mode 0600
     engine.lock                one engine per workspace: an exclusive flock holding the engine's PID (`bisa paths --json` names the holder without taking it)

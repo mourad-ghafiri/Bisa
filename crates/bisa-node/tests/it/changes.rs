@@ -390,6 +390,125 @@ async fn nothing_waits_until_a_turn_asks_and_an_ask_that_is_not_waiting_is_a_sen
         .contains("no longer waiting"));
 }
 
+/// A question and a sign-in wait on the same desk, each typed by its
+/// subject on the wire, and each takes its own answers: words for a
+/// question, a yes or a no for a sign-in — the other pairing is a 400 that
+/// leaves the ask waiting.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_question_and_a_sign_in_are_answered_over_the_wire_each_by_its_own_answers() {
+    use bisa_engine::changes::asks::{self, AskSubject, Said};
+    let node = boot().await;
+    let (id, _) = conversation(&node, None).await;
+    let conversation_id: bisa_core::ConversationId = id.parse().unwrap();
+    let asking = {
+        let inner = Arc::clone(&node.inner);
+        tokio::spawn(async move {
+            asks::ask(
+                &inner,
+                conversation_id,
+                "coder",
+                AskSubject::Question {
+                    options: vec!["red".into(), "blue".into()],
+                },
+                "Which colour?".into(),
+                false,
+            )
+            .await
+        })
+    };
+    let mut asks_json = json!([]);
+    for _ in 0..50 {
+        let (code, v) = request(&node, "GET", &format!("/conversations/{id}/asks"), None).await;
+        assert_eq!(code, 200, "{v}");
+        if !v["asks"].as_array().unwrap().is_empty() {
+            asks_json = v["asks"].clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let ask = &asks_json[0];
+    assert_eq!(ask["subject"]["kind"], json!("question"), "{asks_json}");
+    assert_eq!(ask["subject"]["options"], json!(["red", "blue"]));
+    assert_eq!(ask["grantable"], json!(false));
+    let ask_id = ask["id"].as_str().unwrap().to_string();
+    let (code, refused) = request(
+        &node,
+        "POST",
+        &format!("/conversations/{id}/asks/{ask_id}"),
+        Some(json!({"answer": "allow"})),
+    )
+    .await;
+    assert_eq!(code, 400, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("takes another answer"),
+        "{refused}"
+    );
+    let (code, answered) = request(
+        &node,
+        "POST",
+        &format!("/conversations/{id}/asks/{ask_id}"),
+        Some(json!({"answer": "answer", "text": "blue"})),
+    )
+    .await;
+    assert_eq!(code, 200, "{answered}");
+    assert_eq!(answered["asks"], json!([]));
+    assert_eq!(asking.await.unwrap(), Said::Answer("blue".into()));
+
+    let signing = {
+        let inner = Arc::clone(&node.inner);
+        tokio::spawn(async move {
+            asks::ask(
+                &inner,
+                conversation_id,
+                "coder",
+                AskSubject::Auth {
+                    provider: "github".into(),
+                    url: Some("https://github.com/login/device".into()),
+                },
+                "Sign in to github — done?".into(),
+                false,
+            )
+            .await
+        })
+    };
+    let mut sign_in = json!(null);
+    for _ in 0..50 {
+        let (_, v) = request(&node, "GET", &format!("/conversations/{id}/asks"), None).await;
+        if let Some(first) = v["asks"].as_array().and_then(|a| a.first()) {
+            sign_in = first.clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(sign_in["subject"]["kind"], json!("auth"), "{sign_in}");
+    assert_eq!(sign_in["subject"]["provider"], json!("github"));
+    assert_eq!(
+        sign_in["subject"]["url"],
+        json!("https://github.com/login/device")
+    );
+    let sign_in_id = sign_in["id"].as_str().unwrap().to_string();
+    let (code, refused) = request(
+        &node,
+        "POST",
+        &format!("/conversations/{id}/asks/{sign_in_id}"),
+        Some(json!({"answer": "answer", "text": "done"})),
+    )
+    .await;
+    assert_eq!(code, 400, "words are no answer to a sign-in: {refused}");
+    let (code, _) = request(
+        &node,
+        "POST",
+        &format!("/conversations/{id}/asks/{sign_in_id}"),
+        Some(json!({"answer": "allow", "scope": "once"})),
+    )
+    .await;
+    assert_eq!(code, 200);
+    assert_eq!(signing.await.unwrap(), Said::Allow);
+}
+
 fn refused(code: u16) -> bool {
     (400..500).contains(&code)
 }

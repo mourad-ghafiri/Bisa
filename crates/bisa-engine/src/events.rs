@@ -684,6 +684,13 @@ pub enum EnginePayload {
         scope: String,
         event: String,
     },
+    /// A held message was refused by the owner: the row is gone, no agent
+    /// hears it, and the message stays in its scope's log.
+    MessageRefused {
+        scope: String,
+        event: String,
+        author: bisa_core::PrincipalId,
+    },
     /// The content screen read what an agent was about to read from outside
     /// (11-security §What an agent reads from outside): `source` in words —
     /// `example.com`, `github.com/org/repo#12` — and what became of it —
@@ -938,6 +945,7 @@ impl EnginePayload {
             EnginePayload::InviteChanged { .. } => "invite.changed",
             EnginePayload::MessageHeld { .. } => "message.held",
             EnginePayload::MessageReleased { .. } => "message.released",
+            EnginePayload::MessageRefused { .. } => "message.refused",
             EnginePayload::ContentScreened { .. } => "content.screened",
             EnginePayload::HostedChanged { .. } => "hosted.changed",
             EnginePayload::RelaysChanged => "relays.changed",
@@ -1325,6 +1333,7 @@ pub const TOPICS: &[&str] = &[
     "invite.changed",
     "message.held",
     "message.released",
+    "message.refused",
     "content.screened",
     "hosted.changed",
     "relays.changed",

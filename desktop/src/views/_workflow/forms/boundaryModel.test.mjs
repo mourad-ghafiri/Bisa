@@ -187,3 +187,21 @@ test("an emit act keeps its signal and only a payload with keys, and an unknown 
   assert.equal("payload" in empty.boundaries[0], false, "an empty payload is not written");
   assert.equal(chipOf({ name: "odd", on: { event: "weird" }, act: "divert" }).words, "weird");
 });
+
+test("a post's place and author are written only when they say something, and a key the patch does not name stands", async () => {
+  const { withNotifyWhere } = await import("./boundaryModel.mjs");
+  const post = { name: "late", on: { event: "after", secs: 60 }, act: "notify", template: "still going", mentions: [{ agent: "reviewer" }] };
+  const placed = withNotifyWhere(post, { scope: "ops" });
+  assert.equal(placed.scope, "ops");
+  assert.deepEqual(placed.mentions, post.mentions, "the rest stands");
+  assert.ok(!("author" in placed), "an author not named is not written");
+  const spoken = withNotifyWhere(placed, { author: { agent: "general-agent" } });
+  assert.deepEqual(spoken.author, { agent: "general-agent" });
+  assert.equal(spoken.scope, "ops", "the scope stands");
+  const blank = withNotifyWhere(spoken, { scope: "" });
+  assert.ok(!("scope" in blank), "a blank scope is no key, never an empty string");
+  assert.deepEqual(blank.author, { agent: "general-agent" });
+  const silent = withNotifyWhere(blank, { author: null });
+  assert.ok(!("author" in silent));
+  assert.notEqual(silent, blank, "a fresh record each time");
+});

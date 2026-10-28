@@ -106,6 +106,13 @@ impl Workspace {
 
     /// Let a held message through; `None` when nothing was held under that id.
     pub fn release_message(&self, event_id: &str) -> Result<Option<HeldMessage>, StoreError> {
+        self.remove_held(event_id)
+    }
+
+    /// Remove a held message from the list — a release or a refusal, the row
+    /// is the same — `None` when nothing was held under that id. The message
+    /// itself stays in its scope's log either way.
+    pub fn remove_held(&self, event_id: &str) -> Result<Option<HeldMessage>, StoreError> {
         let _one_writer = self.held_writer();
         let mut file = self.read_held()?;
         let Some(i) = file.held.iter().position(|h| h.event_id == event_id) else {

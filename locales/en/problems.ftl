@@ -121,6 +121,7 @@ problem-idle-filter-field-run-step = step `{ $a0 }` narrows by a step or a state
 
 ## A connector definition's rules (`Connector::validate`, `ConnectorAccount::validate`), by field.
 problem-connector-account-not = the account is for { $a0 }, not { $a1 }
+problem-connector-account-parameter-takes-no-default = account parameter `{ $a0 }` takes no default: an account's values are its own
 problem-connector-already-header-operation = { $header } is already a header of this operation
 problem-connector-base-url-must-be-scheme-host-port = base_url must be scheme://host[:port][/path] with no user info
 problem-connector-call-reads-1-pages = a call reads 1 to { $max_pages } pages
@@ -157,6 +158,7 @@ problem-connector-output-schema-must-be-json-object = the output schema must be 
 problem-connector-paged-operation-selects-list-pages-output-select = a paged operation selects the list it pages (`output.select`)
 problem-connector-parameter-account-parameter-cannot-be-file = parameter `{ $a0 }`: an account parameter cannot be a file
 problem-connector-parameter-declared-twice = parameter `{ $a0 }` is declared twice
+problem-connector-parameter-default-not-of-kind = parameter `{ $name }` has a default that is not a { $kind }
 problem-connector-parameter-needs-label = parameter `{ $name }` needs a label
 problem-connector-part-declared-twice = part `{ $a0 }` is declared twice
 problem-connector-required = `{ $a0 }` is required

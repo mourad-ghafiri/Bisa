@@ -137,11 +137,14 @@ export function revealLabel(userAgent) {
  * (`"os"`, a copy made in Finder, said in the label), the picture on the
  * clipboard (`"image"`, said too), or nothing. Each item
  * names the keymap command that means the same thing (`command`), so a menu
- * can show its chord.
- * @param {{targets: readonly {path: string, dir: boolean}[], desktop: boolean, mutable: boolean, clipboard: "tree" | "os" | "image" | null, reveal: string, serve?: boolean}} args
+ * can show its chord. `openTerminal` says a shell can be opened here (the
+ * desktop app): one folder offers *Open in terminal here* (ide/06); `serve`
+ * that a folder of a checkout can be served and opened in the embedded
+ * browser (ide/18).
+ * @param {{targets: readonly {path: string, dir: boolean}[], desktop: boolean, mutable: boolean, clipboard: "tree" | "os" | "image" | null, reveal: string, serve?: boolean, openTerminal?: boolean}} args
  * @returns {{id: string, label: string, command?: string, danger?: boolean, disabled?: boolean, separatorBefore?: boolean}[]}
  */
-export function menuSpec({ targets, desktop, mutable, clipboard, reveal, serve = false }) {
+export function menuSpec({ targets, desktop, mutable, clipboard, reveal, serve = false, openTerminal = false }) {
   const n = targets.length;
   const one = n === 1 ? targets[0] : null;
   const items = [];
@@ -165,8 +168,13 @@ export function menuSpec({ targets, desktop, mutable, clipboard, reveal, serve =
     { id: "copy-absolute", label: one ? tr("ui-file-tree-mutations-copy-absolute-path") : tr("ui-file-tree-mutations-copy-absolute-paths") },
   );
   if (desktop && one) items.push({ id: "reveal", label: reveal });
-  // A folder of a checkout served on this machine and opened in the embedded browser (ide/18).
-  if (serve && one && one.dir) items.push({ id: "serve", label: tr("ui-file-tree-mutations-serve-folder"), separatorBefore: true });
+  // A folder's own doors, as one group: a shell opened in it (ide/06), and a
+  // folder of a checkout served on this machine and opened in the embedded
+  // browser (ide/18).
+  const folder = [];
+  if (openTerminal && one && one.dir) folder.push({ id: "open-terminal", label: tr("ui-file-tree-mutations-open-terminal-here") });
+  if (serve && one && one.dir) folder.push({ id: "serve", label: tr("ui-file-tree-mutations-serve-folder") });
+  if (folder.length > 0) items.push({ ...folder[0], separatorBefore: true }, ...folder.slice(1));
   if (mutable) items.push({ id: "delete", label: one ? (one.dir ? tr("ui-file-tree-mutations-delete-folder-2") : tr("ui-file-tree-mutations-delete-2")) : tr("ui-file-tree-mutations-delete-items-2", { n }), command: "delete_entry", danger: true, separatorBefore: true });
   return items;
 }

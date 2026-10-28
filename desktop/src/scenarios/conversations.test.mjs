@@ -318,7 +318,7 @@ test("the designer comes back on the step it had picked and where its canvas loo
 test("a held page is asked about in the conversation as a content ask: the source, the reason, an excerpt, and Allow this site", () => {
   const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
   const card = src("../views/_studio/AskCard.tsx");
-  assert.ok(card.includes('ask.subject.kind === "content"'), "the card switches on the subject's kind");
+  assert.ok(card.includes('subject.kind === "content"') && card.includes('subject.kind === "question"') && card.includes('subject.kind === "auth"'), "the card switches on the subject's kind — content, a question, a sign-in");
   assert.ok(card.includes("reasonWords(") && card.includes("subjectWords(") && card.includes("scopeLabel(scope, ask)"), "the words are the model's");
   assert.ok(card.includes("content.excerpt") && card.includes("<FoldedText"), "the excerpt is shown, folded");
   assert.ok(!card.includes("<a ") && !card.includes("href="), "a URL is text, never navigated");

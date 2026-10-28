@@ -12,6 +12,8 @@ export interface ScriptView {
   phase: string;
   command: string;
   trusted: boolean;
+  /** The text this machine approved, when the current one is another (ide/07); absent on an older node. */
+  approved_text?: string | null;
 }
 
 export interface ScriptsView {
@@ -33,6 +35,7 @@ export declare function scriptEdits(view: ScriptsView | null | undefined): Scrip
 export declare function validateScript(text: string): string | null;
 export declare function isDirty(current: ScriptEdits, edits: ScriptEdits): boolean;
 export declare function trustLine(script: ScriptView | undefined): { tone: "ok" | "warn" | "quiet"; text: string } | null;
+export declare function approvedDiff(script: ScriptView | undefined): { approved: string; current: string } | null;
 export declare function needsApproval(view: ScriptsView | null | undefined): boolean;
 export declare function scriptRefusal(err: { message: string; detail?: { phase?: unknown; output?: unknown } | null }): {
   title: string;

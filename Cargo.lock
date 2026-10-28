@@ -581,6 +581,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "libc",
  "nostr 0.45.3",
  "nostr-relay-builder",
  "proptest",

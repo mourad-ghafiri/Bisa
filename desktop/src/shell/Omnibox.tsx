@@ -44,7 +44,7 @@ import { DEFAULT_MODE, DEFAULT_MODE_KEY, DOCUMENT_MODE, MODES, nextMode } from "
 import { ideModeNow, setIdeMode, toggleIdeMode } from "../views/_workbench/ideModeStore";
 import { BOARD_COMMAND, MODE_COMMAND, modeSwitchLabel, modeWords } from "../views/_workbench/workbenchChromeModel.mjs";
 import { HolderBadge } from "../views/_goals/HolderBadge";
-import type { ProjectRow, TeamDef, WorkItemRef, WorkstreamRef } from "../types";
+import type { ProjectRow, TeamDef, WorkItemRef, WorkflowRow, WorkstreamRef } from "../types";
 import { audiencePrincipals } from "../types";
 import { usePrimaryNav } from "./navOrderStore";
 import { goToSection } from "./sectionDoor";
@@ -142,6 +142,7 @@ export function Omnibox({
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [workstreams, setWorkstreams] = useState<WorkstreamRef[]>([]);
   const [workItems, setWorkItems] = useState<WorkItemRef[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowRow[]>([]);
   const [appearance, setAppearance] = useState<Appearance>(getAppearance);
   const input = useRef<HTMLInputElement>(null);
   const listEl = useRef<HTMLDivElement>(null);
@@ -252,6 +253,16 @@ export function Omnibox({
         // As above.
         if (ac.signal.aborted) return;
         log.debug("palette", "the work items could not be read; the palette still jumps to everything else", errorFields(e));
+      });
+    // The library, once per opening as the rest: the workspace store never
+    // carries it, since nothing but the library screen reads it on the beat.
+    api
+      .workflows({ scope: "library" }, ac.signal)
+      .then((r) => setWorkflows(r.workflows))
+      .catch((e: unknown) => {
+        // As above.
+        if (ac.signal.aborted) return;
+        log.debug("palette", "the workflows could not be read; the palette still jumps to everything else", errorFields(e));
       });
     return () => ac.abort();
   }, [open]);
@@ -868,6 +879,22 @@ export function Omnibox({
       });
     }
 
+    for (const w of workflows) {
+      // The library's workflows, archived ones left out: a jump lands on a
+      // workflow the library shows. Its description and its tags match as
+      // words; *On* says it listens.
+      if (w.workflow.archived) continue;
+      push({
+        key: `wf:${w.workflow.id}`,
+        label: w.workflow.name,
+        hint: [w.workflow.description, w.listening ? tr("shell-omnibox-workflow-on") : null].filter(Boolean).join(" · ") || undefined,
+        group: tr("shell-omnibox-workflows"),
+        keywords: (w.workflow.tags ?? []).join(" "),
+        leading: <ICON.workflow size={14} aria-hidden />,
+        run: () => go({ name: "workflow", id: w.workflow.id }),
+      });
+    }
+
     for (const { channel } of ws.channels) {
       push({
         key: `c:${channel.id}`,
@@ -935,7 +962,7 @@ export function Omnibox({
     }
 
     return out.slice(0, MAX_ITEMS);
-  }, [act, appearance, conversations.rows, enter, go, mode, nav, onClose, projects, q, remote, teams, workItems, workstreams, ws, root, index, indexTruncated, activeTerminal, harnesses, launched, resolved, symbolNote, symbols, terminalSessions]);
+  }, [act, appearance, conversations.rows, enter, go, mode, nav, onClose, projects, q, remote, teams, workItems, workflows, workstreams, ws, root, index, indexTruncated, activeTerminal, harnesses, launched, resolved, symbolNote, symbols, terminalSessions]);
 
   useEffect(() => {
     setCursor((c) => Math.min(c, Math.max(0, items.length - 1)));

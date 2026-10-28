@@ -58,7 +58,7 @@ test("the Devices button follows the Browser one in the IDE's header, on a check
 
 test("the webview names a device and never a program: the shell reads the run line from the node and keeps the folder under the checkout", () => {
   const session = read("terminal/session.ts");
-  assert.ok(session.includes("mobileDevelopment,\n    onOutput: channel,"), "terminal_open takes the device");
+  assert.ok(session.includes("mobileDevelopment,\n    sub,\n    onOutput: channel,"), "terminal_open takes the device, and the folder under the placement beside it");
   assert.ok(session.includes("export async function writeTerminal("), "the one door to type into a terminal");
   const api = read("api.ts");
   assert.ok(!api.includes("mobile-development/run-command"), "the page never reads the run line — the shell's route");

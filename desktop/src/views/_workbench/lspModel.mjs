@@ -126,6 +126,92 @@ export function toWorkspaceSymbols(result) {
   return out;
 }
 
+/**
+ * LSP's `CompletionItemKind` (1-based, Text first) → Monaco's (Method first).
+ * The two enumerations share the names and not one number, so a table, not
+ * an offset; a kind LSP does not name is drawn as text.
+ */
+const COMPLETION_KINDS = Object.freeze([18, 0, 1, 2, 3, 4, 5, 7, 8, 9, 12, 13, 15, 17, 27, 19, 20, 21, 23, 16, 14, 6, 10, 11, 24]);
+
+/** @param {unknown} lsp */
+export function toCompletionKind(lsp) {
+  const n = Number(lsp);
+  return Number.isFinite(n) && n >= 1 && n <= COMPLETION_KINDS.length ? COMPLETION_KINDS[n - 1] : 18;
+}
+
+/**
+ * A snippet's text as plain text: `${1:name}` keeps its placeholder's word,
+ * `$1` and `$0` go. The client declares no snippet support, so a server
+ * that sends one anyway is degraded rather than typed into the buffer with
+ * its dollars.
+ * @param {string} text
+ */
+function plainOf(text) {
+  return text.replace(/\$\{\d+:([^}]*)\}/g, "$1").replace(/\$\{\d+\}/g, "").replace(/\$\d+/g, "");
+}
+
+/** Documentation in either shape — a string or `MarkupContent` — as Monaco draws it. */
+function documentationOf(doc) {
+  if (doc == null) return undefined;
+  if (typeof doc === "string") return doc;
+  if (typeof doc === "object" && "value" in doc) return doc.kind === "markdown" ? { value: String(doc.value ?? "") } : String(doc.value ?? "");
+  return undefined;
+}
+
+/**
+ * A `textDocument/completion` answer — a `CompletionList` or a bare
+ * `CompletionItem[]` — as Monaco's list. Each item inserts its edit's text,
+ * else its `insertText`, else its label, over its edit's range — a
+ * `TextEdit`'s, or an `InsertReplaceEdit`'s insert range — else `range`,
+ * the word under the caret; a snippet is inserted plain. Documentation in
+ * either shape, the deprecated tag, and additional edits (an import a
+ * server adds) come along; anything that is no list is no suggestions.
+ * @param {unknown} result
+ * @param {{startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number}} range
+ * @returns {{suggestions: object[], incomplete: boolean}}
+ */
+export function toCompletionItems(result, range) {
+  const list = Array.isArray(result) ? result : result && typeof result === "object" && Array.isArray(result.items) ? result.items : [];
+  const incomplete = !Array.isArray(result) && result?.isIncomplete === true;
+  const suggestions = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const label = typeof item.label === "string" ? item.label : String(item.label?.label ?? "");
+    if (!label) continue;
+    const edit = item.textEdit && typeof item.textEdit === "object" ? item.textEdit : null;
+    const editRange = edit?.range ?? edit?.insert ?? null;
+    const text = typeof edit?.newText === "string" ? edit.newText : typeof item.insertText === "string" ? item.insertText : label;
+    const deprecated = item.deprecated === true || (Array.isArray(item.tags) && item.tags.includes(1));
+    const suggestion = {
+      label,
+      kind: toCompletionKind(item.kind),
+      insertText: item.insertTextFormat === 2 ? plainOf(text) : text,
+      range: editRange ? toMonacoRange(editRange) : range,
+      detail: typeof item.detail === "string" ? item.detail : undefined,
+      documentation: documentationOf(item.documentation),
+      sortText: typeof item.sortText === "string" ? item.sortText : undefined,
+      filterText: typeof item.filterText === "string" ? item.filterText : undefined,
+      preselect: item.preselect === true,
+      tags: deprecated ? [1] : undefined,
+      additionalTextEdits: Array.isArray(item.additionalTextEdits) ? item.additionalTextEdits.filter((e) => e && e.range && typeof e.newText === "string").map((e) => ({ range: toMonacoRange(e.range), text: e.newText })) : undefined,
+    };
+    suggestions.push(suggestion);
+  }
+  return { suggestions, incomplete };
+}
+
+/**
+ * Whether a running server follows the document — when Monaco's word-based
+ * suggestions go quiet, so the server's are not drowned in the buffer's
+ * own words. A language with no row, or a server starting, stopped or
+ * failed, leaves the editor's words on.
+ * @param {string | null | undefined} language
+ * @param {{state: {state: string}} | null | undefined} server
+ */
+export function followedByServer(language, server) {
+  return !!language && !!server && server.state.state === "running";
+}
+
 /** Hover contents in any of LSP's four shapes → one markdown string. */
 export function hoverMarkdown(contents) {
   if (contents == null) return "";

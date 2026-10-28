@@ -1076,6 +1076,18 @@ the commit summary on hover; clicking opens the commit in the graph. *History fo
 — and each row opens that revision's diff. Before the first commit both are empty answers: no line
 has a commit to be blamed on, no commit has touched the path.
 
+**HEAD**, beside Blame on the document's bar, diffs the buffer as typed — unsaved changes included —
+against the text `HEAD` holds: the editor's third diff view after the review lens and the conflict
+review, drawn over the same `DiffEditor` on the tab's own model, so typing in the modified side is
+typing in the buffer, undo history and all. Blame's rule, plus on disk (`headDiffModel.canDiffHead`):
+a checkout's root file, never a goal's folder or a loose or untitled document. `HEAD`'s side is
+`GET /workstreams/{wid}/git/sides?staged=true`'s `original`, read when the toggle goes on and again
+after a save, as blame is — a keystroke never asks, the modified side being the buffer itself. A file
+`HEAD` does not hold diffs against nothing with *Not in HEAD — every line is yours* on the bar; a side
+cut at the cap is drawn and said so; a side that is not text is a note in the strip and no diff
+(`headSides`). A rendered or split document goes to its source when the toggle goes on; the review
+lens, when it is shown, keeps its precedence.
+
 ---
 
 ## Bounds, stated

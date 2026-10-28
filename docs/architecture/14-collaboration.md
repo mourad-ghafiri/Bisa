@@ -163,8 +163,13 @@ that run, the same row a local decision writes (`record_decision`).
    before it; and a filter that says *you* or *agents* never matches a hosted person — a start
    names the person it listens to. *Harmful* or no verdict keeps it held with the
    reason, said as `MessageHeld`, shown to the owner with a caution, and reaches no agent until
-   `POST /messages/{id}/release`. Nothing bounds `held.json` but a release or a refusal: a host
-   whose owner never answers keeps every held message. Every message is read in a task of its
+   `POST /messages/{id}/release` lets it through or `POST /messages/{id}/refuse` drops it
+   (`collab::refuse_message`: the row is gone, `MessageRefused` is said, nothing is dispatched, and
+   the message stays in its scope's log). Settings › People lists the held messages with *Let
+   through* and *Refuse*; `bisa workspace held`, `release` and `refuse` are the same three doors
+   from the terminal — a release needs the node that wakes the agents, a refusal does not. Nothing
+   bounds `held.json` but a release or a refusal: a host whose owner never answers keeps every held
+   message. Every message is read in a task of its
    own, so the list has one writer at a time (`Workspace::held_writes`): a release of one that
    lands as the verdict of another loses neither. `security.collaboration.classify` off
    dispatches at once.

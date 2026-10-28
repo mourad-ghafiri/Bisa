@@ -22,5 +22,7 @@ export declare function connectorPickerHint(state: { count: number; error: strin
 export declare function definitionHint(error: string | null | undefined, words: string): string;
 export declare function accountsNote(state: { loading: boolean; error: string | null | undefined; count: number; inputs: number }): string | null;
 export declare function writeWords(unattended: boolean): string;
+/** What an empty parameter field would send — the definition's `default` in words — or nothing. */
+export declare function paramHint(param: { name?: unknown; default?: unknown } | null | undefined): string;
 export declare const UNATTENDED_LABEL: string;
 export declare const UNATTENDED_HINT: string;

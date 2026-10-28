@@ -4,10 +4,14 @@
 //! desk an `ask` was a refusal. Now the call parks here, the pane draws a
 //! card at the foot of the timeline, and the person answers where they are
 //! reading: *Allow once*, *Allow for this conversation*, or *Deny* — with a
-//! note the agent hears as the reason. Two things are asked about
-//! ([`AskSubject`]): a tool call the guard put to the person, and content
-//! from outside the screen held — a page, a review — with its source, the
-//! reason and an excerpt (11-security §What an agent reads from outside).
+//! note the agent hears as the reason. Four things are asked about
+//! ([`AskSubject`]): a tool call the guard put to the person, content from
+//! outside the screen held — a page, a review — with its source, the reason
+//! and an excerpt (11-security §What an agent reads from outside), and, for
+//! a turn of any conversation that has no goal to escalate to — about a
+//! workflow, the workspace, the node, a checkout — the agent's own question
+//! in words and a sign-in it needs: the person answers the question or
+//! declines it, says the sign-in is done or that it is not now.
 //!
 //! An ask lives as long as its session: nothing is stored, a restart leaves
 //! none behind, and a session that goes away answers its own asks *no*.
@@ -42,15 +46,46 @@ pub enum AskSubject {
         reason: String,
         excerpt: String,
     },
+    /// The agent asked the person something in words — the question is the
+    /// ask's own — with the choices it offered, when any. Answered in words
+    /// (`AskAnswer::Answer`) or declined; never allowed for a conversation.
+    Question {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        options: Vec<String>,
+    },
+    /// The agent needs the person to sign in to a provider — at the URL when
+    /// it names one, shown as text and never followed — and to say when it
+    /// is done (`AskAnswer::Allow`) or that it is not now (`Deny`).
+    Auth {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
 }
 
 impl AskSubject {
     /// The key *for this conversation* remembers: the tool's name, or the
-    /// content's host under `content:`, so a page never allows a tool.
+    /// content's host under `content:`, so a page never allows a tool. A
+    /// question and a sign-in are never grantable; their keys name them all
+    /// the same, so the match is total.
     pub fn grant_key(&self) -> String {
         match self {
             AskSubject::Tool { tool, .. } => tool.clone(),
             AskSubject::Content { source, .. } => format!("content:{source}"),
+            AskSubject::Question { .. } => "question".to_string(),
+            AskSubject::Auth { provider, .. } => format!("auth:{provider}"),
+        }
+    }
+
+    /// Whether an answer is one this subject takes: a question is answered
+    /// in words or declined; a tool call, content and a sign-in are allowed
+    /// or denied. The desk refuses the other pairing at its door.
+    pub fn takes(&self, answer: &AskAnswer) -> bool {
+        match (self, answer) {
+            (AskSubject::Question { .. }, AskAnswer::Answer { .. }) => true,
+            (AskSubject::Question { .. }, AskAnswer::Allow { .. }) => false,
+            (_, AskAnswer::Answer { .. }) => false,
+            _ => true,
         }
     }
 
@@ -68,6 +103,15 @@ impl AskSubject {
             AskSubject::Content {
                 source, url: None, ..
             } => format!("to read {source}"),
+            AskSubject::Question { .. } => "to answer a question".to_string(),
+            AskSubject::Auth {
+                provider,
+                url: Some(url),
+            } => format!("to sign in to {provider} at {url}"),
+            AskSubject::Auth {
+                provider,
+                url: None,
+            } => format!("to sign in to {provider}"),
         }
     }
 }
@@ -108,6 +152,9 @@ pub enum AskAnswer {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
+    /// The person's words to a question (`AskSubject::Question`); refused
+    /// for every other subject.
+    Answer { text: String },
 }
 
 struct Waiting {
@@ -140,9 +187,12 @@ impl AskDesk {
 }
 
 /// What the person said, as the caller acts on it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Said {
     Allow,
     Deny(String),
+    /// The words a question was answered with.
+    Answer(String),
 }
 
 const REFUSED: &str = "refused by the person in the conversation";
@@ -188,7 +238,8 @@ pub async fn ask(
     // A dropped sender — the session went away, the conversation was
     // deleted — is a no.
     let answer = rx.await.unwrap_or(AskAnswer::Deny { note: None });
-    let allowed = matches!(answer, AskAnswer::Allow { .. });
+    // Answered in words counts as a yes to the feed: the agent goes on.
+    let allowed = !matches!(answer, AskAnswer::Deny { .. });
     inner.emit(EngineEvent::global(EnginePayload::AskSettled {
         conversation: conversation.to_string(),
         ask_id: view.id,
@@ -210,6 +261,7 @@ pub async fn ask(
                 None => REFUSED.to_string(),
             },
         ),
+        AskAnswer::Answer { text } => Said::Answer(text),
     }
 }
 
@@ -225,7 +277,9 @@ pub fn open(inner: &Inner, conversation: ConversationId) -> Vec<AskView> {
 }
 
 /// Answer one. An id that is not waiting is an error in a sentence: it was
-/// answered already, or its turn ended.
+/// answered already, or its turn ended. An answer the subject does not take
+/// — words to a tool call, an allow to a question — is refused and the ask
+/// stays waiting.
 pub fn answer(
     inner: &Inner,
     conversation: ConversationId,
@@ -234,16 +288,16 @@ pub fn answer(
 ) -> Result<(), EngineError> {
     let waiting = {
         let mut entry = inner.changes.asks.waiting.entry(conversation).or_default();
-        entry
-            .iter()
-            .position(|w| w.view.id == ask_id)
-            .map(|at| entry.remove(at))
-    };
-    let Some(waiting) = waiting else {
-        return Err(EngineError::Invalid(bisa_core::text!(
-            "error-engine-invalid-question-no-longer-waiting-was-answered-turn"
-        )));
-    };
+        match entry.iter().position(|w| w.view.id == ask_id) {
+            None => Err(EngineError::Invalid(bisa_core::text!(
+                "error-engine-invalid-question-no-longer-waiting-was-answered-turn"
+            ))),
+            Some(at) if !entry[at].view.subject.takes(&answer) => Err(EngineError::Invalid(
+                bisa_core::text!("error-engine-invalid-ask-takes-another-answer"),
+            )),
+            Some(at) => Ok(entry.remove(at)),
+        }
+    }?;
     // The turn may have been stopped between the read and the answer: then
     // nobody hears it, and saying it was taken would be a lie.
     if waiting.answer.send(answer).is_err() {
@@ -290,5 +344,65 @@ mod tests {
             excerpt: "y".into(),
         };
         assert_eq!(bare.words(), "to read a pasted file");
+        let question = AskSubject::Question {
+            options: vec!["red".into(), "blue".into()],
+        };
+        assert_eq!(question.words(), "to answer a question");
+        assert_eq!(question.grant_key(), "question");
+        let sign_in = AskSubject::Auth {
+            provider: "github".into(),
+            url: Some("https://github.com/login/device".into()),
+        };
+        assert_eq!(
+            sign_in.words(),
+            "to sign in to github at https://github.com/login/device"
+        );
+        assert_eq!(sign_in.grant_key(), "auth:github");
+        assert_eq!(
+            AskSubject::Auth {
+                provider: "npm".into(),
+                url: None
+            }
+            .words(),
+            "to sign in to npm"
+        );
+    }
+
+    #[test]
+    fn a_subject_takes_the_answers_of_its_kind_and_no_other() {
+        let allow = AskAnswer::Allow {
+            scope: AskScope::Once,
+        };
+        let deny = AskAnswer::Deny { note: None };
+        let words = AskAnswer::Answer {
+            text: "blue".into(),
+        };
+        let question = AskSubject::Question { options: vec![] };
+        assert!(question.takes(&words));
+        assert!(question.takes(&deny), "a question may be declined");
+        assert!(!question.takes(&allow), "nothing to allow about a question");
+        for other in [
+            AskSubject::Tool {
+                tool: "Bash".into(),
+                tier: bisa_core::ToolTier::Exec,
+            },
+            AskSubject::Content {
+                source: "x".into(),
+                url: None,
+                reason: "r".into(),
+                excerpt: "e".into(),
+            },
+            AskSubject::Auth {
+                provider: "github".into(),
+                url: None,
+            },
+        ] {
+            assert!(other.takes(&allow), "{other:?}");
+            assert!(other.takes(&deny), "{other:?}");
+            assert!(
+                !other.takes(&words),
+                "words answer a question alone: {other:?}"
+            );
+        }
     }
 }

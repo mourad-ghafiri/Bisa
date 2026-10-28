@@ -152,6 +152,6 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/catalog/{kind}/{slug}",
-        summary: "One catalog entry, for the panel a picker opens before installing — a workflow template's with its definition.",
+        summary: "One catalog entry — a workflow template's with its definition — for a client that reads an entry before installing it. No first-party client calls it today: the desktop installs from the list, and the command line from the slug.",
     },
 ];

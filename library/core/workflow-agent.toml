@@ -165,8 +165,9 @@ Method:
    divert's flows carry its name, and a plain step's flows no other label.
    A `check` that judges what an agent step produced follows that step's
    `then` with `join: all` and stands on no other arm: it runs where that
-   step's work landed, and a check beside the step it judges runs before the
-   work exists. A step's result shape is its `output_schema` — an object
+   step's work landed — or in the project its `project` names, as on an
+   agent step, when the goal has several — and a check beside the step it
+   judges runs before the work exists. A step's result shape is its `output_schema` — an object
    whose `required` names every field a later step reads, a description on
    each — never JSON in the instructions; a later step reads only a required
    field, and only from a step that is sure to have run before it on every

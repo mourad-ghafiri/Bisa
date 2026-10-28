@@ -10,6 +10,93 @@ notes (`docs/contributing/release.md`).
 
 ### Added
 
+- **Replace across files from the Files tab.** *Replace* beside the search box's Contents toggles
+  opens a row under it: *Preview* draws every line that would change under its file, *Replace all*
+  — or a file row's own *Replace* — writes what the preview shows by the hashes it carried, so a
+  file an agent edited in between is skipped and said so; the preview is dropped the moment the
+  question moves. `POST /ide/replace` answers typed records (`IdeReplacePreview`,
+  `IdeReplaceOutcome`) in the same shape as before.
+- **A document's diff against `HEAD`.** *HEAD* beside Blame on the editor's bar diffs the buffer as
+  typed — unsaved changes included — against the text `HEAD` holds, on the tab's own model so
+  typing in it is typing in the buffer; a file `HEAD` lacks diffs against nothing, a side that is
+  not text says so and draws none.
+- **Open in terminal here.** A folder of the Files tree opens a shell in that folder — a name
+  relative to the placement, which the desktop shell holds under it (no absolute path, no `..`,
+  no symlink out) — kept on the tab so a restart opens there again; the tab's title names the
+  folder.
+- **A Problems list.** Under Files, beside the search: every diagnostic the root's language servers
+  published, a file row per path and its problems under it errors first, a row opening the document
+  at its line; the tree's button wears the counts in its tone and the Files tab's rail icon a mark
+  while an error stands. A server's word goes when it stops; the list goes when the node was away.
+- **A synced workstream script reads as a diff against the text you approved.** Approving keeps
+  the text it was of on this machine (`workstreams.script.approved`); a script whose text moved
+  since answers `approved_text`, and About › Settings › Workstream scripts draws the two as an
+  inline diff under the field before you approve again.
+- **Two settings read at last.** `editor.theme` may name one of Monaco's own themes (`vs`,
+  `vs-dark`, `hc-light`, `hc-black`) in place of the app's; `terminal.shell` may name the shell
+  every tab and harness opens in — by absolute path or by its bare name on the login `PATH`,
+  checked by the desktop shell, the login shell when it does not check out.
+- **Completion from the language server.** `textDocument/completion` joins the proxy's allow-list;
+  the editor asks as you type and on its trigger characters, after the pending edit has reached
+  the server, and draws the server's list over the word under the caret — never a snippet. The
+  editor's own word-based suggestions go quiet while a running server follows the document.
+  `lsp.completion` (machine or workspace, on by default) spares a slow server this one request.
+- **A question or a sign-in from a conversation outside a goal is asked in the conversation.** A
+  turn about a workflow, the workspace, the node or a checkout parks its question and its sign-in
+  on the asks desk a checkout's tool calls already use: the card offers the choices the agent gave
+  and takes anything typed, or declines with a note; a sign-in is *Signed in* or *Not now*. The
+  desk refuses the other pairing — words to a tool call, an allow to a question — and the ask
+  stays waiting. A conversation about a goal keeps its Inbox gates.
+- **`bisa identity export | import`.** The owner key as a NIP-49 `ncryptsec`, out of a workspace
+  and into one, without opening it: the passphrase is stdin's first line when piped, asked
+  without echo otherwise; an export goes to stdout or to a private file; an import into a fresh
+  folder lands the key before `init` would mint one, needs `--replace` over a key that is there,
+  and is refused while a node holds the workspace.
+- **`bisa note list | show | new | edit | rm`.** Notes from the terminal, through the node when one
+  runs and an engine of the process's own otherwise, the rows the wire's; an edit of the body
+  carries the hash it read, and a body that moved since is refused rather than written over.
+- **A pet rests on its pack's row.** A pack whose `defaultAnimation` names one of the nine states
+  rests there when nothing is happening, instead of on `idle`.
+- **A `check` step names where it runs.** `project` on a command check — an id, or an input of kind
+  project, held as an agent step's is — runs it in that project: the checkout of the run's latest
+  agent step that worked there, else the project's root; a project the goal is not attached to
+  fails the step with the attach remedy. A check that names none runs where the run's work landed,
+  as before. The designer's check form offers the project; the Workflow Agent's brief says so.
+- **A connector parameter may carry a `default`.** A value of the parameter's own kind — refused
+  at the definition's door when it is not; an account's parameter takes none — sent when the step
+  leaves it unset: a required one with a default need not be set, an emptied field reads as unset.
+  The designer shows it as the field's placeholder with a quiet chip, `bisa connector show` prints
+  it, and the Workflow Agent's roster names it.
+- **The designer offers what the definition already knew.** The `platform` topic field offers the
+  engine's topics as you type (held to `events::TOPICS` by a test); a boundary's post takes its
+  place and its author as a `notify` step does; a `notify` step's place may be a goal's or a
+  workstream's conversation, not only a channel's; a goal's Progress row shows its step's
+  transcript inline, live while the step runs; the library's workflows are a section of ⌘K.
+- **A goal's own ceiling, at capture.** `bisa new --budget-tokens … --budget-usd-cents …
+  --budget-secs …` and `budget` on `POST /goals` name the goal's own budget, kept as given — a zero
+  lifts that ceiling, every flag at zero (`{}`) is no ceiling at all; none named takes
+  `budget.default.*`, as before. The engine enforced a goal's budget all along; nothing could set
+  one. The three flags are one set (`budget.rs`), shared with `bisa workflow on`.
+- **`bisa stop <goal> --listening`** stops the listening alone — the goal page's *Stop listening*
+  and `DELETE /goals/{id}/listening`, from the terminal: a live run goes on and the queue stays;
+  a goal that was not listening is told so. The answer keeps the stop's five keys.
+- **`bisa signal list --goal <id>` and `--workflow <id>`** list the signals written for one
+  host's listeners, as `GET /signals?host=` does.
+- **`bisa project edit <project> [--name] [--publish auto|gated|manual]`** changes a project's
+  name or its publishing policy after creation — `PATCH /projects/{pid}` through the node — a flag
+  left out keeping what the record says.
+- **A held message can be let through or refused.** The classifier's hold on a message from a
+  person on another node had a release route and nothing that called it, and no refusal at all —
+  a message judged harmful stayed in `held.json` for good. Settings › People now lists every held
+  message (who, where, since when, the classifier's standing and reason) with *Let through* and
+  *Refuse*; `bisa workspace held`, `bisa workspace release <id>` and `bisa workspace refuse <id>`
+  are the same from the terminal; `POST /messages/{id}/refuse` drops the row, wakes nobody and
+  says `message.refused` on the bus (the message stays in its channel's log). A release wakes the
+  agents the message addresses, so the verb needs a running node; a refusal does not.
+- **A body or a query the node cannot read is a coded 400.** `code` is `body_unreadable` (JSON of
+  another shape, a key the type lacks, no JSON at all) or `query_unreadable` (a number that is no
+  number), with the reader's own sentence as `detail.reason`, so a client tells the body it sent
+  from a refusal of what it asked; the 413 and the 415 stand alone and carry no code.
 - **More of what happens can begin a workflow, or hold one.** Three start events and catches
   beside the ten: a **goal**'s move (`created` · `updated` · `closed` · `archived` · `restored` ·
   `deleted` · `attached` · `detached` · `proposed` · `asked` · `decided`, one goal or a list or
@@ -49,8 +136,8 @@ notes (`docs/contributing/release.md`).
   session is started on its model, checked against the host's own list first so a model your plan
   lacks is passed over for the plan's next; the effort rides every turn, held to the levels the
   model's row lists; every tool the host asks about is judged by the guard and answered with its
-  *once* choice, never a standing grant; a steer reaches the running turn and a follow-up waits for
-  its end; token usage and the account's windows — the one the host names and the week, with the
+  *once* choice, never a standing grant; a follow-up waits for the turn's end (the host takes a
+  steer mid-turn, which the platform does not yet send); token usage and the account's windows — the one the host names and the week, with the
   plan's tier — reach the footer from what a session hears or from the host asked. It wears Meta's
   mark, and opens in a terminal as the bare `muse`, resumed with `resume --last` — a plain terminal,
   like Grok Build's. A custom harness descriptor named `muse-code` is refused from now on, as every
@@ -81,6 +168,11 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- Two harness capability flags nothing read are gone from `HarnessCaps` — `FORK` (no operation ever
+  branched a session) and `STRUCTURED_OUTPUT` (no adapter declared it); their bits are holes,
+  never reused. The flags were internal: no record, route or manifest named them. The engine's
+  registry registers a live session only if its id is absent — the compare-and-swap arm that
+  replaced a parked ref went with the revival door, which nothing called.
 - **The Workflow Agent knows the whole event vocabulary.** Its method names every start
   event and every catch with their fields and change words, the lists a field takes, and when
   to reach for a goal's, a run's, a workflow's or an agent's move; its brief lists each of the
@@ -125,6 +217,14 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **The three hand-written reference pages are held to the code.** `docs/reference/gep.md`'s two
+  tables are the kind registry both ways, with the retired holes, the counts, the next free number
+  and the ephemeral kind; `docs/reference/workspace-layout.md`'s tree names every path the store
+  builds and draws nothing the store does not, the paths other crates own named by their source;
+  `docs/reference/cli.md` names every verb at every depth — `agent skill add`, `connector account
+  add`, `git profile add` — and no verb the binary lacks. The layout page now draws the checkout
+  conversation's change ledger (`ide/changes/<ConversationId>/`), the session record's folder and
+  the pet's manifest, and names the agent's `recall_index.json` by its real name.
 - **Connectors, the leaf crate.** A request the platform took and never answered — the
   connection closed before a response — read as *could not connect*, and a step's own `retries`
   sent the write again: a possible double post. It is a transport failure now

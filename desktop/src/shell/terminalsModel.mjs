@@ -314,8 +314,22 @@ export function mobileDevelopmentOf(mobileDevelopment) {
   return typeof device === "string" && device ? { device } : null;
 }
 
+/**
+ * A folder relative to the placement a shell opens in (ide/06 — *Open in
+ * terminal here*), as the tab keeps it: the name trimmed of its slashes, or
+ * `null` for the placement itself. The shell holds it under the placement;
+ * nothing here resolves it.
+ * @param {unknown} sub
+ * @returns {string | null}
+ */
+export function subOf(sub) {
+  if (typeof sub !== "string") return null;
+  const trimmed = sub.trim().replace(/^\/+|\/+$/g, "");
+  return trimmed ? trimmed : null;
+}
+
 export function openTerminal(state, target, at = nowSecs()) {
-  const { scope, id, harness = null, label = null, login = null, resume, run = false, mobileDevelopment = null, start = null } = target ?? {};
+  const { scope, id, harness = null, label = null, login = null, resume, run = false, mobileDevelopment = null, sub = null, start = null } = target ?? {};
   if (!TERMINAL_SCOPES.includes(scope) || !id) return state;
   const key = launchKey(harness ?? null, scope, id);
   const session = {
@@ -333,6 +347,9 @@ export function openTerminal(state, target, at = nowSecs()) {
     // The checkout's Flutter app on a device (ide/19): the node's run line
     // for that device, the same way — the Device document finds this tab by it.
     mobileDevelopment: mobileDevelopmentOf(mobileDevelopment),
+    // The folder under the placement this tab opened in (ide/06) — on the
+    // session so a restart opens there again; the title names it.
+    sub: subOf(sub),
     // Decided once, here, and carried on the session — so a restart repeats
     // what this tab did rather than what the place has since become. An
     // explicit `resume` on the target wins: that is the menu's fresh entry
@@ -394,15 +411,18 @@ export function openTerminal(state, target, at = nowSecs()) {
  * one misclick from ending a running build), so it reveals instead.
  */
 export function revealTerminal(state, target) {
-  const { scope, id, harness = null, run = false, mobileDevelopment = null } = target ?? {};
+  const { scope, id, harness = null, run = false, mobileDevelopment = null, sub = null } = target ?? {};
   const device = mobileDevelopmentOf(mobileDevelopment)?.device ?? null;
+  // A sub-folder is another place: a shell in `src` is not the root's, nor the other way round.
+  const at = subOf(sub);
   const existing = state.sessions.find(
     (s) =>
       isLive(s) &&
       isRootedAt(s, scope, id) &&
       (s.harness ?? null) === (harness ?? null) &&
       (s.run === true) === (run === true) &&
-      (s.mobileDevelopment?.device ?? null) === device,
+      (s.mobileDevelopment?.device ?? null) === device &&
+      (s.sub ?? null) === at,
   );
   if (!existing) return openTerminal(state, target);
   return focusTerminal(state, existing.key);
@@ -808,6 +828,7 @@ export function serializeTerminals(state) {
       resume: s.resume,
       run: s.run === true,
       mobileDevelopment: s.mobileDevelopment ?? null,
+      sub: s.sub ?? null,
       generation: s.generation,
     })),
     panes: state.panes,
@@ -847,6 +868,7 @@ export function restoreTerminals(json, launched = []) {
       resume: s.resume === true,
       run: s.run === true,
       mobileDevelopment: mobileDevelopmentOf(s.mobileDevelopment),
+      sub: subOf(s.sub),
       generation: (Number.isInteger(s.generation) && s.generation >= 0 ? s.generation : 0) + 1,
       liveness: unverifiable(RESTORED_REASON),
       restoring: true,
@@ -978,7 +1000,9 @@ export function terminalTitle(session) {
   if (!session) return "";
   const noun = SCOPE_NOUN[session.scope] ?? session.scope;
   const label = typeof session.label === "string" ? session.label.trim() : "";
-  const where = label ? `${noun} · ${label}` : tr("shell-terminals-noun-tail", { noun, tail: String(session.id).slice(-6) });
+  const place = label ? `${noun} · ${label}` : tr("shell-terminals-noun-tail", { noun, tail: String(session.id).slice(-6) });
+  // A shell opened in a folder under the place names the folder too.
+  const where = session.sub ? tr("shell-terminals-title-sub-where", { where: place, sub: session.sub }) : place;
   if (session.mobileDevelopment) return tr("shell-terminals-title-flutter-where", { where });
   if (session.run) return tr("shell-terminals-title-run-where", { where });
   const harness = harnessOf(session);

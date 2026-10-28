@@ -27,6 +27,7 @@ import {
   clampPetSize,
   petHeight,
   petStateOfSession,
+  restingState,
   transientForTransition,
   dragState,
   frameCounts,
@@ -83,6 +84,21 @@ test("the standing state is ordered by what it costs you to miss", () => {
   assert.equal(standingState({ working: 1 }), "running");
   assert.equal(standingState({}), "idle");
   assert.equal(standingState(), "idle", "no argument is idle, not a crash");
+  // A pack that rests on another row rests there when nothing is happening — and only then.
+  assert.equal(standingState({}, "waving"), "waving");
+  assert.equal(standingState({ working: 1 }, "waving"), "running");
+  assert.equal(petStateOfSession({ state: "done" }, "waving"), "waving");
+  assert.equal(petStateOfSession({ state: "running", tool: "Edit", args: "", tier: "write" }, "waving"), "running");
+});
+
+test("a pack's resting row is its default animation when the sheet has it, else idle", () => {
+  assert.equal(restingState({ defaultAnimation: "waving" }), "waving");
+  assert.equal(restingState({ defaultAnimation: "idle" }), "idle");
+  assert.equal(restingState({ defaultAnimation: "sleeping" }), "idle", "a row the sheet lacks would scroll the background off the art");
+  assert.equal(restingState({}), "idle", "a pack that names none — Codex's own — rests on idle");
+  assert.equal(restingState(null), "idle");
+  assert.equal(restingState(undefined), "idle");
+  assert.equal(restingState({ defaultAnimation: 3 }), "idle");
 });
 
 test("only events about the work play something once", () => {

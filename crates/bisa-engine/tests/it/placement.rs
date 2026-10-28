@@ -1060,6 +1060,7 @@ async fn a_check_after_an_agent_step_runs_where_the_agent_wrote() {
                     StepKind::Check {
                         check: CheckKind::Command {
                             command: "test -s index.html".into(),
+                            project: None,
                         },
                     },
                 ),
@@ -1145,6 +1146,7 @@ async fn a_check_after_an_agent_step_on_a_plain_project_finds_the_file_in_the_co
                     StepKind::Check {
                         check: CheckKind::Command {
                             command: "test -s index.html".into(),
+                            project: None,
                         },
                     },
                 ),
@@ -1403,5 +1405,269 @@ async fn a_proposal_that_cannot_be_placed_asks_rather_than_failing() {
         .count();
     assert_eq!(decisions, 0, "nothing was recorded");
     assert!(ws.get_goal(guided_goal.id).unwrap().run.is_none());
+    engine.shutdown().await;
+}
+
+/// A goal with two projects, a file only the second holds, and the check
+/// `test -f only-in-b.txt` on its own goal each time.
+fn two_projects(engine: &Engine, statement: &str, tag: &str) -> (GoalId, Project, Project) {
+    let ws = engine.workspace();
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..guided(statement)
+        })
+        .unwrap();
+    let a = attached_project(
+        ws,
+        goal.id,
+        NewProject::managed(&format!("a-{tag}")).unwrap(),
+    );
+    let b = attached_project(
+        ws,
+        goal.id,
+        NewProject::managed(&format!("b-{tag}")).unwrap(),
+    );
+    std::fs::create_dir_all(ws.project_root_path(&a)).unwrap();
+    let tree_b = ws.project_root_path(&b);
+    std::fs::create_dir_all(&tree_b).unwrap();
+    std::fs::write(tree_b.join("only-in-b.txt"), "here\n").unwrap();
+    (goal.id, a, b)
+}
+
+fn file_check(project: Option<bisa_core::ValueRef<bisa_core::ProjectId>>) -> bisa_core::Step {
+    step(
+        "exists",
+        StepKind::Check {
+            check: CheckKind::Command {
+                command: "test -f only-in-b.txt".into(),
+                project,
+            },
+        },
+    )
+}
+
+/// The check run on the goal with the workflow of that one step and the
+/// inputs given; the finished run.
+async fn judged(
+    engine: &Engine,
+    goal: GoalId,
+    mut draft: bisa_store::NewWorkflow,
+    inputs: std::collections::BTreeMap<String, serde_json::Value>,
+) -> bisa_core::WorkflowRun {
+    draft.name = format!("{} {}", draft.name, goal);
+    let wf = engine.create_workflow(draft).unwrap();
+    engine.set_workflow(goal, Some(wf.id)).unwrap();
+    engine.start_run(goal, inputs).unwrap();
+    finished_run(engine, goal).await
+}
+
+fn evidence_of(run: &bisa_core::WorkflowRun) -> String {
+    run.steps[&sid("exists")]
+        .output
+        .as_ref()
+        .map(|o| o["evidence"].to_string())
+        .unwrap_or_default()
+}
+
+/// **A `check` that names a project runs in it when the goal has several.**
+/// Unnamed, the check still lands in the goal's scratch — nothing there to
+/// judge — as it always did; named, it runs in that project's root; named by
+/// an input of kind project, the same; and a project the goal is not
+/// attached to fails the step with the attach remedy as its evidence.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_check_naming_a_project_runs_in_it_when_the_goal_has_several() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, _adapter) = engine_with(&dir, false);
+    let none = std::collections::BTreeMap::new();
+
+    let (goal, _a, b) = two_projects(&engine, "unnamed", "one");
+    let run = judged(
+        &engine,
+        goal,
+        new_workflow("unnamed check", chain(vec![file_check(None)])),
+        none.clone(),
+    )
+    .await;
+    assert_eq!(
+        run.outcome,
+        Some(RunOutcome::Failed),
+        "the scratch holds no such file: {run:?}"
+    );
+
+    let (goal, _a, b2) = two_projects(&engine, "named", "two");
+    let run = judged(
+        &engine,
+        goal,
+        new_workflow(
+            "named check",
+            chain(vec![file_check(Some(bisa_core::ValueRef::Fixed(b2.id)))]),
+        ),
+        none.clone(),
+    )
+    .await;
+    assert_eq!(run.outcome, Some(RunOutcome::Done), "{}", evidence_of(&run));
+    assert!(
+        evidence_of(&run).contains("exit status: 0"),
+        "{}",
+        evidence_of(&run)
+    );
+
+    let (goal, _a, b3) = two_projects(&engine, "from an input", "three");
+    let mut draft = new_workflow(
+        "check from input",
+        chain(vec![file_check(Some(bisa_core::ValueRef::Input {
+            input: bisa_core::InputName::new("where").unwrap(),
+        }))]),
+    );
+    draft.inputs = vec![bisa_core::InputDef {
+        name: bisa_core::InputName::new("where").unwrap(),
+        label: "Where".into(),
+        kind: bisa_core::InputKind::Project,
+        default: None,
+        required: true,
+    }];
+    let run = judged(
+        &engine,
+        goal,
+        draft,
+        std::collections::BTreeMap::from([(
+            "where".to_string(),
+            serde_json::json!(b3.id.to_string()),
+        )]),
+    )
+    .await;
+    assert_eq!(run.outcome, Some(RunOutcome::Done), "{}", evidence_of(&run));
+
+    // `b` belongs to the first goal: the fourth goal is not attached to it.
+    let (goal, _a, _b4) = two_projects(&engine, "unattached", "four");
+    let run = judged(
+        &engine,
+        goal,
+        new_workflow(
+            "check elsewhere",
+            chain(vec![file_check(Some(bisa_core::ValueRef::Fixed(b.id)))]),
+        ),
+        none,
+    )
+    .await;
+    assert_eq!(run.outcome, Some(RunOutcome::Failed), "{run:?}");
+    let record = format!("{:?}", run.steps[&sid("exists")]);
+    assert!(
+        record.contains("not attached"),
+        "the attach remedy is what the step says: {record}"
+    );
+    engine.shutdown().await;
+}
+
+/// A `check` naming the project an agent step worked in runs in that
+/// step's checkout — the worktree beside the root, where the file is — and
+/// one naming the goal's other project runs in that project's root, where
+/// it is not.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_check_naming_the_items_project_runs_in_its_checkout() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, adapter) = writing_engine_over(
+        &dir,
+        "index.html",
+        common::yielding("mock", serde_json::json!({"ok": true})),
+    );
+    let ws = engine.workspace();
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            mode: bisa_core::GoalMode::Manual,
+            ..guided("a page, checked where it was written")
+        })
+        .unwrap();
+    let site = committed_project(&engine, goal.id, "site").await;
+    let other = attached_project(ws, goal.id, NewProject::managed("other").unwrap());
+    std::fs::create_dir_all(ws.project_root_path(&other)).unwrap();
+    let mut write = agent_step("write", "mock");
+    if let StepKind::Agent { project: p, .. } = &mut write.kind {
+        *p = Some(bisa_core::ValueRef::Fixed(site.id));
+    }
+    let check_in = |id: &str, project: bisa_core::ProjectId| {
+        step(
+            id,
+            StepKind::Check {
+                check: CheckKind::Command {
+                    command: "test -s index.html".into(),
+                    project: Some(bisa_core::ValueRef::Fixed(project)),
+                },
+            },
+        )
+    };
+    let wf = engine
+        .create_workflow(new_workflow(
+            "page checked in its project",
+            chain(vec![
+                write,
+                check_in("in_site", site.id),
+                check_in("in_other", other.id),
+            ]),
+        ))
+        .unwrap();
+    engine.set_workflow(goal.id, Some(wf.id)).unwrap();
+    engine
+        .start_run(goal.id, std::collections::BTreeMap::new())
+        .unwrap();
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(
+        done.outcome,
+        Some(RunOutcome::Failed),
+        "the second check fails: {done:?}"
+    );
+    let in_site = &done.steps[&sid("in_site")];
+    assert!(
+        matches!(in_site.state, bisa_core::StepState::Done { .. }),
+        "{in_site:?}"
+    );
+    let item = done.steps[&sid("write")].work_item.expect("the item");
+    let checkout = ws.work_item_root(item).unwrap();
+    assert_ne!(
+        checkout,
+        ws.project_root_path(&site),
+        "the worktree, not the root"
+    );
+    assert!(checkout.join("index.html").is_file());
+    let in_other = &done.steps[&sid("in_other")];
+    assert!(
+        matches!(in_other.state, bisa_core::StepState::Failed),
+        "{in_other:?}"
+    );
+    assert_never_the_root(&adapter, engine.workspace().root());
+    engine.shutdown().await;
+}
+
+/// A run of the workspace has no goal to attach a project to: a check that
+/// names a project the workspace has runs in that project's root.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_runs_check_runs_in_the_project_it_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, _adapter) = engine_with(&dir, false);
+    let ws = engine.workspace();
+    let project = ws
+        .create_project(NewProject::managed("storefront").unwrap())
+        .unwrap();
+    let tree = ws.project_root_path(&project);
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join("only-in-b.txt"), "here\n").unwrap();
+    let (_, run) = common::workspace_run(
+        &engine,
+        new_workflow(
+            "checked in the workspace",
+            chain(vec![file_check(Some(bisa_core::ValueRef::Fixed(
+                project.id,
+            )))]),
+        ),
+    );
+    let done = common::run_finished(&engine, run.id).await;
+    assert_eq!(
+        done.outcome,
+        Some(RunOutcome::Done),
+        "{}",
+        evidence_of(&done)
+    );
+    assert!(evidence_of(&done).contains("exit status: 0"));
     engine.shutdown().await;
 }

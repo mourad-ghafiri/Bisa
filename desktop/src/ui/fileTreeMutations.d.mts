@@ -15,6 +15,7 @@ export declare function revealLabel(userAgent: string | null | undefined): strin
 export type MenuId =
   | "new-file"
   | "new-dir"
+  | "open-terminal"
   | "rename"
   | "duplicate"
   | "cut"
@@ -36,7 +37,7 @@ export interface MenuSpecItem {
   separatorBefore?: boolean;
 }
 export type PasteSource = "tree" | "os" | "image" | null;
-export declare function menuSpec(args: { targets: readonly Target[]; desktop: boolean; mutable: boolean; clipboard: PasteSource; reveal: string; serve?: boolean }): MenuSpecItem[];
+export declare function menuSpec(args: { targets: readonly Target[]; desktop: boolean; mutable: boolean; clipboard: PasteSource; reveal: string; serve?: boolean; openTerminal?: boolean }): MenuSpecItem[];
 export declare function viewportMenuSpec(args: { desktop: boolean; mutable: boolean; clipboard: PasteSource; reveal: string }): MenuSpecItem[];
 export declare function renameError(value: string, current: string, siblings: Iterable<string>): string | null;
 export declare function targetDir(path: string, dir: boolean): string;

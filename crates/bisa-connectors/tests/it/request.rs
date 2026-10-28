@@ -28,6 +28,7 @@ fn p(name: &str, kind: ParamKind, required: bool) -> ParamSpec {
         name: name.into(),
         kind,
         required,
+        default: None,
     }
 }
 
@@ -73,6 +74,47 @@ fn params_bind_by_kind_and_refuse_unknown_and_missing() {
     assert!(matches!(bad_bool, ConnectorError::BadParam { name, .. } if name == "on"));
     let bad_json = bind_params(&specs, &params(&[("q", "x"), ("body", "{nope")])).unwrap_err();
     assert!(matches!(bad_json, ConnectorError::BadParam { name, .. } if name == "body"));
+}
+
+/// A default fills an absent parameter before `required` refuses it: a
+/// required one with a default need not be given, an optional one's default
+/// stands in for an empty field, and a value given wins over the default.
+#[test]
+fn a_default_fills_an_absent_parameter_before_required_refuses() {
+    let with_default =
+        |name: &str, kind: ParamKind, required: bool, default: serde_json::Value| ParamSpec {
+            default: Some(default),
+            ..p(name, kind, required)
+        };
+    let specs = vec![
+        with_default("max", ParamKind::Number, true, json!(100)),
+        with_default("all", ParamKind::Bool, false, json!(false)),
+        p("q", ParamKind::Text, false),
+    ];
+    let bound = bind_params(&specs, &params(&[])).unwrap();
+    assert_eq!(
+        bound["max"],
+        json!(100),
+        "required, defaulted, unset: the default"
+    );
+    assert_eq!(bound["all"], json!(false));
+    assert_eq!(
+        bound["q"],
+        serde_json::Value::Null,
+        "no default: null, as before"
+    );
+    let bound = bind_params(&specs, &params(&[("max", "7"), ("all", " ")])).unwrap();
+    assert_eq!(bound["max"], json!(7), "a value given wins");
+    assert_eq!(
+        bound["all"],
+        json!(false),
+        "an emptied field reads as absent: the default"
+    );
+    let bad = bind_params(&specs, &params(&[("max", "many")])).unwrap_err();
+    assert!(
+        matches!(bad, ConnectorError::BadParam { name, .. } if name == "max"),
+        "a value given is still read by its kind"
+    );
 }
 
 #[test]

@@ -571,7 +571,7 @@ const ENGINE = {
   ask_opened: {
     type: "ask_opened",
     conversation: "01J0CONVERSATION0000000000",
-    ask: { id: "ask1", agent: "reviewer", tool: "Bash", tier: "exec", question: "Run `cargo clean`?", grantable: true, opened_at: 1 },
+    ask: { id: "ask1", agent: "reviewer", subject: { kind: "tool", tool: "Bash", tier: "exec" }, question: "Run `cargo clean`?", grantable: true, opened_at: 1 },
   },
   ask_settled: { type: "ask_settled", conversation: "01J0CONVERSATION0000000000", ask_id: "ask1", allowed: true },
   file_changed: {
@@ -1014,6 +1014,9 @@ test("the collaboration payloads read as people, invitations, held messages and 
   assert.equal(held.tone, "fail");
   assert.match(engineLine({ payload: { type: "message_held", scope: "design", event: "e", author: who, reason: { reason: "pending" } } }, 1).text, /being read/);
   assert.match(engineLine({ payload: { type: "message_released", scope: "design", event: "e" } }, 1).text, /let through/);
+  const refused = engineLine({ payload: { type: "message_refused", scope: "design", event: "e", author: who } }, 1);
+  assert.match(refused.text, /a held message in design was refused/);
+  assert.equal(refused.tone, "dim");
   const withheld = engineLine({ payload: { type: "content_screened", scope: "c1", agent: "general-agent", source: "evil.example", verdict: "withheld" } }, 1);
   assert.match(withheld.text, /content from evil.example was withheld from general-agent/);
   assert.equal(withheld.tone, "fail");
@@ -1178,4 +1181,14 @@ test("a stored engine fact whose shape this build cannot read still gives the fe
   const row = pulseLine(stored({ type: "browser_request", id: "b9" }));
   assert.ok(row, "a row, not a throw");
   assert.equal(typeof row.text, "string");
+});
+
+test("an ask in a conversation is said by its subject: the tool's name, content from outside, the agent's question, a sign-in to its provider", () => {
+  const ask = (subject) => engineLine({ payload: { type: "ask_opened", conversation: "01J0CONVERSATION0000000000", ask: { id: "a", agent: "coder", subject, question: "?", grantable: false, opened_at: 1 } } }, 1).text;
+  assert.equal(ask({ kind: "tool", tool: "Bash", tier: "exec" }), "Bash waits on you in the conversation");
+  assert.equal(ask({ kind: "tool", tool: "", tier: "exec" }), "a call waits on you in the conversation", "a tool with no name is a call");
+  assert.equal(ask({ kind: "content", source: "evil.example", reason: "r", excerpt: "e" }), "content from outside waits on you in the conversation");
+  assert.equal(ask({ kind: "question", options: ["red"] }), "a question waits on you in the conversation");
+  assert.equal(ask({ kind: "auth", provider: "github" }), "a sign-in to github waits on you in the conversation");
+  assert.equal(ask(undefined), "a call waits on you in the conversation", "no subject at all is a call, as before");
 });

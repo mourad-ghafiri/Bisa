@@ -523,3 +523,58 @@ async fn flipping_an_agent_or_a_team_is_announced_in_its_channels_once() {
     assert!(!team.enabled);
     r.engine.shutdown().await;
 }
+
+/// A refusal drops the row and wakes nobody: the message stays in its log,
+/// `MessageRefused` is said and no `MessageReleased` follows, and a second
+/// refusal — or a release — finds nothing held under the id.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_drops_the_row_and_wakes_nobody() {
+    let r = rig("HARMFUL: no");
+    let inner = Arc::clone(r.engine.inner());
+    let mut rx = r.engine.events();
+    bisa_engine::collab::on_remote_message(
+        &inner,
+        r.scope.clone(),
+        r.event.clone(),
+        r.member.clone(),
+        MemberRole::Member,
+    )
+    .await;
+    let id = r.event.id.to_hex();
+    assert_eq!(r.engine.workspace().held_messages().unwrap().len(), 1);
+
+    let refused = bisa_engine::collab::refuse_message(&inner, &id).unwrap();
+    assert_eq!(refused.event_id, id);
+    assert_eq!(refused.scope, r.scope);
+    assert_eq!(refused.author, r.member);
+    assert!(
+        r.engine.workspace().held_messages().unwrap().is_empty(),
+        "the row is gone"
+    );
+    common::wait_for(&mut rx, "the refusal is said", |ev| {
+        matches!(
+            &ev.payload,
+            EnginePayload::MessageRefused { event, scope, author }
+                if *event == id && *scope == r.scope && *author == r.member
+        )
+    })
+    .await;
+    let mut released = false;
+    while let Ok(ev) = rx.try_recv() {
+        if matches!(&ev.payload, EnginePayload::MessageReleased { .. }) {
+            released = true;
+        }
+    }
+    assert!(!released, "nothing was released to the agents");
+    // The message itself is the pump's to apply to the scope's log before
+    // the engine hears of it; a refusal reads and writes the held list alone.
+    assert!(
+        bisa_engine::collab::refuse_message(&inner, &id).is_err(),
+        "refused once"
+    );
+    assert!(
+        bisa_engine::collab::release_message(&inner, &id).is_err(),
+        "nothing left to release"
+    );
+    r.engine.shutdown().await;
+}

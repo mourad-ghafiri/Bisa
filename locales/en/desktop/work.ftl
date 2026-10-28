@@ -1759,6 +1759,7 @@ work-workstream-scripts-card-how-long-script-may-run-before = How long a script 
 work-workstream-scripts-card-npm-install = npm install
 work-workstream-scripts-card-script = { $p } script
 work-workstream-scripts-card-timeout-seconds = Timeout (seconds)
+work-workstream-scripts-card-approved-here-now = Approved on this machine · as it reads now
 work-workstream-scripts-card-what-script-told = What a script is told
 work-workstream-scripts-changed-since-anyone-here-approved-will = Changed since anyone here approved it — it will not run until you approve it.
 work-workstream-scripts-checkout = the checkout

@@ -220,6 +220,7 @@ const RENDERED_ENGINE: Record<EngineEvent["payload"]["type"], true> = {
   invite_changed: true,
   message_held: true,
   message_released: true,
+  message_refused: true,
   hosted_changed: true,
   relays_changed: true,
 };

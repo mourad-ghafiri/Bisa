@@ -195,8 +195,12 @@ export function FileTreeView({
   mutable = false,
   onDeleted,
   onServeFolder,
+  onOpenTerminalFolder,
   onCreated,
   onSearch,
+  onProblems,
+  problems = null,
+  problemsOpen = false,
   openFolders,
   onOpenFolders,
   className,
@@ -249,6 +253,8 @@ export function FileTreeView({
   onDeleted?: (paths: string[]) => void;
   /** Serve a folder on this machine and open it in the embedded browser (ide/18); absent where nothing can. */
   onServeFolder?: (path: string) => void;
+  /** Open a shell in a folder of this root (ide/06 — *Open in terminal here*); absent outside the desktop app. */
+  onOpenTerminalFolder?: (path: string) => void;
   /**
    * An entry was created through *New file* / *New folder*. The Files
    * occupant opens a new file as a kept document; a folder is only revealed.
@@ -256,6 +262,12 @@ export function FileTreeView({
   onCreated?: (path: string, kind: "file" | "dir") => void;
   /** Offer a search button in the toolbar; the caller draws the box (the Files occupant does). */
   onSearch?: () => void;
+  /** Offer a Problems button in the toolbar (ide/10); the caller draws the list (the Files occupant does). */
+  onProblems?: () => void;
+  /** What stands, for the button's tone and title: errors colour it danger, warnings warn. */
+  problems?: { errors: number; warnings: number; words: string } | null;
+  /** Whether the list is showing, so the button reads pressed. */
+  problemsOpen?: boolean;
   /**
    * The folders this root was left unfolded with, from a caller that keeps
    * them. Read when the tree starts and when the root changes — never
@@ -322,7 +334,7 @@ export function FileTreeView({
   const childrenOf = useCallback((dir: string) => (state.dirs[dir]?.entries ?? []).map((e: { name: string }) => e.name), [state.dirs]);
   const siblingsOf = useCallback((path: string) => childrenOf(parentPath(path)), [childrenOf]);
   const gitRoot = (state.dirs[""]?.entries ?? []).some((e: { name: string }) => e.name === ".git" || e.name === ".gitignore");
-  const mutations = useTreeMutations({ scope, id, rootKey, root: state.root, gitRoot, mutable: !!mutable, siblingsOf, childrenOf, refresh, onDeleted, onServe: onServeFolder, onCreated });
+  const mutations = useTreeMutations({ scope, id, rootKey, root: state.root, gitRoot, mutable: !!mutable, siblingsOf, childrenOf, refresh, onDeleted, onServe: onServeFolder, onOpenTerminal: onOpenTerminalFolder, onCreated });
 
   const pending = pendingLoads(state);
   // The effect must not re-run on every render, and `pending` is a fresh array
@@ -742,6 +754,19 @@ export function FileTreeView({
       {onSearch && (
         <button type="button" onClick={onSearch} aria-label={tr("ui-file-tree-search-files-name-content")} title={tr("ui-file-tree-search-files")} className={toolButton}>
           <ICON.search size={12} aria-hidden />
+        </button>
+      )}
+      {onProblems && (
+        // The servers' word, in the glyph's tone: danger while an error stands, warn for warnings alone, quiet for nothing.
+        <button
+          type="button"
+          onClick={onProblems}
+          aria-pressed={problemsOpen}
+          aria-label={`${tr("ui-file-tree-problems")}${problems ? ` · ${problems.words}` : ""}`}
+          title={problems ? problems.words : tr("ui-file-tree-problems")}
+          className={cn(toolButton, problemsOpen && "bg-selected text-text", (problems?.errors ?? 0) > 0 ? "text-danger hover:text-danger" : (problems?.warnings ?? 0) > 0 && "text-warn hover:text-warn")}
+        >
+          <ICON.warn size={12} aria-hidden />
         </button>
       )}
       {mutable && (

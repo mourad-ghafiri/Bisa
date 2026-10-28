@@ -1016,6 +1016,55 @@ pub fn check_cwd(inner: &Inner, run: &WorkflowRun) -> PathBuf {
     }
 }
 
+/// Where a `check` that names a project runs: the checkout of the newest of
+/// the run's agent items that worked in that project, else the project's
+/// root. The project is held to the agent step's rule first — attached to
+/// the goal, or, for a run of the workspace, one the workspace has. A check
+/// that names none runs where the run's work landed ([`check_cwd`]).
+pub fn check_cwd_named(
+    inner: &Inner,
+    run: &WorkflowRun,
+    named: Option<ProjectId>,
+) -> Result<PathBuf, EngineError> {
+    let Some(project) = named else {
+        return Ok(check_cwd(inner, run));
+    };
+    match run.scope.goal() {
+        Some(goal) => {
+            if !inner.ws.is_attached(goal, project)? {
+                return Err(EngineError::Invalid(bisa_core::text!(
+                    "error-engine-invalid-goal-not-attached-project-attach-project-goal",
+                    goal = goal.to_string(),
+                    project = project.to_string()
+                )));
+            }
+        }
+        None => {
+            inner.ws.get_project(project)?;
+        }
+    }
+    let home = run.home();
+    let in_project = run
+        .workflow
+        .steps
+        .iter()
+        .filter_map(|step| {
+            let record = run.steps.get(&step.id)?;
+            let item = record.work_item?;
+            let spec = inner.ws.get_work_item(&home, item).ok()?;
+            (spec.project == Some(project)).then_some((record.seq, item))
+        })
+        .max_by_key(|(seq, _)| *seq)
+        .map(|(_, item)| item);
+    if let Some(item) = in_project {
+        match inner.ws.work_item_root(item) {
+            Ok(dir) if dir.is_dir() => return Ok(dir),
+            _ => {} // LCOV_EXCL_LINE: an item's checkout gone under its check; a race
+        }
+    }
+    Ok(inner.ws.project_root_path(&inner.ws.get_project(project)?))
+}
+
 /// Where a `check` runs when no agent item of the run has a checkout to
 /// offer: the run's project root when the goal has exactly one project, else
 /// the goal's scratch folder.

@@ -360,6 +360,9 @@ CREATE TABLE sessions (
     conversation      TEXT REFERENCES conversations(id) ON DELETE SET NULL,
     agent_id          TEXT REFERENCES agents(id)     ON DELETE SET NULL,
     transcript_path   TEXT,
+    -- The harness's own handle for the session, written by every session
+    -- row and read back only by the row backup: nothing resumes a parked
+    -- session today — the column is the hook a future door reads.
     resume_token_json TEXT,
     status            TEXT NOT NULL CHECK (status IN ('live','parked','ended')),
     parked_at         INTEGER,

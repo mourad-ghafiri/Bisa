@@ -10,7 +10,7 @@ import { ErrorNote } from "./Card";
 import { failureReason } from "./failure";
 import { cn } from "./cn";
 import { acquireModel, pushValue } from "./monacoModels";
-import { loadMonaco, type Monaco } from "./monaco";
+import { loadMonaco, setEditorThemeChoice, type Monaco } from "./monaco";
 import { useEditorTypography } from "./useEditorTypography";
 import { t } from "../i18n/l10n.mjs";
 
@@ -192,8 +192,9 @@ export function DiffEditor({
   }, [path, language, readOnly, inline, foldUnchanged, keep]);
 
   // The same typography as the code editor, live: a diff and the file it is
-  // about read in one face at one size.
+  // about read in one face at one size — and under the one theme.
   useEffect(() => {
+    setEditorThemeChoice(typography.theme);
     editor.current?.updateOptions({
       fontFamily: typography.fontFamily,
       fontSize: typography.fontSize,

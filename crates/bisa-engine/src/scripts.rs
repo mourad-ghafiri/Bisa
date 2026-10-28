@@ -108,6 +108,10 @@ impl std::fmt::Display for Phase {
 
 pub const TIMEOUT_KEY: &str = "workstreams.script.timeout_secs";
 pub const TRUSTED_KEY: &str = "workstreams.script.trusted";
+/// The text each approval was of — `"<project>:<phase>"` → `{digest, text}`,
+/// this machine's like the trust — so a text that arrived by sync can be
+/// read as a diff against what was approved here.
+pub const APPROVED_KEY: &str = "workstreams.script.approved";
 /// Characters of output kept — the tail, because a failing command says why
 /// on its last line. Shared with the check starts.
 pub const OUTPUT_TAIL_CHARS: usize = 2000;
@@ -128,6 +132,11 @@ pub struct ScriptStatus {
     pub phase: Phase,
     pub command: String,
     pub trusted: bool,
+    /// The text this machine approved for the phase, when the current text is
+    /// another: what a diff is read against before approving again. Absent
+    /// for a trusted script, an empty one, or one never approved here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_text: Option<String>,
 }
 
 /// The facts a script is handed, as `BISA_*` variables.
@@ -216,6 +225,42 @@ fn trusted_digests(inner: &Inner) -> Result<Vec<String>, EngineError> {
         .unwrap_or_default())
 }
 
+/// The approved texts, as the machine setting holds them (an object; anything
+/// else reads as none).
+fn approved_texts(
+    inner: &Inner,
+) -> Result<serde_json::Map<String, serde_json::Value>, EngineError> {
+    Ok(inner
+        .ws
+        .setting(APPROVED_KEY, None)?
+        .value
+        .as_object()
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// The key an approval is kept under: the project and the phase.
+fn approved_key(project: &Project, phase: Phase) -> String {
+    format!("{}:{}", project.id, phase.as_str())
+}
+
+/// The text approved here for the phase, when the current text is another
+/// — `None` for a trusted script, an empty one, or one never approved here.
+fn approved_text_of(
+    approved: &serde_json::Map<String, serde_json::Value>,
+    project: &Project,
+    phase: Phase,
+    command: &str,
+    trusted: bool,
+) -> Option<String> {
+    if trusted || command.is_empty() {
+        return None;
+    }
+    let entry = approved.get(&approved_key(project, phase))?;
+    let text = entry.get("text")?.as_str()?;
+    (entry.get("digest")?.as_str()? != digest(command)).then(|| text.to_string())
+}
+
 fn timeout_of(inner: &Inner, project: &Project) -> Result<Duration, EngineError> {
     let secs = inner
         .ws
@@ -256,33 +301,44 @@ pub fn run_command(inner: &Inner, project: &Project) -> Result<Option<RunCommand
 /// The project's four scripts and whether this machine will run each.
 pub fn status(inner: &Inner, project: &Project) -> Result<Vec<ScriptStatus>, EngineError> {
     let trusted = trusted_digests(inner)?;
+    let approved = approved_texts(inner)?;
     Phase::ALL
         .iter()
         .map(|&phase| {
             let command = text_of(inner, project, phase)?;
-            let trusted = command.is_empty() || trusted.contains(&digest(&command));
+            let is_trusted = command.is_empty() || trusted.contains(&digest(&command));
             Ok(ScriptStatus {
                 phase,
+                approved_text: approved_text_of(&approved, project, phase, &command, is_trusted),
                 command,
-                trusted,
+                trusted: is_trusted,
             })
         })
         .collect()
 }
 
 /// Approve the project's current scripts on this machine: their digests join
-/// `workstreams.script.trusted`. Nothing else in the tree writes that list.
+/// `workstreams.script.trusted`, and their texts are kept under
+/// `workstreams.script.approved` so the next text that arrives by sync can be
+/// read against them (an emptied phase forgets its text). Nothing else in
+/// the tree writes either.
 pub fn approve(inner: &Inner, project: &Project) -> Result<Vec<ScriptStatus>, EngineError> {
     let mut trusted = trusted_digests(inner)?;
+    let mut approved = approved_texts(inner)?;
     for phase in Phase::ALL {
         let command = text_of(inner, project, phase)?;
         if command.is_empty() {
+            approved.remove(&approved_key(project, phase));
             continue;
         }
         let d = digest(&command);
         if !trusted.contains(&d) {
-            trusted.push(d);
+            trusted.push(d.clone());
         }
+        approved.insert(
+            approved_key(project, phase),
+            serde_json::json!({ "digest": d, "text": command }),
+        );
     }
     crate::settings::set(
         inner,
@@ -290,6 +346,13 @@ pub fn approve(inner: &Inner, project: &Project) -> Result<Vec<ScriptStatus>, En
         None,
         TRUSTED_KEY,
         serde_json::Value::Array(trusted.into_iter().map(serde_json::Value::String).collect()),
+    )?;
+    crate::settings::set(
+        inner,
+        SettingScope::Machine,
+        None,
+        APPROVED_KEY,
+        serde_json::Value::Object(approved),
     )?;
     status(inner, project)
 }
@@ -517,6 +580,7 @@ mod tests {
         }
         assert!(bisa_core::SettingDef::lookup(TIMEOUT_KEY).is_some());
         assert!(bisa_core::SettingDef::lookup(TRUSTED_KEY).is_some());
+        assert!(bisa_core::SettingDef::lookup(APPROVED_KEY).is_some());
         assert_eq!(Phase::PreCreate.to_string(), "pre-create");
         assert_eq!(
             serde_json::to_value(Phase::PostCreate).unwrap(),

@@ -35,3 +35,5 @@ export declare function divertOffsets(step: Step | null | undefined): Map<string
 export declare function ownOffsets(step: Step | null | undefined): { out: number | null; branches: Map<string, number> };
 export declare function chipOf(boundary: Boundary): BoundaryChip;
 export declare function consequence(step: Step, boundary: Boundary): string;
+/** A notify boundary with its place and author written only when they say something; a key the patch does not name stands. */
+export declare function withNotifyWhere<B extends object>(boundary: B, patch: { scope?: string | null; author?: unknown }): B;

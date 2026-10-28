@@ -826,6 +826,7 @@ error-engine-invalid-no-harness-named-so-there-nobody-ask = no harness is named,
 error-engine-invalid-repository-has-no-branch-checked-out = the { $what } repository has no branch checked out
 error-engine-invalid-only-conversation-about-project-workstream-has-mode = only a conversation about a project or a workstream has a mode: elsewhere a turn changes no checkout
 error-engine-invalid-question-no-longer-waiting-turn-ended-before = that question is no longer waiting: its turn ended before the answer arrived
+error-engine-invalid-ask-takes-another-answer = that ask takes another answer: a question is answered in words or declined; a tool call, content and a sign-in are allowed or denied
 error-engine-invalid-question-no-longer-waiting-was-answered-turn = that question is no longer waiting: it was answered, or its turn ended
 error-engine-invalid-reply-needs-words-say-what-you-changed = a reply needs words — say what you changed, or what you think
 error-engine-invalid-root-itself-not-something-delete = the root itself is not something to delete

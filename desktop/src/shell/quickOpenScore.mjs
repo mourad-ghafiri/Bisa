@@ -15,6 +15,7 @@ export const SECTION_CAPS = Object.freeze({
   Projects: 8,
   Workstreams: 8,
   [t("shell-omnibox-work-items")]: 8,
+  [t("shell-omnibox-workflows")]: 8,
   Agents: 8,
   Conversations: 8,
   Terminals: 6,

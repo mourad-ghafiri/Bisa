@@ -87,7 +87,7 @@ test("the model is the tab's: acquired at mount, left at unmount, let go when th
   assert.ok(diff.includes("keep ? acquireModel(m, keep, modified, language, path) :") && diff.includes("if (!keep) modifiedModel.dispose();"), "the modified side is the tab's live buffer");
   assert.ok(diff.includes("om.setValue(original)") && !diff.includes("mm.setValue("), "the original side is nobody's history; the modified side is pushed");
   const doc = src("../views/_workbench/EditorDoc.tsx");
-  assert.equal((doc.match(/keep=\{registryKey\}/g) ?? []).length, 3, "the code editor and both diff editors keep the tab's model");
+  assert.equal((doc.match(/keep=\{registryKey\}/g) ?? []).length, 4, "the code editor and the three diff views — the review lens, the conflict review, the HEAD diff — keep the tab's model");
   const store = src("../views/_workbench/workbenchStore.ts");
   inOrder(store, ["forgetBuffers(gone);", "forgetViews(gone);", "releaseModels(gone);"], "a closed tab's model goes with its buffer and its place");
   assert.ok(!src("../views/_work/ConflictBlock.tsx").includes("keep="), "the Git panel's conflict editor keeps a model of its own");

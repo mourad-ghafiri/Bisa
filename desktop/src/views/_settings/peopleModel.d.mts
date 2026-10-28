@@ -1,4 +1,4 @@
-import type { Invite, MemberRole, Permission, PermissionRow, RoleRow } from "../../types";
+import type { HeldMessage, Invite, MemberRole, Permission, PermissionRow, RoleRow } from "../../types";
 
 export declare const HOSTED_ROLES: readonly ["admin", "member", "guest"];
 export declare const ROLE_HINT: Record<MemberRole, string>;
@@ -16,3 +16,19 @@ export declare function orderInvites(invites: readonly Invite[] | null | undefin
 export declare function expiryWords(hours: number | null | undefined): string;
 export declare function inviteOffer(invite: Pick<Invite, "role" | "channels"> | null | undefined): string;
 export declare function admitKey(raw: string, people: readonly { pubkey: string }[], me: string): { key: string; problem: string | null };
+/** One held message as the People panel draws it. */
+export interface HeldRow {
+  id: string;
+  person: string;
+  scope: string;
+  since: string;
+  state: { word: string; tone: "quiet" | "danger" };
+  why: string;
+  releasable: boolean;
+}
+export declare function heldRows(
+  held: readonly HeldMessage[] | null | undefined,
+  people: readonly { pubkey: string; label?: string | null }[] | null | undefined,
+  now: number,
+): HeldRow[];
+export declare function refuseHeldWords(row: Pick<HeldRow, "person" | "scope">): string;

@@ -417,7 +417,10 @@ the workspace takes the same default and keeps it as its own ceiling, frozen whe
 library workflow that is turned On may carry a budget of its own for each run its events start,
 which wins over the default, an empty one meaning no ceiling at all; the *Turn on…* dialog,
 `bisa workflow on --budget-usd-cents …` and `PUT /workflows/{wfid}/listening` (`budget`) all set it.
-Nothing is set by default: a fresh workspace runs unlimited.
+A goal's own ceiling is named the same way at capture — `bisa new --budget-tokens … --budget-usd-cents …
+--budget-secs …`, or `budget` on `POST /goals` — and kept as given: a zero lifts that ceiling, every
+flag at zero (`{}` on the wire) is no ceiling at all, whatever the default says. Nothing is set by
+default: a fresh workspace runs unlimited.
 
 ## Sub-goals and edges
 

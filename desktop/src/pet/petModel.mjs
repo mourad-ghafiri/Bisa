@@ -64,18 +64,33 @@ export const FRAME_MS = 150;
 export const IDLE_SLOWDOWN = 6;
 
 /**
+ * The row a pet rests on when nothing is happening: the pack's
+ * `defaultAnimation` when it names one of the nine, else `idle` — a pack
+ * drawn to rest on another row (a sleeping pet, a waving one) rests there,
+ * and a name the sheet lacks never scrolls the background off the art.
+ * @param {{defaultAnimation?: unknown} | null | undefined} def
+ * @returns {string}
+ */
+export function restingState(def) {
+  const named = def?.defaultAnimation;
+  return typeof named === "string" && STATES.includes(named) ? named : "idle";
+}
+
+/**
  * The state the pet rests in, given what is true right now.
  *
  * Ordered by what it would cost you to miss. Something waiting on you outranks
  * everything, because it is the only one of these that stops progress; a
  * finished thing to look at outranks work in progress, because the work will
- * still be there; and idle is what is left.
+ * still be there; and the pack's resting row (`restingState`) is what is left.
+ * @param {{waiting?: number, review?: number, working?: number}} [counts]
+ * @param {string} [rest] the pack's resting row; `idle` when unsaid
  */
-export function standingState({ waiting = 0, review = 0, working = 0 } = {}) {
+export function standingState({ waiting = 0, review = 0, working = 0 } = {}, rest = "idle") {
   if (waiting > 0) return "waiting";
   if (review > 0) return "review";
   if (working > 0) return "running";
-  return "idle";
+  return rest;
 }
 
 /**
@@ -85,8 +100,9 @@ export function standingState({ waiting = 0, review = 0, working = 0 } = {}) {
  * until it is gone or resumed — and *done* rests, the jump having played
  * once on the way in (`transientForTransition`).
  * @param {object | string} state a roster session's state
+ * @param {string} [rest] the pack's resting row; `idle` when unsaid
  */
-export function petStateOfSession(state) {
+export function petStateOfSession(state, rest = "idle") {
   switch (stateOf(state)) {
     case "starting":
     case "thinking":
@@ -98,7 +114,7 @@ export function petStateOfSession(state) {
     case "aborted":
       return "failed";
     default:
-      return "idle";
+      return rest;
   }
 }
 

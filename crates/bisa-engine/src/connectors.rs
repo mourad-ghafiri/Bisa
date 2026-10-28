@@ -695,6 +695,7 @@ pub fn call_spec(connector: &Connector, op: &Operation, timeout: Duration) -> cx
                 name: p.name.to_string(),
                 kind: kind_of(p.kind),
                 required: p.required,
+                default: p.default.clone(),
             })
             .collect(),
         select: op.output.select.clone(),
@@ -1373,8 +1374,9 @@ pub struct RosterOp {
     pub description: String,
     pub method: String,
     pub writes: bool,
-    /// `(name, kind, required)`.
-    pub params: Vec<(String, String, bool)>,
+    /// `(name, kind, required, default)` — the default as compact JSON, when
+    /// the parameter has one.
+    pub params: Vec<(String, String, bool, Option<String>)>,
     pub select: Option<String>,
 }
 
@@ -1435,6 +1437,7 @@ impl ConnectorRoster {
                                     p.name.to_string(),
                                     kind_of(p.kind).as_str().to_string(),
                                     p.required,
+                                    p.default.as_ref().map(|d| d.to_string()),
                                 )
                             })
                             .collect(),
@@ -1512,9 +1515,12 @@ impl ConnectorRoster {
                         "params: {}",
                         o.params
                             .iter()
-                            .map(|(n, k, r)| format!(
-                                "{n} ({k}{})",
-                                if *r { ", required" } else { "" }
+                            .map(|(n, k, r, d)| format!(
+                                "{n} ({k}{}{})",
+                                if *r { ", required" } else { "" },
+                                d.as_ref()
+                                    .map(|d| format!(", default {d}"))
+                                    .unwrap_or_default()
                             ))
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -1596,6 +1602,7 @@ mod tests {
                     kind: ParamKind::Text,
                     required: true,
                     doc: "The message.".into(),
+                    default: None,
                 }],
                 output: OutputSpec {
                     expect: None,

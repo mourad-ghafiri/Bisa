@@ -63,3 +63,23 @@ export function splitWords(v, words) {
 export function joinWords(words, rest) {
   return fromList([...asList(words), ...asList(rest)]);
 }
+
+/**
+ * The suggestions a words input offers beside its line: the ones not yet
+ * chosen — all of them, or, for a list too long to show as chips (`typed`),
+ * none until the line holds something, then the ones that contain it,
+ * case-folded, at most `cap`.
+ * @template {{ word: string }} S
+ * @param {readonly S[]} suggestions
+ * @param {readonly string[]} chosen
+ * @param {string} draft what the line holds
+ * @param {{ typed?: boolean, cap?: number }} [how]
+ * @returns {S[]}
+ */
+export function offeredSuggestions(suggestions, chosen, draft, { typed = false, cap = 8 } = {}) {
+  const left = (suggestions ?? []).filter((s) => !(chosen ?? []).includes(s.word));
+  if (!typed) return left;
+  const needle = (draft ?? "").trim().toLowerCase();
+  if (!needle) return [];
+  return left.filter((s) => s.word.toLowerCase().includes(needle)).slice(0, cap);
+}

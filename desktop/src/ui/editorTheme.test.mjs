@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { EDITOR_ROLE_MAP, editorThemeFor, isHex } from "./editorTheme.mjs";
+import { EDITOR_ROLE_MAP, MONACO_BUILTIN_THEMES, editorThemeFor, isHex, monacoThemeFor } from "./editorTheme.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +43,17 @@ test("a full set of roles paints every mapped key and the syntax rules", () => {
   assert.equal(theme.colors["editor.foreground"], roles.text);
   assert.ok(theme.rules.some((r) => r.token === "keyword"));
   assert.equal(editorThemeFor(roles, "dark").theme.base, "vs-dark");
+});
+
+test("`editor.theme` names one of Monaco's own themes, or the app's — a typo and the default both follow the app", () => {
+  assert.deepEqual([...MONACO_BUILTIN_THEMES], ["vs", "vs-dark", "hc-light", "hc-black"]);
+  for (const own of MONACO_BUILTIN_THEMES) assert.equal(monacoThemeFor(own, "bisa"), own);
+  assert.equal(monacoThemeFor(" vs-dark ", "bisa"), "vs-dark", "blanks around a name are not part of it");
+  assert.equal(monacoThemeFor("follow_app", "bisa"), "bisa");
+  assert.equal(monacoThemeFor("", "bisa"), "bisa");
+  assert.equal(monacoThemeFor("solarized", "bisa"), "bisa", "a theme Monaco has no definition for is never set");
+  assert.equal(monacoThemeFor(undefined, "bisa"), "bisa");
+  assert.equal(monacoThemeFor(42, "bisa"), "bisa");
 });
 
 test("a missing or malformed role is reported, never painted black", () => {

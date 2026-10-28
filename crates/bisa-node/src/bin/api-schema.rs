@@ -555,6 +555,10 @@ fn main() {
     add!(bisa_store::GatePolicy, "GatePolicy");
     add!(dto::TeamPatch, "TeamPatch");
     add!(dto::ReplaceBody, "IdeReplace");
+    add!(dto::IdeReplaceAnswer, "IdeReplaceAnswer");
+    add!(dto::IdeReplacePreview, "IdeReplacePreview");
+    add!(dto::IdeReplaceChange, "IdeReplaceChange");
+    add!(dto::IdeReplaceOutcome, "IdeReplaceOutcome");
     add!(dto::OpenInteractiveBody, "OpenInteractiveBody");
     add!(dto::ExitBody, "ExitBody");
     add!(dto::FetchBody, "GitFetch");

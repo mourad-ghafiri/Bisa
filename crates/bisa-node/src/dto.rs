@@ -52,6 +52,11 @@ pub struct NewGoalBody {
     /// capture.
     #[serde(default)]
     pub documents: Vec<AttachmentRef>,
+    /// The goal's own ceiling — tokens, cost, wall time. Absent takes the
+    /// workspace default (`budget.default.*`); given, it is kept as given, an
+    /// empty one included: no ceiling, whatever the default says.
+    #[serde(default)]
+    pub budget: Option<bisa_core::Budget>,
 }
 
 /// `POST /goals/{id}/documents`: more documents for a goal that exists.
@@ -466,6 +471,14 @@ pub enum ErrorCode {
     ConnectorTooLarge,
     /// The credential store refused (500).
     ConnectorStore,
+    /// The request body was not read (400): JSON of another shape, a key the
+    /// type does not have, a wrong type, or no JSON at all. Nothing was
+    /// judged; `detail.reason` is the reader's own sentence.
+    BodyUnreadable,
+    /// The query string was not read (400): a number that is no number, a
+    /// field the route needs and the address lacks. `detail.reason` is the
+    /// reader's own sentence.
+    QueryUnreadable,
 }
 
 /// One goal on the `GET /goals` list — and the same row `GET /teams/{id}`
@@ -1043,6 +1056,114 @@ pub struct ReplaceBody {
 pub struct ReplaceFile {
     pub path: String,
     pub base_hash: String,
+}
+
+/// One line a replace changes, as its preview read it.
+#[derive(Serialize, JsonSchema)]
+pub struct IdeReplaceChange {
+    /// 1-based.
+    pub line: u64,
+    pub before: String,
+    pub after: String,
+}
+
+impl From<bisa_engine::ide::search::ReplaceChange> for IdeReplaceChange {
+    fn from(c: bisa_engine::ide::search::ReplaceChange) -> Self {
+        IdeReplaceChange {
+            line: c.line,
+            before: c.before,
+            after: c.after,
+        }
+    }
+}
+
+/// One file a preview would change, with the hash an apply carries back.
+#[derive(Serialize, JsonSchema)]
+pub struct IdeReplacePreview {
+    pub path: String,
+    /// The file's content hash as the preview read it — `files[].base_hash`
+    /// on the apply, which skips the file when it has moved on.
+    pub base_hash: String,
+    pub changes: Vec<IdeReplaceChange>,
+}
+
+impl From<bisa_engine::ide::search::ReplacePreview> for IdeReplacePreview {
+    fn from(p: bisa_engine::ide::search::ReplacePreview) -> Self {
+        IdeReplacePreview {
+            path: p.path,
+            base_hash: p.base_hash,
+            changes: p.changes.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// What an apply did to one file.
+#[derive(Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case", tag = "outcome")]
+pub enum IdeReplaceOutcome {
+    /// Written: `changes` lines rewritten, `hash` the file's content hash now.
+    Applied {
+        path: String,
+        changes: usize,
+        hash: String,
+    },
+    /// The file changed between the preview and the apply; nothing was written.
+    SkippedChanged { path: String, current_hash: String },
+    /// Not written: the path leaves the root, cannot be written from this
+    /// scope, or is not text.
+    Failed { path: String, error: String },
+}
+
+impl From<bisa_engine::ide::search::ReplaceOutcome> for IdeReplaceOutcome {
+    fn from(o: bisa_engine::ide::search::ReplaceOutcome) -> Self {
+        use bisa_engine::ide::search::ReplaceOutcome as O;
+        match o {
+            O::Applied {
+                path,
+                changes,
+                hash,
+            } => IdeReplaceOutcome::Applied {
+                path,
+                changes,
+                hash,
+            },
+            O::SkippedChanged { path, current_hash } => {
+                IdeReplaceOutcome::SkippedChanged { path, current_hash }
+            }
+            O::Failed { path, error } => IdeReplaceOutcome::Failed { path, error },
+        }
+    }
+}
+
+/// `POST /ide/replace/{scope}/{id}`'s answer: the preview (`applied:
+/// false`), or what an apply did to each file it named (`applied: true`).
+#[derive(Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum IdeReplaceAnswer {
+    Preview {
+        applied: bool,
+        files: Vec<IdeReplacePreview>,
+    },
+    Applied {
+        applied: bool,
+        files: Vec<IdeReplaceOutcome>,
+    },
+}
+
+impl IdeReplaceAnswer {
+    pub fn preview(files: Vec<bisa_engine::ide::search::ReplacePreview>) -> Self {
+        IdeReplaceAnswer::Preview {
+            applied: false,
+            files: files.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn applied(files: Vec<bisa_engine::ide::search::ReplaceOutcome>) -> Self {
+        IdeReplaceAnswer::Applied {
+            applied: true,
+            files: files.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 /// One run — a goal's or the workspace's — in a list: enough to draw a row

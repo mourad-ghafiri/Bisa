@@ -83,11 +83,7 @@ fn revival_spec(token: &ResumeToken, cwd: std::path::PathBuf) -> SessionSpec {
 
 impl PiRpcAdapter {
     fn caps_() -> HarnessCaps {
-        HarnessCaps::STEER
-            | HarnessCaps::FOLLOW_UP
-            | HarnessCaps::RESUME
-            | HarnessCaps::FORK
-            | HarnessCaps::EFFORT
+        HarnessCaps::STEER | HarnessCaps::FOLLOW_UP | HarnessCaps::RESUME | HarnessCaps::EFFORT
     }
 
     async fn spawn_session(

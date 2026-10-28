@@ -6,7 +6,10 @@ import {
   openFailed,
   applyTextEdits,
   documentsToReopen,
+  followedByServer,
   hoverMarkdown,
+  toCompletionItems,
+  toCompletionKind,
   sameServer,
   serverChange,
   serverChip,
@@ -71,6 +74,85 @@ test("workspace symbols become the palette's rows: a word for the kind, the 1-ba
   assert.deepEqual(toWorkspaceSymbols({ error: "no server" }), [], "an answer that is no list is no rows");
   const palette = readFileSync(new URL("../../shell/Omnibox.tsx", import.meta.url), "utf8");
   assert.ok(palette.includes("setSymbols(toWorkspaceSymbols(r.result));"), "the palette draws the model's rows");
+});
+
+test("completion kinds are a table, not an offset: the names agree and the numbers never do", () => {
+  // LSP Text=1 → Monaco Text=18; LSP Method=2 → Monaco Method=0; LSP Snippet=15 → Monaco Snippet=27; LSP TypeParameter=25 → Monaco 24.
+  assert.equal(toCompletionKind(1), 18);
+  assert.equal(toCompletionKind(2), 0);
+  assert.equal(toCompletionKind(3), 1, "Function");
+  assert.equal(toCompletionKind(6), 4, "Variable");
+  assert.equal(toCompletionKind(14), 17, "Keyword");
+  assert.equal(toCompletionKind(15), 27, "Snippet");
+  assert.equal(toCompletionKind(17), 20, "File");
+  assert.equal(toCompletionKind(20), 16, "EnumMember");
+  assert.equal(toCompletionKind(25), 24, "TypeParameter");
+  assert.equal(toCompletionKind(26), 18, "a kind LSP does not name is text");
+  assert.equal(toCompletionKind(undefined), 18);
+  assert.equal(toCompletionKind("x"), 18);
+});
+
+test("a completion answer — a list or a bare array — becomes Monaco's suggestions over the word's range, each item's edit or text or label", () => {
+  const word = { startLineNumber: 1, startColumn: 3, endLineNumber: 1, endColumn: 5 };
+  const list = toCompletionItems(
+    {
+      isIncomplete: true,
+      items: [
+        { label: "plain", kind: 3, detail: "fn plain()", documentation: "docs", sortText: "0001", filterText: "pl", preselect: true },
+        { label: "edited", kind: 6, textEdit: { range: R(0, 0, 0, 2), newText: "ed" }, documentation: { kind: "markdown", value: "**md**" } },
+        { label: "replaced", textEdit: { insert: R(0, 1, 0, 2), replace: R(0, 1, 0, 4), newText: "re" }, additionalTextEdits: [{ range: R(0, 0, 0, 0), newText: "use x;\n" }, { newText: "dropped" }] },
+        { label: { label: "labelled", detail: " (x)" }, insertText: "labelled_text", deprecated: true },
+        { label: "tagged", tags: [1], documentation: { kind: "plaintext", value: "plain docs" } },
+        { label: "snippet", insertText: "snip(${1:arg}, $2)$0", insertTextFormat: 2 },
+        { label: "odd", documentation: 42 },
+        { label: "" },
+        null,
+      ],
+    },
+    word,
+  );
+  assert.equal(list.incomplete, true, "the server said the list is partial: Monaco asks again as the word grows");
+  assert.deepEqual(
+    list.suggestions.map((s) => s.label),
+    ["plain", "edited", "replaced", "labelled", "tagged", "snippet", "odd"],
+    "an item with no label, or no item, is dropped",
+  );
+  const [plain, edited, replaced, labelled, tagged, snippet, odd] = list.suggestions;
+  assert.equal(odd.documentation, undefined, "documentation of no shape LSP names is none");
+  assert.deepEqual(plain, { label: "plain", kind: 1, insertText: "plain", range: word, detail: "fn plain()", documentation: "docs", sortText: "0001", filterText: "pl", preselect: true, tags: undefined, additionalTextEdits: undefined }, "no edit, no insert text: the label over the word");
+  assert.equal(edited.insertText, "ed", "an edit's text wins");
+  assert.deepEqual(edited.range, { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 3 }, "over the edit's range");
+  assert.deepEqual(edited.documentation, { value: "**md**" }, "markdown documentation is drawn as markdown");
+  assert.equal(edited.kind, 4);
+  assert.deepEqual(replaced.range, { startLineNumber: 1, startColumn: 2, endLineNumber: 1, endColumn: 3 }, "an insert/replace edit inserts over its insert range");
+  assert.deepEqual(replaced.additionalTextEdits, [{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: "use x;\n" }], "an import a server adds comes along; a malformed one does not");
+  assert.equal(labelled.label, "labelled", "a structured label is its label");
+  assert.equal(labelled.insertText, "labelled_text", "insert text before the label");
+  assert.deepEqual(labelled.tags, [1], "deprecated, the old way");
+  assert.deepEqual(tagged.tags, [1], "deprecated, by tag");
+  assert.equal(tagged.documentation, "plain docs");
+  assert.equal(tagged.kind, 18, "no kind is text");
+  assert.equal(snippet.insertText, "snip(arg, )", "a snippet a server sends anyway is inserted plain: a placeholder keeps its word, a tab stop goes");
+  const bare = toCompletionItems([{ label: "a" }, { label: "b", kind: 2 }], word);
+  assert.equal(bare.incomplete, false);
+  assert.deepEqual(
+    bare.suggestions.map((s) => [s.label, s.kind]),
+    [
+      ["a", 18],
+      ["b", 0],
+    ],
+  );
+  for (const none of [null, undefined, "x", 4, {}, { items: "no" }]) assert.deepEqual(toCompletionItems(none, word), { suggestions: [], incomplete: false }, `${JSON.stringify(none)} is no suggestions`);
+});
+
+test("the editor's own words go quiet only while a running server follows the document", () => {
+  const row = (state) => ({ command: "x", available: true, state: { state } });
+  assert.equal(followedByServer("rust", row("running")), true);
+  assert.equal(followedByServer("rust", row("starting")), false, "nothing answers yet: the buffer's words stand in");
+  assert.equal(followedByServer("rust", row("stopped")), false);
+  assert.equal(followedByServer("rust", { command: "x", available: false, state: { state: "failed", reason: "gone" } }), false);
+  assert.equal(followedByServer(null, row("running")), false, "no language: no server of it");
+  assert.equal(followedByServer("rust", null), false);
 });
 
 test("hover contents in every shape become markdown", () => {
@@ -189,12 +271,17 @@ test("the client opens a document again through the model, clears a gone server'
   assert.ok(client.includes("newest: mine === asked"), "of two opens out, the newest's answer stands — the model's word (openAnswered)");
   assert.ok(client.includes("if (opening.current) return;") && client.includes("if (verdict.sendHeld && latest.current !== carried) void api.lspChange("), "an edit never races an open: it waits, then goes whole");
   assert.ok(client.includes('hear({ scope, id, language, event: "restarted" })'), "a person's Restart is said to every open document");
+  assert.ok(client.includes('registerCompletionItemProvider("*"') && client.includes("if (!o || !completionOn) return null;"), "completion answers only for an owned model, and only while `lsp.completion` is on");
+  assert.ok(client.includes("await flushChange(ownerKey(o));") && client.includes("if (token.isCancellationRequested) return null;"), "what was typed goes to the server before it is asked, and a request Monaco dropped draws nothing");
+  assert.ok(client.includes("return toCompletionItems(r.result, range)"), "the items are the model's");
+  assert.ok(client.includes('completionOn = boolOf(resolved, "lsp.completion", true);'), "the switch is the setting's, read as the settings arrive");
   assert.ok(client.includes("if (verdict.language !== undefined) languageRef.current = verdict.language;") && client.includes("if (verdict.say !== undefined) onLanguageRef.current(verdict.say);"), "a language the node named with no server following is kept, as the model says: it is which server's start opens the document again");
   assert.ok(!/\bonLanguage\(/.test(client), "the caller's callback is reached through the ref alone, never the one captured at the mount");
   assert.ok(client.includes("if (verdict.closeOnNode) void api.lspClose("), "only a document a server took is closed on the node");
   assert.ok(client.includes("useReloadOnReconnect(() => {") && client.includes("void api.lspChange(scope, id, path, latest.current).catch((e: unknown) => log.debug(\"lsp\", \"a document could not be sent again after the node came back"), "a node that restarted says nothing of the servers it lost: the document goes again, whole, when the bus is back");
   const doc = here("./EditorDoc.tsx");
   assert.ok(doc.includes("const chip = serverChip(lspLanguage, server);"), "the chip is the model's");
+  assert.ok(doc.includes("wordSuggestions={!followedByServer(lspLanguage, server)}"), "the editor's own words go quiet while a running server follows the document — the model's word");
   assert.ok(!doc.includes("server.state.state"), "the wire's word for a state is never drawn");
   assert.ok(doc.includes("if (sameServer(serverChange(e.payload), { scope, id, language: lspLanguage })) reloadLspStatus();"), "the row is read again when the server starts, fails or stops");
   assert.ok(doc.includes("lspRestarted(scope, id, lspLanguage);"), "and Restart opens what the verdict left on no server");

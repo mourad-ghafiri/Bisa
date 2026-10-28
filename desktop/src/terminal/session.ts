@@ -118,6 +118,13 @@ export async function openTerminal(
    * here names a program.
    */
   mobileDevelopment: { device: string } | null = null,
+  /**
+   * A folder *relative to the placement* to open in (*Open in terminal
+   * here*, ide/06) — never an absolute path: the shell holds it under the
+   * placement and refuses a `..`, a file or a symlink out. `null` is the
+   * placement itself.
+   */
+  sub: string | null = null,
 ): Promise<TerminalSession> {
   if (!terminalAvailable()) {
     throw new Error("a shell needs the desktop app — the browser has no terminal to open");
@@ -136,6 +143,7 @@ export async function openTerminal(
     login,
     run,
     mobileDevelopment,
+    sub,
     onOutput: channel,
   });
   const terminalId = opened.terminal_id;

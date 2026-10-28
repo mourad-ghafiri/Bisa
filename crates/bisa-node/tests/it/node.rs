@@ -11633,3 +11633,75 @@ async fn a_closed_goal_refuses_every_verb_that_would_move_it() {
     assert!(after["run"].is_null(), "{after}");
     node.shutdown().await;
 }
+
+/// **A goal's own ceiling, at capture.** A capture that names no budget
+/// takes the workspace default, as before; one that names a budget keeps it
+/// as given — an empty one is no ceiling at all, whatever the default says
+/// — and `null` is absent, the default again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_capture_may_name_its_own_budget_and_an_empty_one_lifts_every_ceiling() {
+    let node = Node::start().await;
+    let (code, said) = node
+        .req(
+            "PUT",
+            "/settings/workspace",
+            Some(json!({"values": {"budget.default.max_tokens": 1000}})),
+        )
+        .await;
+    assert_eq!(code, 200, "{said}");
+    let v = node
+        .post(
+            "/goals",
+            json!({"statement": "spend as usual", "mode": "manual"}),
+        )
+        .await;
+    assert_eq!(
+        v["goal"]["budget"],
+        json!({"max_tokens": 1000}),
+        "no budget named: the workspace default: {v}"
+    );
+    let v = node
+        .post(
+            "/goals",
+            json!({
+                "statement": "spend a little", "mode": "manual",
+                "budget": {"max_tokens": 5, "max_usd_cents": 50},
+            }),
+        )
+        .await;
+    assert_eq!(
+        v["goal"]["budget"],
+        json!({"max_tokens": 5, "max_usd_cents": 50}),
+        "kept as given: {v}"
+    );
+    let goal = v["goal"]["id"].as_str().expect("its id").to_string();
+    let read = node.get(&format!("/goals/{goal}")).await;
+    assert_eq!(
+        read["goal"]["budget"],
+        json!({"max_tokens": 5, "max_usd_cents": 50}),
+        "and read back: {read}"
+    );
+    let v = node
+        .post(
+            "/goals",
+            json!({"statement": "spend freely", "mode": "manual", "budget": {}}),
+        )
+        .await;
+    assert_eq!(
+        v["goal"]["budget"],
+        json!({}),
+        "an empty budget is no ceiling, whatever the default says: {v}"
+    );
+    let v = node
+        .post(
+            "/goals",
+            json!({"statement": "spend as usual again", "mode": "manual", "budget": null}),
+        )
+        .await;
+    assert_eq!(
+        v["goal"]["budget"],
+        json!({"max_tokens": 1000}),
+        "null is absent: {v}"
+    );
+    node.shutdown().await;
+}

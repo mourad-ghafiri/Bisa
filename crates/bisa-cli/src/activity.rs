@@ -1048,6 +1048,9 @@ pub fn engine_line(style: &Style, e: &EngineEvent) -> Option<String> {
         EnginePayload::MessageReleased { scope: room, .. } => {
             style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-held-message-was-released", scope = scope.to_string(), room = room.to_string())))
         }
+        EnginePayload::MessageRefused { scope: room, .. } => {
+            style.dim(&bisa_i18n::say(&bisa_core::text!("cli-activity-held-message-was-refused", scope = scope.to_string(), room = room.to_string())))
+        }
         EnginePayload::ContentScreened {
             agent,
             source,

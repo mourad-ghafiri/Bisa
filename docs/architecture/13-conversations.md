@@ -390,11 +390,13 @@ next message starts afresh, and a closed goal's thread wakes no turn.
   messages are the platform's, signed and synced — the reply and its thinking stream into them,
   the tool calls and the sub-agents do not.
 - **Not a place a gate is answered.** A conversation about a workflow, the workspace or the node
-  has no goal; an above-ceiling request or a question is refused with the reason and the agent
-  asks in words ([feature status](../feature-status.md)). A conversation about a checkout has no
-  goal either, and is the one exception: a call above its mode's ceiling is asked in the
-  conversation itself ([ide/20](ide/20-reviewing-agent-changes.md)) — a question still has
-  nowhere to go. A conversation about a goal carries the goal, and its gates go to the Inbox.
+  has no goal, so an above-ceiling tool call there is refused with the reason and the agent asks in
+  words; a question the agent asks, and a sign-in it needs, are asked in the conversation itself —
+  an ask card at the foot of the timeline, answered or declined where it is read, never in the
+  Inbox ([ide/20 §The asks desk](ide/20-reviewing-agent-changes.md#the-asks-desk)). A
+  conversation about a checkout has no goal either, and adds the tool call: a call above its
+  mode's ceiling is asked on the same desk. A conversation about a goal carries the goal, and its
+  gates — permissions, questions, sign-ins — go to the Inbox.
 
 ---
 

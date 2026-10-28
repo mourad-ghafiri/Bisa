@@ -288,6 +288,7 @@ mod tests {
                     name: n.into(),
                     kind: k,
                     required: false,
+                    default: None,
                 })
                 .collect(),
             select: None,

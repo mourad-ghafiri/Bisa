@@ -117,7 +117,8 @@ concerns, the workflow or the goal a listener that failed belongs to.
 | `EngineError` | `UnknownGate` | 404 |
 | `EngineError` | `Locked` | 503 |
 | `EngineError` | `Ssh(Refused)` · `Ssh(Unavailable)` and `SshUnavailable` · `Ssh(Timeout)` · `Ssh(Failed)` | 400 · 503 · 504 · 502, each with the sentence |
-| a request body that does not fit — an unknown key, a missing field, a wrong type | — | 400, `ErrorBody` |
+| a request body that does not fit — an unknown key, a missing field, a wrong type, no JSON at all | `Body<T>` | 400 with `code: body_unreadable` and the reader's own sentence as `detail.reason` (never a field name parsed out of it); over the limit 413, not JSON by its content type 415, each with no code |
+| a query string that does not fit — a number that is no number, a field the route needs | `Query<T>` | 400 with `code: query_unreadable`, `detail.reason` the reader's sentence |
 | a Publish gate opened and waiting | — | 202 with the gate id |
 
 The body is always `{"error": "<sentence>", "text": {"id": …, "args": …}}`: the sentence in the
@@ -128,8 +129,9 @@ own (`Localize::text`, one arm per variant in each crate's `error_text.rs`); a m
 — is one sentence for everyone and the fault in the log (`ApiError::internal`). A
 `WorkflowInvalid` body carries the problems, by step and kind. The refusals a client renders
 differently from one another carry `code` — `dto::ErrorCode`, exactly the producers that exist —
-because every one of them is a 409 and a client that guessed from the status told people their
-project publishes manually when their branch had never been pushed.
+because most of them are 409s and a client that guessed from the status told people their
+project publishes manually when their branch had never been pushed; the two readers' codes are
+400s for the same reason, so a client tells the body it sent from a refusal of what it asked.
 
 ---
 

@@ -9,6 +9,7 @@
 import { refreshWorkstreamStatuses } from "../../shell/workstreamStatusStore";
 import { serveAndOpen } from "../../shell/serveDoors";
 import { canOpenBrowser } from "../../shell/useBrowsers";
+import { canOpenTerminal, openTerminalIn } from "../../shell/useTerminals";
 import React, { useEffect, useMemo } from "react";
 import { api } from "../../api";
 import type { WorkbenchScope } from "../../router";
@@ -18,10 +19,13 @@ import { Button, Chip, ErrorNote, FileTreeView, ICON, SectionHeader, SegmentedCo
 import { firstCaution, hasCautions } from "../_work/connectionModel.mjs";
 import { useDirtyEditors } from "./editorRegistry";
 import { FilesSearch } from "./FilesSearch";
+import { FilesProblems } from "./FilesProblems";
+import { useDiagnostics } from "./diagnosticsStore";
+import { problemCounts, problemsWords } from "./problemsModel.mjs";
 import { rootKey } from "./workbenchModel.mjs";
 import { idePlace } from "./idePlacesModel.mjs";
 import { useViewState } from "../../shell/viewMemoryStore";
-import { wordsValue } from "../../shell/viewValuesModel.mjs";
+import { flagValue, wordsValue } from "../../shell/viewValuesModel.mjs";
 import { GitViewBody } from "../_work/GitViewBody";
 import { treeStandings } from "../_work/gitFiles.mjs";
 import { useGitFiles } from "../_work/gitFilesStore";
@@ -120,6 +124,14 @@ export function RightPanel({
   // shared with the Git panel, folded into the folders by the kit's model.
   // A root with no repository asks nothing.
   const standings = useTreeStandings(scope === "workstream" ? id : null);
+  // The Problems list (ide/10): the servers' word on this root, its counts
+  // on the tree's toolbar button; whether the list shows is the root's view.
+  const diagnostics = useDiagnostics(scope, id);
+  const problems = useMemo(() => {
+    const counts = problemCounts(diagnostics);
+    return { errors: counts.errors, warnings: counts.warnings, words: problemsWords(counts) };
+  }, [diagnostics]);
+  const [problemsOpen, setProblemsOpen] = useViewState(idePlace(key), "files.problems", false, flagValue);
   // The tree follows the active document (VS Code's auto-reveal): a tab
   // clicked in the strip is shown in Files, now or when the tree mounts.
   useEffect(() => {
@@ -144,6 +156,7 @@ export function RightPanel({
             ) : (
               <>
                 {search.open && <FilesSearch scope={scope} id={id} focusNonce={search.nonce} onOpen={onOpenAt} onClose={() => closeExplorerSearch(key)} />}
+                {problemsOpen && <FilesProblems scope={scope} id={id} onOpen={onOpenAt} onClose={() => setProblemsOpen(false)} />}
                 <FileTreeView
                   fill
                   mutable
@@ -154,6 +167,8 @@ export function RightPanel({
                   onDeleted={onFileDeleted}
                   // A folder served on this machine, opened in the embedded browser (ide/18).
                   onServeFolder={scope === "workstream" && canOpenBrowser() ? (path) => void serveAndOpen(id, path) : undefined}
+                  // A shell opened in a folder of this root (ide/06): a new tab, always — the folder is named relative to the placement and held under it by the shell.
+                  onOpenTerminalFolder={canOpenTerminal() ? (path) => openTerminalIn({ scope, id, label: rootLabel, sub: path }) : undefined}
                   // A new file opens as a kept document in the middle panel;
                   // the reveal effect above then selects it in the tree.
                   onCreated={(p, kind) => {
@@ -164,6 +179,9 @@ export function RightPanel({
                   dirtyPaths={dirtyPaths}
                   standings={standings}
                   onSearch={() => openExplorerSearch(key)}
+                  onProblems={() => setProblemsOpen(!problemsOpen)}
+                  problems={problems}
+                  problemsOpen={problemsOpen}
                   openFolders={openFolders}
                   onOpenFolders={setOpenFolders}
                   emptyHint={t("workbench-right-panel-folder-empty")}

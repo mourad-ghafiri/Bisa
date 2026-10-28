@@ -434,6 +434,11 @@ struct ConvSession {
         bisa_core::ConversationId,
         Arc<crate::changes::tracker::ChangeTracker>,
     )>,
+    /// The conversation this session is a turn of — about a workflow, the
+    /// workspace, the node or a checkout — where a question or a sign-in is
+    /// asked in place when the scope has no goal (`inputs.rs`). `None` for a
+    /// goal's thread or a channel.
+    conversation: Option<bisa_core::ConversationId>,
 }
 
 impl ConvSession {
@@ -1561,22 +1566,19 @@ async fn wake_attempt(
     let agent_uid = LiveRunId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
     let session_id = SessionId::from_ulid(ulid::Ulid::from_datetime(SystemTime::now()));
     debug_on_err(
-        inner.registry.register_if(
-            AgentRef {
-                id: agent_uid,
-                kind: SessionKind::Conversation,
-                status: AgentStatus::Running,
-                generation: 1,
-                session_id: Some(session_id),
-                work_item: None,
-                conversation: facts.conversation_id(),
-                goal: facts.goal,
-                workstream: facts.workstream(),
-                transcript_path: None,
-                last_activity: now_secs(),
-            },
-            None,
-        ),
+        inner.registry.register(AgentRef {
+            id: agent_uid,
+            kind: SessionKind::Conversation,
+            status: AgentStatus::Running,
+            generation: 1,
+            session_id: Some(session_id),
+            work_item: None,
+            conversation: facts.conversation_id(),
+            goal: facts.goal,
+            workstream: facts.workstream(),
+            transcript_path: None,
+            last_activity: now_secs(),
+        }),
         "registering a chat run",
     );
     inner.presence.register(
@@ -1809,6 +1811,7 @@ async fn wake_attempt(
         woken_by: std::sync::Mutex::new(on_behalf_of),
         driven: std::sync::Mutex::new(Some(driven)),
         review,
+        conversation: facts.conversation_id(),
     });
     inner
         .conversation
@@ -2024,7 +2027,8 @@ fn spawn_reply_pump(
                 }
                 // The harness stopped for an answer. A chat runs at the Exec
                 // ceiling; what is above it — a question, a sign-in — goes to
-                // the goal's Inbox when the scope is a goal, and is refused
+                // the goal's Inbox when the scope is a goal, is asked in the
+                // conversation itself when the scope is one, and is refused
                 // when there is nobody to ask (`inputs.rs`).
                 SessionEvent::Lifecycle(LifecycleEvent::InputRequested { request }) => {
                     // Decide without the session lock held: a guard question
@@ -2045,6 +2049,7 @@ fn spawn_reply_pump(
                         on_behalf_of: conv.woken_by(),
                         above: crate::inputs::above_ceiling(&inner, conv.goal),
                         conversation: reach,
+                        asks_at: conv.conversation,
                     };
                     let answer = crate::inputs::decide(&inner, &ctx, request).await;
                     // The call runs next: the tracker reads what it is about
@@ -2195,9 +2200,10 @@ fn spawn_reply_pump(
         }
         inner.conversation.live.remove(&key);
         forget_session(&inner, &key, &conv);
-        // Nobody is left to hear an answer: the session's asks are a no.
-        if let Some((conversation, _)) = conv.review.as_ref() {
-            crate::changes::asks::drop_asks_of(&inner, *conversation, &agent_id);
+        // Nobody is left to hear an answer: the session's asks are a no —
+        // a checkout's tool asks and any conversation's questions alike.
+        if let Some(conversation) = conv.conversation {
+            crate::changes::asks::drop_asks_of(&inner, conversation, &agent_id);
         }
         let parked = conv.session.lock().await.is_none();
         if !parked {

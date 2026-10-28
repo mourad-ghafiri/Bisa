@@ -113,6 +113,8 @@ import { useRememberedPick } from "./_studio/conversationPickStore";
 import { BoardCenter } from "./_board/BoardCenter";
 import { BOARD_PLACE } from "./_workbench/idePlacesModel.mjs";
 import { gitBadge, workstreamsBadge } from "./_workbench/railBadgesModel.mjs";
+import { useDiagnostics } from "./_workbench/diagnosticsStore";
+import { problemCounts, problemsBadge } from "./_workbench/problemsModel.mjs";
 import { identityMoved } from "./_work/gitIdentityModel.mjs";
 import { useWorkstreamStatus } from "../shell/workstreamStatusStore";
 import { useSessions } from "../shell/sessionsStore";
@@ -993,8 +995,11 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
   const gitSession = useGitSession(key);
   const sessions = useSessions();
   const [reviewDraft] = useSessionDraft<ReviewRun | null>(draftKeys(key).run, null);
+  // The Files tab wears a danger mark while a language server reports an error in this root (ide/10).
+  const diagnostics = useDiagnostics(scope, id);
   const badges = useMemo(
     () => ({
+      files: problemsBadge(problemCounts(diagnostics)),
       git: gitBadge(status),
       workstreams: workstreamsBadge({
         kind: detail.data?.workstream.kind.kind ?? null,
@@ -1003,7 +1008,7 @@ export default function Workbench({ scope, id }: { scope: WorkbenchScope; id: st
         run: reviewRun(sessions, id, reviewDraft, null),
       }),
     }),
-    [status, detail.data, gitSession.busy, sessions, id, reviewDraft],
+    [diagnostics, status, detail.data, gitSession.busy, sessions, id, reviewDraft],
   );
   // A door that wanted the Agent occupant while the centre already is the
   // conversation: the centre answers — the caret goes to the composer of the

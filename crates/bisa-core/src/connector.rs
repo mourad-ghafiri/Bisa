@@ -441,6 +441,29 @@ pub struct ParamDef {
     /// What goes in it — the designer's hint and the Workflow Agent's.
     #[serde(default)]
     pub doc: String,
+    /// What the call sends when the step leaves it unset — a value of the
+    /// parameter's own kind (`default = 100` on a number, `true` on a bool,
+    /// an object on `json`), refused at the door when it is not. A required
+    /// parameter with a default need not be set by the step. An account's
+    /// parameter takes none: its values are the account's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<serde_json::Value>,
+}
+
+impl ParamKind {
+    /// Whether a default is a value of this kind: text and a path are
+    /// strings, a number a number, a bool a bool, `json` anything but null,
+    /// and a file never — a file is read from the run's checkout, not from
+    /// the definition.
+    pub fn accepts(self, v: &serde_json::Value) -> bool {
+        match self {
+            ParamKind::Text | ParamKind::Path => v.is_string(),
+            ParamKind::Number => v.is_number(),
+            ParamKind::Bool => v.is_boolean(),
+            ParamKind::Json => !v.is_null(),
+            ParamKind::File => false,
+        }
+    }
 }
 
 fn default_param_kind() -> ParamKind {
@@ -1002,6 +1025,15 @@ impl Connector {
                     ),
                 );
             }
+            if p.default.is_some() {
+                push(
+                    "params",
+                    crate::text!(
+                        "problem-connector-account-parameter-takes-no-default",
+                        a0 = (p.name).to_string()
+                    ),
+                );
+            }
         }
         let account_names: BTreeSet<&str> = self.params.iter().map(|p| p.name.as_str()).collect();
 
@@ -1049,6 +1081,18 @@ impl Connector {
                             name = p.name.to_string()
                         ),
                     );
+                }
+                if let Some(d) = &p.default {
+                    if !p.kind.accepts(d) {
+                        push(
+                            &at("params"),
+                            crate::text!(
+                                "problem-connector-parameter-default-not-of-kind",
+                                name = p.name.to_string(),
+                                kind = (p.kind.as_str()).to_string()
+                            ),
+                        );
+                    }
                 }
             }
             for name in op.headers.keys() {
@@ -1645,6 +1689,7 @@ mod tests {
             kind,
             required,
             doc: String::new(),
+            default: None,
         }
     }
 
@@ -1720,6 +1765,7 @@ mod tests {
             kind: ParamKind::Text,
             required: false,
             doc: "Where the page before ended.".into(),
+            default: None,
         }];
         read.query = BTreeMap::from([("cursor".to_string(), "{params.cursor}".to_string())]);
         read.page = Some(Paging {
@@ -1829,6 +1875,94 @@ mod tests {
         c8.operations[0].page.as_mut().unwrap().max_pages = 2;
         c8.operations[0].page.as_mut().unwrap().next_cursor = "a..b".into();
         assert!(fields(&c8.validate()).contains(&"operations.list.page.next_cursor"));
+    }
+
+    /// A parameter's `default` is a value of its own kind, parsed from TOML
+    /// or JSON and refused at the door when it is not; an account's
+    /// parameter takes none; a definition with no defaults writes no key.
+    #[test]
+    fn a_parameter_default_is_parsed_and_held_to_its_kind() {
+        let mut c = connector();
+        let mut read = op("list");
+        read.path = "/list?max={params.max}&all={params.all}".into();
+        read.params = vec![
+            ParamDef {
+                name: ParamName::new("max").unwrap(),
+                label: "Max".into(),
+                kind: ParamKind::Number,
+                required: true,
+                doc: String::new(),
+                default: Some(json!(100)),
+            },
+            ParamDef {
+                name: ParamName::new("all").unwrap(),
+                label: "All".into(),
+                kind: ParamKind::Bool,
+                required: false,
+                doc: String::new(),
+                default: Some(json!(false)),
+            },
+        ];
+        c.operations = vec![read];
+        assert_eq!(c.validate(), vec![], "a default of the kind passes");
+        // The TOML a person writes — `default = 100`, `default = false` —
+        // reads back as the typed value.
+        let text = toml::to_string(&c).unwrap();
+        assert!(
+            text.contains("default = 100") && text.contains("default = false"),
+            "{text}"
+        );
+        let back: Connector = toml::from_str(&text).unwrap();
+        assert_eq!(back, c);
+        assert_eq!(back.operations[0].params[0].default, Some(json!(100)));
+
+        let mut wrong = c.clone();
+        wrong.operations[0].params[0].default = Some(json!("100"));
+        wrong.operations[0].params[1].default = Some(json!("yes"));
+        let f = wrong.validate();
+        let ids: Vec<String> = f.iter().map(|p| p.text.id.to_string()).collect();
+        assert_eq!(
+            ids,
+            vec!["problem-connector-parameter-default-not-of-kind".to_string(); 2],
+            "{f:?}"
+        );
+        assert!(f
+            .iter()
+            .all(|p| p.field.as_deref() == Some("operations.list.params")));
+        for (kind, ok, bad) in [
+            (ParamKind::Text, json!("x"), json!(1)),
+            (ParamKind::Path, json!("a/b"), json!(true)),
+            (ParamKind::Json, json!({"a": 1}), json!(null)),
+        ] {
+            assert!(kind.accepts(&ok), "{kind:?} takes {ok}");
+            assert!(!kind.accepts(&bad), "{kind:?} refuses {bad}");
+        }
+        assert!(
+            !ParamKind::File.accepts(&json!("a.txt")),
+            "a file is never defaulted"
+        );
+
+        let mut account = connector();
+        account.params = vec![ParamDef {
+            name: ParamName::new("site").unwrap(),
+            label: "Site".into(),
+            kind: ParamKind::Text,
+            required: true,
+            doc: String::new(),
+            default: Some(json!("acme")),
+        }];
+        let f = account.validate();
+        assert_eq!(f.len(), 1, "{f:?}");
+        assert_eq!(
+            f[0].text.id,
+            "problem-connector-account-parameter-takes-no-default"
+        );
+
+        let plain = serde_json::to_value(connector()).unwrap();
+        assert!(
+            !plain.to_string().contains("\"default\""),
+            "no default, no key: {plain}"
+        );
     }
 
     #[test]

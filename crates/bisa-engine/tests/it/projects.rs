@@ -3909,22 +3909,19 @@ async fn running_agents_are_counted_by_workstream() {
     let register = |kind: SessionKind, workstream: Option<bisa_core::WorkstreamId>| {
         inner
             .registry
-            .register_if(
-                AgentRef {
-                    id: bisa_engine::LiveRunId::mint(),
-                    kind,
-                    status: AgentStatus::Running,
-                    generation: 1,
-                    session_id: None,
-                    work_item: None,
-                    conversation: None,
-                    goal: None,
-                    workstream,
-                    transcript_path: None,
-                    last_activity: 0,
-                },
-                None,
-            )
+            .register(AgentRef {
+                id: bisa_engine::LiveRunId::mint(),
+                kind,
+                status: AgentStatus::Running,
+                generation: 1,
+                session_id: None,
+                work_item: None,
+                conversation: None,
+                goal: None,
+                workstream,
+                transcript_path: None,
+                last_activity: 0,
+            })
             .unwrap();
     };
     register(SessionKind::Worker, Some(primary));
@@ -4222,6 +4219,102 @@ async fn the_run_command_is_the_fourth_script_and_never_a_lifecycle_run() {
     assert!(!root.join("node_modules").exists(), "and nothing ran");
 }
 
+/// The text an approval was of is kept on this machine, so a script that
+/// arrived by sync reads as a diff against it until it is approved again —
+/// and never for a trusted, an emptied or a never-approved script.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_approved_text_is_kept_so_a_changed_script_reads_as_a_diff() {
+    use bisa_engine::scripts::{self, Phase};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, config());
+    let (_goal, project, _root, _origin) =
+        git_project(&engine, "approved", PublishPolicy::Auto).await;
+    let project = engine.workspace().get_project(project.id).unwrap();
+    let pre = |status: &[scripts::ScriptStatus]| {
+        status
+            .iter()
+            .find(|s| s.phase == Phase::PreCreate)
+            .unwrap()
+            .clone()
+    };
+
+    set_script(
+        &engine,
+        &project,
+        "workstreams.script.pre_create",
+        "echo one",
+    );
+    let before = pre(&scripts::status(engine.inner(), &project).unwrap());
+    assert!(!before.trusted);
+    assert_eq!(
+        before.approved_text, None,
+        "never approved here: nothing to read against"
+    );
+
+    let approved = pre(&approve_scripts(&engine, &project));
+    assert!(approved.trusted);
+    assert_eq!(
+        approved.approved_text, None,
+        "a trusted script carries no diff"
+    );
+    let kept = engine
+        .workspace()
+        .setting(scripts::APPROVED_KEY, None)
+        .unwrap()
+        .value;
+    let key = format!("{}:pre_create", project.id);
+    assert_eq!(kept[&key]["text"], serde_json::json!("echo one"));
+    assert_eq!(
+        kept[&key]["digest"],
+        serde_json::json!(scripts::digest("echo one"))
+    );
+
+    // The text moves — as a sync moves it — and reads against the approved one.
+    set_script(
+        &engine,
+        &project,
+        "workstreams.script.pre_create",
+        "echo two",
+    );
+    let changed = pre(&scripts::status(engine.inner(), &project).unwrap());
+    assert!(!changed.trusted);
+    assert_eq!(changed.approved_text.as_deref(), Some("echo one"));
+    // Approving again takes the new text as the one approved.
+    let again = pre(&approve_scripts(&engine, &project));
+    assert!(again.trusted);
+    assert_eq!(again.approved_text, None);
+    let kept = engine
+        .workspace()
+        .setting(scripts::APPROVED_KEY, None)
+        .unwrap()
+        .value;
+    assert_eq!(kept[&key]["text"], serde_json::json!("echo two"));
+    // Emptied and approved: nothing to run, nothing kept.
+    set_script(&engine, &project, "workstreams.script.pre_create", "");
+    let emptied = pre(&scripts::status(engine.inner(), &project).unwrap());
+    assert!(emptied.trusted, "an empty script needs no approval");
+    assert_eq!(emptied.approved_text, None);
+    approve_scripts(&engine, &project);
+    let kept = engine
+        .workspace()
+        .setting(scripts::APPROVED_KEY, None)
+        .unwrap()
+        .value;
+    assert!(
+        kept.get(&key).is_none(),
+        "an emptied phase forgets its text: {kept}"
+    );
+    // The other phases' approvals, from another project, are untouched by this one's.
+    assert!(
+        kept.as_object().unwrap().is_empty()
+            || kept
+                .as_object()
+                .unwrap()
+                .keys()
+                .all(|k| !k.starts_with(&project.id.to_string()))
+    );
+}
+
 fn set_script(engine: &Engine, project: &Project, key: &str, text: &str) {
     engine
         .workspace()
@@ -4235,8 +4328,8 @@ fn set_script(engine: &Engine, project: &Project, key: &str, text: &str) {
 }
 
 /// Approve the project's current scripts on this machine — what *Approve* does.
-fn approve_scripts(engine: &Engine, project: &Project) {
-    bisa_engine::scripts::approve(engine.inner(), project).unwrap();
+fn approve_scripts(engine: &Engine, project: &Project) -> Vec<bisa_engine::scripts::ScriptStatus> {
+    bisa_engine::scripts::approve(engine.inner(), project).unwrap()
 }
 
 fn by_hand(label: &str, branch: Option<&str>, goal: Option<GoalId>) -> projects::WorkstreamRequest {

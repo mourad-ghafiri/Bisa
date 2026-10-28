@@ -197,7 +197,7 @@ fn the_lsp_request_route_names_exactly_the_allowed_methods() {
             "{method} is missing from: {line}"
         );
     }
-    for refused in ["rename", "completion", "signatureHelp"] {
+    for refused in ["rename", "signatureHelp"] {
         assert!(
             !line.contains(&format!("`textDocument/{refused}`")),
             "{refused} is not proxied and must not be promised: {line}"

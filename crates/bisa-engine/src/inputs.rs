@@ -21,13 +21,16 @@
 //!    run has nobody watching it: safe runs, harmful asks or is refused as
 //!    the classifier settings say, no verdict asks.
 //! 3. A question and a sign-in go to the owner of the session's home — its
-//!    goal, or its run of the workspace — as before.
+//!    goal, or its run of the workspace — as before; a turn of a
+//!    conversation that has no home asks them in the conversation itself
+//!    (`changes::asks`, the desk the checkout's tool asks already use), where
+//!    the person answers in words, declines, or says the sign-in is done.
 //!
 //! The session's presence says `waiting` *before* the gate opens so a screen
 //! never shows the gate without the row. The answer goes back through
 //! [`HarnessSession::answer`] — the one channel — and a refusal is a refusal,
-//! not an abort: the agent hears *no* and goes on. A session outside any goal
-//! and any run has nobody to escalate to and is refused.
+//! not an abort: the agent hears *no* and goes on. A session outside any goal,
+//! any run and any conversation has nobody to escalate to and is refused.
 
 use std::path::PathBuf;
 
@@ -73,9 +76,13 @@ pub struct InputContext {
     /// `Ask` where there is no goal (a run of the workspace is attended).
     pub above: AboveCeiling,
     /// The conversation about a checkout this session is a turn of, with
-    /// its mode (ide/20): where an ask is answered in place rather than
+    /// its mode (ide/20): where a tool's ask is answered in place rather than
     /// refused for want of a goal. `None` for every other session.
     pub conversation: Option<ConversationReach>,
+    /// The conversation this session is a turn of — whatever it is about —
+    /// where a question or a sign-in is asked in place when the session has
+    /// no home. `None` for a session that is no conversation's turn.
+    pub asks_at: Option<bisa_core::ConversationId>,
 }
 
 /// A turn of a conversation about a checkout: which, and how far its agent
@@ -192,7 +199,20 @@ pub async fn decide(inner: &Inner, ctx: &InputContext, request: &InputRequest) -
         } => decide_permission(inner, ctx, request, tool_name, *tier, input).await,
         InputKind::Question { text, options } => {
             let Some(home) = ctx.home else {
-                return no_goal();
+                return match ctx.asks_at {
+                    Some(conversation) => {
+                        ask_question_in_conversation(
+                            inner,
+                            ctx,
+                            conversation,
+                            request,
+                            text,
+                            options,
+                        )
+                        .await
+                    }
+                    None => no_goal(),
+                };
             };
             let subject = format!("question:{}", request.id);
             let expects = AskKind::Answer {
@@ -220,12 +240,22 @@ pub async fn decide(inner: &Inner, ctx: &InputContext, request: &InputRequest) -
         }
         InputKind::Auth { provider, url } => {
             let Some(home) = ctx.home else {
-                return no_goal(); // LCOV_EXCL_LINE a sign-in asked outside a goal; out by decision
+                return match ctx.asks_at {
+                    Some(conversation) => {
+                        ask_sign_in_in_conversation(
+                            inner,
+                            ctx,
+                            conversation,
+                            request,
+                            provider,
+                            url.as_deref(),
+                        )
+                        .await
+                    }
+                    None => no_goal(), // LCOV_EXCL_LINE a sign-in asked outside a goal and any conversation; out by decision
+                };
             };
-            let question = match url {
-                Some(url) => format!("The agent needs you to sign in to {provider}: {url} — done?"),
-                None => format!("The agent needs you to sign in to {provider}. Done?"),
-            };
+            let question = sign_in_question(provider, url.as_deref());
             let resolution = escalate(
                 inner,
                 ctx,
@@ -439,6 +469,98 @@ async fn ask_in_conversation(
             security::record_person(inner, judge, tool, &input, false);
             InputAnswer::Deny { reason }
         }
+        // Words answer a question alone; the desk refuses them here at its door.
+        crate::changes::asks::Said::Answer(_) => refused_by_person(), // LCOV_EXCL_LINE refused at the desk's door; by construction
+    }
+}
+
+/// The one sentence a sign-in is asked with, wherever it is asked.
+fn sign_in_question(provider: &str, url: Option<&str>) -> String {
+    match url {
+        Some(url) => format!("The agent needs you to sign in to {provider}: {url} — done?"),
+        None => format!("The agent needs you to sign in to {provider}. Done?"),
+    }
+}
+
+/// A question of a turn that has no home, asked in the conversation itself:
+/// the desk parks it with the choices the agent offered, and the person
+/// answers in words or declines — what the agent hears as text, or as a
+/// refusal with the reason.
+async fn ask_question_in_conversation(
+    inner: &Inner,
+    ctx: &InputContext,
+    conversation: bisa_core::ConversationId,
+    request: &InputRequest,
+    text: &str,
+    options: &[String],
+) -> InputAnswer {
+    inner.presence.waiting(
+        inner,
+        ctx.live_run,
+        &request.id,
+        WaitingOn::Question {
+            text: text.to_string(),
+            gate_id: None,
+        },
+    );
+    let said = crate::changes::asks::ask(
+        inner,
+        conversation,
+        ctx.agent.as_deref().unwrap_or_default(),
+        crate::changes::asks::AskSubject::Question {
+            options: options.to_vec(),
+        },
+        text.to_string(),
+        false,
+    )
+    .await;
+    match said {
+        crate::changes::asks::Said::Answer(text) => InputAnswer::Text { text },
+        crate::changes::asks::Said::Deny(reason) => InputAnswer::Deny { reason },
+        // LCOV_EXCL_START the desk refuses an allow on a question at its door; the arm keeps the match total
+        crate::changes::asks::Said::Allow => InputAnswer::Deny {
+            reason: "the person declined to answer".into(),
+        },
+        // LCOV_EXCL_STOP
+    }
+}
+
+/// A sign-in a turn that has no home needs, asked in the conversation
+/// itself: the person says it is done, or that it is not now.
+async fn ask_sign_in_in_conversation(
+    inner: &Inner,
+    ctx: &InputContext,
+    conversation: bisa_core::ConversationId,
+    request: &InputRequest,
+    provider: &str,
+    url: Option<&str>,
+) -> InputAnswer {
+    inner.presence.waiting(
+        inner,
+        ctx.live_run,
+        &request.id,
+        WaitingOn::Auth {
+            provider: provider.to_string(),
+            url: url.map(str::to_string),
+        },
+    );
+    let said = crate::changes::asks::ask(
+        inner,
+        conversation,
+        ctx.agent.as_deref().unwrap_or_default(),
+        crate::changes::asks::AskSubject::Auth {
+            provider: provider.to_string(),
+            url: url.map(str::to_string),
+        },
+        sign_in_question(provider, url),
+        false,
+    )
+    .await;
+    match said {
+        crate::changes::asks::Said::Allow => InputAnswer::ALLOW,
+        crate::changes::asks::Said::Deny(reason) => InputAnswer::Deny { reason },
+        // The desk refuses words on a sign-in at its door; the arm keeps the match total.
+        crate::changes::asks::Said::Answer(_) => InputAnswer::ALLOW, // LCOV_EXCL_LINE refused at the desk's door; by construction
     }
 }
 

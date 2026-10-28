@@ -335,7 +335,7 @@ async fn replace(
     State(state): State<Shared>,
     AxPath((scope, id)): AxPath<(String, String)>,
     crate::Body(body): crate::Body<crate::dto::ReplaceBody>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<crate::dto::IdeReplaceAnswer>, ApiError> {
     let scope = parse_scope(&scope)?;
     let query = SearchQuery {
         q: body.q,
@@ -363,13 +363,13 @@ async fn replace(
             search::apply_replace(&inner, scope, &id, &query, &replacement, &files)
         })
         .await?;
-        Ok(Json(json!({"applied": true, "files": outcomes})))
+        Ok(Json(crate::dto::IdeReplaceAnswer::applied(outcomes)))
     } else {
         let replacement = body.replacement;
         let previews =
             blocking(move || search::preview_replace(&inner, scope, &id, &query, &replacement))
                 .await?;
-        Ok(Json(json!({"applied": false, "files": previews})))
+        Ok(Json(crate::dto::IdeReplaceAnswer::preview(previews)))
     }
 }
 
@@ -834,6 +834,6 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "POST",
         path: "/ide/replace/{scope}/{id}",
-        summary: "Replace across files: `apply: false` previews every change with each file's `base_hash`; `apply: true` writes each file by compare-and-swap and reports the ones that moved on.",
+        summary: "Replace across files: `apply: false` previews every changed line (`files[].changes[].{line, before, after}`) with each file's `base_hash`; `apply: true` with those files writes each by compare-and-swap and answers what became of each — `applied` with the lines rewritten and the new hash, `skipped_changed` with the hash it has now, or `failed` with the reason.",
     },
 ];

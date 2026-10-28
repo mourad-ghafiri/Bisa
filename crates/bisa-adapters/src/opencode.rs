@@ -409,7 +409,6 @@ impl HarnessAdapter for OpencodeAdapter {
     /// (`hooks/opencode.rs`), announced and ended as sub-agents.
     fn caps(&self) -> HarnessCaps {
         HarnessCaps::RESUME
-            | HarnessCaps::FORK
             | HarnessCaps::MCP_SERVERS
             | HarnessCaps::COST_REPORTING
             | HarnessCaps::USAGE_REPORTING

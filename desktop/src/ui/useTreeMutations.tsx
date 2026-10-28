@@ -86,6 +86,7 @@ const MENU_ICON: Record<MenuId, (typeof ICON)[keyof typeof ICON]> = {
   "copy-path": ICON.copy,
   "copy-absolute": ICON.copy,
   reveal: ICON.reveal,
+  "open-terminal": ICON.shell,
   serve: ICON.play,
   delete: ICON.delete,
   refresh: ICON.refresh,
@@ -120,6 +121,7 @@ export function useTreeMutations({
   refresh,
   onDeleted,
   onServe,
+  onOpenTerminal,
   onCreated,
 }: {
   scope: FileScope;
@@ -141,6 +143,8 @@ export function useTreeMutations({
   onDeleted?: (paths: string[]) => void;
   /** Serve a folder of the checkout on this machine and open it in the embedded browser (ide/18); absent where nothing can. */
   onServe?: (path: string) => void;
+  /** Open a shell in a folder of the root (ide/06 — *Open in terminal here*); absent outside the desktop app. */
+  onOpenTerminal?: (path: string) => void;
   /** An entry was created here — a new file is the caller's to open. */
   onCreated?: (path: string, kind: "file" | "dir") => void;
 }) {
@@ -517,6 +521,8 @@ export function useTreeMutations({
         return void reveal(first.path);
       case "serve":
         return onServe?.(first.path);
+      case "open-terminal":
+        return onOpenTerminal?.(first.path);
       case "delete":
         return void askDelete(targets);
       case "refresh":
@@ -559,14 +565,14 @@ export function useTreeMutations({
   const menuFor = useCallback(
     (targets: readonly Target[]): MenuItem[] => {
       void refreshOsClipboard();
-      return menuSpec({ targets, desktop, mutable, clipboard: source, reveal: REVEAL_LABEL, serve: !!onServe }).map((item) => toItem(item, targets));
+      return menuSpec({ targets, desktop, mutable, clipboard: source, reveal: REVEAL_LABEL, serve: !!onServe, openTerminal: !!onOpenTerminal }).map((item) => toItem(item, targets));
     },
     // `toItem` and the verbs behind it are plain functions remade every
     // render; the menu is rebuilt on the facts that change what it offers —
     // the clipboard among them: *Cut A* then *Copy B* keeps `source` at
     // `tree`, and a menu keyed on `source` alone would still paste A.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scope, id, root, siblingsOf, childrenOf, mutable, source, clip, onServe],
+    [scope, id, root, siblingsOf, childrenOf, mutable, source, clip, onServe, onOpenTerminal],
   );
 
   /** The tree's background menu and the toolbar's items: the root's verbs. */

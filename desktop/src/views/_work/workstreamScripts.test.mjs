@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { ENV_VARS, MAX_SCRIPT_CHARS, PHASES, TIMEOUT_KEY, isDirty, needsApproval, scriptEdits, scriptRefusal, trustLine, validateScript } from "./workstreamScripts.mjs";
+import { ENV_VARS, MAX_SCRIPT_CHARS, PHASES, TIMEOUT_KEY, approvedDiff, isDirty, needsApproval, scriptEdits, scriptRefusal, trustLine, validateScript } from "./workstreamScripts.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SETTINGS = readFileSync(join(HERE, "../../../../crates/bisa-core/src/settings.rs"), "utf8");
@@ -60,6 +60,15 @@ test("the trust line reads the node's answer and Approve appears only when somet
   assert.equal(needsApproval(view), true);
   assert.equal(needsApproval({ ...view, scripts: view.scripts.map((s) => ({ ...s, trusted: true })) }), false);
   assert.equal(needsApproval(null), false);
+});
+
+test("a changed script reads between the text approved here and the text now — never a trusted one, nor one never approved", () => {
+  assert.deepEqual(approvedDiff({ phase: "pre_create", command: "echo two", trusted: false, approved_text: "echo one" }), { approved: "echo one", current: "echo two" });
+  assert.equal(approvedDiff({ phase: "pre_create", command: "echo one", trusted: true, approved_text: "echo one" }), null, "trusted: nothing to read");
+  assert.equal(approvedDiff({ phase: "pre_create", command: "echo two", trusted: false }), null, "never approved here, or an older node: the whole text, as before");
+  assert.equal(approvedDiff({ phase: "pre_create", command: "echo two", trusted: false, approved_text: null }), null);
+  assert.equal(approvedDiff({ phase: "pre_create", command: "same", trusted: false, approved_text: "same" }), null, "an equal text is no diff");
+  assert.equal(approvedDiff(undefined), null);
 });
 
 test("a script_failed refusal names the phase and carries the tail", () => {

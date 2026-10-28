@@ -9,6 +9,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { t } from "../i18n/l10n.mjs";
 
 import { MAX_ITEMS, SECTION_CAPS, admit, groupItems, itemMatches, paletteNeedle, parsePrefix, rankPaths } from "../shell/quickOpenScore.mjs";
 
@@ -63,4 +65,19 @@ test("files are ranked, not filtered: the quick-open half of the palette scores 
   assert.ok(ranked.length > 0 && ranked.length <= SECTION_CAPS.Files);
   assert.ok(ranked.every((p) => p.toLowerCase().includes("theme")), "every ranked path carries the words");
   assert.deepEqual(rankPaths("", index, 2).length, 2, "an empty needle still lists within the cap");
+});
+
+test("the library's workflows are a section of their own, capped, found by their tags and their description, archived ones never built", () => {
+  const group = t("shell-omnibox-workflows");
+  assert.equal(SECTION_CAPS[group], 8, "eight, as the work items");
+  const many = Array.from({ length: 20 }, (_, i) => item(`wf:${i}`, group, `workflow ${i}`, { keywords: i === 3 ? "release ship" : "", hint: i === 5 ? "Nightly build · On" : undefined }));
+  const rows = build(many, "", "all");
+  assert.equal(rows.length, SECTION_CAPS[group], "the cap holds the section");
+  assert.deepEqual(build(many, "ship", "all").map((i) => i.key), ["wf:3"], "a tag matches as a label does");
+  assert.deepEqual(build(many, "nightly", "all").map((i) => i.key), ["wf:5"], "the description matches");
+  // The palette leaves an archived workflow out before it is built: the
+  // source reads `archived` and continues.
+  const source = readFileSync(new URL("../shell/Omnibox.tsx", import.meta.url), "utf8");
+  assert.ok(source.includes("if (w.workflow.archived) continue;"), "an archived workflow is never a row");
+  assert.ok(source.includes('api\n      .workflows({ scope: "library" }, ac.signal)'), "read once per opening, never from the workspace store");
 });

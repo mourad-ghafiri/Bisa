@@ -330,8 +330,17 @@ fn queued_line(run: &WorkflowRun, live: Option<&WorkflowRun>, position: usize) -
 
 /// Stop the goal: it stops listening, its sessions are ended, its queued
 /// runs withdrawn, its live run cancelled. Says what it stopped.
-pub async fn stop(ctx: &Ctx, out: &Out, id: &str, rationale: Option<String>) -> Result<()> {
+pub async fn stop(
+    ctx: &Ctx,
+    out: &Out,
+    id: &str,
+    rationale: Option<String>,
+    listening: bool,
+) -> Result<()> {
     let id = GoalId::from_str(id).context(bisa_core::text!("cli-run-invalid-goal-id"))?;
+    if listening {
+        return stop_listening(ctx, out, id).await;
+    }
     let rationale = rationale.filter(|r| !r.trim().is_empty());
     // Whether it listened, read before the stop: the stop's answer names
     // the runs it ended, and the engine ends the listening with them.
@@ -359,6 +368,43 @@ pub async fn stop(ctx: &Ctx, out: &Out, id: &str, rationale: Option<String>) -> 
         "stopped": stopped["stopped"],
         "withdrawn": stopped["withdrawn"],
         "ended": stopped["ended"],
+        "listening_stopped": listened,
+    }));
+    Ok(())
+}
+
+/// Stop only the listening — the goal page's *Stop listening* and `DELETE
+/// /goals/{id}/listening`, from the terminal: a live run goes on and the
+/// queue stays. A goal that was not listening is told so and nothing moves;
+/// a goal nobody has is refused in the store's words. The answer keeps the
+/// stop's five keys — nothing stopped, nothing withdrawn, nothing ended —
+/// so a reader of `bisa stop --json` reads one shape.
+async fn stop_listening(ctx: &Ctx, out: &Out, id: GoalId) -> Result<()> {
+    let listened = ctx.workspace()?.get_goal(id)?.listening.is_some();
+    if let Some(client) = ctx.node_client().await {
+        client.delete(&format!("/goals/{id}/listening")).await?;
+    } else {
+        let engine = ctx.quiet_engine().await?;
+        let stopped = engine.stop_listening(ListenerHost::Goal { goal: id });
+        engine.shutdown().await;
+        stopped?;
+    }
+    if listened {
+        out.say(&bisa_core::text!(
+            "cli-run-goal-stopped-listening",
+            id = id.to_string()
+        ));
+    } else {
+        out.say(&bisa_core::text!(
+            "cli-run-goal-was-not-listening",
+            id = id.to_string()
+        ));
+    }
+    out.json_value(json!({
+        "goal": id.to_string(),
+        "stopped": Value::Null,
+        "withdrawn": [],
+        "ended": Value::Null,
         "listening_stopped": listened,
     }));
     Ok(())

@@ -25,6 +25,8 @@ export interface ProgressRow {
 export declare function stepHolder(kind: string, state: string, until?: string | null): StepHolder;
 /** The rows: a run's frozen steps, or the strip's ghosted plan. Of the strip it reads the live steps and the plan, nothing else. */
 export declare function progressRows(run: WorkflowRun | null | undefined, strip: Pick<RunStrip, "current" | "steps">, now?: number): ProgressRow[];
+/** The transcript a row can show inline: its work item, and whether it is still being written. `null` for a row with no item. */
+export declare function transcriptOf(row: Pick<ProgressRow, "workItem" | "state">): { item: string; live: boolean } | null;
 /** Whether a step's row stands open: what a person said of it by hand, else open while it is live. */
 export declare function rowOpen(said: ReadonlySet<string>, id: string, live: boolean): boolean;
 /** What a person has said after pressing a step's row. */

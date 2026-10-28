@@ -154,9 +154,21 @@ fn a_manual_goal_wakes_nobody_and_is_run_stopped_started_again_and_closed_by_its
     ws.start();
 
     // Captured, and nothing moves: no workflow, no designer.
-    let captured = ws.json(&["new", "pick a shelf", "--mode", "manual"]);
+    let captured = ws.json(&[
+        "new",
+        "pick a shelf",
+        "--mode",
+        "manual",
+        "--budget-usd-cents",
+        "50",
+    ]);
     let goal = captured["goal"].as_str().expect("the goal").to_string();
     assert_eq!(captured["mode"], "manual");
+    assert_eq!(
+        ws.json(&["status", &goal])["goal"]["budget"],
+        serde_json::json!({"max_usd_cents": 50}),
+        "the ceiling named at capture rode the node's body"
+    );
     assert_eq!(ws.json(&["status", &goal])["status"], "draft");
     let nothing = ws.bisa(&["run", &goal]);
     assert!(

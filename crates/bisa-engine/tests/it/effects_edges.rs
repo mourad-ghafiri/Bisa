@@ -182,6 +182,7 @@ async fn a_command_check_that_outstays_its_deadline_fails_the_step() {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "sleep 5".into(),
+                        project: None,
                     },
                 },
             )],
@@ -1085,6 +1086,7 @@ async fn a_failing_check_keeps_what_the_command_said() {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "ls /nonexistent-folder-of-this-check".into(),
+                        project: None,
                     },
                 },
             )],
@@ -1422,6 +1424,7 @@ async fn stopping_a_run_aborts_its_own_check_and_keeps_another_runs() {
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "sleep 2".into(),
+                        project: None,
                     },
                 },
             )],
@@ -1464,6 +1467,7 @@ async fn a_check_whose_command_cannot_render_fails_without_running() {
                     StepKind::Check {
                         check: CheckKind::Command {
                             command: "test -n {steps.hold.output.foo}".into(),
+                            project: None,
                         },
                     },
                 ),
@@ -1510,6 +1514,7 @@ async fn an_end_that_finishes_the_run_aborts_a_check_running_beside_it() {
                     StepKind::Check {
                         check: CheckKind::Command {
                             command: "sleep 30".into(),
+                            project: None,
                         },
                     },
                 ),

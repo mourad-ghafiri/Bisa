@@ -544,6 +544,24 @@ impl Identity {
         enc.to_bech32().map_err(StoreError::nostr)
     }
 
+    /// The owner key as a NIP-49 `ncryptsec` — what `bisa identity export`
+    /// prints. A workspace never opened has no owner key to export.
+    pub fn export_owner(&self, password: &str) -> Result<String, StoreError> {
+        self.export_encrypted(OWNER_KEY_NAME, password)
+    }
+
+    /// Whether an owner key is stored — what an import asks before it
+    /// would replace one.
+    pub fn has_owner(&self) -> Result<bool, StoreError> {
+        Ok(self.load(OWNER_KEY_NAME)?.is_some())
+    }
+
+    /// The owner key from a NIP-49 `ncryptsec` — what `bisa identity import`
+    /// lands: the one deliberate overwrite of a key that is there.
+    pub fn import_owner(&self, ncryptsec: &str, password: &str) -> Result<Keys, StoreError> {
+        self.import_encrypted(OWNER_KEY_NAME, ncryptsec, password)
+    }
+
     /// NIP-49 import; **replaces** what is stored under `name` — the one
     /// deliberate overwrite — and returns the keys.
     pub fn import_encrypted(
@@ -785,6 +803,27 @@ mod tests {
         // Importing over an existing owner is the deliberate replacement.
         let again = re.import_encrypted("owner", &exported, "hunter2").unwrap();
         assert_eq!(again.public_key(), owner.public_key());
+    }
+
+    #[test]
+    fn the_owner_key_is_exported_and_imported_by_name_and_a_store_knows_whether_it_has_one() {
+        let id = Identity::new(Box::new(MemoryKeyStore::default()));
+        assert!(!id.has_owner().unwrap(), "nothing minted yet");
+        assert!(id.export_owner("pw").is_err(), "no owner key to export");
+        let owner = id.owner().unwrap();
+        assert!(id.has_owner().unwrap());
+        let exported = id.export_owner("pw").unwrap();
+        assert!(exported.starts_with("ncryptsec"));
+        let re = Identity::new(Box::new(MemoryKeyStore::default()));
+        assert!(re.import_owner(&exported, "wrong").is_err());
+        assert!(!re.has_owner().unwrap(), "a refused import lands nothing");
+        let imported = re.import_owner(&exported, "pw").unwrap();
+        assert_eq!(imported.public_key(), owner.public_key());
+        assert_eq!(
+            re.owner().unwrap().public_key(),
+            owner.public_key(),
+            "the imported key is the owner's now, not a minted one"
+        );
     }
 
     #[test]

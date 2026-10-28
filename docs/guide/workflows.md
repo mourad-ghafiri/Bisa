@@ -163,6 +163,13 @@ not declare, is a problem (`spawn_input`) before anything runs. In the designer 
 lists every input the child's workflow asks, marks the ones its run needs and the step has not
 given, and shows what the child does not ask for so it can be removed.
 
+A `check` runs where the run's work landed — the checkout of the run's latest agent step, else
+the goal's one project, else its scratch — unless it names a `project`, as an agent step does: an
+id, or `{ input = "…" }` of kind project. Then it runs in that project — the checkout of the run's
+latest agent step that worked there, else the project's root — and a project the goal is not
+attached to fails the step with the attach remedy as its evidence. A goal with several projects
+says which.
+
 A `check` command runs under `sh -c`, and every value substituted into it is **quoted as one word**:
 an input holding `a; touch marker` is printed by `echo {inputs.x}`, not run. To let an input carry a
 whole command line, the template says so — `command = "sh -c {inputs.command}"`, which is what
@@ -311,7 +318,7 @@ then = ["tests"]
 id = "tests"
 name = "Tests pass"
 kind = "check"
-check = { check = "command", command = "cargo test" }
+check = { check = "command", command = "cargo test", project = { input = "project" } }
 on_fail = { on_fail = "then", step = "fix" }
 then = ["review"]
 

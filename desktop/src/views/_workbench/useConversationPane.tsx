@@ -313,11 +313,12 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
   );
   const composerLeading: ReactNode = checkout && current ? <ConversationModePicker mode={mode} onChange={setMode} toolGuard={toolGuard} /> : null;
 
-  /** The changes turns of this conversation left, and the open asks — only for a conversation about a checkout. */
+  /** The changes turns of this conversation left — only for a conversation about a checkout. */
   const changesId = checkout ? currentId : null;
   const changes = useConversationChanges(changesId);
   usePublishReviewChanges(wid, checkout ? changes.data : null);
-  const asks = useConversationAsks(changesId);
+  /** The open asks — every conversation's: a checkout's tool asks, and any conversation's questions and sign-ins when it has no goal to escalate to. */
+  const asks = useConversationAsks(currentId);
   const cardsView = useMemo(() => turnCardsByAnchor(changes.data), [changes.data]);
   const linkHandler = useLinkHandler();
   // Opened *for review*: the document's own mode and its lens's draft are
@@ -391,7 +392,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
     : undefined;
 
   /** Open asks, at the foot of the timeline. */
-  const askCards: ReactNode = checkout && current && (asks.data?.asks.length ?? 0) > 0
+  const askCards: ReactNode = current && (asks.data?.asks.length ?? 0) > 0
     ? (
         <>
           {asks.data!.asks.map((ask) => (

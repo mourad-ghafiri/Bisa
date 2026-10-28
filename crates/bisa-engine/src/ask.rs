@@ -159,22 +159,19 @@ fn register_ask(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     debug_on_err(
-        inner.registry.register_if(
-            AgentRef {
-                id: run,
-                kind: SessionKind::Ask,
-                status: AgentStatus::Running,
-                generation: 1,
-                session_id: None,
-                work_item: None,
-                conversation: None,
-                goal,
-                workstream: asking.workstream,
-                transcript_path: None,
-                last_activity: now,
-            },
-            None,
-        ),
+        inner.registry.register(AgentRef {
+            id: run,
+            kind: SessionKind::Ask,
+            status: AgentStatus::Running,
+            generation: 1,
+            session_id: None,
+            work_item: None,
+            conversation: None,
+            goal,
+            workstream: asking.workstream,
+            transcript_path: None,
+            last_activity: now,
+        }),
         "registering an ask",
     );
     inner.presence.register(
@@ -524,6 +521,7 @@ pub async fn ask_once(
                             on_behalf_of: None,
                             above: crate::security::AboveCeiling::Ask,
                             conversation: None,
+                            asks_at: None,
                         },
                         session.as_ref(),
                         request,

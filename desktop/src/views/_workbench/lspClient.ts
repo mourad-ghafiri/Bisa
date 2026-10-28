@@ -16,6 +16,8 @@ import { useEngineEvents } from "../../bus";
 import type { FileScope } from "../../types";
 import { loadMonaco, loadedMonaco, type Monaco } from "../../ui/monaco";
 import { useReloadOnReconnect } from "../../ui/useReloadOnReconnect";
+import { boolOf } from "../../shell/settingsModel.mjs";
+import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import {
   documentsToReopen,
   type FollowedDocument,
@@ -25,6 +27,7 @@ import {
   sameServer,
   serverChange,
   type ServerChange,
+  toCompletionItems,
   toDocumentSymbols,
   toLocations,
   toLspPosition,
@@ -51,6 +54,61 @@ export function setLspOpener(f: ((path: string, line: number) => void) | null): 
 
 function ownerOf(model: Monaco.editor.ITextModel): Owner | null {
   return owners.get(model.uri.toString()) ?? null;
+}
+
+/** One document of one root, as the pending changes are keyed. */
+function ownerKey(o: { scope: string; id: string; path: string }): string {
+  return `${o.scope}:${o.id}:${o.path}`;
+}
+
+/**
+ * `lsp.completion`, as the settings last said it: the provider is Monaco's,
+ * registered once for every model, so the switch is read here and not in
+ * a hook of its own. On until the settings say otherwise.
+ */
+let completionOn = true;
+
+/**
+ * The characters a server is asked on, beyond the word being typed: a
+ * member, a path, a scope, a tag, a string's start, an attribute. The
+ * servers' own lists stay with the node (an `initialize` answer the editor
+ * never sees); this one covers the languages the catalog knows.
+ */
+const COMPLETION_TRIGGERS = [".", ":", ">", "/", "\\", "\"", "'", "@", "<", "#", "$"];
+
+/**
+ * The edits not yet sent, one per open document: the 300 ms debounce lives
+ * here rather than in each hook, so a request that needs the server to hold
+ * the text as it stands can send what is pending first (`flushChange`).
+ */
+const pendingChanges = new Map<string, { timer: number; send: () => Promise<unknown> | void }>();
+
+/** Send `send` once the debounce passes, or when a request asks for it sooner; a newer edit replaces an older one unsent. */
+function scheduleChange(key: string, send: () => Promise<unknown> | void, delayMs: number): void {
+  const prev = pendingChanges.get(key);
+  if (prev) window.clearTimeout(prev.timer);
+  const timer = window.setTimeout(() => {
+    pendingChanges.delete(key);
+    void send();
+  }, delayMs);
+  pendingChanges.set(key, { timer, send });
+}
+
+/** Forget a pending edit without sending it: the document closed, or an open carries the buffer whole. */
+function cancelChange(key: string): void {
+  const prev = pendingChanges.get(key);
+  if (!prev) return;
+  window.clearTimeout(prev.timer);
+  pendingChanges.delete(key);
+}
+
+/** Send a pending edit now, so the server answers for the text as it stands; nothing pending is nothing to wait for. */
+async function flushChange(key: string): Promise<void> {
+  const prev = pendingChanges.get(key);
+  if (!prev) return;
+  window.clearTimeout(prev.timer);
+  pendingChanges.delete(key);
+  await prev.send();
 }
 
 /** The Monaco model for a path, or null before Monaco has loaded. */
@@ -85,6 +143,32 @@ function registerLspProviders(monaco: MonacoModule): void {
           contents: [{ value: md }],
           range: res?.range ? toMonacoRange(res.range as never) : undefined,
         };
+      } catch (e: unknown) {
+        // No answer draws nothing; the reason is the log's, not the editor's.
+        log.debug("lsp", "a language request did not answer", { scope: o.scope, id: o.id, path: o.path, ...errorFields(e) });
+        return null;
+      }
+    },
+  });
+
+  monaco.languages.registerCompletionItemProvider("*", {
+    triggerCharacters: COMPLETION_TRIGGERS,
+    async provideCompletionItems(model, position, _context, token) {
+      const o = ownerOf(model);
+      if (!o || !completionOn) return null;
+      // The word under the caret is what an item with no edit of its own replaces.
+      const word = model.getWordUntilPosition(position);
+      const range = { startLineNumber: position.lineNumber, startColumn: word.startColumn, endLineNumber: position.lineNumber, endColumn: word.endColumn };
+      try {
+        // The server answers for the text it holds: what was typed since the last send goes first.
+        await flushChange(ownerKey(o));
+        if (token.isCancellationRequested) return null;
+        const r = await api.lspRequest(o.scope, o.id, o.path, "textDocument/completion", {
+          textDocument: doc(o),
+          position: toLspPosition(position),
+        });
+        if (token.isCancellationRequested) return null;
+        return toCompletionItems(r.result, range) as Monaco.languages.CompletionList;
       } catch (e: unknown) {
         // No answer draws nothing; the reason is the log's, not the editor's.
         log.debug("lsp", "a language request did not answer", { scope: o.scope, id: o.id, path: o.path, ...errorFields(e) });
@@ -215,8 +299,12 @@ export function useLspDocument(
   // The open's answer as state, so the change effect below re-runs once the
   // server holds the document — a ref would leave the first edit unsent.
   const [language, setLanguage] = useState<string | null>(null);
-  const timer = useRef<number | null>(null);
   const latest = useRef(text);
+  // The switch over completion, kept for the provider as the settings arrive.
+  const { resolved } = useResolvedSettings(null);
+  useEffect(() => {
+    completionOn = boolOf(resolved, "lsp.completion", true);
+  }, [resolved]);
   latest.current = text;
   /** What a change of this document's server does to it — set while the document is mounted. */
   const onServer = useRef<((change: ServerChange) => void) | null>(null);
@@ -285,8 +373,7 @@ export function useLspDocument(
       if (change.event !== "started" && change.event !== "restarted" && sameServer(change, mine)) clearMarkers();
       if (documentsToReopen(change, [mine]).length === 0) return;
       // The open carries the buffer as it stands: an edit still waiting to be sent is in it.
-      if (timer.current !== null) window.clearTimeout(timer.current);
-      timer.current = null;
+      cancelChange(ownerKey({ scope, id, path }));
       void open(m);
     };
     const hear = (change: ServerChange) => onServer.current?.(change);
@@ -311,7 +398,7 @@ export function useLspDocument(
       opening.current = false;
       followers.delete(hear);
       onServer.current = null;
-      if (timer.current !== null) window.clearTimeout(timer.current);
+      cancelChange(ownerKey({ scope, id, path }));
       const m = loadedMonaco();
       if (m) owners.delete(m.Uri.file(path).toString());
       clearMarkers();
@@ -324,17 +411,18 @@ export function useLspDocument(
 
   useEffect(() => {
     if (!language || path === null) return;
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
-      timer.current = null;
-      // An open is out and carries the buffer; what moved since goes when it answers.
-      if (opening.current) return;
-      void api.lspChange(scope, id, path, latest.current).catch((e: unknown) => log.debug("lsp", "an edit did not reach the language server; the next one carries the whole text", { path, ...errorFields(e) }));
-    }, CHANGE_DEBOUNCE_MS);
-    return () => {
-      if (timer.current !== null) window.clearTimeout(timer.current);
-      timer.current = null;
-    };
+    const key = ownerKey({ scope, id, path });
+    // Debounced in the module's map, so a completion asked for meanwhile can send it first.
+    scheduleChange(
+      key,
+      () => {
+        // An open is out and carries the buffer; what moved since goes when it answers.
+        if (opening.current) return;
+        return api.lspChange(scope, id, path, latest.current).catch((e: unknown) => log.debug("lsp", "an edit did not reach the language server; the next one carries the whole text", { path, ...errorFields(e) }));
+      },
+      CHANGE_DEBOUNCE_MS,
+    );
+    return () => cancelChange(key);
   }, [text, scope, id, path, language]);
 
   // The bus came back after a gap. A node that restarted in it started no

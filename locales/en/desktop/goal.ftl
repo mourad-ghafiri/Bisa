@@ -124,6 +124,7 @@ goal-run-verb-dialogs-workflow = this workflow
 goal-step-row-answered = Answered: { $said }
 goal-step-row-open-project-step-made = Open { $project } — the project this step made
 goal-step-row-open-work-item = Open the work item
+goal-step-row-transcript = Transcript
 goal-your-move-band-fold = Fold
 goal-your-move-band-move = Your move
 goal-your-move-band-one-thing-waits = one thing waits on you

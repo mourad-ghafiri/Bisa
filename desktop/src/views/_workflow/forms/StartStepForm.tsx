@@ -28,7 +28,7 @@ import { FIRE_ON, OVERLAPS, START_EVENTS } from "../stepKinds.mjs";
 import { useConnectorDetail, useConnectors } from "../useConnectors";
 import { HookSecretNote } from "../HookSecretNote";
 import { shownFor } from "../hookSecretsModel.mjs";
-import { DEFAULT_ACCOUNT, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam } from "./connectorStepModel.mjs";
+import { DEFAULT_ACCOUNT, accountFromValue, accountValue, accountsNote, connectorPickerHint, definitionHint, paramHint, fixedValue, inputValue, strayAccount, strayConnector, strayOperation, strayParams, withConnector, withOperation, withParam } from "./connectorStepModel.mjs";
 import { AgentFilterFields } from "./AgentFilterFields";
 import type { StartOnEx } from "./eventFilters";
 import { GoalFilterFields } from "./GoalFilterFields";
@@ -125,10 +125,11 @@ function ConnectorPollFields({ on, inputs, onChange, disabled }: { on: Extract<S
                 <div className="flex items-center gap-1.5">
                   <code className="font-mono text-2xs">{p.name}</code>
                   {p.required && <Chip tone="warn">{t("workflow-connector-step-form-required")}</Chip>}
+                  {paramHint(p) && <Chip tone="quiet">{t("workflow-connector-step-form-default", { value: paramHint(p) })}</Chip>}
                   <span className="truncate text-2xs text-text-dim">{p.label}</span>
                 </div>
                 {/* Committed on blur or Enter, as the step form's: a value rewritten on every keystroke drops a space typed before a word. */}
-                <TemplateField value={params[p.name] ?? ""} disabled={disabled} ariaLabel={p.name} onCommit={(v) => setParam(p.name, v)} />
+                <TemplateField value={params[p.name] ?? ""} disabled={disabled} ariaLabel={p.name} placeholder={paramHint(p) || undefined} onCommit={(v) => setParam(p.name, v)} />
               </div>
             ))}
             {stray.map((name) => (

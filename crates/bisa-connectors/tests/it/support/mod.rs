@@ -378,6 +378,7 @@ pub fn spec(stub: &Stub, auth: AuthSpec) -> CallSpec {
             name: "id".into(),
             kind: ParamKind::Text,
             required: true,
+            default: None,
         }],
         select: None,
         expect: None,

@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorNote } from "./Card";
 import { failureReason } from "./failure";
 import { cn } from "./cn";
-import { loadMonaco, loadedMonaco, type Monaco } from "./monaco";
+import { loadMonaco, loadedMonaco, setEditorThemeChoice, type Monaco } from "./monaco";
 import { acquireModel, freeFileUri, pushValue } from "./monacoModels";
 import { useEditorTypography } from "./useEditorTypography";
 import { t } from "../i18n/l10n.mjs";
@@ -37,6 +37,8 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   /** Skip tokenisation and the minimap — the large-file mode. */
   plain?: boolean;
+  /** Monaco's own word-based suggestions (ide/10): off while a language server follows the document, so its answers are not drowned in the buffer's words. */
+  wordSuggestions?: boolean;
   onChange?: (value: string) => void;
   /** Called on mount with the few things a view may ask of the editor. */
   handle?: (api: {
@@ -127,6 +129,7 @@ export function CodeEditor({
   keep,
   readOnly = false,
   plain = false,
+  wordSuggestions = true,
   onChange,
   handle,
   onSelectionChange,
@@ -304,12 +307,18 @@ export function CodeEditor({
   useEffect(() => {
     editor.current?.updateOptions({ readOnly });
   }, [readOnly, ready]);
+  // The buffer's own words as suggestions, or the server's alone.
+  useEffect(() => {
+    editor.current?.updateOptions({ wordBasedSuggestions: wordSuggestions ? "currentDocument" : "off" });
+  }, [wordSuggestions, ready]);
 
   // The typography is a setting (`editor.font_*`, `editor.minimap`,
   // `editor.word_wrap`, `appearance.font_mono`): a change reaches a mounted
   // editor without a remount, so the buffer, the cursor and the scroll
-  // position stay.
+  // position stay. The theme (`editor.theme`) is Monaco's, one for every
+  // editor: handed to the loader, which sets it once.
   useEffect(() => {
+    setEditorThemeChoice(typography.theme);
     editor.current?.updateOptions({
       fontFamily: typography.fontFamily,
       fontSize: typography.fontSize,

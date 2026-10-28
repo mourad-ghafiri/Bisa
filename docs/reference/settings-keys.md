@@ -30,7 +30,7 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 
 | Key | Kind | Default | Scopes | What it does |
 |---|---|---|---|---|
-| `editor.theme` | string | `"follow_app"` | M | **Editor theme** — `follow_app`, or a Monaco theme id. |
+| `editor.theme` | string | `"follow_app"` | M | **Editor theme** — `follow_app` — the app's own theme, drawn from its colours in light and dark — or one of Monaco's own: `vs`, `vs-dark`, `hc-light`, `hc-black`. Anything else follows the app. |
 | `editor.font_family` | string | `""` | M | **Font family** — Empty means the theme's monospace stack. |
 | `editor.font_size` | integer 8–32 | `14` | M | **Font size** |
 | `editor.line_height` | number 1–2.5 | `1.5` | M | **Line height** |
@@ -49,7 +49,7 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 
 | Key | Kind | Default | Scopes | What it does |
 |---|---|---|---|---|
-| `terminal.shell` | string | `"login"` | M | **Shell** — `login`, or a path. |
+| `terminal.shell` | string | `"login"` | M | **Shell** — `login` — the shell this machine's account logs in with — or another by its absolute path or its bare name on the login PATH (`fish`, `/opt/homebrew/bin/nu`), run as a login shell; every tab and every harness opens in it. A name this machine cannot run opens the login shell instead, with the reason in the log. |
 | `terminal.font_family` | string | `""` | M | **Font family** |
 | `terminal.font_size` | integer 8–32 | `14` | M | **Font size** |
 | `terminal.scrollback_lines` | integer 1000–100000 | `5000` | M | **Scrollback lines** |
@@ -137,6 +137,7 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 | `workstreams.script.run` | string | `""` | P W | **Run command** — Serves or runs the checkout — `npm run dev`, `python -m http.server` — long-running, opened in a terminal from the IDE's Terminal menu; approved on this machine like the other scripts. Empty is none: the Terminal menu offers no Run item, and the Browser menu's *From folder…* serves the root or a folder of it instead. |
 | `workstreams.script.timeout_secs` | integer 1–3600 | `300` | P W | **Script timeout** — How long a workstream script may run before it is terminated and counted as failed. |
 | `workstreams.script.trusted` | object or array | `[]` | M | **Scripts approved on this machine** — The digests of the workstream scripts this machine will run. Written by Approve under About › Settings › Workstream scripts, never by hand: a project's scripts sync, and a script nobody here approved never runs here. |
+| `workstreams.script.approved` | object or array | `{}` | M | **The texts approved on this machine** — What each script read when it was approved here, per project and phase, so a text that arrived by sync is shown as a diff against it under About › Settings › Workstream scripts. Written by Approve, never by hand. |
 | `workstreams.board.enabled` | bool | `true` | W M | **The Board** — Every workstream as a card in five columns — Backlog, Todo, Doing, Done, Archived — reached from the Project IDE's header. Off hides the Board and its doors; nothing about the workstreams changes. |
 | `workstreams.board.due_soon_days` | integer 1–30 | `3` | W M | **Due soon within** — How many days before its due date a card starts reading as due soon. |
 | `workstreams.board.wip_limit` | integer 0–50 | `0` | W M | **Doing limit** — How many cards the Doing column holds before its header warns. Zero is no limit. A warning, never a refusal. |
@@ -250,6 +251,7 @@ key does not allow is refused. Scopes: **M** machine (`machine.json`, never sync
 | Key | Kind | Default | Scopes | What it does |
 |---|---|---|---|---|
 | `lsp.enabled` | bool | `true` | W M | **Language servers** |
+| `lsp.completion` | bool | `true` | W M | **Completion** — Suggestions from the language server as you type — the editor's own word-based ones go quiet while a server follows the document. Off keeps the servers' diagnostics and hover and leaves suggestions to the editor's words; a slow server can be spared this one request. |
 | `lsp.servers` | object or array | `[]` | M | **Server descriptors** — Language, command, args. |
 | `lsp.idle_ttl_secs` | integer 30–3600 | `300` | M | **Idle TTL** — A server stops this long after its last document closes. |
 

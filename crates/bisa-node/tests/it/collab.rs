@@ -393,6 +393,40 @@ async fn invitations_people_rosters_and_held_messages_over_http() {
     let (code_, _) = node.req("POST", "/messages/nothing/release", None).await;
     assert!(code_ == 400 || code_ == 404, "{code_}");
 
+    // A message held by hand — the classifier's own path is out by decision
+    // — is listed with its reason, refused, gone, and not refused twice.
+    let staged = bisa_store::Workspace::open_with_keystore(
+        node.data_dir(),
+        Box::new(bisa_store::FileKeyStore::new(
+            bisa_store::Paths::new(node.data_dir()).identity_dir(),
+        )),
+    )
+    .unwrap();
+    staged
+        .hold_message(
+            "e-held",
+            "design",
+            bisa_core::PrincipalId::new(bob.clone()).unwrap(),
+            bisa_store::HeldReason::Harmful {
+                why: "asks for a token".into(),
+            },
+        )
+        .unwrap();
+    drop(staged);
+    let v = node.get("/messages/held").await;
+    assert_eq!(v["held"].as_array().map(Vec::len), Some(1), "{v}");
+    assert_eq!(v["held"][0]["event_id"], json!("e-held"), "{v}");
+    assert_eq!(v["held"][0]["reason"]["reason"], json!("harmful"), "{v}");
+    let (code_, v) = node.req("POST", "/messages/e-held/refuse", None).await;
+    assert_eq!(code_, 200, "{v}");
+    assert_eq!(v["refused"], json!("e-held"), "{v}");
+    let v = node.get("/messages/held").await;
+    assert!(v["held"].as_array().unwrap().is_empty(), "gone: {v}");
+    let (code_, v) = node.req("POST", "/messages/e-held/refuse", None).await;
+    assert_eq!(code_, 400, "refused once: {v}");
+    let (code_, _) = node.req("POST", "/messages/e-held/release", None).await;
+    assert_eq!(code_, 400, "nothing left to release");
+
     // The inbox has no people row until something concerns one.
     let v = node.get("/inbox?source=people").await;
     assert!(v["rows"].as_array().unwrap().is_empty());

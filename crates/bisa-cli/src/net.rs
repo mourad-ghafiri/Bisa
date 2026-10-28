@@ -449,6 +449,72 @@ pub async fn remove_person(ctx: &Ctx, out: &Out, pubkey: &str) -> Result<()> {
     Ok(())
 }
 
+// -- held messages --------------------------------------------------------------
+
+/// The held messages, oldest first — the event's id, when it was held, its
+/// scope, who said it and why it is held — the rows `GET /messages/held`
+/// answers, read off the file when no node runs.
+pub async fn held(ctx: &Ctx, out: &Out) -> Result<()> {
+    let held: Vec<bisa_store::HeldMessage> = if let Some(node) = ctx.node_client().await {
+        serde_json::from_value(node.get("/messages/held").await?["held"].clone())?
+    } else {
+        ctx.workspace()?.held_messages()?
+    };
+    if held.is_empty() {
+        out.say(&bisa_core::text!("cli-net-held-none"));
+    }
+    for h in &held {
+        out.human(&format!(
+            "{}  {:<10}  {}  {}…  {}",
+            h.event_id,
+            h.held_at,
+            h.scope,
+            &h.author.as_hex()[..8],
+            h.reason.words()
+        ));
+    }
+    out.json_value(json!({"held": held}));
+    Ok(())
+}
+
+/// Let a held message through. The agents it addresses are woken on the
+/// spot, so this needs the node that runs them: a release from a process
+/// that leaves at once would lose the wake.
+pub async fn release_message(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
+    let Some(node) = ctx.node_client().await else {
+        bail!(bisa_core::text!("cli-net-release-needs-node"));
+    };
+    node.post(&format!("/messages/{id}/release"), json!({}))
+        .await?;
+    out.say(&bisa_core::text!(
+        "cli-net-held-released",
+        id = id.to_string()
+    ));
+    out.json_value(json!({"released": id}));
+    Ok(())
+}
+
+/// Refuse a held message: the row is gone and no agent ever hears it.
+/// Nothing is woken, so an engine that hears nothing does it as well as
+/// the node; a message nobody holds is refused by name.
+pub async fn refuse_message(ctx: &Ctx, out: &Out, id: &str) -> Result<()> {
+    if let Some(node) = ctx.node_client().await {
+        node.post(&format!("/messages/{id}/refuse"), json!({}))
+            .await?;
+    } else {
+        let engine = ctx.quiet_engine().await?;
+        let refused = bisa_engine::collab::refuse_message(engine.inner(), id);
+        engine.shutdown().await;
+        refused?;
+    }
+    out.say(&bisa_core::text!(
+        "cli-net-held-refused",
+        id = id.to_string()
+    ));
+    out.json_value(json!({"refused": id}));
+    Ok(())
+}
+
 // -- invitations ----------------------------------------------------------------
 
 pub async fn invite(

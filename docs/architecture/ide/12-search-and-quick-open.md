@@ -33,9 +33,17 @@ path index below.
 **Replace across files** is a preview first and then one CAS write per file through
 `engine::ide::files` — `POST /ide/replace/{scope}/{id}` without `apply` answers every change with
 the file's hash, with `apply` and those hashes writes them. Its doors are the CLI (`bisa files
-replace --apply`) and the API; the Files tab has none ([feature status](../../feature-status.md)).
-An agent editing one of those files between the preview and the apply is reported in the result as
-*skipped: changed since preview*, never a clobbered; a path that leaves the root is refused unread.
+replace --apply`), the API and the Files tab's search box: **Replace** beside the Contents toggles
+opens a row under the box ([03](03-files-and-editing.md#the-explorer)) — *Preview* draws every
+line that would change under its file, the line as it is and as it would be, with a *Replace* per
+file and one *Replace all* that is off until a preview answers the box as it stands (the needle, a
+glob, a switch or the replacement moved → the preview is not drawn and the apply waits for a fresh
+one); `Enter` in the replacement previews, `⌘Enter` writes it all. An apply hands back the preview's
+hashes, so an agent editing one of those files between the preview and the apply is reported in the
+result as *skipped: changed since preview*, never clobbered — the box says so in its footer and the
+search reads the disk again; a path that leaves the root is refused unread. The answer is typed
+(`IdeReplacePreview` with its `changes`, `IdeReplaceOutcome` by its `outcome`); the facts of the
+box are `fileReplaceModel.mjs`'s.
 In literal mode the replacement is the text as typed — a `$` is a dollar sign; in regex mode `$1`
 and `$name` name a group and `$$` is a dollar sign, the regex crate's grammar. A *word* search
 bounds the term as the searcher does — a half boundary on each side — so a term ending in
@@ -61,6 +69,7 @@ reference's `palette-section-render-cap`, and it is a `.mjs` constant here):
 | Commands | the command registry (`keymapModel.mjs`) | the binding under the active preset |
 | Projects and workstreams | `GET /projects` (a project row opens its primary) and `GET /workstreams` | branch, ahead/behind, dirty count, running agents |
 | Work items | `GET /work-items` for attached goals | state, the goal |
+| Workflows | `GET /workflows?scope=library`, once per opening — archived ones left out; the workspace store never carries the library | the description, *On* while it listens; its tags match as words |
 | Agents | the addressing directory | live status, harness installed or not |
 | Terminals | the panel's sessions | liveness |
 | Conversations | `GET /conversations`, live ones — by a title or a first line ([13 — Conversations](../13-conversations.md)) | the origin in words; one about a checkout opens in the IDE on its Agent panel, one about a goal on its Conversation tab, one about a workflow in the designer's Agent pane, one about the workspace or the node on a page of its own |

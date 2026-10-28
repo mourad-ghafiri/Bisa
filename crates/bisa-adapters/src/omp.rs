@@ -73,7 +73,6 @@ impl HarnessAdapter for OmpAdapter {
         HarnessCaps::STEER
             | HarnessCaps::FOLLOW_UP
             | HarnessCaps::RESUME
-            | HarnessCaps::FORK
             | HarnessCaps::USAGE_REPORTING
             | HarnessCaps::EFFORT
     }

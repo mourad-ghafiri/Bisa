@@ -1217,22 +1217,19 @@ async fn a_parked_session_is_never_revived_and_its_row_keeps_what_it_ran_at() {
     let run = LiveRunId::mint();
     inner
         .registry
-        .register_if(
-            AgentRef {
-                id: run,
-                kind: SessionKind::Worker,
-                status: AgentStatus::Idle,
-                generation: 1,
-                session_id: None,
-                work_item: None,
-                conversation: None,
-                goal: None,
-                workstream: None,
-                transcript_path: None,
-                last_activity: 0,
-            },
-            None,
-        )
+        .register(AgentRef {
+            id: run,
+            kind: SessionKind::Worker,
+            status: AgentStatus::Idle,
+            generation: 1,
+            session_id: None,
+            work_item: None,
+            conversation: None,
+            goal: None,
+            workstream: None,
+            transcript_path: None,
+            last_activity: 0,
+        })
         .unwrap();
     inner.presence.register(
         inner,

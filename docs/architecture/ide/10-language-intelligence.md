@@ -71,9 +71,31 @@ the server: URIs are rewritten to root-relative on the way out.
 
 Features surfaced in the editor: diagnostics as gutter markers, hover, go-to-definition, find
 references, document symbols, workspace symbols (which feed the omnibox's symbol rows) and
-formatting on save (behind `editor.format_on_save`). No rename, no completion, no signature help,
-no semantic tokens and no problems list — the diagnostics live in the gutter (see the known gaps);
-the proxy's allow-list (`ALLOWED_METHODS`) names exactly what the editor asks for. Find references
+formatting on save (behind `editor.format_on_save`); and, in the Files occupant, a **Problems**
+list (`FilesProblems.tsx` over `problemsModel.mjs`, the frames kept per root by
+`diagnosticsStore.ts`): every `publishDiagnostics` the node relays for the root, a file row per path
+and its problems under it errors first, a row opening the document at its line; the tree's toolbar
+button wears the counts in its tone and the Files tab's rail icon a danger mark while a server
+reports an error — warnings alone earn no mark. A pair's list is replaced whole by the next frame,
+LSP's own rule; a server's word goes when it stops or fails; the root's list goes when the bus comes
+back after the node was away, since the node started no server in the gap and the documents are
+opened again. It lists what the servers said: one that reports only for the documents it follows
+leaves the rest unsaid, and the empty state says so. **Completion** (`textDocument/completion`;
+`lsp.completion`, on by default at the machine or the workspace): Monaco's provider asks as a word
+is typed and on its trigger characters — a member, a path, a scope, a tag, a string's start, an
+attribute — after the edit still pending in the 300 ms debounce has gone to the server
+(`flushChange`: the debounce lives in the client's one map, not in each document's hook), so the
+answer is for the text as it stands, and a request Monaco dropped draws nothing. A list or a bare
+array of items maps to Monaco's (`lspModel.toCompletionItems`): the kind by a table, since the two
+enumerations share names and not one number; the edit's text, else `insertText`, else the label,
+over the edit's range — a `TextEdit`'s or an `InsertReplaceEdit`'s insert range — else the word
+under the caret; documentation in either shape, the deprecated tag, and the additional edits an
+import comes as. The client declares no snippet support, and an item a server sends as one anyway
+is inserted plain, a placeholder keeping its word and a tab stop going. Monaco's word-based
+suggestions go quiet while a running server follows the document (`followedByServer`), so the
+server's are not drowned in the buffer's words. No rename, no signature help and no semantic tokens
+(see the known gaps); the proxy's allow-list (`ALLOWED_METHODS`) names exactly what the editor asks
+for. Find references
 peeks within the document; a reference in another file opens that file, as a definition elsewhere
 does. `lsp.enabled` switches the whole of it off. A document's path is contained by the root
 before it becomes a URI a server would read.

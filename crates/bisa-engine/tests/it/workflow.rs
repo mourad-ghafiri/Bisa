@@ -188,6 +188,7 @@ async fn a_check_step_runs_in_the_goals_scratch_dir_when_it_has_no_project_and_f
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "test -d . && echo here > checked.txt".into(),
+                        project: None,
                     },
                 },
             )]),
@@ -215,6 +216,7 @@ async fn a_check_step_runs_in_the_goals_scratch_dir_when_it_has_no_project_and_f
                 StepKind::Check {
                     check: CheckKind::Command {
                         command: "echo nope >&2; exit 3".into(),
+                        project: None,
                     },
                 },
             )],
@@ -255,6 +257,7 @@ async fn check_command_values_are_shell_quoted() {
             StepKind::Check {
                 check: CheckKind::Command {
                     command: "echo {inputs.x}".into(),
+                    project: None,
                 },
             },
         )],
@@ -391,6 +394,7 @@ async fn on_fail_then_routes_a_failed_step() {
         StepKind::Check {
             check: CheckKind::Command {
                 command: "exit 1".into(),
+                project: None,
             },
         },
     );

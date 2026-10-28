@@ -48,14 +48,17 @@ import {
   REMOVE_WORDS,
   ROLE_HINT,
   expiryWords,
+  heldRows,
   inviteOffer,
   inviteState,
   orderInvites,
   personName,
   personWords,
+  refuseHeldWords,
   roleChangeWords,
   roleLabel,
   admitKey,
+  type HeldRow,
 } from "./peopleModel.mjs";
 import { t as tr } from "../../i18n/l10n.mjs";
 import { rich } from "../../i18n/rich";
@@ -269,7 +272,9 @@ export function PeoplePanel() {
   const people = useAsync(async (s) => (await api.people(s)).people, []);
   const invites = useAsync(async (s) => (await api.invites(s)).invites, []);
   const hosts = useAsync(async (s) => (await api.hosts(s)).hosts, []);
+  const held = useAsync(async (s) => (await api.heldMessages(s)).held, []);
   const wire = useAsync((s) => api.sync(s), []);
+  const [refusing, setRefusing] = useState<HeldRow | null>(null);
   const [inviting, setInviting] = useState(false);
   const [made, setMade] = useState<{ invite: Invite; link: string; code: string } | null>(null);
   const [removing, setRemoving] = useState<PersonRow | null>(null);
@@ -288,6 +293,7 @@ export function PeoplePanel() {
       invites.reload();
     }
     if (t === "hosted_changed") hosts.reload();
+    if (t === "message_held" || t === "message_released" || t === "message_refused") held.reload();
     if (wireMoved(e.payload)) wire.reload();
   });
   const wireOff = wire.data ? !wire.data.enabled : false;
@@ -300,6 +306,7 @@ export function PeoplePanel() {
   const { key, problem: keyProblem } = admitKey(addKey, people.data ?? [], ws.me);
   const ordered = useMemo(() => orderInvites(invites.data ?? []), [invites.data]);
   const waiting = ordered.filter((i) => i.state.state === "requested");
+  const heldNow = useMemo(() => heldRows(held.data ?? [], people.data ?? [], Date.now() / 1000), [held.data, people.data]);
 
   const add = async () => {
     setAdding(true);
@@ -332,6 +339,42 @@ export function PeoplePanel() {
                 </li>
               );
             })}
+          </ul>
+        </Section>
+      )}
+
+      {phase(held) === "failed" && held.error && (
+        // A held list that could not be read is unknown, never empty: a message may be waiting on you.
+        <ErrorNote error={held.error} retry={held.reload} />
+      )}
+      {heldNow.length > 0 && (
+        <Section title={tr("settings-people-panel-held", { held: heldNow.length })}>
+          <ul className="flex flex-col gap-1.5">
+            {heldNow.map((row) => (
+              // A message from outside waits on your word — a summons, in the accent — and the
+              // classifier's standing rides as its chip: a caution, never the summons itself.
+              <li key={row.id} className="flex items-center gap-2 rounded-control border border-accent/40 bg-accent-soft px-2 py-1.5">
+                <Chip tone={row.state.tone}>{row.state.word}</Chip>
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {tr("settings-people-panel-held-row", { person: row.person, scope: row.scope, since: row.since })}
+                  {row.why && <span className="text-dim"> {tr("settings-people-panel-held-why", { why: row.why })}</span>}
+                </span>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabledReason={row.releasable ? undefined : tr("settings-people-panel-release-reason")}
+                  onClick={() =>
+                    void attempt(() => api.releaseMessage(row.id), toast.error, () => {
+                      toast.ok(tr("settings-people-panel-let-through-done"));
+                      held.reload();
+                    })
+                  }
+                >
+                  {tr("settings-people-panel-let-through")}
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => setRefusing(row)}>{tr("settings-people-panel-refuse")}</Button>
+              </li>
+            ))}
           </ul>
         </Section>
       )}
@@ -508,6 +551,22 @@ export function PeoplePanel() {
           void attempt(() => api.removePerson(target), toast.error, () => {
             toast.ok(tr("settings-people-panel-removed"));
             reloadAll();
+          });
+        }}
+      />
+      <ConfirmDialog
+        open={refusing !== null}
+        onClose={() => setRefusing(null)}
+        title={refusing ? tr("settings-people-panel-refuse-held", { person: refusing.person }) : ""}
+        danger
+        confirmLabel={tr("settings-people-panel-refuse")}
+        body={refusing ? refuseHeldWords(refusing) : ""}
+        onConfirm={() => {
+          if (!refusing) return;
+          const target = refusing.id;
+          void attempt(() => api.refuseMessage(target), toast.error, () => {
+            toast.ok(tr("settings-people-panel-refused-done"));
+            held.reload();
           });
         }}
       />

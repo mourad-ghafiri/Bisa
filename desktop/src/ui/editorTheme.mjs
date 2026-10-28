@@ -48,6 +48,26 @@ const TOKEN_RULES = Object.freeze([
 ]);
 
 /**
+ * Monaco's own themes, the ones `editor.theme` may name instead of the app's
+ * (`follow_app`): the two it ships and the two high-contrast ones. Nothing
+ * else is a theme Monaco can set without a definition.
+ */
+export const MONACO_BUILTIN_THEMES = Object.freeze(["vs", "vs-dark", "hc-light", "hc-black"]);
+
+/**
+ * The theme Monaco is set to for a choice of `editor.theme`: one of its own
+ * when the choice names one, else the app's — `follow_app`, an empty value
+ * and anything unknown all read as the app's, so a typo never leaves the
+ * editor on a theme that was not chosen.
+ * @param {unknown} choice
+ * @param {string} appTheme the app's theme name, as `monaco.ts` defines it
+ */
+export function monacoThemeFor(choice, appTheme) {
+  const name = typeof choice === "string" ? choice.trim() : "";
+  return MONACO_BUILTIN_THEMES.includes(name) ? name : appTheme;
+}
+
+/**
  * Monaco wants `#rrggbb[aa]`. The app's roles are `oklch(...)` in the CSS,
  * but `getComputedStyle` resolves them to `rgb()`/`rgba()`/`oklch()` per
  * browser — `resolveToHex` in `monaco.ts` normalises through a canvas. This

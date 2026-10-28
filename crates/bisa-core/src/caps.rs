@@ -15,12 +15,8 @@ bitflags::bitflags! {
         const FOLLOW_UP             = 1 << 1;
         /// Re-attach to a previous session by harness-native handle.
         const RESUME                = 1 << 2;
-        /// Branch a session into a new one sharing history.
-        const FORK                  = 1 << 3;
         /// Accepts MCP server configuration at launch.
         const MCP_SERVERS           = 1 << 4;
-        /// Can emit schema-conforming structured output.
-        const STRUCTURED_OUTPUT     = 1 << 5;
         /// Accepts image input.
         const IMAGE_INPUT           = 1 << 6;
         /// Raises `InputRequested` — a permission, a question, a sign-in —
@@ -206,10 +202,14 @@ mod tests {
     #[test]
     fn the_effort_flag_is_its_own_bit() {
         assert_eq!(HarnessCaps::EFFORT.bits(), 1 << 13);
-        // Fourteen flags, and this one shares its bit with none of them.
-        assert_eq!(HarnessCaps::all().bits().count_ones(), 14);
+        // Twelve flags — a bit each, holes where a flag nothing read was
+        // retired (`FORK`, `STRUCTURED_OUTPUT`; a number is never reused) —
+        // and this one shares its bit with none of them.
+        assert_eq!(HarnessCaps::all().bits().count_ones(), 12);
         let others = HarnessCaps::all() - HarnessCaps::EFFORT;
-        assert_eq!(others.bits().count_ones(), 13);
+        assert_eq!(others.bits().count_ones(), 11);
+        assert!(!HarnessCaps::all().contains(HarnessCaps::from_bits_retain(1 << 3)));
+        assert!(!HarnessCaps::all().contains(HarnessCaps::from_bits_retain(1 << 5)));
         let caps = HarnessCaps::RESUME | HarnessCaps::EFFORT;
         let json = serde_json::to_string(&caps).unwrap();
         assert_eq!(serde_json::from_str::<HarnessCaps>(&json).unwrap(), caps);

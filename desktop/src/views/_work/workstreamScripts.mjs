@@ -103,6 +103,20 @@ export function trustLine(script) {
 }
 
 /**
+ * The two texts a changed script is read between, before approving it again:
+ * what this machine approved, and what the text reads now (ide/07 — *the
+ * text syncs; the trust does not*). `null` for a trusted script, one with no
+ * approval here, or a node that does not say (the field is additive).
+ * @param {{command: string, trusted: boolean, approved_text?: string | null} | undefined} script
+ * @returns {{approved: string, current: string} | null}
+ */
+export function approvedDiff(script) {
+  if (!script || script.trusted || typeof script.approved_text !== "string") return null;
+  if (script.approved_text === script.command) return null;
+  return { approved: script.approved_text, current: script.command };
+}
+
+/**
  * Whether the view holds a script this machine has not approved — what makes
  * the standalone *Approve* button appear.
  * @param {{ scripts: readonly {command: string, trusted: boolean}[] } | null | undefined} view

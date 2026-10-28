@@ -4,6 +4,11 @@ export declare const EDITOR_ROLE_MAP: Readonly<Record<string, readonly string[]>
 
 export declare function isHex(value: string): boolean;
 
+/** Monaco's own themes `editor.theme` may name instead of the app's. */
+export declare const MONACO_BUILTIN_THEMES: readonly string[];
+/** One of Monaco's own themes when `choice` names one, else `appTheme`. */
+export declare function monacoThemeFor(choice: unknown, appTheme: string): string;
+
 export interface EditorThemeRule {
   token: string;
   foreground: string;

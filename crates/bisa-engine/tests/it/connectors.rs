@@ -171,6 +171,31 @@ async fn an_account_read_from_an_input_runs_the_call() {
     engine.shutdown().await;
 }
 
+/// A step that leaves a defaulted parameter unset sends the default — the
+/// definition's own value, typed, in the body where the template names it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_step_leaving_a_defaulted_parameter_unset_sends_the_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let stub = Stub::start(vec![canned("POST", "/post", 200, json!({"ts": "1"}))]).await;
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    install_chat_shaped(&engine, &stub, Some(TOKEN), |post| {
+        post.params[1].default = Some(json!({"from": "default"}));
+    });
+    let (goal, _) = run_on(
+        &engine,
+        "the launch",
+        new_workflow("posts", vec![post_step("say", None, None)]),
+    );
+    let done = finished_run(&engine, goal.id).await;
+    assert_eq!(done.outcome, Some(RunOutcome::Done), "{done:?}");
+    assert_eq!(
+        stub.calls()[0].body["extra"],
+        json!({"from": "default"}),
+        "the default rode the call, typed"
+    );
+    engine.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_json_param_lands_as_a_typed_body_leaf() {
     let dir = tempfile::tempdir().unwrap();

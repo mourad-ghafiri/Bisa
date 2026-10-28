@@ -270,3 +270,23 @@ export function consequence(step, boundary) {
   }
   return boundary.act === "notify" ? t("workflow-boundary-model-posts-beside") : t("workflow-boundary-model-emits-beside");
 }
+
+/**
+ * A post's place and author, each written only when it says something —
+ * `scope` is where it lands (none: the run's own conversation), `author`
+ * whose message it is (none: the Workflow Agent's) — the wire's options, so
+ * a blank never writes `scope: ""`. A key the patch does not name stands.
+ * @template {object} B
+ * @param {B} boundary a notify boundary
+ * @param {{ scope?: string | null, author?: unknown }} patch
+ * @returns {B}
+ */
+export function withNotifyWhere(boundary, patch) {
+  const next = { ...boundary };
+  for (const key of ["scope", "author"]) {
+    if (!(key in patch)) continue;
+    if (patch[key]) next[key] = patch[key];
+    else delete next[key];
+  }
+  return next;
+}

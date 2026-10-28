@@ -186,3 +186,14 @@ test("a duration joins the line after the start time, and nothing joins nothing"
   assert.equal(durationSuffix("3 min"), " · 3 min");
   for (const none of [null, undefined, ""]) assert.equal(durationSuffix(none), "");
 });
+
+test("a row's transcript is its work item, live while running or waiting, and nothing for a row that became no item", async () => {
+  const { transcriptOf } = await import("./progressModel.mjs");
+  assert.deepEqual(transcriptOf({ workItem: "01ITEM", state: { state: "running" } }), { item: "01ITEM", live: true });
+  assert.deepEqual(transcriptOf({ workItem: "01ITEM", state: { state: "waiting", until: null } }), { item: "01ITEM", live: true });
+  assert.deepEqual(transcriptOf({ workItem: "01ITEM", state: { state: "done" } }), { item: "01ITEM", live: false });
+  assert.deepEqual(transcriptOf({ workItem: "01ITEM", state: { state: "failed" } }), { item: "01ITEM", live: false });
+  assert.equal(transcriptOf({ workItem: null, state: { state: "running" } }), null, "a wait or a gate wrote nothing");
+  assert.equal(transcriptOf({ workItem: null, state: { state: "pending" } }), null);
+  assert.equal(transcriptOf(null), null);
+});

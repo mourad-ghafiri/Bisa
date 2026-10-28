@@ -100,6 +100,34 @@ fn a_project_comes_in_four_ways_and_is_attached_carried_shown_and_forgotten() {
     assert!(tree.join(".git").exists(), "{}", tree.display());
     assert!(tree.starts_with(ws.data()), "{}", tree.display());
 
+    // Edited through the node — a record edit, nothing on disk moves: the
+    // policy, then the name, each flag left out keeping what the record says.
+    let name = ws.json(&["project", "show", &shelf])["project"]["name"]
+        .as_str()
+        .expect("its name")
+        .to_string();
+    let edited = ws.json(&["project", "edit", &shelf, "--publish", "gated"]);
+    assert_eq!(edited["project"]["publish"], "gated", "{edited}");
+    assert_eq!(edited["project"]["name"], name.as_str(), "{edited}");
+    let renamed = ws.json(&["project", "edit", &shelf, "--name", "Shelf, edited"]);
+    assert_eq!(renamed["project"]["name"], "Shelf, edited", "{renamed}");
+    assert_eq!(renamed["project"]["publish"], "gated", "{renamed}");
+    let back = ws.json(&[
+        "project",
+        "edit",
+        &shelf,
+        "--name",
+        &name,
+        "--publish",
+        "manual",
+    ]);
+    assert_eq!(back["project"]["name"], name.as_str(), "{back}");
+    assert_eq!(
+        back["project"]["publish"], "manual",
+        "as it was made: {back}"
+    );
+    assert!(tree.join(".git").exists(), "nothing on disk moved");
+
     // Imported: the files become the workspace's, and the folder they came
     // from is as it was.
     let folder = a_folder(&ws, "notes", "readme.md", "what the shelf holds\n");

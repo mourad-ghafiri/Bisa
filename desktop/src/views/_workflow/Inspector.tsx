@@ -103,7 +103,7 @@ function KindForm({
     case "approval":
       return <ApprovalStepForm step={step} onChange={onChange} disabled={disabled} />;
     case "check":
-      return <CheckStepForm step={step} upstream={upstream} onChange={onChange} disabled={disabled} />;
+      return <CheckStepForm step={step} inputs={inputs} upstream={upstream} onChange={onChange} disabled={disabled} />;
     case "decide":
       return <DecideStepForm step={step} upstream={upstream} inputs={inputs} onChange={onChange} disabled={disabled} />;
     case "if":
