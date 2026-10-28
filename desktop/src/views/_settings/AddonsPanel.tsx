@@ -169,10 +169,11 @@ export function AddonsPanel() {
   };
 
   const startImport = async () => {
-    const path = await pickFolder(t("settings-addons-panel-choose-folder"));
-    if (!path) return;
     setBusy(true);
     try {
+      // The picker's own refusal is said like the node's, never thrown past the row.
+      const path = await pickFolder(t("settings-addons-panel-choose-folder"));
+      if (!path) return;
       // The node reads the folder — the webview never does — and answers the
       // manifest with every problem; a clean folder opens the review with
       // nothing granted yet.

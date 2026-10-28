@@ -17,14 +17,22 @@
  *                  { v: 1, kind: "bisa:event", topic, payload }
  *
  * Only the frame's own parent is listened to, and only after it said
- * `bisa:ready`; a call made before that waits for it. A call nobody answers
- * within ten seconds fails with the code `unavailable`.
+ * `bisa:ready`; a call made before that waits for it. The hello is said
+ * again at growing waits until the platform answers — a listener attached
+ * late, a page that raced its host — and never once it has; past the last
+ * wait with no answer, every call waiting fails with the code `unavailable`,
+ * and so does every call made until a ready arrives — `ready()` itself
+ * keeps waiting, and a ready that still comes serves it and every call made
+ * after. A call the platform did not answer within ten seconds fails with
+ * `unavailable` too.
  */
 (function (global) {
   "use strict";
 
   var VERSION = 1;
   var CALL_TIMEOUT_MS = 10000;
+  /** The waits between one hello and the next, until the platform says ready. */
+  var HELLO_RETRY_MS = [250, 500, 1000, 2000, 4000];
 
   /** Every method the host knows, and the shape the sugar below wears. */
   var METHODS = [
@@ -59,6 +67,10 @@
   var parent = global.parent;
   var hello = null;
   var readyResolvers = [];
+  /** The calls made before ready, each waiting to be sent — or refused, past the last hello. */
+  var queued = [];
+  /** Every hello went unanswered: calls fail at once until a ready arrives. */
+  var readyMissed = false;
   var pending = {};
   var listeners = {};
   var seq = 0;
@@ -87,20 +99,54 @@
     });
   }
 
+  function notAnswered(method) {
+    return AddonError("unavailable", "the platform did not answer " + method);
+  }
+
+  /** Say hello; unanswered after the wait, say it again — until the waits run out. */
+  function sayHello(attempt) {
+    post({ v: VERSION, kind: "bisa:hello" });
+    if (attempt >= HELLO_RETRY_MS.length) {
+      readyMissed = true;
+      var waiting = queued;
+      queued = [];
+      waiting.forEach(function (c) {
+        c.reject(notAnswered(c.method));
+      });
+      return;
+    }
+    global.setTimeout(function () {
+      if (!hello) sayHello(attempt + 1);
+    }, HELLO_RETRY_MS[attempt]);
+  }
+
+  /** Send one call, the platform ready. */
+  function send(method, params) {
+    return new Promise(function (resolve, reject) {
+      var id = nextId();
+      var timer = global.setTimeout(function () {
+        delete pending[id];
+        reject(notAnswered(method));
+      }, CALL_TIMEOUT_MS);
+      pending[id] = { resolve: resolve, reject: reject, timer: timer };
+      post({ v: VERSION, kind: "bisa:call", id: id, method: method, params: params });
+    });
+  }
+
   function call(method, params) {
     if (METHODS.indexOf(method) === -1) {
       return Promise.reject(AddonError("unknown_method", method + " is not a method the platform offers"));
     }
     var safeParams = params && typeof params === "object" ? params : {};
-    return whenReady().then(function () {
-      return new Promise(function (resolve, reject) {
-        var id = nextId();
-        var timer = global.setTimeout(function () {
-          delete pending[id];
-          reject(AddonError("unavailable", "the platform did not answer " + method));
-        }, CALL_TIMEOUT_MS);
-        pending[id] = { resolve: resolve, reject: reject, timer: timer };
-        post({ v: VERSION, kind: "bisa:call", id: id, method: method, params: safeParams });
+    if (hello) return send(method, safeParams);
+    if (readyMissed) return Promise.reject(notAnswered(method));
+    return new Promise(function (resolve, reject) {
+      queued.push({
+        method: method,
+        reject: reject,
+        run: function () {
+          send(method, safeParams).then(resolve, reject);
+        },
       });
     });
   }
@@ -145,10 +191,16 @@
         theme: m.theme && typeof m.theme === "object" ? m.theme : { scheme: "light" },
         window: m.window && typeof m.window === "object" ? m.window : {},
       };
+      readyMissed = false;
       var waiting = readyResolvers;
       readyResolvers = [];
       waiting.forEach(function (resolve) {
         resolve(hello);
+      });
+      var calls = queued;
+      queued = [];
+      calls.forEach(function (c) {
+        c.run();
       });
       return;
     }
@@ -286,5 +338,5 @@
 
   global.addEventListener("message", onMessage);
   global.bisa = bisa;
-  post({ v: VERSION, kind: "bisa:hello" });
+  sayHello(0);
 })(typeof window !== "undefined" ? window : this);

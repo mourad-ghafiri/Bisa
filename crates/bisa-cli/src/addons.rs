@@ -194,19 +194,15 @@ async fn patch(ctx: &Ctx, id: &AddonId, body: Value) -> Result<Value> {
         let v = client.patch(&format!("/addons/{id}"), body).await?;
         return Ok(v["addon"].clone());
     }
+    // Judged whole and written once, as the node does it.
     let ws: Workspace = ctx.workspace()?;
-    let mut entry = None;
-    if let Some(enabled) = body["enabled"].as_bool() {
-        entry = Some(ws.set_addon_enabled(id, enabled)?);
-    }
-    if !body["granted"].is_null() {
-        let granted: Vec<AddonPermission> = serde_json::from_value(body["granted"].clone())?;
-        entry = Some(ws.set_addon_grants(id, granted)?);
-    }
-    Ok(row(&match entry {
-        Some(e) => e,
-        None => ws.get_addon(id)?, // LCOV_EXCL_LINE every verb's patch names a field; by construction
-    }))
+    let granted: Option<Vec<AddonPermission>> = if body["granted"].is_null() {
+        None
+    } else {
+        Some(serde_json::from_value(body["granted"].clone())?)
+    };
+    let (entry, _changes) = ws.update_addon(id, body["enabled"].as_bool(), granted)?;
+    Ok(row(&entry))
 }
 
 pub async fn addon(ctx: &Ctx, out: &Out, cmd: AddonCmd) -> Result<()> {

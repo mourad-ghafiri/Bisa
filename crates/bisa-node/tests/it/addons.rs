@@ -264,6 +264,21 @@ async fn an_addon_is_imported_switched_granted_and_removed_over_the_wire() {
     .await;
     assert_eq!(on.status, 200, "{}", String::from_utf8_lossy(&on.body));
     assert_eq!(on.json()["addon"]["active"], true);
+    // Both fields in one patch are judged whole: a grant never declared
+    // refuses the patch, and the switch beside it stays where it was.
+    let half = call(
+        &socket,
+        "PATCH",
+        "/addons/acme.byte",
+        json!({ "enabled": false, "granted": ["notify"] }),
+    )
+    .await;
+    assert_eq!(half.status, 400, "{}", String::from_utf8_lossy(&half.body));
+    assert_eq!(
+        get(&socket, "/addons/acme.byte").await.json()["addon"]["enabled"],
+        true,
+        "the switch beside a refused grant did not move"
+    );
     let widened = call(
         &socket,
         "PATCH",

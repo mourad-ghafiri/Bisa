@@ -22,6 +22,7 @@ const sources = () => sourceFiles(SRC, (p) => /\.(ts|tsx|mjs)$/.test(p) && !p.en
 /** The silences that may stay, each with its reason — and the fact that keeps the reason true. */
 const SILENT = Object.freeze({
   "shell/singleFlight.mjs": { why: "every joiner holds its own copy of the rejection; this one only keeps a flight nobody waits on from being an unhandled rejection", holds: "the joiners each hold their own copy" },
+  "addons/addonMediaModel.mjs": { why: "a step on a key's chain says its own failure where it runs (the host logs every open and close it queues); the chain only keeps one step's failure from stopping the next, and from being an unhandled rejection nobody waits on", holds: "a step that throws does not stop the next" },
   "ui/artifact/pageInspector.mjs": { why: "its body is a script that runs inside a page's sandbox, where there is no log door: a page's own broken API must not break the inspector", holds: "const INSPECTOR_CORE = String.raw`" },
 });
 const silent = (file) => SILENT[relative(SRC, file)];

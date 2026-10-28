@@ -14,10 +14,13 @@
  *
  * A re-read keeps an addon's object when its record did not move
  * (`sameAddon`): a window holds the object, and a new one for the same facts
- * would reset what it holds. A switch is **optimistic**: the list reads as
- * the node will read it before the PATCH lands, and comes back if the node
- * refuses. `useAddonsSync` is mounted once, by the layer; every other reader
- * only reads.
+ * would reset what it holds. A switch is **optimistic** in what is safe: off
+ * reads off at once and the window leaves; on reads on, but the window waits
+ * for the node's word (`withEnabled`) — a frame mounted before the node has
+ * the switch gets a bare 404 for its files and, its key unmoved, never loads
+ * again. A refusal puts the object held before the switch back and asks the
+ * node what stands. `useAddonsSync` is mounted once, by `AddonsHost`, outside
+ * the layer's boundary; every other reader only reads.
  *
  * `snapshot()` returns the state and nothing else, as React 19 requires.
  */
@@ -33,7 +36,7 @@ import { reloadOnReconnect } from "../shell/workspaceLoadModel.mjs";
 import type { Addon, AddonPermission } from "../types";
 import type { Placement } from "../ui/Dock";
 import { STORAGE_KEY_PREFIX } from "./addonBridgeModel.mjs";
-import { manifestWindow, pruneHidden, sameAddon, withEnabled } from "./addonsModel.mjs";
+import { manifestWindow, pruneHidden, restoreAddon, sameAddon, withEnabled } from "./addonsModel.mjs";
 import { defaultPlacement, sizeBounds, windowPrefFrom } from "./addonWindowModel.mjs";
 import type { Size, WindowPref } from "./addonWindowModel.mjs";
 import { failureReason } from "../ui/failure";
@@ -185,21 +188,25 @@ export function resetAddonPositions(): void {
 // --- the node's verbs, each followed by a re-read -----------------------
 
 /**
- * Turn an addon on or off. The list reads as the node will before the PATCH
- * lands; a refusal puts it back and is thrown for the row to say. Turning
- * one on brings its window back if it was put away: a person who switches
- * an addon on wants to see it.
+ * Turn an addon on or off. The switch reads as asked before the PATCH
+ * lands — off unmounts the window at once; on waits for the node's word,
+ * which the re-read after the PATCH (or the `addons_changed` frame) brings
+ * — and a refusal puts the object held before the switch back and is
+ * thrown for the row to say. Turning one on brings its window back if it
+ * was put away: a person who switches an addon on wants to see it.
  */
 export async function setAddonEnabled(id: string, enabled: boolean): Promise<void> {
-  const was = state.addons.find((a) => a.id === id)?.enabled;
+  const prior = state.addons.find((a) => a.id === id);
   set({ ...state, addons: withEnabled(state.addons, id, enabled) });
   if (enabled && state.hidden.includes(id)) setAddonHidden(id, false);
   try {
     await api.patchAddon(id, { enabled });
   } catch (e) {
-    // This addon's switch alone goes back — on the list as it stands now, so a
-    // re-read that landed meanwhile for another addon is not undone with it.
-    if (was !== undefined) set({ ...state, addons: withEnabled(state.addons, id, was) });
+    // The object held before the switch goes back in its place alone — on
+    // the list as it stands now, so a re-read that landed meanwhile for
+    // another addon is not undone with it — and the node is asked what stands.
+    if (prior) set({ ...state, addons: restoreAddon(state.addons, prior) });
+    void refreshAddons();
     throw e;
   }
   await refreshAddons();
@@ -210,9 +217,20 @@ export async function setAddonGrants(id: string, granted: AddonPermission[]): Pr
   await refreshAddons();
 }
 
-/** Remove an addon: the node's record and bundle, and this machine's memory of it — its window, its put-away mark, its store. */
+/**
+ * Remove an addon: the node's record and bundle, and this machine's memory
+ * of it — its window, its put-away mark, its store. Gone from the list
+ * before the DELETE lands, so no window of it is left to write its storage
+ * back after it is forgotten; a refusal re-reads, which brings it back.
+ */
 export async function removeAddon(id: string): Promise<void> {
-  await api.deleteAddon(id);
+  set({ ...state, addons: state.addons.filter((a) => a.id !== id) });
+  try {
+    await api.deleteAddon(id);
+  } catch (e) {
+    void refreshAddons();
+    throw e;
+  }
   forgetPref(webStorage(), WINDOW_KEY_PREFIX + id);
   forgetPref(webStorage(), STORAGE_KEY_PREFIX + id);
   if (state.hidden.includes(id)) setAddonHidden(id, false);
@@ -234,7 +252,8 @@ export async function installAddonFromCatalog(slug: string): Promise<void> {
  * Keep the list current: read on mount, again on every `addons_changed`
  * frame — the node says which addon moved, and the whole list is cheap —
  * on a `settings_changed` that names the machine's switch, and again when
- * the bus comes back after a gap. Mounted once, by the layer.
+ * the bus comes back after a gap. Mounted once, by `AddonsHost`, outside
+ * the layer's boundary — a window that throws never stops the list.
  */
 export function useAddonsSync(): void {
   useEffect(() => {

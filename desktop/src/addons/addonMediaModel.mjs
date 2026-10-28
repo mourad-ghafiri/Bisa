@@ -22,6 +22,37 @@ export function mediaKey(addonId) {
   return `addon-media:${addonId}`;
 }
 
+/**
+ * The opens and closes of one key run in order, whoever queued them — a
+ * window's new instance (put away and shown, its grants changed, its addon
+ * switched off and on) must not open the key before the old instance's
+ * close has landed: the shell refuses a key still open. One map of chains
+ * keyed by the shell's key; a step that throws does not stop the next (a
+ * step says its own failure where it runs — the host logs every open and
+ * close it queues — and the chain keeps it from being an unhandled
+ * rejection nobody waits on); a chain that settled and is still the tail is
+ * forgotten.
+ * @param {Map<string, Promise<void>>} chains
+ * @param {string} key
+ * @param {() => Promise<void> | void} step
+ * @returns {Promise<void>} settles when `step` has
+ */
+export function enqueue(chains, key, step) {
+  const run = () => Promise.resolve().then(step).catch(() => {});
+  const last = chains.get(key) ?? Promise.resolve();
+  const next = last.then(run, run);
+  chains.set(key, next);
+  const forget = () => {
+    if (chains.get(key) === next) chains.delete(key);
+  };
+  next.then(forget, forget);
+  return next;
+}
+
+/** How many times an open the shell refused is tried again, and the wait before each: a closing view can still be seen for a beat after its close answered. */
+export const OPEN_RETRIES = 2;
+export const OPEN_RETRY_MS = 100;
+
 /** The node's page for a video, as a path. @param {string} addonId @param {string} video */
 export function playerPath(addonId, video) {
   return `/addons/${encodeURIComponent(addonId)}/player/youtube/${encodeURIComponent(video)}`;

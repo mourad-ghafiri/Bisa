@@ -12,7 +12,9 @@ page to it — a method here and not there, or there and not here, fails. The mo
 
 `bisa.ready()` resolves once the platform said it is ready, with what it said: `{addon: {id, name,
 version}, granted: [word…], locale, theme: {scheme}, window: {width, height, resizable, closable,
-transparent, frame}}`. Every call waits for this on its own. `bisa.granted(word)` answers whether
+transparent, frame}}`. Every call waits for this on its own; `ready()` never rejects. A page that
+says no hello within eight seconds of loading is told so by its window — *has not started*, with
+Retry — and the log. `bisa.granted(word)` answers whether
 the person granted a permission; ask before you ask. `frame` is `bar`, `none` or `scene` — a scene
 is no window but the whole desktop under the chrome, see-through, never dragged or resized; it
 hears the `scene` event and owns the three `scene.*` methods.
@@ -66,7 +68,7 @@ own `<input type="file">` or a drop, played as a `blob:` URL; nothing of it cros
 | `theme` | `{scheme}` | the theme moved between light and dark |
 | `system.load` | `{cpu_percent, load, mem_used, mem_total, swap_used, swap_total, uptime_secs, gpu?, disk?}` — `disk` is `{used, total, mount, workspace_bytes}` or `null` | each sample, while subscribed |
 | `workspace.summary` | `{waiting, review, working}` | the counts moved, when `workspace_summary` is granted |
-| `visibility` | `{visible}` | the window came on screen or left it — put away, the layer off, or (off macOS) under a browser tab; on macOS a browser tab is cut around the window, which stays visible |
+| `visibility` | `{visible}` | the window came on screen or left it **while its page is mounted**: off macOS, under a browser tab the layer cannot cut around (on macOS a tab is cut around the window, which stays visible). Put away, the layer off and the switch off unmount the page, and *Show* is a fresh page — keep what you must in your store; a scene is always on screen while mounted |
 | `media` | `{state, title, code?, words?}` — `state` one of `ready` · `unstarted` · `playing` · `paused` · `buffering` · `ended` · `cued` · `error` | the embedded player moved, or failed: `code` is YouTube's (or `unavailable` when no player can be shown here) and `words` say it |
 | `scene` | `{mode, viewport: {width, height}, obstacles: [{x, y, width, height}], cuts}` — the mode the host decided, the scene's size, the browser tabs' boxes to keep off (native views that paint over the page), whether the host cuts around the solid regions | a scene's first word after ready, every mode change, and every move of the layout |
 
@@ -82,7 +84,7 @@ own `<input type="file">` or a drop, played as a `blob:` URL; nothing of it cros
 | `too_large` | past a cap: params over 16 KiB, a clipboard write over 64 KiB |
 | `rate_limited` | a notice too soon after the last |
 | `quota` | the addon's storage is full |
-| `unavailable` | the platform did not answer in ten seconds |
+| `unavailable` | the platform did not answer in ten seconds — or never said it was ready: the library says hello again at growing waits (250 ms to 4 s) and, past the last with no answer, fails every call waiting and every call made until a ready arrives; `ready()` itself keeps waiting |
 | `refused` | the node or the person said no — a host outside the grant, a link not opened |
 
 ## What never has a method

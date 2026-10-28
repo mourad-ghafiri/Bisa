@@ -60,7 +60,7 @@ pub mod workflows;
 pub mod workspace;
 pub mod workstreams;
 
-pub use addons::{AddonEntry, AddonOffer};
+pub use addons::{AddonChange, AddonEntry, AddonOffer};
 pub use agents::NewAgent;
 pub use boot::{BootObserver, BootPhase, Quiet};
 pub use catalog::{

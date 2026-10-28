@@ -954,7 +954,8 @@
   bisa.on("workspace.summary", function (s) { setWorking(s && s.working); });
   bisa.on("scene", onScene);
   window.addEventListener("resize", function () {
-    if (!state.cuts && state.obstacles.length === 0) state.bounds = { width: window.innerWidth, height: window.innerHeight };
+    // A frame with no size yet (a hidden layer, a tab being laid out) is no bounds — the rule `onScene` keeps.
+    if (!state.cuts && state.obstacles.length === 0 && window.innerWidth > 0 && window.innerHeight > 0) state.bounds = { width: window.innerWidth, height: window.innerHeight };
     placeStrip();
   });
 })();

@@ -24,13 +24,13 @@ import { t } from "../i18n/l10n.mjs";
 import { prefersReducedMotion } from "../shell/motion";
 import type { SlotState } from "../shell/layerSlots";
 import type { Addon } from "../types";
-import { ICON, cn, dockBox, useDockDrag, useDockViewport } from "../ui";
+import { ErrorNote, ICON, cn, dockBox, useDockDrag, useDockViewport } from "../ui";
 import type { Placement } from "../ui";
 import { useAddonBridge } from "./addonBridge";
 import type { AddonBridgeHandlers, AddonLoad, AddonSummary } from "./addonBridge";
 import { useAddonMediaHost } from "./addonMediaHost";
 import type { AddonEvent } from "./addonBridgeModel.mjs";
-import { barTitle, entryOf, manifestWindow } from "./addonsModel.mjs";
+import { barTitle, entryOf, frameKeyOf, manifestWindow, notStartedWords } from "./addonsModel.mjs";
 import { BAR_HEIGHT, clampSize, hiddenByLayer, placementAfterResize, sizeBounds, sizeFrom } from "./addonWindowModel.mjs";
 import { useBrowserClear, useBrowserCutsAround } from "../shell/browserClear";
 import type { Size } from "./addonWindowModel.mjs";
@@ -154,8 +154,13 @@ export function AddonWindow({
   const shell = useRef<HTMLDivElement>(null);
   useBrowserClear(`addon:${addon.id}`, shell, visible);
 
-  // The frame reloads when the record moves — grants are said in the hello.
-  const frameKey = `${addon.id}:${addon.installed_at}:${JSON.stringify(addon.granted)}`;
+  // The frame reloads when the record moves — grants are said in the hello —
+  // and when the person asks it to, from the note a page that never said
+  // hello leaves in the box.
+  const [reloads, setReloads] = useState(0);
+  const frameKey = frameKeyOf(addon, reloads);
+  const [start, setStart] = useState<"loading" | "ready" | "missed">("loading");
+  useEffect(() => setStart("loading"), [frameKey]);
 
   // The media player beside the window: its words reach the addon through
   // the bridge's event door, read through a ref the bridge fills below.
@@ -177,10 +182,12 @@ export function AddonWindow({
       onMediaEmbed: media.embed,
       onMediaBox: media.move,
       onMediaRemove: media.remove,
+      onReady: () => setStart("ready"),
+      onStartMissed: () => setStart("missed"),
     }),
     [addon.id, bounds, dock, size, onOpenUrl, media],
   );
-  const { sendEvent } = useAddonBridge(frame, addon, { visible, summary, load, handlers });
+  const { sendEvent } = useAddonBridge(frame, addon, { visible, summary, load, handlers, epoch: frameKey });
   sendRef.current = sendEvent;
 
   const still = prefersReducedMotion();
@@ -250,6 +257,12 @@ export function AddonWindow({
           className={cn("block h-full w-full border-0", w.transparent ? "bg-transparent" : "bg-surface")}
           style={w.transparent ? { colorScheme: "normal" } : undefined}
         />
+        {/* A page that said no hello in time — blank, broken, or slow: the kit's failure note says so, its Retry reloads the frame; the frame stays under it, so a slow page that arrives is not lost. */}
+        {start === "missed" && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface p-2">
+            <ErrorNote error={notStartedWords(addon.manifest.name)} retry={() => setReloads((n) => n + 1)} />
+          </div>
+        )}
         {/* The shield: while anything in the layer is dragged or resized, no frame takes the pointer. */}
         {shielded && <div aria-hidden className="absolute inset-0" />}
         {w.resizable && (

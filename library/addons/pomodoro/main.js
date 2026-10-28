@@ -60,9 +60,14 @@
   document.addEventListener("pointerdown", function (e) { if (!form.hidden && !form.contains(e.target) && e.target !== gear) openForm(false); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !form.hidden) { e.preventDefault(); openForm(false); gear.focus(); } });
   form.addEventListener("submit", function (e) { e.preventDefault(); openForm(false); });
+  // A length is whole minutes inside its bounds, from the form or the store — anything else is the default.
+  function clampLength(value, max, fallback) {
+    var n = parseInt(value, 10);
+    return Math.min(max, Math.max(1, isNaN(n) ? fallback : n));
+  }
   function readLengths() {
-    var f = Math.min(120, Math.max(1, parseInt(focusIn.value, 10) || 25));
-    var r = Math.min(60, Math.max(1, parseInt(restIn.value, 10) || 5));
+    var f = clampLength(focusIn.value, 120, 25);
+    var r = clampLength(restIn.value, 60, 5);
     lengths = { focus: f, rest: r };
     if (!state.running) { state.left = (state.phase === "focus" ? f : r) * 60; }
     render();
@@ -76,7 +81,12 @@
     bisa.on("theme", function (t) { scheme(t.scheme); });
     var start = bisa.granted("storage") ? bisa.storage.get("lengths") : Promise.resolve({ value: null });
     start.then(function (r) {
-      if (r && r.value) { try { lengths = Object.assign(lengths, JSON.parse(r.value)); } catch (_e) { /* defaults */ } }
+      if (r && r.value) {
+        try {
+          var kept = JSON.parse(r.value) || {};
+          lengths = { focus: clampLength(kept.focus, 120, 25), rest: clampLength(kept.rest, 60, 5) };
+        } catch (_e) { /* defaults */ }
+      }
     }).catch(function () {}).then(function () {
       focusIn.value = lengths.focus; restIn.value = lengths.rest;
       state.left = lengths.focus * 60;

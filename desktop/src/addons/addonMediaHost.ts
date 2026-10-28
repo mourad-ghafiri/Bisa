@@ -17,7 +17,14 @@
  * One embed per window: a second replaces the first. `BrowserPanel.tsx`
  * owns the browser tabs' webviews; this is the one other opener, under keys
  * of its own (`addon-media:<id>`), and the views' events it hears are its
- * own keys' alone.
+ * own keys' alone. The opens and closes of one key run in order **across
+ * instances** (`enqueue`, one map for the module): a window put away and
+ * shown, its grants changed or its addon switched off and on is a new
+ * instance of this hook whose open must wait for the old instance's close —
+ * the shell refuses a key still open. An open closes the key first (a
+ * no-op when nothing is open under it, and the way a view a gone instance
+ * left is cleared) and, refused, is tried again after a short wait: a
+ * closing view can still be seen for a beat after its close answered.
  */
 
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
@@ -29,13 +36,15 @@ import { LAYOUT_CHANGED } from "../shell/layerSlots";
 import type { Addon } from "../types";
 import { layerMayShowNow, useLayerMayShow } from "../ui/openSurfaces";
 import type { PlayerBox } from "./addonBridgeModel.mjs";
-import { mediaKey, pageRect, playerShown, stateOf } from "./addonMediaModel.mjs";
+import { OPEN_RETRIES, OPEN_RETRY_MS, enqueue, mediaKey, pageRect, playerShown, stateOf } from "./addonMediaModel.mjs";
 import type { MediaState, PageRect } from "./addonMediaModel.mjs";
 
 /** Out of sight: one pixel, hidden — the browser panel's own idea of away. */
 const HIDDEN: BrowserBounds = { left: 0, top: 0, width: 1, height: 1 };
 /** The view's init script: the player page carries its own, so none is needed — but the door wants a program. */
 const NO_SCRIPT = "/* the player page carries its own script */";
+/** The opens and closes of every key, in order — one map for every instance of the hook. */
+const chains = new Map<string, Promise<void>>();
 
 export interface AddonMediaHost {
   /** Show YouTube's player for a video over a box of the window; a second video replaces the first. */
@@ -44,6 +53,26 @@ export interface AddonMediaHost {
   move: (box: PlayerBox) => void;
   /** The addon let the player go. */
   remove: () => void;
+}
+
+const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+/** A close before an open that found nothing to close, or a view already going: expected, and said only in the debug log. */
+const nothingToClose = (key: string) => (e: unknown) => log.debug("addons", "nothing to close under the player's key before its open", { key, ...errorFields(e) });
+
+/** Open the key's view on `html`: the key closed first, then opened; an open the shell refused is tried again after a wait, at most `OPEN_RETRIES` times. */
+async function openFresh(key: string, html: string): Promise<void> {
+  await closeBrowserView(key).catch(nothingToClose(key));
+  for (let tries = 0; ; tries++) {
+    try {
+      await openBrowserPage(key, html, NO_SCRIPT, false);
+      return;
+    } catch (e) {
+      if (tries >= OPEN_RETRIES) throw e;
+      await wait(OPEN_RETRY_MS);
+      await closeBrowserView(key).catch(nothingToClose(key));
+    }
+  }
 }
 
 export function useAddonMediaHost(
@@ -72,8 +101,6 @@ export function useAddonMediaHost(
   const mayShow = useLayerMayShow();
   /** The video shown, its box, and whether the view exists yet. */
   const current = useRef<{ video: string; box: PlayerBox; opened: boolean } | null>(null);
-  /** Opens and closes of one key, in order — a close must land before the next open under the same key. */
-  const chain = useRef<Promise<void>>(Promise.resolve());
   /** The last placement sent, so an unchanged one sends nothing. */
   const last = useRef<{ rect: PageRect | null; shown: boolean } | null>(null);
   const latest = useRef({ visible, shielded, onState, onOpenUrl });
@@ -82,9 +109,13 @@ export function useAddonMediaHost(
   /** A placement, open or close the shell refused: said in the log with the addon, never to the person — the addon hears `media` instead. */
   const warn = useCallback((what: string) => (e: unknown) => log.warn("addons", what, { addon: addon.id, ...errorFields(e) }), [addon.id]);
 
-  const queue = useCallback((step: () => Promise<void>) => {
-    chain.current = chain.current.then(step, step);
-  }, []);
+  /** A step on this key's chain — behind every open and close queued before it, by any instance. */
+  const queue = useCallback(
+    (step: () => Promise<void>) => {
+      void enqueue(chains, key, step);
+    },
+    [key],
+  );
 
   const place = useCallback(() => {
     const c = current.current;
@@ -126,7 +157,7 @@ export function useAddonMediaHost(
         try {
           const html = await api.addonPlayerPage(addon.id, video);
           if (current.current !== mine) return; // replaced while the page was read
-          await openBrowserPage(key, html, NO_SCRIPT, false);
+          await openFresh(key, html);
         } catch (e) {
           if (current.current === mine) current.current = null;
           warn("the media player could not be opened")(e); // for the log
@@ -194,15 +225,17 @@ export function useAddonMediaHost(
         if (e.key !== key) return;
         void latest.current.onOpenUrl(e.url).catch(() => false);
       },
-    }).then((unsubscribe) => {
-      if (gone) unsubscribe();
-      else off = unsubscribe;
-    });
+    })
+      .then((unsubscribe) => {
+        if (gone) unsubscribe();
+        else off = unsubscribe;
+      })
+      .catch(warn("the media player's events could not be heard")); // for the log
     return () => {
       gone = true;
       off?.();
     };
-  }, [key]);
+  }, [key, warn]);
 
   // A page loaded afresh, a window that leaves: the player goes with it.
   useEffect(() => () => close(), [close, epoch]);

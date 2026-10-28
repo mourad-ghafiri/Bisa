@@ -5,8 +5,9 @@
 //! deletes anything itself.
 
 use bisa_core::addon::{MAX_ADDON_FILES, MAX_ADDON_FILE_BYTES, SDK_FILE_NAME};
-use bisa_core::{AddonId, AddonPermission, Origin};
-use bisa_store::{CatalogKind, MemoryKeyStore, Paths, Workspace};
+use bisa_core::{AddonId, AddonPermission, AddonRecord, Origin};
+use bisa_store::snapshots::SnapshotStore;
+use bisa_store::{AddonChange, CatalogKind, MemoryKeyStore, Paths, Workspace};
 use std::path::{Path, PathBuf};
 
 fn ws() -> (tempfile::TempDir, Workspace) {
@@ -153,6 +154,110 @@ fn enabling_granting_and_removing_write_the_record_and_its_snapshot() {
         Err(bisa_store::StoreError::DefinitionNotFound { kind: "addon", .. })
     ));
     assert!(ws.remove_addon(&a).is_err());
+}
+
+/// The snapshot a record was written as, read back as the event it is.
+fn snapshot_of(ws: &Workspace, id: &str) -> nostr::event::Event {
+    let path = Paths::new(ws.root())
+        .state_dir(Paths::NS_ADDONS)
+        .join(format!("33407-{id}.json"));
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+#[test]
+fn two_switches_of_one_addon_at_once_both_land_under_the_write_lock() {
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    let from = plain(src.path(), "byte", "acme.byte");
+    ws.install_addon(&from, vec![], false).unwrap();
+    let a = id("acme.byte");
+    // Eight writers at once — four switches, four grants — each a read, a
+    // judgement and a write. Without one writer at a time, two read the
+    // same revision and the second's snapshot is refused as stale behind a
+    // record file it had already rewritten.
+    std::thread::scope(|s| {
+        for i in 0..8 {
+            let ws = &ws;
+            let a = &a;
+            s.spawn(move || {
+                let outcome = if i % 2 == 0 {
+                    ws.set_addon_enabled(a, i % 4 == 0).map(|_| ())
+                } else {
+                    let granted = if i % 4 == 1 {
+                        vec![AddonPermission::Theme]
+                    } else {
+                        vec![]
+                    };
+                    ws.set_addon_grants(a, granted).map(|_| ())
+                };
+                outcome.unwrap_or_else(|e| panic!("writer {i}: {e}"));
+            });
+        }
+    });
+    let after = ws.get_addon(&a).unwrap();
+    let event = snapshot_of(&ws, "acme.byte");
+    let stored: AddonRecord = serde_json::from_str(&event.content).unwrap();
+    assert_eq!(stored, after.record, "the snapshot is the record file");
+    assert!(SnapshotStore::revision_of(&event) >= 2);
+}
+
+#[test]
+fn a_patch_of_both_fields_is_judged_whole_and_one_that_changes_nothing_writes_nothing() {
+    let (_dir, ws) = ws();
+    let src = tempfile::tempdir().unwrap();
+    let from = plain(src.path(), "byte", "acme.byte");
+    ws.install_addon(&from, vec![], false).unwrap();
+    let a = id("acme.byte");
+    let paths = Paths::new(ws.root());
+    let record_file = paths.addon_record(&a);
+    let snapshot = paths
+        .state_dir(Paths::NS_ADDONS)
+        .join("33407-acme.byte.json");
+    let on_disk = || {
+        (
+            std::fs::read(&record_file).unwrap(),
+            std::fs::read(&snapshot).unwrap(),
+        )
+    };
+    let before = on_disk();
+
+    // An undeclared grant beside a switch: refused by word, and the switch
+    // beside it never moved — nothing was written.
+    let err = ws
+        .update_addon(&a, Some(true), Some(vec![AddonPermission::Notify]))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("notify"), "{err}");
+    assert_eq!(on_disk(), before, "a refused patch writes nothing");
+
+    // Nothing to change: nothing written, nothing to say.
+    let (entry, changes) = ws.update_addon(&a, Some(false), Some(vec![])).unwrap();
+    assert!(!entry.record.enabled && changes.is_empty());
+    assert_eq!(
+        on_disk(),
+        before,
+        "a patch that changed nothing writes nothing"
+    );
+
+    // Both at once: one write, two changes in the order the bus says them.
+    let (entry, changes) = ws
+        .update_addon(&a, Some(true), Some(vec![AddonPermission::Theme]))
+        .unwrap();
+    assert!(entry.is_active());
+    assert_eq!(changes, vec![AddonChange::Enabled, AddonChange::Grants]);
+    assert_eq!(
+        SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")),
+        2,
+        "one snapshot for the two changes"
+    );
+    let (_, changes) = ws.update_addon(&a, Some(false), None).unwrap();
+    assert_eq!(changes, vec![AddonChange::Disabled]);
+    let (_, changes) = ws.update_addon(&a, None, Some(vec![])).unwrap();
+    assert_eq!(changes, vec![AddonChange::Grants]);
+    assert_eq!(
+        SnapshotStore::revision_of(&snapshot_of(&ws, "acme.byte")),
+        4
+    );
 }
 
 #[test]
@@ -485,6 +590,49 @@ fn a_record_from_a_peer_lists_with_its_files_absent_and_cannot_be_enabled() {
     assert!(!Paths::new(beta.root())
         .addon_files_dir(&id("clock"))
         .exists());
+}
+
+#[test]
+fn a_peers_record_never_overwrites_a_local_one() {
+    // The same person on two machines, the clock installed and on in both;
+    // the first switches it off and takes its grant back, and the second
+    // ingests that later record — and keeps its own switch and grant: the
+    // record file is this machine's, the peer's snapshot lands in the
+    // snapshot store alone, and the next local write republishes past it.
+    let (_a, alpha) = ws();
+    let twin_store = MemoryKeyStore::default();
+    bisa_store::KeyStore::set(
+        &twin_store,
+        "owner",
+        &alpha.owner_keys().secret_key().to_secret_hex(),
+    )
+    .unwrap();
+    let _b = tempfile::tempdir().unwrap();
+    let beta = Workspace::open_with_keystore(_b.path(), Box::new(twin_store)).unwrap();
+    alpha.install(CatalogKind::Addon, "clock").unwrap();
+    beta.install(CatalogKind::Addon, "clock").unwrap();
+    alpha.set_addon_enabled(&id("clock"), false).unwrap();
+    alpha.set_addon_grants(&id("clock"), vec![]).unwrap();
+    let event = snapshot_of(&alpha, "clock");
+    assert_eq!(SnapshotStore::revision_of(&event), 3);
+    let outcome = beta.ingest_remote_event(&event).unwrap();
+    assert!(
+        !format!("{outcome:?}").to_lowercase().contains("rejected"),
+        "{outcome:?}"
+    );
+    let clock = beta.get_addon(&id("clock")).unwrap();
+    assert!(clock.is_active(), "the local switch stands");
+    assert_eq!(clock.record.granted, vec![AddonPermission::Storage]);
+    let (_, changes) = beta.update_addon(&id("clock"), None, Some(vec![])).unwrap();
+    assert_eq!(changes, vec![AddonChange::Grants]);
+    let mine = snapshot_of(&beta, "clock");
+    assert_eq!(
+        SnapshotStore::revision_of(&mine),
+        4,
+        "past the peer's revision"
+    );
+    let stored: AddonRecord = serde_json::from_str(&mine.content).unwrap();
+    assert!(stored.enabled && stored.granted.is_empty());
 }
 
 #[test]

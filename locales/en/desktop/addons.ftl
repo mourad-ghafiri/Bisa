@@ -32,6 +32,7 @@ addons-addons-model-hint-off = Off, every window is hidden; what each addon is a
 addons-addons-model-origin-catalog = built in
 addons-addons-model-origin-imported = imported
 addons-addons-model-state-running = running
+addons-addons-model-state-starting = starting
 addons-addons-model-state-off = off
 addons-addons-model-state-put-away = put away
 addons-addons-model-state-files-missing = files not on this machine
@@ -57,3 +58,9 @@ addons-addons-model-review-asks-for = { $n ->
    *[other] It asks for { $n } things:
   }
 addons-addons-model-version-licence = Version { $version } · licence { $license }
+## A page that never said hello (`AddonWindow.tsx`, `AddonScene.tsx`), a window that threw (`AddonLayer.tsx`), a scene's hunt (`AddonScene.tsx`).
+addons-addons-model-not-started = { $name } has not started
+addons-addons-model-scene-not-started = { $name } has not started. Put it away and show it again to reload it
+addons-addons-model-stopped = { $name } stopped and was put away
+addons-addons-model-hunt = { $name } has the pointer · Esc leaves
+addons-addons-model-leave = Leave

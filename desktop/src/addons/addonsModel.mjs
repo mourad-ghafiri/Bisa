@@ -30,10 +30,15 @@ export function originWords(origin) {
   return t("addons-addons-model-origin-imported");
 }
 
-/** What state an addon is in: running, off, or its files not on this machine. */
+/**
+ * What state an addon is in: running, starting (its switch on, the node not
+ * yet listing it running — the moment between a switch and the node's word),
+ * off, or its files not on this machine.
+ */
 export function stateWords(addon) {
   if (addon.active) return t("addons-addons-model-state-running");
   if (!addon.files_present) return t("addons-addons-model-state-files-missing");
+  if (addon.enabled) return t("addons-addons-model-state-starting");
   return t("addons-addons-model-state-off");
 }
 
@@ -164,14 +169,27 @@ export function overlayRows(addons, hidden, layerShown, switchedOn) {
 }
 
 /**
- * The list as it will read once the node has taken the switch — the
- * optimistic picture: the record's `enabled` flipped and `active` recomputed
- * as the node computes it (enabled with its files here). An id the list does
- * not hold leaves it as it is.
+ * The list as it reads while the switch is out — the optimistic picture:
+ * the record's `enabled` flipped; `active` cleared by a switch off (the
+ * window leaves at once — the node refuses its files either way) and left
+ * as the node last said it by a switch on, so the window mounts only once
+ * the node lists the addon active and will serve its files: a frame that
+ * mounted first got a bare 404 and, its key unmoved, never loaded again.
+ * An id the list does not hold leaves it as it is.
  */
 export function withEnabled(addons, id, enabled) {
   if (!addons.some((a) => a.id === id)) return addons;
-  return addons.map((a) => (a.id === id ? { ...a, enabled, active: enabled && a.files_present } : a));
+  return addons.map((a) => (a.id === id ? { ...a, enabled, active: enabled ? a.active : false } : a));
+}
+
+/**
+ * The list with the object held before a switch back in its id's place — a
+ * refusal's undo, on the list as it stands now, so a re-read that landed
+ * meanwhile for another addon is not undone with it. An id the list no
+ * longer holds leaves it as it is.
+ */
+export function restoreAddon(addons, prior) {
+  return addons.map((a) => (a.id === prior.id ? prior : a));
 }
 
 /** The put-away list with the ids no installed addon has taken out. */
@@ -184,10 +202,46 @@ export function pruneHidden(hidden, addons) {
 /**
  * Whether two readings of one addon say the same: the record's facts, not
  * the object — so a re-read that changed nothing keeps the object a window
- * already holds, and nothing re-renders or resets for it.
+ * already holds, and nothing re-renders or resets for it. The manifest's
+ * version is a fact: a built-in refreshed at open keeps its `installed_at`,
+ * and its window must load the new files under the new manifest.
  */
 export function sameAddon(a, b) {
-  return a.id === b.id && a.installed_at === b.installed_at && a.enabled === b.enabled && a.active === b.active && a.files_present === b.files_present && JSON.stringify(a.granted) === JSON.stringify(b.granted);
+  return a.id === b.id && a.installed_at === b.installed_at && a.manifest.version === b.manifest.version && a.enabled === b.enabled && a.active === b.active && a.files_present === b.files_present && JSON.stringify(a.granted) === JSON.stringify(b.granted);
+}
+
+/**
+ * The frame's key: the page reloads when it moves — the addon reinstalled,
+ * its grants changed (said in the hello), a built-in refreshed to another
+ * version, a reload asked from the window.
+ * @param {{id: string, installed_at: number, manifest: {version: string}, granted: unknown[]}} addon
+ * @param {number} reloads how many reloads the window asked for
+ */
+export function frameKeyOf(addon, reloads = 0) {
+  return `${addon.id}:${addon.installed_at}:${addon.manifest.version}:${JSON.stringify(addon.granted)}:${reloads}`;
+}
+
+/** How long a page has to say hello before the window says it has not started. */
+export const START_DEADLINE_MS = 8000;
+
+/** The window's note past the deadline — the kit's failure note, with its Retry. The host cannot tell a broken page from a slow one, so the note says *not yet*. @param {string} name */
+export function notStartedWords(name) {
+  return t("addons-addons-model-not-started", { name });
+}
+
+/** A scene past the deadline, said once in a toast: it has no window to carry a note. @param {string} name */
+export function sceneNotStartedWords(name) {
+  return t("addons-addons-model-scene-not-started", { name });
+}
+
+/** The toast for a window that threw: that addon alone was put away; the eye brings it back afresh. @param {string} name */
+export function stoppedWords(name) {
+  return t("addons-addons-model-stopped", { name });
+}
+
+/** The pill a scene wears in hunt mode — the pointer is the scene's everywhere under the chrome — and its way out. @param {string} name */
+export function huntWords(name) {
+  return { note: t("addons-addons-model-hunt", { name }), action: t("addons-addons-model-leave") };
 }
 
 /**

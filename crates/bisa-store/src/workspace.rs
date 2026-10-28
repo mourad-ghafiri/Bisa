@@ -238,6 +238,12 @@ pub struct Workspace {
     /// The same for a drawing: the canvas's autosave and the bridge's save
     /// each read, compare the hash and write under it.
     pub(crate) drawings_writes: Mutex<()>,
+    /// An addon's record is read, judged and written by a switch, a grant,
+    /// an install, a removal, the refresh at open and a peer's record
+    /// arriving. Two at once would each write the record as it was before
+    /// the other, and the second's snapshot would be refused as stale
+    /// behind a record file already rewritten. Held across the three steps.
+    pub(crate) addons_writes: Mutex<()>,
     /// What the runtime around this store can launch — the harness ids,
     /// which of them take an effort and, per harness, the models it lists.
     /// The engine fills it at boot and again when a model list is refreshed;
@@ -334,6 +340,7 @@ impl Workspace {
             held_writes: Mutex::new(()),
             notes_writes: Mutex::new(()),
             drawings_writes: Mutex::new(()),
+            addons_writes: Mutex::new(()),
             known_runtime: RwLock::new(KnownRuntime::default()),
             paths,
             identity,

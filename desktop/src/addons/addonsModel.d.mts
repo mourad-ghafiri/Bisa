@@ -4,7 +4,7 @@ import type { Addon, AddonManifest, AddonOffer, AddonPermission, AddonProblem, O
 export function titleWords(showing: number, total: number): string;
 export function switchWords(layerShown: boolean): { label: string; hint: string };
 export function originWords(origin: Origin | unknown): string;
-export function stateWords(addon: Pick<Addon, "active" | "files_present">): string;
+export function stateWords(addon: Pick<Addon, "active" | "files_present" | "enabled">): string;
 export function permissionWords(permission: AddonPermission | unknown): string;
 export function sortedPermissions<T>(permissions: readonly T[]): T[];
 export function isGranted(granted: readonly AddonPermission[], permission: AddonPermission): boolean;
@@ -24,8 +24,15 @@ export interface OverlayRow {
 export function overlayRows(addons: readonly Addon[], hidden: readonly string[], layerShown: boolean, switchedOn: boolean): OverlayRow[];
 export function rowStateWords(row: OverlayRow): string;
 export function withEnabled(addons: readonly Addon[], id: string, enabled: boolean): readonly Addon[];
+export function restoreAddon(addons: readonly Addon[], prior: Addon): readonly Addon[];
 export function pruneHidden(hidden: readonly string[], addons: readonly Addon[]): readonly string[];
 export function sameAddon(a: Addon, b: Addon): boolean;
+export function frameKeyOf(addon: Pick<Addon, "id" | "installed_at" | "manifest" | "granted">, reloads?: number): string;
+export const START_DEADLINE_MS: number;
+export function notStartedWords(name: string): string;
+export function sceneNotStartedWords(name: string): string;
+export function stoppedWords(name: string): string;
+export function huntWords(name: string): { note: string; action: string };
 export function slotOf(addons: readonly Addon[], id: string): number;
 export function barTitle(addon: Pick<Addon, "manifest">, title: string | null): string;
 export interface ManifestWindow {

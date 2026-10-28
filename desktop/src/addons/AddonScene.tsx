@@ -28,11 +28,11 @@ import { api } from "../api";
 import { useBrowserClearBoxes, useBrowserCutsAround } from "../shell/browserClear";
 import type { SlotState } from "../shell/layerSlots";
 import type { Addon } from "../types";
-import { useDockViewport } from "../ui";
+import { Button, toaster, useDockViewport } from "../ui";
 import { useAddonBridge } from "./addonBridge";
 import type { AddonBridgeHandlers, AddonLoad, AddonSummary } from "./addonBridge";
 import type { AddonEvent, SceneMode, SceneRect } from "./addonBridgeModel.mjs";
-import { entryOf } from "./addonsModel.mjs";
+import { entryOf, frameKeyOf, huntWords, sceneNotStartedWords } from "./addonsModel.mjs";
 import { frameTaken, modeAfter, pointInSolid, sceneEvent, sceneKey, solidClears } from "./addonSceneModel.mjs";
 import { setAddonHidden } from "./addonsStore";
 
@@ -68,6 +68,11 @@ export function AddonScene({
   /** How many hellos the page said: the first `scene` event follows each. */
   const [ready, setReady] = useState(0);
   const sendRef = useRef<(topic: AddonEvent, payload: unknown) => void>(() => {});
+  // The frame reloads when the record moves — grants are said in the hello;
+  // a scene has no box for a reload note: put away and shown again is one.
+  const frameKey = frameKeyOf(addon);
+  // content, never translated: the addon's own name.
+  const name = addon.manifest.name;
 
   // The frame loses focus whenever the app gets the pointer back: a chord
   // typed next must reach the app, not a page that cannot hear it.
@@ -87,6 +92,7 @@ export function AddonScene({
       onMediaBox: () => {},
       onMediaRemove: () => {},
       onReady: () => setReady((n) => n + 1),
+      onStartMissed: () => toaster.error(sceneNotStartedWords(name)),
       onSceneMode: (asked) => {
         const next = modeAfter(modeRef.current, asked);
         if (next === modeRef.current) return;
@@ -102,9 +108,9 @@ export function AddonScene({
         blurFrame();
       },
     }),
-    [addon.id, onOpenUrl, blurFrame],
+    [addon.id, name, onOpenUrl, blurFrame],
   );
-  const { sendEvent } = useAddonBridge(frame, addon, { visible: true, summary, load, handlers });
+  const { sendEvent } = useAddonBridge(frame, addon, { visible: true, summary, load, handlers, epoch: frameKey });
   sendRef.current = sendEvent;
 
   // Work mode: the frame is click-through, so the page under it sees every
@@ -134,18 +140,24 @@ export function AddonScene({
     setHover(pointInSolid(lastPoint.current, solid, vp.top));
   }, [solid, mode, shielded, vp.top]);
 
-  // Hunt mode: Escape heard by the host leaves it (the page hears its own).
+  // Hunt mode: the frame has the pointer everywhere under the chrome, the
+  // footer included, and the host hears `Esc` only while it has the
+  // keyboard — so a pill at the top edge says who has the pointer and
+  // offers the way out, for a page that stopped answering mid-hunt.
+  const leave = useCallback(() => {
+    setHover(false);
+    blurFrame();
+    setMode("work");
+  }, [blurFrame]);
   useEffect(() => {
     if (mode !== "hunt") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      setHover(false);
-      blurFrame();
-      setMode("work");
+      if (e.key === "Escape") leave();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode, blurFrame]);
+  }, [mode, leave]);
+  const hunt = huntWords(name);
 
   // What the page is told, once per change of a fact: the mode, the size,
   // the tabs to keep off, whether the solid regions are cut around.
@@ -166,10 +178,6 @@ export function AddonScene({
   useEffect(() => () => blurFrame(), [blurFrame]);
 
   const taken = frameTaken({ mode, hovering: hover, shielded });
-  // The frame reloads when the record moves — grants are said in the hello.
-  const frameKey = `${addon.id}:${addon.installed_at}:${JSON.stringify(addon.granted)}`;
-  // content, never translated: the addon's own name.
-  const name = addon.manifest.name;
 
   return createPortal(
     <div
@@ -192,6 +200,12 @@ export function AddonScene({
         className="block h-full w-full border-0 bg-transparent"
         style={{ colorScheme: "normal" }}
       />
+      {mode === "hunt" && (
+        <div role="status" data-pane className="pointer-events-auto absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-control border border-border bg-surface py-1 pl-2.5 pr-1 text-2xs text-text-dim shadow-lg">
+          <span>{hunt.note}</span>
+          <Button size="sm" variant="ghost" onClick={leave}>{hunt.action}</Button>
+        </div>
+      )}
       {/* The shield: while anything in the layer is dragged or resized, the frame takes nothing — even under a root that takes nothing itself. */}
       {shielded && <div aria-hidden className="pointer-events-auto absolute inset-0" />}
     </div>,

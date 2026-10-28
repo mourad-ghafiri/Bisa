@@ -208,7 +208,7 @@ bisa.ready().then(function (hello) {
   document.documentElement.dataset.scheme = hello.theme.scheme;
   bisa.on("theme", (t) => (document.documentElement.dataset.scheme = t.scheme));
   if (bisa.granted("storage")) bisa.storage.get("city").then(({ value }) => …);
-  bisa.on("visibility", ({ visible }) => { /* stop a clock nobody sees */ });
+  bisa.on("visibility", ({ visible }) => { /* stop a clock nobody sees — under a browser tab; put away, the page is unloaded */ });
 });
 ```
 

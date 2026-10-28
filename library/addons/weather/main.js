@@ -32,6 +32,13 @@
   }
   function scheme(s) { document.documentElement.dataset.scheme = s; }
   function say(text) { note.textContent = text || ""; }
+  // A stored spot is a place with a name and finite coordinates — anything else is no spot.
+  function spotOf(v) {
+    if (!v || typeof v !== "object" || typeof v.name !== "string" || v.name === "") return null;
+    var lat = Number(v.lat), lon = Number(v.lon);
+    if (!isFinite(lat) || !isFinite(lon)) return null;
+    return { name: v.name, lat: lat, lon: lon, query: typeof v.query === "string" ? v.query : "" };
+  }
   function fetchJson(url) {
     return bisa.network.fetch({ url: url, accept: "application/json" }).then(function (r) {
       if (r.status !== 200) throw new Error("the service answered " + r.status);
@@ -90,7 +97,7 @@
     if (!bisa.granted("network")) { say("Grant the network permission in Settings › Addons to read the weather."); return; }
     var start = bisa.granted("storage") ? bisa.storage.get("spot") : Promise.resolve({ value: null });
     start.then(function (r) {
-      if (r && r.value) { try { spot = JSON.parse(r.value); } catch (_e) { spot = null; } }
+      if (r && r.value) { try { spot = spotOf(JSON.parse(r.value)); } catch (_e) { spot = null; } }
       if (spot) { place.textContent = spot.name; refresh(); schedule(); } else say("Type a city.");
     }).catch(function () { say("Type a city."); });
   });

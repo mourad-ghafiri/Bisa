@@ -98,7 +98,10 @@ browser tabs' boxes and whether it cuts around the solid regions in the `scene` 
 never publishes its whole box as a browser clear — a viewport-sized hole would blank every native
 tab — only its solid regions; the page keeps its creatures off the tabs' boxes. Panels, dialogs and
 menus stand above it as above every window; a drag elsewhere in the layer shields it; put away or
-with the layer off it unmounts like any window, and keeps what it must in its store.
+with the layer off it unmounts like any window, and keeps what it must in its store. In `hunt` the
+frame has the pointer everywhere under the chrome, the footer included, and the host hears `Esc`
+only while it has the keyboard — so a pill at the scene's top edge says who has the pointer and
+offers *Leave*, for a page that stopped answering mid-hunt.
 
 **The shell.** WebKit asks the navigation delegate about every frame's navigation and wry hands
 `on_navigation` the URL; the main window is built in `setup` (`"create": false` in
@@ -128,6 +131,21 @@ Every message is read by a pure model (`addonBridgeModel.mjs`) that owns:
 
 Every refusal the bridge makes is written to the desktop's diagnostic log with the addon, the
 method and the code (`refusedCode`), which is where a developer testing an addon reads them.
+
+The session is the frame's: it starts over when the frame's key moves (`frameKeyOf` — the addon
+reinstalled, its grants changed, a built-in refreshed to another version, a reload asked) and with
+every hello, since a page loaded afresh, by the host or by itself, is a new conversation. The
+library says hello again at growing waits until it is heard; a page that says none within eight
+seconds (`START_DEADLINE_MS`) is said to the log and, for a window, in its box — the kit's failure
+note, *has not started*, whose Retry reloads the frame (a scene, which has no box, gets a toast;
+put away and shown again is its reload). Each window and scene stands in a boundary of its own
+(`AddonLayer.tsx`): one that throws is put away with a toast naming it, the others stand, and the
+eye brings it back as a fresh page; the list's sync (`AddonsHost.tsx`) lives outside the layer's
+boundary, so a window that throws never stops the footer's and the panel's reads, and the layer's
+own boundary resets when the layer is switched off and on. The player's opens and closes run in
+order per key across instances (`addonMediaModel.enqueue`), a put-away → show never opening the
+key before the old instance's close has landed; an open closes the key first and, refused, is tried
+again after a short wait.
 
 Nothing an addon says is ever rendered as HTML by the app: a string that reaches a person is text,
 cut to its cap first. Nothing crosses that the person did not grant: the token, a path, a program, a
@@ -160,8 +178,14 @@ cut at 1 MiB and handed over as text.
 - **Enable / disable** — the record's switch, from Settings › Library › Addons or the footer's
   popover. Off,
   the window is gone, its files are not served, the broker refuses; what it stored stays. The
-  desktop answers at once (the list reads as the node will) and puts it back if the node refuses;
-  switching on brings a put-away window back.
+  desktop answers at once in what is safe: off reads off and the window leaves; on reads on and the
+  row says *starting* while the window waits for the node's word (`withEnabled`) — a frame mounted
+  before the node has the switch would get a bare 404 for its files and, its key unmoved, never
+  load again. A refusal puts the object held before the switch back and asks the node what stands;
+  switching on brings a put-away window back. On the node a patch is judged whole and written once
+  (`update_addon`, under the addon write lock every writer takes): a grant never declared refuses
+  the patch with the switch beside it untouched, each change is said on the bus in order (the
+  switch, then the grants), and a patch that changed nothing says nothing.
 - **Grant / revoke** — one switch per declared permission; a grant is the declaration copied
   (`network` keeps its hosts), and a grant the manifest never declared is refused by word.
 - **Remove** — the record, the bundle, the snapshot. A built-in can be installed again.
@@ -198,8 +222,13 @@ it runs, what it was granted — so it is a GEP snapshot: kind **33407**, `d` = 
 numbers reissued before 0.1.0 — `33401`, the drawing's, is the other ([19](19-drawings.md)); no workspace of a public release holds an event of the old kind, and from 0.1.0 no number is reissued.
 
 The **bundle's bytes** and the **window's placement** are one machine's and never travel: a record
-that arrived from a peer lists with `files_present: false` and cannot be enabled until the folder is
-imported here under the same id; a built-in's files come from this machine's own binary.
+that arrived from a peer for an id this machine holds nothing under lists with `files_present:
+false` and cannot be enabled until the folder is imported here under the same id; a built-in's
+files come from this machine's own binary. **A record this machine holds wins**: its switch and its
+grants are the person's decisions here, so a peer's later record (ingest applies the snapshot
+first, then `adopt_remote_addon`) lands in the snapshot store alone and the record file stands —
+the next local write republishes past the peer's revision. Which means `GET /addons` and the
+snapshot can disagree for an addon both machines hold, until this machine writes it again.
 
 ---
 
@@ -209,11 +238,11 @@ imported here under the same id; a built-in's files come from this machine's own
 |---|---|
 | `bisa-core/src/addon.rs` | the shapes and every pure rule: the manifest, the window, the permissions, the record, `validate()` as problems by field, `check_bundle_listing`, `is_bundle_path`, `served_content_type`, `is_semver`; `AddonError` |
 | `bisa-core/src/kind.rs` | `KIND_ADDON = 33407`, addressable |
-| `bisa-store/src/addons.rs`, `build.rs` | the folder walk, the staging copy renamed into place, the record and its snapshot, the offers; the built-ins embedded from `library/addons/` by the build script (`BUILTIN_ADDONS`); `catalog.rs` lists them as the seventh kind |
-| `bisa-engine/src/addons.rs`, `admin.rs` | the doors that announce `AddonsChanged`; the network broker |
+| `bisa-store/src/addons.rs`, `build.rs` | the folder walk, the staging copy renamed into place, the record and its snapshot, the offers; one writer at a time (`addons_writes`) and one write per patch (`update_addon`); the built-ins embedded from `library/addons/` by the build script (`BUILTIN_ADDONS`); `catalog.rs` lists them as the seventh kind |
+| `bisa-engine/src/addons.rs`, `admin.rs` | the doors that announce `AddonsChanged` — each change the store reports, in order; a patch that changed nothing says nothing; an ingested record, the refresh at open and an offline CLI write go through no door and announce nothing; the network broker |
 | `bisa-node/src/addons.rs`, `auth.rs` | the routes, the token-less files route and its policy, the library served from the binary |
-| `bisa-cli/src/addons.rs` | `bisa addon …` — through the node when one runs; an import reads the folder's own manifest first, so a folder that holds none, or one that is no manifest, is refused by its file before anything is copied. Held from end to end by the journey `crates/bisa-cli/tests/it/e2e/addons_drawings_and_notes.rs`: the nine verbs, a folder refused whole, the files route open to the window of an addon that is on and answering 404 for one that is off, every change said on the bus |
-| `desktop/src/addons/` | the bridge and its model, the windows, the scene (`AddonScene.tsx` over `addonSceneModel.mjs`: the two modes, the solid regions, the tabs as obstacles), the layer, the store (one `useAddonsSync` mount, in the layer), the words; `shell/AddonsStat.tsx` + `shell/AddonsOverlay.tsx` (the footer's popover), `views/_settings/AddonsPanel.tsx` |
+| `bisa-cli/src/addons.rs` | `bisa addon …` — through the node when one runs; an import reads the folder's own manifest first, so a folder that holds none, or one that is no manifest, is refused by its file before anything is copied. Held from end to end by the journey `crates/bisa-cli/tests/it/e2e/addons_drawings_and_notes.rs`: the nine verbs, a folder refused whole, the files route open to the window of an addon that is on and answering 404 for one that is off, the bus heard throughout (the journey counts its frames) |
+| `desktop/src/addons/` | the bridge and its model, the windows, the scene (`AddonScene.tsx` over `addonSceneModel.mjs`: the two modes, the solid regions, the tabs as obstacles), the layer (a boundary per addon), the host (`AddonsHost.tsx`: the list's one `useAddonsSync` mount in a boundary of its own, the layer in another), the store, the words; `shell/AddonsStat.tsx` + `shell/AddonsOverlay.tsx` (the footer's popover), `views/_settings/AddonsPanel.tsx` |
 | `desktop/src-tauri/src/navigation.rs` | the shell's wall |
 | `addons/sdk/`, `addons/template/`, `library/addons/` | the library and its types, a starter, the eighteen built-ins — each `style.css` fences `[hidden]`; tic-tac-toe's, the sticky note's, the media player's, Bug hunt's and the three terminal games' (Tetrominal, Linefeed, Linerun) pure rules are a `logic.js` loaded before `main.js`, run alone by `desktop/src/scenarios/addonsLogic.test.mjs`; the terminal games share one kit between `// --- kit ---` markers in `main.js` and `style.css`, held word-for-word equal by `desktop/src/scenarios/addons.test.mjs` |
 

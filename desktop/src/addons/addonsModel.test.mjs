@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { barTitle, declaredOf, entryOf, grantToggle, isScene, manifestWindow, isGranted, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, reviewWords, rowStateWords, sameAddon, slotOf, sortAddons, sortedPermissions, stateWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
+import { START_DEADLINE_MS, barTitle, declaredOf, entryOf, frameKeyOf, grantToggle, huntWords, isScene, manifestWindow, isGranted, notStartedWords, offerRows, originWords, overlayRows, permissionWords, problemLines, pruneHidden, restoreAddon, reviewWords, rowStateWords, sameAddon, sceneNotStartedWords, slotOf, sortAddons, sortedPermissions, stateWords, stoppedWords, switchWords, titleWords, visibleAddons, withEnabled } from "./addonsModel.mjs";
 
 const addon = (id, over = {}) => ({ id, manifest: { name: id, version: "1.0.0", license: "MIT", permissions: [], window: { width: 1, height: 1 } }, origin: "local", enabled: true, granted: [], installed_at: 0, files_present: true, active: true, ...over });
 
@@ -11,6 +11,8 @@ test("the words say how many show, and what state each addon is in", () => {
   assert.notEqual(switchWords(true).hint, switchWords(false).hint);
   assert.equal(stateWords({ active: true, files_present: true }), "running");
   assert.equal(stateWords({ active: false, files_present: true }), "off");
+  assert.equal(stateWords({ active: false, files_present: true, enabled: true }), "starting", "the switch is on and the node has not listed it running yet");
+  assert.equal(stateWords({ active: false, files_present: false, enabled: true }), "files not on this machine");
   assert.equal(stateWords({ active: false, files_present: false }), "files not on this machine");
   assert.equal(originWords({ catalog: { slug: "clock" } }), "built in");
   assert.equal(originWords("local"), "imported");
@@ -98,13 +100,23 @@ test("the popover lists every installed addon — running first — with what sh
   assert.ok(overlayRows(addons, [], true, false).every((r) => !r.shown), "the machine's switch off: the same");
 });
 
-test("a switch reads as the node will read it, an unknown id changes nothing, and the put-away list forgets what left", () => {
+test("a switch off leaves at once, a switch on waits for the node's word, an unknown id changes nothing, and the put-away list forgets what left", () => {
   const addons = [addon("a"), addon("b", { enabled: false, active: false }), addon("c", { enabled: false, active: false, files_present: false })];
   const off = withEnabled(addons, "a", false);
   assert.deepEqual(off.map((a) => [a.id, a.enabled, a.active]), [["a", false, false], ["b", false, false], ["c", false, false]]);
+  // On: the switch reads on, `active` stays as the node last said — the
+  // window mounts only once the node lists it running and serves its files;
+  // a frame mounted before that got a bare 404 and never loaded again.
   const on = withEnabled(addons, "b", true);
-  assert.deepEqual(on.map((a) => [a.id, a.enabled, a.active]), [["a", true, true], ["b", true, true], ["c", false, false]]);
+  assert.deepEqual(on.map((a) => [a.id, a.enabled, a.active]), [["a", true, true], ["b", true, false], ["c", false, false]]);
+  assert.equal(stateWords(on[1]), "starting");
   assert.equal(withEnabled(addons, "c", true)[2].active, false, "enabled without its files here is not active — as the node computes it");
+  // A refusal puts the object held before the switch back in its place alone.
+  const prior = addons[1];
+  const back = restoreAddon(withEnabled(on, "a", false), prior);
+  assert.deepEqual(back.map((a) => [a.id, a.enabled, a.active]), [["a", false, false], ["b", false, false], ["c", false, false]]);
+  assert.equal(back[1], prior, "the very object");
+  assert.deepEqual(restoreAddon(addons.slice(0, 1), prior), addons.slice(0, 1), "an id no longer listed: the list as it is");
   assert.equal(withEnabled(addons, "nope", true), addons, "an unknown id: the same list, by reference");
   assert.equal(addons[1].enabled, false, "the list given is never changed in place");
   const hidden = ["a", "zombie", "c"];
@@ -120,6 +132,16 @@ test("two readings of one addon are the same by their facts, and a window's slot
   assert.equal(sameAddon(a, { ...a, granted: [] }), false);
   assert.equal(sameAddon(a, { ...a, installed_at: 9 }), false);
   assert.equal(sameAddon(a, { ...a, manifest: { ...a.manifest, name: "renamed" } }), true, "the manifest's words are not what a window holds");
+  assert.equal(sameAddon(a, { ...a, manifest: { ...a.manifest, version: "1.1.0" } }), false, "a built-in refreshed to another version keeps its installed_at: the version is the fact that moves");
+  assert.equal(frameKeyOf(a), "a:0:1.0.0:[\"storage\"]:0");
+  assert.notEqual(frameKeyOf(a, 1), frameKeyOf(a, 0), "a reload asked is a new frame");
+  assert.notEqual(frameKeyOf({ ...a, manifest: { ...a.manifest, version: "1.1.0" } }), frameKeyOf(a));
+  assert.ok(START_DEADLINE_MS >= 5000 && START_DEADLINE_MS <= 15000, "long enough for a slow page, short enough to be read as an answer");
+  assert.equal(notStartedWords("Clock"), "Clock has not started");
+  assert.match(sceneNotStartedWords("Bug hunt"), /Bug hunt/);
+  assert.match(stoppedWords("Clock"), /Clock/);
+  assert.match(huntWords("Bug hunt").note, /Esc/);
+  assert.equal(huntWords("Bug hunt").action, "Leave");
   const addons = [addon("clock"), addon("cpu"), addon("calculator")];
   assert.equal(slotOf(addons, "calculator"), 0);
   assert.equal(slotOf(addons, "clock"), 1);
@@ -134,12 +156,17 @@ test("a switch the node refused goes back alone, on the list as it stands — an
   const before = [addon("clock"), addon("weather")];
   const optimistic = withEnabled(before, "clock", false);
   const reread = withEnabled(optimistic, "weather", false);
-  // The node refuses: the clock's switch goes back; the weather's stays as the node said.
-  const back = withEnabled(reread, "clock", true);
+  // The node refuses: the clock's object from before the switch goes back —
+  // running again, not merely switched on — and the weather's stays as the
+  // node said; a flip by rule would have left the clock on with its window gone.
+  const back = restoreAddon(reread, before[0]);
   assert.deepEqual(back.map((a) => [a.id, a.enabled, a.active]), [["clock", true, true], ["weather", false, false]], "the list from before the switch would have put the weather back on");
+  assert.deepEqual(withEnabled(reread, "clock", true).map((a) => a.active), [false, false], "a flip by rule cannot bring the window back: only the node's word or the object held before can");
   const store = readFileSync(new URL("./addonsStore.ts", import.meta.url), "utf8");
-  assert.ok(store.includes("if (was !== undefined) set({ ...state, addons: withEnabled(state.addons, id, was) });"));
+  assert.ok(store.includes("if (prior) set({ ...state, addons: restoreAddon(state.addons, prior) });"), "the object held before the switch goes back in its place");
   assert.ok(!store.includes("set({ ...state, addons: before });"), "never the whole list as it was");
+  const refusal = store.slice(store.indexOf("if (prior) set({"), store.indexOf("throw e;"));
+  assert.ok(refusal.includes("void refreshAddons();"), "and the node is asked what stands");
   // Of two reads out, the newest asked for lands; one that refused is said and leaves `loaded` as it was.
   const refresh = store.slice(store.indexOf("export async function refreshAddons"), store.indexOf("/** Show or hide every window at once"));
   assert.ok(refresh.includes("const ticket = reads.begin();") && refresh.split("reads.lands(ticket)").length - 1 === 2, "the answer and the refusal are both held to the ticket");

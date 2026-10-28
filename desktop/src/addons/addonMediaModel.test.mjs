@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MEDIA_STATES, mediaKey, pageRect, playerPath, playerShown, stateOf } from "./addonMediaModel.mjs";
+import { MEDIA_STATES, OPEN_RETRIES, OPEN_RETRY_MS, enqueue, mediaKey, pageRect, playerPath, playerShown, stateOf } from "./addonMediaModel.mjs";
 
 test("the player's box is the frame's plus the addon's, clamped inside it", () => {
   const frame = { left: 100, top: 50, width: 440, height: 300 };
@@ -12,6 +12,41 @@ test("the player's box is the frame's plus the addon's, clamped inside it", () =
   assert.deepEqual(pageRect({ left: 0.4, top: 0.6, width: 300, height: 260 }, { x: 0, y: 0, width: 300, height: 260 }), { left: 0, top: 1, width: 300, height: 260 }, "whole pixels");
   assert.equal(mediaKey("media-player"), "addon-media:media-player");
   assert.equal(playerPath("media-player", "dQw4w9WgXcQ"), "/addons/media-player/player/youtube/dQw4w9WgXcQ");
+});
+
+test("one key's opens and closes run in order whoever queued them, a throw stops nothing, and a settled tail is forgotten", async () => {
+  const chains = new Map();
+  const ran = [];
+  let release;
+  const held = new Promise((r) => (release = r));
+  // The old instance's close is still out when the new instance's open is queued.
+  const close = enqueue(chains, "addon-media:a", async () => {
+    await held;
+    ran.push("close");
+  });
+  const open = enqueue(chains, "addon-media:a", () => {
+    ran.push("open");
+  });
+  // Another key is nobody's wait.
+  await enqueue(chains, "addon-media:b", () => {
+    ran.push("b");
+  });
+  assert.deepEqual(ran, ["b"]);
+  release();
+  await open;
+  assert.deepEqual(ran, ["b", "close", "open"]);
+  await close;
+  // A step that throws is swallowed and the next still runs.
+  await enqueue(chains, "addon-media:a", () => {
+    throw new Error("refused");
+  });
+  await enqueue(chains, "addon-media:a", () => {
+    ran.push("after");
+  });
+  assert.deepEqual(ran, ["b", "close", "open", "after"]);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(chains.size, 0, "a settled tail is forgotten");
+  assert.ok(OPEN_RETRIES >= 1 && OPEN_RETRY_MS > 0);
 });
 
 test("the player hides on a drag, under a surface and off screen", () => {

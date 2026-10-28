@@ -168,6 +168,11 @@ notes (`docs/contributing/release.md`).
 
 ### Changed
 
+- **An addon patch that changed nothing announces nothing**, and each change a patch made is said
+  in order — the switch, then the grants; `addons_changed` frames keep their shape. The addon
+  API reference now says what `visibility` fires for: a window under a browser tab the layer
+  cannot cut around; put away, the layer off and the switch off unload the page, and *Show* is a
+  fresh one.
 - Two harness capability flags nothing read are gone from `HarnessCaps` — `FORK` (no operation ever
   branched a session) and `STRUCTURED_OUTPUT` (no adapter declared it); their bits are holes,
   never reused. The flags were internal: no record, route or manifest named them. The engine's
@@ -217,6 +222,45 @@ notes (`docs/contributing/release.md`).
 
 ### Fixed
 
+- **An addon switched on no longer loads a blank window.** The switch read on at once and the
+  window mounted before the node had the record, so its frame asked for files the node would not
+  serve yet, got a bare 404 and — its key unmoved — never asked again. The window now waits for
+  the node's word (the row says *starting* meanwhile), and a refused switch puts the object held
+  before back and asks the node what stands.
+- **An addon's record is written by one writer at a time, and a patch is judged whole.** Two
+  switches or grants at once could leave a record file rewritten with a stale-snapshot refusal
+  answered and nothing announced, and a grant the manifest never declared left the switch beside
+  it flipped. The store takes a write lock like every other record kind, `update_addon` refuses
+  before writing and writes once, and `PATCH /addons/{id}` and the CLI's offline verbs go through
+  it.
+- **A peer's addon record no longer overwrites this machine's.** A record ingested from another
+  node replaced the local switch and grants wholesale — an addon could go on, or wider, by
+  someone else's record. A local record wins; the next local write republishes past the peer's
+  revision.
+- **One addon that throws costs that addon alone.** Every window and scene stands in a boundary
+  of its own and is put away with a toast naming it; the list's sync lives outside the layer's
+  boundary, so the footer and Settings › Addons keep reading; switching the layer off and on
+  revives a layer that fell.
+- **The media player comes back after a put-away.** Its opens and closes run in order per key
+  across the window's instances (a put-away → show, a grant change, off → on), the key is closed
+  before it is opened, and a refused open is tried again — the addon no longer hears `unavailable`
+  from a shell that saw the key still open.
+- **A page that never says hello is said.** The library repeats its hello at growing waits until
+  it is heard; past the last, calls waiting fail `unavailable` while `ready()` keeps waiting. A
+  window whose page said nothing in eight seconds shows the kit's failure note with Retry (a scene
+  toasts), and the bridge's session starts over with every frame and every hello, so a page's own
+  reload carries nothing over.
+- **A built-in refreshed at open reloads its window.** The manifest's version is part of what
+  makes a record the same and of the frame's key.
+- **A scene's hunt has a way out on screen.** A pill at the scene's top edge names who has the
+  pointer and offers *Leave* beside `Esc`.
+- **Smaller leaks around addons.** A link an addon asked for that could not be opened and the
+  player's event door are said in the log rather than left as unhandled rejections; the folder
+  picker's refusal is said like the node's; an addon removed is gone from the list before the
+  DELETE, so no window writes its forgotten storage back; the bridge's session and storage bag
+  are made once per window, not on every render; the open-link ask leaves with its addon.
+- **Three built-ins.** Bug hunt no longer takes a zero-sized frame as its bounds; pomodoro clamps
+  the lengths it stored; weather accepts a stored spot only with a name and finite coordinates.
 - **The three hand-written reference pages are held to the code.** `docs/reference/gep.md`'s two
   tables are the kind registry both ways, with the retired holes, the counts, the next free number
   and the ephemeral kind; `docs/reference/workspace-layout.md`'s tree names every path the store

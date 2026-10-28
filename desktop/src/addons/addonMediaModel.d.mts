@@ -24,6 +24,9 @@ export interface PageRect {
 }
 
 export function mediaKey(addonId: string): string;
+export function enqueue(chains: Map<string, Promise<void>>, key: string, step: () => Promise<void> | void): Promise<void>;
+export const OPEN_RETRIES: number;
+export const OPEN_RETRY_MS: number;
 export function playerPath(addonId: string, video: string): string;
 export function pageRect(frame: PageRect, box: PlayerBox): PageRect | null;
 export function playerShown(facts: { embedded: boolean; visible: boolean; shielded: boolean; mayShow: boolean; rect: PageRect | null }): boolean;

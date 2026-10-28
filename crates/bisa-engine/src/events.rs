@@ -728,8 +728,11 @@ pub enum EnginePayload {
         what: ConnectorsChange,
     },
     /// An addon was installed, removed, enabled, disabled or re-granted
-    /// (18 — Addons). Settings › Addons and the addon layer re-read on it.
-    /// Never a value — which addon, and which part moved.
+    /// through one of the engine's doors (18 — Addons): one frame per change
+    /// the store reports, in order; a patch that changed nothing says
+    /// nothing, and an ingested record, the refresh at open and an offline
+    /// CLI write announce nothing. Settings › Addons and the addon layer
+    /// re-read on it. Never a value — which addon, and which part moved.
     AddonsChanged {
         #[serde(flatten)]
         what: crate::addons::AddonsChange,

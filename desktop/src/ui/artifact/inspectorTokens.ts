@@ -15,8 +15,8 @@ import { useThemeNonce } from "../useTokenPx";
 import { FALLBACK_SIZES, INSPECTOR_ROLES, inspectorTheme } from "./inspectorTheme.mjs";
 import type { InspectorTheme } from "./inspectorTheme.mjs";
 
-/** The side the mounted theme landed on: `data-scheme` first, the machine's preference before any script has run. */
-function currentScheme(): "light" | "dark" {
+/** The side the mounted theme landed on: `data-scheme` first, the machine's preference before any script has run. Cheap — an attribute read, no token walk, no probe — so a bridge may read it per message (`addons/addonBridge.ts`). */
+export function currentScheme(): "light" | "dark" {
   const stamped = document.documentElement.getAttribute("data-scheme");
   if (stamped === "dark" || stamped === "light") return stamped;
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";

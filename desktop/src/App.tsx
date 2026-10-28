@@ -16,6 +16,7 @@
  * and a rebuilt list.
  */
 
+import { AddonsHost } from "./addons/AddonsHost";
 import { pushShellWords } from "./shell/shellWords";
 import { readPref, webStorage, writePref } from "./shell/storedPrefModel.mjs";
 import { LAYOUT_CHANGED, notifyLayoutChanged } from "./shell/layerSlots";
@@ -40,7 +41,6 @@ const NoteOverlay = lazy(() => import("./notes/NoteOverlay").then((m) => ({ defa
 const DrawOverlay = lazy(() => import("./draw/DrawOverlay").then((m) => ({ default: m.DrawOverlay })));
 import { DrawPanel } from "./draw/DrawPanel";
 const PetCompanion = lazy(() => import("./pet/PetCompanion").then((m) => ({ default: m.PetCompanion })));
-const AddonLayer = lazy(() => import("./addons/AddonLayer").then((m) => ({ default: m.AddonLayer })));
 import { ProjectGitDialog } from "./views/_work/ProjectGitDialog";
 import { HookSecretsDialog } from "./views/_workflow/HookSecretsDialog";
 import { WorkstreamScriptToasts } from "./views/_work/WorkstreamScriptToasts";
@@ -517,11 +517,10 @@ export default function App() {
         {/*
           The addons (18 — Addons): the same tier as the pet, so a window never
           covers the notes panel or a dialog, and a screen that throws leaves
-          every widget standing.
+          every widget standing. The host holds the list's sync and the layer
+          in boundaries of their own.
         */}
-        <OverlayBoundary name="addons" resetKey={routeKey} onError={crashed(tr("app-app-addons"))}>
-          <Suspense fallback={null}><AddonLayer /></Suspense>
-        </OverlayBoundary>
+        <AddonsHost resetKey={routeKey} onError={crashed(tr("app-app-addons"))} />
         {/* Who commits in a repository nobody is set to commit in — one dialog for every creation path. */}
         <OverlayBoundary name="who-commits dialog" resetKey={routeKey} onError={crashed(tr("app-app-who-commits-dialog"))}>
           <ProjectGitDialog />

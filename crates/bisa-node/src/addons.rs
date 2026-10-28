@@ -15,7 +15,7 @@
 //! `is_bundle_path` and resolved inside the bundle by `resolve_within`; the
 //! type decided from the extension allowlist, else `application/octet-stream`
 //! as a download; `nosniff`; and a Content-Security-Policy header on every
-//! answer that lets the page load its own files and reach nothing — the
+//! file served that lets the page load its own files and reach nothing — the
 //! frame's sandbox is the first wall, this header the second, and neither
 //! depends on the other.
 //!
@@ -215,8 +215,10 @@ async fn one(
     Ok(Json(json!({ "addon": localized(addon, &locale) })))
 }
 
-/// `PATCH /addons/{id} {enabled?, granted?}` — the switch first, then the
-/// grants; each through its own engine door so each is said on the bus.
+/// `PATCH /addons/{id} {enabled?, granted?}` — judged whole by the store,
+/// written once, each change said on the bus in order (the switch, then
+/// the grants); a grant never declared refuses the whole patch, the switch
+/// beside it untouched.
 async fn patch(
     State(state): State<Shared>,
     Lang(locale): Lang,
@@ -229,18 +231,7 @@ async fn patch(
             "error-node-addons-nothing-to-patch"
         )));
     }
-    let inner = state.engine.inner();
-    let mut addon = None;
-    if let Some(enabled) = body.enabled {
-        addon = Some(admin::set_addon_enabled(inner, &id, enabled)?);
-    }
-    if let Some(granted) = body.granted {
-        addon = Some(admin::set_addon_grants(inner, &id, granted)?);
-    }
-    let addon = match addon {
-        Some(a) => a,
-        None => state.engine.workspace().get_addon(&id)?, // LCOV_EXCL_LINE a patch with nothing in it is refused above; by construction
-    };
+    let addon = admin::update_addon(state.engine.inner(), &id, body.enabled, body.granted)?;
     Ok(Json(json!({ "addon": localized(addon, &locale) })))
 }
 
@@ -426,7 +417,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "PATCH",
         path: "/addons/{id}",
-        summary: "`{enabled?, granted?}` — turn the addon on or off (on needs its files here), or replace what it is granted: a subset of what it declares, exactly as declared, else 400 naming the word. Answers the addon.",
+        summary: "`{enabled?, granted?}` — turn the addon on or off (on needs its files here), or replace what it is granted: a subset of what it declares, exactly as declared, else 400 naming the word. Judged whole and written once: a refused grant leaves the switch beside it as it was. Answers the addon.",
     },
     RouteDoc {
         method: "DELETE",

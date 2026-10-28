@@ -20,6 +20,15 @@
 //! The built-ins ship in the binary (`catalog::CATALOG.addon_bundles`, from
 //! `library/addons/`) and are installed on demand like every catalog entry;
 //! a person's own addon may not take a built-in's id.
+//!
+//! **One writer at a time** (`Workspace::addons_writes`): a switch, a grant,
+//! an install, a removal, the refresh at open and a peer's record arriving
+//! each read, judge and write under it, so two at once never each write the
+//! record as it was before the other, and a snapshot is never refused as
+//! stale behind a record file already rewritten. A patch is judged whole
+//! before anything is written and written once (`update_addon`). A record
+//! this machine holds **wins** over a peer's: its switch and its grants are
+//! the person's decisions here.
 
 use crate::catalog::{BuiltinAddon, CATALOG};
 use crate::error::StoreError;
@@ -32,6 +41,16 @@ use bisa_core::addon::{
 use bisa_core::kind::KIND_ADDON;
 use bisa_core::{AddonId, Localize as _, Origin, Text};
 use std::path::{Path, PathBuf};
+use std::sync::MutexGuard;
+
+/// What one patch of a record changed, in the order it is said on the bus:
+/// the switch first, then the grants.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AddonChange {
+    Enabled,
+    Disabled,
+    Grants,
+}
 
 /// One installed addon as the store knows it: the record, and whether its
 /// bundle is on this machine.
@@ -387,6 +406,7 @@ impl Workspace {
                 a0 = format!("{:?}", manifest.id.as_str())
             )));
         }
+        let _writer = self.addon_writer();
         self.refuse_taken_addon_id(&manifest.id)?;
         if let Some(word) = undeclared(&granted, &manifest.permissions) {
             return Err(AddonError::GrantNotDeclared(word).into());
@@ -414,6 +434,7 @@ impl Workspace {
             ))
         })?;
         let manifest = parse_addon(slug, bundle.manifest)?;
+        let _writer = self.addon_writer();
         self.refuse_taken_addon_id(&manifest.id)?;
         let files = shipped_files(bundle, &manifest)?;
         let granted = manifest.permissions.clone();
@@ -541,6 +562,7 @@ impl Workspace {
     /// built-in that will not refresh is warned past, never a stop to the
     /// open. Returns the ids refreshed.
     pub(crate) fn refresh_builtin_addons(&self) -> Result<Vec<AddonId>, StoreError> {
+        let _writer = self.addon_writer();
         let mut refreshed = Vec::new();
         for entry in self.list_addons()? {
             let Origin::Catalog { slug } = &entry.record.origin else {
@@ -688,19 +710,69 @@ impl Workspace {
         Ok(out)
     }
 
-    /// Turn an addon on or off. On needs its files here.
-    pub fn set_addon_enabled(&self, id: &AddonId, enabled: bool) -> Result<AddonEntry, StoreError> {
+    /// The one writer of addon records at a time. A poisoned lock is taken
+    /// over: the record on disk is whatever the last write left, and the
+    /// next write reads it again.
+    fn addon_writer(&self) -> MutexGuard<'_, ()> {
+        self.addons_writes.lock().unwrap_or_else(|poisoned| {
+            tracing::warn!(
+                "the addon write lock was poisoned; continuing with the records as they stand"
+            );
+            poisoned.into_inner()
+        })
+    }
+
+    /// One patch of a record — the switch, the grants, or both — **judged
+    /// whole before anything is written** (on needs its files here; a grant
+    /// is a subset of what was declared, exactly as declared, else refused by
+    /// the first word that was not), written once, and answered with what
+    /// changed in the order it is said on the bus. Nothing differs: nothing
+    /// is written and the list is empty. The one implementation behind
+    /// `set_addon_enabled` and `set_addon_grants`.
+    pub fn update_addon(
+        &self,
+        id: &AddonId,
+        enabled: Option<bool>,
+        granted: Option<Vec<AddonPermission>>,
+    ) -> Result<(AddonEntry, Vec<AddonChange>), StoreError> {
+        let _writer = self.addon_writer();
         let mut addon = self.get_addon(id)?;
-        if enabled && !addon.files_present {
+        if enabled == Some(true) && !addon.files_present {
             return Err(AddonError::FilesAbsent(id.to_string()).into());
         }
-        if addon.record.enabled == enabled {
-            return Ok(addon);
+        if let Some(granted) = &granted {
+            if let Some(word) = undeclared(granted, &addon.record.manifest.permissions) {
+                return Err(AddonError::GrantNotDeclared(word).into());
+            }
         }
-        addon.record.enabled = enabled;
+        let mut changes = Vec::new();
+        if let Some(enabled) = enabled {
+            if addon.record.enabled != enabled {
+                addon.record.enabled = enabled;
+                changes.push(if enabled {
+                    AddonChange::Enabled
+                } else {
+                    AddonChange::Disabled
+                });
+            }
+        }
+        if let Some(granted) = granted {
+            if addon.record.granted != granted {
+                addon.record.granted = granted;
+                changes.push(AddonChange::Grants);
+            }
+        }
+        if changes.is_empty() {
+            return Ok((addon, changes));
+        }
         self.write_record(&addon.record)?;
         self.write_addon_snapshot(&addon.record)?;
-        Ok(addon)
+        Ok((addon, changes))
+    }
+
+    /// Turn an addon on or off. On needs its files here.
+    pub fn set_addon_enabled(&self, id: &AddonId, enabled: bool) -> Result<AddonEntry, StoreError> {
+        Ok(self.update_addon(id, Some(enabled), None)?.0)
     }
 
     /// Replace what the person granted — a subset of what was declared,
@@ -710,21 +782,12 @@ impl Workspace {
         id: &AddonId,
         granted: Vec<AddonPermission>,
     ) -> Result<AddonEntry, StoreError> {
-        let mut addon = self.get_addon(id)?;
-        if let Some(word) = undeclared(&granted, &addon.record.manifest.permissions) {
-            return Err(AddonError::GrantNotDeclared(word).into());
-        }
-        if addon.record.granted == granted {
-            return Ok(addon);
-        }
-        addon.record.granted = granted;
-        self.write_record(&addon.record)?;
-        self.write_addon_snapshot(&addon.record)?;
-        Ok(addon)
+        Ok(self.update_addon(id, None, Some(granted))?.0)
     }
 
     /// Remove an addon: its record, its bundle, its snapshot.
     pub fn remove_addon(&self, id: &AddonId) -> Result<(), StoreError> {
+        let _writer = self.addon_writer();
         self.get_addon(id)?;
         let dir = self.paths.addon_dir(id);
         std::fs::remove_dir_all(&dir).map_err(|e| StoreError::io(dir.display().to_string(), e))?;
@@ -746,9 +809,13 @@ impl Workspace {
         crate::paths::resolve_within(&files, rel)
     }
 
-    /// A record that arrived from a peer: written as the record alone. The
-    /// bundle is that machine's, so the addon lists here with its files
-    /// absent until the folder is imported under the same id.
+    /// A record that arrived from a peer: written as the record alone, where
+    /// none is here. The bundle is that machine's, so the addon lists with
+    /// its files absent until the folder is imported under the same id. A
+    /// record this machine holds **wins** — its switch and its grants are
+    /// the person's decisions here — so a peer's later record lands in the
+    /// snapshot store alone (ingest applied it before coming here) and the
+    /// record file stands; the next local write republishes past it.
     pub(crate) fn adopt_remote_addon(&self, record: &AddonRecord) -> Result<(), StoreError> {
         let problems = record.validate();
         if !problems.is_empty() {
@@ -762,6 +829,15 @@ impl Workspace {
                 "error-store-invalid-addon-id-reserved",
                 id = record.manifest.id.to_string()
             )));
+        }
+        let _writer = self.addon_writer();
+        if self.paths.addon_record(&record.manifest.id).exists() {
+            tracing::debug!(
+                target: "bisa_store::addons",
+                "a peer's record for the addon {} arrived; this machine's stands",
+                record.manifest.id
+            );
+            return Ok(());
         }
         self.write_record(record)
     }
@@ -863,6 +939,36 @@ mod tests {
             ws.set_addon_grants(&id, vec![]).unwrap().record,
             before.record
         );
+        // A peer's record for an id this machine holds changes nothing here.
+        let mut later = record("acme.local", Origin::Local);
+        later.enabled = true;
+        later.granted = vec![AddonPermission::Storage];
+        later.installed_at = 2;
+        ws.adopt_remote_addon(&later).unwrap();
+        assert_eq!(ws.get_addon(&id).unwrap().record, before.record);
+    }
+
+    /// The addon write lock a panic poisoned is taken over: the next writer
+    /// continues with the records as the last write left them.
+    #[test]
+    fn the_addon_write_lock_recovers_from_poison() {
+        let (_dir, ws) = ws();
+        let ws = std::sync::Arc::new(ws);
+        ws.adopt_remote_addon(&record("acme.local", Origin::Local))
+            .unwrap();
+        let poisoner = std::sync::Arc::clone(&ws);
+        let poisoned = std::thread::spawn(move || {
+            let _writer = poisoner.addon_writer();
+            panic!("poison the addon lock on purpose");
+        })
+        .join();
+        assert!(poisoned.is_err(), "the thread panicked on purpose");
+        let id = AddonId::new("acme.local").unwrap();
+        let (entry, changes) = ws
+            .update_addon(&id, None, Some(vec![AddonPermission::Storage]))
+            .unwrap();
+        assert_eq!(changes, vec![AddonChange::Grants]);
+        assert_eq!(entry.record.granted, vec![AddonPermission::Storage]);
     }
 
     #[cfg(unix)]

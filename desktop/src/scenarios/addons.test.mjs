@@ -75,6 +75,7 @@ test("the three terminal games share one kit, word for word, so a fix lands in a
 
 test("the window is a sandboxed frame with an opaque origin and a token-less source, on the pet's tier", () => {
   const win = src("../addons/AddonWindow.tsx");
+  const windowSrc = win;
   const sandbox = /sandbox="([^"]*)"/.exec(win);
   assert.ok(sandbox, "the frame is sandboxed");
   assert.equal(sandbox[1], "allow-scripts", "scripts, and nothing else — no same-origin, popups, forms or top navigation");
@@ -83,8 +84,10 @@ test("the window is a sandboxed frame with an opaque origin and a token-less sou
   const api = src("../api.ts");
   assert.match(api, /addonFileUrl: \(id: string, path: string\) => `\$\{apiBaseSync\(\)\}\/addons\//);
   const app = src("../App.tsx");
-  assert.ok(app.indexOf("<PetCompanion />") < app.indexOf("<AddonLayer />"), "the layer mounts after the pet, in its own boundary");
-  assert.ok(app.includes('name="addons"'));
+  const host = src("../addons/AddonsHost.tsx");
+  assert.ok(app.indexOf("<PetCompanion />") < app.indexOf("<AddonsHost "), "the addons mount after the pet");
+  assert.ok(host.includes('name="addons"') && host.includes('name="addons sync"'), "the layer and the list's sync each in a boundary of their own");
+  assert.ok(host.includes("resetKey={`${resetKey}:${layerShown}`}"), "the layer's switch revives a layer that fell");
   const bar = src("../shell/StatusBar.tsx");
   assert.ok(bar.includes("<AddonsStat />"), "the footer's read-out is mounted");
   const stat = src("../shell/AddonsStat.tsx");
@@ -104,13 +107,19 @@ test("the window is a sandboxed frame with an opaque origin and a token-less sou
     assert.ok(!text.includes("addons_enabled") && !text.includes("useResolvedSettings"), `${name} reads the switch from the store alone`);
   }
   assert.ok(store.includes('e.payload.type === "settings_changed"') && store.includes("ADDONS_ENABLED_KEY"), "the store re-reads when the machine's switch moves");
-  assert.ok(store.includes("withEnabled(state.addons, id, enabled)") && store.includes("withEnabled(state.addons, id, was)"), "a switch is optimistic and comes back on a refusal — that switch alone, on the list as it stands");
-  assert.ok(layer.includes("useAddonsSync()") && !panel.includes("useAddonsSync") && !stat.includes("useAddonsSync") && !overlay.includes("useAddonsSync"), "the sync is mounted once, by the layer");
+  assert.ok(store.includes("withEnabled(state.addons, id, enabled)") && store.includes("restoreAddon(state.addons, prior)"), "a switch is optimistic and a refusal puts the object held before back — that addon alone, on the list as it stands");
+  assert.ok(host.includes("useAddonsSync()") && !layer.includes("useAddonsSync") && !panel.includes("useAddonsSync") && !stat.includes("useAddonsSync") && !overlay.includes("useAddonsSync"), "the sync is mounted once, by the host, outside the layer's boundary");
+  assert.ok(layer.includes("<AddonBoundary key={addon.id} addon={addon}>") && layer.includes("setAddonHidden(addon.id, true);"), "each addon in a boundary of its own, put away when it throws");
   const bridge = src("../addons/addonBridge.ts");
-  assert.ok(bridge.includes("[addon.id, addon.installed_at, grantsKey]") && !bridge.includes("}, [addon]);"), "the bridge's session lives as long as its frame — never reset by a re-read");
-  const windowSrc = src("../addons/AddonWindow.tsx");
+  assert.ok(bridge.includes("}, [epoch, session]);") && !bridge.includes("}, [addon]);"), "the bridge's session lives as long as its frame — never reset by a re-read");
+  assert.ok(bridge.includes("session.current = { ...newSession(latest.current.addon), ready: true };"), "a hello is a page loaded afresh: the session starts over");
+  assert.ok(bridge.includes("}, START_DEADLINE_MS);") && windowSrc.includes('onStartMissed: () => setStart("missed")'), "a page that never says hello is said in the box");
+  const mediaHost = src("../addons/addonMediaHost.ts");
+  assert.ok(mediaHost.includes("const chains = new Map<string, Promise<void>>();") && mediaHost.includes("enqueue(chains, key, step)"), "one chain per key, across instances");
+  assert.ok(mediaHost.indexOf("await closeBrowserView(key).catch(() => {});") < mediaHost.indexOf("await openBrowserPage(key, html, NO_SCRIPT, false);"), "the key is closed before it is opened");
   assert.ok(windowSrc.includes("useDockDrag(box, viewport, setDock)") && windowSrc.includes("wasDragging.current && !drag.dragging"), "a drag writes once, when it ends");
   assert.ok(!windowSrc.includes("onShield(drag.dragging), [drag.dragging"), "the shield moves on a drag's edges, never on mount");
+  assert.ok(windowSrc.includes("frameKeyOf(addon, reloads)") && src("../addons/AddonScene.tsx").includes("frameKeyOf(addon)"), "the frame's key is the model's, on both kinds");
   assert.ok(panel.includes('t("settings-addons-panel-import-addon")') && !panel.includes("import-folder"), "the panel imports an addon, not a folder");
 });
 
@@ -219,7 +228,12 @@ test("a person installs, grants, shows, moves, resizes, closes and switches off 
   assert.equal(rows.length, 1);
   assert.deepEqual([rows[0].running, rows[0].shown, rows[0].canEnable], [false, false, true]);
   assert.equal(titleWords(0, 1), "0 of 1 addons showing", "an installed addon that is off still counts as installed");
-  assert.equal(withEnabled([off], "acme.byte", true)[0].active, true);
+  // On again: the switch reads on and the row says *starting*; the window
+  // waits for the node's word — mounted sooner, its frame asked the node for
+  // files the node would not serve yet, and never asked again.
+  const back = withEnabled([off], "acme.byte", true)[0];
+  assert.equal(back.active, false);
+  assert.equal(stateWords(back), "starting");
   // A stranger's message never becomes a call.
   assert.equal(parseAddonMessage({ v: 1, kind: "bisa:call", id: "x", method: "storage.get", params: {} }).kind, "call");
   assert.equal(parseAddonMessage({ kind: "bisa:call", id: "x", method: "storage.get" }), null, "no version, no reading");

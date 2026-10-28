@@ -80,6 +80,34 @@ async fn every_door_says_what_moved() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_patch_of_both_says_both_in_order_and_one_that_changed_nothing_says_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let mut rx = engine.events();
+    let inner = engine.inner();
+    let any_change =
+        |e: &bisa_engine::EngineEvent| matches!(&e.payload, EnginePayload::AddonsChanged { .. });
+    admin::install_catalog_entry(inner, CatalogKind::Addon, "clock").unwrap();
+    wait_for(&mut rx, "installed", |e| is_change(e, "installed", "clock")).await;
+
+    // Both at once: one write, the switch said first, then the grants.
+    let addon = admin::update_addon(inner, &id("clock"), Some(false), Some(vec![])).unwrap();
+    assert!(!addon.record.enabled && addon.record.granted.is_empty());
+    let first = wait_for(&mut rx, "the first frame", any_change).await;
+    assert!(is_change(&first, "disabled", "clock"), "{first:?}");
+    let second = wait_for(&mut rx, "the second frame", any_change).await;
+    assert!(is_change(&second, "grants", "clock"), "{second:?}");
+
+    // Nothing changed, nothing said: the next frame is the next real change.
+    admin::update_addon(inner, &id("clock"), Some(false), Some(vec![])).unwrap();
+    admin::set_addon_enabled(inner, &id("clock"), false).unwrap();
+    admin::set_addon_grants(inner, &id("clock"), vec![]).unwrap();
+    admin::set_addon_enabled(inner, &id("clock"), true).unwrap();
+    let next = wait_for(&mut rx, "the next frame", any_change).await;
+    assert!(is_change(&next, "enabled", "clock"), "{next:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_broker_refuses_by_name_before_anything_leaves() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine_with(&dir, vec![MockAdapter::default()]);

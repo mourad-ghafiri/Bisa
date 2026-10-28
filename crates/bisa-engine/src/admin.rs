@@ -8,7 +8,7 @@
 use crate::addons::{announce as announce_addons, AddonsChange};
 use crate::{EngineError, Inner};
 use bisa_core::{AddonId, AddonPermission, AttachmentRef, Gate, MemberRole, Pet, PrincipalId};
-use bisa_store::{AddonEntry, CatalogKind, GatePolicy, Governance, Installed};
+use bisa_store::{AddonChange, AddonEntry, CatalogKind, GatePolicy, Governance, Installed};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -86,21 +86,36 @@ pub fn install_addon(
     Ok(addon)
 }
 
+/// One patch of a record — the switch, the grants, or both — judged whole
+/// by the store and written once; each change it reports is said on the bus
+/// in order (the switch, then the grants), and a patch that changed nothing
+/// says nothing.
+pub fn update_addon(
+    inner: &Arc<Inner>,
+    id: &AddonId,
+    enabled: Option<bool>,
+    granted: Option<Vec<AddonPermission>>,
+) -> Result<AddonEntry, EngineError> {
+    let (addon, changes) = inner.ws.update_addon(id, enabled, granted)?;
+    for change in changes {
+        announce_addons(
+            inner,
+            match change {
+                AddonChange::Enabled => AddonsChange::Enabled { id: id.clone() },
+                AddonChange::Disabled => AddonsChange::Disabled { id: id.clone() },
+                AddonChange::Grants => AddonsChange::Grants { id: id.clone() },
+            },
+        );
+    }
+    Ok(addon)
+}
+
 pub fn set_addon_enabled(
     inner: &Arc<Inner>,
     id: &AddonId,
     enabled: bool,
 ) -> Result<AddonEntry, EngineError> {
-    let addon = inner.ws.set_addon_enabled(id, enabled)?;
-    announce_addons(
-        inner,
-        if enabled {
-            AddonsChange::Enabled { id: id.clone() }
-        } else {
-            AddonsChange::Disabled { id: id.clone() }
-        },
-    );
-    Ok(addon)
+    update_addon(inner, id, Some(enabled), None)
 }
 
 pub fn set_addon_grants(
@@ -108,9 +123,7 @@ pub fn set_addon_grants(
     id: &AddonId,
     granted: Vec<AddonPermission>,
 ) -> Result<AddonEntry, EngineError> {
-    let addon = inner.ws.set_addon_grants(id, granted)?;
-    announce_addons(inner, AddonsChange::Grants { id: id.clone() });
-    Ok(addon)
+    update_addon(inner, id, None, Some(granted))
 }
 
 pub fn remove_addon(inner: &Arc<Inner>, id: &AddonId) -> Result<(), EngineError> {
