@@ -59,6 +59,12 @@ test("the review names the addon, its version and licence, and one line per perm
   const none = reviewWords({ name: "Calculator", version: "1.0.0", license: "MIT", permissions: [] });
   assert.equal(none.lines.length, 0);
   assert.match(none.lead, /nothing/);
+  assert.equal(none.reach, null, "a window's reach is its box: nothing to add");
+  assert.equal(r.reach, null);
+  // A scene asks for no permission and reaches the whole app: the review says so.
+  const scene = reviewWords({ name: "Bug hunt", version: "1.0.0", license: "MIT", permissions: [], window: { frame: "scene" } });
+  assert.match(scene.reach, /whole window/);
+  assert.match(scene.lead, /nothing/);
 });
 
 test("problems read as field: sentence; lists sort running first, then by name", () => {

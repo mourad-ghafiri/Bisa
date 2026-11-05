@@ -39,6 +39,7 @@ ui-artifact-view-could-not-save = The file could not be saved.
 ui-artifact-view-more = More
 ui-artifact-view-open-browser = Open in the browser
 ui-artifact-view-open-default-app = Open with the default app
+ui-artifact-view-open-held = Kept inside Bisa: a file of this kind could run as a program if opened outside.
 ui-artifact-view-open-ide = Open in the IDE
 ui-artifact-view-save = Save as
 ui-artifact-view-save-copy-where-choose = Save a copy where you choose

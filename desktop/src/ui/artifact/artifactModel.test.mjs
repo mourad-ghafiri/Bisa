@@ -7,23 +7,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import {
-  ARTIFACT_KINDS,
-  artifactFromFile,
-  artifactKey,
-  artifactVersions,
-  bytesWords,
-  defaultTitle,
-  inlinePreview,
-  isTextKind,
-  kindOf,
-  kindWords,
-  languagePath,
-  mimeOfName,
-  parseArtifactKey,
-  versionLabel,
-  versionWords,
-} from "./artifactModel.mjs";
+import { ARTIFACT_KINDS, artifactFromFile, artifactKey, artifactVersions, bytesWords, defaultTitle, inlinePreview, isTextKind, kindOf, kindWords, languagePath, mimeOfName, parseArtifactKey, versionLabel, versionWords, OPENABLE_KINDS, opensWithDefaultApp } from "./artifactModel.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -95,7 +79,7 @@ test("a shared file's kind mirrors the Rust table: the extension first, the mime
   const rust = readFileSync(join(here, "../../../../crates/bisa-core/src/artifact.rs"), "utf8");
   // Every extension the Rust table names decides the same kind here.
   const table = rust.match(/fn kind_of_extension\(ext: String\)[\s\S]*?\n\}/)[0];
-  for (const m of table.matchAll(/^\s+((?:"[a-z0-9]+"\s*\|\s*)*"[a-z0-9]+")\s*=>\s*ArtifactKind::([A-Z][a-z]+),/gm)) {
+  for (const m of table.matchAll(/^\s+((?:"[a-z0-9]+"\s*\|\s*)*"[a-z0-9]+")\s*=>\s*\{?\s*ArtifactKind::([A-Z][a-z]+)/gm)) {
     const kind = m[2].toLowerCase();
     for (const ext of m[1].match(/"([a-z0-9]+)"/g).map((s) => s.slice(1, -1))) {
       assert.equal(kindOf(`x.${ext}`, ""), kind, ext);
@@ -103,6 +87,7 @@ test("a shared file's kind mirrors the Rust table: the extension first, the mime
   }
   const code = rust.match(/const CODE_EXTENSIONS: &\[&str\] = &\[([\s\S]*?)\];/)[1].match(/"([a-z0-9]+)"/g).map((s) => s.slice(1, -1));
   for (const ext of code) assert.equal(kindOf(`x.${ext}`, ""), "code", ext);
+  assert.equal(kindOf("x.png", ""), "image", "the braced arm of the table is read too");
   assert.equal(kindOf("README", "text/markdown"), "markdown");
   assert.equal(kindOf("blob", "image/webp; q=1"), "image");
   assert.equal(kindOf("thing.xyz", "application/octet-stream"), "file");
@@ -113,6 +98,24 @@ test("a shared file's kind mirrors the Rust table: the extension first, the mime
   assert.equal(a.title, "q3");
   assert.equal(a.kind, "sheet");
   assert.equal(artifactFromFile({ sha256: "a".repeat(64), name: "q3.csv", mime: "text/csv", size: 9 }, "Q3 numbers").title, "Q3 numbers");
+});
+
+test("Open with the default app is offered for what that app can only show, and the shell's wall by extension is the same list", () => {
+  for (const name of ["report.pdf", "Photo.PNG", "clip.mp4", "song.mp3", "q3.csv", "book.xlsx", "memo.docx", "deck.pptx", "README.md", "notes.txt", "data.json", "conf.toml", "a/b/c.webp"]) assert.ok(opensWithDefaultApp(name), name);
+  for (const name of ["page.html", "figure.svg", "run.sh", "setup.py", "Open.command", "a.terminal", "link.webloc", "x.inetloc", "tool.app", "pkg.pkg", "d.dmg", "x.jar", "s.scpt", "w.workflow", "m.docm", "m.xlsm", "m.pptm", "diagram.mmd", "noext", ".env", "thing.xyz", ""]) assert.ok(!opensWithDefaultApp(name), name || "(empty)");
+  // The core's extension table, filtered by the openable kinds, is exactly the shell's list.
+  const rust = readFileSync(join(here, "../../../../crates/bisa-core/src/artifact.rs"), "utf8");
+  const table = rust.match(/fn kind_of_extension\(ext: String\)[\s\S]*?\n\}/)[0];
+  const expected = [];
+  for (const m of table.matchAll(/^\s+((?:"[a-z0-9]+"\s*\|\s*)*"[a-z0-9]+")\s*=>\s*\{?\s*ArtifactKind::([A-Z][a-z]+)/gm)) {
+    if (!OPENABLE_KINDS.includes(m[2].toLowerCase())) continue;
+    for (const ext of m[1].match(/"([a-z0-9]+)"/g).map((s) => s.slice(1, -1))) expected.push(ext);
+  }
+  const shell = readFileSync(join(here, "../../../../desktop/src-tauri/src/artifacts.rs"), "utf8");
+  const listed = shell.match(/const OPENABLE_EXTENSIONS: &\[&str\] = &\[([\s\S]*?)\];/)[1].match(/"([a-z0-9]+)"/g).map((s) => s.slice(1, -1));
+  assert.deepEqual(listed.sort(), expected.sort(), "the shell's wall equals the desktop's");
+  assert.ok(expected.length > 30, `the table was read (${expected.length})`);
+  for (const ext of expected) assert.ok(opensWithDefaultApp(`x.${ext}`), ext);
 });
 
 test("a name's media type mirrors the Rust table, a code file is plain text, and the rest is bytes with a name", () => {

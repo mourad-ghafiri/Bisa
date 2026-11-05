@@ -229,6 +229,23 @@ export function kindOf(name, mime) {
   return "file";
 }
 
+/**
+ * The kinds *Open with the default app* may hand to the machine: what the
+ * default application can only *show*. A page or a figure would open as a
+ * `file://` document in a browser with the store's folder as its origin; a
+ * code file (`.sh`, `.py`, `.command`) and every unknown extension may be a
+ * program the default application *runs* — and an agent names the file, so
+ * the name is not trusted. The shell holds the same wall by extension
+ * (`src-tauri/src/artifacts.rs`, `OPENABLE_EXTENSIONS`); a test keeps the
+ * two equal.
+ */
+export const OPENABLE_KINDS = Object.freeze(["image", "video", "audio", "pdf", "sheet", "document", "slides", "markdown", "text", "data"]);
+
+/** Whether the default application may be handed a file of this name — by the name alone, which is all the shell sees. */
+export function opensWithDefaultApp(name) {
+  return OPENABLE_KINDS.includes(kindOf(name, null));
+}
+
 const EXTENSION_MIMES = Object.freeze({
   png: "image/png",
   jpg: "image/jpeg",

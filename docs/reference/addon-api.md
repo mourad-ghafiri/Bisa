@@ -28,10 +28,10 @@ hears the `scene` event and owns the three `scene.*` methods.
 | `system.load.subscribe` | `system_load` | — | `{subscribed: true}`; from then on the `system.load` event at the footer's cadence |
 | `system.load.unsubscribe` | `system_load` | — | `{subscribed: false}` |
 | `workspace.summary` | `workspace_summary` | — | `{waiting, review, working}` |
-| `notify.show` | `notify` | `{title ≤ 100, body? ≤ 200}` | `{shown: true}`; at most one every ten seconds, else `rate_limited` |
-| `clipboard.write` | `clipboard_write` | `{text ≤ 64 KiB}` | `{written: true}` |
+| `notify.show` | `notify` | `{title ≤ 100, body? ≤ 200}` | `{shown: true}`; shown under the addon's name (*Clock — title*), at most one every ten seconds, else `rate_limited` — a page that reloads itself keeps the clock |
+| `clipboard.write` | `clipboard_write` | `{text ≤ 64 KiB}` | `{written: true}`; at most one every two seconds, else `rate_limited` |
 | `storage.get` | `storage` | `{key ≤ 128}` | `{value}` — a string, or `null` |
-| `storage.set` | `storage` | `{key ≤ 128, value: string}` | `{stored: true}`; 256 KiB in all per addon, else `quota` |
+| `storage.set` | `storage` | `{key ≤ 128, value: string}` | `{stored}` — `true` when this machine kept it, `false` when its storage would not take the write (the value is held for this page's life alone); 256 KiB in all per addon, else `quota` |
 | `storage.remove` | `storage` | `{key}` | `{removed: true}` |
 | `storage.keys` | `storage` | — | `{keys: [...]}` |
 | `network.fetch` | `network` | `{url: https://…, accept?}` | `{status, contentType, body ≤ 1 MiB, truncated}` — through the node's broker: a host the manifest names and the person's `security.net.*` lists allow, never this machine, `GET` only, no redirect followed |
@@ -82,7 +82,7 @@ own `<input type="file">` or a drop, played as a `blob:` URL; nothing of it cros
 | `not_allowed` | the manifest does not allow this window that move (`resizable`, `closable`), the `media` grant names no player (`youtube`), or a `scene.*` call came from a window that is not a scene |
 | `bad_params` | not the shape the method takes — a route not in the list, a URL that is not `http(s)`, a value that is not a string, a video id of another shape, a player box with a side under 200 |
 | `too_large` | past a cap: params over 16 KiB, a clipboard write over 64 KiB |
-| `rate_limited` | a notice too soon after the last |
+| `rate_limited` | a notice, or a clipboard write, too soon after the last |
 | `quota` | the addon's storage is full |
 | `unavailable` | the platform did not answer in ten seconds — or never said it was ready: the library says hello again at growing waits (250 ms to 4 s) and, past the last with no answer, fails every call waiting and every call made until a ready arrives; `ready()` itself keeps waiting |
 | `refused` | the node or the person said no — a host outside the grant, a link not opened |

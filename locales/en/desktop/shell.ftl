@@ -399,6 +399,7 @@ shell-node-stat-socket-only = the socket only
 shell-node-stat-up = Up
 shell-node-stat-version = Version
 shell-node-stat-wire-has-been-read-yet = The wire has not been read yet.
+shell-notifications-addon-title = { $addon } — { $title }
 shell-notifications-agent-s-work-kept-uncommitted-until = An agent's work in { $slug } is kept uncommitted until someone is set to commit.
 shell-notifications-bisa-design-needs = Bisa — the design needs you
 shell-notifications-bisa-done = Bisa — done

@@ -28,6 +28,15 @@
 export const TAG_REST = String.raw`(?:[^>"]|"[^"]*")*`;
 
 /**
+ * A link or image target the renderer vouches for: `http(s):`, `mailto:`, a
+ * fragment, or a path on this origin — one slash, since `//host/x` is a
+ * protocol-relative URL to another host, not a path.
+ */
+export const SAFE_PROTOCOL = /^(https?:|mailto:|#|\/(?!\/))/i;
+/** A protocol, or a protocol-relative URL. Anything else is relative. */
+export const HAS_PROTOCOL = /^([a-z][a-z0-9+.-]*:|\/\/)/i;
+
+/**
  * DOMPurify's prose profile for a rendered document. `USE_PROFILES: html`
  * is the library's own HTML allow-list, which already leaves out scripts,
  * frames, objects, SVG, MathML and every event handler; what it keeps and a

@@ -21,7 +21,7 @@ travels.
 | **Record** | the workspace's word — the manifest as installed, its `origin` (`local` · `catalog {slug}`), `enabled`, `granted`, `installed_at` — GEP kind **33407** in the `addons/` namespace | the bundle |
 | **Bundle** | the copy of the folder the node serves, under `addons/<id>/files/`; this machine's, never on the wire | the record |
 | **Grant** | one of the manifest's declared permissions the person gave — exactly as declared, never wider; a subset kept on the record | a capability the app has |
-| **The bridge** | the `postMessage` conversation between the frame and the app: a closed method registry, a permission per method, caps on every field, a rate limit, a storage quota | an IPC, a plugin API |
+| **The bridge** | the `postMessage` conversation between the frame and the app: a closed method registry, a permission per method, caps on every field, a pace on notices and clipboard writes a reload does not reset, a storage quota, a notice under the addon's own name | an IPC, a plugin API |
 | **The library** | `bisa-addon.js` — `window.bisa`, promises over the bridge, served by the node at every addon's root; a bundle may not carry a file of that name | an npm dependency |
 
 ---

@@ -4,7 +4,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { PAGE_CDNS, PAGE_SANDBOX, pageCsp, pageDocument } from "./pageDocument.mjs";
+import { PAGE_CDNS, PAGE_SANDBOX, pageCsp, pageDocument, stagedPageId } from "./pageDocument.mjs";
 import { inspectorTheme } from "./inspectorTheme.mjs";
 import { inspectorScript } from "./pageInspector.mjs";
 
@@ -69,4 +69,10 @@ test("the inspector lands after the policy and before the page's first script, a
   assert.ok(!pageDocument(page, { inspector: null }).includes("bisa:inspect"));
   assert.ok(pageDocument(page, { inspector: THEME }).includes("connect-src 'none'"), "the walls are the same with it");
   assert.equal(PAGE_SANDBOX, "allow-scripts", "and so is the sandbox");
+});
+
+test("a staged page's id is the last segment of its URL, with or without the trailing slash", () => {
+  assert.equal(stagedPageId("bisa-page://page/0123456789abcdef0123456789abcdef/"), "0123456789abcdef0123456789abcdef");
+  assert.equal(stagedPageId("bisa-page://page/abc"), "abc");
+  assert.equal(stagedPageId(""), "");
 });

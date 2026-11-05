@@ -556,18 +556,56 @@ agent.
 
 An artifact ([12 — Artifacts](12-artifacts.md)) is untrusted content the desktop *runs*: a page an
 agent wrote executes its own scripts. It does so inside an `<iframe sandbox="allow-scripts">` with
-no `src` — the node never serves a blob as a page; the desktop fetches the bytes and hands them to
-the frame as `srcdoc` — so the page's origin is opaque and it cannot reach the app's origin, the
-bearer token, `localStorage` or the parent. As a second wall the page carries its own
-Content-Security-Policy, first in its head: no network at all (`connect-src 'none'`, no frames, no
-forms, no base), except scripts, styles and fonts from three public CDNs while
-`artifacts.html.libraries` is on. A figure is drawn as an `<img>`, which runs no script; a document's
-HTML passes DOMPurify's prose profile — and so does a rendered Markdown file's raw HTML, under a
-tighter one (`markdownHtmlModel.PROSE_PROFILE`: no control, media, form or popover either, and no
-`data-*` a README could mint), since the webview runs with no Content-Security-Policy and the
-sanitizer is the wall, while a message's or a note's HTML stays escaped text; a deck is read as text
-and pictures. The shell opens or copies
-only a path shaped like the store's named copy, and no bytes cross its bridge.
+no `src` on the node — the node never serves a blob as a page. In the app the desktop fetches the
+bytes, builds the document and **stages** it with the shell, which serves it from memory under its
+own `bisa-page://page/<id>/` scheme to the main window alone (`src-tauri/src/pages.rs`; `srcdoc` in
+a browser): a document under its own scheme inherits none of the window's policy below — a `srcdoc`
+one would, and go blank under it (CSP3 § 7.8) — and Tauri hands its API to no webview whose URL is
+not the app's own, so the page has no IPC; the id is sixteen random bytes, the page is released when
+its frame goes, and at most sixty-four stand at a time. Under the sandbox the page's origin is opaque,
+so it cannot reach the app's origin, the bearer token, `localStorage` or the parent. As a second wall
+the page carries its own Content-Security-Policy — first in its head, and as a header on the staged
+response: no network except images (`connect-src 'none'`, no frames, no forms, no base), and scripts,
+styles and fonts from three public CDNs while `artifacts.html.libraries` is on. A figure is drawn as
+an `<img>`, which runs no script; a document's HTML passes DOMPurify's prose profile — and so does a
+rendered Markdown file's raw HTML, under a tighter one (`markdownHtmlModel.PROSE_PROFILE`: no
+control, media, form or popover either, and no `data-*` a README could mint; a link's target is
+`http(s):`, `mailto:`, a fragment or a path on this origin — never a protocol-relative `//host`), the
+sanitizer the first wall and the window's own policy the second, while a message's or a note's HTML
+stays escaped text; a deck is read as text and pictures. The shell opens or copies only a path shaped
+like the store's named copy, and no bytes cross its bridge; *Open with the default app* is held, with
+its reason, for a kind the default application could **run** rather than show — a page, a figure, a
+code file, an unknown extension — in the desktop (`opensWithDefaultApp`) and refused again by the
+shell by extension (`OPENABLE_EXTENSIONS`, the two lists held equal by a test).
+
+## The desktop's own page
+
+The window the app runs in carries a **Content-Security-Policy** of its own
+(`desktop/src-tauri/tauri.conf.json` `app.security.csp`; Tauri puts it on the page and adds the hash
+of the one inline script the page carries — the appearance stamp — so no other inline script runs):
+`default-src 'self'`; `script-src 'self'` — no inline script, no eval, so a slip past a sanitizer is
+markup, not a program with the app's reach; `style-src 'self' 'unsafe-inline'` (the libraries inject
+style elements and React writes style attributes; the page carries no `<style>` of its own, pinned,
+since a nonce there would make the allowance inert); images and media from the app, `data:`, `blob:`
+and the node on either name, and images from `https:` (a remote picture in a document keeps loading —
+the person's decision); fonts from the app and `data:`; `connect-src` the app, `blob:`, Tauri's IPC
+(`ipc:` on macOS and Linux, `http://ipc.localhost` on Windows) and the node; `frame-src` the pages'
+`bisa-page:` scheme and the node (an addon's files route) — no frame of the web and none of the app's
+own origin; workers from the app and `blob:`; `object-src 'none'`, `base-uri 'self'`,
+`form-action 'self'`. The development twin (`devCsp`) differs by React's inline refresh preamble and
+the dev server's web socket alone; Vite sends the one on its dev server and the other, with the inline
+script's hash, on its preview, so a browser session and the capture harness see what the app would
+refuse. A refused load is one warning in the log — the directive, what was blocked and where from
+(`log.ts`, `securitypolicyviolation`) — which is what a by-hand pass reads at `logging.level = warn`.
+pdf.js is told to keep off eval (`isEvalSupported: false`), so a PostScript function goes through its
+interpreter. What the policy is not: every command of the shell is callable from the app's own page
+by design, so the policy narrows what a slip can *load* and *run*, never what the page may *ask*;
+`'unsafe-inline'` on styles is the trade for the libraries' injected styles, and a style can still
+exfiltrate nothing without a network directive to carry it. Two more rules stand beside it: a
+production build inlines no `BISA_*` variable (`envPrefix` by mode — a token set on the machine that
+built a release never ships inside the bundle), and a release build of the shell runs only the node
+it shipped or the one `BISA_BIN` names, never a `bisa` on the person's PATH nor a `target/debug/bisa`
+above the folder it was opened from (`sidecar::candidates_from`).
 
 ## Pages a person installed
 

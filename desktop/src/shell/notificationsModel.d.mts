@@ -25,6 +25,7 @@ export declare function readNotifyPrefs(resolved: readonly ResolvedSetting[]): N
 export declare function namesNotifyKey(keys: unknown): boolean;
 export declare function categoryOfState(word: string): NotifyCategory | null;
 export declare function allowed(prefs: NotifyPrefs, category: NotifyCategory): boolean;
+export declare function addonNoticeTitle(addon: string, title: string): string;
 export declare function emptyMemory(): NotifyMemory;
 export declare function onTransition(prev: SessionState | null, row: SessionRow, memory: NotifyMemory): { notice: Notice | null; memory: NotifyMemory };
 export declare function onFrame(payload: EnginePayload, memory: NotifyMemory): { notice: Notice | null; memory: NotifyMemory };

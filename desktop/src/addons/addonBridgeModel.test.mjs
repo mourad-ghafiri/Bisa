@@ -41,6 +41,8 @@ import {
   storageBytes,
   storageSet,
   windowAllows,
+  CLIPBOARD_MIN_MS,
+  resetSession,
 } from "./addonBridgeModel.mjs";
 import { ROUTE_NAMES } from "../routeModel.mjs";
 
@@ -130,14 +132,20 @@ test("a notice is rate-limited per addon and its words are cut", () => {
   const later = handleCall(first.session, call("notify.show", { title: "again" }, "c3"), ctx({ now: 1000 + NOTIFY_MIN_MS }));
   assert.equal(later.effect.type, "notify");
   assert.equal(handleCall(s, call("notify.show", { title: "   " }), ctx()).reply.error.code, "bad_params");
+  // A page that says hello again keeps its clocks: a reload is not a way around the pace.
+  const reloaded = { ...resetSession(first.session, addon(["notify"])), ready: true };
+  assert.equal(reloaded.subscribed, false, "a hello starts the conversation over");
+  assert.equal(handleCall(reloaded, call("notify.show", { title: "again" }, "c4"), ctx({ now: 1000 + NOTIFY_MIN_MS - 1 })).reply.error.code, "rate_limited");
+  assert.equal(handleCall(reloaded, call("notify.show", { title: "again" }, "c5"), ctx({ now: 1000 + NOTIFY_MIN_MS })).effect.type, "notify");
+  assert.equal(handleCall(ready(addon(["notify"])), call("notify.show", { title: "fresh" }), ctx({ now: 1000 + 1 })).effect.type, "notify", "a new frame starts fresh");
 });
 
 test("storage is one bag under a quota, and never the app's own storage", () => {
   const s = ready(addon(["storage"]));
   let storage = {};
   const set = handleCall(s, call("storage.set", { key: "city", value: "Lisbon" }), ctx({ storage }));
-  assert.equal(set.reply.ok, true);
-  assert.deepEqual(set.effect, { type: "storage" });
+  assert.equal(set.reply, null, "the host answers once the write landed — or did not");
+  assert.deepEqual(set.effect, { type: "storage_set", id: "c1" });
   storage = set.storage;
   assert.deepEqual(handleCall(s, call("storage.get", { key: "city" }), ctx({ storage })).reply.result, { value: "Lisbon" });
   assert.deepEqual(handleCall(s, call("storage.get", { key: "nope" }), ctx({ storage })).reply.result, { value: null });
@@ -224,9 +232,13 @@ test("params that cannot be written down are bad, an address that is no URL is r
   assert.equal(paramsOf("url.open", { url: "http://[" }).ok, false, "a URL the parser throws on");
   assert.equal(paramsOf("network.fetch", { url: "http://[" }).ok, false);
   const s = ready(addon(["clipboard_write"]));
-  const written = handleCall(s, call("clipboard.write", { text: "copied" }), ctx());
+  const written = handleCall(s, call("clipboard.write", { text: "copied" }), ctx({ now: 5000 }));
   assert.deepEqual(written.reply, { v: 1, kind: "bisa:reply", id: "c1", ok: true, result: { written: true } });
   assert.deepEqual(written.effect, { type: "clipboard", text: "copied" });
+  // Once in two seconds: the clipboard is the person's, not a channel — and a hello keeps the clock.
+  assert.equal(handleCall(written.session, call("clipboard.write", { text: "again" }, "c2"), ctx({ now: 5000 + CLIPBOARD_MIN_MS - 1 })).reply.error.code, "rate_limited");
+  assert.equal(handleCall(written.session, call("clipboard.write", { text: "again" }, "c3"), ctx({ now: 5000 + CLIPBOARD_MIN_MS })).effect.type, "clipboard");
+  assert.equal(handleCall({ ...resetSession(written.session, addon(["clipboard_write"])), ready: true }, call("clipboard.write", { text: "again" }, "c4"), ctx({ now: 5000 + 1 })).reply.error.code, "rate_limited");
   assert.equal(handleCall(ready(), call("nobody.handles"), ctx()).reply.error.code, "unknown_method");
 });
 

@@ -20,6 +20,7 @@ mod navigation;
 // the modules' own results are handled by hand.
 #[allow(clippy::let_underscore_must_use)]
 mod network;
+mod pages;
 mod pasteboard;
 mod permissions;
 mod png;
@@ -27,6 +28,7 @@ mod png;
 mod ports;
 mod probe;
 mod quit;
+mod random;
 mod second_launch;
 mod sidecar;
 #[allow(clippy::let_underscore_must_use)]
@@ -400,6 +402,10 @@ fn main() {
         .manage(Arc::new(terminal::TerminalRegistry::new()))
         .manage(browser::BrowserRegistry::new())
         .manage(Arc::new(stats::Table::new()))
+        // The pages an agent wrote, staged by the webview and served to it
+        // alone under their own scheme (`pages.rs`, 12 — Artifacts).
+        .manage(pages::PageStore::default())
+        .register_uri_scheme_protocol(pages::SCHEME, pages::protocol)
         // The node is kept up by the shell, not by luck: a child that dies
         // unasked is started again on its port, and the webview is told.
         .setup(|app| {
@@ -527,6 +533,8 @@ fn main() {
             export_file,
             artifacts::open_artifact,
             artifacts::copy_artifact,
+            pages::page_stage,
+            pages::page_release,
             loose::read_loose_file,
             loose::write_loose_file,
             loose::dropped_paths,

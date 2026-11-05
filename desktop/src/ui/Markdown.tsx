@@ -43,7 +43,7 @@ import { gfm, gfmHtml } from "micromark-extension-gfm";
 import { withHeadingIds } from "./headingAnchorsModel.mjs";
 import { delegateLinkClick, useLinkHandler, useLinkRoots } from "./linkContext";
 import { linkifyHtml } from "./linkModel.mjs";
-import { PROSE_PROFILE, isGfmTaskBox, withoutFrontMatter } from "./markdownHtmlModel.mjs";
+import { HAS_PROTOCOL, PROSE_PROFILE, SAFE_PROTOCOL, isGfmTaskBox, withoutFrontMatter } from "./markdownHtmlModel.mjs";
 import { cn } from "./cn";
 import { MermaidView } from "./MermaidView";
 import { mermaidBlocks } from "./mermaidModel.mjs";
@@ -72,10 +72,6 @@ function decodeEntities(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, "&");
 }
-
-const SAFE_PROTOCOL = /^(https?:|mailto:|#|\/)/i;
-/** A protocol, or a protocol-relative URL. Anything else is relative. */
-const HAS_PROTOCOL = /^([a-z][a-z0-9+.-]*:|\/\/)/i;
 
 /**
  * Strip any link or image target that isn't one we vouch for.

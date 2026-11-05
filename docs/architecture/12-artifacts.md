@@ -114,7 +114,8 @@ as a page.
 
 **Bytes, never a URL.** `artifactBytes.ts` fetches `GET /attachments/{sha}` with the bearer
 header and keeps one bounded cache of blob URLs, revoked as they fall out. Nothing renders from a
-node URL: the webview runs with `csp: null`, the node serves a blob as a download unless its magic
+node URL: the webview's own policy ([11 § The desktop's own page](11-security.md#the-desktops-own-page))
+lets it fetch the node and frame nothing of the node's but an addon's files, the node serves a blob as a download unless its magic
 number says it is an image, and a viewer that holds the bytes can hand them to a sandboxed frame, a
 PDF renderer, a spreadsheet parser or a blob URL as it needs. A file in a checkout follows the same
 rule through its own route — `GET /ide/raw/{scope}/{id}?path=`, typed by the same header check,
@@ -127,7 +128,7 @@ its own — one renderer per kind wherever a kind is shown:
 
 | Kind | Renderer | Library (licence) |
 |---|---|---|
-| html | `PageFrame` — `<iframe sandbox="allow-scripts" srcdoc=…>`; in the IDE, with the inspector script when a page is being annotated (ide/03); see *Security* | none |
+| html | `PageFrame` — `<iframe sandbox="allow-scripts">` loading the document staged with the shell under `bisa-page:` (`srcdoc` in a browser); in the IDE, with the inspector script when a page is being annotated (ide/03); see *Security* | none |
 | svg · image | `ImageView` — an `<img>` from the blob URL (an image never runs a script); *View the source* for the figure's text | none |
 | video · audio | `MediaView` — `<video>` / `<audio controls>`; a codec WebKit cannot play says so and offers *Open with the default app* | none |
 | pdf | `PdfView` — pages to canvas as they scroll into view, a page counter, a zoom | `pdfjs-dist` (Apache-2.0), its worker a Vite asset like Monaco's |
@@ -141,7 +142,10 @@ its own — one renderer per kind wherever a kind is shown:
 `ArtifactView` is the whole thing: the toolbar (the kind's glyph, the title, the kind's word, the
 size, a fact the renderer learns — *12 pages*, *120 rows × 6 columns*, *9 slides*) and the verbs —
 **Save as…** (the save dialog, then the shell copies the named copy there), **Reveal in Finder**
-(the platform's word from `revealLabel`), **Open with the default app**, *Copy the text* for a text
+(the platform's word from `revealLabel`), **Open with the default app** — held, with its reason, for a
+kind the default application could *run* rather than show: a page, a figure, a code file, an unknown
+extension (`artifactModel.opensWithDefaultApp`; the shell refuses the same names by extension,
+`OPENABLE_EXTENSIONS`, and a test keeps the two equal) — *Copy the text* for a text
 kind, *Open in the IDE* when the artifact has a source (through the link handler, [ide/17](ide/17-links-and-paths.md)),
 *View the source* for a page or a figure. The named copy is asked of the node once per hash.
 
@@ -181,7 +185,13 @@ A page an agent wrote is untrusted. Two walls, neither depending on the other:
 
 - **The sandbox.** `sandbox="allow-scripts"` and nothing else: the frame's origin is opaque, so the
   page cannot reach the app's origin, the bearer token, `localStorage`, or the parent. The frame has
-  no `src`, only `srcdoc` — the node never serves a page.
+  no `src` on the node — the node never serves a page. In the app the document is **staged** with
+  the shell (`page_stage`) and loaded from the shell's own `bisa-page://page/<id>/` scheme
+  (`src-tauri/src/pages.rs`): a document under its own scheme inherits none of the window's policy
+  — a `srcdoc` one would, and go blank under it (CSP3 § 7.8) — carries the page's as a response
+  header too, has no IPC (Tauri's API reaches no webview whose URL is not the app's own), is served
+  from memory to the main window alone, at most sixty-four at a time, and is released when the frame
+  goes (`page_release`). In a browser the frame keeps `srcdoc`.
 - **The page's own policy.** `pageDocument.mjs` puts a `<meta http-equiv="Content-Security-Policy">`
   first in the page's head: `default-src 'none'`, `connect-src 'none'` (a page that fetches the
   node's port gets nothing back), `frame-src 'none'`, `form-action 'none'`, `base-uri 'none'`;
@@ -213,7 +223,8 @@ inside the store; the shell opens or copies only that shape of path.
 An **addon** ([18 — Addons](18-addons.md)) is the other page the desktop runs that is not its
 own, and it stands behind the same first wall — `sandbox="allow-scripts"`, an opaque origin — with
 two more of its own: its files come from the node under one policy, and the window refuses every
-navigation off them. Where a page artifact is `srcdoc` and may reach three CDNs, an addon is a `src`
+navigation off them. Where a page artifact is a document staged under the shell's `bisa-page:` scheme
+(`srcdoc` in a browser) and may reach three CDNs, an addon is a `src`
 on the node's token-less files route and may reach nothing.
 
 ---

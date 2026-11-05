@@ -7,7 +7,8 @@
 //! "https://evil/?" + what_it_was_told` would leave the machine with what
 //! the person granted. WebKit asks the navigation delegate about every
 //! frame's navigation, and wry hands the URL to `on_navigation`; this module
-//! is the answer: the app's own origin, the empty page, and an addon's
+//! is the answer: the app's own origin, the empty page, a page an agent
+//! wrote staged under the shell's own scheme (`pages.rs`), and an addon's
 //! bundle on the node — nothing else, in no frame.
 
 use tauri::Url;
@@ -23,6 +24,9 @@ pub fn allowed(url: &Url, node_base: Option<&str>) -> bool {
         // The app itself: `tauri://localhost` on macOS, `http(s)://tauri.localhost` elsewhere.
         "tauri" => true,
         "about" => true,
+        // A page an agent wrote, staged by the webview: served from memory
+        // to this window alone, in a sandboxed frame (`pages.rs`).
+        s if s == crate::pages::SCHEME => true,
         "http" | "https" if url.host_str() == Some("tauri.localhost") => true,
         "http" if cfg!(debug_assertions) && url.as_str().starts_with(DEV_SERVER) => {
             // Vite's dev server, in a debug build only.
@@ -76,6 +80,7 @@ mod tests {
             "https://tauri.localhost/x",
             "about:blank",
             "about:srcdoc",
+            "bisa-page://page/0123456789abcdef0123456789abcdef/",
             "http://127.0.0.1:4477/addons/clock/files/index.html",
             "http://127.0.0.1:4477/addons/acme.byte/files/img/a.png",
             "http://127.0.0.1:4477/addons/clock/files/bisa-addon.js",
@@ -100,6 +105,7 @@ mod tests {
             "file:///etc/hosts",
             "data:text/html,hi",
             "blob:tauri://localhost/x",
+            "bisa-pages://page/x/",
             "javascript:alert(1)",
         ] {
             assert!(!allowed(&url(bad), node), "{bad}");

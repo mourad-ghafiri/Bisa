@@ -57,6 +57,7 @@ addons-addons-model-review-asks-for = { $n ->
     [one] It asks for one thing:
    *[other] It asks for { $n } things:
   }
+addons-addons-model-review-scene = It draws over the whole window — a see-through layer under the bars and panels, over any browser tab — and takes your clicks only where it says it is solid
 addons-addons-model-version-licence = Version { $version } · licence { $license }
 ## A page that never said hello (`AddonWindow.tsx`, `AddonScene.tsx`), a window that threw (`AddonLayer.tsx`), a scene's hunt (`AddonScene.tsx`).
 addons-addons-model-not-started = { $name } has not started

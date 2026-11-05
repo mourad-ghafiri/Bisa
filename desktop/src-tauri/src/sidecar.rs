@@ -1294,14 +1294,10 @@ pub(crate) struct Spawned {
     pub leash: ChildStdin,
 }
 
-/// 32 random bytes as hex, from the OS. No dependency: the platform's own
-/// randomness is what every key on this machine already comes from.
+/// 32 random bytes as hex, from the OS (`random.rs`).
 fn mint_token() -> Result<String, String> {
-    let mut bytes = [0u8; 32];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| format!("could not read randomness for the API token: {e}"))?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    crate::random::random_hex(32)
+        .map_err(|e| format!("could not read randomness for the API token: {e}"))
 }
 
 /// Spawn the node with `bin`, leashed and speaking its boot: `keep` is the
@@ -1365,6 +1361,7 @@ pub(crate) fn candidate_binaries() -> Vec<PathBuf> {
         std::env::var_os("BISA_BIN").map(PathBuf::from),
         std::env::current_exe().ok().as_deref(),
         std::env::current_dir().ok().as_deref(),
+        cfg!(debug_assertions),
         |p| p.is_file(),
     )
 }
@@ -1372,14 +1369,19 @@ pub(crate) fn candidate_binaries() -> Vec<PathBuf> {
 /// Where the node may be, in the order it is tried: `BISA_BIN` when set, the
 /// `bisa` beside this executable (the bundle's — `Contents/MacOS/` on macOS,
 /// where `scripts/macos/lib.sh` puts it — so the application is whole
-/// without anything on the machine's PATH), the bare name for PATH's own
-/// resolution, then the repository's `target/debug/bisa` above the executable
-/// and above the working directory. `is_file` is the disk, handed in so the
-/// order is held without one.
+/// without anything on the machine's PATH), and in a **development** build
+/// alone the bare name for PATH's own resolution, then the repository's
+/// `target/debug/bisa` above the executable and above the working
+/// directory. A release build never runs a `bisa` it did not ship: a binary
+/// of that name on the person's PATH, or a `target/debug/bisa` above the
+/// folder the app was opened from, is not the node the application was
+/// built with, and it would hold the token and the workspace. `is_file` is
+/// the disk, handed in so the order is held without one.
 fn candidates_from(
     bisa_bin: Option<PathBuf>,
     exe: Option<&std::path::Path>,
     cwd: Option<&std::path::Path>,
+    development: bool,
     is_file: impl Fn(&std::path::Path) -> bool,
 ) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -1392,20 +1394,22 @@ fn candidates_from(
             out.push(cand);
         }
     }
-    out.push(PathBuf::from("bisa"));
-    if let Some(exe) = exe {
-        for anc in exe.ancestors().skip(1).take(6) {
-            let cand = anc.join("target/debug/bisa");
-            if is_file(&cand) {
-                out.push(cand);
+    if development {
+        out.push(PathBuf::from("bisa"));
+        if let Some(exe) = exe {
+            for anc in exe.ancestors().skip(1).take(6) {
+                let cand = anc.join("target/debug/bisa");
+                if is_file(&cand) {
+                    out.push(cand);
+                }
             }
         }
-    }
-    if let Some(cwd) = cwd {
-        for anc in cwd.ancestors().take(4) {
-            let cand = anc.join("target/debug/bisa");
-            if is_file(&cand) {
-                out.push(cand);
+        if let Some(cwd) = cwd {
+            for anc in cwd.ancestors().take(4) {
+                let cand = anc.join("target/debug/bisa");
+                if is_file(&cand) {
+                    out.push(cand);
+                }
             }
         }
     }
@@ -1783,6 +1787,7 @@ mod tests {
             Some(PathBuf::from("/opt/bisa")),
             Some(exe),
             Some(cwd),
+            true,
             on_disk,
         );
         assert_eq!(
@@ -1795,7 +1800,7 @@ mod tests {
             ],
             "the environment's word, the bundle's neighbour, PATH, then the repository above the exe and above the cwd — each once"
         );
-        let bare = candidates_from(None, None, None, |_| false);
+        let bare = candidates_from(None, None, None, true, |_| false);
         assert_eq!(
             bare,
             vec![PathBuf::from("bisa")],
@@ -1805,12 +1810,52 @@ mod tests {
             None,
             Some(Path::new("/Applications/Bisa.app/Contents/MacOS/app")),
             None,
+            true,
             |p| p == Path::new("/Applications/Bisa.app/Contents/MacOS/bisa"),
         );
         assert_eq!(
             bundle[0],
             PathBuf::from("/Applications/Bisa.app/Contents/MacOS/bisa"),
             "the bundle's node comes before PATH"
+        );
+    }
+
+    /// A release build runs the node it shipped, or the one `BISA_BIN`
+    /// names — never a `bisa` on PATH, never a repository's debug build
+    /// above the folder it was opened from.
+    #[test]
+    fn a_release_build_runs_only_the_bundles_node_or_bisa_bin() {
+        use std::path::{Path, PathBuf};
+        let exe = Path::new("/repo/desktop/src-tauri/target/release/app");
+        let cwd = Path::new("/repo/desktop");
+        let on_disk = |p: &Path| p == Path::new("/repo/target/debug/bisa");
+        assert_eq!(
+            candidates_from(None, Some(exe), Some(cwd), false, on_disk),
+            Vec::<PathBuf>::new(),
+            "no bundle, no `BISA_BIN`: nothing — the shell says `NoBinary`"
+        );
+        assert_eq!(
+            candidates_from(
+                Some(PathBuf::from("/opt/bisa")),
+                Some(exe),
+                Some(cwd),
+                false,
+                on_disk
+            ),
+            vec![PathBuf::from("/opt/bisa")],
+            "the environment's word still stands"
+        );
+        let bundle = Path::new("/Applications/Bisa.app/Contents/MacOS/bisa");
+        assert_eq!(
+            candidates_from(
+                None,
+                Some(Path::new("/Applications/Bisa.app/Contents/MacOS/app")),
+                Some(cwd),
+                false,
+                |p| p == bundle || p == Path::new("/repo/target/debug/bisa"),
+            ),
+            vec![bundle.to_path_buf()],
+            "the bundle's node, and no debug build beside it"
         );
     }
 

@@ -287,8 +287,9 @@ tab (`addonWindowModel.hiddenByLayer`), the rest stays as it was.
 
 ## What a page may reach
 
-Nothing of the app. The tabs' webviews stand in **no capability**, so no page — this machine's or
-the web's — has IPC. The one door out of a page is the shell's own: `browser_open` puts a
+Nothing of the app. Tauri hands its API to no webview whose URL is not the app's own — a remote
+URL has it only when a capability names it under `remote.urls`, and none does — and the tabs'
+webviews stand in **no capability** besides, so no page — this machine's or the web's — has IPC. The one door out of a page is the shell's own: `browser_open` puts a
 `WKScriptMessageHandler` named `bisa` on the tab's user content controller (`door::PageDoor`,
 `objc2-web-kit`), and the page's script posts to `window.webkit.messageHandlers.bisa` — one JSON
 text per message, which the shell parses into one object under `MAX_MESSAGE_BYTES` (anything else
@@ -729,7 +730,8 @@ page's network. The tools do not pretend to them.
 - A served folder is loopback only, never a dotfile, never a hidden folder served whole, never
   above its folder; at most thirty-two at once; the servers are not records.
 - The run phase is never run by the engine (`run_phase` refuses it; the lifecycle phases are three).
-- No page has IPC; a page reaches the main window only through the shell's `bisa` message handler,
+- No page has IPC — Tauri's API reaches no webview whose URL is not the app's own, and no
+  capability names a remote URL; a page reaches the main window only through the shell's `bisa` message handler,
   the same on every origin, and what it says is data the main window bounds — a pick, an answer, a
   title, one of six chord ids — never an instruction.
 - A native layer hides while any surface is open — a dialog, a popover, a menu, a right-click

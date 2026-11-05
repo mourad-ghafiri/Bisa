@@ -9,6 +9,7 @@ export const MAX_PARAMS_BYTES: number;
 export const MAX_NOTIFY_TITLE_CHARS: number;
 export const MAX_NOTIFY_BODY_CHARS: number;
 export const NOTIFY_MIN_MS: number;
+export const CLIPBOARD_MIN_MS: number;
 export const MAX_CLIPBOARD_BYTES: number;
 export const STORAGE_QUOTA_BYTES: number;
 export const MAX_STORAGE_KEY_CHARS: number;
@@ -95,6 +96,7 @@ export interface AddonSession {
   ready: boolean;
   subscribed: boolean;
   lastNotifyAt: number;
+  lastClipboardAt: number;
   title: string | null;
 }
 export interface SessionSource {
@@ -103,6 +105,7 @@ export interface SessionSource {
   granted?: unknown[];
 }
 export function newSession(addon: SessionSource): AddonSession;
+export function resetSession(prev: AddonSession, addon: SessionSource): AddonSession;
 
 export interface Refusal {
   code: RefusalCode | string;
@@ -134,6 +137,7 @@ export type Effect =
   | { type: "notify"; title: string; body: string }
   | { type: "clipboard"; text: string }
   | { type: "storage" }
+  | { type: "storage_set"; id: string }
   | { type: "fetch"; id: string; url: string; accept: string | null }
   | { type: "open_url"; id: string; url: string }
   | { type: "navigate"; route: string }

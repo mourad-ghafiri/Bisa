@@ -12,3 +12,5 @@ export declare const TAG_REST: string;
 export declare const PROSE_PROFILE: ProseProfile;
 export declare function isGfmTaskBox(type: string | null | undefined, disabled: string | null | undefined): boolean;
 export declare function withoutFrontMatter(text: string): string;
+export declare const SAFE_PROTOCOL: RegExp;
+export declare const HAS_PROTOCOL: RegExp;

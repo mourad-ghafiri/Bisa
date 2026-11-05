@@ -49,7 +49,10 @@ export function PdfView({ bytes, className, onFacts }: { bytes: Uint8Array; clas
     setDoc(null);
     setError(null);
     loadPdfjs()
-      .then((lib) => lib.getDocument({ data: bytes.slice() }).promise)
+      // `isEvalSupported: false`: pdf.js compiles PostScript functions with
+      // `new Function` when it may; the window's policy allows no eval, and
+      // the interpreter draws the same.
+      .then((lib) => lib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise)
       .then((d) => {
         if (!live) return void d.destroy();
         opened = d as unknown as PdfDocument;

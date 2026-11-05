@@ -10,9 +10,12 @@
 //! runs in every page the tab loads, and every page has the same one door
 //! out — a script message handler named `bisa` on the tab's user content
 //! controller (`door::PageDoor`), whose words are re-emitted to the main
-//! window as `browser:message`. No page has IPC: the tabs' webviews stand
-//! in no capability, so nothing of the app is reachable from a page,
-//! whatever its origin; what a page says is data the main window bounds.
+//! window as `browser:message`. No page has IPC: Tauri hands its API to no
+//! webview whose URL is not the app's own (a remote URL has it only under a
+//! capability's `remote.urls`, and none names one), and the tabs' webviews
+//! stand in no capability besides, so nothing of the app is reachable from
+//! a page, whatever its origin; what a page says is data the main window
+//! bounds.
 //! A navigation to anything but http(s) or `about:blank` is refused.
 //!
 //! Two things every page says itself, because the webview reads them: its

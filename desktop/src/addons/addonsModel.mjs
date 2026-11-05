@@ -116,13 +116,19 @@ export function grantToggle(granted, declared, permission, on) {
   return [...without, declaredOne];
 }
 
-/** The review before an install: a title and one line per declared permission, or the line that says it asks for nothing. */
+/**
+ * The review before an install: a title, one line per declared permission
+ * or the line that says it asks for nothing, and — for a scene — its
+ * **reach**: it draws over the whole app, which no permission word says.
+ */
 export function reviewWords(manifest) {
   const permissions = sortedPermissions(manifest.permissions ?? []);
+  const scene = frameOf(manifest.window ?? {}) === "scene";
   return {
     title: t("addons-addons-model-review-title", { name: manifest.name }),
     lead: permissions.length === 0 ? t("addons-addons-model-review-asks-nothing") : t("addons-addons-model-review-asks-for", { n: permissions.length }),
     lines: permissions.map((p) => permissionWords(p)),
+    reach: scene ? t("addons-addons-model-review-scene") : null,
     version: t("addons-addons-model-version-licence", { version: manifest.version, license: manifest.license }),
   };
 }

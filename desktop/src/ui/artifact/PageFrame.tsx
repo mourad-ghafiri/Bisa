@@ -1,9 +1,13 @@
 /**
- * A page artifact, live (ide/12): a sandboxed frame with the page as its
- * `srcdoc` and the page's own Content-Security-Policy in its head
- * (`pageDocument.mjs`). No `src`, ever — the node serves nothing an agent
- * wrote as a page — and no `allow-same-origin`: the frame's origin is
- * opaque, so the page cannot reach the app's origin, its token or its storage.
+ * A page artifact, live (ide/12): a sandboxed frame with the page's own
+ * Content-Security-Policy in its head (`pageDocument.mjs`) and, in the
+ * desktop app, the same policy as a header — the document is staged with
+ * the shell and loaded from the shell's own scheme (`useStagedPage`,
+ * `bisa-page://page/<id>/`), since a `srcdoc` document would inherit the
+ * app's own policy and go blank. The node serves nothing an agent wrote as a
+ * page; in a browser the frame keeps `srcdoc`. Never `allow-same-origin`:
+ * the frame's origin is opaque under either, so the page cannot reach the
+ * app's origin, its token or its storage.
  *
  * With `inspector` the document also carries the IDE's inspector script
  * (ide/03 §Annotate), dressed in the app's theme as the document is built,
@@ -17,7 +21,8 @@ import { useMemo } from "react";
 import type { Ref } from "react";
 import { cn } from "../cn";
 import { useInspectorTheme } from "./inspectorTokens";
-import { PAGE_SANDBOX, pageDocument } from "./pageDocument.mjs";
+import { PAGE_SANDBOX, pageCsp, pageDocument } from "./pageDocument.mjs";
+import { useStagedPage } from "./stagedPage";
 
 export function PageFrame({
   html,
@@ -40,19 +45,23 @@ export function PageFrame({
   inspector?: boolean;
   /** The frame's element, for the inspector's wire. */
   frameRef?: Ref<HTMLIFrameElement>;
-  /** The document loaded — again, on every `srcdoc` change. */
+  /** The document loaded — again, on every change of the document. */
   onLoad?: () => void;
 }) {
   const theme = useInspectorTheme();
   // The theme at build only: a later switch is said to the page (`bisa:theme`), never a new document.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const doc = useMemo(() => pageDocument(html, { libraries, scheme: theme.scheme, inspector: inspector ? theme : null }), [html, libraries, inspector]);
+  const csp = useMemo(() => pageCsp({ libraries }), [libraries]);
+  // The shell's URL once staged; `srcdoc` in a browser; nothing while the shell stages.
+  const page = useStagedPage(doc, csp);
+  if (!page) return null;
   return (
     <iframe
       ref={frameRef}
       title={title}
       sandbox={PAGE_SANDBOX}
-      srcDoc={doc}
+      {...page}
       referrerPolicy="no-referrer"
       onLoad={onLoad}
       className={cn("block h-full w-full border-0 bg-white", inert && "pointer-events-none", className)}

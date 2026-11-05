@@ -16,6 +16,12 @@ import { grantToggle, isGranted, overlayRows, reviewWords, stateWords, switchWor
 import { dockBox, placementOf } from "../ui/dockModel.mjs";
 
 const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
+/** Where `needle` stands in `text` — and that it stands there at all, so an order pin never passes on two absences. */
+const at = (text, needle) => {
+  const i = text.indexOf(needle);
+  assert.notEqual(i, -1, `missing: ${needle}`);
+  return i;
+};
 const root = new URL("../../../", import.meta.url);
 
 const BUILT_INS = ["bug-hunt", "calculator", "clock", "cpu", "disk", "gpu", "linefeed", "linerun", "media-player", "memory", "needs-you", "pomodoro", "sticky-note", "stopwatch", "tetrominal", "tic-tac-toe", "unit-converter", "weather"];
@@ -85,7 +91,7 @@ test("the window is a sandboxed frame with an opaque origin and a token-less sou
   assert.match(api, /addonFileUrl: \(id: string, path: string\) => `\$\{apiBaseSync\(\)\}\/addons\//);
   const app = src("../App.tsx");
   const host = src("../addons/AddonsHost.tsx");
-  assert.ok(app.indexOf("<PetCompanion />") < app.indexOf("<AddonsHost "), "the addons mount after the pet");
+  assert.ok(at(app, "<PetCompanion />") < at(app, "<AddonsHost "), "the addons mount after the pet");
   assert.ok(host.includes('name="addons"') && host.includes('name="addons sync"'), "the layer and the list's sync each in a boundary of their own");
   assert.ok(host.includes("resetKey={`${resetKey}:${layerShown}`}"), "the layer's switch revives a layer that fell");
   const bar = src("../shell/StatusBar.tsx");
@@ -112,11 +118,11 @@ test("the window is a sandboxed frame with an opaque origin and a token-less sou
   assert.ok(layer.includes("<AddonBoundary key={addon.id} addon={addon}>") && layer.includes("setAddonHidden(addon.id, true);"), "each addon in a boundary of its own, put away when it throws");
   const bridge = src("../addons/addonBridge.ts");
   assert.ok(bridge.includes("}, [epoch, session]);") && !bridge.includes("}, [addon]);"), "the bridge's session lives as long as its frame — never reset by a re-read");
-  assert.ok(bridge.includes("session.current = { ...newSession(latest.current.addon), ready: true };"), "a hello is a page loaded afresh: the session starts over");
+  assert.ok(bridge.includes("session.current = { ...resetSession(session.current, latest.current.addon), ready: true };"), "a hello is a page loaded afresh: the session starts over, its clocks kept");
   assert.ok(bridge.includes("}, START_DEADLINE_MS);") && windowSrc.includes('onStartMissed: () => setStart("missed")'), "a page that never says hello is said in the box");
   const mediaHost = src("../addons/addonMediaHost.ts");
   assert.ok(mediaHost.includes("const chains = new Map<string, Promise<void>>();") && mediaHost.includes("enqueue(chains, key, step)"), "one chain per key, across instances");
-  assert.ok(mediaHost.indexOf("await closeBrowserView(key).catch(() => {});") < mediaHost.indexOf("await openBrowserPage(key, html, NO_SCRIPT, false);"), "the key is closed before it is opened");
+  assert.ok(at(mediaHost, "await closeBrowserView(key).catch(nothingToClose(key));") < at(mediaHost, "await openBrowserPage(key, html, NO_SCRIPT, false);"), "the key is closed before it is opened");
   assert.ok(windowSrc.includes("useDockDrag(box, viewport, setDock)") && windowSrc.includes("wasDragging.current && !drag.dragging"), "a drag writes once, when it ends");
   assert.ok(!windowSrc.includes("onShield(drag.dragging), [drag.dragging"), "the shield moves on a drag's edges, never on mount");
   assert.ok(windowSrc.includes("frameKeyOf(addon, reloads)") && src("../addons/AddonScene.tsx").includes("frameKeyOf(addon)"), "the frame's key is the model's, on both kinds");
@@ -174,7 +180,8 @@ test("a person installs, grants, shows, moves, resizes, closes and switches off 
   addon = { ...addon, granted };
   session = { ...newSession(addon), ready: true };
   const stored = handleCall(session, { id: "c2", method: "storage.set", params: { key: "city", value: "Lisbon" } }, ctx);
-  assert.equal(stored.reply.ok, true);
+  assert.equal(stored.reply, null, "the host answers with whether this machine's storage took it");
+  assert.deepEqual(stored.effect, { type: "storage_set", id: "c2" });
   assert.deepEqual(stored.storage, { city: "Lisbon" });
   // Network stays refused until granted; granted, it only ever goes to the node.
   assert.equal(handleCall(session, { id: "c3", method: "network.fetch", params: { url: "https://api.open-meteo.com/x" } }, ctx).reply.error.code, "permission");

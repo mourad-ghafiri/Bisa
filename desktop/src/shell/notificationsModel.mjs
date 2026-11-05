@@ -77,6 +77,16 @@ export function allowed(prefs, category) {
   return CATEGORIES.includes(category) ? prefs[category] !== false && !(category === "done" && prefs.done !== true) : false;
 }
 
+/**
+ * An addon's notice wears the addon's name before its own title — never
+ * *Bisa — …*, so a notice an addon sends cannot be read as the app's word.
+ * @param {string} addon the addon's name as the manifest says it
+ * @param {string} title the title the addon asked for, already cut
+ */
+export function addonNoticeTitle(addon, title) {
+  return t("shell-notifications-addon-title", { addon, title });
+}
+
 /** How many gate ids are remembered before the oldest are forgotten. */
 export const MEMORY_CAP = 200;
 

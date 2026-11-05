@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CATEGORIES, MEMORY_CAP, NOTIFY_DEFAULTS, NOTIFY_KEYS, allowed, categoryOfState, emptyMemory, namesNotifyKey, onFrame, onTransition, readNotifyPrefs } from "./notificationsModel.mjs";
+import { CATEGORIES, MEMORY_CAP, NOTIFY_DEFAULTS, NOTIFY_KEYS, addonNoticeTitle, allowed, categoryOfState, emptyMemory, namesNotifyKey, onFrame, onTransition, readNotifyPrefs } from "./notificationsModel.mjs";
 
 const row = (state, extra = {}) => ({
   id: "01L", kind: "worker", state, since: 1, harness: "claude-code", cost: { input_tokens: 0, output_tokens: 0, usd_cents: 0 }, children: [], last_activity: 1, ...extra,
@@ -144,4 +144,11 @@ test("a notice's body says who and what in the wait's own words — never a labe
   assert.equal(failed({ state: "failed", reason: "" }), "dev: failed");
   const model = readFileSync(new URL("./notificationsModel.mjs", import.meta.url), "utf8");
   assert.ok(!model.includes(".replace(/^waiting") && !model.includes('?? "failed"'), "no English is cut or spelt in the model: a translation would break the one and miss the other");
+});
+
+test("an addon's notice wears the addon's name, never the app's", () => {
+  assert.equal(addonNoticeTitle("Clock", "Tea is ready"), "Clock — Tea is ready");
+  assert.ok(!addonNoticeTitle("Bisa Helper", "Bisa — waiting on you").startsWith("Bisa —"), "a forged title still sits behind the addon's name");
+  const bridge = readFileSync(new URL("../addons/addonBridge.ts", import.meta.url), "utf8");
+  assert.ok(bridge.includes("deliverNotice(addonNoticeTitle(latest.current.addon.manifest.name, effect.title), effect.body)"), "the bridge delivers every notice under the addon's name");
 });

@@ -98,6 +98,29 @@ notes (`docs/contributing/release.md`).
   page, an asset elsewhere is left out.
 - The download-to-shell rule now reads a shell at the end of a quoted pipeline (`bash -c "curl …
   | sh"`), which slipped past its anchor before.
+- **The desktop's window carries a Content-Security-Policy.** No inline script and no eval run in
+  the app's own page — a slip past a sanitizer is markup, not a program with the app's reach —
+  and the page loads only from itself, the node, Tauri's IPC and (for images) `https:`; a refused
+  load is one warning in the log with the directive, what was blocked and where from. The pages an
+  agent wrote are no longer `srcdoc` frames, which would inherit that policy and go blank: the
+  desktop stages a page with the shell, which serves it from memory under its own `bisa-page:`
+  scheme to the main window alone, with the page's own policy as a header, no IPC and an opaque
+  origin, released when the frame goes.
+- ***Open with the default app* opens only what the default application can only show** —
+  pictures, sound and video, a PDF, a sheet, a document, a deck, Markdown, text and data; a page, a
+  figure, a code file or an unknown extension (`.command`, `.webloc`, `.pkg`…) is held in the
+  desktop with the reason on the button and refused again by the shell by extension.
+- **A release build of the desktop runs only the node it shipped**, or the one `BISA_BIN` names —
+  never a `bisa` found on the PATH nor a `target/debug/bisa` above the folder it was opened from.
+- **A production build of the desktop inlines no `BISA_*` variable**: a token set on the machine
+  that built a release never ships inside the bundle.
+- **Addons**: a notice is shown under the addon's own name, never as *Bisa — …*; a page that
+  reloads itself keeps its rate clocks, so a reload is not a way around the pace of notices; a
+  clipboard write is paced to one every two seconds; `storage.set` answers whether this machine's
+  storage took the write instead of promising it did; a scene's install review says it draws over
+  the whole app.
+- A Markdown link whose target is protocol-relative (`//host/x`) is no longer vouched for as a
+  path; pdf.js is kept off eval.
 
 ### Added
 
@@ -111,6 +134,13 @@ notes (`docs/contributing/release.md`).
 - The data root is made `0700` at the next open; another account on the machine loses traversal.
 - An engine-driven Claude Code session no longer loads a checkout's settings or `.mcp.json` by
   default; an agent that needs a checkout's MCP server installs it in the registry.
+- *Open with the default app* is held for a page, a figure, a code file and every unknown
+  extension; `open_artifact` refuses those names.
+- A release build of the desktop no longer falls back to a `bisa` on the PATH or a repository's
+  debug build; a development build still does.
+- An addon's `storage.set` answers `{stored: false}` when the browser's storage refused the
+  write; `clipboard.write` can answer `rate_limited`; a notice's title is prefixed with the
+  addon's name.
 
 ## [0.6.0] - 2026-10-28
 

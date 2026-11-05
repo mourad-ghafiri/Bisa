@@ -28,6 +28,8 @@ export const MAX_NOTIFY_TITLE_CHARS = 100;
 export const MAX_NOTIFY_BODY_CHARS = 200;
 /** The least time between two notices of one addon. */
 export const NOTIFY_MIN_MS = 10_000;
+/** The least time between two clipboard writes by one addon: the person's clipboard is not a channel. */
+export const CLIPBOARD_MIN_MS = 2_000;
 export const MAX_CLIPBOARD_BYTES = 64 * 1024;
 /** The most one addon may keep, keys and values together. */
 export const STORAGE_QUOTA_BYTES = 256 * 1024;
@@ -381,11 +383,31 @@ export function newSession(addon) {
     ready: false,
     subscribed: false,
     lastNotifyAt: Number.NEGATIVE_INFINITY,
+    lastClipboardAt: Number.NEGATIVE_INFINITY,
     title: null,
   };
 }
 
 /** @typedef {ReturnType<typeof newSession>} AddonSession */
+
+/**
+ * The session after a page said hello again — loaded afresh, by the host
+ * or by itself: a new conversation (nothing it subscribed to or named
+ * carries over) that keeps its **clocks**, so a reload is not a way around
+ * the pace of notices and clipboard writes. A new frame (`epoch`) starts
+ * from `newSession` instead.
+ * @param {AddonSession} prev
+ * @param {Parameters<typeof newSession>[0]} addon
+ * @returns {AddonSession}
+ */
+export function resetSession(prev, addon) {
+  return { ...newSession(addon), lastNotifyAt: prev.lastNotifyAt, lastClipboardAt: prev.lastClipboardAt };
+}
+
+/** Whether a paced call comes too soon after the last one on `field`. */
+function tooSoon(session, field, minMs, now) {
+  return now - session[field] < minMs;
+}
 
 /** @param {string} code @param {string} [message] */
 export function refusal(code, message) {
@@ -534,17 +556,21 @@ export function handleCall(session, call, ctx) {
     case "workspace.summary":
       return { ...same, reply: okReply(call.id, ctx.summary ?? null) };
     case "notify.show": {
-      if (ctx.now - session.lastNotifyAt < NOTIFY_MIN_MS) return { ...same, reply: errorReply(call.id, "rate_limited") };
+      if (tooSoon(session, "lastNotifyAt", NOTIFY_MIN_MS, ctx.now)) return { ...same, reply: errorReply(call.id, "rate_limited") };
       return { ...same, session: { ...session, lastNotifyAt: ctx.now }, reply: okReply(call.id, { shown: true }), effect: { type: "notify", title: p.title, body: p.body } };
     }
-    case "clipboard.write":
-      return { ...same, reply: okReply(call.id, { written: true }), effect: { type: "clipboard", text: p.text } };
+    case "clipboard.write": {
+      if (tooSoon(session, "lastClipboardAt", CLIPBOARD_MIN_MS, ctx.now)) return { ...same, reply: errorReply(call.id, "rate_limited") };
+      return { ...same, session: { ...session, lastClipboardAt: ctx.now }, reply: okReply(call.id, { written: true }), effect: { type: "clipboard", text: p.text } };
+    }
     case "storage.get":
       return { ...same, reply: okReply(call.id, { value: Object.hasOwn(ctx.storage, /** @type {string} */ (p.key)) ? ctx.storage[/** @type {string} */ (p.key)] : null }) };
     case "storage.set": {
       const set = storageSet(ctx.storage, /** @type {string} */ (p.key), /** @type {string} */ (p.value));
       if ("error" in set) return { ...same, reply: errorReply(call.id, "quota") };
-      return { ...same, storage: set.bag, reply: okReply(call.id, { stored: true }), effect: { type: "storage" } };
+      // Answered by the host once the write landed — or did not: `stored`
+      // is whether this machine's storage took it, never a promise.
+      return { ...same, storage: set.bag, reply: null, effect: { type: "storage_set", id: call.id } };
     }
     case "storage.remove": {
       const next = { ...ctx.storage };

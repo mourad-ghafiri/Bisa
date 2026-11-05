@@ -20,6 +20,12 @@ import { urlCard } from "../shell/linkCardModel.mjs";
 
 const src = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(join(src, rel), "utf8");
+/** Where `needle` stands in `text` — and that it stands there at all, so an order pin never passes on two absences. */
+const at = (text, needle) => {
+  const i = text.indexOf(needle);
+  assert.notEqual(i, -1, `missing: ${needle}`);
+  return i;
+};
 
 test("both hosts draw the one bar with the wand on it, over a body the browser chords are live in", () => {
   for (const host of ["views/_workbench/BrowserDoc.tsx", "shell/BrowserPane.tsx"]) {
@@ -143,7 +149,7 @@ test("the footer's Browser count tells the truth: it follows the browser's switc
     assert.ok(stat.includes(fact), `the read-out ${fact}`);
   }
   assert.ok(!stat.includes("ICON.hidden"), "one glyph: the eye names a dimension in the overlay, never the bar");
-  assert.ok(stat.indexOf("useLayerSlot(\"aux\")") < stat.indexOf("if (!canOpenBrowser()) return null;"), "every hook before the gate");
+  assert.ok(at(stat, "useLayerSlot(\"aux\")") < at(stat, "if (!canOpenBrowser()) return null;"), "every hook before the gate");
   const model = read("shell/browserStatModel.mjs");
   for (const fact of ["groupTabs(", "whereWords(", "footerBrowserWords(", "seenSessions(", "visibilityWords(", "busyWords("]) {
     assert.ok(model.includes(fact), `the read-out's model composes ${fact}`);
@@ -156,7 +162,7 @@ test("the footer's Browser count tells the truth: it follows the browser's switc
   assert.ok(!read("shell/browsersModel.mjs").includes("export function homeWords"), "the id-printing words are gone");
   assert.ok(read("App.tsx").includes("resetKey={routeKey} onError={(error, info) => log.error(\"browser\""), "the browser layer's boundary resets with the route");
   const panel = read("shell/BrowserPanel.tsx");
-  assert.ok(panel.indexOf("forgetBrowserWork(key)") < panel.indexOf("if (!available) return;\n    for (const s of sessions) {"), "a tab that left is forgotten whatever the shell is");
+  assert.ok(at(panel, "forgetBrowserWork(key)") < at(panel, "if (!available) return;\n    for (const s of sessions) {"), "a tab that left is forgotten whatever the shell is");
   assert.ok(read("shell/browserShots.ts").includes("AbortSignal.timeout(UPLOAD_MS)"), "an upload ends, one way or the other");
   assert.ok(read("shell/useBrowsers.ts").includes("prefs.read && prefs.enabled"), "no browser before the settings are read");
 });
@@ -226,7 +232,7 @@ test("the camera is two buttons and no screenshot is asked of a hidden page: the
   assert.ok(bar.includes('why: t("shell-browser-bar-screenshot-being-taken")'), "held while a shot is taken, with the reason");
   // One door for a shot: it waits until the tab shows, and refuses in words the bridge tells apart.
   const shots = read("shell/browserShots.ts");
-  assert.ok(shots.indexOf("await untilShown(key)") < shots.indexOf("screenshotBrowserView("), "the wait comes before the ask");
+  assert.ok(at(shots, "await untilShown(key)") < at(shots, "screenshotBrowserView("), "the wait comes before the ask");
   assert.ok(shots.includes("export class NotShownError extends Error"), "a refusal the caller can tell apart");
   assert.ok(shots.includes("copyImage(") && !shots.includes("navigator.clipboard"), "the picture goes through the kit's clipboard door, never the webview's own");
   const bridge = read("shell/browserBridge.ts");
@@ -237,7 +243,7 @@ test("the camera is two buttons and no screenshot is asked of a hidden page: the
   assert.ok(shown.includes("if (shownNow(key)) return Promise.resolve(true);"), "a tab already showing is not made to wait");
   // The shell: a hidden view is refused before WebKit is asked anything.
   const shell = read("../src-tauri/src/browser.rs");
-  assert.ok(shell.indexOf("web.isHiddenOrHasHiddenAncestor()") < shell.indexOf("WKSnapshotConfiguration::new(mtm)"), "the hidden check comes before the snapshot is configured");
+  assert.ok(at(shell, "web.isHiddenOrHasHiddenAncestor()") < at(shell, "WKSnapshotConfiguration::new(mtm)"), "the hidden check comes before the snapshot is configured");
   assert.ok(shell.includes("pub const SNAPSHOT_HIDDEN") && shell.includes("pub const SNAPSHOT_LATE"), "two refusals, named");
   // The picture's clipboard door is the shell's, like the text's.
   const main = read("../src-tauri/src/main.rs");

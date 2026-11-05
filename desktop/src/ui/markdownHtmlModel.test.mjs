@@ -6,7 +6,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { PROSE_PROFILE, TAG_REST, isGfmTaskBox, withoutFrontMatter } from "./markdownHtmlModel.mjs";
+import { PROSE_PROFILE, TAG_REST, isGfmTaskBox, withoutFrontMatter, HAS_PROTOCOL, SAFE_PROTOCOL } from "./markdownHtmlModel.mjs";
 
 test("the profile is DOMPurify's HTML allow-list with nothing that runs, styles, frames, submits, plays, pops over or hides — and no data attribute a README could mint", () => {
   assert.deepEqual(PROSE_PROFILE.USE_PROFILES, { html: true });
@@ -61,4 +61,11 @@ test("a tag is read to its first > outside a double-quoted value, so a > inside 
   const found = [...html.matchAll(tag)].map((m) => m[0]);
   assert.deepEqual(found, ['<abbr title="a > b">', "</abbr>", '<img alt="1 > 0" src="./y.png">', "<b>", "</b>"]);
   assert.deepEqual([...'<p class="x">text</p>'.matchAll(tag)].map((m) => m[1]), ["p", "p"], "the name is the first capture");
+});
+
+test("a vouched-for target is http(s), mailto, a fragment or a path on this origin — never a protocol-relative URL", () => {
+  for (const ok of ["https://example.test/x", "HTTP://example.test", "mailto:a@b.test", "#top", "/docs/readme", "/"]) assert.ok(SAFE_PROTOCOL.test(ok), ok);
+  for (const no of ["//evil.test/x", "javascript:alert(1)", "data:text/html,hi", "vbscript:x", "file:///etc/hosts", "ftp://x", "./relative.png", "relative.png", ""]) assert.ok(!SAFE_PROTOCOL.test(no), no);
+  for (const has of ["https://x", "//host/x", "data:x", "bisa://join/x"]) assert.ok(HAS_PROTOCOL.test(has), has);
+  for (const rel of ["./a.png", "a.png", "/a.png", "#x"]) assert.ok(!HAS_PROTOCOL.test(rel), rel);
 });

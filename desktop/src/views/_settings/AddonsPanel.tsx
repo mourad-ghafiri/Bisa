@@ -124,6 +124,7 @@ function ReviewDialog({ review, busy, onClose, onConfirm, onGrant, onEnable }: {
         <div className="flex flex-col gap-2 text-2xs">
           <p className="text-text-dim">{words.version}</p>
           <p>{words.lead}</p>
+          {words.reach && <p>{words.reach}</p>}
           {review.kind === "catalog" ? (
             <ul className="list-disc pl-4">
               {words.lines.map((line, i) => (

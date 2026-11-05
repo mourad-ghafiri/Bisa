@@ -9,7 +9,7 @@ export function permissionWords(permission: AddonPermission | unknown): string;
 export function sortedPermissions<T>(permissions: readonly T[]): T[];
 export function isGranted(granted: readonly AddonPermission[], permission: AddonPermission): boolean;
 export function grantToggle(granted: readonly AddonPermission[], declared: readonly AddonPermission[], permission: AddonPermission, on: boolean): AddonPermission[];
-export function reviewWords(manifest: Pick<AddonManifest, "name" | "version" | "license" | "permissions">): { title: string; lead: string; lines: string[]; version: string };
+export function reviewWords(manifest: Pick<AddonManifest, "name" | "version" | "license" | "permissions"> & { window?: object | null }): { title: string; lead: string; lines: string[]; reach: string | null; version: string };
 export function problemLines(problems: readonly AddonProblem[], tx: (text: AddonProblem["text"]) => string): string[];
 export function sortAddons(addons: readonly Addon[]): Addon[];
 export function offerRows(offers: readonly AddonOffer[]): AddonOffer[];

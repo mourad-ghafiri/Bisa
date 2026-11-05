@@ -14,9 +14,10 @@
  * The session is the frame's: it starts over when the frame's key moves
  * (`epoch` — the page reloads) and with every hello — a page loaded afresh,
  * by the host or by itself, is a new conversation, so nothing it subscribed
- * to, named or was rate-limited on carries over. A page that says no hello
- * within `START_DEADLINE_MS` of its key is said to the window
- * (`onStartMissed`) and to the log.
+ * to or named carries over; its clocks do (`resetSession`), so a page that
+ * reloads itself is not past the pace of notices and clipboard writes. A
+ * page that says no hello within `START_DEADLINE_MS` of its key is said to
+ * the window (`onStartMissed`) and to the log.
  */
 
 import { useCallback, useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from "react";
@@ -25,12 +26,13 @@ import { locale } from "../i18n/l10n.mjs";
 import { errorFields, log } from "../log";
 import { navigate, type Route } from "../router";
 import { deliverNotice } from "../shell/notifications";
+import { addonNoticeTitle } from "../shell/notificationsModel.mjs";
 import { readPref, webStorage, writePref } from "../shell/storedPrefModel.mjs";
 import type { HostLoad } from "../shell/statsApi";
 import type { Addon } from "../types";
 import { copyText, useThemeNonce } from "../ui";
 import { currentScheme } from "../ui/artifact/inspectorTokens";
-import { STORAGE_KEY_PREFIX, errorReply, eventMessage, fetchResult, handleCall, helloMessage, newSession, okReply, parseAddonMessage, refusedCode, storageBag } from "./addonBridgeModel.mjs";
+import { STORAGE_KEY_PREFIX, errorReply, eventMessage, fetchResult, handleCall, helloMessage, newSession, okReply, parseAddonMessage, refusedCode, resetSession, storageBag } from "./addonBridgeModel.mjs";
 import type { AddonEvent, AddonSession, Effect, PlayerBox, Reply, SceneMode, SceneRect, StorageBag } from "./addonBridgeModel.mjs";
 import { START_DEADLINE_MS } from "./addonsModel.mjs";
 
@@ -154,13 +156,18 @@ export function useAddonBridge(
       const h = latest.current.handlers;
       switch (effect.type) {
         case "notify":
-          void deliverNotice(effect.title, effect.body);
+          // Under the addon's name, so a notice is never read as the app's word.
+          void deliverNotice(addonNoticeTitle(latest.current.addon.manifest.name, effect.title), effect.body);
           return;
         case "clipboard":
           void copyText(effect.text).catch((e: unknown) => log.debug("addons", "the clipboard did not take the text", errorFields(e)));
           return;
         case "storage":
           writePref(webStorage(), STORAGE_KEY_PREFIX + addon.id, JSON.stringify(storage.current));
+          return;
+        case "storage_set":
+          // The answer is the write's own: `false` when this machine's storage would not take it.
+          answer(okReply(effect.id, { stored: writePref(webStorage(), STORAGE_KEY_PREFIX + addon.id, JSON.stringify(storage.current)) }), "storage.set");
           return;
         case "fetch":
           void api
@@ -224,8 +231,8 @@ export function useAddonBridge(
       const parsed = parseAddonMessage(e.data);
       if (!parsed) return;
       if (parsed.kind === "hello") {
-        // A hello is a page loaded afresh: the conversation starts over.
-        session.current = { ...newSession(latest.current.addon), ready: true };
+        // A hello is a page loaded afresh: the conversation starts over — its clocks kept.
+        session.current = { ...resetSession(session.current, latest.current.addon), ready: true };
         post(helloMessage(session.current, { locale: locale(), scheme: currentScheme() }));
         post(eventMessage("visibility", { visible: latest.current.visible }));
         latest.current.handlers.onReady?.();

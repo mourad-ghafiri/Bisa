@@ -426,8 +426,9 @@ it failed or was stopped.
     the wheel. `EditorDoc` (rendered and split, the identity carrying the mode and whether the
     document is drawn) and `RenderedFileDoc` use it; `keptScrollModel.test.mjs` refuses a viewer
     under `ui/artifact/` whose scrollport is unmarked;
-  - **an HTML page** — a sandboxed `srcdoc` frame, whose scroll the parent cannot read and which
-    reloads at the top on every `srcdoc` change: a tab come back to, and **every keystroke in
+  - **an HTML page** — a sandboxed frame (the document staged with the shell and loaded from its
+    `bisa-page:` scheme in the app, `srcdoc` in a browser — 12 § Security), whose scroll the parent
+    cannot read and which reloads at the top on every change of the document: a tab come back to, and **every keystroke in
     Split**. The inspector's wire carries it (`pageInspector.mjs`): the page says `bisa:place` once
     a frame while it scrolls, and after each load the app says `bisa:place-to` with the kept
     offsets, asked again for a few frames while the page lays out (`usePageInspector`'s `place` and

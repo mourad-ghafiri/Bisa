@@ -50,6 +50,15 @@ export function pageCsp({ libraries }) {
   ].join("; ");
 }
 
+/**
+ * The id in a staged page's URL — `bisa-page://page/<id>/` → `<id>` — what
+ * `page_release` takes back (`src-tauri/src/pages.rs`).
+ * @param {string} url
+ */
+export function stagedPageId(url) {
+  return String(url).replace(/\/+$/, "").split("/").pop() ?? "";
+}
+
 function escapeAttr(s) {
   return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }

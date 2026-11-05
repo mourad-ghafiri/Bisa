@@ -27,7 +27,7 @@ import { Menu } from "../Menu";
 import { sayFailure } from "../failure";
 import { useToast } from "../Toast";
 import { Tooltip } from "../Tooltip";
-import { bytesWords, isTextKind, kindWords } from "./artifactModel.mjs";
+import { bytesWords, isTextKind, kindWords, opensWithDefaultApp } from "./artifactModel.mjs";
 import { loadArtifactBytes, textOf, useArtifactBytes } from "./artifactBytes";
 import { KindView } from "./KindView";
 import { TextView } from "./TextView";
@@ -123,13 +123,18 @@ export function ArtifactView({
     }
   };
 
+  // The default application is handed only what it can only show (12 §
+  // Security): a page, a figure, a script or an unknown kind stays inside,
+  // and the button says why. The shell asks the same question again.
+  const openable = opensWithDefaultApp(artifact.name);
   // An artifact written inside a root the IDE opens has a door there; one in
   // a run in the workspace's folder has none — the IDE roots at no run.
   const source = artifact.source ?? null;
   const ideScope = source && source.scope !== "run" ? source.scope : null;
   const more = [
     ...(text !== null ? [{ label: t("ui-artifact-view-copy-text"), icon: ICON.copy, onSelect: () => void copy() }] : []),
-    ...(shell ? [{ label: reveal, icon: ICON.reveal, onSelect: () => void revealIt() }, { label: t("ui-artifact-view-open-default-app"), icon: ICON.file, onSelect: () => void openWith() }] : []),
+    ...(shell ? [{ label: reveal, icon: ICON.reveal, onSelect: () => void revealIt() }] : []),
+    ...(shell && openable ? [{ label: t("ui-artifact-view-open-default-app"), icon: ICON.file, onSelect: () => void openWith() }] : []),
     ...(source && ideScope && link
       ? [
           {
@@ -149,7 +154,9 @@ export function ArtifactView({
   ];
 
   const openWithVerb = shell ? (
-    <Button size="sm" variant="ghost" onClick={() => void openWith()}>{t("ui-artifact-view-open-default-app")}</Button>
+    <Button size="sm" variant="ghost" onClick={() => void openWith()} disabled={!openable} disabledReason={openable ? undefined : t("ui-artifact-view-open-held")}>
+      {t("ui-artifact-view-open-default-app")}
+    </Button>
   ) : null;
 
   let body: ReactNode;

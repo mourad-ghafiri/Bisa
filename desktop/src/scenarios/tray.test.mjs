@@ -87,7 +87,7 @@ test("one count outside the window: the tray hook wears the Dock badge, notifica
   assert.ok(notes.includes('category: "addons"') && notes.includes('category: "app"'), "an addon's notice and the app's own wear their categories");
   const guard = read("shell/useCloseGuard.ts");
   assert.ok(guard.includes("deliverAppNotice(") && !guard.includes("sendNotification"), "the close guard's notice goes through the door");
-  assert.ok(read("addons/addonBridge.ts").includes("deliverNotice(effect.title, effect.body)"), "the bridge hands its notify effect to the door");
+  assert.ok(read("addons/addonBridge.ts").includes("deliverNotice(addonNoticeTitle(latest.current.addon.manifest.name, effect.title), effect.body)"), "the bridge hands its notify effect to the door, under the addon's name");
   const appSrc = read("App.tsx");
   assert.ok(appSrc.includes("useNotifySettings();") && appSrc.includes("useNotifications();"), "the switches are followed once, in App");
   assert.ok(read("views/_settings/SystemPanel.tsx").includes("<NotificationsCard"), "the switches are drawn under System");

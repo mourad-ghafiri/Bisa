@@ -105,4 +105,16 @@ export function installGlobalLogHandlers(): void {
   window.addEventListener("pagehide", () => {
     log.info("window", "page hidden", { path: window.location.pathname });
   });
+  // The window's Content-Security-Policy (`tauri.conf.json`, 11 — Security
+  // § The desktop's own page) refused a load: the one line that says which
+  // directive, what, and from where — what a by-hand pass reads.
+  window.addEventListener("securitypolicyviolation", (ev) => {
+    log.warn("csp", "the content security policy blocked a load", {
+      directive: ev.violatedDirective,
+      blocked: ev.blockedURI,
+      file: ev.sourceFile,
+      line: ev.lineNumber,
+      disposition: ev.disposition,
+    });
+  });
 }
