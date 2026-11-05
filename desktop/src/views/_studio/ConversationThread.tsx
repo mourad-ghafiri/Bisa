@@ -9,10 +9,12 @@
  * The composer has what the IDE's has: the **addressee** — who an
  * unaddressed message reaches — as the pill at the head of the address tray,
  * and **Stop** beside *Send* while a turn runs (the roster's rows for this
- * conversation, `conversationPaneModel.turnSummary`). The pill is read-only
- * here: an owned conversation's default agent is the workspace layer's, and a
- * thread is no place to rewrite a workspace setting — `@` names another
- * agent for one message.
+ * conversation, `conversationPaneModel.turnSummary`). The pill reads the
+ * engine's own order (`addressee`): the conversation's own agent when it has
+ * one — the Workflow Agent in a conversation about a workflow — else the
+ * workspace layer's `agents.default`, else the General Agent. It is
+ * read-only here: a thread is no place to rewrite a workspace setting — `@`
+ * names another agent for one message.
  */
 
 import { useMemo } from "react";
@@ -21,6 +23,8 @@ import { openNote } from "../../notes/notesStore";
 import { href } from "../../router";
 import { stopSession, useSessions } from "../../shell/sessionsStore";
 import { stopWords } from "../../shell/sessionRosterModel.mjs";
+import { settingOf } from "../../shell/settingsModel.mjs";
+import { useResolvedSettings } from "../../shell/useResolvedSettings";
 import { useWorkspace } from "../../shell/useWorkspaceData";
 import type { ConversationOrigin, ConversationView } from "../../types";
 import { Button, Chip, ICON, Menu, failureText, useToast } from "../../ui";
@@ -91,7 +95,12 @@ export function ConversationThread({
     else onChanged();
   });
   const working = ws.working[row.id] ?? [];
-  const reaches = addressee(ws.agents, GENERAL_AGENT, GENERAL_AGENT, row.origin.kind);
+  // Who an unaddressed message reaches: the conversation's own agent when
+  // it has one, else the workspace layer's `agents.default` (a conversation
+  // nothing owns stands in no project), else the General Agent.
+  const { resolved } = useResolvedSettings(null);
+  const setting = settingOf(resolved ?? [], "agents.default", GENERAL_AGENT);
+  const reaches = addressee(ws.agents, typeof setting === "string" && setting ? setting : GENERAL_AGENT, GENERAL_AGENT, row.origin.kind);
   const home = routeOf(row);
   // The conversation's turns, from the roster: what they add up to, and the
   // one *Stop* names — none while every turn is idle.
@@ -121,6 +130,7 @@ export function ConversationThread({
       <Conversation
         scope={row.id}
         kind="conversation"
+        originKind={row.origin.kind}
         addressee={addresseeChip}
         stop={stop}
         activity={{ words: summary.activity }}

@@ -1301,10 +1301,11 @@ enum WakeEnd {
     Failed(String),
 }
 
-/// How a session that ended short of a turn says so — in the harness's own
-/// words where it gave any, never as a value printed for a developer.
-fn ended_words(outcome: &Outcome) -> String {
-    let why = match outcome {
+/// Why a session ended short of a turn — in the harness's own words where
+/// it gave any, never as a value printed for a developer. A conversation's
+/// turn says it too (`conversation::say_turn_failed`).
+pub(crate) fn ended_why(outcome: &Outcome) -> String {
+    match outcome {
         Outcome::Failed { error } => error.trim().trim_end_matches('.').to_string(),
         Outcome::Suspended { reason } => {
             format!("suspended — {}", reason.trim().trim_end_matches('.'))
@@ -1313,8 +1314,12 @@ fn ended_words(outcome: &Outcome) -> String {
         Outcome::Completed | Outcome::ModelUnavailable { .. } => {
             "it ended without a turn".to_string() // LCOV_EXCL_LINE a completed end and a wall are handled before; the arm keeps the match total
         }
-    };
-    format!("the session ended: {why}.")
+    }
+}
+
+/// How a session that ended short of a turn says so.
+fn ended_words(outcome: &Outcome) -> String {
+    format!("the session ended: {}.", ended_why(outcome))
 }
 
 /// The words for a wake that did not end in a proposal.

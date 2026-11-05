@@ -575,7 +575,9 @@ async fn a_panicking_driver_ends_its_row() {
 }
 
 /// A turn whose harness refuses its first prompt: the wake returns early,
-/// and the row it registered ends as failed rather than reading *starting*.
+/// and the row it registered ends as failed — with the harness's own
+/// refusal, settled by the wake itself and not by the driver-gone sweep —
+/// rather than reading *starting*.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_turn_whose_prompt_is_refused_leaves_no_row_in_starting() {
     let dir = tempfile::tempdir().unwrap();
@@ -612,7 +614,7 @@ async fn a_turn_whose_prompt_is_refused_leaves_no_row_in_starting() {
     })
     .await;
     assert!(
-        matches!(&row.state, SessionState::Failed { reason } if reason == bisa_engine::sessions::DRIVER_GONE),
+        matches!(&row.state, SessionState::Failed { reason } if reason == "session terminated"),
         "{:?}",
         row.state
     );

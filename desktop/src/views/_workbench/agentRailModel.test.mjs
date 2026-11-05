@@ -30,3 +30,13 @@ test("the addressee at the edges: no agents is nobody, a default that is the gen
   const second = { id: "twice", name: "Second", enabled: true };
   assert.equal(addressee([first, second, general], "twice", "general-agent"), first);
 });
+
+test("a conversation about a workflow reaches the Workflow Agent before the setting, and the setting's agent stands in when it cannot answer", () => {
+  const general = { id: "general-agent", name: "General Agent", enabled: true };
+  const workflow = { id: "workflow-agent", name: "Workflow Agent", enabled: true };
+  const reviewer = { id: "reviewer", name: "Reviewer", enabled: true };
+  assert.equal(addressee([general, workflow, reviewer], "reviewer", "general-agent", "workflow"), workflow, "the room's own, whatever agents.default says");
+  assert.equal(addressee([general, { ...workflow, enabled: false }, reviewer], "reviewer", "general-agent", "workflow"), reviewer, "disabled: the setting's agent");
+  assert.equal(addressee([general, reviewer], null, "general-agent", "workflow"), general, "gone and unset: the general agent");
+  assert.equal(addressee([general, workflow, reviewer], "reviewer", "general-agent", "workspace"), reviewer, "elsewhere the setting rules");
+});

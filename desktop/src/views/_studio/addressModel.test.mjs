@@ -21,6 +21,7 @@ import {
   addressableIn,
   canAnswer,
   coreAgents,
+  defaultAddresseeIn,
   initialAddressed,
   isCore,
   isWorkflow,
@@ -28,6 +29,7 @@ import {
   parseStored,
   reachableIn,
   rosterable,
+  suggestedIn,
   teamMentionables,
 } from "./addressModel.mjs";
 
@@ -70,6 +72,18 @@ test("the Workflow Agent is a goal's: reachable from a goal, a channel, a DM or 
   assert.equal(reachableIn(ADA, "workstream"), true);
   assert.deepEqual(addressableIn(ALL, "workstream"), [ADA, SCRIBE], "the picker never offered a core agent; now it can never resolve the Workflow Agent on a checkout either");
   assert.deepEqual(addressableIn(ALL, "goal"), addressable(ALL));
+});
+
+test("a conversation about a workflow is the Workflow Agent's own: it answers what names nobody, whatever the setting says, and the picker offers it there alone", () => {
+  assert.equal(defaultAddresseeIn("workflow"), WORKFLOW_AGENT_ID);
+  for (const kind of ["goal", "workspace", "node", "channel", "dm", "workstream", "project", "drawing", "note", "conversation", undefined, null]) {
+    assert.equal(defaultAddresseeIn(kind), null, `${kind}: the setting's`);
+  }
+  assert.equal(suggestedIn(WORKFLOW, "workflow"), true, "in its own room a person finds it under @");
+  assert.equal(suggestedIn(WORKFLOW, "goal"), false, "a goal's thread keeps the picker's rule: the core agents stay hidden");
+  assert.equal(suggestedIn(CORE, "workflow"), false, "the General Agent is not the room's own");
+  assert.equal(suggestedIn(ADA, "workflow"), false);
+  assert.equal(suggestedIn(null, "workflow"), false);
 });
 
 test("the Agents page pins both core agents, the General Agent first, and the rest is the roster", () => {

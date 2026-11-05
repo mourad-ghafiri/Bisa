@@ -275,11 +275,13 @@ goes.
 
 **The Agent pane.** The panel's second icon (`⌘⇧M`; `⌘⇧D` is Properties, `⌘⇧R` Runs, `⌘⌥B` shows
 or hides the panel) is the conversations about this workflow — listed, searched, started in one
-click and named later, each a thread beside the canvas where `@Workflow Agent` is one mention away;
+click and named later, each a thread beside the canvas where the Workflow Agent answers whatever
+you write, named or not — the pill at the composer's head says so, and `@` finds it by name;
 the one you were on is remembered for the workflow, so coming back lands on it. Ask it to
-analyse, fix, design or finish the workflow: it reads the inputs, the steps and the runs, validates
+analyse, fix, design or finish the workflow: it reads the inputs, the steps and the flows, validates
 until clean and **saves** the workflow as a new revision, and the canvas beside it shows the change
-as it lands. A new workflow is there to converse about from its first second — ask the agent to draw
+as it lands. When a turn cannot run — its harness would not start, or ended without a word — the
+agent's note in the thread says why, in place of a silence. A new workflow is there to converse about from its first second — ask the agent to draw
 the whole thing on the empty canvas; its save is refused while the definition has problems, so what
 it writes is complete. If you were mid-edit when it saved, the banner offers *Keep mine on top of theirs* or *Take theirs*, as for
 any other writer. A goal's Workflow tab is the canvas alone; the goal's conversation is its
@@ -449,8 +451,9 @@ put away; *Unarchive* brings one back. `bisa archive workflow <id> [--undo]` doe
 ## With the Workflow Agent
 
 The Workflow Agent, `workflow-agent`, is woken by an auto or guided capture, by `@Workflow
-Agent` in a goal's thread — the goal's Conversation tab is that thread — and by `@Workflow
-Agent` in a conversation about a library workflow, the designer's Agent pane — where there is no goal
+Agent` in a goal's thread — the goal's Conversation tab is that thread — and by any message in a
+conversation about a library workflow, the designer's Agent pane, which is its own room: named or
+not, it answers there, whatever *Default agent* says. There is no goal
 and nothing to propose: it reads the workflow, validates until clean and saves it at the revision it
 read, and the canvas beside the pane shows the new revision. On a goal it reads the goal, asks at most one round if the shape is unclear, starts
 from the closest template, gives the work **the start it needs** — a start by hand, and for work

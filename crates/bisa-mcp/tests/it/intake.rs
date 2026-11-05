@@ -268,6 +268,18 @@ fn handle(line: &str, submits: &AtomicU64) -> Value {
         }
         Some("get_workflow") => {
             assert_eq!(req["agent"], WORKFLOW_AGENT_ID);
+            // No name: the conversation's workflow, from the scope on the
+            // wire; a session in no such conversation is told to name one.
+            if req.get("workflow").is_none() {
+                return match req.get("scope") {
+                    Some(_) => json!({"ok": true, "installed": true,
+                                      "workflow": {"id": "01WORKFLOW", "name": "Ask first", "revision": 3, "steps": []},
+                                      "problems": []}),
+                    None => {
+                        json!({"ok": false, "errors": ["get_workflow reads the conversation's workflow when none is named, and this session is in no conversation about a workflow: name one — an installed workflow's id or a catalog template's slug."]})
+                    }
+                };
+            }
             json!({"ok": true, "installed": false,
                    "workflow": {"id": "01WORKFLOW", "name": "Software feature", "steps": []},
                    "problems": [{"step": "implement", "kind": "unknown_assignee",
@@ -1096,10 +1108,47 @@ async fn goal_scoped_core_texts() {
     assert!(refused.contains("no agent identity"), "{refused}");
 }
 
+/// In a conversation about a workflow, `get_workflow` with no name reads
+/// that workflow — the scope rides on the wire and the engine resolves it;
+/// elsewhere the same call is refused with the words that say to name one.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_workflow_with_no_name_reads_the_conversations_workflow_and_refuses_elsewhere() {
+    let fake = FakeIntake::start();
+    let about_workflow = ToolCore::new(
+        fake.path.clone(),
+        Scope::Conversation {
+            scope: "01CONV".to_string(),
+            agent: WORKFLOW_AGENT_ID.to_string(),
+            goal: None,
+        },
+    );
+    let read = about_workflow.get_workflow(None).await.unwrap();
+    assert!(read.contains("\"name\": \"Ask first\""), "{read}");
+    assert!(read.contains("\"revision\": 3"), "{read}");
+    let same = about_workflow.get_workflow(Some("")).await.unwrap();
+    assert!(
+        same.contains("Ask first"),
+        "a blank name reads the conversation's: {same}"
+    );
+    let named = about_workflow
+        .get_workflow(Some("software-feature"))
+        .await
+        .unwrap();
+    assert!(
+        named.contains("Software feature"),
+        "a name still reads by name: {named}"
+    );
+
+    let on_a_goal = ToolCore::new(fake.path.clone(), workflow_agent_scope());
+    let refused = refusal(on_a_goal.get_workflow(None).await);
+    assert!(refused.contains("name one"), "{refused}");
+    assert!(refused.contains("Not done"), "{refused}");
+}
+
 /// The Workflow Agent's texts: a proposal says who adopts it, a refusal lists
 /// problems by step, the templates list is readable and a definition comes
 /// back as JSON with its problems.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn workflow_agent_texts_render_problems_by_step() {
     let fake = FakeIntake::start();
     let core = ToolCore::new(fake.path.clone(), workflow_agent_scope());
@@ -1137,7 +1186,7 @@ async fn workflow_agent_texts_render_problems_by_step() {
         "{listed}"
     );
 
-    let read = core.get_workflow("software-feature").await.unwrap();
+    let read = core.get_workflow(Some("software-feature")).await.unwrap();
     assert!(read.contains("\"name\": \"Software feature\""), "{read}");
     assert!(
         read.contains("Note: a catalog template that is not installed"),
@@ -1148,8 +1197,10 @@ async fn workflow_agent_texts_render_problems_by_step() {
         read.contains("- step implement: unknown_assignee — agent:developer is not installed"),
         "{read}"
     );
-    let blank = refusal(core.get_workflow("  ").await);
-    assert!(blank.contains("Name the workflow"), "{blank}");
+    // A blank name is no name: on a goal's cycle there is no conversation's
+    // workflow to fall back on, and the engine says to name one.
+    let blank = refusal(core.get_workflow(Some("  ")).await);
+    assert!(blank.contains("name one"), "{blank}");
 
     let valid = core.validate_workflow(good_workflow()).await.unwrap();
     assert!(valid.contains("Valid: no problems"), "{valid}");
@@ -2133,7 +2184,7 @@ async fn the_tool_core_refuses_at_its_own_edges_and_words_what_it_reads() {
     )
     .contains("agent"));
     assert!(refusal(unsigned.list_workflow_templates().await).contains("agent"));
-    assert!(refusal(unsigned.get_workflow("x").await).contains("agent"));
+    assert!(refusal(unsigned.get_workflow(Some("x")).await).contains("agent"));
     assert!(refusal(unsigned.validate_workflow(good_workflow()).await).contains("agent"));
     assert!(refusal(unsigned.workspace_overview().await).contains("agent"));
     assert!(refusal(unsigned.list_staff().await).contains("agent"));

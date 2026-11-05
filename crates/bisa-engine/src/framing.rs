@@ -85,13 +85,20 @@ pub fn origin_frame_for(
              get_goal reads its statement, its workflow, its run and its projects.",
             named("goal")
         ),
-        ConversationOrigin::Workflow { .. } => format!(
-            "This conversation is about {}: its inputs, its steps and its \
+        ConversationOrigin::Workflow { .. } if !platform_tools => format!(
+            "This conversation is about {}, open on the canvas beside the person. This \
+             harness has no platform tools in this conversation: you cannot read, validate \
+             or save the workflow — say so to the person, answer from what they tell you, \
+             and never describe a change you did not make.",
+            named("workflow")
+        ),
+        ConversationOrigin::Workflow { id } => format!(
+            "This conversation is about {}, id `{id}`: its inputs, its steps and its \
              flows. It runs on no goal here and nothing is proposed: read it with \
-             get_workflow, validate_workflow until clean, then save_workflow at the \
-             revision you read — the person sees the change land on the canvas beside \
-             this conversation. A change is written, never assumed. Leave `workflow` \
-             out of every call: this workflow is chosen for you.",
+             get_workflow — with no argument, this workflow is chosen for you — \
+             validate_workflow until clean, then save_workflow at the revision you read; \
+             the person sees the change land on the canvas beside this conversation. A \
+             change is written, never assumed. Leave `workflow` out of every call.",
             named("workflow")
         ),
         ConversationOrigin::Drawing { .. } if !platform_tools => format!(
@@ -349,10 +356,33 @@ mod tests {
             id: bisa_core::WorkflowId::from_ulid(ulid::Ulid::nil()),
         };
         assert!(origin_frame(&workflow, Some("Release"))
-            .starts_with("This conversation is about the workflow `Release`: "));
+            .starts_with("This conversation is about the workflow `Release`, id `"));
+        assert!(origin_frame(&workflow, None)
+            .starts_with("This conversation is about a workflow, id `"));
+    }
+
+    /// A workflow's frame names the id its tools take, tells the agent to
+    /// name none, and — on a harness with no platform tools — what it cannot
+    /// do, as a note's and a drawing's frames do.
+    #[test]
+    fn the_workflow_frame_names_the_id_and_the_toolless_variant_says_what_it_cannot_do() {
+        let id = bisa_core::WorkflowId::from_ulid(ulid::Ulid::nil());
+        let workflow = ConversationOrigin::Workflow { id };
+        let with_tools = origin_frame_for(&workflow, Some("Release"), true);
+        assert!(with_tools.contains(&format!("id `{id}`")), "{with_tools}");
+        assert!(with_tools.contains("with no argument"), "{with_tools}");
         assert!(
-            origin_frame(&workflow, None).starts_with("This conversation is about a workflow: ")
+            with_tools.contains("Leave `workflow` out of every call."),
+            "{with_tools}"
         );
+        assert!(with_tools.contains("save_workflow"), "{with_tools}");
+        let without = origin_frame_for(&workflow, Some("Release"), false);
+        assert!(without.contains("has no platform tools"), "{without}");
+        assert!(
+            without.contains("cannot read, validate or save"),
+            "{without}"
+        );
+        assert!(!without.contains("get_workflow"), "{without}");
     }
 
     /// A conversation about a checkout is framed by the project, not by an

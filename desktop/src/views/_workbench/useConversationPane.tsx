@@ -425,6 +425,7 @@ export function useConversationPane(wid: string, pid: string, activeFile: string
     ? {
         scope: current.id,
         kind: "conversation" as const,
+        originKind: current.origin.kind,
         context,
         onRemoveContext: (i: number) => removeContext(scopeKey, i),
         onClearContext: () => clearContext(scopeKey),

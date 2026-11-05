@@ -1,6 +1,6 @@
 /**
  * The Workflow Designer's right panel: whether its column is showing and
- * which pane — Properties or Agent. Window furniture, in `localStorage`,
+ * which pane — Properties, Agent or Runs. Window furniture, in `localStorage`,
  * remembered once for the machine the way the sidebar's mode is: the rail is
  * the screen's, not a workflow's. The vocabulary and the rules are
  * `designerPanelModel.mjs`; this file only keeps.

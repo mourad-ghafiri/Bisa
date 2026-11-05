@@ -139,6 +139,12 @@ notes (`docs/contributing/release.md`).
 
 - `security.guard.harness_project_settings` (machine scope, `off` · `on`).
 - `token` in `a2a.toml`: a bearer of the A2A door's own, advertised on the agent card.
+- `get_workflow` takes `workflow` optionally: left out in a conversation about a workflow, it
+  reads that workflow with its validation problems. The intake's `get_workflow` op carries the
+  session's `scope` for it, as `save_workflow` does.
+- A conversation's turn that could not run says why in the conversation, as the agent's own note:
+  `engine-conversation-turn-not-launched`, `-prompt-refused`, `-no-checkout`,
+  `-ended-without-reply`, `-past-wall-clock`; the plan-mode refusal is `engine-conversation-plan-unguarded`.
 
 ### Changed
 
@@ -159,6 +165,36 @@ notes (`docs/contributing/release.md`).
   not on licences alone. cargo-deny's advisory database is cloned under `target/advisory-db`.
 - `bisa_store::KeyStore::replace` has no default body: every store writes its own (the file store
   by one rename), so no implementation replaces a key through a moment with none under its name.
+- A conversation about a workflow is the Workflow Agent's own: a message that names nobody
+  reaches it, whatever `agents.default` says, and the Decision-Making Agent's triage is not asked
+  there. The designer's Agent pane says so in its hint, its composer's pill names it, and `@`
+  finds it by name there alone.
+- `validate_workflow`'s *valid* answer names the next step of its scope: propose on a goal, save
+  in a conversation about a workflow. The Workflow Agent's instructions say the same.
+- A turn that completes with no words, and one a person stopped, still end on the bus
+  (`agent_replied` with nothing posted), once; a turn past the wall clock lands the words it
+  said so far before the note that says it was stopped.
+- A harness that refused a conversation's first turn leaves no running row: the turn's row ends
+  as failed.
+
+### Fixed
+
+- **The designer's Agent pane reached the General Agent.** An unaddressed message in a
+  conversation about a workflow went to `agents.default` — the General Agent, which holds none of
+  the workflow tools — so the pane answered "I have no access to tools", or described a change it
+  never made, and the `@`-picker never offered the Workflow Agent (core agents are hidden). The
+  Workflow Agent is now that conversation's own answerer, in the engine and on the desktop.
+- **The Workflow Agent could not read the workflow it was asked about.** The frame told it to leave
+  `workflow` out of every call while `get_workflow` required one and named the workflow by name
+  only; `validate_workflow` answered *it can be proposed* where nothing can be proposed. The frame
+  names the id, `get_workflow` with no argument reads the conversation's workflow, and every
+  sentence of the contract says *save* in a conversation and *propose* on a goal.
+- **A conversation turn that failed said nothing.** A harness that would not launch, one that
+  refused its first turn, a checkout gone from disk, a session that ended failed before a word
+  and a turn past the wall clock were a line in the log and a working dot that never rested; each
+  is now a note of the agent's in the conversation, and the turn settles.
+- The designer's hint and the guide spoke of the workflow's "runs" where they meant its flows, and
+  the designer's own comments of two panes where there are three.
 
 ## [0.6.0] - 2026-10-28
 

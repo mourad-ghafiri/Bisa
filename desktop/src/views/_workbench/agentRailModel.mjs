@@ -7,13 +7,15 @@
  * reaches.
  */
 
-import { reachableIn } from "../_studio/addressModel.mjs";
+import { defaultAddresseeIn, reachableIn } from "../_studio/addressModel.mjs";
 
 /**
  * The agent an unaddressed message reaches, as the composer's chip draws it:
- * the project's default (`agents.default`), else the general agent — the same
- * fallback the engine applies, so the chip never promises the wrong agent. A
- * default that is disabled, unknown, or the Workflow Agent where the
+ * the conversation's own agent when it has one (`defaultAddresseeIn` — the
+ * Workflow Agent in a conversation about a workflow), else the default the
+ * setting names (`agents.default`), else the general agent — the engine's
+ * own order (`default_agent`), so the chip never promises the wrong agent.
+ * An agent that is disabled, unknown, or the Workflow Agent where the
  * conversation is about a checkout (`reachableIn`) falls through exactly as
  * the engine's does.
  * @param {readonly {id: string, name?: string, enabled?: boolean}[]} agents
@@ -23,5 +25,5 @@ import { reachableIn } from "../_studio/addressModel.mjs";
  */
 export function addressee(agents, defaultId, generalId, originKind = "workstream") {
   const usable = (id) => (agents ?? []).find((a) => a.id === id && a.enabled !== false && reachableIn(a, originKind)) ?? null;
-  return usable(defaultId) ?? usable(generalId) ?? null;
+  return usable(defaultAddresseeIn(originKind)) ?? usable(defaultId) ?? usable(generalId) ?? null;
 }

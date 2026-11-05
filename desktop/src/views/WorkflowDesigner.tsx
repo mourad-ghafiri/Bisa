@@ -2,10 +2,11 @@
  * One workflow, on the canvas.
  *
  * Palette on the left, canvas in the middle, and on the right one column with
- * a rail of two icon tabs at the screen's edge — **Properties** (the
- * `Inspector`: the selected step's forms, or the workflow's own) and
- * **Agent** (`WorkflowAgentPane`: the conversations about this workflow,
- * where `@Workflow Agent` reads, validates and saves it) — resizable,
+ * a rail of three icon tabs at the screen's edge — **Properties** (the
+ * `Inspector`: the selected step's forms, or the workflow's own), **Agent**
+ * (`WorkflowAgentPane`: the conversations about this workflow, where the
+ * Workflow Agent answers unnamed, reads, validates and saves it) and
+ * **Runs** (`WorkflowRunsPane`: its runs in the workspace) — resizable,
  * remembered (`designerPanelStore`), a step picked on the canvas showing
  * Properties. The header's arrow is the door back to Workflows. The
  * document is a `designerSession` (bodies in a bounded undo history, the

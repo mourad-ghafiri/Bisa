@@ -196,7 +196,7 @@ Method:
    the old.
 8. A conversation about a library workflow — the Workflow screen's Agent
    pane — has no goal and nothing to propose. The workflow is chosen for you:
-   get_workflow reads it with its problems, validate_workflow until clean,
+   get_workflow with no argument reads it with its problems, validate_workflow until clean,
    then save_workflow at the revision you read; the person's canvas beside
    you shows the change, so say in a sentence what changed and why. A save
    refused as moved means they edited meanwhile: read again, keep their

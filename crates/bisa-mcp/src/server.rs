@@ -1060,21 +1060,18 @@ impl ToolCore {
         }
     }
 
-    /// One workflow by id or catalog slug, with its problems.
-    pub async fn get_workflow(&self, workflow: &str) -> Result<String, McpError> {
+    /// One workflow with its problems: the conversation's own when none is
+    /// named (the engine reads it from the scope, and refuses a session in no
+    /// conversation about a workflow), else by id or catalog slug.
+    pub async fn get_workflow(&self, workflow: Option<&str>) -> Result<String, McpError> {
         let agent = match self.signer() {
             Ok(a) => a,
             Err(e) => return Err(e),
         };
-        let workflow = workflow.trim();
-        if workflow.is_empty() {
-            return Err(Self::invalid(
-                "Name the workflow: an installed workflow's id or a catalog template's slug.",
-            ));
-        }
+        let named = workflow.map(str::trim).filter(|w| !w.is_empty());
         match self
             .intake
-            .get_workflow(agent, workflow)
+            .get_workflow(&self.scope, agent, named)
             .await
             .map_err(intake_err)?
         {
@@ -1095,9 +1092,7 @@ impl ToolCore {
             .await
             .map_err(intake_err)?
         {
-            Ok(problems) if problems.is_empty() => {
-                Ok("Valid: no problems. It can be proposed as it is.".to_string())
-            }
+            Ok(problems) if problems.is_empty() => Ok(valid_words(&self.scope).to_string()),
             Ok(problems) => Ok(render_problems(&problems)),
             Err(errors) => Err(Self::refused(errors)),
         }
@@ -1669,6 +1664,22 @@ fn render_workflow(v: &serde_json::Value) -> String {
 /// Problems by step and kind, one per line. The step is named first because
 /// it is what the agent edits; a problem with no step is about the whole
 /// definition.
+/// What a clean definition may become next, in this session's scope: a
+/// goal's cycle or a turn launched with a goal proposes it; a conversation
+/// about a library workflow saves it; a work item neither.
+fn valid_words(scope: &Scope) -> &'static str {
+    match scope {
+        Scope::Goal { .. } | Scope::Conversation { goal: Some(_), .. } => {
+            "Valid: no problems. It can be proposed as it is."
+        }
+        Scope::Conversation { goal: None, .. } => {
+            "Valid: no problems. It can be saved as it is, with save_workflow at the revision \
+             get_workflow returned."
+        }
+        Scope::WorkItem(_) => "Valid: no problems.",
+    }
+}
+
 fn render_problems(problems: &[serde_json::Value]) -> String {
     let mut out = vec![format!("{} problem(s):", problems.len())];
     for p in problems {
@@ -2200,8 +2211,10 @@ pub struct ValidateWorkflowParams {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct GetWorkflowParams {
-    /// An installed workflow's id, or a catalog template's slug.
-    pub workflow: String,
+    /// An installed workflow's id, or a catalog template's slug. Leave it
+    /// out in a conversation about a workflow: that workflow is read.
+    #[serde(default)]
+    pub workflow: Option<String>,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -3624,18 +3637,18 @@ impl BisaServer {
 
     #[tool(
         name = "get_workflow",
-        description = "Read one workflow by id or catalog slug, with its current validation problems. The definition comes back as JSON — the exact shape propose_workflow takes."
+        description = "Read one workflow with its current validation problems: the conversation's own when you name none (in a conversation about a workflow, leave `workflow` out), else by id or catalog slug. The definition comes back as JSON — the exact shape save_workflow and propose_workflow take."
     )]
     async fn get_workflow(
         &self,
         Parameters(p): Parameters<GetWorkflowParams>,
     ) -> Result<String, McpError> {
-        self.core.get_workflow(&p.workflow).await
+        self.core.get_workflow(p.workflow.as_deref()).await
     }
 
     #[tool(
         name = "validate_workflow",
-        description = "Validate a workflow definition without recording it: every problem, by step and kind — while you serve a goal, its staffing against the goal's roster. Call it before propose_workflow. An unknown placeholder is usually an undoubled brace: a literal brace is written {{ or }}, and a result's shape belongs in the step's output_schema, not in its instructions."
+        description = "Validate a workflow definition without recording it: every problem, by step and kind — while you serve a goal, its staffing against the goal's roster. Call it before save_workflow in a conversation about a workflow, before propose_workflow on a goal. An unknown placeholder is usually an undoubled brace: a literal brace is written {{ or }}, and a result's shape belongs in the step's output_schema, not in its instructions."
     )]
     async fn validate_workflow(
         &self,
@@ -3888,11 +3901,27 @@ impl ServerHandler for BisaServer {
                  the method your own definition states. A design wake's prompt carries the \
                  goal, the staff, the connectors and the templates; in a conversation, \
                  get_goal, list_staff, list_connectors and list_workflow_templates say the \
-                 same. Read the template you adapt with get_workflow, validate_workflow until \
-                 it is clean, then propose_workflow — the person adopts it, never you; a \
-                 failed run is repaired by a new proposal, and amend_workflow is for a run \
-                 still going.",
+                 same.",
             );
+            // The write a scope allows: a goal's cycle or thread proposes; a
+            // conversation about a library workflow saves that workflow and
+            // has nothing to propose.
+            instructions.push_str(match self.core.scope {
+                Scope::Conversation { goal: None, .. } => {
+                    " In a conversation about a library workflow there is nothing to \
+                     propose: get_workflow with no argument reads the conversation's \
+                     workflow with its problems, validate_workflow until it is clean, then \
+                     save_workflow at the revision you read — the person's canvas beside the \
+                     conversation shows the change; propose_workflow and amend_workflow are \
+                     a goal's."
+                }
+                _ => {
+                    " Read the template you adapt with get_workflow, validate_workflow until \
+                     it is clean, then propose_workflow — the person adopts it, never you; a \
+                     failed run is repaired by a new proposal, and amend_workflow is for a \
+                     run still going."
+                }
+            });
         }
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(server_info())
@@ -4027,6 +4056,91 @@ mod tests {
             scope: "01GOAL".to_string(),
             agent: agent.to_string(),
             goal: Some("01GOAL".to_string()),
+        }
+    }
+
+    /// In a conversation about a workflow `get_workflow` takes no argument:
+    /// the conversation's workflow is read, as the frame promises.
+    #[test]
+    fn get_workflow_takes_no_argument_in_a_conversation_about_a_workflow() {
+        let router = router_for(conversation_as(WORKFLOW_AGENT_ID));
+        let tool = router
+            .list_all()
+            .into_iter()
+            .find(|t| t.name == "get_workflow")
+            .expect("the Workflow Agent reads workflows in a conversation");
+        let required = tool
+            .input_schema
+            .get("required")
+            .and_then(|r| r.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            !required.iter().any(|r| r == "workflow"),
+            "`workflow` is optional: {required:?}"
+        );
+        let description = tool.description.clone().unwrap_or_default();
+        assert!(
+            description.contains("leave `workflow` out"),
+            "{description}"
+        );
+        assert!(description.contains("save_workflow"), "{description}");
+    }
+
+    /// A clean definition is told what comes next in its scope: proposed on
+    /// a goal, saved in a conversation about a library workflow, neither for
+    /// a work item.
+    #[test]
+    fn validate_workflows_success_text_names_the_next_step_of_its_scope() {
+        assert!(valid_words(&goal_as(Some(WORKFLOW_AGENT_ID))).contains("proposed"));
+        assert!(valid_words(&goal_thread_as(WORKFLOW_AGENT_ID)).contains("proposed"));
+        let saved = valid_words(&conversation_as(WORKFLOW_AGENT_ID));
+        assert!(
+            saved.contains("save_workflow") && !saved.contains("proposed"),
+            "{saved}"
+        );
+        assert_eq!(
+            valid_words(&Scope::WorkItem("01WI".into())),
+            "Valid: no problems."
+        );
+    }
+
+    /// The Workflow Agent's instructions follow the scope's write: save in a
+    /// conversation about a library workflow, propose on a goal — never a
+    /// tool the scope does not mount.
+    #[test]
+    fn the_workflow_agents_instructions_say_save_in_a_conversation_and_propose_on_a_goal() {
+        let path = PathBuf::from("/nonexistent/bisa-test.sock");
+        let in_conversation = BisaServer::new(path.clone(), conversation_as(WORKFLOW_AGENT_ID))
+            .get_info()
+            .instructions
+            .unwrap_or_default();
+        assert!(
+            in_conversation.contains("nothing to propose"),
+            "{in_conversation}"
+        );
+        assert!(
+            in_conversation.contains("get_workflow with no argument"),
+            "{in_conversation}"
+        );
+        assert!(
+            in_conversation.contains("save_workflow"),
+            "{in_conversation}"
+        );
+        assert!(
+            !in_conversation.contains("then propose_workflow"),
+            "{in_conversation}"
+        );
+        for on_a_goal in [
+            goal_as(Some(WORKFLOW_AGENT_ID)),
+            goal_thread_as(WORKFLOW_AGENT_ID),
+        ] {
+            let words = BisaServer::new(path.clone(), on_a_goal)
+                .get_info()
+                .instructions
+                .unwrap_or_default();
+            assert!(words.contains("then propose_workflow"), "{words}");
+            assert!(!words.contains("nothing to propose"), "{words}");
         }
     }
 

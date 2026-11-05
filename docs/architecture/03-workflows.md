@@ -1136,8 +1136,11 @@ keeps seventeen promises the model relies on:
   machine, the width `bisa.workflow.panel.width`); the keymap's `designer` scope, live on the
   Workflow Designer alone (`[data-designer-screen]`), holds `designer_properties` (`⌘⇧D`),
   `designer_agent` (`⌘⇧M`), `designer_runs` (`⌘⇧R`) and `toggle_designer_panel` (`⌘⌥B`) — the IDE's
-  chords for the same gestures, never beside `workbench`. In the pane the Workflow Agent is reachable and framed as being
-  about this workflow, and it **writes**: `save_workflow` (the MCP tool, the engine's
+  chords for the same gestures, never beside `workbench`. In the pane the Workflow Agent is the
+  conversation's own: a message that names nobody reaches it, whatever `agents.default` says
+  ([13 § Origins](13-conversations.md#origins--placement-frame-reach)), it is framed as being
+  about this workflow — `get_workflow` with no argument reads it, with its validation problems —
+  and it **writes**: `save_workflow` (the MCP tool, the engine's
   `ops::revise_workflow`) saves the conversation's workflow — and no other — at the revision it read,
   refused with its problems, refused as moved when the person saved meanwhile; the write is announced
   as its hand (`WorkflowChanged { designed: true }`), so the designer beside the pane takes the same

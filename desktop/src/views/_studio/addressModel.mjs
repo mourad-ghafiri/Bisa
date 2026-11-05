@@ -75,6 +75,36 @@ export function reachableIn(a, kind) {
 }
 
 /**
+ * The agent a conversation of this kind is *for* — the one holding the
+ * tools its subject needs, so a message that names nobody is its to answer
+ * whatever `agents.default` says: the Workflow Agent in a conversation about
+ * a workflow, which it alone reads, validates and saves. Every other kind
+ * has none and follows the setting. The engine holds the same rule
+ * (`ScopeFacts::owner_agent`); `addressee` in `agentRailModel.mjs` reads it
+ * before the setting.
+ * @param {string | null | undefined} kind what the conversation is about (13 § Origins)
+ * @returns {string | null} the owner's id
+ */
+export function defaultAddresseeIn(kind) {
+  return kind === "workflow" ? WORKFLOW_AGENT_ID : null;
+}
+
+/**
+ * Whether the `@`-picker offers an agent it otherwise keeps hidden — a core
+ * agent, dropped from every addressing surface because it answers anything
+ * addressed to nobody — in a conversation of this kind: the room's own
+ * agent, in its own room, where a person looking for it by name must find
+ * it. The Workflow Agent in a conversation about a workflow; nobody else,
+ * nowhere else.
+ * @param {{id?: string} | null | undefined} a
+ * @param {string | null | undefined} kind what the conversation is about
+ */
+export function suggestedIn(a, kind) {
+  const owner = defaultAddresseeIn(kind);
+  return owner !== null && a?.id === owner;
+}
+
+/**
  * The kinds whose conversations run in a checkout: a workstream's, a
  * project's (13 — Conversations).
  */

@@ -9,7 +9,8 @@
 
 use crate::common::{engine_with, until};
 use bisa_core::{
-    AgentId, ConversationId, ConversationOrigin, MessageBody, PrincipalId, WorkstreamId,
+    AgentId, ConversationId, ConversationOrigin, MessageBody, PrincipalId, RespondPolicy,
+    SettingScope, WorkstreamId,
 };
 use bisa_engine::events::{ConversationChange, EnginePayload};
 use bisa_engine::registry::SessionKind;
@@ -17,16 +18,64 @@ use bisa_engine::{conversations, Engine, EngineConfig};
 use bisa_harness::mock::MockAdapter;
 use bisa_harness::{LifecycleEvent, ProgressEvent, SessionEvent};
 use bisa_store::{
-    ConversationFilter, NewConversation, NewGoal, NewProject, PostOrigin, SessionStatus, Workspace,
+    ConversationFilter, NewAgent, NewConversation, NewGoal, NewProject, PostOrigin, SessionStatus,
+    Workspace,
 };
 use std::time::Duration;
 
-/// Point the general agent at the mock harness, so an unaddressed message
-/// wakes a session these tests control.
+/// Point both core agents at the mock harness, so an unaddressed message —
+/// the General Agent's everywhere, the Workflow Agent's in a conversation
+/// about a workflow — wakes a session these tests control.
 fn core_on(ws: &Workspace, harness: &str) {
-    let mut def = ws.get_agent(&AgentId::general()).unwrap();
-    def.harness = harness.into();
-    ws.update_agent(def).unwrap();
+    for id in [AgentId::general(), AgentId::workflow()] {
+        let mut def = ws.get_agent(&id).unwrap();
+        def.harness = harness.into();
+        ws.update_agent(def).unwrap();
+    }
+}
+
+/// An agent of the person's own, on the mock harness, answering its owner.
+fn new_agent(name: &str) -> NewAgent {
+    NewAgent {
+        name: name.into(),
+        photo: None,
+        description: Some(format!("{name} helps with anything")),
+        system_prompt: format!("You are {name}."),
+        harness: "mock".into(),
+        models: Default::default(),
+        skills: vec![],
+        mcps: vec![],
+        tags: Default::default(),
+        respond: RespondPolicy::OwnerOnly,
+        decision_making: false,
+    }
+}
+
+/// A one-step library workflow named `Release`.
+fn release_workflow(ws: &Workspace) -> bisa_core::Workflow {
+    ws.create_workflow(
+        crate::common::new_workflow(
+            "Release",
+            vec![crate::common::step(
+                "end",
+                bisa_core::StepKind::End {
+                    finish: bisa_core::Finish::Done,
+                },
+            )],
+        ),
+        bisa_core::WorkflowOrigin::Workspace,
+    )
+    .unwrap()
+}
+
+fn pubkey_of(engine: &Engine, id: &AgentId) -> String {
+    engine
+        .workspace()
+        .get_agent(id)
+        .unwrap()
+        .pubkey
+        .as_hex()
+        .to_string()
 }
 
 fn start(ws: &Workspace, origin: ConversationOrigin) -> bisa_core::Conversation {
@@ -66,13 +115,7 @@ fn said_by(engine: &Engine, conversation: ConversationId, pubkey: &str) -> Vec<S
 }
 
 fn general_pubkey(engine: &Engine) -> String {
-    engine
-        .workspace()
-        .get_agent(&AgentId::general())
-        .unwrap()
-        .pubkey
-        .as_hex()
-        .to_string()
+    pubkey_of(engine, &AgentId::general())
 }
 
 /// A project with its primary checkout on disk, and a conversation about it.
@@ -165,7 +208,9 @@ async fn a_turn_in_a_checkouts_conversation_runs_there_and_is_the_conversations_
 
 /// Where every other origin runs and what it is told: a project's in the
 /// primary; a goal's, a workflow's, the workspace's and the node's in the
-/// agent's own scratch, each with the sentence that says what it is about.
+/// answering agent's own scratch, each with the sentence that says what it
+/// is about. A workflow's is the Workflow Agent's; the rest the General
+/// Agent's.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_origin_places_its_turn_and_frames_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -175,6 +220,7 @@ async fn every_origin_places_its_turn_and_frames_it() {
     let ws = engine.workspace();
     core_on(ws, "mock");
     let general = general_pubkey(&engine);
+    let workflow_agent = pubkey_of(&engine, &AgentId::workflow());
     let project = ws
         .create_project(NewProject::managed("api").unwrap())
         .unwrap();
@@ -183,21 +229,9 @@ async fn every_origin_places_its_turn_and_frames_it() {
     let goal = ws
         .create_goal(NewGoal::captured("Dark mode for the settings screen"))
         .unwrap();
-    let workflow = ws
-        .create_workflow(
-            crate::common::new_workflow(
-                "Release",
-                vec![crate::common::step(
-                    "end",
-                    bisa_core::StepKind::End {
-                        finish: bisa_core::Finish::Done,
-                    },
-                )],
-            ),
-            bisa_core::WorkflowOrigin::Workspace,
-        )
-        .unwrap();
+    let workflow = release_workflow(ws);
     let scratch = ws.paths().agent(&AgentId::general()).scratch();
+    let workflow_scratch = ws.paths().agent(&AgentId::workflow()).scratch();
     let note = ws
         .create_note(bisa_store::NewNote {
             scope: bisa_core::OwnerScope::Workspace,
@@ -206,45 +240,53 @@ async fn every_origin_places_its_turn_and_frames_it() {
         })
         .unwrap();
 
-    let cases: Vec<(ConversationOrigin, std::path::PathBuf, &str)> = vec![
+    let cases: Vec<(ConversationOrigin, std::path::PathBuf, &str, &str)> = vec![
         // The mock takes the platform's tools, so the note's frame names
         // them: read first, rewrite at the hash read, add under its name.
         (
             ConversationOrigin::Note { id: note.id },
             scratch.clone(),
             "This conversation is about the note `The door`, open beside the person in the notes overlay. Read it with note_read",
+            &general,
         ),
         (
             ConversationOrigin::Project { id: project.id },
             ws.checkout_in(&project, &primary),
             "You are working in project `api`, in its own tree",
+            &general,
         ),
         (
             ConversationOrigin::Goal { id: goal.id },
             scratch.clone(),
             "This conversation is about the goal `Dark mode for the settings screen`",
+            &general,
         ),
+        // A workflow's conversation is the Workflow Agent's own: it runs in
+        // that agent's scratch and is told the tools read this workflow.
         (
             ConversationOrigin::Workflow { id: workflow.id },
-            scratch.clone(),
-            "This conversation is about the workflow `Release`",
+            workflow_scratch,
+            "This conversation is about the workflow `Release`, id `",
+            &workflow_agent,
         ),
         (
             ConversationOrigin::Workspace,
             scratch.clone(),
             "This conversation is about the workspace as a whole",
+            &general,
         ),
         (
             ConversationOrigin::Node,
             scratch.clone(),
             "This conversation is about this machine's node",
+            &general,
         ),
     ];
-    for (i, (origin, cwd, frame)) in cases.iter().enumerate() {
+    for (i, (origin, cwd, frame, answerer)) in cases.iter().enumerate() {
         let conversation = start(ws, origin.clone());
         say(&engine, conversation.id, "hello there", &[]);
-        let reply = until("the general agent answers", || {
-            said_by(&engine, conversation.id, &general)
+        let reply = until("the conversation's agent answers", || {
+            said_by(&engine, conversation.id, answerer)
                 .into_iter()
                 .next()
         })
@@ -279,26 +321,10 @@ async fn the_workflow_agent_answers_in_a_workflow_conversation_and_never_in_a_ch
     let engine = engine_with(&dir, vec![MockAdapter::default()]);
     let ws = engine.workspace();
     core_on(ws, "mock");
-    let mut workflow_agent = ws.get_agent(&AgentId::workflow()).unwrap();
-    workflow_agent.harness = "mock".into();
-    ws.update_agent(workflow_agent.clone()).unwrap();
-    let workflow_pk = workflow_agent.pubkey.as_hex().to_string();
+    let workflow_pk = pubkey_of(&engine, &AgentId::workflow());
     let mention = PrincipalId::new(workflow_pk.clone()).unwrap();
     let general = general_pubkey(&engine);
-    let wf = ws
-        .create_workflow(
-            crate::common::new_workflow(
-                "Release",
-                vec![crate::common::step(
-                    "end",
-                    bisa_core::StepKind::End {
-                        finish: bisa_core::Finish::Done,
-                    },
-                )],
-            ),
-            bisa_core::WorkflowOrigin::Workspace,
-        )
-        .unwrap();
+    let wf = release_workflow(ws);
 
     let about_workflow = start(ws, ConversationOrigin::Workflow { id: wf.id });
     say(
@@ -335,6 +361,636 @@ async fn the_workflow_agent_answers_in_a_workflow_conversation_and_never_in_a_ch
         "the Workflow Agent never speaks in a conversation about a checkout"
     );
 
+    engine.shutdown().await;
+}
+
+/// A conversation about a workflow is the Workflow Agent's own: a message
+/// that names nobody wakes it — it alone reads, validates and saves the
+/// workflow — in its own scratch, with the frame that names the workflow and
+/// its id. The General Agent, who has none of those tools, never wakes there.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unaddressed_message_in_a_workflow_conversation_wakes_the_workflow_agent_and_not_the_general_agent(
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = MockAdapter::default();
+    let launches = mock.launches.clone();
+    let engine = engine_with(&dir, vec![mock]);
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let workflow_pk = pubkey_of(&engine, &AgentId::workflow());
+    let general = general_pubkey(&engine);
+    let wf = release_workflow(ws);
+    let conversation = start(ws, ConversationOrigin::Workflow { id: wf.id });
+
+    say(
+        &engine,
+        conversation.id,
+        "add a review step after the end",
+        &[],
+    );
+    let answered = until("the Workflow Agent answers the unaddressed message", || {
+        said_by(&engine, conversation.id, &workflow_pk)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert!(answered.contains("add a review step after the end"));
+    assert!(
+        answered.contains(&format!(
+            "This conversation is about the workflow `Release`, id `{}`",
+            wf.id
+        )),
+        "the frame names the workflow and its id: {answered}"
+    );
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(
+        said_by(&engine, conversation.id, &general).is_empty(),
+        "the General Agent never wakes in a conversation about a workflow"
+    );
+    {
+        let launched = launches.lock().unwrap();
+        assert_eq!(launched.len(), 1, "one turn, the Workflow Agent's");
+        assert_eq!(
+            launched[0].cwd,
+            ws.paths().agent(&AgentId::workflow()).scratch(),
+            "it runs in the Workflow Agent's own scratch"
+        );
+    }
+    assert_eq!(
+        ws.conversation_row(conversation.id).unwrap().agents,
+        vec![AgentId::WORKFLOW.to_string()]
+    );
+
+    engine.shutdown().await;
+}
+
+/// `agents.default` names who answers an unaddressed message — everywhere
+/// but in a conversation about a workflow, whose answerer is fixed by what
+/// the subject needs: the setting still rules a workspace conversation.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workflow_conversation_keeps_the_workflow_agent_when_agents_default_names_another() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let ada = ws.add_agent(new_agent("Ada")).unwrap();
+    let ada_pk = ada.pubkey.as_hex().to_string();
+    engine
+        .set_setting(
+            SettingScope::Workspace,
+            None,
+            "agents.default",
+            serde_json::json!(ada.id.to_string()),
+        )
+        .unwrap();
+    let workflow_pk = pubkey_of(&engine, &AgentId::workflow());
+    let wf = release_workflow(ws);
+
+    let about_workflow = start(ws, ConversationOrigin::Workflow { id: wf.id });
+    say(&engine, about_workflow.id, "rename the end step", &[]);
+    let answered = until("the Workflow Agent answers about the workflow", || {
+        said_by(&engine, about_workflow.id, &workflow_pk)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert!(answered.contains("rename the end step"));
+
+    let about_workspace = start(ws, ConversationOrigin::Workspace);
+    say(&engine, about_workspace.id, "what is new?", &[]);
+    let took = until("the agent the setting names answers elsewhere", || {
+        said_by(&engine, about_workspace.id, &ada_pk)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert!(took.contains("what is new?"));
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(
+        said_by(&engine, about_workflow.id, &ada_pk).is_empty(),
+        "the setting's agent never spoke about the workflow"
+    );
+    assert!(
+        said_by(&engine, about_workspace.id, &workflow_pk).is_empty(),
+        "the Workflow Agent never spoke in the workspace conversation"
+    );
+
+    // A core agent cannot be switched off (`CoreCannotBeDisabled`), so the
+    // owner's only way out is its respond policy; the desktop's model pins
+    // the fall-through (`agentRailModel.test.mjs`).
+    assert!(matches!(
+        ws.get_agent(&AgentId::workflow()).map(|mut a| {
+            a.enabled = false;
+            ws.update_agent(a)
+        }),
+        Ok(Err(bisa_store::StoreError::Agent(
+            bisa_core::AgentError::CoreCannotBeDisabled
+        )))
+    ));
+
+    engine.shutdown().await;
+}
+
+/// With the Decision-Making Agent on and two agents who could answer, an
+/// unaddressed message is triaged — except in a conversation about a
+/// workflow, which has one answerer: nobody is asked, and the Workflow Agent
+/// takes it. The same message in a workspace conversation is triaged.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workflow_conversation_asks_no_triage() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    engine
+        .set_setting(
+            SettingScope::Workspace,
+            None,
+            "decisions.enabled",
+            serde_json::json!(true),
+        )
+        .unwrap();
+    let general = general_pubkey(&engine);
+    let workflow_pk = pubkey_of(&engine, &AgentId::workflow());
+    // Asked, the judge would hand the message to the General Agent.
+    let provider = std::sync::Arc::new(bisa_decision::ScriptedProvider::new(vec![
+        bisa_decision::ScriptedProvider::answers(
+            "agent",
+            bisa_decision::ScriptedProvider::choice(
+                AgentId::GENERAL,
+                &[AgentId::GENERAL, AgentId::WORKFLOW],
+                0.95,
+            ),
+        ),
+    ]));
+    engine.stand_in_decision_provider(Some(provider.clone()));
+    let wf = release_workflow(ws);
+
+    let about_workflow = start(ws, ConversationOrigin::Workflow { id: wf.id });
+    say(&engine, about_workflow.id, "tighten the steps", &[]);
+    let answered = until("the Workflow Agent answers unasked", || {
+        said_by(&engine, about_workflow.id, &workflow_pk)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert!(answered.contains("tighten the steps"));
+    assert!(
+        provider.asked().is_empty(),
+        "no triage in a conversation about a workflow: {:?}",
+        provider.asked()
+    );
+
+    let about_workspace = start(ws, ConversationOrigin::Workspace);
+    say(&engine, about_workspace.id, "who does what here?", &[]);
+    let took = until("the triaged agent answers in the workspace", || {
+        said_by(&engine, about_workspace.id, &general)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert!(took.contains("who does what here?"));
+    let asked = provider.asked();
+    assert_eq!(
+        asked.len(),
+        1,
+        "the workspace conversation was triaged once"
+    );
+    assert!(
+        asked[0].state["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("who does what here?")),
+        "the judge read the message: {:?}",
+        asked[0].state
+    );
+
+    engine.shutdown().await;
+}
+
+/// The notes the platform authored under one agent's key in a conversation
+/// — what a turn says of itself — as the Fluent id and the English.
+fn notes_by(engine: &Engine, conversation: ConversationId, pubkey: &str) -> Vec<(String, String)> {
+    engine
+        .workspace()
+        .messages(&conversation.to_string(), None, 200)
+        .unwrap()
+        .into_iter()
+        .filter(|m| m.author == pubkey && !m.retracted)
+        .filter_map(|m| m.said.map(|t| (t.id.to_string(), m.content)))
+        .collect()
+}
+
+/// Every `agent_replied` the bus said for one scope, in order:
+/// `(agent, posted, message)`.
+fn replies_on(
+    events: &mut tokio::sync::broadcast::Receiver<bisa_engine::EngineEvent>,
+    scope: &str,
+) -> Vec<(String, bool, Option<String>)> {
+    let mut out = Vec::new();
+    while let Ok(ev) = events.try_recv() {
+        if let EnginePayload::AgentReplied {
+            scope: s,
+            agent,
+            posted,
+            message,
+        } = ev.payload
+        {
+            if s == scope {
+                out.push((agent, posted, message));
+            }
+        }
+    }
+    out
+}
+
+/// A failing turn, end to end: the General Agent on `mock` in a workspace
+/// conversation, one message said, then the note the turn leaves — its id,
+/// its words — and the reply the bus settled it with, which names the note.
+async fn failing_turn(
+    engine: &Engine,
+    message: &str,
+) -> (String, String, Vec<(String, bool, Option<String>)>) {
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let general = general_pubkey(engine);
+    let conversation = start(ws, ConversationOrigin::Workspace);
+    let mut events = engine.events();
+    say(engine, conversation.id, message, &[]);
+    let (id, words) = until("the turn says why it failed", || {
+        notes_by(engine, conversation.id, &general)
+            .into_iter()
+            .next()
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        notes_by(engine, conversation.id, &general).len(),
+        1,
+        "said once"
+    );
+    assert!(
+        said_by(engine, conversation.id, &general)
+            .iter()
+            .all(|m| m == &words),
+        "nothing but the note was posted"
+    );
+    let replies = replies_on(&mut events, &conversation.id.to_string());
+    let note_id = ws
+        .messages(&conversation.id.to_string(), None, 200)
+        .unwrap()
+        .into_iter()
+        .find(|m| m.said.is_some())
+        .map(|m| m.id)
+        .unwrap();
+    assert!(
+        replies.contains(&(AgentId::GENERAL.to_string(), true, Some(note_id))),
+        "the bus settled the turn on the note: {replies:?}"
+    );
+    (id, words, replies)
+}
+
+/// A turn whose harness cannot be launched says so in the conversation —
+/// the harness and its reason — and settles the turn on the bus, instead of
+/// a warning in the log and a working dot that never rests.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_that_cannot_launch_says_why_in_the_conversation_and_settles() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            available: false,
+            ..Default::default()
+        }],
+    );
+    let (id, words, _) = failing_turn(&engine, "are you there?").await;
+    assert_eq!(id, "engine-conversation-turn-not-launched");
+    assert!(
+        words.contains("I could not start on mock") && words.contains("mock disabled"),
+        "{words}"
+    );
+    assert!(words.contains("under Agents"), "{words}");
+    engine.shutdown().await;
+}
+
+/// A harness that launched and then refused its first turn is said too, and
+/// its row — registered before the prompt — is over, not left running.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_refused_at_its_prompt_says_so_and_ends_its_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            refuse_prompt: true,
+            ..Default::default()
+        }],
+    );
+    let (id, words, _) = failing_turn(&engine, "hello?").await;
+    assert_eq!(id, "engine-conversation-turn-prompt-refused");
+    assert!(
+        words.contains("I started on mock") && words.contains("session terminated"),
+        "{words}"
+    );
+    assert!(
+        engine.workspace().list_live_sessions().unwrap().is_empty(),
+        "the row ended"
+    );
+    assert!(
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .iter()
+            .all(|r| !r.state.is_live()),
+        "no live row stands for a turn that never began"
+    );
+    engine.shutdown().await;
+}
+
+/// A session that ends failed before a word says the harness's own reason
+/// — redacted as a reply is, so a harness that dies printing a token puts
+/// none in the conversation — as the agent's note, once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_that_ends_failed_without_a_word_says_the_harnesss_reason_and_no_secret() {
+    // Synthetic: the shape the redactor knows, and nobody's token.
+    const TOKEN: &str = "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            script: Some(vec![
+                SessionEvent::Lifecycle(LifecycleEvent::Started),
+                SessionEvent::Progress(ProgressEvent::TurnStarted),
+                SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                    outcome: bisa_harness::Outcome::Failed {
+                        error: format!("the provider refused the key {TOKEN}."),
+                    },
+                    is_terminal: true,
+                }),
+            ]),
+            ..Default::default()
+        }],
+    );
+    let (id, words, _) = failing_turn(&engine, "what now?").await;
+    assert_eq!(id, "engine-conversation-turn-ended-without-reply");
+    assert!(
+        words.contains("I could not finish this turn")
+            && words.contains("the provider refused the key"),
+        "{words}"
+    );
+    assert!(
+        !words.contains(TOKEN),
+        "the note carries the token: {words}"
+    );
+    assert!(words.contains("«secret:"), "{words}");
+    engine.shutdown().await;
+}
+
+/// A session that fails after its words landed keeps the words as the reply
+/// and adds no note: the person has an answer, and the harness's end is the
+/// log's. Settled once, on the words.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_that_fails_after_its_words_landed_keeps_the_words_and_adds_no_note() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            script: Some(vec![
+                SessionEvent::Lifecycle(LifecycleEvent::Started),
+                SessionEvent::Progress(ProgressEvent::TurnStarted),
+                SessionEvent::Progress(ProgressEvent::TextDelta {
+                    text: "half an answer".into(),
+                }),
+                SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                    outcome: bisa_harness::Outcome::Failed {
+                        error: "the provider closed the stream".into(),
+                    },
+                    is_terminal: true,
+                }),
+            ]),
+            ..Default::default()
+        }],
+    );
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let general = general_pubkey(&engine);
+    let conversation = start(ws, ConversationOrigin::Workspace);
+    let mut events = engine.events();
+    say(&engine, conversation.id, "go on", &[]);
+    let words = until("the words land", || {
+        said_by(&engine, conversation.id, &general)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert_eq!(words, "half an answer");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(
+        notes_by(&engine, conversation.id, &general).is_empty(),
+        "no note: the words are the reply"
+    );
+    let replies = replies_on(&mut events, &conversation.id.to_string());
+    assert_eq!(replies.len(), 1, "settled once, on the words: {replies:?}");
+    assert!(replies[0].1 && replies[0].2.is_some());
+    engine.shutdown().await;
+}
+
+/// A turn stopped by a person posts no complaint — the stop said it — but
+/// the bus still hears the turn end, with nothing posted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_stopped_by_a_person_posts_no_complaint_and_still_settles() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            script: Some(vec![
+                SessionEvent::Lifecycle(LifecycleEvent::Started),
+                SessionEvent::Progress(ProgressEvent::TurnStarted),
+                SessionEvent::Progress(ProgressEvent::ToolStarted {
+                    name: "Read".into(),
+                    args_summary: "the world".into(),
+                    tier: bisa_core::ToolTier::Read,
+                    id: None,
+                }),
+            ]),
+            ..Default::default()
+        }],
+    );
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let general = general_pubkey(&engine);
+    let conversation = start(ws, ConversationOrigin::Workspace);
+    let mut events = engine.events();
+    let mut heard = engine.events();
+    say(&engine, conversation.id, "take your time", &[]);
+    // Stopped once the turn is under way — its tool call on the bus — so
+    // the stop meets a session, not the window before the prompt.
+    until("the turn's tool call is on the bus", || {
+        while let Ok(ev) = heard.try_recv() {
+            if let EnginePayload::Session {
+                event: SessionEvent::Progress(ProgressEvent::ToolStarted { .. }),
+            } = ev.payload
+            {
+                return Some(());
+            }
+        }
+        None
+    })
+    .await;
+    let row = engine
+        .inner()
+        .presence
+        .snapshot()
+        .into_iter()
+        .find(|r| r.conversation == Some(conversation.id) && r.state.is_live())
+        .expect("the turn's live row");
+    assert!(bisa_engine::sessions::stop_one(engine.inner(), row.id).unwrap());
+    let replies = until("the bus hears the turn end", || {
+        let replies = replies_on(&mut events, &conversation.id.to_string());
+        (!replies.is_empty()).then_some(replies)
+    })
+    .await;
+    assert_eq!(
+        replies,
+        vec![(AgentId::GENERAL.to_string(), false, None)],
+        "settled, with nothing posted"
+    );
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(
+        said_by(&engine, conversation.id, &general).is_empty(),
+        "a stopped turn says nothing of itself"
+    );
+    engine.shutdown().await;
+}
+
+/// A turn that completes with no words at all posts nothing, and still ends
+/// on the bus — once — so no pane holds a turn that will never settle.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_turn_still_settles_the_working_indicator_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(
+        &dir,
+        vec![MockAdapter {
+            script: Some(vec![
+                SessionEvent::Lifecycle(LifecycleEvent::Started),
+                SessionEvent::Progress(ProgressEvent::TurnStarted),
+                SessionEvent::Progress(ProgressEvent::TurnEnded),
+                SessionEvent::Lifecycle(LifecycleEvent::Ended {
+                    outcome: bisa_harness::Outcome::Completed,
+                    is_terminal: true,
+                }),
+            ]),
+            ..Default::default()
+        }],
+    );
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let general = general_pubkey(&engine);
+    let conversation = start(ws, ConversationOrigin::Workspace);
+    let mut events = engine.events();
+    say(&engine, conversation.id, "say nothing", &[]);
+    let replies = until("the bus hears the empty turn end", || {
+        let replies = replies_on(&mut events, &conversation.id.to_string());
+        (!replies.is_empty()).then_some(replies)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let mut all = replies;
+    all.extend(replies_on(&mut events, &conversation.id.to_string()));
+    assert_eq!(
+        all,
+        vec![(AgentId::GENERAL.to_string(), false, None)],
+        "settled once, with nothing posted"
+    );
+    assert!(said_by(&engine, conversation.id, &general).is_empty());
+    engine.shutdown().await;
+}
+
+/// A turn past the wall clock is stopped, what it said so far lands, and
+/// the note after it says why — and the bus settles on the note.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_past_the_wall_clock_keeps_its_words_and_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let lingering = MockAdapter {
+        script: Some(vec![
+            SessionEvent::Lifecycle(LifecycleEvent::Started),
+            SessionEvent::Progress(ProgressEvent::TurnStarted),
+            SessionEvent::Progress(ProgressEvent::TextDelta {
+                text: "still thinking about it".into(),
+            }),
+        ]),
+        ..Default::default()
+    };
+    let engine = Engine::start(
+        crate::common::workspace(&dir),
+        crate::common::catalog_with(vec![lingering]),
+        EngineConfig {
+            default_wall_clock_secs: 1,
+            ..crate::common::design_off_config()
+        },
+    )
+    .unwrap();
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let general = general_pubkey(&engine);
+    let conversation = start(ws, ConversationOrigin::Workspace);
+    let mut events = engine.events();
+    say(&engine, conversation.id, "think hard", &[]);
+    let (id, words) = until("the wall clock is said", || {
+        notes_by(&engine, conversation.id, &general)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert_eq!(id, "engine-conversation-turn-past-wall-clock");
+    assert!(words.contains("ran past the 1 s"), "{words}");
+    let said = said_by(&engine, conversation.id, &general);
+    assert_eq!(said.len(), 2, "the words so far, then the note: {said:?}");
+    assert_eq!(said[0], "still thinking about it");
+    let replies = replies_on(&mut events, &conversation.id.to_string());
+    assert!(
+        replies.iter().any(|(_, posted, m)| *posted && m.is_some()),
+        "{replies:?}"
+    );
+    let row = until("the row says the wall clock", || {
+        engine
+            .inner()
+            .presence
+            .snapshot()
+            .into_iter()
+            .find(|r| r.conversation == Some(conversation.id) && !r.state.is_live())
+    })
+    .await;
+    assert!(
+        matches!(&row.state, bisa_engine::SessionState::Failed { reason } if reason == "wall clock exceeded"),
+        "{:?}",
+        row.state
+    );
+    engine.shutdown().await;
+}
+
+/// A conversation about a checkout that is gone from disk says so instead
+/// of waking nothing: the project and the path it expected.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_in_a_checkout_that_is_gone_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_with(&dir, vec![MockAdapter::default()]);
+    let ws = engine.workspace();
+    core_on(ws, "mock");
+    let general = general_pubkey(&engine);
+    let (project, primary, conversation) = checkout_conversation(ws);
+    let checkout = ws.checkout_in(&project, &ws.get_workstream(primary).unwrap());
+    std::fs::remove_dir_all(&checkout).unwrap();
+    say(&engine, conversation.id, "what is in this tree?", &[]);
+    let (id, words) = until("the missing checkout is said", || {
+        notes_by(&engine, conversation.id, &general)
+            .into_iter()
+            .next()
+    })
+    .await;
+    assert_eq!(id, "engine-conversation-turn-no-checkout");
+    assert!(
+        words.contains("project web-app") && words.contains(&checkout.display().to_string()),
+        "{words}"
+    );
     engine.shutdown().await;
 }
 

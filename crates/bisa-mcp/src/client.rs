@@ -964,16 +964,22 @@ impl IntakeClient {
         Ok(Self::op_result(reply))
     }
 
-    /// One workflow by id or catalog slug, with its problems:
-    /// `{workflow, installed, problems, note?}`.
+    /// One workflow with its problems: `{workflow, installed, problems,
+    /// note?}` — by id or catalog slug when `workflow` names one, else the
+    /// workflow the session's conversation is about, which the engine reads
+    /// from the scope that rides with the request ([`Scope::apply`]).
     pub async fn get_workflow(
         &self,
+        scope: &Scope,
         agent: &str,
-        workflow: &str,
+        workflow: Option<&str>,
     ) -> Result<OpResult<Value>, IntakeError> {
-        let reply = self
-            .call(&json!({"op": "get_workflow", "agent": agent, "workflow": workflow}))
-            .await?;
+        let mut req = json!({"op": "get_workflow", "agent": agent});
+        if let Some(named) = workflow {
+            req["workflow"] = json!(named);
+        }
+        scope.apply(&mut req);
+        let reply = self.call(&req).await?;
         Ok(Self::op_result(reply))
     }
 

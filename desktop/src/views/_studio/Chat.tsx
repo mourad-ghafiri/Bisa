@@ -684,6 +684,7 @@ function openArtifact(key: string, expand: boolean): void {
 export function Chat({
   scope,
   kind,
+  originKind,
   channel,
   pinned,
   placeholder,
@@ -708,6 +709,8 @@ export function Chat({
 }: {
   scope: string;
   kind: ScopeKind;
+  /** What a conversation is about (13 § Origins), when the scope is one: who `@` offers and reaches. */
+  originKind?: string | null;
   /** The channel behind a chat or DM, when there is one — seeds the tray. */
   channel?: ChannelDef | null;
   /** Cards that ride above the timeline: a gate, a question. */
@@ -774,7 +777,7 @@ export function Chat({
   const conv = useScopeMessages(scope, kind, hosted ? { host: hosted.host } : null);
   const attached = context ?? [];
   const overBudget = !fitsBudget([...attached]);
-  const local = useParticipants(hosted ? null : channel, kind);
+  const local = useParticipants(hosted ? null : channel, kind, originKind);
   const hostedMentions = useMemo(() => (hosted ? hostedMentionables(hosted.directory, ws.me) : []), [hosted, ws.me]);
   const { mentionables, agents, addressCandidates, inAudience } = hosted
     ? { mentionables: hostedMentions, agents: [], addressCandidates: [], inAudience: [] }
@@ -783,7 +786,7 @@ export function Chat({
   const photoOf = hosted ? (p: string) => hostedPhotoOf(hosted.directory, p) : ws.photoOf;
   // A remembered addressee a conversation of this kind cannot reach — the
   // Workflow Agent on a checkout — is neither drawn nor sent.
-  const unreachable = useMemo(() => ws.agents.filter((a) => !reachableIn(a, kind)).map((a) => a.pubkey), [ws.agents, kind]);
+  const unreachable = useMemo(() => ws.agents.filter((a) => !reachableIn(a, originKind ?? kind)).map((a) => a.pubkey), [ws.agents, kind, originKind]);
   const addressed = useAddressed(scope, inAudience, unreachable);
   const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
   /** The chat's root: where the person's first wheel, click or key is heard. */

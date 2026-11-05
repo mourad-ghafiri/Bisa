@@ -399,6 +399,58 @@ async fn get_workflow_reads_by_id_or_slug() {
     engine.shutdown().await;
 }
 
+/// In a conversation about a workflow, `get_workflow` with no name — or a
+/// blank one — reads that workflow at its revision, as the frame tells the
+/// agent to call it; a session in no such conversation is told to name one.
+#[tokio::test(flavor = "multi_thread")]
+async fn get_workflow_resolves_the_conversations_workflow_when_none_is_named() {
+    use bisa_core::ConversationOrigin;
+    use bisa_store::NewConversation;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_on(&dir);
+    let ws = engine.workspace();
+    let wf = engine
+        .create_workflow(new_workflow("Release", vec![agent_step("go", "mock")]))
+        .unwrap();
+    let about = ws
+        .create_conversation(NewConversation {
+            origin: ConversationOrigin::Workflow { id: wf.id },
+            title: None,
+            mode: bisa_core::ConversationMode::Auto,
+        })
+        .unwrap();
+    let scope = about.id.to_string();
+
+    let read = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "get_workflow", "agent": DRIVER, "scope": scope}),
+    )
+    .await;
+    assert_eq!(read["ok"], json!(true), "{read}");
+    assert_eq!(read["installed"], json!(true));
+    assert_eq!(read["workflow"]["id"], json!(wf.id.to_string()));
+    assert_eq!(read["workflow"]["name"], json!("Release"));
+    assert_eq!(read["workflow"]["revision"], json!(1));
+    assert_eq!(read["problems"], json!([]));
+
+    let blank = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "get_workflow", "agent": DRIVER, "scope": scope, "workflow": "  "}),
+    )
+    .await;
+    assert_eq!(blank["workflow"]["id"], json!(wf.id.to_string()), "{blank}");
+
+    let nowhere = intake_roundtrip(
+        engine.socket_path(),
+        json!({"op": "get_workflow", "agent": DRIVER}),
+    )
+    .await;
+    assert_eq!(nowhere["ok"], json!(false), "{nowhere}");
+    let why = nowhere["errors"][0].as_str().unwrap_or("");
+    assert!(why.contains("name one"), "{why}");
+    engine.shutdown().await;
+}
+
 /// The Workflow Agent's one write to a library workflow: from the
 /// conversation about it, whole, at the revision it read — announced as its
 /// hand (`designed`), so the designer beside the conversation and the Inbox

@@ -611,10 +611,15 @@ enum Op {
     ListWorkflowTemplates {
         agent: String,
     },
-    /// One workflow, by id or catalog slug, with its problems.
+    /// One workflow with its problems: by id or catalog slug when `workflow`
+    /// names one, else the workflow the session's conversation is about
+    /// (`ConversationOrigin::Workflow`, from `scope`).
     GetWorkflow {
         agent: String,
-        workflow: String,
+        #[serde(default)]
+        workflow: Option<String>,
+        #[serde(default)]
+        scope: Option<String>,
     },
     /// Every problem a definition has, without recording it — its staffing
     /// judged against `goal`'s roster when one is given.
@@ -1702,11 +1707,15 @@ async fn handle_op(inner: &Arc<Inner>, op: Op) -> serde_json::Value {
             }
             list_workflow_templates(inner)
         }
-        Op::GetWorkflow { agent, workflow } => {
+        Op::GetWorkflow {
+            agent,
+            workflow,
+            scope,
+        } => {
             if let Err(e) = core_agent_only(&agent, &[AgentId::WORKFLOW]) {
                 return e;
             }
-            get_workflow(inner, &workflow)
+            get_workflow(inner, workflow.as_deref(), scope.as_deref())
         }
         Op::ValidateWorkflow {
             agent,
@@ -2420,10 +2429,27 @@ fn problems_of(
     }) // LCOV_EXCL_LINE the other edge of the branch; by construction
 }
 
-/// One workflow by id or catalog slug, with its current problems. An
-/// uninstalled template answers as the catalog reads it, under a fresh id
-/// that nothing holds.
-fn get_workflow(inner: &Arc<Inner>, raw: &str) -> serde_json::Value {
+/// One workflow with its current problems: the one the session's
+/// conversation is about when none is named — the frame tells the agent to
+/// name none — else by id or catalog slug, where an uninstalled template
+/// answers as the catalog reads it, under a fresh id that nothing holds.
+fn get_workflow(inner: &Arc<Inner>, named: Option<&str>, scope: Option<&str>) -> serde_json::Value {
+    let named = named.map(str::trim).filter(|raw| !raw.is_empty());
+    let Some(raw) = named else {
+        let id = match conversation_workflow(inner, None, scope, "get_workflow") {
+            Ok(id) => id,
+            Err(why) => return err(why),
+        };
+        let wf = match inner.ws.get_workflow(id) {
+            Ok(wf) => wf,
+            Err(e) => return err(e.to_string()), // LCOV_EXCL_LINE a store refusal here is a disk failure (disk-only)
+        };
+        let problems = match problems_of(inner, &wf) {
+            Ok(problems) => problems,
+            Err(refusal) => return refusal, // LCOV_EXCL_LINE an arm no intake journey stages; out by decision
+        };
+        return json!({"ok": true, "workflow": wf, "installed": true, "problems": problems});
+    };
     match resolve_workflow_ref(inner, raw, false) {
         Ok(Some(wf)) => {
             let problems = match problems_of(inner, &wf) {
@@ -2494,23 +2520,30 @@ fn validate_workflow(
 /// The workflow `save_workflow` writes: the one the session's conversation
 /// is about, and no other. A call that names one must name that one; a
 /// session in no such conversation — a goal's cycle, a goal's thread, a
-/// channel — is told what writes a goal's design instead. The rule is what
+/// channel — is told what writes a goal's design instead, or, reading, to
+/// name the workflow (`verb` picks the sentence). The rule is what
 /// keeps the agent's one write the person's ask: it edits the workflow they
 /// opened a conversation about, where the canvas is beside them.
-fn workflow_of(
+fn conversation_workflow(
     inner: &Arc<Inner>,
     named: Option<&str>,
     scope: Option<&str>,
+    verb: &str,
 ) -> Result<WorkflowId, String> {
     let about = scope
         .map(|s| crate::conversation::scope_facts(inner, s))
         .and_then(|facts| facts.conversation)
         .and_then(|c| c.origin.workflow())
-        .ok_or_else(|| {
-            "save_workflow writes the library workflow a conversation is about, from that \
-             conversation; this session is in none. A goal's design is proposed with \
-             propose_workflow."
-                .to_string()
+        .ok_or_else(|| match verb {
+            "get_workflow" => "get_workflow reads the conversation's workflow when none is \
+                               named, and this session is in no conversation about a \
+                               workflow: name one — an installed workflow's id or a catalog \
+                               template's slug."
+                .to_string(),
+            _ => "save_workflow writes the library workflow a conversation is about, from \
+                  that conversation; this session is in none. A goal's design is proposed \
+                  with propose_workflow."
+                .to_string(),
         })?;
     match named {
         None => Ok(about),
@@ -2535,7 +2568,7 @@ fn save_workflow(
     revision: u64,
     draft: NewWorkflow,
 ) -> serde_json::Value {
-    let id = match workflow_of(inner, named, scope) {
+    let id = match conversation_workflow(inner, named, scope, "save_workflow") {
         Ok(id) => id,
         Err(why) => return err(why),
     };

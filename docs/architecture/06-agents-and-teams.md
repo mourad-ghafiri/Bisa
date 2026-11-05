@@ -125,7 +125,7 @@ core set, and then one set each that the other never receives:
 | **Goal** — a session designing a goal's workflow, and the Workflow Agent's turn in a goal's thread (launched knowing the goal) | `revise_statement`, `propose_workflow`, `amend_workflow` |
 | **The General Agent and the Workflow Agent** | `workspace_overview`, `list_staff`, `list_catalog` |
 | **General Agent only** | `install_catalog_entry`, `assign`, `capture_goal` — work that recurs or waits for something (*every Monday…*, *whenever someone posts in #support…*) captured as a standing goal in the workspace's default mode: the Workflow Agent designs its workflow with the start event the statement names, and the goal listens once the design is adopted ([03 — Workflows](03-workflows.md#listening)) |
-| **Workflow Agent only** | `list_workflow_templates`, `get_workflow`, `validate_workflow`, `save_workflow` — the one write to a library workflow: from the conversation about it, and to that workflow alone (`intake::workflow_of`), whole, at the revision it read; refused with its problems, refused as moved when the person saved meanwhile; announced as the agent's hand (`WorkflowChanged { designed: true }`), which the designer beside the conversation and the Inbox hear |
+| **Workflow Agent only** | `list_workflow_templates`, `get_workflow` (an installed workflow by id, a template by slug, or — named none, in a conversation about a workflow — that workflow with its validation problems), `validate_workflow`, `save_workflow` — the one write to a library workflow: from the conversation about it, and to that workflow alone (`intake::conversation_workflow`), whole, at the revision it read; refused with its problems, refused as moved when the person saved meanwhile; announced as the agent's hand (`WorkflowChanged { designed: true }`), which the designer beside the conversation and the Inbox hear |
 
 A project an agent makes with `create_project` is a git repository like any other the platform makes,
 and gets its identity the same way: it inherits the person's global git config, and — only
@@ -323,7 +323,9 @@ nothing at all while the answer is still in flight or the read failed. A fact ab
 is never a reason to withhold the agent — a collaborator's node may have the harness.
 
 **Who wakes whom.** A human's message wakes a core agent when it names nobody — the default agent,
-`agents.default`, or the general agent when it cannot be reached. Where two or more agents may
+`agents.default`, or the general agent when it cannot be reached; in a conversation about a
+workflow, the Workflow Agent before either, as the room's own (`ScopeFacts::owner_agent`,
+[13 § Origins](13-conversations.md#origins--placement-frame-reach)), and no triage is asked there. Where two or more agents may
 answer and the Decision-Making Agent is on for the workspace or for the default agent, triage puts it a
 `choice` over who should — asked off the dispatch path, so a slow judgement never holds up the
 message — and falls to the default agent when it is unsure, fails, or is off

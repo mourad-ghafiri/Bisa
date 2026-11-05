@@ -2,11 +2,15 @@
  * The Workflow Designer's Agent pane (03-workflows §The designer; 13 —
  * Conversations §Origins): the conversations about this workflow, in the
  * right panel beside the canvas. A conversation with origin `workflow` runs
- * its turns in the agent's scratch, is framed as being about this workflow
- * — its inputs, its steps and its flows — and reaches the Workflow Agent,
- * which reads it, validates and **saves** it at the revision it read
+ * its turns in the Workflow Agent's scratch, is framed as being about this
+ * workflow — its inputs, its steps and its flows — and is that agent's own:
+ * a message that names nobody reaches it, whatever `agents.default` says
+ * (`ScopeFacts::owner_agent`; the pill and the `@`-picker mirror it through
+ * `addressModel.defaultAddresseeIn`). It reads the workflow with
+ * `get_workflow`, validates and **saves** it at the revision it read
  * (`save_workflow`); the canvas beside the pane adopts the new revision, or
- * offers the conflict banner when the person was mid-edit.
+ * offers the conflict banner when the person was mid-edit. A turn that
+ * cannot run says why in the conversation (13 § A turn that fails says so).
  *
  * Painted as every owner's surface is (`ConversationSurface`), from
  * `useConversationSurface` with the screen's own selection, remembered: the
@@ -30,7 +34,7 @@ export function WorkflowAgentPane({ workflow }: { workflow: Workflow }) {
       surface={c}
       icon={<ICON.workflow size={14} aria-hidden />}
       subject={workflow.name}
-      hint={t("workflow-workflow-agent-pane-mention-workflow-agent-analyse-fix-finish")}
+      hint={t("workflow-workflow-agent-pane-hint")}
     />
   );
 }

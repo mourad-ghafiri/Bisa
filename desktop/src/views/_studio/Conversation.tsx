@@ -60,6 +60,7 @@ export function ConversationHeader({
 export function Conversation({
   scope,
   kind,
+  originKind,
   channel,
   header,
   pinned,
@@ -85,6 +86,8 @@ export function Conversation({
 }: {
   scope: string;
   kind: ScopeKind;
+  /** What a conversation is about (13 § Origins), when the scope is one — see `Chat`. */
+  originKind?: string | null;
   channel?: ChannelDef | null;
   /** The surface's header; absent when the page above the tabs already owns one. */
   header?: ReactNode;
@@ -136,6 +139,7 @@ export function Conversation({
           key={`${kind}:${scope}`}
           scope={scope}
           kind={kind}
+          originKind={originKind}
           channel={channel}
           pinned={pinned}
           placeholder={placeholder}

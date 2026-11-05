@@ -334,6 +334,20 @@ impl ScopeFacts {
             .is_none_or(|c| c.origin.reaches_workflow_agent())
     }
 
+    /// The agent a conversation is *for* — the one holding the tools its
+    /// subject needs, so an unaddressed message there is its to answer,
+    /// whatever `agents.default` says and with no triage asked: the Workflow
+    /// Agent in a conversation about a library workflow, which it alone
+    /// reads, validates and saves (13 § Who answers). Every other scope has
+    /// none. One rule, read by the default and by the triage; the desktop
+    /// mirrors it in `addressModel.mjs` (`defaultAddresseeIn`).
+    pub fn owner_agent(&self) -> Option<AgentId> {
+        match self.conversation.as_ref().map(|c| &c.origin) {
+            Some(ConversationOrigin::Workflow { .. }) => Some(AgentId::workflow()),
+            _ => None,
+        }
+    }
+
     pub fn project(&self) -> Option<bisa_core::ProjectId> {
         self.checkout.as_ref().map(|(_, p, _)| p.id)
     }
@@ -758,9 +772,10 @@ fn dispatch_to(
         && origin == PostOrigin::Asked
         && audience.is_empty()
         && mentioned.is_empty();
-    // Who an unaddressed message reaches: the project's `agents.default` for a
-    // conversation in a checkout, the workspace's elsewhere — resolved once,
-    // and only when it is going to be used.
+    // Who an unaddressed message reaches: the conversation's owner when it
+    // has one, else the project's `agents.default` for a conversation in a
+    // checkout, the workspace's elsewhere — resolved once, and only when it
+    // is going to be used.
     let default_id = match (triage, triaged) {
         (true, Some(chosen)) => chosen,
         (true, None) => {
@@ -791,7 +806,11 @@ fn dispatch_to(
                     (a.id.to_string(), what)
                 })
                 .collect();
-            if candidates.len() >= 2
+            // A room with an owner — a conversation about a workflow — has
+            // one answerer, the only agent with the tools its subject
+            // needs: nobody is asked who should take it.
+            if facts.owner_agent().is_none()
+                && candidates.len() >= 2
                 && crate::decider::is_on(inner, bisa_core::DecisionPoint::DispatchTriage, &standing)
             {
                 let inner = Arc::clone(inner);
@@ -1290,12 +1309,27 @@ fn build_conversation_spec(
 /// unknown, disabled, refusing this author under its respond policy, or the
 /// Workflow Agent where a checkout is the subject — so an unaddressed message
 /// is never met with silence because of a stale or impossible setting.
+///
+/// A conversation with an owner ([`ScopeFacts::owner_agent`]) is answered by
+/// it before the setting is read: a workflow's by the Workflow Agent, who
+/// alone can change the workflow. The setting's agent stands in only when
+/// the owner cannot take the message — disabled, or refusing this author.
 fn default_agent(
     inner: &Arc<Inner>,
     agents: &[bisa_core::Agent],
     facts: &ScopeFacts,
     author: &str,
 ) -> AgentId {
+    // The conversation's owner, when it can take the message: a core agent
+    // is never disabled, so only its respond policy can refuse an author.
+    let owner = facts.owner_agent().filter(|owner| {
+        agents
+            .iter()
+            .any(|a| &a.id == owner && a.enabled && may_respond(inner, a, author))
+    });
+    if let Some(owner) = owner {
+        return owner;
+    }
     let named = inner
         .ws
         .setting("agents.default", facts.project())
@@ -1486,6 +1520,12 @@ async fn wake_attempt(
                 workstream.id, project.slug, cwd.display()
                 // LCOV_EXCL_STOP
             );
+            let note = bisa_core::text!(
+                "engine-conversation-turn-no-checkout",
+                project = project.slug.to_string(),
+                path = cwd.display().to_string()
+            );
+            say_turn_failed(inner, scope, agent_id, note);
             return;
         }
     }
@@ -1621,8 +1661,15 @@ async fn wake_attempt(
                     agent = %agent_id, scope = %scope,
                     "chat wake failed to launch: {}", failure.message
                 );
-                // No session: the row that stood for it leaves at once.
+                // No session: the row that stood for it leaves at once, and
+                // the person reads why where they asked.
                 inner.presence.forget(inner, agent_uid);
+                let note = bisa_core::text!(
+                    "engine-conversation-turn-not-launched",
+                    harness = agent.harness.clone(),
+                    why = failure_words(inner, &failure.message)
+                );
+                say_turn_failed(inner, scope, agent_id, note);
                 return;
             }
         };
@@ -1780,6 +1827,23 @@ async fn wake_attempt(
     if let Err(e) = session.prompt(first_turn).await {
         tracing::warn!(agent = %agent_id, "chat prompt failed: {e}");
         warn_on_err(session.dispose().await, "disposing a failed chat session");
+        // The row stood for a turn that never began: it ends as failed,
+        // and the person reads why where they asked.
+        let why = failure_words(inner, &e.to_string());
+        settle_turn_row(
+            inner,
+            agent_uid,
+            &session_id,
+            &crate::events::ExecutionOutcome::Failed {
+                reason: why.clone(),
+            },
+        );
+        let note = bisa_core::text!(
+            "engine-conversation-turn-prompt-refused",
+            harness = harness_id.clone(),
+            why = why
+        );
+        say_turn_failed(inner, scope, agent_id, note);
         return;
     }
     // Stopped while it was prompted: aborted before it says a word; the
@@ -1973,6 +2037,14 @@ fn spawn_reply_pump(
         let wall_clock = Duration::from_secs(inner.config.default_wall_clock_secs);
         let mut turn_open = false;
         let mut exceeded = false;
+        // What the open turn has left behind: `turn_landed` once its words,
+        // a note of its own or a message it posted through a tool are in
+        // the conversation; `turn_settled` once the bus heard its end. A
+        // turn that ends with neither settles the bus with an empty reply;
+        // one that ends failed with nothing landed says why. Both start
+        // over at the harness's next `TurnStarted`.
+        let mut turn_landed = false;
+        let mut turn_settled = false;
         loop {
             // The next event — or, while something gathered waits for a
             // frame, the interval's end: a frame is at most `STREAM_FLUSH`
@@ -1999,6 +2071,15 @@ fn spawn_reply_pump(
                     if let Some(session) = conv.session.lock().await.as_ref() {
                         warn_on_err(session.abort().await, "aborting a chat turn past the wall clock");
                     } // LCOV_EXCL_LINE: the session taken under the wall clock; a window
+                    // What it said so far lands, then why it was stopped —
+                    // said where the person asked, as a failed turn is.
+                    finish_turn(&inner, &scope, &agent_id, &mut said, &spoken_before).await;
+                    end_tracked_turn(&inner, &conv, &scope, &agent_id, &spoken_before).await;
+                    let note = bisa_core::text!(
+                        "engine-conversation-turn-past-wall-clock",
+                        secs = wall_clock.as_secs()
+                    );
+                    say_turn_failed(&inner, &scope, &agent_id, note);
                     // Out before the harness's own end arrives: the row says
                     // the wall clock, not what the abort made the harness say.
                     break;
@@ -2027,6 +2108,8 @@ fn spawn_reply_pump(
                     inner.conversation.live.remove(&key);
                     turn_started = now_secs();
                     spoken_before = agent_posts(&inner, &scope, &agent_id);
+                    turn_landed = false;
+                    turn_settled = false;
                 }
                 // The harness stopped for an answer. A chat runs at the Exec
                 // ceiling; what is above it — a question, a sign-in — goes to
@@ -2147,8 +2230,15 @@ fn spawn_reply_pump(
                     // The turn is over before its reply lands: a reader who
                     // sees the message never also sees it in flight.
                     inner.conversation.live.remove(&key);
-                    finish_turn(&inner, &scope, &agent_id, &mut said, &spoken_before).await;
+                    if finish_turn(&inner, &scope, &agent_id, &mut said, &spoken_before).await {
+                        turn_landed = true;
+                        turn_settled = true;
+                    }
                     end_tracked_turn(&inner, &conv, &scope, &agent_id, &spoken_before).await;
+                    if !turn_settled {
+                        settle_empty_turn(&inner, &scope, &agent_id);
+                        turn_settled = true;
+                    }
                 }
                 SessionEvent::Lifecycle(LifecycleEvent::Ended {
                     outcome,
@@ -2158,7 +2248,10 @@ fn spawn_reply_pump(
                     // the turn is over before it lands, as above.
                     flush_stream(&inner, &scope, &agent_id, &mut streamer);
                     inner.conversation.live.remove(&key);
-                    finish_turn(&inner, &scope, &agent_id, &mut said, &spoken_before).await;
+                    if finish_turn(&inner, &scope, &agent_id, &mut said, &spoken_before).await {
+                        turn_landed = true;
+                        turn_settled = true;
+                    }
                     end_tracked_turn(&inner, &conv, &scope, &agent_id, &spoken_before).await;
                     match outcome {
                         Outcome::Completed => {}
@@ -2183,7 +2276,30 @@ fn spawn_reply_pump(
                                 after_progress: progressed,
                             });
                         }
-                        other => tracing::warn!(agent = %agent_id, "chat turn ended: {other:?}"),
+                        // A person's own stop: no complaint, the stop said it.
+                        Outcome::Aborted => {}
+                        other => {
+                            tracing::warn!(agent = %agent_id, "chat turn ended: {other:?}");
+                            // Over for good with nothing said and nothing
+                            // posted through a tool: the harness's reason is
+                            // said where the person asked.
+                            if *is_terminal
+                                && !turn_landed
+                                && !spoke_already(&inner, &scope, &agent_id, &spoken_before)
+                            {
+                                let note = bisa_core::text!(
+                                    "engine-conversation-turn-ended-without-reply",
+                                    why = failure_words(&inner, &crate::guided::ended_why(other))
+                                );
+                                say_turn_failed(&inner, &scope, &agent_id, note);
+                                turn_landed = true;
+                                turn_settled = true;
+                            }
+                        }
+                    }
+                    if !turn_settled {
+                        settle_empty_turn(&inner, &scope, &agent_id);
+                        turn_settled = true;
                     }
                     if *is_terminal {
                         break;
@@ -2210,18 +2326,10 @@ fn spawn_reply_pump(
         }
         let parked = conv.session.lock().await.is_none();
         if !parked {
-            crate::sessions::ended(&inner, &conv.session_id.to_string());
-            if let Some(a) = inner.registry.get(conv.agent_id) {
-                debug_on_err(
-                    inner.registry.mutate(conv.agent_id, a.generation, |a| {
-                        a.status = AgentStatus::Idle
-                    }),
-                    "idling a chat run",
-                );
-            } // LCOV_EXCL_LINE: the registry entry gone before the pump's end; a window
-            inner.presence.ended(
+            settle_turn_row(
                 &inner,
                 conv.agent_id,
+                &conv.session_id,
                 &match (&wall, exceeded) {
                     (_, true) => crate::events::ExecutionOutcome::WallClockExceeded,
                     (None, false) => crate::events::ExecutionOutcome::Completed,
@@ -2286,29 +2394,91 @@ async fn end_tracked_turn(
 /// A plan on a harness the guard cannot stop is no plan: say so in the
 /// conversation rather than run a turn that could change the checkout.
 fn refuse_unguarded_plan(inner: &Arc<Inner>, scope: &str, agent: &bisa_core::Agent) {
-    let text = format!(
-        "This conversation is in plan mode, and I run on {}, which the platform cannot hold to reading. Switch the conversation to manual or auto, or address an agent on a harness the guard can stop.",
-        agent.harness
+    let note = bisa_core::text!(
+        "engine-conversation-plan-unguarded",
+        harness = agent.harness.clone()
     );
-    match inner.ws.post_message(
+    say_turn_failed(inner, scope, agent.id.as_str(), note);
+}
+
+/// A turn that could not run, or ended without a word, says so **in the
+/// conversation**: the agent's own standing note — signed by the agent when
+/// it can sign, by the owner otherwise, as the Workflow Agent speaks in a
+/// goal's thread (`guided::record`); announced, so it triages nobody — and
+/// the turn settled on the bus as a reply that landed, so a pane's working
+/// dot rests on the note and the person reads why rather than nothing
+/// (13 § A turn that fails says so). The words it carries go through
+/// [`failure_words`] first.
+fn say_turn_failed(inner: &Arc<Inner>, scope: &str, agent_id: &str, note: bisa_core::Text) {
+    let Ok(agent) = AgentId::new(agent_id) else {
+        return; // LCOV_EXCL_LINE: an id that came from an AgentId; unreachable by construction
+    };
+    let speaker = inner.ws.signer_for(&agent).is_ok().then_some(&agent);
+    let posted = inner.ws.post_message(
         scope,
-        MessageBody::post(text),
+        MessageBody::said(note),
         None,
         &[],
         &[],
-        Some(&agent.id),
-        PostOrigin::Asked,
-    ) {
-        Ok(id) => inner.emit(EngineEvent::global(EnginePayload::AgentReplied {
-            scope: scope.to_string(),
-            agent: agent.id.to_string(),
-            posted: true,
-            message: Some(id),
-        })),
-        // LCOV_EXCL_START: the plan refusal's post refused; a disk arm
-        Err(e) => tracing::warn!(agent = %agent.id, "posting the plan refusal failed: {e}"),
-        // LCOV_EXCL_STOP
-    }
+        speaker,
+        PostOrigin::Announced,
+    );
+    let message = match posted {
+        Ok(id) => Some(id),
+        // LCOV_EXCL_START: the failure's note refused by the store; a disk arm
+        Err(e) => {
+            tracing::warn!(agent = %agent_id, scope = %scope, "a turn's failure could not be said: {e}");
+            None
+        } // LCOV_EXCL_STOP
+    };
+    inner.emit(EngineEvent::global(EnginePayload::AgentReplied {
+        scope: scope.to_string(),
+        agent: agent_id.to_string(),
+        posted: message.is_some(),
+        message,
+    }));
+}
+
+/// A turn that ended with nothing said, nothing noted and nothing posted
+/// through a tool — a completed turn with no words, a person's stop — is
+/// over on the bus all the same, so no pane holds a turn that will never
+/// settle.
+fn settle_empty_turn(inner: &Arc<Inner>, scope: &str, agent_id: &str) {
+    inner.emit(EngineEvent::global(EnginePayload::AgentReplied {
+        scope: scope.to_string(),
+        agent: agent_id.to_string(),
+        posted: false,
+        message: None,
+    }));
+}
+
+/// A failure's words as a note may carry them: the harness's own, trimmed
+/// of a trailing stop, redacted as a reply is.
+fn failure_words(inner: &Inner, why: &str) -> String {
+    inner
+        .security
+        .redact_inbound(why.trim().trim_end_matches('.'), "chat_failure")
+}
+
+/// A turn's row, over: its stored session ended, its registry entry idle,
+/// its presence row settled with the outcome — what the pump does when the
+/// stream closes, and a wake does for a turn that never got a first word.
+fn settle_turn_row(
+    inner: &Arc<Inner>,
+    run: LiveRunId,
+    session_id: &SessionId,
+    outcome: &crate::events::ExecutionOutcome,
+) {
+    crate::sessions::ended(inner, &session_id.to_string());
+    if let Some(a) = inner.registry.get(run) {
+        debug_on_err(
+            inner
+                .registry
+                .mutate(run, a.generation, |a| a.status = AgentStatus::Idle),
+            "idling a chat run",
+        );
+    } // LCOV_EXCL_LINE: the registry entry gone before the row is settled; a window
+    inner.presence.ended(inner, run, outcome);
 }
 
 /// Come back into [`wake_attempt`] on the next model, with what the wake was
@@ -2390,14 +2560,16 @@ fn set_working(
 /// beside the first (`bisa_core::split_text`); one that was cut at the most a
 /// reply keeps says so after its words, in the platform's own sentence. The
 /// bus names the message the reply ended on — or none, when nothing landed,
-/// so no timeline holds a turn that will never settle.
+/// so no timeline holds a turn that will never settle. Answers whether the
+/// bus heard the turn's end here — words landed, or the agent had posted
+/// through a tool — so the pump knows what the turn still owes.
 async fn finish_turn(
     inner: &Arc<Inner>,
     scope: &str,
     agent_id: &str,
     said: &mut Said,
     spoken_before: &HashSet<String>,
-) {
+) -> bool {
     // The agent's words, whole: a token a delta boundary split is caught
     // here, where the reply becomes a message. The thinking rides beside
     // them, its tail within the bound, redacted the same way.
@@ -2411,7 +2583,7 @@ async fn finish_turn(
     let cut = said.cut;
     said.clear();
     if text.is_empty() {
-        return;
+        return false;
     }
     // Dedupe: the agent may have answered through the post_message tool.
     if spoke_already(inner, scope, agent_id, spoken_before) {
@@ -2421,10 +2593,10 @@ async fn finish_turn(
             posted: false,
             message: None,
         }));
-        return;
+        return true;
     }
     let Ok(agent_key) = AgentId::new(agent_id) else {
-        return; // LCOV_EXCL_LINE: an id that came from an AgentId; unreachable by construction
+        return false; // LCOV_EXCL_LINE: an id that came from an AgentId; unreachable by construction
     };
     let mut landed: Option<String> = None;
     let mut thinking = Some(thinking);
@@ -2473,6 +2645,7 @@ async fn finish_turn(
         posted: landed.is_some(),
         message: landed,
     }));
+    true
 }
 
 /// Dispose every live session of a scope, marking each parked: the next

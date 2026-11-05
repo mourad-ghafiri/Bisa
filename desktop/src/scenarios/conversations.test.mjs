@@ -115,6 +115,31 @@ test("the addressee follows the conversation's origin: a checkout's never reache
   assert.equal(addressee(agents, "workflow-agent", "general-agent", "workstream").id, "general-agent");
   assert.equal(addressee(agents, "reviewer", "general-agent", "workstream").id, "reviewer");
   assert.equal(addressee(agents, "workflow-agent", "general-agent", "goal").id, "workflow-agent");
+  // A conversation about a workflow is the Workflow Agent's own, whatever the setting names.
+  assert.equal(addressee(agents, "reviewer", "general-agent", "workflow").id, "workflow-agent");
+  assert.equal(addressee(agents, "reviewer", "general-agent", "workspace").id, "reviewer");
+});
+
+test("a conversation about a workflow reaches the Workflow Agent unnamed: the thread's pill reads the owner before the workspace setting, the picker offers it there, and the designer's pane says so", () => {
+  const src = (name) => readFileSync(new URL(name, import.meta.url), "utf8");
+  const thread = src("../views/_studio/ConversationThread.tsx");
+  assert.ok(thread.includes("useResolvedSettings(null)") && thread.includes('settingOf(resolved ?? [], "agents.default", GENERAL_AGENT)'), "the pill reads the workspace layer's agents.default, as its header promises");
+  assert.ok(thread.includes("GENERAL_AGENT, row.origin.kind)") && thread.includes("originKind={row.origin.kind}"), "and hands the conversation's origin to the frame");
+  const rail = src("../views/_workbench/agentRailModel.mjs");
+  assert.ok(rail.includes("usable(defaultAddresseeIn(originKind)) ?? usable(defaultId) ?? usable(generalId)"), "the owner first, then the setting, then the General Agent — the engine's own order");
+  const participants = src("../views/_studio/participants.ts");
+  assert.ok(participants.includes("suggest: agents.includes(a) || suggestedIn(a, originKind)"), "the picker offers the room's own agent, hidden elsewhere");
+  assert.ok(participants.includes("reachableIn(a, originKind ?? kind)"), "reachability reads what the conversation is about");
+  const chat = src("../views/_studio/Chat.tsx");
+  assert.ok(chat.includes("useParticipants(hosted ? null : channel, kind, originKind)") && chat.includes("reachableIn(a, originKind ?? kind)"), "the chat threads the origin through");
+  assert.ok(src("../views/_studio/Conversation.tsx").includes("originKind={originKind}"), "the frame hands it down");
+  assert.ok(src("../views/_workbench/useConversationPane.tsx").includes("originKind: current.origin.kind"), "the IDE's pane hands its conversation's origin too");
+  const pane = src("../views/_workflow/WorkflowAgentPane.tsx");
+  assert.ok(pane.includes('hint={t("workflow-workflow-agent-pane-hint")}'), "the pane's hint is one id");
+  const ftl = readFileSync(new URL("../../../locales/en/desktop/workflow.ftl", import.meta.url), "utf8");
+  const hint = ftl.split("\n").find((line) => line.startsWith("workflow-workflow-agent-pane-hint = "));
+  assert.ok(hint && hint.includes("Workflow Agent") && !hint.includes("Mention @") && !hint.includes("runs"), `the hint no longer asks for a mention, and names flows, not runs: ${hint}`);
+  assert.ok(!ftl.includes("workflow-workflow-agent-pane-mention-workflow-agent-analyse-fix-finish"), "the old id is gone");
 });
 
 test("naming, a second conversation, coming back, searching, archiving — and what a restart brings back", () => {
