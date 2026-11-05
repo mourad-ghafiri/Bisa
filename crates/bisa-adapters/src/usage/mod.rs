@@ -43,7 +43,9 @@ pub(crate) async fn stdout_of(
     args: &[&str],
     timeout: Duration,
 ) -> Result<String, UsageState> {
-    let run = tokio::process::Command::new(program)
+    let mut command = tokio::process::Command::new(program);
+    crate::util::scrub(&mut command);
+    let run = command
         .args(args)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)

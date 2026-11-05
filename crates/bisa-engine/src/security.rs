@@ -82,6 +82,7 @@ pub mod keys {
     pub const GUARD_RULES: &str = "security.guard.rules";
     pub const GUARD_BUILTINS_OFF: &str = "security.guard.builtins_off";
     pub const GUARD_TERMINAL_HOOKS: &str = "security.guard.terminal_hooks";
+    pub const GUARD_HARNESS_PROJECT_SETTINGS: &str = "security.guard.harness_project_settings";
     pub const CLASSIFIER_ENABLED: &str = "security.classifier.enabled";
     pub const CLASSIFIER_AGENT: &str = "security.classifier.agent";
     pub const CLASSIFIER_PROVIDER: &str = "security.classifier.provider";
@@ -175,6 +176,12 @@ pub struct Policy {
     pub env_auto: bool,
     pub guard_enabled: bool,
     pub terminal_hooks: bool,
+    /// Whether a harness the platform drives may load a checkout's own
+    /// settings — a repository's permission allow-lists, hooks and MCP
+    /// servers, which act before the guard sees a call. Off by default:
+    /// the person's own settings alone (`--setting-sources user
+    /// --strict-mcp-config` for Claude Code).
+    pub harness_project_settings: bool,
     pub classifier: ClassifierSettings,
     /// What people on other nodes get (14-collaboration): whether their
     /// messages are read first, what an agent they wake may do.
@@ -394,7 +401,22 @@ impl SecurityState {
         let flag = |key: &str, default: bool| value(key).as_bool().unwrap_or(default);
         let env_auto = flag(keys::REDACTOR_ENV_AUTO, true);
         let names = if env_auto { env_names() } else { Vec::new() };
-        let (rules, bad) = SecurityPolicy::from_layers(&layers, &env, &names);
+        // The workspace's own truth files, as rules on this root — as written
+        // and as the filesystem spells it, since a Mac's `/var` is
+        // `/private/var` and a path reaches the guard in either form.
+        let root = self.ws.root().to_path_buf();
+        let mut roots = vec![root.clone()];
+        if let Ok(canonical) = root.canonicalize() {
+            if canonical != root {
+                roots.push(canonical);
+            }
+        }
+        let (rules, bad) = SecurityPolicy::from_layers_with(
+            &layers,
+            &env,
+            &names,
+            bisa_security::builtin::workspace_rules(&roots),
+        );
         problems.extend(bad);
         // The host lists concatenate across the two scopes, like the rules.
         let mut hosts = bisa_security::net::HostPolicy::default();
@@ -443,6 +465,8 @@ impl SecurityState {
                 },
             },
             terminal_hooks: flag(keys::GUARD_TERMINAL_HOOKS, true),
+            harness_project_settings: value(keys::GUARD_HARNESS_PROJECT_SETTINGS).as_str()
+                == Some("on"),
             classifier: ClassifierSettings {
                 enabled: flag(keys::CLASSIFIER_ENABLED, true),
                 provider: ClassifierProvider::of(value(keys::CLASSIFIER_PROVIDER).as_str()),

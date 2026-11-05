@@ -363,25 +363,8 @@ impl TokenStore {
             std::fs::create_dir_all(&self.dir)
                 .map_err(|e| CodeHostError::Transport(format!("{}: {e}", self.dir.display())))?;
             let path = self.token_path(&login);
-            #[cfg(unix)]
-            {
-                use std::io::Write as _;
-                use std::os::unix::fs::OpenOptionsExt as _;
-                let mut f = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .mode(0o600)
-                    .open(&path)
-                    .map_err(|e| CodeHostError::Transport(format!("{}: {e}", path.display())))?;
-                f.write_all(token.as_bytes())
-                    .map_err(|e| CodeHostError::Transport(format!("{}: {e}", path.display())))?;
-            }
-            #[cfg(not(unix))]
-            {
-                std::fs::write(&path, token)
-                    .map_err(|e| CodeHostError::Transport(format!("{}: {e}", path.display())))?;
-            }
+            write_private(&path, token.as_bytes())
+                .map_err(|e| CodeHostError::Transport(format!("{}: {e}", path.display())))?;
         }
         let mut logins = self.logins();
         if !logins.contains(&login) {
@@ -593,6 +576,37 @@ pub async fn accounts_status(store: &TokenStore) -> AccountsStatus {
     }
 }
 
+/// Write `bytes` over `path` whole or not at all, the owner's alone: a
+/// temporary beside the file created `0600`, synced, renamed over the name —
+/// so a crash leaves the token that was there, never an empty file, and the
+/// name is never readable wider. The shape of
+/// `bisa_store::paths::write_private`, spelled here because the crate graph
+/// keeps this crate off the store.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(format!(".tmp.{}", std::process::id()));
+    let tmp = path.with_file_name(tmp_name);
+    let written = (|| -> std::io::Result<()> {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp)?;
+        std::io::Write::write_all(&mut f, bytes)?;
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        // LCOV_EXCL_START: a temporary this process just made is its own to remove; a removal refused is the disk's
+        std::fs::remove_file(&tmp).ok();
+        return Err(e);
+        // LCOV_EXCL_STOP
+    }
+    std::fs::rename(&tmp, path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,6 +661,35 @@ mod tests {
             password: s,
         };
         assert!(!format!("{c:?}").contains("ghp_"));
+    }
+
+    /// A token lands the owner's alone and whole: `0600` from its first
+    /// byte, no temporary left beside it, and a second store replaces it
+    /// without a moment with no file under the name.
+    #[cfg(unix)]
+    #[test]
+    fn a_token_is_written_private_and_whole() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let store = TokenStore::file_only(CodeHostKind::GitHub, "github.com", dir.path());
+        store.store("octocat", "ghp_fake_token_0001").unwrap();
+        store.store("octocat", "ghp_fake_token_0002").unwrap();
+        let path = store.token_path("octocat");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "ghp_fake_token_0002"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let strays: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        assert!(strays.is_empty(), "{strays:?}");
     }
 
     #[test]

@@ -160,12 +160,14 @@ const PATH_KEYS: &[&str] = &[
 ];
 
 impl<'a> ToolCall<'a> {
-    /// The shell command, its runs of whitespace collapsed to one space.
+    /// The shell command as written, normalised ([`normalise_command`]) —
+    /// what a gate and a journal show; the rules read it through its shells
+    /// ([`read_through_shells`]).
     pub fn command(&self) -> Option<String> {
         COMMAND_KEYS
             .iter()
             .find_map(|k| self.input.get(k).and_then(Value::as_str))
-            .map(|c| c.split_whitespace().collect::<Vec<_>>().join(" "))
+            .map(normalise_command)
             .filter(|c| !c.is_empty())
     }
 
@@ -176,7 +178,7 @@ impl<'a> ToolCall<'a> {
             .filter_map(|k| self.input.get(k).and_then(Value::as_str))
             .map(str::to_string)
             .collect();
-        if let Some(command) = self.command() {
+        if let Some(command) = self.command().as_deref().map(read_through_shells) {
             for word in shlex::split(&command)
                 .unwrap_or_else(|| command.split(' ').map(str::to_string).collect())
             {
@@ -224,6 +226,116 @@ impl<'a> ToolCall<'a> {
         }
         forms
     }
+}
+
+/// A command as the rules read it: `\r\n` a line break, a backslash-newline
+/// continuation joined, each line's runs of spaces and tabs collapsed to one,
+/// empty lines dropped — and a line break **kept**, since it ends a command
+/// as `;` does, so a rule anchored at a command's start reads the next line
+/// as a start too and `cd x⏎sudo …` is `sudo` at a start.
+pub fn normalise_command(raw: &str) -> String {
+    raw.replace("\r\n", "\n")
+        .replace("\\\n", " ")
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The shells whose `-c` takes a whole command as one word.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "fish"];
+/// How many shells deep a command is read: `sh -c "bash -c '…'"` and one more.
+const SHELL_DEPTH: usize = 3;
+
+/// A command as [`normalise_command`] leaves it, with every command a shell
+/// is handed inline — `sh -c 'rm -rf ~'`, `bash -lc "…"`, through a wrapper
+/// or a path to the shell — on a line of its own after it, read through
+/// nested shells to [`SHELL_DEPTH`]. A rule anchored at a command's start
+/// then reads the inner command as one: `sh -c 'rm -rf ~'` is refused by the
+/// rule that refuses `rm -rf ~`, where a classifier's reading would be a
+/// guess, and `sh -c 'npm test'` is the everyday command it is — which is
+/// what a `check` start or step runs when its template hands an input a
+/// whole command line (`sh -c {inputs.command}`). The rules' view only: a
+/// gate and a journal show the command as written. A line the shell's own
+/// quoting cannot be read from (an unbalanced quote) hands over what follows
+/// `-c` as written, its outer quote dropped.
+pub fn read_through_shells(command: &str) -> String {
+    let mut lines: Vec<String> = command.lines().map(str::to_string).collect();
+    let mut from = 0;
+    for _ in 0..SHELL_DEPTH {
+        let end = lines.len();
+        let mut found: Vec<String> = Vec::new();
+        for line in &lines[from..end] {
+            for inner in inline_shell_commands(line) {
+                for read in normalise_command(&inner).lines() {
+                    if !lines.iter().any(|l| l == read) && !found.iter().any(|l| l == read) {
+                        found.push(read.to_string());
+                    }
+                }
+            }
+        }
+        if found.is_empty() {
+            break;
+        }
+        from = end;
+        lines.extend(found);
+    }
+    lines.join("\n")
+}
+
+/// Every command a shell on this line is handed by `-c` — `-lc`, `-ec`, an
+/// `-o pipefail` before it — as the shell would read the word.
+fn inline_shell_commands(line: &str) -> Vec<String> {
+    let Some(words) = shlex::split(line) else {
+        return inline_shell_command_unread(line).into_iter().collect();
+    };
+    let mut out = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        let program = word.rsplit('/').next().unwrap_or(word);
+        if !SHELLS.contains(&program) {
+            continue;
+        }
+        let mut j = i + 1;
+        while let Some(opt) = words.get(j) {
+            if opt == "--" || !(opt.starts_with('-') || opt.starts_with('+')) {
+                break;
+            }
+            if matches!(opt.as_str(), "-o" | "+o" | "-O" | "+O") {
+                j += 2;
+                continue;
+            }
+            if !opt.starts_with("--") && opt.contains('c') {
+                if let Some(command) = words.get(j + 1) {
+                    out.push(command.clone());
+                }
+                break;
+            }
+            j += 1;
+        }
+    }
+    out
+}
+
+/// What follows a shell's `-c` on a line its quoting cannot be read from,
+/// the outer quote dropped: enough for the rules to read the program's name.
+fn inline_shell_command_unread(line: &str) -> Option<String> {
+    static AFTER_C: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(
+            r"(?:^|\s)(?:\S*/)?(?:sh|bash|zsh|dash|ksh|fish)\s+(?:-\S+\s+)*-[A-Za-z]*c\s+(.*)$",
+        )
+        .expect("a literal regex")
+    });
+    let rest = AFTER_C.captures(line)?.get(1)?.as_str().trim();
+    let rest = rest
+        .strip_prefix('\'')
+        .or_else(|| rest.strip_prefix('"'))
+        .unwrap_or(rest);
+    let rest = rest
+        .strip_suffix('\'')
+        .or_else(|| rest.strip_suffix('"'))
+        .unwrap_or(rest);
+    Some(rest.to_string())
 }
 
 fn push_unique(v: &mut Vec<String>, s: String) {
@@ -407,7 +519,7 @@ impl Guard {
     /// from the other, as if it were not there; a `Tool` rule reads the
     /// call's own name and its harness-neutral one.
     pub fn evaluate(&self, call: &ToolCall<'_>) -> Verdict {
-        let command = call.command();
+        let command = call.command().as_deref().map(read_through_shells);
         let paths = call.paths();
         for CompiledRule { rule, matcher } in &self.rules {
             if rule.applies_to.is_some_and(|host| host != call.host) {
@@ -492,6 +604,75 @@ impl Guard {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A line break is kept as a separator — a rule anchored at a start reads
+    /// the next line — while spaces and tabs collapse and a continuation joins.
+    #[test]
+    fn a_line_break_stays_a_separator_and_spaces_collapse() {
+        assert_eq!(normalise_command("cd x\n\tsudo   ls"), "cd x\nsudo ls");
+        assert_eq!(normalise_command("echo a \\\n  b"), "echo a b");
+        assert_eq!(normalise_command("a\r\nb"), "a\nb");
+        assert_eq!(normalise_command("  \n\n x \n"), "x");
+        let input = json!({ "command": "cd x\n  sudo ls" });
+        let call = ToolCall {
+            tool: "Bash",
+            input: &input,
+            cwd: None,
+            home: None,
+            host: Host::Platform,
+            canonical: None,
+        };
+        assert_eq!(call.command().as_deref(), Some("cd x\nsudo ls"));
+    }
+
+    /// A shell's inline command is a line of its own in the rules' view —
+    /// through a wrapper, a path, `-lc`, an `-o pipefail`, nested shells to
+    /// three deep — and never in the command as a gate shows it; a line the
+    /// quoting cannot be read from still hands over what follows `-c`.
+    #[test]
+    fn a_shells_inline_command_is_read_as_a_line_of_its_own() {
+        assert_eq!(read_through_shells("sh -c 'a; b'"), "sh -c 'a; b'\na; b");
+        assert_eq!(
+            read_through_shells("sudo /bin/bash -lc \"rm -rf ~\""),
+            "sudo /bin/bash -lc \"rm -rf ~\"\nrm -rf ~"
+        );
+        assert_eq!(
+            read_through_shells("sh -o pipefail -c 'x | y' then"),
+            "sh -o pipefail -c 'x | y' then\nx | y"
+        );
+        assert_eq!(
+            read_through_shells("sh -c \"bash -c 'zsh -c \\\"dash -c inner\\\"'\""),
+            "sh -c \"bash -c 'zsh -c \\\"dash -c inner\\\"'\"\nbash -c 'zsh -c \"dash -c inner\"'\nzsh -c \"dash -c inner\"\ndash -c inner",
+            "three shells deep; the fourth is not read"
+        );
+        assert_eq!(
+            read_through_shells("sh -c 'rm -rf ~"),
+            "sh -c 'rm -rf ~\nrm -rf ~"
+        );
+        for untouched in ["sh -x build.sh", "bash --norc", "sh -c", "echo sh", "fish"] {
+            assert_eq!(read_through_shells(untouched), untouched, "{untouched:?}");
+        }
+        assert_eq!(
+            read_through_shells("sh -c 'ls'\nls"),
+            "sh -c 'ls'\nls",
+            "no line twice"
+        );
+        let input = json!({ "command": "sh -c 'cat ~/.ssh/id_rsa'" });
+        let call = ToolCall {
+            tool: "Bash",
+            input: &input,
+            cwd: None,
+            home: None,
+            host: Host::Platform,
+            canonical: None,
+        };
+        assert_eq!(call.command().as_deref(), Some("sh -c 'cat ~/.ssh/id_rsa'"));
+        assert!(
+            call.paths().contains(&"~/.ssh/id_rsa".to_string()),
+            "the path inside the shell's word is read: {:?}",
+            call.paths()
+        );
+    }
 
     #[test]
     fn a_script_is_read_line_by_line_and_the_first_refusal_names_its_line() {

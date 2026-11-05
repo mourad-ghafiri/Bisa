@@ -18,7 +18,8 @@ This crate is the grammar, once; the three depend on it and spell nothing of the
 |---|---|
 | `is_host_pattern(pattern)` | `host[:port]` — letters, digits, dots and hyphens, no leading dot or hyphen, no `..`, a port of one to five digits — or the same behind `*.`; case is not the pattern's business |
 | `host_matches(pattern, authority)` | an exact pattern matches itself only (`api.slack.com` is not `api.slack.com:443`); `*.suffix` matches every subdomain of `suffix` with the same port and never `suffix` itself; both sides lower-cased and trimmed |
-| `is_loopback(authority)` | `127.0.0.1`, `::1` (bracketed or not) or `localhost`, in any case, with or without a port |
+| `is_loopback(authority)` | this machine, by name or by address, with or without a port: `localhost` (a trailing dot tolerated) and `*.localhost`, every loopback address (`127/8`, `::1`), the unspecified ones (`0.0.0.0`, `::`) and an IPv4-mapped IPv6 form of either — read as addresses, so an alias never slips past where a name is refused |
+| `is_private_network(authority)` | a private or link-local address — `10/8`, `172.16/12`, `192.168/16`, `169.254/16` (a cloud's metadata service), `fc00::/7`, `fe80::/10`, or a mapped form — read as an address; a name that resolves to one is the resolver's to read |
 | `split_port(authority)` | the host and its port, when the authority names one |
 | `RESERVED_HEADERS`, `is_reserved_header(name)` | `authorization`, `host`, `content-length`, `cookie`, `transfer-encoding` — the client's, whatever the case a definition writes them in |
 

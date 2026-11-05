@@ -324,11 +324,17 @@ impl ProcGroup {
 
 /// Run a command to completion in a process group of its own, so that
 /// however this future ends — the command's exit, a timeout, an abort —
-/// everything it started goes with it: the `sh`, and what the `sh` ran.
+/// everything it started goes with it: the `sh`, and what the `sh` ran. The
+/// node's token is scrubbed from its environment as from every harness
+/// child's ([`SCRUBBED_ENV`]): a `check` command holds no authority over
+/// the node that ran it.
 pub async fn group_output(mut cmd: Command) -> std::io::Result<std::process::Output> {
     #[cfg(unix)]
     cmd.process_group(0);
     cmd.kill_on_drop(true);
+    for name in SCRUBBED_ENV {
+        cmd.env_remove(name);
+    }
     // What the command says is the caller's to read — `wait_with_output`
     // collects piped streams alone — and never the node's own stdio; a
     // command that reads its stdin finds it closed.
@@ -763,6 +769,25 @@ mod tests {
         assert_eq!(out.status.code(), Some(3));
         assert_eq!(String::from_utf8_lossy(&out.stdout), "said\n");
         assert_eq!(String::from_utf8_lossy(&out.stderr), "complained\n");
+    }
+
+    /// A grouped command — a `check` step's or a check start's `sh` — asks
+    /// its environment for the token by name and gets nothing either.
+    #[tokio::test]
+    async fn a_grouped_command_never_inherits_the_control_plane_token() {
+        std::env::set_var("BISA_API_TOKEN", "fake-control-plane-token");
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("printenv BISA_API_TOKEN");
+        let out = group_output(cmd).await.unwrap();
+        let printed = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            printed.trim().is_empty(),
+            "the child saw the token: {printed:?}"
+        );
+        assert!(
+            !out.status.success(),
+            "printenv exits non-zero for an unset name"
+        );
     }
 
     /// The child asks its own environment for the token by name — `printenv`

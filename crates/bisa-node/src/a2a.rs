@@ -16,15 +16,26 @@
 //! and otherwise waiting for a person; without one, the task is an auto goal
 //! the Workflow Agent designs a workflow for, and the platform runs.
 //!
-//! **No auth in v1** — like the rest of the control plane, exposure beyond
-//! loopback is the operator's tunnel/reverse-proxy responsibility.
+//! **The door's own checks.** The card and the endpoint answer without the
+//! control-plane token (`auth::is_exempt`). The endpoint refuses a browser's
+//! call by its `Origin` header (a page on any origin can reach a loopback
+//! port; an agent sends none) and anything but `application/json`, takes an
+//! optional bearer of its own ([`A2aExposeConfig::token`], advertised on the
+//! card under `securitySchemes`), reaches only the goals it made (tagged
+//! [`A2A_TAG`]), and starts nothing from a caller's words until the content
+//! screen passed them or a person let the held signal through — the task
+//! reads `input-required` or `submitted` meanwhile. Exposure beyond loopback
+//! is the operator's tunnel or reverse proxy, and a door exposed with no
+//! bearer is said once in the log at mount.
 
 use crate::route_docs::RouteDoc;
 use axum::extract::State;
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use bisa_core::{ClosureReason, Goal, GoalId, GoalStatus, WorkflowId, WorkflowRun};
-use bisa_engine::SubmitRequest;
+use bisa_core::{ClosureReason, Goal, GoalId, GoalStatus, Tags, WorkflowId, WorkflowRun};
+use bisa_engine::{OutsideGoal, SubmitRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::str::FromStr;
@@ -44,6 +55,13 @@ pub const A2A_TASK_SIGNAL: &str = "a2a.task";
 /// Where an A2A task's signal came from, in the words the content screen and
 /// a person read.
 const A2A_SOURCE: &str = "an A2A task";
+
+/// The tag every goal A2A makes carries, and the one `tasks/get`,
+/// `tasks/cancel` and a continuation reach: a caller sees its own tasks and
+/// no other goal of the workspace. A person who takes the tag off hides the
+/// task from its caller; one who puts it on a goal opens it — both their
+/// deliberate acts.
+pub const A2A_TAG: &str = "a2a";
 
 /// JSON-RPC error codes (A2A §8.2).
 const TASK_NOT_FOUND: i64 = -32001;
@@ -73,10 +91,17 @@ pub struct A2aExposeConfig {
     /// goal: the Workflow Agent designs, the platform adopts and starts.
     #[serde(default)]
     pub workflow: Option<WorkflowId>,
-    /// With `workflow`, start the run the moment the task arrives. Default
-    /// false — the task sits `input-required` until a person starts it.
+    /// With `workflow`, start the run the moment the task arrives — once the
+    /// content screen passed its words. Default false — the task sits
+    /// `input-required` until a person starts it.
     #[serde(default)]
     pub auto_start: bool,
+    /// A bearer of the door's own: with one, `POST /a2a` takes
+    /// `Authorization: Bearer <token>` and the card advertises the scheme;
+    /// without one the endpoint is open to whoever reaches it, and the node
+    /// says so once at mount.
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 impl A2aExposeConfig {
@@ -86,6 +111,7 @@ impl A2aExposeConfig {
             skills: Vec::new(),
             workflow: None,
             auto_start: false,
+            token: None,
         }
     }
 }
@@ -119,7 +145,7 @@ async fn agent_card(State(state): State<Shared>) -> Json<Value> {
             .map(|s| json!({"id": s.id, "name": s.name, "description": s.description, "tags": []}))
             .collect()
     };
-    Json(json!({
+    let mut card = json!({
         "protocolVersion": A2A_PROTOCOL_VERSION,
         "name": "bisa",
         "description": "Bisa node: runs goals through workflows of agent, human, check and wait steps, with human approval gates.",
@@ -136,7 +162,68 @@ async fn agent_card(State(state): State<Shared>) -> Json<Value> {
         "defaultInputModes": ["text/plain", "application/json"],
         "defaultOutputModes": ["text/plain", "application/json"],
         "skills": skills,
-    }))
+    });
+    // The door's bearer, when it has one: the scheme and that every call
+    // needs it (A2A v0.3.0 §4). A card without one promises nothing.
+    if cfg.token.is_some() {
+        card["securitySchemes"] = json!({"bearer": {"type": "http", "scheme": "bearer"}});
+        card["security"] = json!([{"bearer": []}]);
+    }
+    Json(card)
+}
+
+/// The refusal the endpoint answers before a byte of the body is read, if
+/// any — each an HTTP answer and never a JSON-RPC one (A2A v0.3.0 §4: a transport refusal is
+/// the transport's): a call carrying an `Origin` header — a browser's, on
+/// whatever page found the loopback port; an agent sends none — is 403; a
+/// content type whose essence is not `application/json` is 415; with a
+/// bearer configured, a missing or wrong `Authorization` is 401 with the
+/// challenge. The bodies are the machine's, in English, as the hook door's.
+pub(crate) fn admit(headers: &HeaderMap, cfg: &A2aExposeConfig) -> Option<Response> {
+    if headers.contains_key(header::ORIGIN) {
+        return Some(
+            (
+                StatusCode::FORBIDDEN,
+                Json(json!({"error": "forbidden: a browser origin"})),
+            )
+                .into_response(),
+        );
+    }
+    let essence = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| {
+            v.split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+        });
+    if essence.as_deref() != Some("application/json") {
+        return Some(
+            (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                Json(json!({"error": "unsupported media type: application/json is required"})),
+            )
+                .into_response(),
+        );
+    }
+    if let Some(expected) = cfg.token.as_deref() {
+        let given = crate::auth::presented_in_header(headers);
+        if !given.is_some_and(|given| crate::auth::same(&given, expected)) {
+            let mut response = (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "unauthorized"})),
+            )
+                .into_response();
+            response.headers_mut().insert(
+                header::WWW_AUTHENTICATE,
+                "Bearer".parse().expect("a header value"),
+            );
+            return Some(response);
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -152,18 +239,23 @@ fn rpc_err(id: Value, code: i64, message: &str) -> Json<Value> {
 }
 
 /// The whole endpoint takes the raw body so malformed JSON gets a proper
-/// JSON-RPC `-32700` instead of an axum 400.
-async fn rpc(State(state): State<Shared>, body: String) -> Json<Value> {
+/// JSON-RPC `-32700` instead of an axum 400 — once [`admit`] let the call in.
+async fn rpc(State(state): State<Shared>, headers: HeaderMap, body: String) -> Response {
+    if let Some(cfg) = state.a2a.as_ref() {
+        if let Some(refused) = admit(&headers, cfg) {
+            return refused;
+        }
+    }
     let req: Value = match serde_json::from_str(&body) {
         Ok(v) => v,
-        Err(_) => return rpc_err(Value::Null, -32700, "parse error"),
+        Err(_) => return rpc_err(Value::Null, -32700, "parse error").into_response(),
     };
     let id = req.get("id").cloned().unwrap_or(Value::Null);
     if req.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        return rpc_err(id, -32600, "invalid request: jsonrpc must be \"2.0\"");
+        return rpc_err(id, -32600, "invalid request: jsonrpc must be \"2.0\"").into_response();
     }
     let Some(method) = req.get("method").and_then(Value::as_str) else {
-        return rpc_err(id, -32600, "invalid request: missing method");
+        return rpc_err(id, -32600, "invalid request: missing method").into_response();
     };
     let params = req.get("params").cloned().unwrap_or(Value::Null);
     match method {
@@ -172,6 +264,7 @@ async fn rpc(State(state): State<Shared>, body: String) -> Json<Value> {
         "tasks/cancel" => tasks_cancel(&state, id, params),
         _ => rpc_err(id, -32601, &format!("method not found: {method}")),
     }
+    .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +307,7 @@ async fn message_send(state: &Shared, id: Value, params: Value) -> Json<Value> {
 
     // Continuation: the message lands in the existing task's goal journal.
     if let Some(task_id) = params.message.task_id.as_deref() {
-        let Some(goal) = find_goal(state, task_id) else {
+        let Some(goal) = find_task(state, task_id) else {
             return rpc_err(id, TASK_NOT_FOUND, "task not found");
         };
         if !text.is_empty() {
@@ -236,33 +329,42 @@ async fn message_send(state: &Shared, id: Value, params: Value) -> Json<Value> {
         return rpc_err(id, -32602, "invalid params: message has no text parts");
     }
 
-    // New task: a goal — on the configured workflow, started at once when
-    // `auto_start` says so; guided otherwise, so the Workflow Agent designs
-    // its workflow and a person adopts it.
+    // New task: a goal — on the configured workflow, started when
+    // `auto_start` says so; designed otherwise, so the Workflow Agent designs
+    // its workflow and a person adopts it. Either begins only once the
+    // content screen passed the caller's words (or a person let them
+    // through): until then the goal is a manual draft that wakes nobody and
+    // runs nothing, tagged as A2A's own.
     let title: String = text.lines().next().unwrap_or("").chars().take(80).collect();
     let text_for_signal = text.clone();
     let goal = match state.engine.submit_goal(SubmitRequest {
         statement: text,
         title: Some(title),
         budget: Default::default(),
-        // Without a workflow the Workflow Agent designs one and the platform
-        // runs it — a remote caller is not here to adopt; with one, the
-        // workflow is the whole clarification.
+        mode: bisa_core::GoalMode::Manual,
+        origin: bisa_core::GoalOrigin::Captured,
+        workflow: cfg.workflow,
+        inputs: Default::default(),
+        start: false,
+        assignees: vec![],
+        tags: Tags::new([A2A_TAG]).expect("a tag the platform spells"),
+        documents: vec![],
+    }) {
+        Ok(g) => g,
+        Err(e) => return rpc_err(id, -32603, &e.to_string()), // LCOV_EXCL_LINE a goal unreadable under its task; disk-only
+    };
+    // What the screen's pass does with the goal: without a workflow the
+    // Workflow Agent designs one and the platform runs it — a remote caller
+    // is not here to adopt; with one, the workflow is the whole
+    // clarification, begun at once when `auto_start` says so.
+    let then = OutsideGoal {
+        goal: goal.id,
         mode: if cfg.workflow.is_none() {
             bisa_core::GoalMode::Auto
         } else {
             bisa_core::GoalMode::Manual
         },
-        origin: bisa_core::GoalOrigin::Captured,
-        workflow: cfg.workflow,
-        inputs: Default::default(),
         start: cfg.workflow.is_some() && cfg.auto_start,
-        assignees: vec![],
-        tags: Default::default(),
-        documents: vec![],
-    }) {
-        Ok(g) => g,
-        Err(e) => return rpc_err(id, -32603, &e.to_string()), // LCOV_EXCL_LINE a goal unreadable under its task; disk-only
     };
     if let Err(e) = bisa_engine::ops::add_note(
         state.engine.inner(),
@@ -281,11 +383,12 @@ async fn message_send(state: &Shared, id: Value, params: Value) -> Json<Value> {
     // it is raised through the door that reads it first: redacted, and held
     // until the content screen passes it or a person lets it through.
     // Best-effort — a caller's task must not fail because nothing listened.
-    if let Err(e) = state.engine.emit_outside_signal(
+    if let Err(e) = state.engine.emit_outside_signal_for_goal(
         A2A_TASK_SIGNAL,
         json!({"task": goal.id.to_string(), "goal": goal.id.to_string(), "text": text_for_signal}),
         bisa_core::SignalScope::Goal { goal: goal.id },
         A2A_SOURCE,
+        then,
     ) {
         tracing::warn!("a2a task signal: {e}"); // LCOV_EXCL_LINE a signal the engine cannot take; disk-only
     }
@@ -309,7 +412,7 @@ fn tasks_get(state: &Shared, id: Value, params: Value) -> Json<Value> {
         Ok(p) => p,
         Err(e) => return rpc_err(id, -32602, &format!("invalid params: {e}")),
     };
-    match find_goal(state, &params.id) {
+    match find_task(state, &params.id) {
         Some(goal) => rpc_ok(id, task_json(state, &goal)),
         None => rpc_err(id, TASK_NOT_FOUND, "task not found"),
     }
@@ -320,7 +423,7 @@ fn tasks_cancel(state: &Shared, id: Value, params: Value) -> Json<Value> {
         Ok(p) => p,
         Err(e) => return rpc_err(id, -32602, &format!("invalid params: {e}")),
     };
-    let Some(goal) = find_goal(state, &params.id) else {
+    let Some(goal) = find_task(state, &params.id) else {
         return rpc_err(id, TASK_NOT_FOUND, "task not found");
     };
     let run = run_of(state, &goal);
@@ -348,9 +451,16 @@ fn tasks_cancel(state: &Shared, id: Value, params: Value) -> Json<Value> {
 // Task mapping
 // ---------------------------------------------------------------------------
 
-fn find_goal(state: &Shared, task_id: &str) -> Option<Goal> {
+/// The goal a task id names — when A2A made it ([`A2A_TAG`]); any other
+/// goal of the workspace is no task of the caller's.
+fn find_task(state: &Shared, task_id: &str) -> Option<Goal> {
     let id = GoalId::from_str(task_id).ok()?;
-    state.engine.workspace().get_goal(id).ok()
+    state
+        .engine
+        .workspace()
+        .get_goal(id)
+        .ok()
+        .filter(|goal| goal.tags.contains(A2A_TAG))
 }
 
 fn run_of(state: &Shared, goal: &Goal) -> Option<WorkflowRun> {
@@ -426,11 +536,11 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/.well-known/agent-card.json",
-        summary: "The A2A agent card describing this node.",
+        summary: "The A2A agent card describing this node — with `securitySchemes` and `security` when `a2a.toml` names a `token`.",
     },
     RouteDoc {
         method: "POST",
         path: "/a2a",
-        summary: "The A2A JSON-RPC endpoint; malformed JSON answers with a JSON-RPC error.",
+        summary: "The A2A JSON-RPC endpoint; malformed JSON answers with a JSON-RPC error. Before the body is read: a call carrying an `Origin` header is `403`, one that is not `application/json` is `415`, and with a `token` configured a missing or wrong `Authorization: Bearer` is `401`. `tasks/get`, `tasks/cancel` and a continuation reach only the goals A2A made; a new task's goal begins once the content screen passed its words or a person released the held signal.",
     },
 ];

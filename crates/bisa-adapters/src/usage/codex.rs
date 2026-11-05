@@ -142,7 +142,9 @@ pub async fn read(program: &str, harness: &str) -> UsageState {
 
 /// [`read`], within `timeout`.
 async fn read_within(program: &str, harness: &str, timeout: std::time::Duration) -> UsageState {
-    let mut child = match tokio::process::Command::new(program)
+    let mut server = tokio::process::Command::new(program);
+    crate::util::scrub(&mut server);
+    let mut child = match server
         .arg("app-server")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

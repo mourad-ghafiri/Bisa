@@ -77,7 +77,14 @@ async fn resolved(
     Query(q): Query<ProjectQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let project = parse_project(&q)?;
-    let rows = state.engine.workspace().settings(project)?;
+    // Every row as a surface shows it: a proxy login masked.
+    let rows: Vec<_> = state
+        .engine
+        .workspace()
+        .settings(project)?
+        .into_iter()
+        .map(bisa_core::settings::Resolved::masked)
+        .collect();
     Ok(Json(
         json!({"project": project.map(|p| p.to_string()), "settings": rows}),
     ))
@@ -90,7 +97,16 @@ async fn layer(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let scope = parse_scope(&scope)?;
     let project = parse_project(&q)?;
-    let values = state.engine.workspace().settings_layer(scope, project)?;
+    let values: bisa_core::settings::Layer = state
+        .engine
+        .workspace()
+        .settings_layer(scope, project)?
+        .into_iter()
+        .map(|(key, value)| {
+            let shown = bisa_core::settings::mask_setting(&key, &value);
+            (key, shown)
+        })
+        .collect();
     Ok(Json(json!({"scope": scope.as_str(), "values": values})))
 }
 
@@ -111,7 +127,12 @@ async fn write_layer(
     }
     let mut written = Vec::new();
     for (key, value) in body.values {
-        written.push(state.engine.set_setting(scope, project, &key, value)?);
+        written.push(
+            state
+                .engine
+                .set_setting(scope, project, &key, value)?
+                .masked(),
+        );
     }
     Ok(Json(json!({"scope": scope.as_str(), "settings": written})))
 }
@@ -123,7 +144,7 @@ async fn unset(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let scope = parse_scope(&scope)?;
     let project = parse_project(&q)?;
-    let resolved = state.engine.unset_setting(scope, project, &key)?;
+    let resolved = state.engine.unset_setting(scope, project, &key)?.masked();
     Ok(Json(json!({"scope": scope.as_str(), "setting": resolved})))
 }
 
@@ -143,7 +164,7 @@ pub const ROUTES: &[RouteDoc] = &[
     RouteDoc {
         method: "GET",
         path: "/settings/{scope}",
-        summary: "The raw values held at one scope: `machine`, `workspace` or `project` (`?project=`).",
+        summary: "The raw values held at one scope: `machine`, `workspace` or `project` (`?project=`). A proxy login (`network.proxy.http`, `network.proxy.https`) is shown masked here and on every settings answer; a masked value written back keeps the value stored.",
     },
     RouteDoc {
         method: "PUT",

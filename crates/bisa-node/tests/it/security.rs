@@ -253,6 +253,18 @@ async fn a_guard_preview_names_the_rule_and_records_nothing() {
     assert_eq!(read["verdict"], "deny");
     assert_eq!(read["rule"], "dotenv");
     assert_eq!(read["paths"], json!(["/proj/.env.local"]));
+    // The workspace's own truth files are refused under this node's root.
+    let token = format!("{}/run/token", _dir.path().display());
+    let (_, truth) = request(
+        &socket,
+        "POST",
+        "/security/guard-preview",
+        Some(json!({ "tool": "Read", "input": { "file_path": token } })),
+        TOKEN,
+    )
+    .await;
+    assert_eq!(truth["verdict"], "deny", "{truth}");
+    assert_eq!(truth["rule"], "workspace_truth_run", "{truth}");
     // The preview judges as a session the platform drives would be judged:
     // the machine's browser is refused with the tools named, and the
     // harness's own page fetch is asked under its harness-neutral name.
@@ -319,13 +331,13 @@ async fn the_terminal_guard_route_wants_a_sessions_secret() {
     )
     .await;
     assert_eq!(
-        code, 404,
-        "the door is the session's: a session nobody opened is not found — {body}"
+        code, 401,
+        "the door is the session's: a session nobody opened reads as a wrong secret — {body}"
     );
     assert_eq!(
         body["text"]["id"],
-        json!("error-engine-interactive-unknown-session"),
-        "the handler's refusal, in the platform's words: {body}"
+        json!("error-node-unauthorized"),
+        "one refusal for an unknown session and a wrong secret: {body}"
     );
     let _server_gone = stop.send(());
 }

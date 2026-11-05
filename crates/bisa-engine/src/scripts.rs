@@ -377,6 +377,11 @@ pub async fn run(
     for name in env_remove {
         cmd.env_remove(name);
     }
+    // The node's token is nobody's but the node's: scrubbed as from every
+    // harness child, whatever `env_remove` named.
+    for name in bisa_harness::proc::SCRUBBED_ENV {
+        cmd.env_remove(name);
+    }
     let child = cmd.output();
     match tokio::time::timeout(timeout, child).await {
         Ok(Ok(out)) => {
@@ -546,6 +551,29 @@ pub async fn run_phase(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A script asks its environment for the node's token by name and gets
+    /// nothing: scrubbed as from every harness child, whatever the caller's
+    /// own removals named.
+    #[tokio::test]
+    async fn a_script_never_inherits_the_control_plane_token() {
+        std::env::set_var("BISA_API_TOKEN", "fake-control-plane-token");
+        let dir = tempfile::tempdir().unwrap();
+        let outcome = run(
+            "printenv BISA_API_TOKEN",
+            dir.path(),
+            &BTreeMap::new(),
+            &[],
+            Duration::from_secs(10),
+        )
+        .await;
+        assert!(
+            outcome.output.trim().is_empty(),
+            "the script saw the token: {outcome:?}"
+        );
+        assert!(!outcome.ok(), "printenv exits non-zero for an unset name");
+        assert!(!outcome.timed_out);
+    }
 
     #[test]
     fn a_digest_is_the_texts_and_changes_with_it() {

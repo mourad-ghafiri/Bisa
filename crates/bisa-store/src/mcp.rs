@@ -32,7 +32,8 @@ impl Workspace {
     fn write_mcp(&self, def: &McpServer) -> Result<(), StoreError> {
         def.validate()?;
         let path = self.paths.mcp_file(&def.id);
-        crate::paths::write_atomic(&path, &serde_json::to_vec_pretty(def)?)?;
+        // A server's `env` and `headers` are secrets: the owner's alone.
+        crate::paths::write_private(&path, &serde_json::to_vec_pretty(def)?)?;
         // No snapshot, no bus event: this object does not leave the machine.
         self.index_mcp(def)
     }

@@ -575,6 +575,14 @@ impl AddonManifest {
                                 host = format!("{host:?}")
                             ),
                         );
+                    } else if crate::connector::is_private_network(host.trim_start_matches("*.")) {
+                        push(
+                            &field,
+                            crate::text!(
+                                "problem-addon-network-private-refused",
+                                host = format!("{host:?}")
+                            ),
+                        );
                     }
                 }
             }
@@ -1045,6 +1053,7 @@ mod tests {
                 "Bad Host".into(),
                 "localhost:4477".into(),
                 "*.127.0.0.1".into(),
+                "10.0.0.5".into(),
             ],
         }];
         let problems = m.validate();
@@ -1056,6 +1065,7 @@ mod tests {
             ("entry", "problem-addon-entry-not-html"),
             ("permissions.0", "problem-addon-network-host-not-pattern"),
             ("permissions.0", "problem-addon-network-loopback-refused"),
+            ("permissions.0", "problem-addon-network-private-refused"),
         ] {
             assert!(
                 has(&problems, field, id),

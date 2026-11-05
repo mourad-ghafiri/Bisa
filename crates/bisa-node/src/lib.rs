@@ -90,7 +90,7 @@ pub mod workflows;
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::routing::get;
@@ -106,6 +106,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 /// Ask a connected peer for an attachment's bytes.
 ///
@@ -396,7 +397,14 @@ fn router(state: Shared) -> Router {
     #[allow(unused_mut)]
     let mut extra = Router::new();
     #[cfg(feature = "a2a")]
-    if state.a2a.is_some() {
+    if let Some(a2a) = state.a2a.as_ref() {
+        if a2a.token.is_none() {
+            tracing::warn!(
+                target: "bisa_node",
+                "A2A is exposed at {}/a2a with no bearer of its own: whoever reaches the endpoint may create tasks; set `token` in a2a.toml",
+                a2a.public_base_url.trim_end_matches('/')
+            );
+        }
         extra = extra.merge(a2a::routes());
     }
     extra
@@ -459,8 +467,15 @@ fn router(state: Shared) -> Router {
         // so a 401 is said in it too; inside CORS, so a preflight is not.
         .layer(axum::middleware::from_fn(i18n::localize))
         // Permissive CORS lets the Vite dev server (a different loopback
-        // origin) call the API during `tauri dev`; the token is what
-        // authenticates, not the origin.
+        // origin) call the API during `tauri dev`, and the webview's own
+        // origin call it in production. It is safe on a loopback port
+        // because the token is what authenticates, not the origin:
+        // `permissive()` never allows credentials, the bearer is a header a
+        // page cannot send without a preflight the gate still refuses, a
+        // page cannot read `run/token`, and the doors that answer without
+        // the token either carry no authority (`/health`, the agent card)
+        // or refuse a browser's call by its `Origin` where they act
+        // (`a2a`). What a page can learn is that a node is there.
         .layer(tower_http::cors::CorsLayer::permissive())
         // One `debug` span per request, the method and the path alone: the
         // default span records the whole URI, and `?token=` is the bearer
@@ -479,9 +494,26 @@ fn router(state: Shared) -> Router {
                     tower_http::trace::DefaultOnFailure::new().level(tracing::Level::DEBUG),
                 ),
         )
-        // Outermost, so a panic anywhere under it — a handler, the token
-        // check — is one 500 and never the process.
+        // Outside everything but the headers below, so a panic anywhere
+        // under it — a handler, the token check — is one 500 and never the
+        // process.
         .layer(catch_panics())
+        // Every answer — the 500, the gate's 401 and a preflight included —
+        // says its body is what its type says, carries no referrer out and
+        // is kept by no cache. A route that set its own value keeps it: the
+        // addon files' policy and `no-store`, a stream's `no-cache`.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::REFERRER_POLICY,
+            HeaderValue::from_static("no-referrer"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ))
         .with_state(state)
 }
 
@@ -753,14 +785,72 @@ where
 
 /// A body that was not read: the status the reader gave, the one sentence,
 /// and the code a client switches on — with the reader's own words as the
-/// reason, never a field name parsed out of them.
+/// reason, never a field name parsed out of them, and never the value that
+/// did not fit ([`scrub_quoted`]).
 fn body_unreadable(status: StatusCode, reason: String) -> ApiError {
+    let reason = scrub_quoted(&reason);
     ApiError::coded(
         status,
         dto::ErrorCode::BodyUnreadable,
         bisa_core::text!("error-node-body-unreadable", detail = reason.clone()),
     )
     .with_detail(serde_json::json!({ "reason": reason }))
+}
+
+/// A reader's reason with every double-quoted span replaced by `"…"`: serde
+/// quotes the value that did not fit (`invalid type: string "hunter2",
+/// expected u64`), and a value is the one thing a refusal must not carry —
+/// into the body a proxy may keep, or the debug line a crash report keeps. A
+/// name in backticks (`` unknown field `tokn` ``) stays, so the sentence
+/// still names the field. An escaped quote stays inside its span; a span
+/// nobody closed runs to the end.
+pub(crate) fn scrub_quoted(reason: &str) -> String {
+    let mut out = String::with_capacity(reason.len());
+    let mut chars = reason.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' {
+            out.push(c);
+            continue;
+        }
+        out.push_str("\"…\"");
+        let mut escaped = false;
+        for inner in chars.by_ref() {
+            if escaped {
+                escaped = false;
+            } else if inner == '\\' {
+                escaped = true;
+            } else if inner == '"' {
+                break;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod reasons {
+    use super::scrub_quoted;
+
+    /// The shapes serde writes: a quoted value loses its text, a backticked
+    /// name keeps it, an escaped quote stays inside its span, and a span
+    /// nobody closed runs to the end.
+    #[test]
+    fn a_serde_reason_keeps_its_shape_and_loses_the_value() {
+        assert_eq!(
+            scrub_quoted(r#"invalid type: string "hunter2", expected u64 at line 1 column 20"#),
+            r#"invalid type: string "…", expected u64 at line 1 column 20"#
+        );
+        assert_eq!(
+            scrub_quoted("unknown field `tokn`, expected one of `a`, `b`"),
+            "unknown field `tokn`, expected one of `a`, `b`"
+        );
+        assert_eq!(
+            scrub_quoted(r#"invalid value: string "a\"b", expected x"#),
+            r#"invalid value: string "…", expected x"#
+        );
+        assert_eq!(scrub_quoted(r#"unterminated "abc"#), r#"unterminated "…""#);
+        assert_eq!(scrub_quoted("no quotes at all"), "no quotes at all");
+    }
 }
 
 /// A query string, refused as a **400 with the same error body every other
@@ -783,7 +873,7 @@ where
         match axum::extract::Query::<T>::from_request_parts(parts, state).await {
             Ok(axum::extract::Query(value)) => Ok(Query(value)),
             Err(refused) => {
-                let reason = refused.body_text();
+                let reason = scrub_quoted(&refused.body_text());
                 Err(ApiError::coded(
                     StatusCode::BAD_REQUEST,
                     dto::ErrorCode::QueryUnreadable,

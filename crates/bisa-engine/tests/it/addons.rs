@@ -131,14 +131,35 @@ async fn the_broker_refuses_by_name_before_anything_leaves() {
         let err = addon_fetch(inner, &weather, bad, None).await.unwrap_err();
         assert!(err.to_string().contains(word), "{bad}: {err}");
     }
-    // This machine, never — whatever the addon declared.
+    // This machine, never — whatever the addon declared — by name or by
+    // any address that reaches it.
     for local in [
         "https://127.0.0.1:4477/health",
         "https://localhost/",
         "https://[::1]/",
+        "https://0.0.0.0:4477/health",
+        "https://127.0.0.2/",
+        "https://[::ffff:127.0.0.1]/",
+        "https://app.localhost/",
+        "https://localhost./",
     ] {
         let err = addon_fetch(inner, &weather, local, None).await.unwrap_err();
         assert!(err.to_string().contains("this machine"), "{local}: {err}");
+    }
+    // Nor this machine's own network: a LAN, a link, a cloud's metadata.
+    for private in [
+        "https://192.168.1.1/",
+        "https://10.0.0.5/api",
+        "https://169.254.169.254/latest/meta-data",
+        "https://[fd12::1]/",
+    ] {
+        let err = addon_fetch(inner, &weather, private, None)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("private or link-local"),
+            "{private}: {err}"
+        );
     }
     // A host it did not declare.
     let err = addon_fetch(inner, &weather, "https://example.com/x", None)

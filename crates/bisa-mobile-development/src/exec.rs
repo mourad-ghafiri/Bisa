@@ -61,7 +61,8 @@ impl std::fmt::Debug for Output {
 
 /// The environment every child gets, on top of the process's: no colour, no
 /// pager, no analytics, one locale, so an answer reads the same on every
-/// machine. Nothing is removed — `flutter` needs `HOME` and `PATH`, `adb`
+/// machine. Nothing is removed but the node's own token
+/// ([`crate::SCRUBBED_ENV`]) — `flutter` needs `HOME` and `PATH`, `adb`
 /// needs `ANDROID_HOME` when it is set.
 pub const HARDENED_ENV: [(&str, &str); 6] = [
     ("NO_COLOR", "1"),
@@ -89,6 +90,9 @@ impl Exec {
     ) -> MobileDevelopmentResult<Output> {
         let what = format!("{} {}", program.display(), args.join(" "));
         let mut cmd = Command::new(program);
+        for name in crate::SCRUBBED_ENV {
+            cmd.env_remove(name);
+        }
         cmd.args(args)
             .envs(HARDENED_ENV.iter().map(|(k, v)| (*k, *v)))
             .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
@@ -172,6 +176,9 @@ impl Exec {
         env: &[(String, String)],
     ) -> MobileDevelopmentResult<u32> {
         let mut cmd = Command::new(program);
+        for name in crate::SCRUBBED_ENV {
+            cmd.env_remove(name);
+        }
         cmd.args(args)
             .envs(HARDENED_ENV.iter().map(|(k, v)| (*k, *v)))
             .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))

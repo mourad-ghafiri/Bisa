@@ -63,7 +63,7 @@ fn exact_patterns_match_themselves_and_wildcards_match_subdomains_only() {
 }
 
 #[test]
-fn loopback_is_the_three_names_with_or_without_a_port_in_any_case() {
+fn loopback_is_this_machine_by_name_or_by_address() {
     for yes in [
         "127.0.0.1",
         "127.0.0.1:27124",
@@ -72,17 +72,62 @@ fn loopback_is_the_three_names_with_or_without_a_port_in_any_case() {
         "::1",
         "localhost",
         "LOCALHOST:80",
+        // By address, not by string: the whole of 127/8, the unspecified
+        // addresses, an IPv4 mapped into IPv6.
+        "127.0.0.2",
+        "127.255.255.255:80",
+        "0.0.0.0",
+        "0.0.0.0:8080",
+        "[::]",
+        "[::ffff:127.0.0.1]:8080",
+        "::ffff:127.0.0.1",
+        // A trailing dot, a subdomain of localhost.
+        "localhost.",
+        "app.localhost",
+        "app.localhost:3000",
     ] {
         assert!(is_loopback(yes), "{yes}");
     }
     for no in [
         "127.0.0.1.evil.example",
         "localhost.example",
+        "localhost.evil.test",
         "example.com",
-        "0.0.0.0",
+        "10.0.0.1",
+        "192.168.1.1",
         "",
     ] {
         assert!(!is_loopback(no), "{no}");
+    }
+}
+
+#[test]
+fn private_network_is_the_lan_and_link_local() {
+    use bisa_netrules::is_private_network;
+    for yes in [
+        "10.0.0.1",
+        "10.255.255.255:443",
+        "172.16.0.1",
+        "172.31.255.255",
+        "192.168.1.1",
+        "169.254.169.254",
+        "[fc00::1]",
+        "[fd12::1]:8080",
+        "[fe80::1]",
+        "[::ffff:10.0.0.1]",
+    ] {
+        assert!(is_private_network(yes), "{yes}");
+    }
+    for no in [
+        "172.32.0.1",
+        "11.0.0.1",
+        "127.0.0.1",
+        "8.8.8.8",
+        "example.com",
+        "localhost",
+        "",
+    ] {
+        assert!(!is_private_network(no), "{no}");
     }
 }
 

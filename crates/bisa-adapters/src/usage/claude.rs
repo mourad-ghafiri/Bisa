@@ -85,7 +85,9 @@ async fn keychain_token() -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let asked = tokio::process::Command::new("security")
+    let mut security = tokio::process::Command::new("security");
+    crate::util::scrub(&mut security);
+    let asked = security
         .args(["find-generic-password", "-s", KEYCHAIN_ITEM, "-w"])
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)

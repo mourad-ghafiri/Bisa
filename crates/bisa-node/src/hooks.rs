@@ -58,6 +58,7 @@
 //! | body over [`MAX_SIGNAL_PAYLOAD_BYTES`] | **413** |
 //! | the rate limit is spent, or the backlog is full | **429** (`Retry-After` for the rate limit) |
 //! | unknown listener, no secret minted, a missing or wrong token or HMAC | **401**, one body |
+//! | authenticated, a body this listener already took — a redelivery under another id, a replay | **202** with the signal it already made |
 //! | authenticated, but the host is Off or paused | **403** |
 //! | authenticated, but the start is not public, or is no hook start any more | **404** |
 //! | accepted | **202** `{"signal": "<id>"}` |
@@ -77,10 +78,14 @@
 //! Rate limiting is keyed by the **requested** listener whether or not it is
 //! real, for the same reason: a shared bucket for unknown ones would let an
 //! attacker drain it and then read "429 vs 401" as "this listener exists".
-//! The bucket table is bounded, and eviction prefers buckets that have
-//! refilled to full — a full bucket is indistinguishable from no bucket, so
-//! dropping it leaks nothing and a flood of invented names only churns its
-//! own entries.
+//! It is spent **after** the secret is checked: an authenticated call spends
+//! the listener's own bucket, a refused one a bucket of its own under the
+//! same requested name (`refused:<listener>`), so a flood of wrong secrets on
+//! a real listener's path never mutes its real deliveries, and the flood
+//! looks the same whether the listener exists or not. The bucket table is
+//! bounded, and eviction prefers buckets that have refilled to full — a full
+//! bucket is indistinguishable from no bucket, so dropping it leaks nothing
+//! and a flood of invented names only churns its own entries.
 //!
 //! What the engine refuses comes **after** authentication on purpose:
 //! answering 403 to somebody already holding the listener's secret tells
@@ -93,7 +98,15 @@
 //! under `value`, and a body that is not JSON at all under `text` — so a
 //! start's input mapping always has a path to read. A delivery id — the
 //! caller's `Idempotency-Key`, else `X-GitHub-Delivery` — makes a redelivery
-//! the same signal: one occurrence, one run.
+//! the same signal: one occurrence, one run. The signature covers the body
+//! and not the id, so a captured request could be replayed under a fresh id:
+//! the last [`RECENT_BODIES`] bodies this process accepted are remembered by
+//! listener and digest, and the same bytes again answer `202` with the
+//! signal they already made and enqueue nothing. That memory is this
+//! process's — empty after a restart, the last 512 bodies and no more — a
+//! damper on a replay, not a proof against one; a caller that means to send
+//! the same body twice sends a delivery id of its own each time, or calls
+//! the local door, which keeps no such memory.
 
 use crate::route_docs::RouteDoc;
 use crate::{ApiError, Shared};
@@ -108,8 +121,8 @@ use bisa_core::ListenerKey;
 use bisa_engine::{HookDoor, HookRefusal};
 use hmac::{Hmac, Mac as _};
 use serde_json::{json, Value};
-use sha2::Sha256;
-use std::collections::HashMap;
+use sha2::{Digest as _, Sha256};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -124,6 +137,9 @@ const MAX_BUCKETS: usize = 4096;
 /// key rarely longer. A longer one is no id, and the call is its own
 /// occurrence.
 const MAX_DELIVERY_ID_BYTES: usize = 128;
+/// How many accepted bodies the public door remembers, by listener and
+/// digest, so the same bytes again are the signal they already made.
+pub const RECENT_BODIES: usize = 512;
 /// What the engine adds around a body that is no JSON object — the key it
 /// files it under — so a body that fits the cap still fits once filed.
 const WRAPPING_BYTES: usize = 16;
@@ -141,14 +157,25 @@ struct Bucket {
     last: Instant,
 }
 
-/// The public hook route's process-lifetime state: the rate-limit table and
-/// the decoy secret a listener with no secret is compared against.
+/// A body the public door took: whose listener, its digest, the signal it
+/// became.
+struct Recent {
+    listener: String,
+    digest: [u8; 32],
+    signal: String,
+}
+
+/// The public hook route's process-lifetime state: the rate-limit table, the
+/// decoy secret a listener with no secret is compared against, and the
+/// bodies lately taken.
 pub(crate) struct Hooks {
     buckets: Mutex<HashMap<String, Bucket>>,
     /// 64 hex chars from the same CSPRNG that mints real hook secrets.
     /// It authenticates nothing — it exists so an unknown listener costs the
     /// same comparison a known one does.
     decoy: String,
+    /// The last [`RECENT_BODIES`] accepted bodies, oldest first.
+    recent: Mutex<VecDeque<Recent>>,
 }
 
 impl Default for Hooks {
@@ -157,11 +184,34 @@ impl Default for Hooks {
         Self {
             buckets: Mutex::new(HashMap::new()),
             decoy: hex::encode(bytes),
+            recent: Mutex::new(VecDeque::new()),
         }
     }
 }
 
 impl Hooks {
+    /// The signal a body already became on `listener`, if it is remembered.
+    fn remembered(&self, listener: &str, digest: &[u8; 32]) -> Option<String> {
+        let recent = self.recent.lock().unwrap_or_else(|e| e.into_inner());
+        recent
+            .iter()
+            .find(|r| r.listener == listener && &r.digest == digest)
+            .map(|r| r.signal.clone())
+    }
+
+    /// Remember a body `listener` took, forgetting the oldest past the cap.
+    fn remember(&self, listener: &str, digest: [u8; 32], signal: &str) {
+        let mut recent = self.recent.lock().unwrap_or_else(|e| e.into_inner());
+        if recent.len() >= RECENT_BODIES {
+            recent.pop_front();
+        }
+        recent.push_back(Recent {
+            listener: listener.to_string(),
+            digest,
+            signal: signal.to_string(),
+        });
+    }
+
     /// Spend one token for `key`. `Err(secs)` is the `Retry-After` to send.
     fn take(&self, key: &str) -> Result<(), u64> {
         let now = Instant::now();
@@ -458,15 +508,10 @@ async fn hook(
         return too_large();
     };
 
-    // 2. Rate limit, on the requested listener whether or not it is real.
-    let asked = format!("{host}/{step}");
-    if let Err(retry) = state.hooks.take(&asked) {
-        return rate_limited(retry);
-    }
-
-    // 3. Authenticate. A listener with no secret — unknown, or not public —
+    // 2. Authenticate. A listener with no secret — unknown, or not public —
     //    is compared against the decoy, so this costs the same either way
     //    and answers the same either way. Only a real secret lets a call in.
+    let asked = format!("{host}/{step}");
     let ws = state.engine.workspace();
     let known = asked
         .parse::<ListenerKey>()
@@ -476,11 +521,32 @@ async fn hook(
         .as_ref()
         .map_or(state.hooks.decoy.as_str(), |(_, secret)| secret.as_str());
     let authed = authenticate(&headers, &raw, secret_hex);
+
+    // 3. Rate limit, after the secret: an authenticated call spends the
+    //    listener's own bucket, a refused one a bucket of its own under the
+    //    requested name whether or not it is real — so a flood of wrong
+    //    secrets never mutes a real listener, and an invented name costs
+    //    what a real one does.
+    let bucket = if authed {
+        asked.clone()
+    } else {
+        format!("refused:{asked}")
+    };
+    if let Err(retry) = state.hooks.take(&bucket) {
+        return rate_limited(retry);
+    }
     let Some((key, _)) = known.filter(|_| authed) else {
         return unauthorized();
     };
 
-    // 4. Enqueue, and nothing else: the engine decides whether the listener
+    // 4. A body this listener already took — a redelivery under another id,
+    //    a captured request replayed — is the signal it already made.
+    let digest: [u8; 32] = Sha256::digest(&raw).into();
+    if let Some(signal) = state.hooks.remembered(&asked, &digest) {
+        return accepted(signal);
+    }
+
+    // 5. Enqueue, and nothing else: the engine decides whether the listener
     //    takes the call, redacts the body and holds it for the content
     //    screen. No run starts on this task, no run's outcome comes back.
     let Ok(payload) = payload_of(&raw) else {
@@ -491,7 +557,10 @@ async fn hook(
         .engine
         .call_hook(&key, payload, delivery.as_deref(), HookDoor::Public)
     {
-        Ok(signal) => accepted(signal),
+        Ok(signal) => {
+            state.hooks.remember(&asked, digest, &signal);
+            accepted(signal)
+        }
         Err(refusal) => refused_publicly(&refusal),
     }
 }
@@ -501,7 +570,7 @@ async fn hook(
 pub const ROUTES: &[RouteDoc] = &[RouteDoc {
     method: "POST",
     path: "/hooks/{host}/{step}",
-    summary: "A public `hook` start's inbound endpoint, outside the control plane — `{host}` is `workspace:<WorkflowId>` or `goal:<GoalId>`: authenticated by the listener's own secret (`X-Bisa-Token`, or `X-Hub-Signature-256` over the raw body), at most 64 KiB, rate-limited per listener → `202 {signal}`; `Idempotency-Key` or `X-GitHub-Delivery` makes a redelivery the same signal. `404` while `events.public_hooks` or `events.enabled` is off, `401` (one body) for every authentication failure, `403` for a host that is Off or paused, `404` for a start that is not public, `413`, `429`.",
+    summary: "A public `hook` start's inbound endpoint, outside the control plane — `{host}` is `workspace:<WorkflowId>` or `goal:<GoalId>`: authenticated by the listener's own secret (`X-Bisa-Token`, or `X-Hub-Signature-256` over the raw body), at most 64 KiB, rate-limited per listener once the secret verified → `202 {signal}`; `Idempotency-Key` or `X-GitHub-Delivery` makes a redelivery the same signal, and the same body again on the same listener (the last 512 this process took) answers the signal it already made. `404` while `events.public_hooks` or `events.enabled` is off, `401` (one body) for every authentication failure, `403` for a host that is Off or paused, `404` for a start that is not public, `413`, `429`.",
 }];
 
 #[cfg(test)]
@@ -689,6 +758,47 @@ mod tests {
         }
         let n = hooks.buckets.lock().unwrap().len();
         assert!(n <= MAX_BUCKETS, "bucket table grew to {n}");
+    }
+
+    /// The replay memory is per listener and per body, keeps the last
+    /// `RECENT_BODIES` and no more, and forgets the oldest first.
+    #[test]
+    fn the_ring_is_bounded_and_keyed_by_listener_and_body() {
+        let hooks = Hooks::default();
+        let digest = |n: usize| -> [u8; 32] { Sha256::digest(n.to_string().as_bytes()).into() };
+        hooks.remember("a/ticket", digest(0), "s0");
+        assert_eq!(
+            hooks.remembered("a/ticket", &digest(0)).as_deref(),
+            Some("s0")
+        );
+        assert_eq!(
+            hooks.remembered("b/ticket", &digest(0)),
+            None,
+            "another listener"
+        );
+        assert_eq!(
+            hooks.remembered("a/ticket", &digest(1)),
+            None,
+            "another body"
+        );
+        for n in 1..=RECENT_BODIES {
+            hooks.remember("a/ticket", digest(n), &format!("s{n}"));
+        }
+        assert_eq!(
+            hooks.remembered("a/ticket", &digest(0)),
+            None,
+            "the oldest went"
+        );
+        assert_eq!(
+            hooks
+                .remembered("a/ticket", &digest(RECENT_BODIES))
+                .as_deref(),
+            Some("s512")
+        );
+        assert_eq!(
+            hooks.remembered("a/ticket", &digest(1)).as_deref(),
+            Some("s1")
+        );
     }
 
     #[test]

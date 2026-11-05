@@ -133,7 +133,7 @@ rmcp = { version = "3.4", features = ["server", "transport-io", "client", "trans
 # HTTP / node
 axum = "0.8"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors", "catch-panic", "fs"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "catch-panic", "fs", "set-header"] }
 # `http2` so the platform speaks HTTP/2 where a server offers it and the
 # `network.http1_only` setting means what it says; the system-proxy feature
 # stays off — the desktop shell reads the Mac's proxy and a person copies it.

@@ -323,6 +323,18 @@ impl Workspace {
                 .map_err(|e| StoreError::io(dir.display().to_string(), e))?;
         }
         crate::identity::ensure_private_dir(&paths.run_dir())?;
+        // The root holds keys, tokens and settings: the owner's alone from
+        // this open on, and so are the files that carry a secret — written
+        // wider before this rule, or copied here by hand.
+        let mut private_files = vec![paths.machine_settings(), paths.workspace_settings()];
+        private_files.extend(
+            paths
+                .project_dirs()
+                .unwrap_or_default()
+                .iter()
+                .map(|p| p.settings()),
+        );
+        crate::identity::tighten_private(&root, &private_files, &paths.mcp_dir());
 
         let identity = Identity::new(ks);
         let owner = identity.owner()?;

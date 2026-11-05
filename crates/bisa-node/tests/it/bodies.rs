@@ -50,6 +50,39 @@ async fn a_body_over_the_route_limit_is_a_413_in_the_error_body_shape() {
     node.shutdown().await;
 }
 
+/// A value that did not fit is never echoed: serde quotes it in its reason
+/// (`invalid type: string "…"`), and a secret mistyped into the wrong field
+/// would otherwise sit in the error body and in the debug line a crash
+/// report keeps. The field's name, in backticks, stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_body_whose_value_did_not_fit_is_refused_without_the_value() {
+    let node = Node::start().await;
+    let (status, v) = node
+        .req_raw(
+            "POST",
+            "/goals",
+            Some("application/json"),
+            br#"{"statement": "x", "tags": "hunter2-is-no-list"}"#.to_vec(),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    assert_eq!(v["code"], json!("body_unreadable"), "{v}");
+    let reason = v["detail"]["reason"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let error = v["error"].as_str().unwrap_or_default().to_string();
+    for text in [&reason, &error] {
+        assert!(!text.contains("hunter2"), "the value leaked: {v}");
+        assert!(text.contains("\"…\""), "the value's place is marked: {v}");
+        assert!(
+            text.contains("sequence"),
+            "the reader's sentence stays: {v}"
+        );
+    }
+    node.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ill_shaped_body_is_still_a_400_with_the_extractors_sentence() {
     let node = Node::start().await;

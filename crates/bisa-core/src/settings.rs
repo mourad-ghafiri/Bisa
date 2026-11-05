@@ -253,6 +253,50 @@ pub struct Resolved {
     pub origin: Origin,
 }
 
+impl Resolved {
+    /// The row as a surface shows it — a secret setting's value masked
+    /// ([`mask_setting`]).
+    pub fn masked(mut self) -> Self {
+        self.value = mask_setting(&self.key, &self.value);
+        self
+    }
+}
+
+/// The text settings whose value may carry a secret — a proxy URL's login:
+/// shown masked on every surface but the field a person edits, and a mask
+/// written back keeps the value stored.
+pub fn is_secret_setting(key: &str) -> bool {
+    matches!(
+        key,
+        crate::network_settings::keys::PROXY_HTTP | crate::network_settings::keys::PROXY_HTTPS
+    )
+}
+
+/// `value` as a surface shows it: a secret setting's URL with its password
+/// masked ([`crate::network_settings::masked`]), anything else as it is.
+pub fn mask_setting(key: &str, value: &Value) -> Value {
+    match value.as_str() {
+        Some(url) if is_secret_setting(key) => Value::String(crate::network_settings::masked(url)),
+        _ => value.clone(),
+    }
+}
+
+/// What a write means: a value that is the mask of what is stored — a
+/// surface that read a masked login and wrote the layer back — keeps the
+/// value stored; anything else is the value as given.
+pub fn unmask_setting(key: &str, stored: Option<&Value>, incoming: Value) -> Value {
+    match stored {
+        Some(stored)
+            if is_secret_setting(key)
+                && incoming != *stored
+                && incoming == mask_setting(key, stored) =>
+        {
+            stored.clone()
+        }
+        _ => incoming,
+    }
+}
+
 /// The values held at one scope.
 pub type Layer = BTreeMap<String, Value>;
 
@@ -742,6 +786,12 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
         def!("security.guard.rules", Structured, json!([]), S::MW),
         def!("security.guard.builtins_off", Structured, json!([]), S::MW),
         def!("security.guard.terminal_hooks", Bool, json!(true), S::M),
+        def!(
+            "security.guard.harness_project_settings",
+            Choice(&["off", "on"]),
+            json!("off"),
+            S::M
+        ),
         def!("security.classifier.enabled", Bool, json!(true), S::MW),
         def!(
             "security.classifier.agent",
@@ -1360,6 +1410,55 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDef>> = std::sync::LazyLock:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A proxy login is shown masked on every surface — the row, a layer's
+    /// value — and a masked value written back keeps what is stored; a value
+    /// that is not the mask is the value as given, and a key that is no
+    /// secret is never touched.
+    #[test]
+    fn a_secret_setting_is_shown_masked_and_a_mask_written_back_keeps_the_value() {
+        let stored = json!("http://ada:s3cret@proxy.example:3128");
+        let shown = mask_setting("network.proxy.https", &stored);
+        let shown_text = shown.as_str().unwrap();
+        assert!(!shown_text.contains("s3cret"), "{shown_text}");
+        assert!(shown_text.contains("ada:"), "{shown_text}");
+        assert_eq!(
+            mask_setting("network.proxy.no_proxy", &json!("ada:s3cret")),
+            json!("ada:s3cret"),
+            "a key that is no secret is shown as it is"
+        );
+        assert_eq!(
+            unmask_setting("network.proxy.https", Some(&stored), shown.clone()),
+            stored,
+            "the mask written back keeps the value stored"
+        );
+        assert_eq!(
+            unmask_setting(
+                "network.proxy.https",
+                Some(&stored),
+                json!("http://bob:other@proxy.example:3128")
+            ),
+            json!("http://bob:other@proxy.example:3128"),
+            "a new value is the value"
+        );
+        assert_eq!(
+            unmask_setting("network.proxy.https", None, shown.clone()),
+            shown,
+            "nothing stored: the value as given"
+        );
+        assert_eq!(
+            unmask_setting("network.proxy.no_proxy", Some(&json!("a")), json!("a")),
+            json!("a")
+        );
+        let row = Resolved {
+            key: "network.proxy.http".into(),
+            value: stored.clone(),
+            origin: Origin::Machine,
+        }
+        .masked();
+        assert!(!row.value.to_string().contains("s3cret"), "{row:?}");
+        assert!(is_secret_setting("network.proxy.http") && !is_secret_setting("editor.tab_size"));
+    }
 
     #[test]
     fn every_key_is_unique_grouped_and_has_a_valid_default() {

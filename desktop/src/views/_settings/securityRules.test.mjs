@@ -11,7 +11,7 @@ import { test } from "node:test";
 
 import { ACTIONS, HOSTS, KEYS, REMEMBERED_REASON, SCALARS, actionWords, appliesWords, blankGuardRule, blankRedactRule, classifierFieldsFor, detectorWords, envDetectorWords, guardRuleProblem, harnessGuardWords, judgeWords, matcherWords, moveRule, offWords, problemLines, readinessLine, redactRuleProblem, ruleWords, slugOf, toggleBuiltin, verdictWords, draftOf, withDraft, withoutDraft, rowKey, keepRowKey } from "./securityRules.mjs";
 
-test("the keys are the registry's twenty, and each panel shows its own scalars", () => {
+test("the keys are the registry's twenty-one, and each panel shows its own scalars", () => {
   const all = [
     ...Object.values(KEYS.redactor),
     ...Object.values(KEYS.guard),
@@ -19,7 +19,7 @@ test("the keys are the registry's twenty, and each panel shows its own scalars",
     ...Object.values(KEYS.content),
     ...Object.values(KEYS.net),
   ];
-  assert.equal(all.length, 20);
+  assert.equal(all.length, 21);
   assert.equal(new Set(all).size, all.length, "each key once");
   for (const k of all) assert.match(k, /^security\.(redactor|guard|classifier|content|net)\./);
   const registry = readFileSync(new URL("../../../../crates/bisa-core/src/settings.rs", import.meta.url), "utf8");

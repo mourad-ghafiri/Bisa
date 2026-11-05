@@ -122,7 +122,8 @@ impl Workspace {
         layer: &Layer,
     ) -> Result<(), StoreError> {
         let path = self.settings_path(scope, project)?;
-        crate::paths::write_atomic(&path, &serde_json::to_vec_pretty(layer)?)
+        // A layer may hold a proxy login: the owner's alone, whichever scope.
+        crate::paths::write_private(&path, &serde_json::to_vec_pretty(layer)?)
     }
 
     /// Every setting, resolved for `project` (or with no project layer). A
@@ -168,12 +169,15 @@ impl Workspace {
         key: &str,
         value: serde_json::Value,
     ) -> Result<Resolved, StoreError> {
-        bisa_core::check_setting_write(key, scope, &value)?;
         let _one_writer = self
             .settings_writes
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let mut layer = self.read_layer_or_quarantine(scope, project)?;
+        // A value that is the mask of what is stored — a surface that read a
+        // masked proxy login and wrote it back — keeps the value stored.
+        let value = bisa_core::settings::unmask_setting(key, layer.get(key), value);
+        bisa_core::check_setting_write(key, scope, &value)?;
         layer.insert(key.to_string(), value);
         self.write_layer(scope, project, &layer)?;
         self.setting(key, project)

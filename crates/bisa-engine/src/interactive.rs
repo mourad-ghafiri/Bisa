@@ -122,6 +122,9 @@ pub enum InteractiveError {
     UnknownHarness(String),
     #[error("{0} has no interactive form")]
     NotInteractive(String),
+    /// A session nobody opened. The doors never say it — an unknown session
+    /// is a [`BadSecret`](Self::BadSecret) to them — so the kind stays for
+    /// its readers and is minted by none of the desk's verbs.
     #[error("no interactive session {0}")]
     UnknownSession(LiveRunId),
     #[error("the session secret does not match")]
@@ -140,10 +143,21 @@ struct Row {
     puller: Option<tokio::task::JoinHandle<()>>,
 }
 
-/// The desk: every interactive session this engine knows, with its secret.
-#[derive(Default)]
+/// The desk: every interactive session this engine knows, with its secret —
+/// and a decoy secret the caller of an unknown session is compared against,
+/// so a door answers one refusal whether the id names a row or not.
 pub struct InteractiveDesk {
     rows: DashMap<LiveRunId, Row>,
+    decoy: String,
+}
+
+impl Default for InteractiveDesk {
+    fn default() -> Self {
+        Self {
+            rows: DashMap::new(),
+            decoy: mint_secret(),
+        }
+    }
 }
 
 /// Where a session's reporter files live.
@@ -424,12 +438,16 @@ impl InteractiveDesk {
         }))
     }
 
+    /// The session's secret, or a refusal. An unknown session is compared
+    /// against the decoy and refused in the same words as a wrong secret, so
+    /// neither the answer nor its cost says whether the id names a row — a
+    /// door that said *not found* would enumerate the desk for whoever
+    /// holds no secret.
     fn check(&self, session: LiveRunId, secret: &str) -> Result<(), InteractiveError> {
-        let row = self
-            .rows
-            .get(&session)
-            .ok_or(InteractiveError::UnknownSession(session))?;
-        if same(&row.secret, secret) {
+        let known = self.rows.get(&session).map(|row| row.secret.clone());
+        let against = known.as_deref().unwrap_or(&self.decoy);
+        let equal = same(against, secret);
+        if known.is_some() && equal {
             Ok(())
         } else {
             Err(InteractiveError::BadSecret)
@@ -666,6 +684,23 @@ fn spawn_sse_puller(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session nobody opened and a wrong secret are one refusal, and the
+    /// decoy an unknown session is compared against opens nothing.
+    #[test]
+    fn an_unknown_session_reads_as_a_bad_secret() {
+        let desk = InteractiveDesk::default();
+        let nobody = LiveRunId::mint();
+        assert!(matches!(
+            desk.check(nobody, "anything"),
+            Err(InteractiveError::BadSecret)
+        ));
+        let decoy = desk.decoy.clone();
+        assert!(matches!(
+            desk.check(nobody, &decoy),
+            Err(InteractiveError::BadSecret)
+        ));
+    }
 
     #[test]
     fn secrets_compare_in_constant_time_and_differ_per_mint() {

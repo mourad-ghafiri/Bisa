@@ -144,6 +144,49 @@ async fn the_status_reflects_a_manual_write_with_the_login_masked() {
         !body.to_string().contains("s3cret"),
         "a password never leaves the node"
     );
+
+    // The settings routes show the login masked too — the layer, the
+    // resolution, a write's echo — and the mask written back keeps the value
+    // the node holds.
+    let (status, layer) = call(&socket, "GET", "/settings/machine", None).await;
+    assert_eq!(status, 200, "{layer}");
+    let shown = layer["values"]["network.proxy.https"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        !shown.contains("s3cret") && shown.contains("ada:"),
+        "{shown}"
+    );
+    let (status, resolved) = call(&socket, "GET", "/settings/resolved", None).await;
+    assert_eq!(status, 200);
+    assert!(
+        !resolved.to_string().contains("s3cret"),
+        "the resolution never carries the password"
+    );
+    let (status, echoed) = call(
+        &socket,
+        "PUT",
+        "/settings/machine",
+        Some(json!({ "values": { "network.proxy.https": shown } })),
+    )
+    .await;
+    assert_eq!(status, 200, "{echoed}");
+    assert!(!echoed.to_string().contains("s3cret"), "{echoed}");
+    let on_disk = std::fs::read_to_string(Paths::new(_dir.path()).machine_settings()).unwrap();
+    assert!(
+        on_disk.contains("ada:s3cret@proxy.example:3128"),
+        "the mask written back kept the value: {on_disk}"
+    );
+    let (status, unset) = call(
+        &socket,
+        "DELETE",
+        "/settings/machine/network.proxy.https",
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{unset}");
+    assert_eq!(unset["setting"]["value"], json!(""), "{unset}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

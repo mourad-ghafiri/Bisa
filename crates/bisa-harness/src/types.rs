@@ -213,6 +213,12 @@ pub struct SessionSpec {
     /// proxy leaves unnamed. Applied after `env`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env_remove: Vec<String>,
+    /// Whether the harness may load a checkout's own settings — a
+    /// repository's permission allow-lists, hooks and MCP servers, which act
+    /// before the engine's judgement. `false` by default, and for a spec
+    /// stored before the field: the person's own settings alone.
+    #[serde(default)]
+    pub harness_project_settings: bool,
     /// Highest tool tier the session may use without a gate decision.
     pub tier_ceiling: ToolTier,
     /// JSON Schema for the expected structured result, if contracted.
@@ -800,6 +806,7 @@ mod effort_tests {
             mcp_servers: vec![],
             env: BTreeMap::new(),
             env_remove: vec![],
+            harness_project_settings: false,
             tier_ceiling: ToolTier::Write,
             output_schema: None,
             skills: vec![],

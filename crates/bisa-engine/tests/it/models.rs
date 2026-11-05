@@ -1204,6 +1204,7 @@ async fn a_parked_session_is_never_revived_and_its_row_keeps_what_it_ran_at() {
             mcp_servers: vec![],
             env: Default::default(),
             env_remove: Vec::new(),
+            harness_project_settings: false,
             tier_ceiling: ToolTier::Read,
             output_schema: None,
             skills: vec![],

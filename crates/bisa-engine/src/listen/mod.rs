@@ -96,6 +96,10 @@ pub struct ListenState {
     /// A commit a run's work made → that run: a project start that sees it
     /// on a branch inherits the run's chain.
     commit_runs: Recent,
+    /// What a held signal from outside owes once a person lets it through:
+    /// the goal its payload is the words of, begun by
+    /// [`crate::Engine::release_signal`] — keyed by the held signal's id.
+    pub(crate) outside_then: DashMap<String, emit::OutsideGoal>,
     /// A workstream moved: pull request states are asked on the next tick
     /// rather than at the poll's cadence.
     pub(crate) prs_due: std::sync::atomic::AtomicBool,
@@ -131,6 +135,7 @@ impl ListenState {
             wake: tokio::sync::Notify::new(),
             message_runs: Recent::default(),
             commit_runs: Recent::default(),
+            outside_then: DashMap::new(),
             prs_due: std::sync::atomic::AtomicBool::new(false),
             prs_polled: DashMap::new(),
             prs_seen: DashMap::new(),

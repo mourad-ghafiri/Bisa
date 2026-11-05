@@ -1,18 +1,24 @@
 //! The control-plane bearer token.
 //!
-//! Every route on both listeners requires `Authorization: Bearer <token>`,
-//! or `?token=<token>` for the two things a browser cannot send a header
-//! with — an `EventSource` and an `<img>`. The named exceptions
-//! ([`is_exempt`]) are `/health` (a liveness probe carries no authority);
-//! `/hooks/{host}/{step}` (a public hook, opened by its listener's own
-//! secret — a hook called on this machine, `/workflows/{wfid}/hooks/{step}`
-//! and `/goals/{id}/hooks/{step}`, takes the token like everything else);
-//! the OAuth callback a browser lands on (opened by the one-time `state` of
-//! the sign-in it ends); the A2A card and endpoint (their own protocol); an
+//! Every route on both listeners requires `Authorization: Bearer <token>`.
+//! `?token=<token>` stands in for the header on the routes a browser loads
+//! with no way to send one — an `EventSource` and what an `<img>` or a
+//! download link fetches — and on no other ([`takes_query_token`]): a token
+//! in a URL lands in a history, a copy and a proxy's log, so the query opens
+//! exactly what cannot send a header. The named exceptions ([`is_exempt`])
+//! are `/health` (a liveness probe carries no authority);
+//! `POST /hooks/{host}/{step}` ([`is_public_hook`] — a public hook, opened by
+//! its listener's own secret; a hook called on this machine,
+//! `/workflows/{wfid}/hooks/{step}` and `/goals/{id}/hooks/{step}`, takes the
+//! token like everything else); the OAuth callback a browser lands on (opened
+//! by the one-time `state` of the sign-in it ends); the A2A card and the one
+//! endpoint `/a2a` (their own protocol, with the endpoint's own checks); an
 //! installed addon's files ([`is_addon_file`]) and its YouTube player page
-//! ([`is_addon_player`]); and a terminal session's
-//! four doors — `report`, `guard`, `exit`, `close` — which take the
-//! session's own secret in the token's place ([`is_session_door`]).
+//! ([`is_addon_player`]); and a terminal session's five doors — `report`,
+//! `guard`, `exit`, `close`, `answered` — which take the session's own
+//! secret, in the header, in the token's place ([`is_session_door`]). Each
+//! exemption is a path's exact shape, never a prefix: a route mounted under
+//! `/hooks/` or `/a2a/` tomorrow takes the token until it is named here.
 //!
 //! The token is 32 random bytes as 64 hex characters in `run/token`, created
 //! `0600` and reused across restarts so the CLI keeps working; a
@@ -108,17 +114,64 @@ fn write_private(path: &std::path::Path, token: &str, exclusive: bool) -> std::i
     Ok(())
 }
 
-/// Routes that answer without the token, and why each is safe to.
+/// Routes that answer without the token, and why each is safe to — each
+/// one an exact shape, never a prefix.
 pub fn is_exempt(path: &str) -> bool {
     path == "/health"
         || path == crate::connectors::OAUTH_CALLBACK_PATH
-        || path.starts_with("/hooks/")
+        || is_public_hook(path)
         || path == "/.well-known/agent-card.json"
         || path == "/a2a"
-        || path.starts_with("/a2a/")
         || is_session_door(path)
         || is_addon_file(path)
         || is_addon_player(path)
+}
+
+/// `POST /hooks/{host}/{step}` — the public hook door, and that shape
+/// alone: a host, a step, nothing before, between or after them. The door
+/// opens on its listener's own secret (`hooks.rs`); anything else mounted
+/// under `/hooks/` takes the token.
+pub fn is_public_hook(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/hooks/") else {
+        return false;
+    };
+    matches!(
+        rest.split_once('/'),
+        Some((host, step)) if !host.is_empty() && !step.is_empty() && !step.contains('/')
+    )
+}
+
+/// The routes a browser loads with no way to send a header — an
+/// `EventSource` (the event stream, the IDE's search stream) and what an
+/// `<img>` or a download link fetches (a pet's sprite, a device's frame, an
+/// attachment, a work item's result) — where `?token=` stands in for
+/// `Authorization`. Shapes, not prefixes: `{}` is one non-empty segment. The
+/// desktop's `withToken` builders are held to this list by
+/// `tests/it/routes.rs`, so a URL built with the query is one the node reads
+/// it on.
+pub fn takes_query_token(path: &str) -> bool {
+    const SHAPES: &[&[&str]] = &[
+        &["events"],
+        &["ide", "search", "{}", "{}"],
+        &["pets", "{}", "sprite"],
+        &["mobile-development", "devices", "{}", "frame"],
+        &["attachments", "{}"],
+        &["work-items", "{}", "result"],
+    ];
+    let Some(rest) = path.strip_prefix('/') else {
+        return false;
+    };
+    let segments: Vec<&str> = rest.split('/').collect();
+    SHAPES.iter().any(|shape| {
+        shape.len() == segments.len()
+            && shape.iter().zip(&segments).all(|(want, got)| {
+                if *want == "{}" {
+                    !got.is_empty()
+                } else {
+                    want == got
+                }
+            })
+    })
 }
 
 /// `GET /addons/{id}/files/<path>` — the static files of an installed bundle,
@@ -175,14 +228,17 @@ fn presented(req: &Request) -> Option<String> {
     presented_in(req.headers(), req.uri())
 }
 
-/// The token a request presents, from the header or the query — shared with
-/// `ide::consent`, which re-reads it to mint a `HumanConsent`.
+/// The token a request presents: the header, or — on the routes a browser
+/// loads without one ([`takes_query_token`]) and on no other — the query.
 pub(crate) fn presented_in(
     headers: &axum::http::HeaderMap,
     uri: &axum::http::Uri,
 ) -> Option<String> {
     if headers.contains_key(header::AUTHORIZATION) {
         return presented_in_header(headers);
+    }
+    if !takes_query_token(uri.path()) {
+        return None;
     }
     let query = uri.query()?;
     for pair in query.split('&') {
@@ -285,14 +341,56 @@ mod tests {
         let mut headers = axum::http::HeaderMap::new();
         let uri: axum::http::Uri = "/workstreams/w/git/checkout?token=abc".parse().unwrap();
         assert_eq!(
-            presented_in(&headers, &uri).as_deref(),
+            presented_in(&headers, &uri),
+            None,
+            "the query is read on the routes a browser loads headerless, and this is none"
+        );
+        let stream: axum::http::Uri = "/events?token=abc".parse().unwrap();
+        assert_eq!(
+            presented_in(&headers, &stream).as_deref(),
             Some("abc"),
-            "the middleware takes the query — an EventSource has no header"
+            "an EventSource has no header"
         );
         assert_eq!(presented_in_header(&headers), None, "consent does not");
         headers.insert(header::AUTHORIZATION, "Bearer abc".parse().unwrap());
         assert_eq!(presented_in_header(&headers).as_deref(), Some("abc"));
         assert_eq!(presented_in(&headers, &uri).as_deref(), Some("abc"));
+    }
+
+    /// The query form opens exactly the routes an `EventSource`, an `<img>`
+    /// or a download link fetches — by shape, with one non-empty segment
+    /// where an id goes — and nothing a prefix would widen it to.
+    #[test]
+    fn the_query_token_opens_exactly_what_a_browser_loads_headerless() {
+        for open in [
+            "/events",
+            "/ide/search/workstream/01J0000000000000000000000A",
+            "/pets/01J0000000000000000000000A/sprite",
+            "/mobile-development/devices/booted-sim/frame",
+            "/attachments/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "/work-items/01J0000000000000000000000A/result",
+        ] {
+            assert!(takes_query_token(open), "{open}");
+        }
+        for closed in [
+            "/",
+            "/goals",
+            "/events/x",
+            "/eventsx",
+            "/ide/search/workstream",
+            "/ide/search/workstream/01J/more",
+            "/pets//sprite",
+            "/pets/01J/sprite/more",
+            "/attachments",
+            "/attachments/",
+            "/attachments/a/b",
+            "/work-items/01J",
+            "/sessions/01J000000000000000000000SESS/report",
+            "/workstreams/w/git/checkout",
+            "events",
+        ] {
+            assert!(!takes_query_token(closed), "{closed}");
+        }
     }
 
     #[test]
@@ -345,6 +443,7 @@ mod tests {
             "/sessions/01J000000000000000000000SESS/guard",
             "/sessions/01J000000000000000000000SESS/exit",
             "/sessions/01J000000000000000000000SESS/close",
+            "/sessions/01J000000000000000000000SESS/answered",
         ] {
             assert!(is_exempt(open), "{open}");
         }
@@ -355,6 +454,14 @@ mod tests {
             "/connectors/slack/accounts",
             "/healthz",
             "/hooks",
+            // The public door is one shape: a host and a step, no more, no
+            // less — and the A2A endpoint is one path, no prefix.
+            "/hooks/workspace:01J0000000000000000000000A/ticket/extra",
+            "/hooks/workspace:01J0000000000000000000000A/",
+            "/hooks//ticket",
+            "/hooks/only",
+            "/a2a/",
+            "/a2a/anything",
             // A hook called on this machine takes the token; so does all
             // else about listening.
             "/workflows/01J0000000000000000000000A/hooks/ticket",

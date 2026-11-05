@@ -156,13 +156,75 @@ impl A2aAdapter {
             .map_err(|e| format!("agent card not JSON: {e}"))
     }
 
+    /// The endpoint the card names — when it is under the base the person
+    /// configured; a card that points elsewhere is refused by name, since a
+    /// remote agent must not redirect a session's prompts to a host nobody
+    /// chose. A card that names none is `<base>/a2a`.
     async fn endpoint(&self) -> Result<String, String> {
         let card = self.fetch_card().await?;
-        Ok(card
-            .get("url")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("{}/a2a", self.base.trim_end_matches('/'))))
+        let fallback = format!("{}/a2a", self.base.trim_end_matches('/'));
+        match card.get("url").and_then(Value::as_str) {
+            None => Ok(fallback),
+            Some(url) if same_origin(&self.base, url) => Ok(url.to_string()),
+            Some(url) => Err(format!(
+                "agent card names {url}, not an endpoint under {}",
+                self.base
+            )),
+        }
+    }
+}
+
+/// Whether `url` is under `base`: the same scheme and the same authority,
+/// compared lower-cased and spelled the same — no default-port folding, so a
+/// card that spells `:443` where the base did not is refused rather than
+/// guessed at.
+fn same_origin(base: &str, url: &str) -> bool {
+    match (
+        bisa_core::connector::url_head(base),
+        bisa_core::connector::url_head(url),
+    ) {
+        (Some(b), Some(u)) => {
+            b.scheme.eq_ignore_ascii_case(u.scheme) && b.authority.eq_ignore_ascii_case(u.authority)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod origin {
+    use super::same_origin;
+
+    /// A card's endpoint shares the base's scheme and authority, whatever
+    /// the case; another host, another port, another scheme or a port
+    /// spelled where the base spelled none is elsewhere.
+    #[test]
+    fn a_cards_endpoint_must_share_the_bases_scheme_and_authority() {
+        let base = "https://agent.example.com";
+        for under in [
+            "https://agent.example.com/a2a",
+            "HTTPS://AGENT.EXAMPLE.COM/rpc",
+            "https://agent.example.com",
+        ] {
+            assert!(same_origin(base, under), "{under}");
+        }
+        for elsewhere in [
+            "https://evil.example.com/a2a",
+            "http://agent.example.com/a2a",
+            "https://agent.example.com:443/a2a",
+            "https://agent.example.com.evil.test/a2a",
+            "not a url",
+            "",
+        ] {
+            assert!(!same_origin(base, elsewhere), "{elsewhere}");
+        }
+        assert!(same_origin(
+            "http://127.0.0.1:4000",
+            "http://127.0.0.1:4000/a2a"
+        ));
+        assert!(!same_origin(
+            "http://127.0.0.1:4000",
+            "http://127.0.0.1:4001/a2a"
+        ));
     }
 }
 

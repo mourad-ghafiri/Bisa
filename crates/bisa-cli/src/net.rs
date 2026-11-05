@@ -633,6 +633,11 @@ pub async fn join(ctx: &Ctx, out: &Out, code: &str, label: Option<String>) -> Re
         for r in &parsed.relays {
             if is_relay_url(r) && !relays.contains(r) {
                 relays.push(r.clone());
+            } else if !is_relay_url(r) {
+                // An invite names where to meet; one that is no relay URL
+                // here — plaintext off this machine — is not adopted, and
+                // said: the invite's other relays still reach the host.
+                tracing::warn!(target: "bisa_cli", relay = %r, "an invite named a relay that is no relay URL here (wss://, or ws:// on this machine); not adopted");
             }
         }
         if relays.is_empty() {
@@ -1049,6 +1054,8 @@ impl CollabDoors for Pump {
                 if is_relay_url(r) && !relays.contains(r) {
                     relays.push(r.clone());
                     grew = true;
+                } else if !is_relay_url(r) {
+                    tracing::warn!(target: "bisa_cli", relay = %r, "an invite named a relay that is no relay URL here (wss://, or ws:// on this machine); not adopted");
                 }
             }
             if grew {

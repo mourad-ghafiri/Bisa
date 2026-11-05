@@ -139,6 +139,11 @@ async fn run(
             ..
         } => {
             let mut cmd = tokio::process::Command::new(command);
+            // The node's token reaches no server; a server's own environment
+            // is applied after, as the harness applies a session's.
+            for name in crate::SCRUBBED_ENV {
+                cmd.env_remove(name);
+            }
             cmd.args(args).envs(env);
             if let Some(dir) = cwd {
                 cmd.current_dir(dir);

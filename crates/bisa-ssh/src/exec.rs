@@ -76,6 +76,9 @@ impl SshRunner for Cli {
     fn run(&self, program: Program, args: &[String], timeout: Duration) -> SshResult<Output> {
         let what = format!("{} {}", program.binary(), args.join(" "));
         let mut cmd = Command::new(program.binary());
+        for name in crate::SCRUBBED_ENV {
+            cmd.env_remove(name);
+        }
         cmd.args(args)
             .env("SSH_ASKPASS", "")
             .env("SSH_ASKPASS_REQUIRE", "never")

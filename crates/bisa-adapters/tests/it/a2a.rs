@@ -132,6 +132,7 @@ fn spec(intake_socket: &std::path::Path) -> SessionSpec {
         })],
         env: Default::default(),
         env_remove: Vec::new(),
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Write,
         output_schema: Some(json!({"type": "object"})),
         skills: vec![],
@@ -360,8 +361,8 @@ enum Reply {
 enum Card {
     Fine,
     Status(u16),
-    /// A card naming an endpoint nobody listens on.
-    Dead,
+    /// A card naming an endpoint under another authority.
+    Elsewhere,
 }
 
 struct Scripted {
@@ -394,7 +395,7 @@ async fn scripted_card(State(stub): State<Arc<Scripted>>) -> axum::response::Res
     match stub.card {
         Card::Fine => Json(json!({"protocolVersion": "0.3.0", "name": "scripted", "url": format!("{base}/a2a"), "skills": []})).into_response(),
         Card::Status(code) => (axum::http::StatusCode::from_u16(code).unwrap(), "no card").into_response(),
-        Card::Dead => Json(json!({"protocolVersion": "0.3.0", "name": "scripted", "url": "http://127.0.0.1:1/a2a", "skills": []})).into_response(),
+        Card::Elsewhere => Json(json!({"protocolVersion": "0.3.0", "name": "scripted", "url": "http://127.0.0.1:1/a2a", "skills": []})).into_response(),
     }
 }
 
@@ -791,8 +792,10 @@ async fn a2a_a_poll_the_remote_cannot_answer_ends_the_session_after_its_tries() 
     );
     assert_eq!(stub.polls.load(Ordering::SeqCst), 5, "five tries");
 
-    // Revived from its token against a peer whose endpoint nobody serves.
-    let (base, _stub) = start_scripted(Card::Dead, |_| task("working", json!({}))).await;
+    // Revived from its token against a peer whose card points elsewhere:
+    // refused by name before a session exists, since a remote agent must not
+    // redirect a session's prompts to a host nobody chose.
+    let (base, _stub) = start_scripted(Card::Elsewhere, |_| task("working", json!({}))).await;
     let adapter = quick(&base);
     let token = bisa_harness::ResumeToken {
         adapter_id: format!("a2a:{base}"),
@@ -802,12 +805,17 @@ async fn a2a_a_poll_the_remote_cannot_answer_ends_the_session_after_its_tries() 
         model: None,
         effort: None,
     };
-    let revived = adapter.attach(&token).await.unwrap();
-    assert_eq!(revived.phase(), bisa_harness::Phase::Turn);
-    assert_eq!(revived.resume_token().unwrap().native_id, "task-1");
-    let mut events = revived.subscribe();
+    let refused = adapter.attach(&token).await.err().expect("refused");
     assert!(
-        matches!(terminal_end(&mut events).await, Outcome::Failed { error } if error.contains("remote unreachable"))
+        matches!(&refused, bisa_harness::HarnessError::Unavailable(why) if why.contains("not an endpoint under") && why.contains("127.0.0.1:1")),
+        "{refused:?}"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let (socket, _rx) = start_intake(dir.path()).await;
+    let refused = adapter.launch(spec(&socket)).await.err().expect("refused");
+    assert!(
+        matches!(&refused, bisa_harness::HarnessError::Unavailable(why) if why.contains("not an endpoint under")),
+        "{refused:?}"
     );
 }
 

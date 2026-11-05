@@ -540,6 +540,7 @@ async fn park_then_nothing_revives_and_tombstone() {
         mcp_servers: vec![],
         env: Default::default(),
         env_remove: Vec::new(),
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Read,
         output_schema: None,
     };
@@ -646,6 +647,7 @@ async fn a_follow_up_re_arms_the_idle_clock_and_the_session_still_parks() {
         mcp_servers: vec![],
         env: Default::default(),
         env_remove: Vec::new(),
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Read,
         output_schema: None,
     };

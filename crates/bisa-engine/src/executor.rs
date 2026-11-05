@@ -721,6 +721,9 @@ fn build_session_spec(
         mcp_servers,
         env,
         env_remove,
+        // A checkout's own harness settings act before the guard sees a call:
+        // the person's alone, unless the workspace says otherwise.
+        harness_project_settings: inner.security.policy().harness_project_settings,
         tier_ceiling: spec.tier_ceiling,
         output_schema: spec.output_schema.clone(),
         skills,

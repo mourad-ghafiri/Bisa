@@ -173,7 +173,12 @@ says which.
 A `check` command runs under `sh -c`, and every value substituted into it is **quoted as one word**:
 an input holding `a; touch marker` is printed by `echo {inputs.x}`, not run. To let an input carry a
 whole command line, the template says so — `command = "sh -c {inputs.command}"`, which is what
-`standing-health-check` does.
+`standing-health-check` does. Quoting makes a value one argument, not a safe one: a value shaped
+like an option (`--force`) reaches the program as that option, so a command that hands an outside
+value — a hook's field, a connector item's — to a program puts `--` before it where the program
+honours one (`git checkout -- {event.payload.ref}`). The guard reads the rendered command as it
+reads an agent's, and the body it came from was screened before the run began
+([Events](events.md#durable-deduplicated-and-never-in-a-loop)).
 
 ## From a template
 

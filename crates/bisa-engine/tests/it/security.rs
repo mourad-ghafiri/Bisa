@@ -250,6 +250,7 @@ async fn a_steer_and_a_follow_up_are_redacted_like_a_prompt() {
         mcp_servers: vec![],
         env: Default::default(),
         env_remove: Vec::new(),
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Read,
         output_schema: None,
         skills: vec![],

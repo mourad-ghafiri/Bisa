@@ -1272,6 +1272,9 @@ fn build_conversation_spec(
         mcp_servers,
         env: session_env.0,
         env_remove: session_env.1,
+        // A checkout's own harness settings act before the guard sees a call:
+        // the person's alone, unless the workspace says otherwise.
+        harness_project_settings: inner.security.policy().harness_project_settings,
         // Chat instances are full-capability: "do this for me" has to work.
         tier_ceiling: bisa_core::ToolTier::Exec,
         output_schema: None,

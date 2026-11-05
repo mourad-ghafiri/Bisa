@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { OFF_LINE, checkAbout, checkAllWords, checkWords, defaultRelays, isDefaultList, relayEntry, relayProblem, relayTone, relayWords, syncSummary, wireMoved } from "./relayHealthModel.mjs";
+import { OFF_LINE, checkAbout, checkAllWords, checkWords, defaultRelays, isDefaultList, isRelayUrl, relayEntry, relayProblem, relayTone, relayWords, syncSummary, wireMoved } from "./relayHealthModel.mjs";
 
 const relay = (over = {}) => ({
   url: "wss://relay.example",
@@ -50,7 +50,11 @@ test("a check and a typed URL read as words", () => {
   assert.deepEqual(checkWords({ url: "x", ok: false, error: "refused" }), { tone: "danger", text: "Not reachable — refused" });
   assert.equal(checkWords(null), null);
   assert.deepEqual(relayEntry(" wss://r.example ", []), { ok: true, reason: "", url: "wss://r.example" });
-  assert.equal(relayEntry("http://r", []).reason, "A relay is a ws:// or wss:// URL.");
+  assert.equal(relayEntry("http://r", []).reason, "A relay is a wss:// URL, or ws:// on this machine.");
+  // Plaintext on this machine alone — the core's rule, held equal here.
+  for (const yes of ["wss://relay.example", "ws://localhost:7777", "ws://LOCALHOST.:7777", "ws://127.0.0.1:7777", "ws://127.0.0.2", "ws://[::1]:7777", "ws://0.0.0.0:7777", "ws://[::ffff:127.0.0.1]:7777"]) assert.ok(isRelayUrl(yes), yes);
+  for (const no of ["ws://relay.example", "ws://10.0.0.5:7777", "ws://localhost.example:7777", "https://relay.example", "relay.example", "", null]) assert.ok(!isRelayUrl(no), String(no));
+  assert.equal(relayEntry("ws://relay.example", []).reason, "A relay is a wss:// URL, or ws:// on this machine.");
   assert.equal(relayEntry("wss://r.example", ["wss://r.example"]).reason, "Already configured.");
   assert.equal(relayEntry("", []).reason, "");
 });

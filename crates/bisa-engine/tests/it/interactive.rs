@@ -189,10 +189,11 @@ async fn a_process_that_ends_by_itself_leaves_a_held_row_until_its_tab_closes() 
     .await;
     assert!(gone);
 
-    // Every door is shut behind it.
+    // Every door is shut behind it — and a session the desk no longer knows
+    // reads as a wrong secret, so a door says nothing of which sessions exist.
     assert!(matches!(
         desk.close(engine.inner(), opened.session, &secret(&opened)),
-        Err(InteractiveError::UnknownSession(_))
+        Err(InteractiveError::BadSecret)
     ));
     assert!(matches!(
         desk.exited(
@@ -201,7 +202,7 @@ async fn a_process_that_ends_by_itself_leaves_a_held_row_until_its_tab_closes() 
             &secret(&opened),
             &exit(Some(0), None)
         ),
-        Err(InteractiveError::UnknownSession(_))
+        Err(InteractiveError::BadSecret)
     ));
 }
 
@@ -361,7 +362,7 @@ async fn an_aborted_row_nobody_closes_leaves_on_the_retention_clock() {
             .inner()
             .interactive
             .close(engine.inner(), opened.session, &secret(&opened)),
-        Err(InteractiveError::UnknownSession(_))
+        Err(InteractiveError::BadSecret)
     ));
 }
 
@@ -498,7 +499,7 @@ async fn the_doors_take_only_the_sessions_own_secret() {
     );
     assert!(matches!(
         desk.close(engine.inner(), LiveRunId::mint(), &secret(&opened)),
-        Err(InteractiveError::UnknownSession(_))
+        Err(InteractiveError::BadSecret)
     ));
     assert!(matches!(
         desk.answered(engine.inner(), opened.session, &secret(&other)),

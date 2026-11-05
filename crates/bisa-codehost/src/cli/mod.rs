@@ -238,6 +238,9 @@ impl CliRunner for Cli {
     ) -> Result<Output, CliError> {
         let what = format!("{} {}", program.binary(), args.join(" "));
         let mut cmd = Command::new(program.binary());
+        for name in crate::SCRUBBED_ENV {
+            cmd.env_remove(name);
+        }
         cmd.args(args)
             .stdin(if stdin.is_some() {
                 Stdio::piped()

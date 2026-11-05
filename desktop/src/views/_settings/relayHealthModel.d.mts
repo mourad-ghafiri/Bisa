@@ -7,6 +7,7 @@ export declare function relayProblem(relay: RelayHealth | null | undefined): str
 export declare function checkWords(check: RelayCheck | null | undefined): { tone: Tone; text: string } | null;
 /** The check's answer the field may draw: the one about the address it holds now. */
 export declare function checkAbout<C extends { url: string }>(check: C | null | undefined, url: string | null | undefined): C | null;
+export declare function isRelayUrl(url: string | null | undefined): boolean;
 export declare function relayEntry(raw: string | null | undefined, relays: readonly string[]): { ok: false; reason: string } | { ok: true; reason: string; url: string };
 export declare const OFF_LINE: string;
 export declare function syncSummary(report: SyncReport | null | undefined): { running: boolean; enabled: boolean; line: string; tone: Tone };

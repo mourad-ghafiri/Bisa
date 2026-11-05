@@ -1019,7 +1019,7 @@ pub fn resolve_within(base: &Path, relative: &str) -> Result<PathBuf, StoreError
 static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Write a file so a reader never sees half of one, and a crash never loses
-/// what was acknowledged.
+/// what was acknowledged. The file takes the process's default mode.
 ///
 /// Write-then-rename, with three properties the shape it replaces did not have:
 ///
@@ -1032,20 +1032,23 @@ static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 ///
 /// The temporary name is appended rather than substituted for the extension,
 /// so a `journal.jsonl` neighbour cannot be clobbered by a `journal.json.tmp`.
-/// [`write_atomic`], and the file made the owner's alone (`0600`) — for a
-/// file that holds a secret's hash or a person's word about people.
-pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
-    write_atomic(path, bytes)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| StoreError::io(path.display().to_string(), e))?;
-    }
-    Ok(())
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    write_atomic_with(path, bytes, None)
 }
 
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+/// [`write_atomic`], and the file the owner's alone (`0600`) from its first
+/// byte — for a file that holds a secret's hash, a person's word about
+/// people, a settings layer with a proxy login, an MCP server's environment
+/// and headers. The temporary is created `0600`, so no reader ever finds the
+/// bytes wider, and since the rename replaces the inode, a file written wider
+/// before this rule is the owner's alone at its next write.
+pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    write_atomic_with(path, bytes, Some(0o600))
+}
+
+fn write_atomic_with(path: &Path, bytes: &[u8], mode: Option<u32>) -> Result<(), StoreError> {
+    #[cfg(not(unix))]
+    let _ = mode;
     let parent = path.parent().ok_or_else(|| {
         StoreError::Invalid(bisa_core::text!(
             "error-store-invalid-not-file-path",
@@ -1068,10 +1071,14 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let tmp = path.with_file_name(tmp_name);
 
     let written = (|| -> std::io::Result<()> {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        let mut f = options.open(&tmp)?;
         std::io::Write::write_all(&mut f, bytes)?;
         f.sync_all()
     })();

@@ -334,3 +334,4 @@ engine-session-terminated-at-deadline = The { $kind } session { $session } did n
 engine-rationale-parent-goal-stopped = its parent goal { $parent } was stopped
 engine-rationale-parent-goal-closed = its parent goal { $parent } was closed
 engine-rationale-parent-run-stopped = the run { $run } it was born of was stopped
+engine-collab-held-longer-than-screen = the message and what it carries run past { $max } characters, more than the classifier reads; read it yourself before you let it through

@@ -155,11 +155,12 @@ and a pid the system has since given to something else is left alone); and the d
 once — launching it again brings its window back ([The menu bar icon](the-desktop.md#the-menu-bar-icon)).
 
 **The control plane is behind a bearer token** in `run/token` (mode `0600`), minted on first start
-and reused, presented as `Authorization: Bearer <token>` or `?token=` for an `EventSource` or an
-`<img>`. `/health`, `POST /hooks/{host}/{step}` (a public hook: its listener's own secret), the
-A2A endpoints, the connectors' OAuth callback, an installed addon's files and a terminal
-session's four doors (`report`, `guard`, `exit`, `close`, under the session's own secret) are the
-named exceptions. `BISA_API_TOKEN` in the environment overrides the file for both the node and the
+and reused, presented as `Authorization: Bearer <token>` — or, on the event streams and the routes
+an `<img>` or a download link fetches and on no other, `?token=`. `/health`, `POST /hooks/{host}/{step}`
+(a public hook: its listener's own secret), the A2A card and endpoint (with checks of their own),
+the connectors' OAuth callback, an installed addon's files and player page, and a terminal
+session's five doors (`report`, `guard`, `exit`, `close`, `answered`, under the session's own
+secret in the header) are the named exceptions, each a path's exact shape and never a prefix. `BISA_API_TOKEN` in the environment overrides the file for both the node and the
 CLI. `--listen` refuses a
 non-loopback address without `--insecure-allow-remote`.
 
@@ -365,14 +366,21 @@ GET /notes?scope=goal&id=<id>    # one scope's
 ## A2A (feature `a2a`)
 
 - **Expose**: with `<data>/a2a.toml` (`public_base_url`, optional `skills`, optional `workflow`
-  and `auto_start`) the node serves an agent card at `/.well-known/agent-card.json` and a JSON-RPC
-  endpoint. Each task becomes a goal — and a run of the configured workflow when `auto_start` is on
-  — and raises the named signal `a2a.task`, so a workflow that begins on it, or waits for it, reacts
+  and `auto_start`, optional `token`) the node serves an agent card at
+  `/.well-known/agent-card.json` and a JSON-RPC endpoint. Each task becomes a goal, tagged `a2a`,
+  and raises the named signal `a2a.task`, so a workflow that begins on it, or waits for it, reacts
   to a remote agent's request as it reacts to a hook call; what the task says came from outside, so
-  the signal is redacted and held for the content screen first. The task's state is the goal's status. The card and `POST /a2a` take no token — a
-  remote agent holds no control-plane token — so on the unix socket the socket's `0600` is the
-  door and on loopback TCP any local process can submit a task: put the tunnel's or reverse
-  proxy's own authentication in front of them when exposing them beyond this machine.
+  the signal is redacted and read by the content screen first, and the goal begins — a run of the
+  configured workflow when `auto_start` is on, the Workflow Agent's design otherwise — only once
+  the screen passed its words or a person let the held signal through (`bisa signal release`);
+  until then the task reads `input-required` or `submitted`. The task's state is the goal's
+  status; `tasks/get`, `tasks/cancel` and a continuation reach only the goals A2A made. The card
+  and `POST /a2a` take no control-plane token — a remote agent holds none — but the endpoint has
+  checks of its own: a call carrying an `Origin` header (a browser's) is refused, only
+  `application/json` is read, and with `token` set every call needs
+  `Authorization: Bearer <token>` (the card advertises the scheme); without one, whoever reaches
+  the endpoint may create tasks, which the node says once at start — put the tunnel's or reverse
+  proxy's own authentication in front of it when exposing it beyond this machine.
   The file is read whole or not at all: a key it does not know — `workflow` misspelt — is
   refused by name in the log, and the node starts with A2A left off rather than exposed as
   something its person did not write.

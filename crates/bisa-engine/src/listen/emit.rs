@@ -18,7 +18,9 @@
 use super::ear::{announce_received, enqueue_for, new_signal_id, offer};
 use super::{armed, now_secs, report_once};
 use crate::{EngineError, Inner};
-use bisa_core::{valid_signal_name, Chain, Heard, Signal, SignalScope, SignalSource};
+use bisa_core::{
+    valid_signal_name, Chain, GoalId, GoalMode, Heard, Signal, SignalScope, SignalSource,
+};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -95,6 +97,19 @@ pub fn emit(
     })
 }
 
+/// The goal a payload from outside belongs to, and what the screen's verdict
+/// does with it: once the screen passed the payload — or a person let the
+/// held signal through — the goal takes `mode` and, when `start` says so,
+/// begins. Until then it stands as it was submitted, a manual draft nothing
+/// runs, so a caller's words reach no designer and no run before they were
+/// read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutsideGoal {
+    pub goal: GoalId,
+    pub mode: GoalMode,
+    pub start: bool,
+}
+
 /// Raise the named signal `name` for a payload that came from outside this
 /// machine; `source` says from where, in the words the screen and a person
 /// read (*an A2A task*). Every string of the payload is redacted first. With
@@ -111,6 +126,22 @@ pub fn emit_from_outside(
     scope: SignalScope,
     source: String,
 ) -> Result<(), EngineError> {
+    emit_from_outside_for(inner, name, payload, scope, source, None)
+}
+
+/// [`emit_from_outside`] for a payload that is a goal's own words (`then`):
+/// the goal begins only once the screen passed them — on this path, right
+/// after the signal is raised — or a person released the held signal
+/// ([`crate::Engine::release_signal`]); held with nobody listening, the hold
+/// is said on the goal itself, which stands a draft a person can start.
+pub fn emit_from_outside_for(
+    inner: &Arc<Inner>,
+    name: &str,
+    payload: Value,
+    scope: SignalScope,
+    source: String,
+    then: Option<OutsideGoal>,
+) -> Result<(), EngineError> {
     let name = name.trim().to_string();
     if !valid_signal_name(&name) {
         return Err(EngineError::Invalid(bisa_core::text!(
@@ -121,6 +152,9 @@ pub fn emit_from_outside(
     let payload = super::hooks::redact_value(inner, payload);
     if !inner.security.policy().content.screen {
         emit(inner, &name, payload, scope, Chain::default(), None)?;
+        if let Some(then) = then {
+            crate::ops::begin_outside_goal(inner, then);
+        }
         return Ok(());
     }
     let inner = Arc::clone(inner);
@@ -134,43 +168,65 @@ pub fn emit_from_outside(
                     tracing::warn!(target: "bisa_engine::listen", signal = %name, "a screened signal could not be raised: {e}");
                     // LCOV_EXCL_STOP
                 }
+                if let Some(then) = then {
+                    crate::ops::begin_outside_goal(&inner, then);
+                }
             }
-            Err(reason) => hold_for_listeners(&inner, &name, payload, scope, &reason),
+            Err(reason) => hold_for_listeners(&inner, &name, payload, scope, &reason, then),
         }
     }));
     Ok(())
 }
 
 /// What the screen did not pass, written held for every listener that would
-/// have heard it, and said on each one's host's row.
+/// have heard it, and said on each one's host's row. A goal's own words
+/// (`then`) are stashed under every held copy, for the release to begin the
+/// goal; with nobody listening, the hold is said on the goal instead.
 fn hold_for_listeners(
     inner: &Arc<Inner>,
     name: &str,
     payload: Value,
     scope: SignalScope,
     reason: &str,
+    then: Option<OutsideGoal>,
 ) {
-    if !inner.listen.settings().enabled {
-        return; // LCOV_EXCL_LINE a held signal with listening off, screened; out by decision
-    }
-    let heard = Heard {
-        source: SignalSource::Signal,
-        name: Some(name.to_string()),
-        scope,
-        payload: match payload {
-            Value::Object(map) => Value::Object(map),
-            // LCOV_EXCL_START a held signal that is no object, screened; out by decision
-            Value::Null => json!({}),
-            other => json!({ "value": other }),
-            // LCOV_EXCL_STOP
-        },
-        chain: Chain::default(),
-    };
     let note = super::hooks::held_note(reason);
-    let registry = armed(inner);
-    for listener in registry.armed.iter().filter(|a| a.hears(&heard)) {
-        if let Some(signal) = enqueue_for(inner, listener, &heard, None, Some(note.as_str())) {
-            report_once(inner, &listener.key, Some(signal.as_str()), note.clone());
+    let mut held_any = false;
+    if inner.listen.settings().enabled {
+        let heard = Heard {
+            source: SignalSource::Signal,
+            name: Some(name.to_string()),
+            scope,
+            payload: match payload {
+                Value::Object(map) => Value::Object(map),
+                // LCOV_EXCL_START a held signal that is no object, screened; out by decision
+                Value::Null => json!({}),
+                other => json!({ "value": other }),
+                // LCOV_EXCL_STOP
+            },
+            chain: Chain::default(),
+        };
+        let registry = armed(inner);
+        for listener in registry.armed.iter().filter(|a| a.hears(&heard)) {
+            if let Some(signal) = enqueue_for(inner, listener, &heard, None, Some(note.as_str())) {
+                if let Some(then) = then {
+                    inner.listen.outside_then.insert(signal.clone(), then);
+                }
+                held_any = true;
+                report_once(inner, &listener.key, Some(signal.as_str()), note.clone());
+            }
+        }
+    }
+    if let (false, Some(then)) = (held_any, then) {
+        if let Err(e) = crate::ops::add_note(
+            inner,
+            then.goal,
+            format!("{note}; start it by hand to let it through"),
+            None,
+        ) {
+            // LCOV_EXCL_START journaling fails only unwritable (disk-only)
+            tracing::warn!(target: "bisa_engine::listen", goal = %then.goal, "the hold could not be said on the goal: {e}");
+            // LCOV_EXCL_STOP
         }
     }
 }

@@ -656,6 +656,88 @@ fn rel(root: &Path, p: &Path) -> String {
 /// or with `unwrap_or_else(|e| e.into_inner())`, never with `lock().unwrap()`
 /// or `lock().expect(..)`: a lock poisoned by a panic the platform already
 /// contained must not turn every later reader into a second panic.
+/// The node's bearer token (`BISA_API_TOKEN`, what the desktop hands its
+/// sidecar) reaches no child: every crate that starts a process names the
+/// scrubbed list `SCRUBBED_ENV` — the harness's, or a copy of it held equal
+/// here, since the leaf crates stand below the harness — and every
+/// `Command::new(` in its production code is followed within a few lines by
+/// the scrub (`SCRUBBED_ENV`, `scrub(`, `scrubbed(`) or goes through a
+/// helper that scrubs (`group_output(`). What a `check` command, a
+/// workstream script, a repository's hook under the platform's `git`, a
+/// language server, an MCP server, `gh`, `ssh` or a mobile tool inherits is
+/// then never the node's authority ([11 — Security](../../../../docs/architecture/11-security.md)).
+#[test]
+fn every_process_a_crate_starts_is_scrubbed_of_the_nodes_token() {
+    let root = workspace_root();
+    let spawning = [
+        "bisa-harness",
+        "bisa-engine",
+        "bisa-adapters",
+        "bisa-vcs",
+        "bisa-lsp",
+        "bisa-mcp-probe",
+        "bisa-codehost",
+        "bisa-ssh",
+        "bisa-mobile-development",
+    ];
+    let is_a_spawn = |line: &str| {
+        line.match_indices("Command::new(").any(|(at, _)| {
+            !line[..at]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+    };
+    let mut offences = Vec::new();
+    let mut lists = Vec::new();
+    for name in spawning {
+        let src = root.join("crates").join(name).join("src");
+        let mut spawns = 0;
+        for (path, text) in production_sources(&src) {
+            if let Some(at) = text.find("const SCRUBBED_ENV:") {
+                let line = text[at..].lines().next().unwrap_or("");
+                lists.push((name, line.trim().to_string()));
+            }
+            let lines: Vec<&str> = text.lines().collect();
+            for (n, line) in lines.iter().enumerate() {
+                let l = line.trim_start();
+                if l.starts_with("//") || !is_a_spawn(l) {
+                    continue;
+                }
+                spawns += 1;
+                let window = lines[n..lines.len().min(n + 14)].join("\n");
+                let scrubbed = window.contains("SCRUBBED_ENV")
+                    || window.contains("scrub(")
+                    || window.contains("scrubbed(")
+                    || window.contains("group_output(");
+                if !scrubbed {
+                    offences.push(format!("{}:{}: {l}", rel(&root, &path), n + 1));
+                }
+            }
+        }
+        assert!(
+            spawns > 0,
+            "{name} starts a process somewhere, or leaves this list"
+        );
+    }
+    assert!(
+        offences.is_empty(),
+        "a process started without the node's token scrubbed from its environment:\n{}",
+        offences.join("\n")
+    );
+    assert_eq!(
+        lists.len(),
+        7,
+        "the harness and six leaf crates name the list; the engine and the adapters read the harness's: {lists:?}"
+    );
+    for (name, line) in &lists {
+        assert!(
+            line.contains(r#"&["BISA_API_TOKEN"]"#),
+            "{name}: `{line}` is not the one list"
+        );
+    }
+}
+
 #[test]
 fn no_production_code_panics_on_a_poisoned_lock() {
     let root = workspace_root();

@@ -37,7 +37,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// of an API, not a copy of it.
 pub const MAX_CONNECTOR_BYTES: usize = 64 * 1024;
 
-pub use bisa_netrules::{host_matches, is_host_pattern, is_loopback, RESERVED_HEADERS};
+pub use bisa_netrules::{
+    host_matches, is_host_pattern, is_loopback, is_private_network, RESERVED_HEADERS,
+};
 
 /// The longest life a signed token may be given: a token is minted per
 /// request, so a long one buys nothing and widens what a leak is worth.

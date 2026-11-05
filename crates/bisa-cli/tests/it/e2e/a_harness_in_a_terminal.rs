@@ -746,8 +746,9 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
     // nothing: it ends well, says why where a harness keeps a hook's words,
     // and a guard with nobody to ask gives no verdict.
     let late = tab.fires(&ws, "Stop", json!({}));
+    // A session the desk no longer knows reads as a wrong secret: one 401.
     assert!(
-        String::from_utf8_lossy(&late[0].stderr).contains("404"),
+        String::from_utf8_lossy(&late[0].stderr).contains("401"),
         "{}",
         String::from_utf8_lossy(&late[0].stderr)
     );
@@ -761,7 +762,10 @@ fn a_harness_in_a_terminal_is_a_row_from_its_start_to_its_tabs_close() {
         None
     );
     let (status, _) = tab.host(&ws, "close", None);
-    assert_eq!(status, 404, "closed twice is a session nobody knows");
+    assert_eq!(
+        status, 401,
+        "closed twice is a session nobody knows, refused as a wrong secret is"
+    );
     ws.stop();
 }
 
@@ -802,7 +806,7 @@ fn a_node_that_starts_again_has_forgotten_every_terminal_and_kept_nothing_of_the
     // finds nobody.
     let told = tab.fires(&ws, "UserPromptSubmit", json!({}));
     assert!(
-        String::from_utf8_lossy(&told[0].stderr).contains("404"),
+        String::from_utf8_lossy(&told[0].stderr).contains("401"),
         "{}",
         String::from_utf8_lossy(&told[0].stderr)
     );
@@ -816,8 +820,9 @@ fn a_node_that_starts_again_has_forgotten_every_terminal_and_kept_nothing_of_the
         None
     );
     assert_eq!(ended(shell), Some(0));
-    assert_eq!(tab.host(&ws, "exit", Some(json!({"code": 0}))).0, 404);
-    assert_eq!(tab.host(&ws, "close", None).0, 404);
+    // A session nobody knows reads as a wrong secret: one 401, no oracle.
+    assert_eq!(tab.host(&ws, "exit", Some(json!({"code": 0}))).0, 401);
+    assert_eq!(tab.host(&ws, "close", None).0, 401);
 
     // A tab opened now is a session like the first.
     let again = Tab::open(&ws, &node, &checkout);

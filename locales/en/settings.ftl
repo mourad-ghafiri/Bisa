@@ -330,6 +330,11 @@ setting-security-guard-rules = Your guard rules
 setting-security-guard-builtins_off = Built-in guard rules switched off
     .help = The ids of the shipped guard rules that should not apply.
 
+setting-security-guard-harness_project_settings = Let a checkout's harness settings act in the platform's sessions
+    .help = A Claude Code session the platform drives is started with --setting-sources user and --strict-mcp-config: your own settings load; a repository's .claude/settings.json, .claude/settings.local.json, hooks and .mcp.json do not, since their permission allow-lists, hooks and MCP servers would act before the guard sees a call. On starts the session as before, every source loaded. A harness you open in a terminal is yours and reads everything, as ever.
+    .choice-off = Off
+    .choice-on = On
+
 setting-security-guard-terminal_hooks = Guard harnesses opened in a terminal
     .help = A Claude Code or GitHub Copilot CLI session opened in the IDE's terminal asks the node before each tool runs. When the node does not answer in time, the harness's own prompt stands — you are at the keyboard. The rules that steer an agent to the platform's own tools — the embedded browser's — leave a terminal harness be: nothing of the platform's is injected into it, so it keeps the machine's browser and its own prompt.
 
@@ -659,7 +664,7 @@ setting-sync-enabled = Sync over relays
     .help = Whether this node talks to relays at all. Off by default: nothing is contacted until you turn it on. Off, no invite can be claimed, no hosted member hears anything, and nothing you joined moves — the workspace works alone.
 
 setting-sync-relays = Relays
-    .help = The Nostr relays this node publishes to and reads from, as `wss://` (or `ws://` on this machine) URLs. Four public relays are the defaults — relay.nostr.com, relay.nostr.net, relay.damus.io, nos.lol — and any may be replaced; they see ciphertext addressed to pubkeys and nothing else. An entry that is not a `ws://` or `wss://` URL is refused when written, naming it. A change is picked up at once — no restart.
+    .help = The Nostr relays this node publishes to and reads from, as `wss://` (or `ws://` on this machine) URLs. Four public relays are the defaults — relay.nostr.com, relay.nostr.net, relay.damus.io, nos.lol — and any may be replaced; they see ciphertext addressed to pubkeys and nothing else. An entry that is not a `wss://` URL — or a `ws://` one on this machine — is refused when written, naming it: a plaintext relay elsewhere would carry this node's metadata in the clear. A change is picked up at once — no restart.
 
 setting-sync-interval_secs = Catch-up every (seconds)
     .help = How often the node asks the relays for what it missed while a live subscription was down.

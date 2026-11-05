@@ -444,11 +444,22 @@ pub fn summarize_args(args: &serde_json::Value, max: usize) -> String {
 /// the catalog's budget is still ended rather than left behind.
 pub const VERSION_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// The node's token out of a child's environment — the harness's one list
+/// (`bisa_harness::proc::SCRUBBED_ENV`), applied to every process an
+/// adapter starts beside a session: a version probe, a usage reader, a
+/// host asked a question.
+pub(crate) fn scrub(command: &mut tokio::process::Command) {
+    for name in bisa_harness::proc::SCRUBBED_ENV {
+        command.env_remove(name);
+    }
+}
+
 /// Version probe helper: run `<program> <args>` and take the first stdout
 /// line — stdin closed, within [`VERSION_BUDGET`], the child ended with the
 /// future if the clock runs out, so a probe never leaves a process behind.
 pub async fn version_of(program: &str, args: &[&str]) -> Option<String> {
     let mut command = tokio::process::Command::new(program);
+    scrub(&mut command);
     command
         .args(args)
         .stdin(std::process::Stdio::null())
@@ -725,9 +736,11 @@ pub async fn command_output(program: &str, args: &[&str]) -> Option<String> {
     if which::which(program).is_err() {
         return None;
     }
+    let mut command = tokio::process::Command::new(program);
+    scrub(&mut command);
     let out = tokio::time::timeout(
         std::time::Duration::from_secs(8),
-        tokio::process::Command::new(program)
+        command
             .args(args)
             .stdin(std::process::Stdio::null())
             .output(),

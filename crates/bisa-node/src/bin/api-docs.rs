@@ -42,16 +42,24 @@ id and its arguments, for a client that renders in its own language);
 `detail` (the typed facts behind a `code`). The last three are omitted when empty.
 
 **Every route but the named exceptions requires the bearer token** in `run/token` (mode `0600`,
-minted on first start, reused): `Authorization: Bearer <token>`, or `?token=<token>` for an
-`EventSource` or an `<img>`. The exceptions answer without it, each for its own reason:
+minted on first start, reused): `Authorization: Bearer <token>` — or, on the routes a browser
+loads with no way to send a header and on no other, `?token=<token>`: the event streams
+(`GET /events`, `GET /ide/search/{scope}/{id}`) and what an `<img>` or a download link fetches
+(`GET /pets/{id}/sprite`, `GET /mobile-development/devices/{id}/frame`, `GET /attachments/{sha256}`,
+`GET /work-items/{item}/result`); elsewhere the query is ignored, since a token in a URL lands in a
+history, a copy and a proxy's log. The exceptions answer without it, each for its own reason:
 `GET /health` (a liveness probe carries no authority); `POST /hooks/{host}/{step}` (a public hook,
 opened by its listener's own secret); `GET /connectors/oauth/callback` (a redirect a browser
 follows, opened by the one-time `state` of the sign-in it ends); the A2A agent card and endpoint
-(their own protocol); and `GET /addons/{id}/files/<path>` (an installed bundle's static files, for
-the sandboxed frame that holds no token). Four doors take **a session's own secret** as their
-bearer instead of the token — `POST /sessions/{id}/report`, `/guard`, `/exit` and `/close`, what a
-hook inside a terminal and the terminal's host call — and open one roster row and nothing else.
-Everything else answers `401 {"error": "unauthorized"}`.
+(their own protocol, with the endpoint's own checks); `GET /addons/{id}/files/<path>` (an installed
+bundle's static files, for the sandboxed frame that holds no token) and
+`GET /addons/{id}/player/youtube/{video}` (the player page beside a `media` addon, for the shell's
+child view that holds none either). Each exemption is a path's exact shape, never a prefix. Five
+doors take **a session's own secret** as their bearer instead of the token, in the header alone —
+`POST /sessions/{id}/report`, `/guard`, `/exit`, `/close` and `/answered`, what a hook inside a
+terminal and the terminal's host call — and open one roster row and nothing else. Everything else
+answers `401 {"error": "unauthorized"}`. Every answer carries `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store` unless the route set its own.
 
 Wire types are generated from the Rust definitions: `just gen-types` writes
 `desktop/api-schema.json` and `desktop/src/types.gen.ts`; `just check-types` fails if they drift.

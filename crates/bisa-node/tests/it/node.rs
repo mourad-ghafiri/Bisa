@@ -236,6 +236,11 @@ impl Node {
         &self.socket
     }
 
+    /// The control-plane token every node here is started with.
+    pub(crate) fn token() -> &'static str {
+        TOKEN
+    }
+
     /// One request with the content type and the bytes the caller says — for
     /// what the JSON helpers cannot send: a body that is not JSON, or one
     /// sized past a route's limit.

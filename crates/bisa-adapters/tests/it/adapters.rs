@@ -29,6 +29,7 @@ fn spec(dir: &Path, prompt: &str) -> SessionSpec {
         mcp_servers: vec![],
         env: Default::default(),
         env_remove: Vec::new(),
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Exec,
         output_schema: None,
         skills: vec![],

@@ -749,6 +749,9 @@ test("the guard's lines name the tool, who decided and why — and a refusal is 
   const allowed = engineLine({ payload: { ...ENGINE.guard_decided, verdict: "allowed", by: "person", reason: null } }, 1);
   assert.equal(allowed.tone, "dim");
   assert.equal(allowed.text, "allowed Bash (you) — sudo make install");
+  // A command of several lines reads as one, a break marked.
+  const lines = engineLine({ payload: { ...ENGINE.guard_decided, subject: "cd x\nsudo make install" } }, 1);
+  assert.match(lines.text, /cd x ⏎ sudo make install/);
   // The journal fact renders with the same words.
   const fact = payloadLine(JOURNAL.guard);
   assert.equal(fact.tone, "wait");

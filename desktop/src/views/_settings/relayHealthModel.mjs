@@ -93,7 +93,19 @@ export function checkAbout(check, url) {
 }
 
 /**
- * Whether a typed URL may be added: a `ws(s)://` URL with a host, not
+ * A relay URL a person may add — the core's rule (`collab_settings::is_relay_url`), held equal here: `wss://` with a host anywhere, `ws://` on this machine alone (`localhost`, a loopback or unspecified address), since a plaintext relay elsewhere would carry this node's metadata in the clear.
+ * @param {string} url
+ */
+export function isRelayUrl(url) {
+  const m = /^(wss?):\/\/([^\s/?#]+)/i.exec(String(url ?? "").trim());
+  if (!m) return false;
+  if (m[1].toLowerCase() === "wss") return true;
+  const host = m[2].replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
+  return host === "localhost" || host === "localhost." || host === "::1" || host === "::" || host === "0.0.0.0" || /^127\.\d+\.\d+\.\d+$/.test(host) || host === "::ffff:127.0.0.1";
+}
+
+/**
+ * Whether a typed URL may be added: a relay URL (`isRelayUrl`), not
  * already in the list.
  * @param {string} raw
  * @param {readonly string[]} relays
@@ -101,7 +113,7 @@ export function checkAbout(check, url) {
 export function relayEntry(raw, relays) {
   const url = String(raw ?? "").trim();
   if (!url) return { ok: false, reason: "" };
-  if (!/^wss?:\/\/[^\s/]+/i.test(url)) return { ok: false, reason: t("settings-relay-health-relay-ws-wss-url") };
+  if (!isRelayUrl(url)) return { ok: false, reason: t("settings-relay-health-relay-ws-wss-url") };
   if ((relays ?? []).includes(url)) return { ok: false, reason: t("settings-relay-health-already-configured") };
   return { ok: true, reason: "", url };
 }

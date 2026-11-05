@@ -12,16 +12,24 @@ id and its arguments, for a client that renders in its own language);
 `detail` (the typed facts behind a `code`). The last three are omitted when empty.
 
 **Every route but the named exceptions requires the bearer token** in `run/token` (mode `0600`,
-minted on first start, reused): `Authorization: Bearer <token>`, or `?token=<token>` for an
-`EventSource` or an `<img>`. The exceptions answer without it, each for its own reason:
+minted on first start, reused): `Authorization: Bearer <token>` — or, on the routes a browser
+loads with no way to send a header and on no other, `?token=<token>`: the event streams
+(`GET /events`, `GET /ide/search/{scope}/{id}`) and what an `<img>` or a download link fetches
+(`GET /pets/{id}/sprite`, `GET /mobile-development/devices/{id}/frame`, `GET /attachments/{sha256}`,
+`GET /work-items/{item}/result`); elsewhere the query is ignored, since a token in a URL lands in a
+history, a copy and a proxy's log. The exceptions answer without it, each for its own reason:
 `GET /health` (a liveness probe carries no authority); `POST /hooks/{host}/{step}` (a public hook,
 opened by its listener's own secret); `GET /connectors/oauth/callback` (a redirect a browser
 follows, opened by the one-time `state` of the sign-in it ends); the A2A agent card and endpoint
-(their own protocol); and `GET /addons/{id}/files/<path>` (an installed bundle's static files, for
-the sandboxed frame that holds no token). Four doors take **a session's own secret** as their
-bearer instead of the token — `POST /sessions/{id}/report`, `/guard`, `/exit` and `/close`, what a
-hook inside a terminal and the terminal's host call — and open one roster row and nothing else.
-Everything else answers `401 {"error": "unauthorized"}`.
+(their own protocol, with the endpoint's own checks); `GET /addons/{id}/files/<path>` (an installed
+bundle's static files, for the sandboxed frame that holds no token) and
+`GET /addons/{id}/player/youtube/{video}` (the player page beside a `media` addon, for the shell's
+child view that holds none either). Each exemption is a path's exact shape, never a prefix. Five
+doors take **a session's own secret** as their bearer instead of the token, in the header alone —
+`POST /sessions/{id}/report`, `/guard`, `/exit`, `/close` and `/answered`, what a hook inside a
+terminal and the terminal's host call — and open one roster row and nothing else. Everything else
+answers `401 {"error": "unauthorized"}`. Every answer carries `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer` and `Cache-Control: no-store` unless the route set its own.
 
 Wire types are generated from the Rust definitions: `just gen-types` writes
 `desktop/api-schema.json` and `desktop/src/types.gen.ts`; `just check-types` fails if they drift.
@@ -613,7 +621,7 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 
 | Route | What it does |
 |---|---|
-| `POST /hooks/{host}/{step}` | A public `hook` start's inbound endpoint, outside the control plane — `{host}` is `workspace:<WorkflowId>` or `goal:<GoalId>`: authenticated by the listener's own secret (`X-Bisa-Token`, or `X-Hub-Signature-256` over the raw body), at most 64 KiB, rate-limited per listener → `202 {signal}`; `Idempotency-Key` or `X-GitHub-Delivery` makes a redelivery the same signal. `404` while `events.public_hooks` or `events.enabled` is off, `401` (one body) for every authentication failure, `403` for a host that is Off or paused, `404` for a start that is not public, `413`, `429`. |
+| `POST /hooks/{host}/{step}` | A public `hook` start's inbound endpoint, outside the control plane — `{host}` is `workspace:<WorkflowId>` or `goal:<GoalId>`: authenticated by the listener's own secret (`X-Bisa-Token`, or `X-Hub-Signature-256` over the raw body), at most 64 KiB, rate-limited per listener once the secret verified → `202 {signal}`; `Idempotency-Key` or `X-GitHub-Delivery` makes a redelivery the same signal, and the same body again on the same listener (the last 512 this process took) answers the signal it already made. `404` while `events.public_hooks` or `events.enabled` is off, `401` (one body) for every authentication failure, `403` for a host that is Off or paused, `404` for a start that is not public, `413`, `429`. |
 
 ## Tags
 
@@ -673,7 +681,7 @@ graph, a connector not chosen yet — but stored with its `problems`; only a sta
 |---|---|
 | `GET /settings/registry` | Every setting the registry declares: key, kind, default, allowed scopes, label, help. |
 | `GET /settings/resolved` | Every key with its value and the scope it came from (`?project=` resolves for a project). |
-| `GET /settings/{scope}` | The raw values held at one scope: `machine`, `workspace` or `project` (`?project=`). |
+| `GET /settings/{scope}` | The raw values held at one scope: `machine`, `workspace` or `project` (`?project=`). A proxy login (`network.proxy.http`, `network.proxy.https`) is shown masked here and on every settings answer; a masked value written back keeps the value stored. |
 | `PUT /settings/{scope}` | Write `{values: {key: value}}` at one scope; 400 names a key's allowed scopes or a value out of range. |
 | `DELETE /settings/{scope}/{key}` | Remove one key from one scope; the value falls back to the next layer. |
 

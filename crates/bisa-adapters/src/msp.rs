@@ -510,6 +510,7 @@ pub fn revival(adapter_id: &str, token: &ResumeToken) -> Result<SessionSpec, Har
         mcp_servers: vec![],
         env: Default::default(),
         env_remove: Vec::new(),
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Write,
         output_schema: None,
         skills: vec![],
@@ -1668,6 +1669,7 @@ pub async fn ask(
     timeout: Duration,
 ) -> Result<Value, HostRefusal> {
     let mut command = tokio::process::Command::new(program);
+    crate::util::scrub(&mut command);
     command
         .args(args)
         .stdin(std::process::Stdio::piped())

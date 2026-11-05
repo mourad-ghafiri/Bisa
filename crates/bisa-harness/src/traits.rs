@@ -526,6 +526,7 @@ mod default_tests {
             mcp_servers: vec![],
             env: Default::default(),
             env_remove: Vec::new(),
+            harness_project_settings: false,
             tier_ceiling: bisa_core::ToolTier::Read,
             output_schema: None,
             skills: vec![],

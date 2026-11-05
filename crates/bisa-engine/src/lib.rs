@@ -85,6 +85,7 @@ pub use events::ExecutionOutcome;
 pub use events::{EngineEvent, EnginePayload, EventScope, FiredOutcome};
 pub use gates::{GateEntry, GateResolution, Gates, PauseGate};
 pub use identity::{Committer, CommitterOverview, CommitterReason, PendingCommitter};
+pub use listen::emit::OutsideGoal;
 pub use listen::hooks::{HookDoor, HookRefusal};
 pub use listen::turn::{HookSecret, TurnedOn};
 pub use lock::{EngineLock, LockHolder};
@@ -1946,8 +1947,29 @@ impl Engine {
         listen::emit::emit_from_outside(&self.inner, name, payload, scope, source.to_string())
     }
 
+    /// [`Self::emit_outside_signal`] for a payload that is a goal's own words:
+    /// the goal (`then`) begins only when the screen passed them, or a person
+    /// released the held signal.
+    pub fn emit_outside_signal_for_goal(
+        &self,
+        name: &str,
+        payload: serde_json::Value,
+        scope: bisa_core::SignalScope,
+        source: &str,
+        then: OutsideGoal,
+    ) -> Result<(), EngineError> {
+        listen::emit::emit_from_outside_for(
+            &self.inner,
+            name,
+            payload,
+            scope,
+            source.to_string(),
+            Some(then),
+        )
+    }
+
     /// Let a held signal through — a person read what the content screen
-    /// would not pass.
+    /// would not pass. A goal whose own words were held begins now.
     pub fn release_signal(&self, id: &str) -> Result<(), EngineError> {
         let Some(queued) = self.inner.ws.signal(id)? else {
             return Err(EngineError::Invalid(bisa_core::text!(
@@ -1964,6 +1986,15 @@ impl Engine {
         }
         self.inner.ws.release_signal(id)?;
         self.inner.listen.wake();
+        if let Some((_, then)) = self.inner.listen.outside_then.remove(id) {
+            // One goal begins once: the copies held for other listeners stop
+            // carrying it.
+            self.inner
+                .listen
+                .outside_then
+                .retain(|_, t| t.goal != then.goal);
+            ops::begin_outside_goal(&self.inner, then);
+        }
         Ok(())
     }
 

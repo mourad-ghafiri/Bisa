@@ -110,7 +110,7 @@ impl Server {
             command.push(' ');
             command.push_str(&shell_word(a));
         }
-        let mut child = tokio::process::Command::new(login_shell())
+        let mut child = crate::scrubbed(tokio::process::Command::new(login_shell()))
             .args(["-l", "-c", &command])
             .current_dir(root)
             .stdin(Stdio::piped())

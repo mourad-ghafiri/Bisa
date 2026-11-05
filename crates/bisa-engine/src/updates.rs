@@ -39,6 +39,11 @@ const READ_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdatesSource {
     latest_url: String,
+    /// Where a release's links must point — `https://github.com/<slug>/` for
+    /// a repository source — so what the answer names is the repository's
+    /// own page and assets, never a link an answer could redirect a person
+    /// to; `None` for a source handed in whole, which is trusted as given.
+    pinned: Option<String>,
 }
 
 impl UpdatesSource {
@@ -50,13 +55,15 @@ impl UpdatesSource {
         let slug = repository_slug(repository)?;
         Some(Self {
             latest_url: format!("{GITHUB_API}/repos/{slug}/releases/latest"),
+            pinned: Some(format!("https://github.com/{slug}/")),
         })
     }
 
     /// A source at exactly this URL — a test's stub on the loopback, or a
-    /// rehearsal's (`BISA_RELEASES_API`).
+    /// rehearsal's (`BISA_RELEASES_API`) — whose links are trusted as given.
     pub fn at(latest_url: impl Into<String>) -> Self {
         Self {
+            pinned: None,
             latest_url: latest_url.into(),
         }
     }
@@ -195,8 +202,20 @@ struct GhAsset {
     size: u64,
 }
 
-/// The release the desktop reads, from GitHub's object.
-fn release_of(gh: GhRelease) -> LatestRelease {
+/// A link the answer gave, kept when it is under `pinned` — the
+/// repository's own pages and assets — and dropped otherwise; every link is
+/// kept when nothing is pinned.
+fn pinned_link(url: &str, pinned: Option<&str>) -> Option<String> {
+    match pinned {
+        Some(prefix) if !url.starts_with(prefix) => None,
+        _ => Some(url.to_string()),
+    }
+}
+
+/// The release the desktop reads, from GitHub's object — its links held to
+/// `pinned`: a page off the repository is the tag's own page instead, an
+/// asset off it is left out.
+fn release_of(gh: GhRelease, pinned: Option<&str>) -> LatestRelease {
     let version = gh
         .tag_name
         .strip_prefix('v')
@@ -209,21 +228,25 @@ fn release_of(gh: GhRelease) -> LatestRelease {
         .map(|d| d.timestamp())
         .filter(|t| *t >= 0)
         .map(|t| t as u64);
+    let url = pinned_link(&gh.html_url, pinned)
+        .unwrap_or_else(|| format!("{}releases/tag/{}", pinned.unwrap_or_default(), gh.tag_name));
     LatestRelease {
         version,
         tag: gh.tag_name,
         name: gh.name.filter(|n| !n.trim().is_empty()),
         published_at,
-        url: gh.html_url,
+        url,
         notes: gh.body.filter(|b| !b.trim().is_empty()),
         prerelease: gh.prerelease,
         assets: gh
             .assets
             .into_iter()
-            .map(|a| ReleaseAsset {
-                name: a.name,
-                url: a.browser_download_url,
-                size: a.size,
+            .filter_map(|a| {
+                Some(ReleaseAsset {
+                    name: a.name,
+                    url: pinned_link(&a.browser_download_url, pinned)?,
+                    size: a.size,
+                })
             })
             .collect(),
     }
@@ -280,7 +303,7 @@ pub async fn check(inner: &crate::Inner, refresh: bool) -> UpdateCheck {
             } else if status.is_success() {
                 match resp.json::<GhRelease>().await {
                     Ok(gh) => UpdateCheck::Latest {
-                        release: release_of(gh),
+                        release: release_of(gh, source.pinned.as_deref()),
                         checked_at,
                     },
                     Err(_) => UpdateCheck::Failed {
@@ -362,7 +385,7 @@ mod tests {
             "something_new": {"ignored": true}
         }))
         .unwrap();
-        let release = release_of(gh);
+        let release = release_of(gh, None);
         assert_eq!(release.version, "0.3.0");
         assert_eq!(release.tag, "v0.3.0");
         assert_eq!(release.name.as_deref(), Some("Bisa 0.3.0"));
@@ -377,11 +400,42 @@ mod tests {
             "tag_name": "0.4.0", "html_url": "https://example.test/r", "body": "  "
         }))
         .unwrap();
-        let release = release_of(bare);
+        let release = release_of(bare, None);
         assert_eq!(release.version, "0.4.0");
         assert_eq!(release.notes, None);
         assert_eq!(release.published_at, None);
         assert!(release.assets.is_empty());
+    }
+
+    /// A repository source pins every link to the repository: a page
+    /// elsewhere becomes the tag's own page, an asset elsewhere is left out,
+    /// and a source handed in whole keeps what it was given.
+    #[test]
+    fn a_link_off_the_pinned_repository_is_replaced_or_dropped() {
+        let gh = || -> GhRelease {
+            serde_json::from_value(serde_json::json!({
+                "tag_name": "v0.3.0",
+                "html_url": "https://evil.test/claims/v0.3.0",
+                "assets": [
+                    {"name": "Bisa-0.3.0-macos-universal.dmg", "browser_download_url": "https://github.com/o/r/releases/download/v0.3.0/Bisa-0.3.0-macos-universal.dmg", "size": 1},
+                    {"name": "elsewhere.dmg", "browser_download_url": "https://github.com/other/repo/releases/download/v0.3.0/elsewhere.dmg", "size": 1},
+                    {"name": "plain.dmg", "browser_download_url": "http://github.com/o/r/releases/download/v0.3.0/plain.dmg", "size": 1},
+                    {"name": "lookalike.dmg", "browser_download_url": "https://github.com.evil.test/o/r/releases/download/v0.3.0/lookalike.dmg", "size": 1}
+                ]
+            }))
+            .unwrap()
+        };
+        let source = UpdatesSource::github("https://github.com/o/r").unwrap();
+        let pinned = release_of(gh(), source.pinned.as_deref());
+        assert_eq!(pinned.url, "https://github.com/o/r/releases/tag/v0.3.0");
+        assert_eq!(pinned.assets.len(), 1, "{:?}", pinned.assets);
+        assert_eq!(pinned.assets[0].name, "Bisa-0.3.0-macos-universal.dmg");
+        let trusted = release_of(
+            gh(),
+            UpdatesSource::at("http://127.0.0.1:1/x").pinned.as_deref(),
+        );
+        assert_eq!(trusted.url, "https://evil.test/claims/v0.3.0");
+        assert_eq!(trusted.assets.len(), 4);
     }
 
     #[test]
@@ -428,7 +482,7 @@ mod edge_tests {
         }))
         .unwrap();
         let latest = UpdateCheck::Latest {
-            release: release_of(gh),
+            release: release_of(gh, None),
             checked_at: 1,
         };
         assert_eq!(latest.word(), "latest");

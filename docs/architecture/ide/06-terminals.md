@@ -519,7 +519,7 @@ The variables added are `TERM`, `COLORTERM`, `BISA_TERMINAL=1` and, for a harnes
 token is **not** exported into a terminal — a shell has no business on the control plane — and is
 **removed** from the PTY's environment when the app itself was started with one (`SCRUBBED_ENV` in
 `terminal.rs`, the same names the node strips from every harness child); the session secret opens
-exactly one roster row's four doors — `report`, `guard`, `exit` and `close` — and nothing else, and
+exactly one roster row's five doors — `report`, `guard`, `exit`, `close` and `answered`, in the `Authorization` header alone — and nothing else, and
 a harness that wants the platform speaks MCP. Nothing of the platform's is injected into a terminal
 harness — no MCP server, no skill — which is why the guard's rules that steer an agent to the
 platform's own tools, the embedded browser's among them, pass it over

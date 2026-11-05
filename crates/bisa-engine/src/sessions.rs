@@ -473,10 +473,12 @@ pub(crate) mod child {
     /// `ps -o etime=` for the pid, parsed: seconds since the process started.
     /// `None` when there is no such process or `ps` cannot say.
     fn elapsed_secs(pid: u32) -> Option<u64> {
-        let out = std::process::Command::new("ps")
-            .args(["-o", "etime=", "-p", &pid.to_string()])
-            .output()
-            .ok()?;
+        let mut ps = std::process::Command::new("ps");
+        ps.args(["-o", "etime=", "-p", &pid.to_string()]);
+        for name in bisa_harness::proc::SCRUBBED_ENV {
+            ps.env_remove(name);
+        }
+        let out = ps.output().ok()?;
         if !out.status.success() {
             return None;
         }

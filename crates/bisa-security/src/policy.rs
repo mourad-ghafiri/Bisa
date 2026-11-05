@@ -142,9 +142,24 @@ impl SecurityPolicy {
         env: &dyn Fn(&str) -> Option<String>,
         env_names: &[String],
     ) -> (Self, Vec<Problem>) {
+        Self::from_layers_with(layers, env, env_names, Vec::new())
+    }
+
+    /// [`Self::from_layers`] with built-in guard rules of the engine's own
+    /// making appended to the shipped ones — the workspace's truth files
+    /// ([`builtin::workspace_rules`]), generated from the data root — before
+    /// the layers' `builtins_off` lists read them, so they are switchable by
+    /// id and held to the one-id rule like every built-in.
+    pub fn from_layers_with(
+        layers: &[SettingsLayer],
+        env: &dyn Fn(&str) -> Option<String>,
+        env_names: &[String],
+        extra_builtins: Vec<GuardRule>,
+    ) -> (Self, Vec<Problem>) {
         let mut redact_rules = builtin::redact_rules();
         redact_rules.extend(builtin::env_rules(env_names));
         let mut guard_rules = builtin::guard_rules();
+        guard_rules.extend(extra_builtins);
         for rule in &mut redact_rules {
             if layers
                 .iter()

@@ -155,7 +155,7 @@ secret, a message's body, a file — none has a method.
 itself. What it may fetch it asks the app for, the app asks the node (`POST /addons/{id}/fetch`),
 and the engine reads every refusal in order before a socket opens: the machine's switch, the record
 (enabled, files here), the `network` grant, the URL's shape, its scheme (`https` only), the
-authority (never this machine — `is_loopback`), the declared hosts, and the person's
+authority (never this machine — `is_loopback`, by name or by any address that reaches it — nor its own network, `is_private_network`), the declared hosts, and the person's
 `security.net.*` lists judged by the same rule a connector's call is ([11 § Outbound
 hosts](11-security.md#outbound-hosts)) — a refusal there is journaled as a guard decision with the
 tool `addon:<id>`. `GET` only, no header but `Accept`, ten seconds, no redirect followed, the body

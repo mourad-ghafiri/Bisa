@@ -14,7 +14,7 @@ use crate::route_docs::RouteDoc;
 use crate::tags::{parse_tags, TagFilter};
 use crate::{agent_id, bad_request, mcp_id, not_found, skill_id, team_id, ApiError, Shared};
 use axum::extract::{Path as AxPath, State};
-use axum::http::{HeaderMap, StatusCode, Uri};
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bisa_core::tags::TagEntity;
@@ -566,7 +566,15 @@ fn interactive_error(e: bisa_engine::interactive::InteractiveError) -> ApiError 
     let status = match &e {
         E::UnknownHarness(_) | E::NotInteractive(_) => StatusCode::BAD_REQUEST,
         E::UnknownSession(_) => StatusCode::NOT_FOUND,
-        E::BadSecret => StatusCode::UNAUTHORIZED,
+        // A wrong secret and an unknown session are one refusal, in the
+        // gate's own words and without its challenge header: the door's
+        // bearer is a session's secret, never the token.
+        E::BadSecret => {
+            return ApiError::text(
+                StatusCode::UNAUTHORIZED,
+                bisa_core::text!("error-node-unauthorized"),
+            );
+        }
         // LCOV_EXCL_START: an I/O failure of the engine's own; the disk arm
         E::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
         // LCOV_EXCL_STOP
@@ -591,13 +599,15 @@ fn session_id(id: &str) -> Result<bisa_engine::LiveRunId, ApiError> {
     })
 }
 
-/// The secret an interactive session's hook presents, in the same place the
-/// control-plane token would go.
-fn session_secret(headers: &HeaderMap, uri: &Uri) -> Result<String, ApiError> {
-    crate::auth::presented_in(headers, uri).ok_or_else(|| {
+/// The secret an interactive session's hook presents, in the
+/// `Authorization` header where the control-plane token would go — the
+/// header alone: the hooks and the terminal's host send one, and a secret in
+/// a URL is a secret in a log.
+fn session_secret(headers: &HeaderMap) -> Result<String, ApiError> {
+    crate::auth::presented_in_header(headers).ok_or_else(|| {
         ApiError::text(
             StatusCode::UNAUTHORIZED,
-            bisa_core::text!("error-node-agents_api-session-secret-required"),
+            bisa_core::text!("error-node-unauthorized"),
         )
     })
 }
@@ -644,11 +654,10 @@ async fn report_session(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
     headers: HeaderMap,
-    uri: Uri,
     crate::Body(body): crate::Body<ReportBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = session_id(&id)?;
-    let secret = session_secret(&headers, &uri)?;
+    let secret = session_secret(&headers)?;
     let inner = state.engine.inner();
     inner
         .interactive
@@ -665,11 +674,10 @@ async fn guard_session(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
     headers: HeaderMap,
-    uri: Uri,
     crate::Body(body): crate::Body<GuardHookBody>,
 ) -> Result<Json<bisa_engine::security::GuardReply>, ApiError> {
     let id = session_id(&id)?;
-    let secret = session_secret(&headers, &uri)?;
+    let secret = session_secret(&headers)?;
     let inner = state.engine.inner();
     let reply = inner
         .interactive
@@ -685,11 +693,10 @@ async fn exit_session(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
     headers: HeaderMap,
-    uri: Uri,
     crate::Body(body): crate::Body<ExitBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = session_id(&id)?;
-    let secret = session_secret(&headers, &uri)?;
+    let secret = session_secret(&headers)?;
     let inner = state.engine.inner();
     let report = bisa_engine::interactive::ExitReport {
         code: body.code,
@@ -707,10 +714,9 @@ async fn close_session(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
     headers: HeaderMap,
-    uri: Uri,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = session_id(&id)?;
-    let secret = session_secret(&headers, &uri)?;
+    let secret = session_secret(&headers)?;
     let inner = state.engine.inner();
     inner
         .interactive
@@ -725,10 +731,9 @@ async fn answered_session(
     State(state): State<Shared>,
     AxPath(id): AxPath<String>,
     headers: HeaderMap,
-    uri: Uri,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let id = session_id(&id)?;
-    let secret = session_secret(&headers, &uri)?;
+    let secret = session_secret(&headers)?;
     let inner = state.engine.inner();
     inner
         .interactive

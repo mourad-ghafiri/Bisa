@@ -129,7 +129,18 @@ Two things about the node's own environment. **It is scrubbed**: `bisa-harness`'
 `ProcHandle::spawn` removes `SCRUBBED_ENV` — the control-plane token, `BISA_API_TOKEN` — from
 every harness child it starts, and the desktop's terminal removes the same names from every PTY, so
 neither an agent's `printenv` nor a person's shell holds the node's authority; a session keeps its
-own secret and the node's address, which open one roster row and nothing else. **It is read for
+own secret and the node's address, which open one roster row and nothing else. Every other process
+the platform starts is scrubbed at its own spawn — a `check` step's or start's `sh`
+(`proc::group_output`), a workstream script, `git` and so a repository's hooks (`bisa-vcs`), a
+language server, an MCP server at its probe, `gh` and `glab`, `ssh`, the mobile tools, an
+adapter's version and usage probes — each crate below the harness holding the same one-name list,
+held equal and checked at every `Command::new` by
+`crates/bisa-core/tests/it/layering.rs::every_process_a_crate_starts_is_scrubbed_of_the_nodes_token`.
+**What the store writes is the owner's alone**: the data root is `0700` and the files that carry
+a secret — the settings layers (a proxy login), the MCP registry (a server's environment and
+headers), a code host's token, every key under `identity/` — are created `0600` and replaced
+whole (`bisa_store::paths::write_private`, `identity::replace_secret_file`), and a root or a file
+written wider before this rule is tightened at the next open. **It is read for
 detectors**: while `security.redactor.env_auto` is on (the default, machine scope), every variable
 whose *name* says token, secret, password, key or credential (`builtin::SECRET_NAME`) becomes a
 built-in `EnvValue` rule `env:<NAME>`, held to a stricter minimum length (`AUTO_ENV_MIN_LEN`, 8)
@@ -148,7 +159,7 @@ silently drop one of them). Each rule looks at one thing:
 
 | Matcher | Reads |
 |---|---|
-| `command { regex }` | the shell command (`command` or `cmd` in the input), whitespace-normalised |
+| `command { regex }` | the shell command (`command` or `cmd` in the input) with runs of spaces and tabs collapsed, a backslash-newline joined and a line break kept — it ends a command as `;` does, so a rule anchored at a start reads the next line too — and every command a shell on it is handed inline (`sh -c '…'`) as a line of its own after it |
 | `path { glob }` | every path-like argument — `file_path`, `path`, `notebook_path`, and the words of a command that look like paths — tried as written, as an absolute path under the session's cwd, and as `~/…` under the home |
 | `tool { name }` | the tool's name — exact (`Bash`, `mcp__bisa__post_message`), or a prefix ending in `*`: `mcp__gh__*` is every tool of one MCP server, `mcp__*` every tool of every MCP server |
 | `any` | every call |
@@ -225,10 +236,33 @@ discards and history rewrites; mass permission changes; signals to every process
 and service control; fork bombs; shell startup files and scheduling — and refuse the paths that hold
 credentials (`.env*`, `~/.ssh`, `~/.aws`, `~/.kube`, `~/.gnupg`, `~/.config/gcloud`, `~/.config/gh`,
 `~/.config/glab-cli`, key files, `.netrc`, `.git-credentials`, `.npmrc`, `.pypirc`,
-`~/.docker/config.json`, `~/.config/sops/age`). They send network, remote, container and publishing
+`~/.docker/config.json`, `~/.config/sops/age`) — and a repository's own `.git/config` and hooks,
+which the platform's git honours (`git_internals`, with git's own read verbs in the hint), the login
+items (`~/Library/LaunchAgents`, `~/.config/autostart`, the user's systemd units) and the startup
+files down to `.zlogin` and fish's; a harness's own launch files — `.claude/settings*.json`,
+`.claude/hooks/`, `.mcp.json`, `.muse/hooks.json`, `.gemini/settings.json`, `.codex/config.toml`,
+`~/.copilot/` — are **asked** about (`harness_config`), since what they allow or hook acts before
+the guard sees a call. The workspace's own truth is refused by rules generated from its data root
+at every policy load (`builtin::workspace_rules`, ids `workspace_truth_*`): `run/` (the token, the
+socket), `identity/` (every key), `mcp/` (a server's environment and headers), `machine.json` and
+`settings.json` (the guard's own switches among them), `members.json`, `governance.json`,
+`a2a.toml` — never the root, under which a workstream's checkout lives. A rule anchored at a
+command's start reads it through `sudo`, `doas`, `env`, `command`, `exec`, `nohup`, `nice`, `time`,
+`timeout` and their kin, through a path to the program (`/bin/rm`) and after a line break alike
+(`builtin::START`); a program hidden in a substitution — `$(which rm)` — or quoted is read by the
+unanchored rules alone, which is the gap that stays. They send network, remote, container and publishing
 commands to the classifier — `curl` to `az`, `pkill` and `chown` are network-and-remote words, `gh`
 and `glab` among them, and `gh pr create|merge`, `gh release create`, `gh repo create|delete` and
-their `glab` equivalents are publishing words. Opening the machine's browser or driving a headless
+their `glab` equivalents are publishing words, and code handed to an interpreter inline —
+`eval`, `python -c`, `perl -e`, `ruby -e`, `node -e`, `php -r` — is read by the classifier too
+(`inline_code`), since the anchored rules cannot read the program inside it. A command handed to a
+**shell** inline is not left to a guess: the rules read it through the shell
+(`guard::read_through_shells`) — `sh -c 'rm -rf ~'`, `bash -lc "…"`, through a wrapper, a path or
+nested shells to three deep — as a command of its own on a line after the one that carries it, so
+the rule that refuses `rm -rf ~` refuses it there, a path inside it meets the path rules, and
+`sh -c 'npm test'` is the everyday command it is (what a `check` start or step runs when its
+template hands an input a whole command line, `sh -c {inputs.command}`); a gate and a journal show
+the command as written. A script by file is an everyday command. Opening the machine's browser or driving a headless
 one — `open`, `xdg-open` or `start` on a URL, `open -a` a browser, `chrome`, `chromium`, `firefox`,
 `msedge`, `brave`, `puppeteer`, the drivers, anything `--headless` — is **refused**
 (`machine_browser`), and the refusal carries the rule's **hint**, the sentence a refusal adds after
@@ -296,7 +330,7 @@ have a placeholder restored — `HarnessCaps::INPUT_REWRITE`. The honest table:
 
 | Harness | The guard's reach | Why |
 |---|---|---|
-| Claude Code (engine-driven) | **judged before it runs**, placeholders restored | `--allowedTools` pre-allows only `TodoWrite` and the platform's own MCP server — the `Platform` mount, whose tools are judged at the intake — so every read, write and command, and every tool of an MCP server installed on the agent, comes back as a `can_use_tool` request the engine judges |
+| Claude Code (engine-driven) | **judged before it runs**, placeholders restored | `--allowedTools` pre-allows only `TodoWrite` and the platform's own MCP server — the `Platform` mount, whose tools are judged at the intake — so every read, write and command, and every tool of an MCP server installed on the agent, comes back as a `can_use_tool` request the engine judges; started with `--setting-sources user --strict-mcp-config` unless `security.guard.harness_project_settings` is `on`, so a checkout's own `.claude/settings.json`, its hooks and its `.mcp.json` — whose allow-lists, hooks and servers would act before the guard sees a call — are not read, and the engine's servers are the only ones mounted |
 | Claude Code (in a terminal) | judged before it runs, through its `PreToolUse` hook | the per-session settings file the recipe writes; Claude Code's own prompt stands when the node is silent |
 | ACP — a generic target, GitHub Copilot CLI, Grok Build, Gemini CLI (engine-driven) | judged before it runs | `session/request_permission`: the agent asks and the engine answers — with the *once* option, never a standing *always*, whatever order the agent lists them. None of the CLIs is ever started with a word that allows a tool unasked (`--allow-all*`, `--always-approve`, `--yolo`, `--approval-mode`), and `COPILOT_ALLOW_ALL` is taken out of a Copilot session's environment. What a person's own configuration of the harness already approves — Copilot's saved *Always*, Grok's `permission_mode`, Gemini's policies and its read-only tools — is answered before the agent asks: the guard judges what is asked |
 | GitHub Copilot CLI (in a terminal) | judged before it runs, through its `PreToolUse` hook | the per-session plugin the recipe writes (`--plugin-dir`); the verdict is printed in Copilot's own flat shape, and Copilot's own prompt stands when the node is silent or late — its hook timeouts fail open, and the platform's hooks never exit non-zero, which Copilot would read as a refusal |
@@ -439,10 +473,11 @@ No new GEP kind: a guard fact rides `KIND_GOAL_NOTE` the way the Workflow Agent'
 
 ## Settings
 
-The twenty-three `security.*` keys (`docs/reference/settings-keys.md`): `security.redactor.enabled`,
+The twenty-four `security.*` keys (`docs/reference/settings-keys.md`): `security.redactor.enabled`,
 `security.redactor.rules`, `security.redactor.builtins_off`, `security.redactor.env_auto` (machine
 only), `security.guard.enabled`, `security.guard.rules`, `security.guard.builtins_off`,
-`security.guard.terminal_hooks` (machine only), `security.classifier.enabled`,
+`security.guard.terminal_hooks` (machine only), `security.guard.harness_project_settings` (machine
+only; `off` keeps a checkout's harness settings out of an engine-driven session), `security.classifier.enabled`,
 `security.classifier.agent`, `security.classifier.deadline_secs`, `security.classifier.on_harmful`,
 `security.classifier.provider` (`agent` · `harness` · `decision_making_agent`), `security.classifier.harness`,
 `security.classifier.model` and `security.classifier.effort` (read when the provider is `harness`),
@@ -511,8 +546,10 @@ A **proxy** is the way out, not a host: the `network.*` settings (Settings › C
 [ide/13](ide/13-settings.md)) say whether the platform's own HTTP — and everything it runs — leaves
 through one, and the host policy still judges the target the call is for. A proxy login is written
 into the URL (`http://user:password@…`), lives in `machine.json`, never syncs, is masked on every
-surface but the field a person edits — the status route, the panel, every log — and is a credential
-the redactor's built-in *credential in a URL* rule catches wherever the URL would otherwise reach an
+surface but the field a person edits — the status route, the settings routes and `bisa settings`
+(`settings::mask_setting`), the panel, every log — and a masked value written back keeps the value
+stored (`settings::unmask_setting`, at the store's one write seam); it is a credential the
+redactor's built-in *credential in a URL* rule catches wherever the URL would otherwise reach an
 agent.
 
 ## Pages an agent wrote
@@ -546,7 +583,7 @@ a page the node serves, never a frame of the addon's); and the window's navigati
 navigation off the app's origin and that bundle. Its one door is a `postMessage` bridge whose every
 call is judged against what the person granted from a closed list — and the network is not on that
 list as a door: a `network` grant lets the addon ask the node's broker, which reads the URL's shape
-and scheme, refuses this machine, and judges the host against the manifest's declaration and the
+and scheme, refuses this machine and its own network — loopback, unspecified and private or link-local addresses alike, read as addresses, never as strings — and judges the host against the manifest's declaration and the
 person's `security.net.*` lists by the rule above, journaling a refusal as a guard decision with the
 tool `addon:<id>`. Nothing an addon says is rendered as HTML, and nothing crosses that was not
 granted: the token, a path, a program, a secret, a message, a file.
@@ -626,8 +663,11 @@ Four rules hold whatever the source:
   Inbox row (`listener_failed`) — until a person lets them through
   (`POST /signals/{id}/release`, `bisa signal release`) or leaves them. A signal from outside that
   the screen did not pass is heard by no wait and no boundary either
-  (`listen::emit::emit_from_outside`). A call from this machine under the control-plane token is a
-  person's own and is never held. A message from another node
+  (`listen::emit::emit_from_outside`). An A2A task's goal begins — its run, or the Workflow
+  Agent's design — only once the screen passed the task's words or a person released the held
+  signal (`emit_from_outside_for`, `OutsideGoal`, `ops::begin_outside_goal`); held with nobody
+  listening, the hold is said on the goal, which stands a draft a person can start by hand. A call
+  from this machine under the control-plane token is a person's own and is never held. A message from another node
   is heard only where `conversation::dispatch` hears it, after the hold of seam 5, and a `from`
   filter never matches a hosted person unless the start names them.
 
@@ -642,12 +682,26 @@ The caller proves it with `X-Bisa-Token` or a GitHub-compatible `X-Hub-Signature
 body, compared in constant time. An unknown listener and a wrong secret are one answer, **401**
 with one body, the comparison made against a per-process decoy so neither the status nor the
 timing of the compare says which listeners exist; rate buckets are keyed by the requested listener
-for the same reason; while the machine's switch is off the route answers 404 to everybody. What
+for the same reason, and spent only after the secret is checked — an authenticated call spends
+the listener's own, a refused one a bucket of its own under the same name — so a flood of wrong
+secrets never mutes a real listener's deliveries; the last 512 bodies this process accepted are
+remembered by listener and digest, and the same bytes again — a redelivery under a new id, a
+captured request replayed — answer 202 with the signal they already made, a damper per process
+rather than a proof; while the machine's switch is off the route answers 404 to everybody. What
 the engine refuses — a host that is Off or paused, a start that is no longer public — is answered
 only after the secret verified. A save that removes or renames a public hook start of a listening
 host is refused: its secret, and the caller outside, would break silently. The node binds loopback
 unless it is started with `--insecure-allow-remote`; reaching the route from another machine is a
 tunnel or a proxy the operator puts in front of it.
+
+**The A2A door.** `POST /a2a` and the agent card answer without the control-plane token — a remote
+agent holds none — and the endpoint keeps checks of its own, each before a byte of the body is
+read (`a2a::admit`): a call carrying an `Origin` header is refused (a page on any origin can reach
+a loopback port; an agent sends no `Origin`), only `application/json` is read, and with `token`
+set in `a2a.toml` every call needs `Authorization: Bearer <token>` — the card advertises the
+scheme under `securitySchemes`, and a door exposed with none is said once in the log at mount.
+`tasks/get`, `tasks/cancel` and a continuation reach only the goals A2A made (tagged `a2a`), and a
+task's goal begins only when the screen passed its words, as above.
 
 **A loop cannot feed itself.** Every signal carries the chain of listeners behind it
 (`Chain { depth, listeners }`), and so does the run it starts; a listener already in the chain
@@ -659,8 +713,10 @@ Held by `crates/bisa-engine/tests/it/events.rs` (a harmful body and a signal fro
 released, the secret shown once and rotated, the machine switch, the chain and the rate ceiling —
 hook calls made in process, the classifier a scripted mock), `crates/bisa-engine/tests/it/security.rs` (a check start a rule
 refuses is refused at turn-on) `crates/bisa-node/tests/it/events.rs` (the public route's
-answers, a forged signature, a redelivery) and `crates/bisa-node/tests/it/a2a.rs` (an A2A task
-held until a person lets it through).
+answers, a forged signature, a redelivery, a replay, a flood of wrong secrets beside a real
+delivery) and `crates/bisa-node/tests/it/a2a.rs` (an A2A task held until a person lets it through
+and begun by the release, a browser's call and a wrong bearer refused before they are read, a
+caller reaching only its own tasks).
 
 ## Links and the browser
 

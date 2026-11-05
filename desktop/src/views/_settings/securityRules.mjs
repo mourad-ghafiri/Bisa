@@ -11,7 +11,7 @@
 
 import { t as tr } from "../../i18n/l10n.mjs";
 
-/** The twenty `security.*` keys the three security panels edit, spelled once for their `only` lists; the two `security.collaboration.*` keys are drawn beside the classifier's by `Settings.tsx`, which spells them. */
+/** The twenty-one `security.*` keys the three security panels edit, spelled once for their `only` lists; the two `security.collaboration.*` keys are drawn beside the classifier's by `Settings.tsx`, which spells them. */
 export const KEYS = {
   redactor: {
     enabled: "security.redactor.enabled",
@@ -24,6 +24,8 @@ export const KEYS = {
     rules: "security.guard.rules",
     builtinsOff: "security.guard.builtins_off",
     terminalHooks: "security.guard.terminal_hooks",
+    /** Whether a harness the platform drives may load a checkout's own settings — off, the person's alone. */
+    harnessProjectSettings: "security.guard.harness_project_settings",
   },
   classifier: {
     enabled: "security.classifier.enabled",
@@ -57,7 +59,7 @@ export const KEYS = {
  */
 export const SCALARS = {
   redactor: [KEYS.redactor.enabled, KEYS.redactor.envAuto],
-  guard: [KEYS.guard.enabled, KEYS.guard.terminalHooks],
+  guard: [KEYS.guard.enabled, KEYS.guard.terminalHooks, KEYS.guard.harnessProjectSettings],
   net: [KEYS.net.denyHosts, KEYS.net.allowHosts],
   classifier: [KEYS.classifier.enabled, KEYS.classifier.deadline, KEYS.classifier.onHarmful],
 };

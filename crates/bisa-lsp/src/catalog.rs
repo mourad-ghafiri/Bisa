@@ -182,7 +182,11 @@ pub fn available(command: &str) -> bool {
 }
 
 fn probe(command: &str) -> bool {
-    let Ok(mut child) = Command::new(login_shell())
+    let mut probe = Command::new(login_shell());
+    for name in crate::SCRUBBED_ENV {
+        probe.env_remove(name);
+    }
+    let Ok(mut child) = probe
         .args([
             "-l",
             "-c",

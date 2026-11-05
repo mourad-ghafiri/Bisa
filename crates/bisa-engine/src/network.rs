@@ -286,14 +286,6 @@ pub fn status(inner: &Inner) -> NetworkStatus {
     }
 }
 
-fn is_loopback_host(host: &str) -> bool {
-    let bare = host.trim_matches(|c| c == '[' || c == ']');
-    bare.eq_ignore_ascii_case("localhost")
-        || bare == "::1"
-        || bare == "0.0.0.0"
-        || bare.starts_with("127.")
-}
-
 /// The URL a check may go to: `http` or `https`, and not this machine — the
 /// check is for the way out.
 pub fn check_url(url: &str) -> Result<reqwest::Url, EngineError> {
@@ -315,9 +307,9 @@ pub fn check_url(url: &str) -> Result<reqwest::Url, EngineError> {
             "error-engine-invalid-check-needs-host"
         ))),
         // LCOV_EXCL_STOP
-        Some(h) if is_loopback_host(h) => Err(EngineError::Invalid(bisa_core::text!(
-            "error-engine-invalid-check-way-out-machine-not-loopback-address"
-        ))),
+        Some(h) if bisa_core::connector::is_loopback(h) => Err(EngineError::Invalid(
+            bisa_core::text!("error-engine-invalid-check-way-out-machine-not-loopback-address"),
+        )),
         Some(_) => Ok(parsed),
     }
 }

@@ -1105,12 +1105,24 @@ async fn a_redelivery_is_deduplicated() {
     assert_ne!(pushed.body["signal"], first.body["signal"]);
     assert_eq!(node.signals_of(&host).await.len(), 2);
 
-    // No key: every call is its own occurrence.
-    let plain = node
+    // No key: the same bytes again on the public door are the occurrence
+    // they already made (the door's replay memory); other bytes are their
+    // own occurrence.
+    let same_again = node
         .outside(
             &public_path(&wf),
             &[("x-bisa-token", &secret)],
             body.clone(),
+        )
+        .await;
+    assert_eq!(same_again.status, 202, "{}", same_again.raw);
+    assert_eq!(same_again.body["signal"], pushed.body["signal"]);
+    assert_eq!(node.signals_of(&host).await.len(), 2);
+    let plain = node
+        .outside(
+            &public_path(&wf),
+            &[("x-bisa-token", &secret)],
+            json!({"subject": "toner out"}).to_string(),
         )
         .await;
     assert_eq!(plain.status, 202, "{}", plain.raw);
@@ -1199,7 +1211,12 @@ async fn a_valid_token_and_a_valid_signature_both_get_in() {
     let host = format!("workspace:{wf}");
     let path = public_path(&wf);
 
-    let body = json!({"subject": "merged", "pull_request": {"merged": true}}).to_string();
+    // Three bodies, since the same bytes again would be the signal they
+    // already made; each carries what the run reads.
+    let bodies: Vec<String> = (1..=3)
+        .map(|n| json!({"subject": "merged", "n": n, "pull_request": {"merged": true}}).to_string())
+        .collect();
+    let body = bodies[0].clone();
     let by_token = node
         .outside(
             &path,
@@ -1220,9 +1237,9 @@ async fn a_valid_token_and_a_valid_signature_both_get_in() {
             &path,
             &[
                 ("content-type", "application/json"),
-                ("x-hub-signature-256", &sign(&secret, &body)),
+                ("x-hub-signature-256", &sign(&secret, &bodies[1])),
             ],
-            body.clone(),
+            bodies[1].clone(),
         )
         .await;
     assert_eq!(by_hmac.status, 202, "{}", by_hmac.raw);
@@ -1233,9 +1250,9 @@ async fn a_valid_token_and_a_valid_signature_both_get_in() {
             &path,
             &[
                 ("x-bisa-token", "nope"),
-                ("x-hub-signature-256", &sign(&secret, &body)),
+                ("x-hub-signature-256", &sign(&secret, &bodies[2])),
             ],
-            body.clone(),
+            bodies[2].clone(),
         )
         .await;
     assert_eq!(both.status, 202, "{}", both.raw);
@@ -1510,12 +1527,13 @@ async fn a_flood_costs_the_rate_limit_and_nothing_more() {
     let mut backlog_full = 0;
     let mut limited = 0;
     let mut retry_after = None;
-    for _ in 0..60 {
+    for i in 0..60 {
+        // Distinct bodies: the same bytes again would be one signal.
         let r = node
             .outside(
                 &path,
                 &[("x-bisa-token", &secret)],
-                json!({"subject": "again"}).to_string(),
+                json!({"subject": "again", "n": i}).to_string(),
             )
             .await;
         match (r.status, &r.retry_after) {
@@ -1565,6 +1583,117 @@ async fn a_flood_costs_the_rate_limit_and_nothing_more() {
         .await;
     assert_eq!(r.status, 202, "{}", r.raw);
 
+    // A flood of wrong secrets on a real listener's path spends a bucket of
+    // its own, never the listener's: it is refused, then rate-limited, and
+    // the right secret still gets in after it.
+    let (third, third_secret) = node.public_hook("A third door").await;
+    let mut wrong_refused = 0;
+    let mut wrong_limited = 0;
+    for _ in 0..40 {
+        let r = node
+            .outside(
+                &public_path(&third),
+                &[("x-bisa-token", "nope")],
+                json!({"subject": "nope"}).to_string(),
+            )
+            .await;
+        match r.status {
+            401 => wrong_refused += 1,
+            429 => wrong_limited += 1,
+            other => panic!("unexpected status {other}: {}", r.raw),
+        }
+    }
+    assert!(
+        wrong_refused > 0 && wrong_limited > 0,
+        "{wrong_refused} refused, {wrong_limited} over the rate"
+    );
+    let r = node
+        .outside(
+            &public_path(&third),
+            &[("x-bisa-token", &third_secret)],
+            json!({"subject": "still in"}).to_string(),
+        )
+        .await;
+    assert_eq!(r.status, 202, "{}", r.raw);
+
+    node.shutdown().await;
+}
+
+/// The same body again on the same listener is the signal it already made:
+/// a redelivery under the same id, one under a new id, and a replay with no
+/// id at all answer 202 with the first signal and enqueue nothing. The local
+/// door keeps no such memory — a script on this machine repeating a body
+/// means it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_exact_replay_is_the_signal_it_already_made() {
+    let node = Node::start().await;
+    node.allow_public_hooks().await;
+    let (wf, secret) = node.public_hook("Replayed").await;
+    let host = format!("workspace:{wf}");
+    let path = public_path(&wf);
+    let body = json!({"subject": "deploy", "n": 1}).to_string();
+    let first = node
+        .outside(
+            &path,
+            &[("x-bisa-token", &secret), ("x-github-delivery", "d-1")],
+            body.clone(),
+        )
+        .await;
+    assert_eq!(first.status, 202, "{}", first.raw);
+    let signal = first.body["signal"].clone();
+    assert!(signal.is_string(), "{}", first.raw);
+    // The same id: a redelivery, as before.
+    let again = node
+        .outside(
+            &path,
+            &[("x-bisa-token", &secret), ("x-github-delivery", "d-1")],
+            body.clone(),
+        )
+        .await;
+    assert_eq!(
+        (again.status, &again.body["signal"]),
+        (202, &signal),
+        "{}",
+        again.raw
+    );
+    // A new id over the same bytes: the signal it already made.
+    let replayed = node
+        .outside(
+            &path,
+            &[("x-bisa-token", &secret), ("x-github-delivery", "d-2")],
+            body.clone(),
+        )
+        .await;
+    assert_eq!(
+        (replayed.status, &replayed.body["signal"]),
+        (202, &signal),
+        "{}",
+        replayed.raw
+    );
+    // No id at all, twice: one signal.
+    let other = json!({"subject": "deploy", "n": 2}).to_string();
+    let a = node
+        .outside(&path, &[("x-bisa-token", &secret)], other.clone())
+        .await;
+    let b = node
+        .outside(&path, &[("x-bisa-token", &secret)], other.clone())
+        .await;
+    assert_eq!((a.status, b.status), (202, 202), "{} / {}", a.raw, b.raw);
+    assert_eq!(a.body["signal"], b.body["signal"]);
+    assert_eq!(
+        node.signals_of(&host).await.len(),
+        2,
+        "two bodies, two signals"
+    );
+    // The local door is this machine's: the same body twice is two occurrences.
+    let json_body = [("content-type", "application/json")];
+    let c = node
+        .local(&local_path(&wf), &json_body, other.clone())
+        .await;
+    let d = node.local(&local_path(&wf), &json_body, other).await;
+    assert_eq!((c.status, d.status), (202, 202), "{} / {}", c.raw, d.raw);
+    assert_ne!(c.body["signal"], d.body["signal"]);
+    assert_eq!(node.signals_of(&host).await.len(), 4);
     node.shutdown().await;
 }
 

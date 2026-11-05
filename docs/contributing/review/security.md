@@ -11,7 +11,8 @@ boundary [IDE 01](../../architecture/ide/01-trust-boundary.md); a vulnerability 
   commit, a screenshot or a response — the log contract holds (never a prompt, a body, a file's text,
   a token or an environment value).
 - [ ] Secrets are written once and never read back to a person; they live where the store keeps them
-  (owner-only files, or the keyring when chosen).
+  (owner-only files — the data root `0700`, a settings layer, an MCP record, a token and a key
+  `0600` and replaced whole — or the keyring when chosen).
 - [ ] A value the redactor should recognise is recognised: a new kind of credential gets its rule.
 - [ ] The control-plane token never enters a child's environment.
 

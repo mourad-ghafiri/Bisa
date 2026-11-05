@@ -100,6 +100,29 @@ impl Node {
     }
 
     /// One request, with whatever bearer the caller presents.
+    /// A request with no `Authorization` at all.
+    async fn req_bare(&self, method: &str, path: &str) -> (u16, Value) {
+        let stream = UnixStream::connect(&self.socket).await.expect("connect");
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+            .await
+            .expect("handshake");
+        tokio::spawn(conn);
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(hyper::header::HOST, "localhost")
+            .header(hyper::header::CONTENT_TYPE, "application/json")
+            .body(Full::new(Bytes::from("{}")))
+            .unwrap();
+        let resp = sender.send_request(request).await.expect("request");
+        let status = resp.status().as_u16();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
     async fn req(
         &self,
         method: &str,
@@ -308,8 +331,8 @@ async fn a_terminal_harness_exits_held_and_leaves_when_its_tab_closes() {
         .req("POST", &format!("/sessions/{session}/close"), &secret, None)
         .await;
     assert_eq!(
-        status, 404,
-        "closed twice is a session the desk no longer knows"
+        status, 401,
+        "closed twice is a session the desk no longer knows, refused as a wrong secret is"
     );
     node.stop().await;
 }
@@ -332,6 +355,45 @@ async fn an_exit_by_signal_reads_as_a_failure_named_after_the_signal() {
         .await;
     assert_eq!(v["state"]["state"], json!("failed"));
     assert_eq!(v["state"]["reason"], json!("ended by Hangup: 1"));
+    node.stop().await;
+}
+
+/// A session nobody opened and a wrong secret on one that exists are one
+/// refusal — the same status, the same body, the gate's own words — so the
+/// doors enumerate nothing for whoever holds no secret; and a call with no
+/// secret at all reads the same.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_session_and_a_wrong_secret_are_one_401() {
+    let node = Node::start().await;
+    let (session, _secret) = node.open().await;
+    let nobody = bisa_engine::LiveRunId::mint();
+    let (unknown_status, unknown) = node
+        .req(
+            "POST",
+            &format!("/sessions/{nobody}/report"),
+            "any-secret",
+            Some(json!({"events": []})),
+        )
+        .await;
+    let (wrong_status, wrong) = node
+        .req(
+            "POST",
+            &format!("/sessions/{session}/report"),
+            "not-the-secret",
+            Some(json!({"events": []})),
+        )
+        .await;
+    let (bare_status, bare) = node
+        .req_bare("POST", &format!("/sessions/{session}/close"))
+        .await;
+    assert_eq!((unknown_status, wrong_status, bare_status), (401, 401, 401));
+    assert_eq!(unknown, wrong, "one body for both");
+    assert_eq!(bare, wrong, "and for a call with no secret");
+    assert_eq!(
+        wrong["text"]["id"],
+        json!("error-node-unauthorized"),
+        "{wrong}"
+    );
     node.stop().await;
 }
 
@@ -512,7 +574,10 @@ async fn a_terminal_harness_asks_the_guard_under_its_sessions_secret() {
             Some(asking("ls -la")),
         )
         .await;
-    assert_eq!(status, 404, "a session the desk does not know: {v}");
+    assert_eq!(
+        status, 401,
+        "a session the desk does not know reads as a wrong secret: {v}"
+    );
     node.stop().await;
 }
 

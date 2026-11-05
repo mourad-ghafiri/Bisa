@@ -79,6 +79,7 @@ pub async fn settings(ctx: &Ctx, out: &Out, cmd: SettingsCmd) -> Result<()> {
         SettingsCmd::Show { project, group } => {
             let ws = ctx.workspace()?;
             let rows = ws.settings(parse_project(&project)?)?;
+            // A proxy login is shown masked, as the node shows it.
             let rows: Vec<_> = rows
                 .into_iter()
                 .filter(|r| {
@@ -86,6 +87,7 @@ pub async fn settings(ctx: &Ctx, out: &Out, cmd: SettingsCmd) -> Result<()> {
                         .as_ref()
                         .is_none_or(|g| r.key.starts_with(&format!("{g}.")))
                 })
+                .map(|r| r.masked())
                 .collect();
             for r in &rows {
                 out.human(&format!(
@@ -99,7 +101,7 @@ pub async fn settings(ctx: &Ctx, out: &Out, cmd: SettingsCmd) -> Result<()> {
         }
         SettingsCmd::Get { key, project } => {
             let ws = ctx.workspace()?;
-            let r = ws.setting(&key, parse_project(&project)?)?;
+            let r = ws.setting(&key, parse_project(&project)?)?.masked();
             out.human(&format!("{} = {} ({:?})", r.key, r.value, r.origin));
             out.json_value(json!({"setting": r}));
         }
@@ -130,7 +132,7 @@ pub async fn settings(ctx: &Ctx, out: &Out, cmd: SettingsCmd) -> Result<()> {
                 let (engine, _) = ctx.engine().await?;
                 let r = engine.set_setting(scope, parse_project(&project)?, &key, value)?;
                 engine.shutdown().await;
-                r
+                r.masked()
             };
             out.human(&format!(
                 "{} = {} ({:?})",
@@ -157,7 +159,7 @@ pub async fn settings(ctx: &Ctx, out: &Out, cmd: SettingsCmd) -> Result<()> {
                 let (engine, _) = ctx.engine().await?;
                 let r = engine.unset_setting(scope, parse_project(&project)?, &key)?;
                 engine.shutdown().await;
-                r
+                r.masked()
             };
             out.human(&format!(
                 "{} = {} ({:?})",

@@ -32,8 +32,11 @@ use bisa_store::HeldMessage;
 use bisa_store::{Admission, HeldReason, PostOrigin, StoreEvent};
 use std::sync::Arc;
 
-/// The most of a message the classifier is shown.
-pub const MAX_CLASSIFIED_CHARS: usize = 4000;
+/// The most of a message the classifier is shown — the words and every
+/// context chip they carry, as the agent would read them: the content
+/// screen's own bound. Longer is no verdict, held with the reason: what the
+/// classifier did not read must not reach an agent as read.
+pub const MAX_CLASSIFIED_CHARS: usize = crate::content::MAX_SCREENED_CHARS;
 
 /// Whether a post into `scope` reaches a person on another node — a
 /// standing channel some person reaches, or a direct message with one.
@@ -96,19 +99,38 @@ pub async fn on_remote_message(
         // LCOV_EXCL_STOP
     }
     announce_held(inner, &scope, &id, &author, HeldReason::Pending);
-    let text = serde_json::from_str::<MessageBody>(&event.content)
+    let (text, context) = serde_json::from_str::<MessageBody>(&event.content)
         .ok()
         .and_then(|b| match b {
-            MessageBody::Post { text, .. } => Some(text),
+            MessageBody::Post { text, context, .. } => Some((text, context)),
             _ => None,
         })
         .unwrap_or_default();
-    let bounded: String = text.chars().take(MAX_CLASSIFIED_CHARS).collect();
+    // What an agent would read: the words and every chip they carry — a
+    // selection's text, a diff, a terminal's tail — whole, or not at all:
+    // a message past the bound is held as no verdict, never read in part.
+    let whole = crate::framing::follow_up_text(text, &context);
+    if whole.chars().count() > MAX_CLASSIFIED_CHARS {
+        keep_held(
+            inner,
+            &scope,
+            &id,
+            author,
+            HeldReason::NoVerdict {
+                why: bisa_core::text!(
+                    "engine-collab-held-longer-than-screen",
+                    max = MAX_CLASSIFIED_CHARS as u64
+                )
+                .to_string(),
+            },
+        );
+        return;
+    }
     let subject = MessageSubject {
         author: person_words(inner, &author),
         role: role.as_str().to_string(),
         scope: scope.clone(),
-        text: inner.security.redact(&bounded).text,
+        text: inner.security.redact(&whole).text,
     };
     match classify_message(inner, &subject).await {
         Ok(ClassifierVerdict::Safe) => {

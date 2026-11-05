@@ -67,7 +67,7 @@ window's cursor is the process's alone (`Host::last_catchup`): the first catch-u
 for everything, so a restart costs one full read of this key's wraps from every relay — safe, and
 the price of a durable cursor not yet paid.
 
-**Every real relay is TLS, and the process has one crypto provider for it.** The websocket stack
+**Every real relay is TLS, and the process has one crypto provider for it.** A relay URL is `wss://` anywhere, or `ws://` on this machine alone (`collab_settings::is_relay_url`, the one rule the setting's write, the panel's field and an invite's relays are held to — a plaintext relay elsewhere is refused where it is written and not adopted from an invite, said in the log). The websocket stack
 under `nostr-sdk` builds its TLS client with `rustls::ClientConfig::builder()` — the process-wide
 provider — and `rustls` chooses one from its crate features only when exactly one backend is
 compiled in. This workspace compiles both (`aws-lc-rs` is rustls' default and several dependents
@@ -155,7 +155,7 @@ that run, the same row a local decision writes (`record_decision`).
 
 1. **The classifier reads a message from outside before an agent hears it.** The store applies the
    fact and says `RemoteMessageArrived`; `engine/collab.rs::on_remote_message` holds it
-   (`held.json`, reason `pending`), puts its redacted text to the classifier with the message
+   (`held.json`, reason `pending`), puts its redacted text and the chips it carries — whole, bounded by the content screen's 16 KiB; longer is no verdict, held with that reason — to the classifier with the message
    brief (`bisa-security/classify.rs::MESSAGE_BRIEF` — prompt injection, secrets asked for, social
    engineering, links to run), and on *safe* releases it into the ordinary dispatch — every
    session it wakes working *for* that person. A workflow's `message` start, wait or boundary

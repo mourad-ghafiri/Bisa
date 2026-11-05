@@ -20,6 +20,12 @@
 //! alone. The CLIs are run through one port ([`cli::CliRunner`]) with a fake
 //! beside it, so nothing here is ever tested against a program on the machine.
 
+/// Variables of the node's own environment no child of this crate may
+/// inherit: the control-plane token. The one list `bisa-harness` keeps
+/// (`proc::SCRUBBED_ENV`), spelled here because this crate stands below it;
+/// held equal by the workspace's layering test.
+pub const SCRUBBED_ENV: &[&str] = &["BISA_API_TOKEN"];
+
 pub mod bitbucket;
 pub mod cli;
 pub mod creds;

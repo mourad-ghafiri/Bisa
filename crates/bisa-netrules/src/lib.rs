@@ -29,11 +29,10 @@ pub fn is_reserved_header(name: &str) -> bool {
     RESERVED_HEADERS.contains(&name.trim().to_ascii_lowercase().as_str())
 }
 
-/// `127.0.0.1`, `::1` (bracketed or not) or `localhost`, in any case, with or
-/// without a port — the names an `http` URL or a self-signed certificate may
-/// use.
-pub fn is_loopback(authority: &str) -> bool {
-    let host = authority
+/// The host of an authority: a bracketed IPv6 address unbracketed, a port
+/// split off.
+fn host_of(authority: &str) -> &str {
+    authority
         .strip_prefix('[')
         .and_then(|h| h.split_once(']').map(|(h, _)| h))
         .unwrap_or_else(|| {
@@ -46,11 +45,50 @@ pub fn is_loopback(authority: &str) -> bool {
                 .rsplit_once(':')
                 .filter(|(_, p)| is_port(p))
                 .map_or(authority, |(h, _)| h)
-        });
-    matches!(
-        host.to_ascii_lowercase().as_str(),
-        "127.0.0.1" | "::1" | "localhost"
-    )
+        })
+}
+
+/// This machine, by name or by address, with or without a port, in any
+/// case: `localhost` (a trailing dot tolerated) and `*.localhost`; every
+/// loopback address (`127.0.0.1` and the whole of `127/8`, `::1`), the
+/// unspecified ones (`0.0.0.0`, `::`), and an IPv4-mapped IPv6 form of
+/// either (`::ffff:127.0.0.1`) — read as addresses, never as strings, so an
+/// alias does not slip past where a name would be refused. The names an
+/// `http` URL or a self-signed certificate may use.
+pub fn is_loopback(authority: &str) -> bool {
+    let host = host_of(authority);
+    let name = host.trim_end_matches('.').to_ascii_lowercase();
+    if name == "localhost" || name.ends_with(".localhost") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(a)) => a.is_loopback() || a.is_unspecified(),
+        Ok(std::net::IpAddr::V6(a)) => {
+            a.is_loopback()
+                || a.is_unspecified()
+                || a.to_ipv4_mapped()
+                    .is_some_and(|v| v.is_loopback() || v.is_unspecified())
+        }
+        Err(_) => false,
+    }
+}
+
+/// A private or link-local address — a LAN (`10/8`, `172.16/12`,
+/// `192.168/16`, `fc00::/7`), a link (`169.254/16`, where a cloud's metadata
+/// service answers; `fe80::/10`), or an IPv4-mapped IPv6 form of one — read
+/// as an address. A name that resolves to one is not read here: that is the
+/// resolver's, at the moment of the call.
+pub fn is_private_network(authority: &str) -> bool {
+    match host_of(authority).parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(a)) => a.is_private() || a.is_link_local(),
+        Ok(std::net::IpAddr::V6(a)) => {
+            a.is_unique_local()
+                || a.is_unicast_link_local()
+                || a.to_ipv4_mapped()
+                    .is_some_and(|v| v.is_private() || v.is_link_local())
+        }
+        Err(_) => false,
+    }
 }
 
 /// `host[:port]` — letters, digits, dots and hyphens, an optional port of up

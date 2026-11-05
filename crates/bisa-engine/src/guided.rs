@@ -1281,6 +1281,9 @@ fn build_guided_spec(inner: &Inner, goal_id: GoalId) -> std::io::Result<SessionS
         )],
         env: session_env.0,
         env_remove: session_env.1,
+        // A checkout's own harness settings act before the guard sees a call:
+        // the person's alone, unless the workspace says otherwise.
+        harness_project_settings: inner.security.policy().harness_project_settings,
         tier_ceiling: bisa_core::ToolTier::Read,
         output_schema: None,
         skills: vec![],

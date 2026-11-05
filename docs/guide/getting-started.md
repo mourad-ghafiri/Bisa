@@ -131,8 +131,8 @@ instead of a second app ([The menu bar icon](the-desktop.md#the-menu-bar-icon)).
 (mode `0600`) on first start and reuses it; the CLI reads it, and the desktop hands its sidecar one.
 Every route but the named exceptions answers `401` without it — `/health`, a public hook
 (`/hooks/…`, opened by its own secret), the OAuth callback a sign-in ends on, the A2A card and
-endpoint, an installed addon's files, and a terminal session's four doors, which take the session's
-own secret:
+endpoint, an installed addon's files, and a terminal session's five doors, which take the session's
+own secret in the header:
 
 ```sh
 TOKEN=$(cat ~/.bisa/run/token)

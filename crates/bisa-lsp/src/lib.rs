@@ -21,6 +21,21 @@
 //! kept a small typed client: the surface needed here is small and the
 //! transport is the risk.
 
+/// Variables of the node's own environment no child of this crate may
+/// inherit: the control-plane token. The one list `bisa-harness` keeps
+/// (`proc::SCRUBBED_ENV`), spelled here because this crate stands below it;
+/// held equal by the workspace's layering test.
+pub const SCRUBBED_ENV: &[&str] = &["BISA_API_TOKEN"];
+
+/// `command` with the node's token out of its environment ([`SCRUBBED_ENV`]),
+/// for a builder spelled in one chain.
+pub(crate) fn scrubbed(mut command: tokio::process::Command) -> tokio::process::Command {
+    for name in SCRUBBED_ENV {
+        command.env_remove(name);
+    }
+    command
+}
+
 pub mod catalog;
 pub mod codec;
 pub mod server;

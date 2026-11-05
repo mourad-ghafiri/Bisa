@@ -347,6 +347,9 @@ pub async fn ask_once(
         mcp_servers: vec![],
         env: session_env.0,
         env_remove: session_env.1,
+        // A one-shot session — a classifier's, an answer's — loads nothing of
+        // a checkout's, whatever the setting says.
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Read,
         output_schema,
         skills: vec![],

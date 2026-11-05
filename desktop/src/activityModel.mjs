@@ -194,7 +194,8 @@ export function guidedWords(phase, status, detail) {
  */
 function guardWords(tool, verdict, by, rule, reason, subject) {
   const who = by === "classifier" ? t("app-activity-classifier") : by === "person" ? t("app-activity-you") : rule ? t("app-activity-rule-named", { rule }) : t("app-activity-a-rule");
-  const call = subject ? ` — ${truncate(String(subject), 60)}` : "";
+  // A command of several lines is one line here: a break reads as ⏎.
+  const call = subject ? ` — ${truncate(String(subject).replace(/\n/g, " ⏎ "), 60)}` : "";
   const why = reason ? `: ${truncate(String(reason), 80)}` : "";
   switch (verdict) {
     case "denied":

@@ -95,12 +95,14 @@ The control plane carries a bearer token:
 - **Exceptions, named:** `GET /health` (returns `{ok, version}` and nothing else — it is what
   the sidecar polls before the token file may exist), `POST /hooks/{host}/{step}` (a public hook:
   its listener's own secret, as a token or an HMAC),
-  `GET /.well-known/agent-card.json` and everything under `/a2a` (the A2A surface has its own
-  posture and is documented as such), the connectors' OAuth callback (the browser arrives with no
+  `GET /.well-known/agent-card.json` and `POST /a2a` (the A2A door keeps checks of its own — a
+  browser's `Origin` refused, JSON only, an optional bearer, its own tasks alone, a task's words
+  screened before its goal begins — [11](../11-security.md#what-arrives-from-outside-as-an-event)), the connectors' OAuth callback (the browser arrives with no
   token), `GET /addons/{id}/files/<path>` (an installed bundle's static files, for the sandboxed
-  frame that holds no token — [18](../18-addons.md)), and the four doors of a terminal session,
-  `POST /sessions/{id}/{report,guard,exit,close}`, which a harness in a terminal reaches
-  with the session's own secret and never the workspace token ([06](06-terminals.md)). The list
+  frame that holds no token — [18](../18-addons.md)), and the five doors of a terminal session,
+  `POST /sessions/{id}/{report,guard,exit,close,answered}`, which a harness in a terminal reaches
+  with the session's own secret in the header and never the workspace token
+  ([06](06-terminals.md)). Each exemption is a path's exact shape, never a prefix. The list
   is `auth::is_exempt`; a test walks every mounted route without the token and asserts `401` on
   everything not in it.
 - **Every client reads the file.** The CLI, the MCP client, the desktop sidecar, and the desktop

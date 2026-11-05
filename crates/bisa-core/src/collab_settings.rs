@@ -65,13 +65,30 @@ pub fn check_write(key: &str, value: &serde_json::Value) -> Result<(), crate::Se
     Ok(())
 }
 
-/// A relay URL a person may write: `ws://` or `wss://`, a host, nothing
-/// else. What `sync.relays` holds and the panel's field checks.
+/// A relay URL a person may write: `wss://` with a host, anywhere — or
+/// `ws://` on this machine alone (`localhost`, a loopback or unspecified
+/// address, bracketed or not), since a plaintext relay elsewhere would carry
+/// this node's metadata in the clear. What `sync.relays` holds, the panel's
+/// field checks and an invite's relays are held to.
 pub fn is_relay_url(url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url.trim()) else {
         return false;
     };
-    matches!(parsed.scheme(), "ws" | "wss") && parsed.host_str().is_some_and(|h| !h.is_empty())
+    match parsed.scheme() {
+        "wss" => parsed.host_str().is_some_and(|h| !h.is_empty()),
+        "ws" => match parsed.host() {
+            Some(url::Host::Domain(d)) => d.trim_end_matches('.').eq_ignore_ascii_case("localhost"),
+            Some(url::Host::Ipv4(a)) => a.is_loopback() || a.is_unspecified(),
+            Some(url::Host::Ipv6(a)) => {
+                a.is_loopback()
+                    || a.is_unspecified()
+                    || a.to_ipv4_mapped()
+                        .is_some_and(|v| v.is_loopback() || v.is_unspecified())
+            }
+            None => false,
+        },
+        _ => false,
+    }
 }
 
 /// A direct peer entered by hand: which member, their endpoint, where.
@@ -376,6 +393,14 @@ mod tests {
     fn relays_are_ws_urls_deduplicated_and_the_interval_is_bounded() {
         assert!(is_relay_url("wss://relay.example"));
         assert!(is_relay_url("ws://127.0.0.1:7777"));
+        // Plaintext on this machine alone: a name, a loopback address.
+        assert!(is_relay_url("ws://localhost:7777"));
+        assert!(is_relay_url("ws://LOCALHOST.:7777"));
+        assert!(is_relay_url("ws://[::1]:7777"));
+        assert!(is_relay_url("ws://0.0.0.0:7777"));
+        assert!(!is_relay_url("ws://relay.example"));
+        assert!(!is_relay_url("ws://10.0.0.5:7777"));
+        assert!(!is_relay_url("ws://localhost.example:7777"));
         assert!(!is_relay_url("https://relay.example"));
         assert!(!is_relay_url("wss://"));
         assert!(!is_relay_url("relay.example"));

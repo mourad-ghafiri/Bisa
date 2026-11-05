@@ -19,6 +19,7 @@ mod events;
 mod files;
 mod git_edges;
 mod harness_usage;
+mod headers;
 mod ide;
 mod ide_edges;
 mod layering;

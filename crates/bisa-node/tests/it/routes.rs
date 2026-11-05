@@ -251,18 +251,117 @@ async fn every_route_but_the_named_exceptions_answers_401_without_the_token() {
     );
 }
 
+/// A wrong token is a 401 and the right one in the header is not. The query
+/// form opens exactly the routes an `EventSource`, an `<img>` or a download
+/// link fetches — which cannot send a header — and nothing else: a token in
+/// a URL is a token in a history. (`headers.rs` opens the stream itself.)
 #[tokio::test(flavor = "multi_thread")]
-async fn a_wrong_token_is_401_and_the_right_one_in_either_place_is_not() {
+async fn the_query_form_opens_only_what_a_browser_loads_without_a_header() {
     let (_dir, socket, _stop) = boot().await;
     let (status, _) = request_as(&socket, "GET", "/goals", Some("Bearer not-the-token")).await;
     assert_eq!(status, 401);
     let (status, _) = request_as(&socket, "GET", "/goals", Some(&format!("Bearer {TOKEN}"))).await;
     assert_eq!(status, 200);
-    // The query form, for an EventSource and an <img>, which cannot send a header.
     let (status, _) = request_as(&socket, "GET", &format!("/goals?token={TOKEN}"), None).await;
-    assert_eq!(status, 200);
-    let (status, _) = request_as(&socket, "GET", "/goals?token=wrong", None).await;
+    assert_eq!(status, 401, "the query is ignored off the named routes");
+    let attachment = format!("/attachments/{}", "a".repeat(64));
+    let (status, _) =
+        request_as(&socket, "GET", &format!("{attachment}?token={TOKEN}"), None).await;
+    assert_eq!(
+        status, 404,
+        "the query opened the route and the route's own miss answered"
+    );
+    let (status, _) = request_as(&socket, "GET", &format!("{attachment}?token=wrong"), None).await;
     assert_eq!(status, 401);
+}
+
+/// Every URL the desktop builds with `withToken(` — and the one stream the
+/// `sse()` helper opens — is a route the node lets `?token=` open
+/// (`auth::takes_query_token`): the list and the builders cannot drift apart,
+/// since a `withToken` on a route off the list is a URL whose token the node
+/// ignores.
+#[test]
+fn every_query_token_url_the_desktop_builds_is_on_the_named_list() {
+    let desktop = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../desktop/src");
+    let mut found = Vec::new();
+    for file in ["api.ts", "bus.ts"] {
+        let text = std::fs::read_to_string(desktop.join(file)).unwrap();
+        found.extend(query_token_urls(file, &text));
+    }
+    assert!(
+        found.len() >= 6,
+        "only {} query-token URLs were read; the scanner is broken: {found:?}",
+        found.len()
+    );
+    let off: Vec<String> = found
+        .iter()
+        .filter(|(_, _, path)| !bisa_node::auth::takes_query_token(path))
+        .map(|(file, line, path)| {
+            format!(
+                "{file}:{line}: {path} is built with ?token= but the node ignores the query there"
+            )
+        })
+        .collect();
+    assert!(off.is_empty(), "{}", off.join("\n"));
+}
+
+/// The literal paths under every `withToken(` and `sse<…>(` call, with their
+/// placeholders collapsed and their queries dropped.
+fn query_token_urls(file: &'static str, text: &str) -> Vec<(&'static str, usize, String)> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let rest: String = chars[i..chars.len().min(i + 12)].iter().collect();
+        let previous_is_word =
+            i > 0 && (chars[i - 1].is_alphanumeric() || matches!(chars[i - 1], '_' | '.' | '$'));
+        let mut arg_start = None;
+        if !previous_is_word {
+            if rest.starts_with("withToken(") {
+                arg_start = Some(i + "withToken(".len());
+            } else if rest.starts_with("sse<") {
+                let mut j = i + "sse".len();
+                let mut depth = 0;
+                while j < chars.len() {
+                    match chars[j] {
+                        '<' => depth += 1,
+                        '>' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                j += 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                if chars.get(j) == Some(&'(') {
+                    arg_start = Some(j + 1);
+                }
+            }
+        }
+        let Some(start) = arg_start else {
+            i += 1;
+            continue;
+        };
+        let line = text[..char_offset(text, i)].matches('\n').count() + 1;
+        let mut pos = start;
+        while pos < chars.len() && chars[pos].is_whitespace() {
+            pos += 1;
+        }
+        let (candidates, end) = url_argument(file, line, &chars, pos);
+        for path in candidates {
+            let path = path.split('?').next().unwrap_or("").to_string();
+            // The helpers' own `${base}${path}` has no literal text.
+            if !path.starts_with('/') {
+                continue;
+            }
+            out.push((file, line, collapse_placeholders(&path)));
+        }
+        i = end.max(i + 1);
+    }
+    out
 }
 
 #[tokio::test(flavor = "multi_thread")]

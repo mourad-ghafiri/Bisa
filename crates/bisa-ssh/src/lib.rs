@@ -30,6 +30,12 @@
 //! boundary, like `bisa-vcs::classify`: each git host's sentence is read
 //! once into a typed [`greeting::HostGreeting`].
 
+/// Variables of the node's own environment no child of this crate may
+/// inherit: the control-plane token. The one list `bisa-harness` keeps
+/// (`proc::SCRUBBED_ENV`), spelled here because this crate stands below it;
+/// held equal by the workspace's layering test.
+pub const SCRUBBED_ENV: &[&str] = &["BISA_API_TOKEN"];
+
 pub mod agent;
 pub mod config;
 pub mod exec;

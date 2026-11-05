@@ -138,6 +138,20 @@ fn argv(spec: &SessionSpec, resume: Option<&str>) -> Vec<String> {
     .into_iter()
     .map(String::from)
     .collect();
+    // The person's own settings alone, unless the workspace says a
+    // checkout's may act: `--setting-sources user` leaves a repository's
+    // `.claude/settings.json`, its local file and its hooks unread, and
+    // `--strict-mcp-config` mounts the engine's servers and no `.mcp.json`
+    // (https://code.claude.com/docs/en/cli-reference, read 2026-10-28) —
+    // what a checkout pre-allows or hooks would otherwise act before the
+    // guard sees a call.
+    if !spec.harness_project_settings {
+        args.extend([
+            "--setting-sources".to_string(),
+            "user".to_string(),
+            "--strict-mcp-config".to_string(),
+        ]);
+    }
     if let Some(model) = &spec.model {
         args.extend(["--model".to_string(), model.clone()]);
     }
@@ -170,6 +184,9 @@ fn revival_spec(token: &ResumeToken) -> SessionSpec {
         mcp_servers: vec![],
         env: Default::default(),
         env_remove: Vec::new(),
+        // A revived session is strict whatever the setting said when it
+        // first ran; the next launch reads the setting.
+        harness_project_settings: false,
         tier_ceiling: ToolTier::Write,
         output_schema: None,
         skills: vec![],
@@ -1644,6 +1661,7 @@ mod tests {
             ],
             env: Default::default(),
             env_remove: Vec::new(),
+            harness_project_settings: false,
             tier_ceiling: ToolTier::Exec,
             output_schema: None,
             skills: vec![],
@@ -1703,6 +1721,7 @@ mod tests {
             mcp_servers: vec![],
             env: Default::default(),
             env_remove: Vec::new(),
+            harness_project_settings: false,
             tier_ceiling: ToolTier::Write,
             output_schema: None,
             skills: vec![],
@@ -1789,6 +1808,57 @@ mod tests {
         assert!(ClaudeCodeAdapter::default()
             .caps()
             .contains(HarnessCaps::EFFORT));
+    }
+
+    /// A session the platform drives loads the person's settings alone and
+    /// mounts the engine's servers alone, unless the spec says a checkout's
+    /// may act; a revived session is strict whatever was said.
+    #[test]
+    fn a_platform_session_loads_the_persons_settings_alone_unless_the_setting_says_otherwise() {
+        let strict = argv(&bare(), None);
+        let sources = flag(&strict, "--setting-sources").expect("the sources flag");
+        assert_eq!(sources.1, "user");
+        assert!(strict.iter().any(|a| a == "--strict-mcp-config"));
+        assert!(sources.0 < strict.iter().position(|a| a == "--allowedTools").unwrap());
+        let open = argv(
+            &SessionSpec {
+                harness_project_settings: true,
+                ..bare()
+            },
+            None,
+        );
+        assert!(!open
+            .iter()
+            .any(|a| a == "--setting-sources" || a == "--strict-mcp-config"));
+        let token = ResumeToken {
+            adapter_id: ADAPTER_ID.to_string(),
+            native_id: "sess-9".into(),
+            cwd: std::path::PathBuf::from("/work/here"),
+            transcript_path: None,
+            model: None,
+            effort: None,
+        };
+        let revived = argv(&revival_spec(&token), Some("sess-9"));
+        assert!(revived.iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    /// No word that skips a permission is ever sent: the guard is the one
+    /// answer to every call.
+    #[test]
+    fn no_word_that_skips_a_permission_is_ever_sent() {
+        for args in [
+            argv(&bare(), None),
+            argv(&asking(Some("sonnet"), None), Some("s")),
+        ] {
+            for arg in &args {
+                assert!(
+                    !arg.contains("dangerously")
+                        && !arg.contains("bypass")
+                        && !arg.contains("permission-mode"),
+                    "{arg}"
+                );
+            }
+        }
     }
 
     #[test]

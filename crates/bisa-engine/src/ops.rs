@@ -429,6 +429,47 @@ pub fn submit_showing(inner: &Arc<Inner>, req: SubmitRequest) -> Result<Submitte
     Ok(Submitted { goal, secrets })
 }
 
+/// What the content screen's pass — or a person's release of the held signal
+/// — does with a goal made from outside's words
+/// ([`crate::listen::emit::OutsideGoal`]): it takes
+/// the mode the caller meant and, when the caller may start it, begins
+/// through the same funnel a person's start takes; an auto goal without a
+/// workflow wakes the designer, as a capture does. A beginning that fails
+/// leaves the goal a draft a person can start, and says why in the log.
+pub(crate) fn begin_outside_goal(inner: &Arc<Inner>, then: crate::listen::emit::OutsideGoal) {
+    if let Err(e) = begin_outside(inner, then) {
+        tracing::warn!(target: "bisa_engine", goal = %then.goal, "a goal from outside could not begin: {e}");
+    }
+}
+
+fn begin_outside(
+    inner: &Arc<Inner>,
+    then: crate::listen::emit::OutsideGoal,
+) -> Result<(), EngineError> {
+    let mut goal = inner.ws.get_goal(then.goal)?;
+    if goal.mode != then.mode {
+        goal.mode = then.mode;
+        goal = inner.ws.update_goal(goal)?;
+        announce_goal_updated(inner, goal.id);
+    }
+    match (goal.workflow, then.start) {
+        (Some(_), true) => {
+            begun_by_its_person(inner, goal.id, &BTreeMap::new(), || {
+                begin_goal(inner, goal.id, BTreeMap::new(), Begin::Auto)
+            })?;
+        }
+        (None, _) if then.mode.designs() => {
+            if inner.config.design_enabled {
+                guided::notify_captured(inner, goal.id);
+            } else {
+                guided::note_off(inner, goal.id);
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // The run funnel
 // ---------------------------------------------------------------------------

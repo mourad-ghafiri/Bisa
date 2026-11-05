@@ -21,6 +21,7 @@ mod locking;
 mod members;
 mod notes;
 mod pets;
+mod private;
 mod schema_doc;
 mod settings;
 mod studio;

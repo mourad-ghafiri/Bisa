@@ -553,7 +553,10 @@ is wrong, once, and again only when it changes.
 the signal's id — written down, not yet run: the worker starts the run. The body is the event's
 payload: a JSON object as it came, any other JSON value under `value`, text under `text`. An
 `Idempotency-Key` header — or a code host's `X-GitHub-Delivery` — makes a redelivery the same
-signal: one occurrence, one run.
+signal: one occurrence, one run. On the public door the same body again — under another delivery
+id, or none — is the signal it already made too (the last 512 bodies this process took, by
+listener and digest), so a captured call replayed enqueues nothing; the local door keeps no such
+memory, since a script on this machine repeating a body means it.
 
 | A local call answers | When |
 |---|---|
@@ -576,8 +579,9 @@ both are compared in constant time.
 |---|---|
 | `404` | `events.public_hooks` or `events.enabled` is off on this machine — whoever asks |
 | `413` | the body is over 64 KiB |
-| `429` | past the rate limit (with `Retry-After`), or the backlog is full |
+| `429` | past the rate limit (with `Retry-After`) — spent after the secret is checked, the listener's own for a right secret and a bucket of its own for a wrong one, so a flood of wrong secrets never mutes the real deliveries — or the backlog is full |
 | `401` | an unknown listener, a missing or a wrong secret — one answer for all three, so the route says nothing about which listeners exist |
+| `202` | the same body again, under another delivery id or none: the signal it already made |
 | `403` | the secret is right, and the host is Off or paused |
 | `404` | the secret is right, and the start no longer takes public calls |
 | `202` `{signal}` | taken |

@@ -4027,15 +4027,16 @@ async fn request_query_token(
     )
 }
 
-/// A consented verb is minted from the `Authorization` header alone: the
-/// token in the query lets a read through the middleware — an `EventSource`
-/// has no header — and proves no click.
+/// A consented verb is minted from the `Authorization` header alone, and
+/// the query token opens no IDE route at all — it stands in for a header
+/// only on the routes a browser loads without one (an `EventSource`, an
+/// `<img>`), so neither a read nor a click comes through it here.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_consented_verb_needs_the_token_in_the_header_not_the_query() {
     let (dir, socket, pid, root, _stop) = boot().await;
     seed_repo(dir.path(), &root);
     raw_git(&root, &["branch", "topic"]);
-    // A read passes with the query token, as every read does.
+    // A read with the query token is refused at the gate: not a named route.
     let (status, v) = request_query_token(
         &socket,
         "GET",
@@ -4043,8 +4044,8 @@ async fn a_consented_verb_needs_the_token_in_the_header_not_the_query() {
         None,
     )
     .await;
-    assert_eq!(status, 200, "{v}");
-    // A consented verb does not.
+    assert_eq!(status, 401, "{v}");
+    // And so is a consented verb.
     let (status, v) = request_query_token(
         &socket,
         "POST",
@@ -4053,10 +4054,6 @@ async fn a_consented_verb_needs_the_token_in_the_header_not_the_query() {
     )
     .await;
     assert_eq!(status, 401, "{v}");
-    assert!(
-        v["error"].as_str().unwrap_or("").contains("Authorization"),
-        "{v}"
-    );
     let (status, v) = request(
         &socket,
         "POST",

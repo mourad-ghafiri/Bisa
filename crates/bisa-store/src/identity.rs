@@ -166,6 +166,44 @@ pub(crate) fn ensure_private_dir(dir: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Make `root` the owner's alone (`0700`) and each of `files` that exists,
+/// and every `.json` under `mcp_dir`, the owner's alone (`0600`): the data
+/// root, the settings layers — a proxy login — and the MCP registry — a
+/// server's environment and headers. Tolerant on purpose: a mode the owner
+/// cannot set, on a mount that refuses it, is said at `warn` and is never
+/// the reason a workspace fails to open; a file that is not there is nothing
+/// to tighten.
+pub(crate) fn tighten_private(root: &Path, files: &[PathBuf], mcp_dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let tighten = |path: &Path, mode: u32| {
+            if !path.exists() {
+                return;
+            }
+            if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)) {
+                // LCOV_EXCL_START: a mode the owner cannot set is the mount's refusal; said, never fatal
+                tracing::warn!(target: "bisa_store", path = %path.display(), "could not make it the owner's alone: {e}");
+                // LCOV_EXCL_STOP
+            }
+        };
+        tighten(root, 0o700);
+        for file in files {
+            tighten(file, 0o600);
+        }
+        if let Ok(entries) = std::fs::read_dir(mcp_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    tighten(&path, 0o600);
+                }
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (root, files, mcp_dir);
+}
+
 /// Remove the temporary a secret was written through. A temporary that
 /// cannot be removed is a stray file under `identity/`, said at `debug`, and
 /// never the reason the write fails: the key itself is in place or not.
@@ -210,6 +248,45 @@ pub(crate) fn write_secret_file(path: &Path, bytes: &[u8]) -> Result<(), StoreEr
     let linked = std::fs::hard_link(&tmp, path);
     forget_temporary(&tmp);
     linked.map_err(|e| StoreError::io(path.display().to_string(), e))?;
+    if let Some(parent) = path.parent() {
+        crate::paths::sync_dir(parent);
+    }
+    Ok(())
+}
+
+/// Write `bytes` over `path` whole or not at all, mode `0600`: the bytes
+/// land in a temporary beside the file, synced, and reach the name by one
+/// rename — so a crash in between leaves the key that was there, never an
+/// empty name or none, which a delete-then-write would.
+pub(crate) fn replace_secret_file(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    if let Some(parent) = path.parent() {
+        ensure_private_dir(parent)?;
+    } // LCOV_EXCL_LINE: a key's path has a parent: every name the store joins stands under `identity/`
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(format!(".replace.{}", std::process::id()));
+    let tmp = path.with_file_name(tmp_name);
+    let written = (|| -> std::io::Result<()> {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&tmp)?;
+        std::io::Write::write_all(&mut f, bytes)?;
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        forget_temporary(&tmp);
+        return Err(StoreError::io(tmp.display().to_string(), e));
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        // LCOV_EXCL_START: a rename beside the file fails only with the disk; the temporary is forgotten and the key that was there stands
+        forget_temporary(&tmp);
+        return Err(StoreError::io(path.display().to_string(), e));
+        // LCOV_EXCL_STOP
+    }
     if let Some(parent) = path.parent() {
         crate::paths::sync_dir(parent);
     }
@@ -266,6 +343,13 @@ impl KeyStore for FileKeyStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(StoreError::io(path.display().to_string(), e)),
         }
+    }
+
+    /// Whole or the old one: a refreshed token, an imported key, a rotated
+    /// hook secret reach the name by one rename, never through a moment with
+    /// no key under it.
+    fn replace(&self, name: &str, secret_hex: &str) -> Result<(), StoreError> {
+        replace_secret_file(&self.path_for(name), secret_hex.as_bytes())
     }
 }
 

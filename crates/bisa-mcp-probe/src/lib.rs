@@ -19,6 +19,12 @@
 //! and what an error may carry is sanitised: never a header or an
 //! environment value, never a URL's userinfo.
 
+/// Variables of the node's own environment no child of this crate may
+/// inherit: the control-plane token. The one list `bisa-harness` keeps
+/// (`proc::SCRUBBED_ENV`), spelled here because this crate stands below it;
+/// held equal by the workspace's layering test.
+pub const SCRUBBED_ENV: &[&str] = &["BISA_API_TOKEN"];
+
 use bisa_core::McpServerConfig;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

@@ -140,6 +140,15 @@ pub async fn addon_fetch(
             host = host.clone()
         )));
     }
+    // An addon reaches the internet, never the machine's own network: a
+    // LAN address, a VPN's range, a cloud's metadata service are refused by
+    // address. A name that resolves to one is the gap that stays.
+    if bisa_core::connector::is_private_network(&host) {
+        return Err(EngineError::Invalid(bisa_core::text!(
+            "error-engine-addons-private-network-refused",
+            host = host.clone()
+        )));
+    }
     if !declared
         .iter()
         .any(|p| bisa_core::connector::host_matches(p, &host))

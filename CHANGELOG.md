@@ -8,6 +8,110 @@ notes (`docs/contributing/release.md`).
 
 ## [Unreleased]
 
+### Security
+
+- **The A2A door checks each call before it reads it.** A call carrying an `Origin` header — a
+  browser's, from whatever page found the loopback port — is refused, only `application/json` is
+  read, and with `token` set in `a2a.toml` every call needs `Authorization: Bearer <token>` (the
+  agent card advertises the scheme; a door exposed with none is said once in the log). `tasks/get`,
+  `tasks/cancel` and a continuation reach only the goals A2A made, which wear the tag `a2a`. A
+  task's goal begins — its run, or the Workflow Agent's design — only once the content screen
+  passed the task's words or a person let the held signal through; until then it stands a manual
+  draft, `input-required` or `submitted` to its caller.
+- **`?token=` opens only what a browser loads without a header**: the event streams and the routes
+  an `<img>` or a download link fetches (`/events`, `/ide/search/{scope}/{id}`,
+  `/pets/{id}/sprite`, `/mobile-development/devices/{id}/frame`, `/attachments/{sha256}`,
+  `/work-items/{item}/result`); elsewhere the query is ignored and the request is a 401, since a
+  token in a URL lands in a history, a copy and a proxy's log. The token's exemptions are each a
+  path's exact shape — nothing under `/hooks/` or `/a2a/` is open by prefix.
+- **The public hook door spends its rate limit after the secret is checked**: an authenticated
+  call spends the listener's own bucket, a refused one a bucket of its own under the same requested
+  name, so a flood of wrong secrets never mutes a real listener's deliveries. The last 512 bodies
+  the node took are remembered by listener and digest, and the same body again — a redelivery under
+  a new id, a captured request replayed — answers `202` with the signal it already made and enqueues
+  nothing.
+- **A terminal session's doors answer one 401** for a wrong secret and an unknown session alike (an
+  unknown session is compared against a decoy), so the doors enumerate nothing; the secret is read
+  from the `Authorization` header alone.
+- **A 4xx never carries the value that did not fit**: serde's quoted value in a reader's reason is
+  replaced by `"…"` in the body and in the debug log a crash report keeps; the field's name stays.
+- **Every answer of the node carries `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  no-referrer` and `Cache-Control: no-store`** unless the route set its own.
+- **What the store writes is the owner's alone.** The data root is `0700`, and the files that carry
+  a secret — the settings layers (a proxy login), the MCP registry (a server's environment and
+  headers), a code host's token — are created `0600` from their first byte and replaced whole; a
+  root or a file written wider before is tightened at the next open. A key replaced — a refreshed
+  OAuth token, a rotated hook secret — reaches its name by one rename, never through a moment
+  with no key under it.
+- **A proxy login is masked on every surface**: `GET /settings/{scope}`, `GET /settings/resolved`,
+  a write's echo and `bisa settings` show `network.proxy.http`/`.https` with the password
+  replaced, as `GET /network` did; a masked value written back keeps the value stored, so a panel
+  that reads a layer and writes it back changes nothing.
+- **The node's token reaches no child.** Every process the platform starts — a `check` step's or
+  start's `sh`, a workstream script, `git` (and so a repository's hooks), a language server, an
+  MCP server at its probe, `gh` and `glab`, `ssh`, the mobile tools, an adapter's probes — has
+  `BISA_API_TOKEN` scrubbed from its environment, as harness children and the desktop's terminals
+  already had; a workspace test holds every `Command::new` in the spawning crates to it.
+- **The guard reads a command through its wrappers, a path and a line break.** A rule anchored at
+  a command's start now reads it through `sudo`, `doas`, `env`, `command`, `exec`, `nohup`, `nice`,
+  `time`, `timeout` and their kin, through a path to the program (`/bin/rm`) and after a line break
+  — `cd x⏎sudo …` is `sudo` at a start, where it used to read as the middle of one. A command
+  handed to a shell inline — `sh -c 'rm -rf ~'`, `bash -lc "…"`, through a wrapper or a path,
+  nested — is read through the shell as a command of its own, so the rule that refuses `rm -rf ~`
+  refuses it there too, a path inside it meets the path rules, and `sh -c 'npm test'` stays the
+  everyday command it is (what a `check` runs when its template hands an input a whole command
+  line); code handed to another interpreter inline — `eval`, `python -c`, `perl -e`, `ruby -e`,
+  `node -e`, `php -r` — goes to the classifier (`inline_code`); a script by file is an everyday
+  command. A substitution — `$(…)`, backticks — is read by the unanchored rules alone, which is
+  the gap that stays.
+- **New built-in guard rules.** `git_internals` refuses a repository's own `.git/config` and hooks
+  (the platform's git honours them; the hint names git's own read verbs); `login_items` refuses
+  `~/Library/LaunchAgents`, `~/.config/autostart` and the user's systemd units; `shell_startup`
+  grows `.bash_login`, `.bash_logout`, `.zlogin`, `.zlogout` and fish's file; `harness_config`
+  **asks** before a harness's own launch files (`.claude/settings*.json`, `.claude/hooks/`,
+  `.mcp.json`, `.muse/hooks.json`, `.gemini/settings.json`, `.codex/config.toml`, `~/.copilot/`).
+  The workspace's own truth — `run/` (the token, the socket), `identity/`, `mcp/`, `machine.json`,
+  `settings.json`, `members.json`, `governance.json`, `a2a.toml` — is refused by rules generated
+  from the data root at every policy load (`workspace_truth_*`), so an agent's `cat ~/.bisa/run/token`
+  hands it nothing; a workstream's checkout under `projects/` is untouched.
+- **Engine-driven Claude Code loads the person's settings alone.** A session the platform drives
+  is started with `--setting-sources user --strict-mcp-config`: a checkout's `.claude/settings.json`,
+  its local file, its hooks and its `.mcp.json` — whose allow-lists, hooks and servers would act
+  before the guard sees a call — are not read, and the engine's servers are the only ones mounted.
+  `security.guard.harness_project_settings` (machine, `off`) turns a checkout's back on. A harness
+  opened in a terminal is unchanged.
+- **The collaboration classifier reads the whole message**, its context chips included — a
+  selection, a diff, a terminal's tail — bounded by the content screen's 16 KiB; a message past
+  the bound is held as no verdict with the reason, and nobody is asked.
+- **This machine is read as an address, not a string.** `is_loopback` now reads `localhost` (a
+  trailing dot tolerated) and `*.localhost`, the whole of `127/8`, `::1`, the unspecified
+  addresses (`0.0.0.0`, `::`) and an IPv4-mapped IPv6 form of any of them, so an alias no longer
+  slips past where a name was refused; the addon broker also refuses private and link-local
+  addresses — a LAN, a VPN's range, a cloud's metadata service — by address.
+- **A relay URL is `wss://` anywhere, or `ws://` on this machine alone**: a plaintext relay
+  elsewhere is refused where it is written and not adopted from an invite, as the setting's help
+  always said.
+- **The A2A client takes a card's endpoint only under the configured base**: a card pointing at
+  another host, port or scheme is refused by name, so a remote agent cannot redirect a session's
+  prompts.
+- **Update links are held to the repository**: a release page elsewhere becomes the tag's own
+  page, an asset elsewhere is left out.
+- The download-to-shell rule now reads a shell at the end of a quoted pipeline (`bash -c "curl …
+  | sh"`), which slipped past its anchor before.
+
+### Added
+
+- `security.guard.harness_project_settings` (machine scope, `off` · `on`).
+- `token` in `a2a.toml`: a bearer of the A2A door's own, advertised on the agent card.
+
+### Changed
+
+- `?token=` on a route other than the event streams and the image and download routes is a 401.
+- The session doors answer 401 where an unknown session answered 404.
+- The data root is made `0700` at the next open; another account on the machine loses traversal.
+- An engine-driven Claude Code session no longer loads a checkout's settings or `.mcp.json` by
+  default; an agent that needs a checkout's MCP server installs it in the registry.
+
 ## [0.6.0] - 2026-10-28
 
 ### Added

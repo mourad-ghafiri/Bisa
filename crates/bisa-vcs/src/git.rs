@@ -809,6 +809,12 @@ const HARDENED_ENV: [&str; 6] = [
     "GIT_OPTIONAL_LOCKS",
 ];
 
+/// Variables of the node's own environment no `git` may inherit: the
+/// control-plane token, which a repository's hook would otherwise hold. The
+/// one list `bisa-harness` keeps (`proc::SCRUBBED_ENV`), spelled here because
+/// this crate stands below it; held equal by the workspace's layering test.
+pub const SCRUBBED_ENV: &[&str] = &["BISA_API_TOKEN"];
+
 fn is_hardened(key: &OsStr) -> bool {
     HARDENED_ENV.iter().any(|h| OsStr::new(h) == key)
 }
@@ -927,6 +933,11 @@ impl Git {
     /// crate, exactly as they would by hand.
     fn command(&self, cwd: Option<&Path>) -> Command {
         let mut cmd = Command::new(&self.bin);
+        // The node's token reaches no `git` — and so no hook a repository
+        // runs under it: scrubbed first, before the caller's own removals.
+        for name in SCRUBBED_ENV {
+            cmd.env_remove(name);
+        }
         cmd.arg("--no-pager");
         for (key, value) in &self.config {
             cmd.arg("-c").arg(format!("{key}={value}"));
@@ -4208,7 +4219,11 @@ mod tests {
             .filter(|(_, v)| v.is_none())
             .map(|(k, _)| k.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(removed, vec!["HTTPS_PROXY"], "the hardened name is refused");
+        assert_eq!(
+            removed,
+            vec!["BISA_API_TOKEN", "HTTPS_PROXY"],
+            "the node's token is scrubbed first; the hardened name is refused"
+        );
         let args: Vec<String> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())

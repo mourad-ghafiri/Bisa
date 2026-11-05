@@ -210,6 +210,7 @@ problem-addon-permission-declared-twice = the permission { $word } is declared t
 problem-addon-network-needs-host = a network permission names at least one host
 problem-addon-network-host-not-pattern = { $host } is not a host pattern: host[:port], or *.suffix
 problem-addon-network-loopback-refused = { $host } is this machine; an addon never reaches the node or anything else on it
+problem-addon-network-private-refused = { $host } is on a private or link-local network; an addon reaches the internet, never this machine's own network
 problem-addon-media-asks-nothing = a media permission names at least one host, or asks for the YouTube player
 problem-addon-media-host-not-pattern = { $host } is not a host pattern: *, host[:port], or *.suffix
 problem-addon-media-loopback-refused = { $host } is this machine; an addon never plays from the node or anything else on it
