@@ -562,7 +562,7 @@ fn the_gate_can_run_the_steps_it_names() {
     };
     let licences = recipe("licence-gate");
     assert!(
-        licences.contains("target/tools/bin/cargo-deny check licenses"),
+        licences.contains("target/tools/bin/cargo-deny check\n"),
         "the licence gate never finds the tree's own cargo-deny:\n{licences}"
     );
     // The coverage gate: the recipe proves its own model first, then runs the

@@ -85,7 +85,7 @@ pub fn is_relay_url(url: &str) -> bool {
                     || a.to_ipv4_mapped()
                         .is_some_and(|v| v.is_loopback() || v.is_unspecified())
             }
-            None => false,
+            None => false, // LCOV_EXCL_LINE a special scheme's URL always parses with a host
         },
         _ => false,
     }
@@ -397,6 +397,26 @@ mod tests {
         assert!(is_relay_url("ws://localhost:7777"));
         assert!(is_relay_url("ws://LOCALHOST.:7777"));
         assert!(is_relay_url("ws://[::1]:7777"));
+        assert!(
+            is_relay_url("ws://[::]:7777"),
+            "unspecified is this machine"
+        );
+        assert!(
+            is_relay_url("ws://[::ffff:127.0.0.1]:7777"),
+            "a mapped loopback"
+        );
+        assert!(
+            is_relay_url("ws://[::ffff:0.0.0.0]:7777"),
+            "a mapped unspecified"
+        );
+        assert!(
+            !is_relay_url("ws://[::ffff:10.0.0.5]:7777"),
+            "a mapped LAN address is not this machine"
+        );
+        assert!(
+            !is_relay_url("ws://[fe80::1]:7777"),
+            "link-local is not loopback"
+        );
         assert!(is_relay_url("ws://0.0.0.0:7777"));
         assert!(!is_relay_url("ws://relay.example"));
         assert!(!is_relay_url("ws://10.0.0.5:7777"));

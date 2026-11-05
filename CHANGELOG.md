@@ -121,6 +121,19 @@ notes (`docs/contributing/release.md`).
   the whole app.
 - A Markdown link whose target is protocol-relative (`//host/x`) is no longer vouched for as a
   path; pdf.js is kept off eval.
+- **Published advisories are checked, and the ones found are fixed.** `cargo deny check` now runs
+  every check it has — advisories against the RustSec database, bans, licences, sources — on both
+  workspaces in CI and in `just licence-gate`, where only licences were checked before; the first
+  run found and this release fixes, by their patch upgrades, `rustls` (RUSTSEC-2026-0285, -0346,
+  -0348, -0349), `rustls-webpki` (RUSTSEC-2026-0382), `webpki-roots` and `webpki-root-certs`
+  (RUSTSEC-2026-0381, -0383), `negentropy` (RUSTSEC-2026-0365), `ctutils` (RUSTSEC-2026-0385) and
+  `tokio` (RUSTSEC-2026-0386), and moves off the yanked versions the check named. An unmaintained crate fails the
+  check when we depend on it directly; the one that does, the collaboration tests' scripted relay
+  (`nostr-relay-builder`, a dev-dependency), is ignored by id with its reason until a maintained
+  test relay replaces it. The desktop's packages are audited too (`npm audit`: what ships at
+  `high`, everything that builds it at `critical`), the CI workflow's token can read the checkout
+  and write nothing (`permissions: contents: read`), and the type generator is pinned to one
+  version (`json-schema-to-typescript@15.0.4`) rather than a major.
 
 ### Added
 
@@ -141,6 +154,11 @@ notes (`docs/contributing/release.md`).
 - An addon's `storage.set` answers `{stored: false}` when the browser's storage refused the
   write; `clipboard.write` can answer `rate_limited`; a notice's title is prefixed with the
   addon's name.
+- `just licence-gate` and CI's `licences` job fail on a published RustSec advisory, an unmaintained
+  direct dependency, a banned or unknown source, and on an npm advisory at the two thresholds —
+  not on licences alone. cargo-deny's advisory database is cloned under `target/advisory-db`.
+- `bisa_store::KeyStore::replace` has no default body: every store writes its own (the file store
+  by one rename), so no implementation replaces a key through a moment with none under its name.
 
 ## [0.6.0] - 2026-10-28
 

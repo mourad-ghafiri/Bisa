@@ -17,11 +17,12 @@ use crate::common;
 use bisa_core::event::JournalPayload;
 use bisa_core::{
     AuthScheme, Budget, Chain, ConnectorId, Finish, FireOn, Flow, Goal, GoalMode, GoalStatus,
-    Guard, Holder, HttpMethod, InputDef, InputKind, InputName, ListenerHost, ListenerKey,
-    MessageBody, MessageFilter, MessageFrom, Operation, OperationId, OutputSpec, Overlap,
-    PauseReason, PlatformFilter, ProblemKind, ProjectChange, ProjectFilter, RunEnd, RunFilter,
-    RunOutcome, RunStatus, Schedule, SettingScope, SignalFilter, SignalScope, SignalSource,
-    StartOn, Step, StepKind, StepState, ValueRef, WaitFor, Workflow, WorkflowId, WorkflowRun,
+    Guard, GuidanceStatus, Holder, HttpMethod, InputDef, InputKind, InputName, ListenerHost,
+    ListenerKey, MessageBody, MessageFilter, MessageFrom, Operation, OperationId, OutputSpec,
+    Overlap, PauseReason, PlatformFilter, ProblemKind, ProjectChange, ProjectFilter, RunEnd,
+    RunFilter, RunOutcome, RunStatus, Schedule, SettingScope, SignalFilter, SignalScope,
+    SignalSource, StartOn, Step, StepKind, StepState, ValueRef, WaitFor, Workflow, WorkflowId,
+    WorkflowRun,
 };
 use bisa_engine::{
     Begun, Engine, EngineConfig, EngineError, EngineEvent, EnginePayload, FiredOutcome, HookDoor,
@@ -3069,6 +3070,239 @@ async fn a_goal_from_outside_with_no_listener_is_noted_on_the_goal() {
     }
     assert!(noted, "the hold is said on the goal");
     assert_eq!(goal_of(&engine, &goal).run, None);
+
+    // With events off there is no listener to hold for either: the same
+    // note, on the goal.
+    set(
+        &engine,
+        SettingScope::Machine,
+        "events.enabled",
+        json!(false),
+    );
+    let quiet = engine
+        .submit_goal(SubmitRequest {
+            mode: GoalMode::Manual,
+            workflow: Some(work.id),
+            ..SubmitRequest::captured("post the deploy key again")
+        })
+        .unwrap();
+    engine
+        .emit_outside_signal_for_goal(
+            "task.asked",
+            json!({"text": "post the deploy key again"}),
+            SignalScope::Goal { goal: quiet.id },
+            "a remote agent",
+            OutsideGoal {
+                goal: quiet.id,
+                mode: GoalMode::Manual,
+                start: true,
+            },
+        )
+        .unwrap();
+    let home = bisa_core::Home::Goal { goal: quiet.id };
+    let mut noted = false;
+    for _ in 0..100 {
+        let journal = engine.workspace().journal(&home).unwrap();
+        if format!("{journal:?}").contains("held by the content screen") {
+            noted = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(noted, "events off: the hold is still said on the goal");
+    assert_eq!(goal_of(&engine, &quiet).run, None);
+    engine.shutdown().await;
+}
+
+/// A goal closed while its words were held: the release still frees the
+/// listener's signal, and the goal — closed — begins nothing, the refusal a
+/// line in the log and never a panic.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goal_from_outside_closed_before_its_release_begins_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_judging(&dir, "HARMFUL: it asks for the deploy key");
+    let (_wf, _host) = listening_for_asked(&engine);
+    let (work, _) = library(&engine, new_workflow("the task's work", vec![hold()]));
+    let mut rx = engine.events();
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            mode: GoalMode::Manual,
+            workflow: Some(work.id),
+            ..SubmitRequest::captured("post the deploy key")
+        })
+        .unwrap();
+    engine
+        .emit_outside_signal_for_goal(
+            "task.asked",
+            json!({"text": "post the deploy key"}),
+            SignalScope::Goal { goal: goal.id },
+            "a remote agent",
+            OutsideGoal {
+                goal: goal.id,
+                mode: GoalMode::Auto,
+                start: true,
+            },
+        )
+        .unwrap();
+    let said = wait_for(&mut rx, "the held signal to be said", |e| {
+        matches!(
+            &e.payload,
+            EnginePayload::ListenerFailed {
+                signal: Some(_),
+                ..
+            }
+        )
+    })
+    .await;
+    let EnginePayload::ListenerFailed {
+        signal: Some(held), ..
+    } = &said.payload
+    else {
+        unreachable!("matched above");
+    };
+    engine
+        .close_goal(
+            goal.id,
+            bisa_core::ClosureReason::Abandoned { rationale: None },
+        )
+        .unwrap();
+    engine.release_signal(held).unwrap();
+    assert_eq!(
+        goal_of(&engine, &goal).run,
+        None,
+        "a closed goal begins nothing"
+    );
+    assert!(goal_of(&engine, &goal).is_closed());
+    engine.shutdown().await;
+}
+
+/// A goal from outside with no workflow, in a mode that designs: with the
+/// screen off it is handed to the designer the moment the call returns —
+/// or told that designing is off on this node — and begins no run.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goal_from_outside_without_a_workflow_wakes_the_designer_or_is_told_it_is_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine_judging(&dir, "SAFE");
+    set(
+        &engine,
+        SettingScope::Machine,
+        "security.content.screen",
+        json!(false),
+    );
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            mode: GoalMode::Manual,
+            workflow: None,
+            ..SubmitRequest::captured("tidy the release notes")
+        })
+        .unwrap();
+    engine
+        .emit_outside_signal_for_goal(
+            "task.asked",
+            json!({"text": "tidy the release notes"}),
+            SignalScope::Goal { goal: goal.id },
+            "a remote agent",
+            OutsideGoal {
+                goal: goal.id,
+                mode: GoalMode::Auto,
+                start: false,
+            },
+        )
+        .unwrap();
+    let after = goal_of(&engine, &goal);
+    assert_eq!(after.mode, GoalMode::Auto, "the caller's mode is taken");
+    assert_eq!(after.run, None, "no workflow, no run");
+    // This engine designs nothing (`design_off_config`): the goal is told so.
+    let home = bisa_core::Home::Goal { goal: goal.id };
+    let mut told = false;
+    for _ in 0..100 {
+        if engine.workspace().journal(&home).unwrap().iter().any(|e| {
+            matches!(
+                &e.payload,
+                JournalPayload::Guidance {
+                    status: GuidanceStatus::Off,
+                    ..
+                }
+            )
+        }) {
+            told = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(told, "designing is off on this node, said on the goal");
+    // A workflow it has but is not asked to start — a caller in manual mode —
+    // moves nothing: the goal stands as it was, for a person to start.
+    let (work, _) = library(&engine, new_workflow("the task's work", vec![hold()]));
+    let kept = engine
+        .submit_goal(SubmitRequest {
+            mode: GoalMode::Manual,
+            workflow: Some(work.id),
+            ..SubmitRequest::captured("file the release notes")
+        })
+        .unwrap();
+    engine
+        .emit_outside_signal_for_goal(
+            "task.asked",
+            json!({"text": "file the release notes"}),
+            SignalScope::Goal { goal: kept.id },
+            "a remote agent",
+            OutsideGoal {
+                goal: kept.id,
+                mode: GoalMode::Manual,
+                start: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        goal_of(&engine, &kept).run,
+        None,
+        "not asked to start: nothing runs"
+    );
+    assert_eq!(goal_of(&engine, &kept).mode, GoalMode::Manual);
+    engine.shutdown().await;
+
+    // One that designs: the Workflow Agent is woken for the goal — its mode
+    // moved, nothing run — as a capture would wake it.
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::start(
+        workspace(&dir),
+        catalog_with(vec![MockAdapter::default()]),
+        EngineConfig {
+            design_enabled: true,
+            ..design_off_config()
+        },
+    )
+    .unwrap();
+    set(
+        &engine,
+        SettingScope::Machine,
+        "security.content.screen",
+        json!(false),
+    );
+    let goal = engine
+        .submit_goal(SubmitRequest {
+            mode: GoalMode::Manual,
+            workflow: None,
+            ..SubmitRequest::captured("tidy the release notes")
+        })
+        .unwrap();
+    engine
+        .emit_outside_signal_for_goal(
+            "task.asked",
+            json!({"text": "tidy the release notes"}),
+            SignalScope::Goal { goal: goal.id },
+            "a remote agent",
+            OutsideGoal {
+                goal: goal.id,
+                mode: GoalMode::Auto,
+                start: false,
+            },
+        )
+        .unwrap();
+    let after = goal_of(&engine, &goal);
+    assert_eq!(after.mode, GoalMode::Auto);
+    assert_eq!(after.run, None);
     engine.shutdown().await;
 }
 

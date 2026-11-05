@@ -51,7 +51,27 @@ multiple-versions = "allow"
 wildcards = "allow"
 
 [advisories]
+# A vulnerability or an unsound advisory fails the check whatever its depth;
+# a yanked version is said and should be moved off at the next update.
 yanked = "warn"
+# An unmaintained crate is ours to replace when we depend on it directly; one
+# deep in a framework's tree (a Linux D-Bus binding under a Tauri plugin, a
+# `paste` behind a macro crate) is its owner's to move, and said here would
+# only hide the advisories that are ours.
+unmaintained = "workspace"
+# The RustSec database is cloned inside the tree, never under `$CARGO_HOME`:
+# the tree's own tools live under `target/tools`, and so does what they fetch.
+db-path = "target/advisory-db"
+# One list serves two workspaces, and an ignore one graph never meets is no
+# fault of that graph (the shell's tree has no test relay).
+unused-ignored-advisory = "allow"
+ignore = [
+    # The scripted relay the collaboration tests run against: a dev-dependency
+    # of four crates and nothing that ships; the wire crates are nostr-sdk's,
+    # which is maintained. A maintained test relay — or one of our own over
+    # the same wire crates — is the follow-up that lifts this.
+    { id = "RUSTSEC-2026-0237", reason = "nostr-relay-builder is a test relay, a dev-dependency only; the wire crates are nostr-sdk's" },
+]
 
 [sources]
 unknown-registry = "deny"

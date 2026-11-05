@@ -363,6 +363,8 @@ enum Card {
     Status(u16),
     /// A card naming an endpoint under another authority.
     Elsewhere,
+    /// A card naming no endpoint at all: `<base>/a2a` is where it is reached.
+    NoUrl,
 }
 
 struct Scripted {
@@ -373,6 +375,18 @@ struct Scripted {
     flag: std::sync::atomic::AtomicBool,
     base: std::sync::Mutex<String>,
     card: Card,
+    /// The server's graceful end: dropped, the listener closes and every
+    /// connection ends after its request — the remote gone mid-session.
+    shutdown: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+impl Scripted {
+    /// Take the remote down: the next poll finds nobody listening.
+    fn stop(&self) {
+        if let Some(tx) = self.shutdown.lock().unwrap().take() {
+            tx.send(()).ok();
+        }
+    }
 }
 
 fn task(state: &str, extra: Value) -> Reply {
@@ -396,6 +410,7 @@ async fn scripted_card(State(stub): State<Arc<Scripted>>) -> axum::response::Res
         Card::Fine => Json(json!({"protocolVersion": "0.3.0", "name": "scripted", "url": format!("{base}/a2a"), "skills": []})).into_response(),
         Card::Status(code) => (axum::http::StatusCode::from_u16(code).unwrap(), "no card").into_response(),
         Card::Elsewhere => Json(json!({"protocolVersion": "0.3.0", "name": "scripted", "url": "http://127.0.0.1:1/a2a", "skills": []})).into_response(),
+        Card::NoUrl => Json(json!({"protocolVersion": "0.3.0", "name": "scripted", "skills": []})).into_response(),
     }
 }
 
@@ -445,6 +460,7 @@ async fn start_scripted(
         flag: std::sync::atomic::AtomicBool::new(false),
         base: std::sync::Mutex::new(String::new()),
         card,
+        shutdown: std::sync::Mutex::new(None),
     });
     let app = Router::new()
         .route("/.well-known/agent-card.json", get(scripted_card))
@@ -453,7 +469,15 @@ async fn start_scripted(
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     *stub.base.lock().unwrap() = base.clone();
-    tokio::spawn(axum::serve(listener, app).into_future());
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    *stub.shutdown.lock().unwrap() = Some(tx);
+    tokio::spawn(
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                rx.await.ok();
+            })
+            .into_future(),
+    );
     (base, stub)
 }
 
@@ -816,6 +840,54 @@ async fn a2a_a_poll_the_remote_cannot_answer_ends_the_session_after_its_tries() 
     assert!(
         matches!(&refused, bisa_harness::HarnessError::Unavailable(why) if why.contains("not an endpoint under")),
         "{refused:?}"
+    );
+}
+
+/// A card that names no endpoint is reached at `<base>/a2a`; and a remote
+/// that goes away mid-session — the listener closed, every poll refused at
+/// the socket — ends the session as unreachable after five tries, never a
+/// hang.
+#[tokio::test(flavor = "multi_thread")]
+async fn a2a_a_card_naming_no_endpoint_is_reached_at_base_and_a_remote_gone_is_unreachable() {
+    use bisa_harness::HarnessAdapter as _;
+    let dir = tempfile::tempdir().unwrap();
+    let (intake, _rx) = start_intake(dir.path()).await;
+    let (base, stub) = start_scripted(Card::NoUrl, |_| task("working", json!({}))).await;
+    let session = quick(&base)
+        .launch(SessionSpec {
+            prompt: "go".into(),
+            ..spec(&intake)
+        })
+        .await
+        .unwrap();
+    let mut events = session.subscribe();
+    assert_eq!(
+        stub.sends.lock().unwrap().len(),
+        1,
+        "the message went to <base>/a2a"
+    );
+    session.abort().await.unwrap();
+    assert!(matches!(terminal_end(&mut events).await, Outcome::Aborted));
+
+    let (base, stub) = start_scripted(Card::Fine, |_| task("working", json!({}))).await;
+    let session = quick(&base)
+        .launch(SessionSpec {
+            prompt: "go".into(),
+            ..spec(&intake)
+        })
+        .await
+        .unwrap();
+    let mut events = session.subscribe();
+    for _ in 0..200 {
+        if stub.polls.load(Ordering::SeqCst) >= 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    stub.stop();
+    assert!(
+        matches!(terminal_end(&mut events).await, Outcome::Failed { error } if error.starts_with("remote unreachable")),
+        "five refused polls end the session"
     );
 }
 

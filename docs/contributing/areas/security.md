@@ -12,7 +12,7 @@ vulnerability is never an issue: report it privately, as [SECURITY.md](../../../
 
 - `crates/bisa-security/src/` — `redact.rs` (rules, placeholders, the vault), `guard.rs` (rules, matchers, the evaluation), `builtin.rs` (the built-in rules and their fixtures), `classify.rs` (what the classifier is asked, how its verdict is read), `net.rs` (outbound hosts), `policy.rs` (the settings layers into one policy).
 - `crates/bisa-engine/src/security.rs` — the seams: outbound redaction, inbound placeholders, the restore at an execution point; `crates/bisa-engine/src/inputs.rs` — the one permission funnel; `classifier.rs`, `content.rs` (the content screen) and `ask.rs` (the classifier's bounded session) beside it.
-- `crates/bisa-harness/src/proc.rs` — the node's own bearer token kept out of every child's environment.
+- `crates/bisa-harness/src/proc.rs` — the node's own bearer token kept out of every child's environment (`SCRUBBED_ENV`); every other crate that starts a process — `bisa-vcs`, `bisa-lsp`, `bisa-ssh`, `bisa-codehost`, `bisa-mcp-probe`, `bisa-mobile-development`, `bisa-adapters`, the engine's scripts — scrubs the same names, held equal by `crates/bisa-core/tests/it/layering.rs`.
 - `crates/bisa-node/src/security.rs` · `crates/bisa-cli/src/security.rs` — the status and the previews, `bisa security`; `bisa session guard` is the pre-execution hook a harness opened in a terminal runs ([CLI § The guard](../../reference/cli.md#the-guard)).
 - `crates/bisa-engine/src/projects.rs` (`pass_publish_gate`) — the `publish` gate a push or a pull request passes.
 - `crates/bisa-vcs/src/interactive.rs` · `crates/bisa-node/src/ide/consent.rs` — the tree-moving git verbs, and `HumanConsent`, minted in one place.

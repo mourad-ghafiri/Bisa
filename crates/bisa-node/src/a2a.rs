@@ -241,10 +241,11 @@ fn rpc_err(id: Value, code: i64, message: &str) -> Json<Value> {
 /// The whole endpoint takes the raw body so malformed JSON gets a proper
 /// JSON-RPC `-32700` instead of an axum 400 — once [`admit`] let the call in.
 async fn rpc(State(state): State<Shared>, headers: HeaderMap, body: String) -> Response {
-    if let Some(cfg) = state.a2a.as_ref() {
-        if let Some(refused) = admit(&headers, cfg) {
-            return refused;
-        }
+    let Some(cfg) = state.a2a.as_ref() else {
+        return rpc_err(Value::Null, -32603, "not exposed").into_response(); // LCOV_EXCL_LINE the route is mounted only with the file (lib.rs)
+    };
+    if let Some(refused) = admit(&headers, cfg) {
+        return refused;
     }
     let req: Value = match serde_json::from_str(&body) {
         Ok(v) => v,

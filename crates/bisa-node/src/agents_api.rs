@@ -565,7 +565,7 @@ fn interactive_error(e: bisa_engine::interactive::InteractiveError) -> ApiError 
     use bisa_engine::interactive::InteractiveError as E;
     let status = match &e {
         E::UnknownHarness(_) | E::NotInteractive(_) => StatusCode::BAD_REQUEST,
-        E::UnknownSession(_) => StatusCode::NOT_FOUND,
+        E::UnknownSession(_) => StatusCode::NOT_FOUND, // LCOV_EXCL_LINE the desk answers an unknown session as a bad secret (interactive::check); the arm stands for the enum
         // A wrong secret and an unknown session are one refusal, in the
         // gate's own words and without its challenge header: the door's
         // bearer is a session's secret, never the token.

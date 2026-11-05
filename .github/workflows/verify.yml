@@ -10,6 +10,11 @@ concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job reads the checkout and writes nothing to the repository: the
+# token a job is handed can do no more than that, whatever a step runs.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
@@ -72,6 +77,14 @@ jobs:
         working-directory: desktop
       - run: npm run build
         working-directory: desktop
+      # Published advisories against what ships (the runtime closure, `high`
+      # and above) and against what builds it (everything, `critical`): npm
+      # has no ignore list, so a dev-only high is an upgrade or an `overrides`
+      # entry, not a silence.
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: desktop
+      - run: npm audit --audit-level=critical
+        working-directory: desktop
 
   # Line coverage (docs/contributing/coverage.md §Line coverage): every crate
   # with the feature-gated suites merged in, and the desktop's models, each
@@ -127,7 +140,7 @@ jobs:
       - run: cargo run -q -p bisa-node --bin api-schema > /tmp/api-schema.json
       - run: diff -u desktop/api-schema.json /tmp/api-schema.json
       # The TypeScript the schema compiles to is committed too (`just check-types`).
-      - run: npx --yes json-schema-to-typescript@15 /tmp/api-schema.json -o /tmp/types.gen.ts && diff -u desktop/src/types.gen.ts /tmp/types.gen.ts
+      - run: npx --yes json-schema-to-typescript@15.0.4 /tmp/api-schema.json -o /tmp/types.gen.ts && diff -u desktop/src/types.gen.ts /tmp/types.gen.ts
       # The generated reference pages and every Mermaid block: a stale page or
       # a diagram that does not parse fails here, not in a reader's browser.
       - run: cargo run -q -p bisa-node --bin api-docs > /tmp/http-api.md && diff -u docs/reference/http-api.md /tmp/http-api.md
@@ -140,11 +153,15 @@ jobs:
       - run: node scripts/gen-keymap-docs.mjs --check
       - run: node scripts/check-mermaid.mjs docs
 
-  # No copyleft in either dependency tree, and the third-party notices current
-  # (docs/contributing/release.md §Licence). cargo-deny reads deny.toml on both
-  # workspaces; the Node gate judges the Rust graphs and the npm runtime
-  # closure against the same list; the notices are regenerated and diffed. The
-  # release tooling's own gate rides along: it needs node and nothing else.
+  # No copyleft in either dependency tree, no published advisory, no banned
+  # or unknown source, and the third-party notices current
+  # (docs/contributing/release.md §Licence). cargo-deny runs every check it
+  # has — advisories, bans, licenses, sources — over deny.toml on both
+  # workspaces, so a RustSec advisory fails the run until it is fixed or
+  # ignored with a reason; the Node gate judges the Rust graphs and the npm
+  # runtime closure against the same list; the notices are regenerated and
+  # diffed. The release tooling's own gate rides along: it needs node and
+  # nothing else.
   licences:
     name: licences
     runs-on: ubuntu-latest
@@ -153,10 +170,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check licenses
+          command: check
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check licenses
+          command: check
           manifest-path: desktop/src-tauri/Cargo.toml
       - uses: actions/setup-node@v4
         with:

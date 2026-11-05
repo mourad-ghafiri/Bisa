@@ -26,6 +26,16 @@ use bisa_vcs::HumanConsent;
 pub(crate) fn from_request(headers: &HeaderMap, state: &Shared) -> Result<HumanConsent, ApiError> {
     match auth::presented_in_header(headers) {
         Some(token) if auth::same(&token, &state.token) => Ok(HumanConsent::mint()),
-        _ => Err(ApiError::text(StatusCode::UNAUTHORIZED, bisa_core::text!("error-node-ide-consent-consented-git-operation-needs-workspace-token-authorization"))),
+        // The gate admits a git verb by the header alone (`auth::takes_query_token`
+        // names no git route), so a request here always carries it; this
+        // check stands as the second wall.
+        // LCOV_EXCL_START unreachable through the gate, which refuses a git verb without the header first (auth.rs); by construction
+        _ => Err(ApiError::text(
+            StatusCode::UNAUTHORIZED,
+            bisa_core::text!(
+                "error-node-ide-consent-consented-git-operation-needs-workspace-token-authorization"
+            ),
+        )),
+        // LCOV_EXCL_STOP
     }
 }

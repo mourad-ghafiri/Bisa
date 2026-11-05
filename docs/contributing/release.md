@@ -36,9 +36,10 @@ reintroduced banned word fails in a second — with the lint's own fixture suite
 the workspace and `desktop/src-tauri`. The six `check-*` targets before `licence-gate` fail when a generated file is stale
 (`desktop/src/types.gen.ts` and `desktop/api-schema.json`, `docs/reference/http-api.md`,
 `docs/reference/settings-keys.md`, `docs/reference/catalog.md`, `docs/reference/keymap.md`) or a
-Mermaid block does not parse. `licence-gate` is `cargo deny` over `deny.toml` on both Cargo
-workspaces plus the Node gate's own model tests and `scripts/licences/check-licences.mjs`
-([§ Licence](#licence)); `check-notices` fails when `THIRD-PARTY-NOTICES.md` is stale;
+Mermaid block does not parse. `licence-gate` is `cargo deny check` — every check it has:
+advisories, bans, licences, sources — over `deny.toml` on both Cargo workspaces, plus the Node
+gate's own model tests, `scripts/licences/check-licences.mjs` and `npm audit` over the desktop's
+packages ([§ Licence](#licence)); `check-notices` fails when `THIRD-PARTY-NOTICES.md` is stale;
 `release-check` runs the release tooling's own model tests and parses every release script
 ([§ The version and the changelog](#the-version-and-the-changelog)); `website-check` holds the
 website to what `scripts/website/build.mjs` builds from the repository, with its own tests
@@ -95,8 +96,16 @@ that deserve one (MPL-2.0, CDLA-Permissive-2.0, BSL-1.0); `desktop/src-tauri/den
 test holds equal, since cargo-deny reads the file beside the manifest it checks. One list serves two
 graphs, and each carries an id the other never meets (`0BSD` is the shell's, `CDLA-Permissive-2.0`
 the node's), so an allowance a graph does not use is no fault of it
-(`unused-allowed-license = "allow"`). `cargo deny check
-licenses` runs on both workspaces in CI and locally when installed; `scripts/licences/check-licences.mjs`
+(`unused-allowed-license = "allow"`). `cargo deny check` runs on both workspaces in CI and locally
+when installed — every check: **advisories** (the RustSec database, cloned under
+`target/advisory-db` and never under `$CARGO_HOME`; a published advisory fails the run until the
+crate is upgraded or the id is ignored in `deny.toml` with a reason), **bans**, **licenses** and
+**sources** (`unknown-registry` and `unknown-git` denied). The tree's own copy is installed with
+`CARGO_TARGET_DIR=target/tools-build cargo install --root target/tools --locked cargo-deny`, beside
+`cargo-llvm-cov` and `cargo-nextest`. The desktop's packages are audited too: `npm audit
+--omit=dev --audit-level=high` over what ships and `npm audit --audit-level=critical` over
+everything that builds it — npm has no ignore list, so a dev-only high is an upgrade or an
+`overrides` entry, never a silence. `scripts/licences/check-licences.mjs`
 judges the same graphs, and the npm runtime closure, against the same list on any machine — an
 `OR` takes its first allowed alternative, an `AND` needs every term — and fails by name on a
 package with no allowed branch, copyleft called copyleft. The build's npm tools do not ship and are

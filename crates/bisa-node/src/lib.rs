@@ -399,11 +399,8 @@ fn router(state: Shared) -> Router {
     #[cfg(feature = "a2a")]
     if let Some(a2a) = state.a2a.as_ref() {
         if a2a.token.is_none() {
-            tracing::warn!(
-                target: "bisa_node",
-                "A2A is exposed at {}/a2a with no bearer of its own: whoever reaches the endpoint may create tasks; set `token` in a2a.toml",
-                a2a.public_base_url.trim_end_matches('/')
-            );
+            let base = a2a.public_base_url.trim_end_matches('/');
+            tracing::warn!(target: "bisa_node", "A2A is exposed at {base}/a2a with no bearer of its own: whoever reaches the endpoint may create tasks; set `token` in a2a.toml");
         }
         extra = extra.merge(a2a::routes());
     }

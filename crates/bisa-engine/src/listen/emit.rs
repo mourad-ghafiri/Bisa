@@ -208,22 +208,28 @@ fn hold_for_listeners(
         };
         let registry = armed(inner);
         for listener in registry.armed.iter().filter(|a| a.hears(&heard)) {
-            if let Some(signal) = enqueue_for(inner, listener, &heard, None, Some(note.as_str())) {
-                if let Some(then) = then {
-                    inner.listen.outside_then.insert(signal.clone(), then);
-                }
-                held_any = true;
-                report_once(inner, &listener.key, Some(signal.as_str()), note.clone());
+            let Some(signal) = enqueue_for(inner, listener, &heard, None, Some(note.as_str()))
+            else {
+                continue; // LCOV_EXCL_LINE a listener whose backlog is full takes nothing more; the cap is the backlog's own test (dispatch.rs)
+            };
+            if let Some(then) = then {
+                inner.listen.outside_then.insert(signal.clone(), then);
             }
+            held_any = true;
+            report_once(inner, &listener.key, Some(signal.as_str()), note.clone());
         }
     }
-    if let (false, Some(then)) = (held_any, then) {
-        if let Err(e) = crate::ops::add_note(
+    if held_any {
+        return;
+    }
+    if let Some(then) = then {
+        let noted = crate::ops::add_note(
             inner,
             then.goal,
             format!("{note}; start it by hand to let it through"),
             None,
-        ) {
+        );
+        if let Err(e) = noted {
             // LCOV_EXCL_START journaling fails only unwritable (disk-only)
             tracing::warn!(target: "bisa_engine::listen", goal = %then.goal, "the hold could not be said on the goal: {e}");
             // LCOV_EXCL_STOP

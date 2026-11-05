@@ -123,7 +123,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2019 The RustCrypto Project Developers
 - **async-channel** 2.5.0 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
-- **async-executor** 1.14.0 — Apache-2.0 OR MIT — taken as Apache-2.0
+- **async-executor** 1.14.1 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
 - **async-io** 2.6.0 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
@@ -179,7 +179,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}
 - **ctor-proc-macro** 0.0.7 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}
-- **ctutils** 0.4.2 — Apache-2.0 OR MIT — taken as Apache-2.0
+- **ctutils** 0.4.8 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2025-2026 The RustCrypto Project Developers
 - **der** 0.8.1 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2020-2026 The RustCrypto Project Developers
@@ -249,7 +249,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **rmcp-macros** 3.4.0 — Apache-2.0
 - **rustc-hash** 2.1.3 — Apache-2.0 OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works
-- **rustls** 0.23.43 — Apache-2.0 OR ISC OR MIT — taken as Apache-2.0
+- **rustls** 0.23.46 — Apache-2.0 OR ISC OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2016, Joseph Birr-Pixton <jpixton@gmail.com>; Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
 - **rustls-native-certs** 0.8.4 — Apache-2.0 OR ISC OR MIT — taken as Apache-2.0
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2016, Joseph Birr-Pixton <jpixton@gmail.com>; Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
@@ -411,9 +411,9 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 
 ### CDLA-Permissive-2.0
 
-- **webpki-root-certs** 1.0.9 — CDLA-Permissive-2.0
+- **webpki-root-certs** 1.0.11 — CDLA-Permissive-2.0
 - **webpki-roots** 0.26.11 — CDLA-Permissive-2.0
-- **webpki-roots** 1.0.9 — CDLA-Permissive-2.0
+- **webpki-roots** 1.0.11 — CDLA-Permissive-2.0
 
 ### ISC
 
@@ -421,7 +421,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   Copyright (c) Hanno Braun and contributors
 - **inotify-sys** 0.1.8 — ISC
   Copyright (c) Hanno Braun and contributors
-- **rustls-webpki** 0.103.15 — ISC
+- **rustls-webpki** 0.103.16 — ISC
   Copyright 2015 Brian Smith.; copyright notice and this permission notice appear in all copies.
 - **untrusted** 0.7.1 — ISC
   Copyright 2015-2016 Brian Smith.; copyright notice and this permission notice appear in all copies.
@@ -539,7 +539,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
   Copyright (c) 2020 Katharos Technology
 - **cfg-if** 1.0.4 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2014 Alex Crichton
-- **chacha20** 0.10.1 — MIT OR Apache-2.0 — taken as MIT
+- **chacha20** 0.10.2 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]; Copyright (c) 2019-2026 The RustCrypto Project Developers
 - **chrono** 0.4.45 — MIT OR Apache-2.0 — taken as MIT
   Copyright (c) 2014, Kang Seonghoon.; copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [yyyy] [name of copyright owner]
@@ -936,7 +936,7 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **n0-watcher** 1.0.0 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright [2026] [N0, INC]; Copyright 2026 N0, INC.
 - **ndk-context** 0.1.1 — MIT OR Apache-2.0 — taken as MIT
-- **negentropy** 0.5.1 — MIT
+- **negentropy** 0.5.3 — MIT
   Copyright (c) 2023-2025 Yuki Kishimoto
 - **netdev** 0.45.0 — MIT
   Copyright (c) 2021-2026 shellrow
@@ -966,7 +966,8 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **nostr-gossip** 0.45.0 — MIT
 - **nostr-memory** 0.45.1 — MIT
 - **nostr-relay-builder** 0.44.1 — MIT
-- **nostr-sdk** 0.45.2 — MIT
+- **nostr-sdk** 0.45.6 — MIT
+  Copyright (c) 2022-2023 Yuki Kishimoto; Copyright (c) 2023-present Nostr Dev Kit Developers
 - **notify-rust** 4.18.0 — MIT OR Apache-2.0 — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright {yyyy} {name of copyright owner}; Copyright (c) 2017 Hendrik Sollich
 - **notify-types** 2.1.0 — MIT OR Apache-2.0 — taken as MIT
@@ -1327,6 +1328,8 @@ those files stay MPL and their source is where the notices say (§3.2): `attohtt
 - **tinyvec_macros** 0.1.1 — MIT OR Apache-2.0 OR Zlib — taken as MIT
   copyright notice that is included in or attached to the work; copyright license to reproduce, prepare Derivative Works of,; (c) You must retain, in the Source form of any Derivative Works; Copyright 2020 Tomasz "Soveu" Marx; Copyright (c) 2020 Soveu; (C) 2020 Tomasz "Soveu" Marx
 - **tokio** 1.53.1 — MIT
+  Copyright (c) Tokio Contributors
+- **tokio** 1.54.1 — MIT
   Copyright (c) Tokio Contributors
 - **tokio-happy-eyeballs** 0.1.0 — MIT
   Copyright (c) 2026 Yuki Kishimoto
@@ -3049,7 +3052,7 @@ express Statement of Purpose.
 
 ### CDLA-Permissive-2.0
 
-As shipped by webpki-root-certs 1.0.9 (LICENSE).
+As shipped by webpki-root-certs 1.0.11 (LICENSE).
 
 ```
 # Community Data License Agreement - Permissive - Version 2.0

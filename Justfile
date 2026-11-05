@@ -162,7 +162,7 @@ dist:
 # bisa-core); shapes from store/engine/harness live in types.hand.ts.
 gen-types:
     cargo run -q -p bisa-node --bin api-schema > desktop/api-schema.json
-    cd desktop && npx --yes json-schema-to-typescript@15 api-schema.json -o src/types.gen.ts
+    cd desktop && npx --yes json-schema-to-typescript@15.0.4 api-schema.json -o src/types.gen.ts
 
 # Fail if the committed types are stale against the current Rust types.
 #
@@ -182,7 +182,7 @@ check-types:
         echo "desktop/api-schema.json is stale — run \`just gen-types\`" >&2
         exit 1
     }
-    cd desktop && npx --yes json-schema-to-typescript@15 "$tmp/api-schema.json" -o "$tmp/types.gen.ts"
+    cd desktop && npx --yes json-schema-to-typescript@15.0.4 "$tmp/api-schema.json" -o "$tmp/types.gen.ts"
     diff -q "$tmp/types.gen.ts" src/types.gen.ts >/dev/null || {
         echo "desktop/src/types.gen.ts is stale — run \`just gen-types\`" >&2
         exit 1
@@ -267,7 +267,7 @@ prune-recovery-refs repo older_than="30" yes="":
     done
 
 # The licence gate (Part II): no copyleft in either dependency tree. The Rust
-# half needs cargo-deny (`cargo install cargo-deny`); CI always runs it, and
+# half needs cargo-deny (installed under target/tools, see the recipe); CI always runs it, and
 # locally the recipe says so rather than passing silently. The Node gate's own
 # model (SPDX branches, copyleft) is proven first — a gate without its tests
 # is a gate that can quietly stop gating.
@@ -275,17 +275,22 @@ licence-gate:
     #!/usr/bin/env bash
     set -euo pipefail
     # The tree's own tool first (`target/tools/bin`), then one on `PATH`.
+    # Every check cargo-deny has: advisories (the RustSec database, cloned
+    # under target/advisory-db), bans, licenses, sources.
     if [ -x target/tools/bin/cargo-deny ]; then
-        target/tools/bin/cargo-deny check licenses
-        target/tools/bin/cargo-deny --manifest-path desktop/src-tauri/Cargo.toml check licenses
+        target/tools/bin/cargo-deny check
+        target/tools/bin/cargo-deny --manifest-path desktop/src-tauri/Cargo.toml check
     elif command -v cargo-deny >/dev/null 2>&1; then
-        cargo deny check licenses
-        cargo deny --manifest-path desktop/src-tauri/Cargo.toml check licenses
+        cargo deny check
+        cargo deny --manifest-path desktop/src-tauri/Cargo.toml check
     else
-        echo "cargo-deny is not installed (cargo install cargo-deny); CI runs it on both workspaces — the Node gate below judges the same graphs against deny.toml" >&2
+        echo "cargo-deny is not installed (CARGO_TARGET_DIR=target/tools-build cargo install --root target/tools --locked cargo-deny); CI runs it on both workspaces — the Node gate below judges the same graphs against deny.toml" >&2
     fi
     node --test scripts/licences/licencesModel.test.mjs
     node scripts/licences/check-licences.mjs
+    # Published advisories against the desktop's packages: what ships at
+    # `high`, everything that builds it at `critical` (npm has no ignore list).
+    (cd desktop && npm audit --omit=dev --audit-level=high && npm audit --audit-level=critical)
 
 # Render THIRD-PARTY-NOTICES.md: NOTICES.md (hand-written) followed by every
 # Rust crate and npm package the shipped binaries carry, with their licence

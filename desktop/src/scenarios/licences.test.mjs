@@ -49,11 +49,20 @@ test("one allow list, carried by both workspaces, with the ids the graphs need a
 
 test("the gate runs on both workspaces, locally and in CI, and the notices are checked for staleness", () => {
   const just = read("Justfile");
-  assert.ok(just.includes("cargo deny check licenses") && just.includes("cargo deny --manifest-path desktop/src-tauri/Cargo.toml check licenses"), "both workspaces");
+  assert.ok(just.includes("cargo deny check\n") && just.includes("cargo deny --manifest-path desktop/src-tauri/Cargo.toml check\n"), "both workspaces, every check — advisories, bans, licenses, sources");
+  assert.ok(!just.includes("check licenses"), "no check is left out by name");
+  assert.ok(just.includes("npm audit --omit=dev --audit-level=high && npm audit --audit-level=critical"), "the desktop's packages are audited: what ships at high, everything at critical");
   assert.ok(just.includes("node scripts/licences/check-licences.mjs") && just.includes("gen-notices:") && just.includes("check-notices:"));
   assert.match(just, /^verify:.*licence-gate check-notices/m);
   const ci = read(".github/workflows/verify.yml");
   assert.equal((ci.match(/EmbarkStudios\/cargo-deny-action@v2/g) ?? []).length, 2, "cargo-deny twice: the root and the shell");
+  assert.equal((ci.match(/^\s+command: check$/gm) ?? []).length, 2, "every check, on both — never `check licenses` alone");
+  assert.ok(ci.includes("npm audit --omit=dev --audit-level=high") && ci.includes("npm audit --audit-level=critical"), "CI audits the desktop's packages at the two thresholds");
+  assert.match(ci, /^permissions:\n  contents: read$/m, "the workflow's token reads the checkout and writes nothing");
+  for (const rel of ["Justfile", ".github/workflows/verify.yml"]) {
+    const text = read(rel);
+    assert.ok(!/json-schema-to-typescript@15(?!\.0\.4)/.test(text) && text.includes("json-schema-to-typescript@15.0.4"), `${rel}: the type generator is pinned to one version, not a major`);
+  }
   assert.ok(ci.includes("manifest-path: desktop/src-tauri/Cargo.toml") && ci.includes("scripts/licences/check-licences.mjs") && ci.includes("gen-third-party-notices.mjs --stdout"));
 });
 

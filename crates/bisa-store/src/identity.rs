@@ -88,11 +88,10 @@ pub trait KeyStore: Send + Sync {
     /// Store a **new** secret. An existing name is an error: minting must
     /// never clobber.
     fn set(&self, name: &str, secret_hex: &str) -> Result<(), StoreError>;
-    /// Deliberately overwrite — the import path.
-    fn replace(&self, name: &str, secret_hex: &str) -> Result<(), StoreError> {
-        self.delete(name)?;
-        self.set(name, secret_hex)
-    }
+    /// Deliberately overwrite — the import path, a refreshed token, a
+    /// rotated secret. Every store writes its own: a file store by one
+    /// rename (`replace_secret_file`), so a name is never without a key.
+    fn replace(&self, name: &str, secret_hex: &str) -> Result<(), StoreError>;
     fn delete(&self, name: &str) -> Result<(), StoreError>;
     /// The file a name is kept in, when a file is where it lives — what a
     /// refusal of the owner's key can name. `None` for a keyring and for a
@@ -278,8 +277,10 @@ pub(crate) fn replace_secret_file(path: &Path, bytes: &[u8]) -> Result<(), Store
         f.sync_all()
     })();
     if let Err(e) = written {
+        // LCOV_EXCL_START a write beside the file fails only with the disk; the temporary is forgotten and the key that was there stands
         forget_temporary(&tmp);
         return Err(StoreError::io(tmp.display().to_string(), e));
+        // LCOV_EXCL_STOP
     }
     if let Err(e) = std::fs::rename(&tmp, path) {
         // LCOV_EXCL_START: a rename beside the file fails only with the disk; the temporary is forgotten and the key that was there stands

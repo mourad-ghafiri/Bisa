@@ -42,7 +42,7 @@ cd desktop && npm install && npm test   # the desktop's pure models and the them
 | `just gen-catalog-docs` · `just check-catalog-docs` | `docs/reference/catalog.md` from `library/catalog/`, and a staleness check |
 | `just gen-keymap-docs` · `just check-keymap-docs` | `docs/reference/keymap.md` from the desktop's keymap model, and a staleness check |
 | `just check-mermaid` | every Mermaid block under `docs/` parses with the desktop's Mermaid |
-| `just licence-gate` | `cargo deny` over `deny.toml` on both Cargo workspaces (when installed), then `scripts/licences/check-licences.mjs` — the same graphs judged against the same list, so the gate runs without it ([Release § Licence](release.md#licence)) |
+| `just licence-gate` | `cargo deny check` — advisories, bans, licences, sources — over `deny.toml` on both Cargo workspaces (when installed under `target/tools`), then `scripts/licences/check-licences.mjs` — the same graphs judged against the same list, so the gate runs without it ([Release § Licence](release.md#licence)) |
 | `just gen-notices` · `just check-notices` | `THIRD-PARTY-NOTICES.md` from `NOTICES.md` and the dependency graphs, and a staleness check |
 | `just hakari` · `just hakari-verify` | regenerate the unification crate (`crates/bisa-deps`) after a dependency change; the three checks — the manifest current, every member but `bisa-log` depending on it, one feature set per dependency — as a gate that says so when the tool is not under `target/tools` |
 | `just bench-search` · `just bench-graph` | the two engine benches, by hand |

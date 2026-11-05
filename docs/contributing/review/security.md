@@ -42,9 +42,14 @@ boundary [IDE 01](../../architecture/ide/01-trust-boundary.md); a vulnerability 
 
 ## Dependencies and supply chain
 - [ ] A new or upgraded dependency is maintained, comes from crates.io or npm (no git or path source
-  outside the repository), and has no open advisory.
+  outside the repository), and has no open advisory — `cargo deny check` on both workspaces and the
+  two `npm audit` thresholds pass (`just licence-gate`, CI's `licences` and `desktop` jobs).
+- [ ] An advisory that cannot be fixed by an upgrade is ignored in `deny.toml` by its id **with a
+  reason**, never silenced by scope; an unmaintained direct dependency is replaced or ignored the
+  same way.
 - [ ] A dependency that runs code at build time (a build script, a proc macro, an install script) is
   justified.
+- [ ] A tool the build runs through `npx` is pinned to one version, never a major.
 
 ## The verdict
 - [ ] The reviewer states, on the pull request, what the change exposes and why it is acceptable — or
